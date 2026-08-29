@@ -67,6 +67,8 @@ import {
   BreakdownSection,
   DIAGRAM_TILE_CAP,
   DiagramsBreakdown,
+  REPORT_GENERIC_ERROR_COPY,
+  REPORT_MESSAGE_MAX_CHARS,
   reviewWarningTitle,
   roomHasScope,
   Step3RunStateContext,
@@ -2037,5 +2039,156 @@ describe("whole-diff P0: the ignored control targets the store its ignore lives 
     expect(calls[0]).toBe("/api/admin/show/east-coast-2026/data-quality/unignore");
     vi.unstubAllGlobals();
     stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
+  });
+});
+
+// ── ReportIssueSection — draft persistence (BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE)
+// Spec 2026-08-29-wizard-report-draft-escape.md §2, AC-4..AC-8, AC-10.
+// The draft outlives the section's unmount, which is what a modal close is.
+// Failure modes: the key unscoped (one show's draft appearing under another),
+// a sent report returning as a ghost, a failed send losing the text it exists
+// to keep, an over-length stored value defeating the cap, storage throwing and
+// taking the section down with it, and a trigger label that lies about whether
+// there is anything to continue.
+
+describe("ReportIssueSection — draft persistence across unmount (spec §2)", () => {
+  const TOGGLE = `wizard-step3-card-${DFID}-report-toggle`;
+  const TEXTAREA = `wizard-step3-card-${DFID}-report-textarea`;
+  const SUBMIT = `wizard-step3-card-${DFID}-report-submit`;
+  const STATUS = `wizard-step3-card-${DFID}-report-status`;
+  // Mirrors reportDraftStorageKey — deliberately restated so a key-format drift
+  // fails HERE rather than silently orphaning every operator's saved draft.
+  const DRAFT_KEY = `fxav-report-draft-wizard-${WSID}-${DFID}`;
+  const TYPED = "the crew list is missing two people";
+  const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
+
+  beforeEach(() => window.sessionStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Expand and type, the way an operator reaches this field. */
+  function typeInto(q: ReturnType<typeof renderBody>, text: string) {
+    fireEvent.click(q.getByTestId(TOGGLE));
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: text } });
+  }
+
+  test("AC-1/AC-2: a typed draft is written under the scoped key and restored on a fresh mount", () => {
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+
+    cleanup(); // the unmount a modal close performs
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+  });
+
+  test("AC-8: the trigger says 'Continue your report' whenever the draft is non-empty, and reverts when it is cleared in place", () => {
+    const q = renderBody(sectionData(), "report");
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    typeInto(q, TYPED);
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+
+    cleanup();
+    const q2 = renderBody(sectionData(), "report");
+    // Restored, and the trigger says so BEFORE the operator expands anything.
+    expect(q2.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+    // Clearing in place must not leave the label promising a report to continue.
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    fireEvent.change(q2.getByTestId(TEXTAREA), { target: { value: "" } });
+    expect(q2.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull(); // emptied, not stored as ""
+  });
+
+  test("AC-8: the disclosure is COLLAPSED on mount even when a draft was restored", () => {
+    window.sessionStorage.setItem(DRAFT_KEY, TYPED);
+    const q = renderBody(sectionData(), "report");
+    expect(q.getByTestId(TOGGLE).getAttribute("aria-expanded")).toBe("false");
+    expect(q.queryByTestId(TEXTAREA)).toBeNull();
+  });
+
+  test("AC-7: a stored value longer than the cap is truncated on read", () => {
+    const overLong = "x".repeat(REPORT_MESSAGE_MAX_CHARS + 250);
+    window.sessionStorage.setItem(DRAFT_KEY, overLong);
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    const value = (q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value;
+    // Length derived from the exported cap, never a literal.
+    expect(value.length).toBe(REPORT_MESSAGE_MAX_CHARS);
+    expect(overLong.startsWith(value)).toBe(true);
+  });
+
+  test("AC-10: drafts are scoped per drive file — one card's text never appears under another", () => {
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    cleanup();
+
+    const otherDfid = `${DFID}-other`;
+    const other = sectionData({}, { dfid: otherDfid });
+    const q2 = renderBody(other, "report");
+    fireEvent.click(q2.getByTestId(`wizard-step3-card-${otherDfid}-report-toggle`));
+    expect(
+      (q2.getByTestId(`wizard-step3-card-${otherDfid}-report-textarea`) as HTMLTextAreaElement)
+        .value,
+    ).toBe("");
+    // The first card's key is untouched by the second card's mount.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+  });
+
+  test("AC-4: a successful submit clears the stored draft, so it cannot come back as a ghost", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ ok: true, status: "created" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+    fireEvent.click(q.getByTestId(SUBMIT));
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    cleanup();
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  test("AC-5: a FAILED submit keeps the draft — that text is exactly what the operator would have to retype", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({ ok: false, code: "REPORT_SEND_FAILED" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    fireEvent.click(q.getByTestId(SUBMIT));
+    // The EXACT settled error copy, never "non-empty": "Sending…" is non-empty
+    // too, so a not-empty poll resolves on the pending frame and the assertion
+    // below would read storage before the request had settled at all.
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(REPORT_GENERIC_ERROR_COPY));
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+  });
+
+  test("AC-6: sessionStorage throwing on every access degrades to today's behaviour, never to a crash", () => {
+    const boom = () => {
+      throw new DOMException("denied", "SecurityError");
+    };
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(boom);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(boom);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(boom);
+
+    const q = renderBody(sectionData(), "report");
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    // Typing still works; only the persistence is lost.
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
   });
 });

@@ -10,22 +10,27 @@
  * mount-local `useState` (step3ReviewSections.tsx:4621), so the modal unmount
  * that follows takes a half-typed report message with it.
  *
- * The first block is the PROBE: it characterises today's behaviour exactly, so
- * the defect is executable rather than asserted in prose. It passes on `main`
- * and is expected to FLIP when the repair lands — it is deleted, not edited,
- * by the implementing task, and its presence here is the evidence the row was
- * reproduced rather than taken on faith.
+ * This file carried a PROBE block alongside the PIN while the row was being
+ * diagnosed: it characterised the broken behaviour exactly (Escape closes, the
+ * reopened textarea is empty) and it passed on `main`, which is how the defect
+ * was shown to be real rather than asserted in prose. It FLIPPED the moment the
+ * repair landed and was deleted then, as its own docblock said it would be. It
+ * is described here so a later reader knows the pin below was written against a
+ * demonstrated defect. The probe lives on in the arc history at `b230ccb9d`.
  *
- * The second block is the PIN, and it is deliberately FORK-NEUTRAL. Three
- * repairs are on the table (silent draft persistence across close/reopen; a
- * layered Escape that dismisses the engaged disclosure before the dialog; a
- * confirm prompt) and Eric has not yet picked one. They disagree about what
- * Escape DOES, so no single strict assertion covers all three. What all three
- * agree on is the defect boundary: ONE Escape must not destroy typed text with
- * no signal and no way back. That is a disjunction over two observables, and
- * it discriminates because TODAY BOTH DISJUNCTS ARE FALSE — the modal closes
- * AND the reopened draft is empty. The probe block above is what proves the
- * disjunction is not vacuously satisfiable.
+ * What remains is the PIN, written FORK-NEUTRAL because three repairs were on
+ * the table when it was authored (silent draft persistence; a layered Escape
+ * dismissing the engaged disclosure before the dialog; a confirm prompt) and
+ * Eric had not yet picked one. They disagree about what Escape DOES, so no
+ * single strict assertion covers all three. What all three agree on is the
+ * defect boundary: ONE Escape must not destroy typed text with no signal and no
+ * way back. That is a disjunction over two observables, and it discriminated
+ * when it was written because BOTH DISJUNCTS WERE FALSE. Fork (a) shipped, so
+ * today it is the second disjunct that holds: the modal still closes on the
+ * first Escape, and the draft is recoverable on reopen. Keeping the neutral
+ * form is deliberate. It states the operator-facing contract rather than the
+ * mechanism, so a later arc that revisits Escape semantics (the §3.5 layered
+ * shape, say) inherits a test that still means what it says.
  *
  * Anti-tautology: the draft text is read back off the textarea the component
  * itself renders, via the dfid-scoped testid, and the typed value is a local
@@ -114,27 +119,6 @@ async function typeDraft(q: ReturnType<typeof render>, text: string) {
 function pressEscape() {
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 }
-
-describe("PROBE — today's behaviour: one Escape destroys a typed report draft", () => {
-  test("Escape with a dirty draft closes the modal, and the reopened modal has lost the text", async () => {
-    const onClose = vi.fn();
-    const q = renderModal(onClose);
-    const typed = "the crew list is missing two people";
-    await typeDraft(q, typed);
-
-    pressEscape();
-    // The shell animates out before it calls onClose (T2), so poll.
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-
-    // The consumer unmounts on close. Reopening is a fresh mount, and
-    // ReportIssueSection's `draft` is mount-local useState.
-    act(() => q.unmount());
-    const q2 = renderModal(vi.fn());
-    fireEvent.click(q2.getByTestId(TOGGLE));
-    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("");
-    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).not.toBe(typed);
-  });
-});
 
 describe("PIN — one Escape must not silently destroy a typed report draft", () => {
   test("after one Escape the draft is EITHER still on screen OR recoverable on reopen", async () => {

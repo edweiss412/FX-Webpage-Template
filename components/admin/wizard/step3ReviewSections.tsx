@@ -4569,6 +4569,39 @@ function reportAttemptStorageKey(wizardSessionId: string, driveFileId: string): 
   return `fxav-report-attempt-wizard-${wizardSessionId}-${driveFileId}`;
 }
 
+/** BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE (spec 2026-08-29 §2.1). Scoped exactly
+ *  as the attempt key above is, and for the same reason: a later wizard session
+ *  for the same file is a DIFFERENT report, so it must not inherit the earlier
+ *  session's half-typed text. */
+function reportDraftStorageKey(wizardSessionId: string, driveFileId: string): string {
+  return `fxav-report-draft-wizard-${wizardSessionId}-${driveFileId}`;
+}
+
+/** Spec §3: an unreadable store degrades to today's mount-local behaviour and
+ *  never to a crash. The cap is re-applied on READ because the textarea's
+ *  maxLength bounds only what a user can type — a stale or hand-edited key is
+ *  the one way an over-length value arrives, and it must not defeat the cap. */
+function readStoredDraft(storageKey: string): string {
+  try {
+    const stored = window.sessionStorage.getItem(storageKey);
+    if (stored == null || stored === "") return "";
+    return stored.slice(0, REPORT_MESSAGE_MAX_CHARS);
+  } catch {
+    return ""; // storage unavailable — exactly the pre-repair initial value
+  }
+}
+
+/** An empty draft REMOVES the key rather than storing `""`, so a cleared field
+ *  leaves nothing behind for the next mount to find. */
+function writeStoredDraft(storageKey: string, value: string): void {
+  try {
+    if (value === "") window.sessionStorage.removeItem(storageKey);
+    else window.sessionStorage.setItem(storageKey, value);
+  } catch {
+    /* storage unavailable — the draft stays mount-local, as it was before */
+  }
+}
+
 function mintOrReuseAttemptKey(storageKey: string): string {
   try {
     const existing = window.sessionStorage.getItem(storageKey);
@@ -4605,8 +4638,11 @@ function reportErrorCopy(code: string | null): string {
  * `viewerVisibleSection` is read from the chrome context's `getActiveSection`
  * AT SUBMIT TIME (§D3a); outside the chrome context the field is omitted.
  * Modal unmount mid-flight is fire-and-forget by construction — the persisted
- * key makes a retry after reopen a duplicate → success (§D3 guards). Draft
- * persistence is mount-local only (spec-accepted).
+ * key makes a retry after reopen a duplicate → success (§D3 guards). The draft
+ * itself is persisted per (wizard session, drive file) in sessionStorage and
+ * restored on mount, so a modal close no longer destroys it
+ * (BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE, spec 2026-08-29). That supersedes
+ * the earlier mount-local-only posture.
  *
  * Follow-ups-b2 §D: the form is collapsed by default behind a disclosure
  * trigger. `draft`/`status`/`handleSubmit` live HERE (component level), NOT in
@@ -4618,7 +4654,11 @@ function reportErrorCopy(code: string | null): string {
 export function ReportIssueSection({ data }: { data: StagedSectionData }) {
   const { dfid, wizardSessionId, row, warnings } = data;
   const chrome = useContext(Step3SectionChromeContext);
-  const [draft, setDraft] = useState("");
+  const draftStorageKey = reportDraftStorageKey(wizardSessionId, dfid);
+  // Lazy initialiser, not an effect: the restored value is present on the FIRST
+  // rendered frame, so there is no empty-then-populate flash and no transition
+  // to describe (spec §4 R3).
+  const [draft, setDraft] = useState(() => readStoredDraft(draftStorageKey));
   const [status, setStatus] = useState<ReportSectionStatus>({ kind: "idle" });
   const [expanded, setExpanded] = useState(false);
   const textareaId = useId();
@@ -4674,6 +4714,10 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
       if (res.ok && parsed.ok === true) {
         // created / duplicate / recovered all count as success (spec §D3).
         rotateAttemptKey(storageKey);
+        // A sent report must not come back as a ghost draft (spec §2.2, AC-4).
+        // setDraft("") alone would not do it: the store is written from the
+        // textarea's onChange, and this is not one.
+        writeStoredDraft(draftStorageKey, "");
         setDraft("");
         setStatus({ kind: "success" });
         return;
@@ -4710,7 +4754,7 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
            button below (never the accent CTA; that belongs to Publish). */
         className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
-        Write a report
+        {draft === "" ? "Write a report" : "Continue your report"}
       </button>
       {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too)
 
@@ -4744,7 +4788,10 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
               ref={textareaRef}
               data-testid={`wizard-step3-card-${dfid}-report-textarea`}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                writeStoredDraft(draftStorageKey, e.target.value);
+              }}
               maxLength={REPORT_MESSAGE_MAX_CHARS}
               rows={3}
               /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
