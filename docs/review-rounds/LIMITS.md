@@ -193,7 +193,7 @@ Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 **Shape:** An assertion whose extraction is narrower than the property in its own test name, so it passes for a reason unrelated to the behaviour: eight instances across two rounds, three proven by mutant. The general repair is to give the assertion a contest it can lose, a negative control, a premise on the fixture, or a bound derived from the same quantity the implementation uses; the sketched guard fails any case whose fixture cannot discriminate.
 
-**Named by:** 1 arc — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff)
+**Named by:** 2 arcs — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff), fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it. The re-file trigger does NOT fire on this naming — that arc authored every instance itself and was blocked by none)
 
 **Owning record:** none — this index is the record (the filing notes the done condition ranges over an open space of test shapes, so it is refutable once per round forever)
 
