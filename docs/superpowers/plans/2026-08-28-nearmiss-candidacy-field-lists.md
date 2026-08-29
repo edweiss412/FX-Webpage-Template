@@ -87,7 +87,7 @@ Test Files  2 passed (2)
 Tests  64 passed (64)
 ```
 
-64 is the number Task 2's eight dispositions must keep honest: three assertions move to zero, one test is inverted, and the count otherwise changes only by what Tasks 1, 2, 3 and 3b add. A drop not explained by those eight dispositions means a case was deleted rather than repaired.
+64 is the number Task 2's eight dispositions must keep honest: three assertions move to zero, one test is inverted, and the count otherwise changes only by what Tasks 1 and 2 add. A drop not explained by those eight dispositions means a case was deleted rather than repaired.
 
 ## Where the new cases go, and which helpers they reuse
 
