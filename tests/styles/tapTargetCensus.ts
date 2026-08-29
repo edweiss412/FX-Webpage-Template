@@ -327,10 +327,16 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // is that same `<a>`.
     // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
     // 4134 -> 4140 on the R2 repair; same `<a>`, located by the scanner.
-    // 4140 -> 4183 on the ref-error-cell-anchors arc, then 4183 -> 4184 on its closeout's
-    // `sheetCellReference` import; the scanner reports this file's one unclassified site as
-    // 4184, and 4184 is that same `<a>`.
-    line: 4184,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    // Relocated again on feat/ref-error-cell-anchors' merge of main: BOTH sides had moved
+    // this row, so neither number described the merged tree. Located by the scanner on the
+    // merged tree, never by composing the two deltas.
+    // The scanner reports this file's one unclassified site as 4191, that same `<a>`.
+    line: 4191,
     tag: "a",
     category: "full-bleed",
     reason:

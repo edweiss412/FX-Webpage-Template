@@ -47,10 +47,12 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // the live tree — still the bare `if (failed)` this reason describes — never by
   // adding a delta. This registry is line-keyed like the tests/styles censuses and
   // moves for the same reason: edits above it in the same component.
-  // 4101 -> 4144 (2026-08-29, ref-error-cell-anchors). Same method, same `if (failed)`:
-  // the warning row's new `Sheet cell` line sits 43 lines above it.
-  // 4144 -> 4145 on that arc's closeout, which added one import line to the same file.
-  "components/admin/wizard/step3ReviewSections.tsx:4145":
+  // 4101 -> 4108 (2026-08-29, wizard-report-draft-escape): the draft-storage helpers
+  // moved out to lib/admin/reportDraftStore.ts and the component gained a seven-line
+  // import for them near the top, shifting every keyed row below it. Same identity
+  // check: 4108 is still the bare `if (failed)`, verified against origin/main's 4101.
+  // 4108 -> 4152 on the ref-error-cell-anchors merge of main; still the bare `if (failed)`.
+  "components/admin/wizard/step3ReviewSections.tsx:4152":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -406,18 +408,17 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // unchanged, and every `form` and `marked` value is unchanged. A membership change
     // would have shown up as a differing file or form, not a moved line.
     //
-    // Regenerated again 2026-08-29 (ref-error-cell-anchors), same bar, same accounting.
-    // EXACTLY ONE input changed, a line number, in a file this arc edited:
-    //   components/admin/wizard/step3ReviewSections.tsx 4101 -> 4144 (net +43 above it,
-    //   the warning row's new `Sheet cell` line)
-    // Regenerated once more on that arc's closeout, same accounting, ONE input again:
-    //   components/admin/wizard/step3ReviewSections.tsx 4144 -> 4145 (the
-    //   `sheetCellReference` import). Membership unchanged, verified on the same run.
-    // Nothing joined or left: the membership assertion above is unchanged and passed on
-    // the same run that produced this digest. The arc's other new JSX conditional (the
-    // published card's `cellBand`) is not a candidate -- it is not a fault branch -- which
-    // is why TERNARY_SURVEY.jsxTernaries moved 740 -> 741 while this set did not.
-    expect(digest).toBe("15f8779de720be807a47a8932113328df63780ca5d9e2ab09723d4098a9637f8");
+    // Regenerated again 2026-08-29 (wizard-report-draft-escape), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one component this arc edits:
+    //   components/admin/wizard/step3ReviewSections.tsx 4101 -> 4108 (+7, the import
+    //   block added when the draft-storage helpers moved to lib/admin/reportDraftStore.ts)
+    // Nothing joined or left: the count assertion above still reads 35, the file set is
+    // unchanged, every `form` and `marked` value is unchanged, and 4108 was verified to
+    // be the same bare `if (failed)` that origin/main carries at 4101.
+    // Regenerated on the ref-error-cell-anchors merge of main. Both parents had moved lines in
+    // step3ReviewSections.tsx, so neither parent digest describes the merged tree; membership
+    // is unchanged and its assertion passed on the same run that produced this hash.
+    expect(digest).toBe("71f14e841ebb8085aa25a60d56438ccb805bdc0bc1b254200989fb690ee1eff3");
   });
 });
 

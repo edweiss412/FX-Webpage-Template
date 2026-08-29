@@ -26,6 +26,18 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE-1 — impeccable P1: the restored report draft is off-screen, so the operator retypes it (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that reopens the §D2 rail contract for the report section, or the first report of an operator retyping a draft that had in fact been kept.
+
+`fix/wizard-report-draft-escape` made a half-typed report draft survive the modal close, and the only cue that it survived is the disclosure trigger reading "Continue your report" instead of "Write a report". That cue is nowhere near the operator when they reopen. The report section is ALWAYS last, the modal reopens scrolled to the top, and the section's rail entry is the one entry that shows no status at all: `railCount: null` and `hideDot: true` (`components/admin/wizard/step3ReviewSections.tsx:5211-5212`), commented "spec §D2 — the only section without a status dot". So nothing in the rail changes when a draft is waiting, and the label change sits roughly twelve sections below the fold.
+
+**Reachability:** live surface, verified by citation rather than by a running browser (the fleet was in a DB quiet period for that arc and this surface needs DB-backed staged rows). Type into the wizard report field, press Escape, reopen the card: the draft is restored and every element that says so is off-screen.
+
+**Why it matters most to Doug on the floor.** PRODUCT.md has him one-handed on a phone at a venue. Recovery means thumb-scrolling past the whole section list to notice a two-word label change, then tapping to expand. He will retype instead.
+
+**Why it was deferred rather than fixed in that arc.** Class-sweep exception (a): the repair has to reopen a ratified §D2 contract, which the filing arc could not settle. The critique proposed `railCount: 1` while the draft is non-empty, leaving `hideDot: true` intact, so the rail gains a count without gaining a status dot. That is plausible and cheap, and it is exactly the thing this row cannot settle alone — §D2 ratified this section as the one with no status, and a pending draft arguably IS status. A second candidate the critique raised and the spec declined on a weaker ground is expanding the disclosure on mount when a draft was restored. The arc shipped the guarantee in copy ("Kept on this device until you close the tab."), which helps the operator who navigates back to Report on purpose; what is left is the operator who does not.
+
 ### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27)
 
 **Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.

@@ -92,10 +92,16 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // running the scanner on the merged tree, which reports the live hit; 1639 is the
     // `{hidden.length} more` disclosure, this row's own `<summary>`.
     // 1639 -> 1640 on the R1 repair commit; still the `{hidden.length} more` <summary>.
-    // 1640 -> 1641 on the ref-error-cell-anchors closeout's `sheetCellReference` import.
-    // The scanner reports this file's two hits as 1641 and 3405; 1641 is that same
-    // "N more" accordion <summary>.
-    line: 1641,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    // Relocated again on feat/ref-error-cell-anchors' merge of main: BOTH sides had moved
+    // this row, so neither number described the merged tree. Located by the scanner on the
+    // merged tree, never by composing the two deltas.
+    // The scanner reports this file's two hits as 1648 and 3412.
+    line: 1648,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -108,12 +114,16 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // merged tree by its own `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`,
     // which is unique, never by adding a delta.
     // 3356 -> 3361 on the R1 repair commit; still the ignored-summary <summary>.
-    // 3361 -> 3404 on the ref-error-cell-anchors arc, which added the warning row's
-    // `Sheet cell` line above it. Located by the scanner on the live tree, which reports
-    // this file's one hit as `3404 <summary> text-text-subtle` -- still that same
-    // ignored-summary <summary>.
-    // 3404 -> 3405 on the same import. The scanner's second hit, still that <summary>.
-    line: 3405,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    // Relocated again on feat/ref-error-cell-anchors' merge of main: BOTH sides had moved
+    // this row, so neither number described the merged tree. Located by the scanner on the
+    // merged tree, never by composing the two deltas.
+    // The second of the scanner's two hits, still the ignored-summary <summary>.
+    line: 3412,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
