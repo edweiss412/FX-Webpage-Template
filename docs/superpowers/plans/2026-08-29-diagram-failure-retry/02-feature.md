@@ -203,7 +203,7 @@ AC-16 swipes away mid-retry and asserts the slide does not return holding a stra
 
 ## Task 7 — the unavailable boundary
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.availabilitySweep.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:789` why=`the demote chip predicate tests demotedNotice, its nonce and failedKeys but not item.available, so a demoted slide going unavailable keeps its chip until the timer expires; and no sweep exists, so session state survives the round trip` ac=AC-11,AC-14,AC-18 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.availabilitySweep.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:790` why=`the demote chip predicate tests demotedNotice, its nonce and failedKeys but not item.available, so a demoted slide going unavailable keeps its chip until the timer expires; and no sweep exists, so session state survives the round trip` ac=AC-11,AC-14,AC-18 -->
 
 Absorbs what an earlier draft called probe P6: this is feature behaviour, not a mechanism
 claim, so it lives where its implementation does. Spec §1.4's U-6 row names this task.

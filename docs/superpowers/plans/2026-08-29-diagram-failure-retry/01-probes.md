@@ -167,7 +167,7 @@ instead of silently reading it as stability.
 
 ## Task P5 — is the registry actually a cover?
 
-<!-- task: red=`npx vitest run tests/components/diagrams/perItemStateLifetime.probe.test.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:122` why=`no scanner and no registry module exists, so the probe's import of the scanner does not resolve and no declaration is enumerated; the task lands the scanner and registry, and the SAME command then passes` ac=AC-P5 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/perItemStateLifetime.probe.test.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:122` why=`this line is the first per-item member the scanner must enumerate and the registry must classify, and at task start neither module exists, so the probe's import does not resolve and nothing is enumerated; the task lands both and the SAME command then passes. RUN 2026-08-29: red observed as an unresolved import, then green at 8 assertions` ac=AC-P5 -->
 
 **Fixture.** Copies of both component files in a tmpdir with declarations planted, so the
 probe never edits the real tree.
