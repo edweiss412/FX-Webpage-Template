@@ -20,12 +20,14 @@ import { cleanup, render, fireEvent, waitFor, within } from "@testing-library/re
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import type {
   ParseResult,
+  ParseWarning,
   ShowRow,
   CrewMemberRow,
   RoomRow,
   HotelReservationRow,
   RunOfShow,
 } from "@/lib/parser/types";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 
@@ -643,6 +645,83 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.textContent).not.toContain("UNKNOWN_PARSER_WARNING_XYZ");
     // Explicit non-blocking affordance.
     expect(region.textContent).toMatch(/don.t block publishing/i);
+  });
+
+  // Spec docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md §3, §5 T6.
+  // Four identical #REF! rows are unreadable without a coordinate: the line names the cell
+  // BEFORE anyone clicks the link.
+  // `ParseWarning`, never `ParseWarning["sourceCell"]`: that type includes undefined, which
+  // exactOptionalPropertyTypes refuses on a present optional property.
+  function refWarning(sourceCell: SourceAnchor | null): ParseWarning {
+    return {
+      severity: "warn",
+      code: "REF_ERROR_LITERAL",
+      message: "m",
+      blockRef: { kind: "section" },
+      rawSnippet: "\\#REF\\!",
+      sourceCell,
+    } as ParseWarning;
+  }
+  /** Render the card and open the review modal: the warning rows live inside it and nothing
+   *  in the list is queryable before "More". */
+  function renderExpanded(warnings: ParseWarning[]) {
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings }))} wizardSessionId={WSID} />,
+    );
+    return within(expand(q));
+  }
+  function cellLineText(region: ReturnType<typeof within>, i: number): string | null {
+    const el = region.queryByTestId(`wizard-step3-card-${DFID}-warning-${i}-cell`);
+    if (!el) return null;
+    // The -open link's href also contains the a1, so it must never be inside the line.
+    expect(el.querySelector("a")).toBeNull();
+    return el.textContent;
+  }
+
+  test("scope cell: renders Sheet cell VENUE!A1 with the value in its own mono span", () => {
+    const region = renderExpanded([
+      refWarning({ title: "VENUE", gid: 5, a1: "A1", scope: "cell" }),
+    ]);
+    expect(cellLineText(region, 0)).toBe("Sheet cell VENUE!A1");
+    expect(region.getByTestId(`wizard-step3-card-${DFID}-warning-0-cell-value`).textContent).toBe(
+      "VENUE!A1",
+    );
+    expect(
+      region.getByTestId(`wizard-step3-card-${DFID}-warning-0-open`).getAttribute("href"),
+    ).toContain("range=A1");
+  });
+
+  test.each([
+    ["scope tab", { title: "VENUE", gid: 5, scope: "tab" as const }],
+    ["null", null],
+    ["unscoped region range", { title: "INFO", gid: 0, a1: "A1:C3" }],
+    // A colon is the legacy block-range shape: no line even when scoped.
+    ["scoped range", { title: "INFO", gid: 0, a1: "A1:C3", scope: "cell" as const }],
+    ["blank a1", { title: "VENUE", gid: 5, a1: "  ", scope: "cell" as const }],
+    ["blank title", { title: " ", gid: 5, a1: "A1", scope: "cell" as const }],
+  ])("no cell line for %s", (_label, sc) => {
+    const region = renderExpanded([refWarning(sc)]);
+    // Premise: the row itself is mounted (its catalog copy names #REF!), so the absence
+    // below is the LINE's, not the list's.
+    expect(region.queryAllByText(/#REF!/).length).toBeGreaterThan(0);
+    expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-0-cell`)).toBeNull();
+  });
+
+  test("UNKNOWN_FIELD with a Sheet row label renders the label and never the cell line", () => {
+    const w: ParseWarning = {
+      severity: "warn",
+      code: "UNKNOWN_FIELD",
+      message: "m",
+      blockRef: { kind: "crew", name: "Backdrop" },
+      rawSnippet: "Backdrop | ",
+      sourceCell: { title: "INFO", gid: 0, a1: "C4", scope: "cell" },
+    } as ParseWarning;
+    const region = renderExpanded([w]);
+    expect(region.getByTestId(`wizard-step3-card-${DFID}-warning-0-label`).textContent).toContain(
+      "Backdrop",
+    );
+    // rowLabel wins: dropping the `rowLabel === null` conjunct fails here.
+    expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-0-cell`)).toBeNull();
   });
 
   test("a warning with a sourceCell renders an 'Open in Sheet' deep link to that cell; none otherwise", () => {
