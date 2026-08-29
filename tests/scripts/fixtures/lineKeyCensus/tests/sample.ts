@@ -1,4 +1,7 @@
-import type { ScanElement } from "../nowhere";
+// Declared locally, NOT imported: tsc typechecks fixtures, and an import of a
+// deliberately absent module fails the Quality gate. The annotation is what
+// matters here -- isConstructed keys on `: ScanElement`, not on its provenance.
+type ScanElement = { file: string; line: number };
 
 // A COMMENT CITATION naming "src/Real.tsx:12" — prose, not a key.
 export const REGISTRY = [
