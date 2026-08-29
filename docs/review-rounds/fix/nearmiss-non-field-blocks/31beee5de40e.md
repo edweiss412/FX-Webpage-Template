@@ -192,12 +192,14 @@ plan itself, where the next implementer of this arc will read it.
 `unknownFieldAnchors` cases and one `warnings.test.ts` case use a `Timestamp` or `Console` block as a
 near-miss CARRIER to test a mechanism this arc does not change. Retiring them would have passed every
 gate while silently shrinking anchor coverage; re-pointing the carrier to an admitted block preserves
-exactly what they test. Owner-directed 2026-08-28. The same reasoning then applied to the `ria.xlsx`
-case, which I had been about to degrade to an absence assertion before noticing it was the identical
-mistake one level down: it re-points to a workbook that still has survivors, keeping the
-real-workbook exercise instead of trading it for an empty set.
+exactly what they test. Owner-directed 2026-08-28. The `ria.xlsx` case went the OTHER way, and this filing
+described the road not taken: at plan time I intended to re-point it to a workbook with surviving near
+misses, but its SUBJECT is those three rows rather than a carrier, so re-pointing would have changed what
+the case is about. It ships INVERTED — asserting the RIA workbook produces no near-miss rows to anchor,
+with a premise that the three rows are still physically in the workbook so the silence cannot mean a lost
+fixture. Corrected here after diff round 1 caught the filing still describing the intention rather than
+the disposition.
 
 **Infra:** Vitest could not run in the reviewer's sandbox in any plan round (`read-only sandbox denied
 its temporary directory`), so every dynamic claim was verified by reading. That is worth knowing when
 weighing a plan-stage verdict: the reviewer could check what a command WOULD do, never what it did.
-

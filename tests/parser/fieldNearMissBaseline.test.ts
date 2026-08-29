@@ -524,10 +524,14 @@ describe("Stage/Storage rows stay anchored (AC-N9)", () => {
   // `timestamp`-namespace row to resolve; no such row exists now, so the case could only
   // be kept by weakening the premise into something that passes on nothing.
   //
-  // Timestamp-row ANCHORING is unchanged and is not covered by this deletion:
-  // `tests/drive/unknownFieldAnchors.test.ts` remains its live home and exercises it
-  // directly against a workbook, which is where it always belonged. Recorded here rather
-  // than silently dropped so a later reader does not read the absence as lost coverage.
+  // What this deletion does and does not cost, stated accurately because a
+  // documented-safe note that is wrong is worse than no note. Anchor RESOLUTION is
+  // unchanged and still exercised in `tests/drive/unknownFieldAnchors.test.ts`, whose
+  // carriers this arc re-pointed to admitted blocks. Timestamp-row anchoring
+  // specifically is exercised NOWHERE after this arc — including there — and that is the
+  // intended consequence rather than lost coverage: a `timestamp` block emits no rows, so
+  // no Timestamp row exists to anchor. Recorded here so a later reader does not read the
+  // absence as an oversight, nor trust a claim of coverage that moved.
 
   it("every DETAILS-family spelling anchors the Stage row: one kind function on both sides (spec 2026-08-27 §2.2)", () => {
     // The retired asymmetry, stated in its new direction. The scanner used to recognize

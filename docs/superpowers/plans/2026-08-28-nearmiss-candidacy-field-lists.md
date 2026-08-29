@@ -190,7 +190,11 @@ Text search is retired entirely as an enumeration method, for a reason this arc 
    construction, as its own comment predicts. INVERT.
 6. `it("a Timestamp-block row resolves null against an anchor set that has no Timestamp block")`
    carries a premise requiring a surviving Timestamp emission. RETIRE, recording that
-   `tests/drive/unknownFieldAnchors.test.ts` remains the live home of Timestamp-row anchoring.
+   anchor RESOLUTION remains exercised in `tests/drive/unknownFieldAnchors.test.ts` through carriers
+   re-pointed to admitted blocks. Timestamp-row anchoring specifically is NOT exercised anywhere after
+   this arc, and that is the intended consequence rather than lost coverage: a `timestamp` block emits no
+   rows, so there is no Timestamp row left to anchor. Stating it the other way would be a documented-safe
+   claim that is not true.
 
 **`tests/parser/fieldNearMiss.test.ts`** — Cover B.
 
@@ -225,7 +229,7 @@ Text search is retired entirely as an enumeration method, for a reason this arc 
     workbook produces no near-miss rows to anchor, keeping the file's coverage of that workbook
     rather than deleting it.
 
-Both task commands therefore run the whole `tests/parser` surface rather than a named file list. A named list is a claim about which files depend on the change, and that claim has been wrong three times; a directory is not a claim at all.
+Both task commands therefore run the FULL SUITE, `pnpm heavy pnpm test`. An earlier revision of this paragraph said they run the `tests/parser` directory because "a directory is not a claim at all"; round 4 refuted that and this sentence outlived its own repair. A directory IS a claim - it asserts that everything depending on the change lives under it - and that claim failed on `tests/mutation/_metaPremiseContract.test.ts`, which pins a count in a directory `tests/parser` never runs. The only scope that is not a claim is the whole suite, which is what the markers name.
 
 ### Task 0 (setup, outside the checked region): fresh base + anchor re-verification
 
