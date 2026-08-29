@@ -55,11 +55,9 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   },
   "Gallery.tsx:restoreTargetRef": {
     kind: "per-item",
-    clearedBy: "re-pointed on every failure that removes the current target (spec §7)",
-    sweep: {
-      swept: false,
-      why: "re-pointed on every failure that removes the current target; an availability flip unmounts that target and the closure rule re-points on the next failure",
-    },
+    clearedBy:
+      "re-pointed on every failure that removes the current target (spec §7); AND cleared by the availability sweep. Plan review R4 showed the failure closure does NOT run on an availability flip, so the thumbnail that opened the lightbox going unavailable leaves this naming a detached node, and useDialogFocus focuses it at close and drops to `<body>`",
+    sweep: { swept: true },
   },
   "Gallery.tsx:dialogMountedRef": { kind: "not-per-item", why: "one flag per dialog session" },
   "Gallery.tsx:exitBufferRef": {

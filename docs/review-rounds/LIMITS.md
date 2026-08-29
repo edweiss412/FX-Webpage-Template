@@ -331,3 +331,24 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 **Owning record:** the filing is the documented limit; the shipped invariance assertion lives in docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts (TABLE-L's third control) for reuse
 
 **Re-file trigger:** a 3rd distinct arc naming it, or a product-facing arc blocked by a probe that moved its own subject
+
+## LIM-UNSCORED-GUARD-OFFERED-AS-CLOSURE
+
+**Shape:** A structural guard is built mid-arc as the closure for a recurring finding class,
+presented to review as a cover, and never mutation-scored first. Its own fail-open cases then
+surface as review findings — the reviewer doing by hand, at a paid round, what
+`pnpm mutation:guards` does in about ninety seconds. Distinct from a guard that is simply
+absent: here one exists, is asserted to close a class, and is weaker than its claim.
+
+**Named by:** 1 arc — `feat/diagram-failure-retry/e7751f61de2c.md` (plan), where a
+registry-plus-scanner built in round 2 to close a per-item-state class was found in round 4 to
+miss parenthesized, `as`-cast, non-null-asserted and computed-property hook declarations, plus
+a key-alias hole where two declarations sharing a name inherit one row.
+
+**Owning record:** AGENTS.md's convergence criterion, bullet 4 — enrolment precedes review for
+a guard surface — which already prescribes the fix. This slug exists so recurrence is one grep
+rather than a re-derivation, not because a new rule is needed.
+
+**Re-file trigger:** a second arc losing a review round to fail-open cases in a guard it
+offered as a class closure.
+

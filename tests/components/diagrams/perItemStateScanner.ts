@@ -30,18 +30,52 @@ export function scanStateDeclarations(source: string, fileName = "component.tsx"
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const out: StateDecl[] = [];
 
+  /**
+   * Strip the wrappers an ordinary edit puts around a hook call.
+   *
+   * Plan review R4 ran executed mutants and every one of these got PAST the
+   * scanner: `(useState(...))`, `useState(...) as Foo`, `useRef(...)!`. A
+   * recognizer that sees only a bare `CallExpression` fails OPEN on each, which
+   * is the one direction a cover must never fail.
+   */
+  const unwrap = (e: ts.Expression): ts.Expression => {
+    let cur: ts.Expression = e;
+    for (;;) {
+      if (
+        ts.isParenthesizedExpression(cur) ||
+        ts.isAsExpression(cur) ||
+        ts.isNonNullExpression(cur) ||
+        ts.isSatisfiesExpression(cur) ||
+        ts.isTypeAssertionExpression(cur)
+      ) {
+        cur = cur.expression;
+        continue;
+      }
+      return cur;
+    }
+  };
+
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      node.initializer &&
-      ts.isCallExpression(node.initializer)
-    ) {
-      const callee = node.initializer.expression;
+    // The VariableDeclaration guard stays in scope for the whole body, because
+    // `node.name` below needs it; only the initializer is unwrapped.
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const init = unwrap(node.initializer);
+      if (!ts.isCallExpression(init)) {
+        ts.forEachChild(node, visit);
+        return;
+      }
+      const callee = unwrap(init.expression);
+      // `React.useState`, `React["useState"]` and a bare `useState` all name the
+      // same hook. The computed form was another R4 mutant that got past.
       const hookName = ts.isIdentifier(callee)
         ? callee.text
         : ts.isPropertyAccessExpression(callee)
           ? callee.name.text
-          : "";
+          : ts.isElementAccessExpression(callee) &&
+              callee.argumentExpression !== undefined &&
+              ts.isStringLiteralLike(callee.argumentExpression)
+            ? callee.argumentExpression.text
+            : "";
       if (hookName === "useState" || hookName === "useRef") {
         // `const [x, setX] = useState()` binds an array pattern; the FIRST
         // element is the value. `const xRef = useRef()` binds an identifier.

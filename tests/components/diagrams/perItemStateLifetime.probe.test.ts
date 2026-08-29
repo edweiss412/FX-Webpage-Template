@@ -133,6 +133,29 @@ describe("per-item state lifetime — the gate REDS on a planted member", () => 
       decl: "  const plantedMultiline = useRef<\n    Map<string, number> | null\n  >(null);",
       name: "plantedMultiline",
     },
+    // ── The four mutants plan review R4 EXECUTED against this scanner. Every
+    // one got past the original recognizer, which saw only a bare
+    // CallExpression. They are committed as cases so the repair cannot regress.
+    {
+      label: "R4 mutant: a parenthesized hook call",
+      decl: "  const plantedParen = (useRef(null));",
+      name: "plantedParen",
+    },
+    {
+      label: "R4 mutant: an `as` cast around the call",
+      decl: "  const plantedCast = useRef(null) as { current: unknown };",
+      name: "plantedCast",
+    },
+    {
+      label: "R4 mutant: a non-null assertion around the call",
+      decl: "  const plantedBang = useRef<{ current: null } | null>(null)!;",
+      name: "plantedBang",
+    },
+    {
+      label: "R4 mutant: a computed-property hook access",
+      decl: '  const [plantedComputed] = React["useState"](0);',
+      name: "plantedComputed",
+    },
   ];
 
   for (const plant of PLANTS) {
@@ -155,6 +178,43 @@ describe("per-item state lifetime — the gate REDS on a planted member", () => 
       ).toBe(true);
     });
   }
+
+  it("a DUPLICATE declaration name is reported, not silently aliased to one row", () => {
+    // Plan review R4: the registry keys on `basename:name`, so a second
+    // declaration sharing a name inherits the first one's row and its sweep
+    // decision without anyone deciding. Two members with one lifetime record is
+    // the same fail-open the typed field exists to prevent, reached by a
+    // different door.
+    const base = sourceOf("Gallery.tsx");
+    const anchor = base.indexOf("const [failedKeys, setFailedKeys]");
+    premiseHolds("the anchor exists", anchor > 0);
+    const cut = base.indexOf("\n", anchor) + 1;
+    const planted =
+      base.slice(0, cut) +
+      "  const [failedKeys, setFailedKeysAgain] = useState<ReadonlySet<string>>(() => new Set());\n" +
+      base.slice(cut);
+
+    const seen = scanStateDeclarations(planted, "Gallery.tsx");
+    const names = seen.map((d) => d.name);
+    const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+    expect(dupes, "the scanner SEES both declarations").toContain("failedKeys");
+
+    // And the gate must not pass just because one row happens to cover the name.
+    const keys = seen.map((d) => `Gallery.tsx:${d.name}`);
+    const distinct = new Set(keys);
+    expect(
+      distinct.size < keys.length,
+      "a name collision is detectable from the scan alone, so the gate below can refuse it",
+    ).toBe(true);
+  });
+
+  it("the live components declare no duplicate names, so no row is silently shared", () => {
+    for (const basename of COMPONENTS) {
+      const names = scanStateDeclarations(sourceOf(basename), basename).map((d) => d.name);
+      const dupes = [...new Set(names.filter((n, i) => names.indexOf(n) !== i))];
+      expect(dupes, `${basename} has two declarations sharing one registry row`).toEqual([]);
+    }
+  });
 
   it("the three members the rejected grep missed are all enumerated", () => {
     // Named in spec §4.0.3 as the concrete evidence that a lexical scan fails.

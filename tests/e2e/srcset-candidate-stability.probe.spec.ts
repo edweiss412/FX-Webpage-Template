@@ -8,6 +8,16 @@
  * the cost is bounded by the largest ladder tier, never the multi-megabyte
  * source. Spec §3's bound rests on this.
  *
+ * WHAT THIS PROBE DOES NOT PROVE, per plan review R4. Both contexts receive the
+ * SAME constant HTML string, so `srcset` equality and the absence of an
+ * original-tier URL are guaranteed by the fixture and hold no matter what
+ * `next/image`, `makeDiagramLoader` or variant normalization do. That half is
+ * tautological as an APPLICATION claim. What it does prove is the BROWSER half:
+ * given a set, the browser's pick stays inside it and moves with device scale.
+ * The application half — that the app renders a stable, original-free set — is
+ * ratified by feature Task 2 against the real component, and spec §1.4's U-4 row
+ * is split accordingly.
+ *
  * TWO ORACLES, because either alone is insufficient. The rendered `srcset`
  * ATTRIBUTE is what the app produces; if it differs across renders the candidate
  * set is not stable and the claim fails at the source. The REQUESTED URL is what
