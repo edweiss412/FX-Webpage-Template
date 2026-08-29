@@ -98,6 +98,16 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/attention-autoopen-suppress-phone (2026-08-29, PR #947): the attention
+  // menu auto-opened on arrival at every width, and inside the review modal's clip
+  // at 375 the open panel covered the published toggle — probed as pointer events
+  // intercepted, not merely overlapping. Eric ratified suppressing the auto-open
+  // below `sm` rather than moving the panel: the pill still carries the count and
+  // still opens on tap, and the menu is an INDEX whose items also render as inline
+  // banners and nav badges, so nothing is only reachable through it. The change
+  // never CLOSES a menu — an operator-opened panel survives a resize in both
+  // directions, which is the fence the design rests on.
+  { id: "BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE", provenance: "fix/attention-autoopen-suppress-phone" },
   // fix/attention-panel-left-overflow (2026-08-29, PR #941): the attention menu
   // panel was sized against the VIEWPORT while right-anchored inside the review
   // modal's clip, so its left edge landed 36px outside that clip on BOTH review

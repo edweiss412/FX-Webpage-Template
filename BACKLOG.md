@@ -235,29 +235,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why backlog, not now:** trapping Escape on a dirty field is not obviously right — Escape-closes-modal is the behaviour operators expect, and the alternatives (confirm prompt, silent draft persistence, focus-scoped trap) are a design choice, not a bug fix. `ReviewModalShell` grew an `onEscapeCapture` prop on 2026-08-28 for the published attention panel, so the mechanism now exists; whether the wizard should adopt it, and under what predicate, wants deciding alongside that design rather than bolted on at closeout of an unrelated arc.
 
-### BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths
-
-**Status:** IN PROGRESS · **Branch:** fix/attention-autoopen-suppress-phone · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.
-
-**What is wrong.** The attention menu auto-opens when actionable items exist (published-show-alerts §5.2). Now that it is CONTAINED inside the review-modal clip, it occupies the horizontal band its anchor sits in, and at 375 that band includes the published toggle. An operator arriving at the modal on a phone finds the toggle covered until they dismiss a menu they never opened.
-
-**Reachability:** PROBED 2026-08-28 at 375x667, real Chromium, published review modal, measured in-page:
-
-```
-menu   left 8       right 367     width 359    (contained: clip is 0..375)
-clip   left 0       right 375
-toggle left 307     right 355     top 497      bottom 525
-overlaps: true      pointer events intercepted by an attention monitoring row
-```
-
-**This is a CONSEQUENCE of the containment fix, not a defect in it, and the two are not simultaneously satisfiable at this width.** Before containment the panel overflowed the clip's left edge by 36px, and that overflow is the only reason its right edge stopped at 307 — exactly where the toggle begins. A contained panel must extend right: even at the pre-fix 343px width the clamp lands it at 8..351, still over the toggle. Sitting beside the toggle was never a designed property; it was a side effect of being broken.
-
-**Why this is a product decision and not a geometry patch.** The candidate repairs are all product choices, not placement arithmetic: suppress auto-open below some width; flip the menu above its anchor at phone widths so it covers the header rather than the strip; or accept the overlap as ordinary dismissible-overlay behaviour and change nothing. The third is what ships today, ruled by bl-orch 2026-08-28 on the ground that a dismissible overlay covering content until dismissed is standard menu semantics.
-
-**Design review's recommendation, added 2026-08-29** (impeccable Assessment A, this arc's closeout): **suppress auto-open below `sm`; do not move the panel.** Its reasoning is worth carrying because it reframes the row: the geometry is not the defect. A dismissible overlay covering the publish control would be defensible if the operator had asked for it, because dismissal is then a step in a flow they started. Nothing was asked here. The panel is an INDEX — a navigation aid — and the surface auto-opens it on top of the modal's primary action to tell Doug something the pill already tells him: there are N issues. Repositioning just relocates the interruption. The pill is already a legible, accented, tappable count; on a desk the reveal is cheap and probably earns itself, and at 375px it costs the primary control.
-
-**Prerequisite:** an owner decision from Eric on whether auto-open should be suppressed or repositioned at phone widths. The geometry to implement any of the three already exists — `lib/popover/position.ts` selects and flips sides — so this is gated on the call, not on the mechanism.
-
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Effort:** L (scope floor — design-gated)
