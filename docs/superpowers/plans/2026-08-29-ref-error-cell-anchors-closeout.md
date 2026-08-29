@@ -209,9 +209,17 @@ and does not change.
 
 - **DB-free half** — `pnpm heavy pnpm vitest run --project parallel` (the CI-enforced
   no-database project, `unit-suite-nodb`), on `700f2ab87`, the last commit that touched
-  code or tests: **1044 files passed, 16310 tests passed**, 2 files / 17 tests skipped,
-  **zero failures, exit 0**. Every commit after it is documentation and review corpus rows,
-  which that project does not execute.
+  `lib/`, `components/` or a test body: **1044 files passed, 16310 tests passed**, 2 files /
+  17 tests skipped, **zero failures, exit 0**.
+
+  The commits after it are documentation and review corpus rows, and that is NOT the same as
+  saying the suite ignores them: `PARALLEL_TEST_GLOBS` includes `tests/docs/**` and
+  `tests/reviewRounds/**` (`vitest.projects.ts`), and `_metaPlanSnippetFences` walks every
+  Markdown file under `docs/superpowers/plans` — this closeout among them. So each later
+  documentation commit was covered by running the guards that actually read it:
+  `_metaInvariant8Closeout`, `_metaPlanSnippetFences` and `_metaReviewRoundEconomy`, green
+  after every edit. An earlier draft of this bullet claimed those commits could not affect
+  the suite at all, which diff round 4 correctly called false.
 - **The four serial-project files this plan touches**, by explicit list (each client-free,
   none reads `TEST_DATABASE_URL`): `perShowActionableRenderControls`,
   `perShowActionableTransitions`, `sectionWarningModel.autocorrect`,
