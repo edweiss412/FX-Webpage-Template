@@ -239,8 +239,12 @@ for (const [rel, lines] of tableLinesByFile) {
 console.log(`\n| at a ${W}-line window | tables |`);
 console.log(`| --- | ---: |`);
 console.log(`| adjacent to a shell fence | ${adjacent} |`);
-console.log(`| ...whose command is pure, repo-local, read-only | ${pure} |`);
+// NOT "repo-local" on this row: three of these read a machine-local absolute path, and
+// calling all of them repo-local and then subtracting three for reading outside the repo
+// is a contradiction in the instrument's own labels (diff review round 1 finding 4).
+console.log(`| ...whose command is pure, read-only, deterministic | ${pure} |`);
 console.log(`| ...of those, reading a path OUTSIDE the repo (unreproducible in CI) | ${outsideRepo} |`);
+console.log(`| ...leaving, as an upper bound, commands a CI checkout could run | ${pure - outsideRepo} |`);
 console.log(`\nthe pure population in full, so the classification can be checked by reading:`);
 for (const s of pureSites) console.log(`  ${s}`);
 
@@ -273,5 +277,42 @@ for (const arc of arcs) {
   const tot = per.spec!.size + per.plan!.size + per.diff!.size;
   console.log(`| \`${arc}\` | ${per.spec!.size} | ${per.plan!.size} | ${per.diff!.size} | **${tot}** | ${findings} |`);
 }
-console.log(`\nThe class this arc would police has cost 6 review rounds across its four namings`);
-console.log(`(1 + 3 + 1 + 1, per BACKLOG.md's own done-condition sentence).`);
+// ---------------------------------------------------------------- section 5
+// The naming CANDIDATES, produced rather than enumerated. Whether a candidate is a
+// table-versus-command defect is a judgment a regex cannot make, so this prints the
+// population and the spec classifies every row with a reason -- the same split the
+// sibling arc used (`2026-08-22-derived-number-population-census.md` §4: "the script
+// produces the population, a person produces the verdict").
+//
+// An earlier version of this file ended with a hardcoded sentence claiming the class
+// had cost 6 rounds across four namings. That number was retyped, it was wrong, and it
+// sat in the instrument whose subject is retyped numbers. Diff review round 1 finding 1.
+// ONE `git grep` at the rev, not a `git show` per file: the review-round corpus is
+// hundreds of files and a process each made this section slower than the whole rest of
+// the census combined.
+const SHAPE_ERE =
+  "table (nobody|no one) can re-run|table[^.]{0,140}(no command|command (could not|cannot|does not|did not) produce)|command[^.]{0,140}(cannot|could not|does not|did not) produce[^.]{0,90}table|sweep table[^.]{0,140}(truncat|command)|pasted a command that could not have produced|table[^.]{0,90}(omitted|claiming HEAD)|against a table of|quoted command returns";
+let grepOut = "";
+try {
+  grepOut = git("grep", "-n", "-i", "-E", SHAPE_ERE, RESOLVED, "--", "docs/review-rounds", "*.md");
+} catch {
+  grepOut = ""; // git grep exits 1 on no match
+}
+const cands: { arc: string; loc: string; text: string }[] = [];
+for (const line of grepOut.split("\n")) {
+  if (!line.trim()) continue;
+  // <rev>:<path>:<lineno>:<text>
+  const m = /^[0-9a-f]+:(docs\/review-rounds\/[^:]+):(\d+):(.*)$/.exec(line);
+  if (m === null) continue;
+  const rel = m[1]!;
+  const arc = rel.replace(/^docs\/review-rounds\//, "").replace(/\/[^/]*$/, "");
+  cands.push({ arc, loc: `${rel}:${m[2]}`, text: m[3]!.trim().slice(0, 150) });
+}
+const byArc = new Map<string, string[]>();
+for (const c of cands) byArc.set(c.arc, [...(byArc.get(c.arc) ?? []), c.loc]);
+
+console.log(`\n## 5. naming candidates, produced (classify each in the spec, with a reason)\n`);
+console.log(`distinct arcs matching the shape: ${byArc.size}  (${cands.length} matching lines)\n`);
+for (const [arc, locs] of [...byArc].sort()) console.log(`  ${arc}\n      ${locs.join("\n      ")}`);
+console.log(`\nNOT a count of the class. The spec's §2 classifies every arc above as INCLUDED or`);
+console.log(`EXCLUDED with a stated reason, and the class cost is summed from the included rows.`);
