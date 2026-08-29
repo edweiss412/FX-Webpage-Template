@@ -221,6 +221,53 @@ describe("published modal: an Escape claim that outlives the panel", () => {
     expect(closed(), "spec §8: a modal-held claim cannot survive this window").toBe(true);
   });
 
+  /**
+   * Case 1b: the host path's focus contract, asserted structurally, and the reason
+   * is the same limit as case 11 rather than a preference.
+   *
+   * A behavioural version was written first and its MUTANT SURVIVED: deleting the
+   * focus restoration left it green. The cause is worth recording, because the case
+   * looked correct. `handleEscapeCapture` only runs when the shell SEES the Escape,
+   * and the shell only sees it when the panel's own capture listener did not stop
+   * it. With the panel mounted and its listener live, the frame claims the key and
+   * restores focus itself, so the behavioural case was exercising the FRAME's
+   * pre-existing contract and never reached the host path at all.
+   *
+   * The branch under test is therefore reachable only in state P, panel mounted with
+   * its listener not yet installed, which three probed routes showed jsdom cannot
+   * stage (see case 11). So the contract is pinned where it can be: the branch that
+   * dismisses the panel must restore focus, and the branch that dismisses nothing
+   * must not touch focus. Both halves matter. Restoring focus in the claim-consumed
+   * branch would move it for a key that changed nothing visible.
+   */
+  it("case 1b (order): the panel-dismissing branch restores focus; the deferring branch does not", () => {
+    const src = readFileSync(
+      join(__dirname, "..", "..", "..", "..", "components/admin/showpage/PublishedReviewModal.tsx"),
+      "utf8",
+    );
+    const handler = src.slice(
+      src.indexOf("const handleEscapeCapture"),
+      src.indexOf("const menuWasEffectivelyOpenRef"),
+    );
+    premiseHolds("the handler this assertion is about was found in the source", handler.length > 0);
+    premiseHolds(
+      "the handler still has the two branches the assertion distinguishes",
+      handler.includes("if (menuEffectivelyOpen)") && handler.includes("escapeClaimRef.current"),
+    );
+
+    const dismissing = handler.slice(0, handler.indexOf("if (escapeClaimRef.current)"));
+    const deferring = handler.slice(handler.indexOf("if (escapeClaimRef.current)"));
+
+    expect(
+      dismissing.includes("pillRef.current?.focus()"),
+      "the branch that dismisses the panel must return focus to the pill, as the panel's own handler does; without it the key strands focus on <body>, outside the dialog's trap",
+    ).toBe(true);
+    expect(
+      deferring.includes("focus()"),
+      "the branch that dismisses nothing must not move focus: that key changed nothing visible",
+    ).toBe(false);
+  });
+
   it("case 9: with no panel at any point, Escape closes the modal", async () => {
     render(publishedModalElement([], { attentionItems: [] }));
     await settle();

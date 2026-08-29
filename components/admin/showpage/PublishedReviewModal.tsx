@@ -430,6 +430,13 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     if (menuEffectivelyOpen) {
       setMenuOpen(false);
       escapeClaimRef.current = false;
+      // Focus goes back to the pill, matching what the panel's OWN Escape handler
+      // does (AttentionMenu.tsx:361-362). Without this the key strands focus on
+      // <body>, outside the dialog's trap: the rescue effect below returns early
+      // on `!was || interactive` because a close with interactivity intact is
+      // assumed to manage its own focus, and this path is exactly such a close.
+      // Impeccable critique P1, 2026-08-28.
+      pillRef.current?.focus();
       return true;
     }
     if (escapeClaimRef.current) {
