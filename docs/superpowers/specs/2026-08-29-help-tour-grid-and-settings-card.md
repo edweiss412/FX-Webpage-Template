@@ -359,6 +359,20 @@ finding at all depends on whether its items wrap. The probe measures it. Disposi
 - **If no item wraps at any viewport**, it is not an instance: a one-line label in a narrow column
   is not a degraded measure. That is recorded here with the probe output, not filed.
 
+**One structural difference that changes how the repair would be applied, if it is needed.** The
+errors grid is a `ul` inside `<nav className="my-6">`, so the direct child of `.help-prose` is the
+`nav`, not the grid. Two consequences. First, §3.1 leaves this grid's width untouched either way:
+the `nav` takes the measure exactly as the wrapper imposed it before, and the `ul` is bounded by
+the `nav` as it always was — so nothing about the errors page changes unless this branch chooses
+to change it. Second, a bleed here would put `help-bleed` on the `nav`, because
+`.help-prose > .help-bleed` matches direct children only. Worth stating because adding the class to the grid
+itself is the obvious move, and it would silently do nothing.
+
+The wrap question is genuinely open rather than rhetorical, and 768px is where to look: at that
+width the sidebar has appeared but the column is at its narrowest, so the two columns are much
+tighter than the 70ch cap alone suggests. The longest label is `Crew, schedule & travel data` plus its count. The live probe counts wrapped items at every viewport in the AC-1 matrix, which is why
+this disposition waits for it instead of being argued from character counts.
+
 A separate sweep covers the guard defect of §1.2 — a completeness claim over the admin surface
 that restates the list instead of deriving it. Derived cover: every file under `tests/` mentioning
 two or more literal `/help/admin/*` URLs, checked for whether it imports `NAV`.
