@@ -311,6 +311,26 @@ Setup gates: the impeccable context script loaded PRODUCT.md (the script lives i
 - **Auto-open never moved focus and never announced.** The only `focus()` call in `components/admin/showpage/AttentionMenu.tsx` is at line 564, on Escape-close, returning focus to the pill. So for a screen-reader user the auto-opened panel was a purely visual event; suppressing it costs assistive tech nothing.
 - **The menu is an INDEX over items that are already on the page.** The derived list is "the ONE source for the pill, menu, nav badges/dots, and inline banners" (`components/admin/showpage/PublishedReviewModal.tsx:127-129`), and every actionable item renders as an `AttentionBanner` in its own section (the `bannerFor` builder at line 865, wired as `renderCard` at line 896). Suppression removes a shortcut, not the content: the items remain reachable by inline banner, by nav badge, and by tapping the pill.
 
+### 12.2 Deviation from invariants 1 and 6: task commits were split
+
+**Recorded on bl-orch's ruling (2026-08-29), accepted rather than rewritten.** Whole-diff review round 2 was factually right: invariant 1 puts the whole red-then-green cycle inside one task and invariant 6 asks for one commit per task, and neither Task 2 nor Task 3 landed that way.
+
+**Why it is not being repaired by a rewrite.** The cost of the violation is historical granularity. The cost of the rewrite is invalidating two rounds of reviewed lineage on a diff that would not change by one byte — review covers what merges, and what merges is the diff, not its commit boundaries.
+
+**The cause, plainly.** Round 1 of plan review found three tasks that ENDED red, and the repair merged authoring into implementing. I applied that repair to the plan but implemented against the older shape, landing the jsdom vehicle with the production change and the browser vehicle after it. Then round 1 of DIFF review found four acceptance ids claimed with no test behind them, and those cases necessarily landed later still. Each commit was individually honest about its own red and green; the boundaries drifted.
+
+**Invariant 6's purpose is traceability, so here is the tracing it lost.**
+
+| Task | Commits | Where its red-then-green evidence lives |
+| --- | --- | --- |
+| Task 1 — the occlusion helper | `d92ac8afa` | That commit's own message: 5 cases failed against a stub returning an empty report, 5 passed after the real helper. Single commit, invariant satisfied. |
+| Task 2 — the published predicate | `f9bf93fdc`, then `19716fcd9`, then `b3f32600a` | `f9bf93fdc` records the jsdom red/green (3 of 5 fail without the predicate, 5 pass with it) and the polarity measurement that rejected the shell's min-width query (23 assertions across two suites). `19716fcd9` records the browser red/green (5 of 7 fail with the predicate disabled) and the pre-fix interceptor identity, `attention-menu-row-alert:n1`, which is the arc's core evidence. `b3f32600a` records the four state-machine mutants, one failure each. |
+| Task 3 — the wizard mirror | `7bc515e73`, then `a871c4deb` | `7bc515e73` records the mirror's red/green (4 cases fail against the unguarded effect) and the `(12a)` oracle proof: with `setMenuAutoOpened` dropped, `Step3ReviewModal.tsx:613` fails 1 of 202. `a871c4deb` records the remaining state-machine cases, including the empty-arrival case that escaped its own mutant twice before reaching the guard it names. |
+| Task 4 — the invariant-8 gate | `e45724630` | §12.1 above, and that commit's message. Single commit. |
+| Step 0.5 — the P-1 probe retirement | `685412abc` | That commit's message: the baseline gate proven exit 1 naming the probe, then exit 0. Single commit. |
+
+**The fleet lesson bl-orch logged from this**, kept here because the next arc reading this plan is the audience: a mid-task commit split gets squashed BEFORE the first diff dispatch, or not at all. After that, the review lineage is worth more than the boundary.
+
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 
 ### Close-out step (NOT a numbered task, and outside the contract region) — graduation
