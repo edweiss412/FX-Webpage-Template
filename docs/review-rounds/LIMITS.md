@@ -8,7 +8,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A declared `red=` that cannot be red for its stated reason, and nothing executes it to find out: a new killing case that passes against clean production the moment it is written, a red satisfied by an unresolved import or by a surface an earlier task creates, or a red that already exits zero at the merge base. Parts of collectability are mechanized in `lib/specLint/redContract.ts` (collection probes over eligible markers of both states, with findings such as `RED_COLLECTS_NOTHING` and `RED_SUITE_UNCOLLECTED`, and `--exec-red` execution of eligible live reds; eligibility rules and per-state finding routing live in that file). What remains parked is truth of the red itself: a collectable red that already passes at the merge base, or a new killing case green against clean production the moment it is written.
 
-**Named by:** 6 arcs — docs/quick-wins-2-specs/97e179d831aa.md (plan), feat/planlint-declared-limit-pin-collision/03953337388b.md (spec), fix/replacement-string-class-sweep/bcd3d088ec76.md (plan), feat/review-modal-strip-dock/d4cd838727a3.md (plan), fix/mutation-gate-fidelity/75b8f7a3ec76.md (plan), feat/nearmiss-surface/b30413cf5e51.md (plan)
+**Named by:** 7 arcs — docs/quick-wins-2-specs/97e179d831aa.md (plan), feat/planlint-declared-limit-pin-collision/03953337388b.md (spec), fix/replacement-string-class-sweep/bcd3d088ec76.md (plan), feat/review-modal-strip-dock/d4cd838727a3.md (plan), fix/mutation-gate-fidelity/75b8f7a3ec76.md (plan), feat/nearmiss-surface/b30413cf5e51.md (plan), feat/ref-error-cell-anchors/e7751f61de2c.md (plan).
 
 **Owning record:** the out-of-scope fence in docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md (mechanizing existence-of-declaration is that arm; truth-of-claim is not), plus this index
 
@@ -263,7 +263,7 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Shape:** A lint advisory whose reasoning is correct is dismissed as noise because nothing requires it to be dispositioned before the artifact is dispatched for review, and it returns as a paid review finding. Distinct from LIM-RED-NAME-FILTER-SEVERITY, where the advisory's severity is the defect: here the severity is arguably right, since the arm genuinely cannot tell a stale claim from a drifted line anchor, and what is missing is a dispatch-time obligation to say which it is. Repairable without a new detector: one line per advisory in the brief, saying why it is noise.
 
-**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding.
+**Named by:** 2 arcs — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding, feat/ref-error-cell-anchors/e7751f61de2c.md (plan).
 
 **Near-miss, recorded so it is not miscounted:** perf/admin-diagram-next-image/66c9857f56a5.md (plan) first claimed this slug for its stale-citation finding and then REFUTED itself by probe — restoring the stale citation left the advisory set byte-identical at 35 rows, so no advisory was ever raised and none was dismissed. That arc's instance is LIM-FOREIGN-CITATION-DRIFT. This slug's count stays at 1.
 
@@ -331,3 +331,23 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 **Owning record:** the filing is the documented limit; the shipped invariance assertion lives in docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts (TABLE-L's third control) for reuse
 
 **Re-file trigger:** a 3rd distinct arc naming it, or a product-facing arc blocked by a probe that moved its own subject
+
+## LIM-PLACEHOLDER-SNIPPET-BODY
+
+**Shape:** A plan's fenced `ts`/`tsx` snippet carries a function or test body that is only a comment (`{ /* same shape as above */ }`, `it("...", () => { /* the two arms, verbatim */ })`). It compiles, it passes against the current tree, and a reviewer reads the test name as coverage. Decidable from the document alone: a fenced block whose statement list is empty apart from comments, or a non-void function with no `return`. Distinct from LIM-NONDISCRIMINATING-FIXTURE, where the assertion exists and is too narrow: here there is no assertion.
+
+**Named by:** 1 arc — feat/ref-error-cell-anchors/e7751f61de2c.md (plan), four findings in one round.
+
+**Owning record:** the anti-tautology rule in `docs/agents/writing-plans.md` (every test task states the failure mode it catches), plus this index.
+
+**Re-file trigger:** default (three distinct arcs).
+
+## LIM-SNIPPET-IMPORTS-UNRESOLVED
+
+**Shape:** A plan snippet destined for an EXISTING test file uses identifiers that file does not import (`join`, `premise`, a helper from a sibling suite), and the pre-dispatch snippet typecheck, run on the snippet in a scratch harness, resolves them there and never sees the target file's import block. The RED then fails on a test-local `ReferenceError` instead of the production absence the marker names, and GREEN cannot pass. Distinct from LIM-PLACEHOLDER-SNIPPET-BODY: the code is real, its context is not.
+
+**Named by:** 1 arc — feat/ref-error-cell-anchors/e7751f61de2c.md (plan), one finding, swept over every RED step.
+
+**Owning record:** the snippet-typecheck sentence of `docs/agents/writing-plans.md`, plus this index. The repair that held was an explicit imports sentence at every RED step, checked against the file's current import block at HEAD.
+
+**Re-file trigger:** default (three distinct arcs).
