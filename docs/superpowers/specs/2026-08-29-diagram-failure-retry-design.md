@@ -29,10 +29,12 @@ critique scored heuristic 9 (recover from errors) 2/4 on exactly this account.
 | Retry labels are **UI chrome, not catalog rows**. No `lib/messages` entry, no §12.4 code. | Established precedent for exactly this control class: `components/admin/RetryWatchButton.tsx:11-12` ("Labels are UI chrome (uncataloged, like Dismiss/Details)"). Invariant 5 governs raw error CODES surfacing in UI; these strings carry no code. |
 | A runtime-failed cell that HAS a control **keeps focus**; one without a control still relocates. | §7, and it is an explicit **amendment** to `2026-08-10` spec §4.2 / AC-3, not a reinterpretation of it. Dispositioned there with the reason. Cells covered by the §3.1 exclusion keep the ratified behavior unchanged. |
 | Parse-time-unavailable items (`available: false`) get **no retry control**. | §4. There is no asset to re-fetch; the manifest never published one. |
+| Originals-only entries **do** get the control, at original cost, up to the route's 50 MB cap. | §3.1. Eric via bl-orch, 2026-08-29, decided with the 50 MB figure stated. Supersedes an earlier withhold that was my default, not his answer. |
+| Inactive lightbox slides get **no control**; active slides and gallery thumbnails do. | §2, on a11y grounds, and §3.1 explains why the no-dead-ends argument does not reach it: an inactive slide has two recovery routes, originals-only had none. |
 | The **lightbox demote path is untouched.** An original-tier failure with a smaller tier available still demotes with its announcement and chip, gated on `wantsOriginal`
 (`GalleryLightbox.tsx:1033-1073`). | That path is already non-terminal, so this row does not reach it. Retry applies only where `failedKeys` is written. |
 | No new design tokens. | §8. Every class used already ships (`Gallery.tsx:351`, `Gallery.tsx:416`, `Gallery.tsx:430`), so no new contrast meta-test is owed. |
-| e2e coverage is **not** added for the failure path. | §11. No existing e2e forces an `onError` on a diagram; building that harness is a separate arc, and the unit surface is where `failedKeys` lives. |
+| The e2e failure path **is** built here: `page.route` aborts the diagram asset request so the failed state can be rendered in a real browser. | §10.6. An earlier row fenced this out as a separate arc, which contradicted AC-7's mandatory real-browser measurement. Retracted in round 2. |
 
 ### 1.2 Probe: the terminality is measured, not assumed
 
@@ -84,8 +86,8 @@ deliberate exclusion rather than an oversight:
 
 | site | code | after |
 |---|---|---|
-| gallery thumbnail | `Gallery.tsx:411` | retry button, but only when the item has a variant ladder (§3.1) |
-| lightbox ACTIVE slide | `GalleryLightbox.tsx:1121` | retry button, same condition |
+| gallery thumbnail | `Gallery.tsx:411` | retry button, on every runtime-failed item (§3.1) |
+| lightbox ACTIVE slide | `GalleryLightbox.tsx:1121` | retry button, same |
 | lightbox INACTIVE slide | `GalleryLightbox.tsx:1173` | **no control.** Still terminal until the user swipes to it |
 
 **Why inactive slides get nothing.** Every inactive figure carries
@@ -159,7 +161,7 @@ Last-Modified** — verified: a case-insensitive grep for either header over tha
 returns zero matches. So every retry is a full unconditional GET; there is no revalidation
 shortcut to hope for, and equally no stale cached failure to defeat.
 
-### 3.1 Originals-only entries get no retry control
+### 3.1 Originals-only entries: the control ships, at original cost
 
 An entry is originals-only when `hasVariantTier` is false. Four ways to get there:
 
@@ -170,24 +172,29 @@ An entry is originals-only when `hasVariantTier` is false. Four ways to get ther
 | variant generation failed | the per-asset catch returns `variants: []` with `reason: "sharp_error"` (`lib/sync/diagramVariants.ts:110-118`) |
 | manifest predates the variant pipeline | `variants` is optional on `PersistedDiagramFields` (`lib/parser/types.ts`) and normalized to `[]` (`components/crew/DiagramsBlock.tsx`) |
 
-For all four, there is no clamped tier, so a retry would fetch the original — up to the
-route's 50 MB cap. **That is not the ratified answer.** The ratified wording is `retry fetches the clamped
-tier`, which does not authorize retrying the original for the subset where no clamped tier exists; it is
-the other fork of the very question this row was deferred on, and choosing it here would be
-this spec making a product decision rather than implementing one.
+For all four there is no clamped tier, so a retry fetches the original — up to the route's
+50 MB cap, per tap.
 
-**So the control is withheld on originals-only entries**, which is the literal reading of
-the ratification. Those cells keep today's inert placeholder.
+**Ratified: offer it anyway.** Eric, 2026-08-29 through bl-orch, taken WITH the 50 MB figure
+in hand, on the ground that no diagram should be a dead end. That is the decision this row
+was deferred for; it is not this spec's to re-take.
 
-An earlier draft argued the opposite — show the control everywhere, since the cost is
-bounded by the request that already failed and a tap is intent. Two things killed it. The
-cost is bounded by 50 MB rather than 5 MB (§3), and the premise it leaned on — that a
-source narrower than 256px is by construction tiny — is unsupported: `lib/sync/diagramVariants.ts:75`
-tests width only, so a 200×20000 strip is narrow, laddered out, and large.
+This section reversed twice and both reversals are fenced, so neither is re-argued:
 
-The consequence is real and is recorded as a limit rather than hidden: an originals-only
-diagram that fails is still a dead end for the session. §10.5 carries it with the re-file
-trigger.
+1. draft 1 offered the control, reasoning from a cost bound that was wrong
+2. draft 2 withheld it, on the literal reading of "clamped tier", after review correctly
+   objected that draft 1 was making a product decision
+3. draft 3 offers it, because the product owner made that decision explicitly
+
+A reviewer re-arguing the cost is re-arguing a call that was made with the cost stated. A
+reviewer re-arguing the literal reading is re-arguing a fork the owner resolved.
+
+**Why the same argument does not reopen the inactive-slide exclusion (§2).** The test that
+decided this one is whether the user has any route back. Originals-only had **zero**: no
+surface offered anything, for the rest of the session. An inactive lightbox slide has
+**two** — swipe to it, which makes it active where the control lives, or use its gallery
+thumbnail, which carries its own control independently. So the exclusion in §2 is a
+one-gesture detour, not a dead end, and it stands on its a11y grounds.
 
 ## 4. The state machine
 
@@ -237,11 +244,11 @@ So the `failed → retrying` transition clears it. Its other reader (`Gallery.ts
 `successorTo`) disappears with `successorTo` itself (§7), leaving the de-duplication guard at
 line 280 as its only remaining purpose, which is exactly the purpose clearing serves.
 
-### 4.0.2 A retry never re-pins the original
+### 4.0.2 A retry never re-pins the original, and never costs the re-pinch
 
-`wantsOriginal` (`GalleryLightbox.tsx:305`) is keyed by item id and deliberately persists
-for the whole lightbox session — zooming a slide, swiping away and returning must not need a
-fresh gesture. That persistence creates a path an earlier draft missed:
+`wantsOriginal` (`GalleryLightbox.tsx:303`) is keyed by item id and deliberately persists
+for the whole lightbox session — zooming a slide, swiping away and returning must not need
+a fresh gesture. That persistence creates a path an earlier draft missed:
 
 1. the user zooms slide A, so `wantsOriginal` holds A
 2. the user swipes away; A is now inactive and renders through the CLAMPED loader
@@ -253,12 +260,78 @@ fresh gesture. That persistence creates a path an earlier draft missed:
 A naive remount at step 4 would retry at the ORIGINAL — the one thing the ratified answer
 excludes.
 
-**Therefore a retry is always a clamped attempt.** Entering `retrying` on the active slide
-removes the id from `wantsOriginal` and records it in `demotedRef`, which is the same pair
-of writes the ratified demote path already performs (`GalleryLightbox.tsx:1036-1043`), for
-the same reason: `demotedRef` is what stops the zoom gate re-pinning during a gesture that
-is still live. A user who wants full detail after a successful retry re-pinches, which is
-the gesture the zoom gate was built around.
+**So entering `retrying` removes the id from `wantsOriginal`.** That, and only that.
+
+**It must NOT also write `demotedRef`,** which an earlier draft proposed by analogy with the
+demote path. `demotedRef` (`GalleryLightbox.tsx:312`) is written once
+(`GalleryLightbox.tsx:1036`) and has **no delete or clear path anywhere in the component** —
+verified by grep, its only other appearance is the read at `GalleryLightbox.tsx:367`. That
+read is `markZoomIntent`'s early return, so an id in `demotedRef` can never re-acquire
+`wantsOriginal` for the rest of the lightbox session. Writing it on retry would have made
+the re-pinch this spec promises permanently impossible.
+
+**And it is not needed here.** `demotedRef` exists for one hazard: the zoom library publishes
+a scale above the commitment bound for as long as a gesture lasts, so a demote mid-pinch
+would re-pin and loop (`GalleryLightbox.tsx:1019-1024`). On the retry path no gesture can be
+live — a slide in `failed` renders the inert placeholder branch
+(`GalleryLightbox.tsx:1192-1196`), which does not mount `TransformWrapper`, so
+`markZoomIntent` has nothing to fire from. The guard has no hazard to guard.
+
+After a successful retry the slide shows the clamped tier. A fresh pinch calls
+`markZoomIntent`, which is not blocked, and the user gets full detail. That is the promised
+behavior, reached by removing a write rather than adding one.
+
+### 4.0.3 Per-item state has a lifetime table, because four rounds' findings were this class
+
+Rounds 1 and 2 returned six findings between them, and every one was the same shape: a
+per-item variable whose lifetime the retry machine did not define. Patching them one at a
+time is what the class-sweep rule exists to prevent, so the closure is a **derived** cover
+rather than a longer list of instances.
+
+The cover is every `useState`/`useRef` in either component whose value is keyed by, or holds,
+an item id. Derived mechanically rather than enumerated by hand:
+
+```
+grep -nE 'const .*= (useRef|useState).*(Map|Set|id)'   components/diagrams/Gallery.tsx components/diagrams/GalleryLightbox.tsx
+```
+
+Seven existing members, plus `restoreTargetRef` and `demoteTimerRef`, which hold a node and
+a timer belonging to one item and so are item-scoped without matching that pattern. Every
+member gets a row. A member with no row is a defect in this table, not an omission the
+implementation may improvise around.
+
+| member | site | cleared by, after this change |
+|---|---|---|
+| `failedKeys` (gallery) | `Gallery.tsx:122` | entering `retrying`; the item going unavailable (§9.1) |
+| `pendingFailuresRef` | `Gallery.tsx:156` | entering `retrying` (§4.0.1); the item going unavailable |
+| `thumbRefs` | `Gallery.tsx:132` | React, on unmount. **Holds ONLY the healthy thumbnail button.** The retry button gets its own map (§7), or `successorTo` would treat it as a relocation target |
+| `restoreTargetRef` | `Gallery.tsx:139` | re-pointed on every failure that removes the current target (§7) |
+| `failedKeys` (lightbox) | `GalleryLightbox.tsx:293` | entering `retrying`; the item going unavailable |
+| `wantsOriginal` | `GalleryLightbox.tsx:303` | entering `retrying` (§4.0.2); the demote path, unchanged |
+| `demotedRef` | `GalleryLightbox.tsx:312` | **nothing, unchanged.** This spec adds no write to it. Its absence of a clear path is pre-existing and now load-bearing (§4.0.2) |
+| `demotedNotice` | `GalleryLightbox.tsx:320` | its own timer; `failedKeys` gaining the id; **and now the item going unavailable** (§9.1) |
+| `demoteTimerRef` | `GalleryLightbox.tsx:321` | cleared with `demotedNotice`, never separately |
+| `retrying` (NEW) | both | `onLoad`, `onError`, a slide going inactive (§4.0.4), the item going unavailable |
+| `attempt` (NEW) | both | never. Monotonic per item; that is what makes it a usable remount key |
+| `focusOnMount` (NEW) | `Gallery.tsx` | the retry button's ref callback, on consume (§7) |
+| `retryRefs` (NEW) | both | React, on unmount |
+
+### 4.0.4 A slide going inactive ends its retry
+
+The lightbox control lives only on the ACTIVE slide (§2), so the active-to-inactive
+transition has to say what happens to a retry in flight and to focus.
+
+- **`retrying` is cleared and the id returns to `failedKeys`.** The hidden `<Image>`
+  unmounts with the active branch, so its request is abandoned and no `onLoad` or `onError`
+  will arrive. Leaving the id in `retrying` would strand the slide showing a disabled
+  `Retrying…` with nothing behind it, which is the state the reviewer named.
+- **Focus moves to the Close button** if it was on the retry control, matching the
+  destination the existing error path already uses when a focused lightbox element is about
+  to unmount (`GalleryLightbox.tsx:1096-1103`). The Embla `select` handler preserves focus
+  only for the two chevrons (`GalleryLightbox.tsx:405-409`), so nothing else would catch it.
+- **The same destination covers the other two removals** of an active retry control: a
+  successful retry, and `item.available` flipping false. In all three the control is gone and
+  focus must not fall to `<body>`.
 
 ### 4.1 Guard conditions for every input
 
@@ -286,6 +359,31 @@ gate before implementation, per the AGENTS.md pre-code UI checklist.
 | lightbox ACTIVE slide, accessible name | `<name> could not be loaded. Tap to retry.` |
 | announcement, retry succeeded | `<name> loaded.` |
 | announcement, retry failed again | `<name> still could not be loaded.` |
+
+### 5.1 Cost honesty: the copy differs by SURFACE, not by entry type
+
+Eric asked that the copy stay honest about cost where it matters, and that the choice be
+recorded either way. It is recorded here.
+
+**The gallery thumbnail says nothing extra.** The cell is roughly 117px at `30vw` on a
+390px viewport. There is no room, and more to the point there is nothing honest to put
+there: the app cannot know the byte count before the request runs, because the asset route
+sends no `Content-Length` the client can read in advance. An adjective would be vague and a
+number would be invented. Both are worse than silence on a control the user reaches by
+tapping a broken thumbnail.
+
+**The lightbox ACTIVE slide adds one line, `Full size.`, and only for originals-only
+entries.** The slide is full width, so the room is free, and the lightbox is where someone
+is deliberately looking at one diagram rather than scanning twelve. `Full size` is the thing
+we actually know to be true: there is no smaller tier, so this fetch is the whole object.
+
+The predicate is `hasVariantTier(item.variants, item.key)`
+(`lib/images/diagramLoader.ts`), already imported by `GalleryLightbox`. `Gallery` does not
+need it, because its copy does not branch.
+
+**In-flight copy stays `Retrying…` on both surfaces.** For a 50 MB fetch on venue wifi the
+honest signal is that it stays on screen a long time, which it will. A second variant would
+add a string without adding information.
 
 The first-failure announcement is unchanged (`<name> could not be loaded.`,
 `Gallery.tsx:293`). `Retrying…` uses the same single-character ellipsis and the same
@@ -341,12 +439,26 @@ successor relocation is still the right and only behavior for those cells. This 
 case that keeps the old target, and it is why `successorTo` cannot simply be deleted
 unconditionally — see below.
 
-**`successorTo` disposition.** It has exactly one caller (`Gallery.tsx:287`, verified by
-grep). If §3.1's exclusion had not landed it would have zero and would be deleted. With the
-exclusion it retains a caller: an originals-only cell that fails still relocates to a
-sibling. So it stays, its call becomes conditional on the cell having no control, and the
-plan pins that split with a test on each side. Deleting it would have been the tidier
-outcome; correctness beat tidiness here.
+**`successorTo` survives, and its eligibility predicate must be tightened.** It has exactly
+one caller (`Gallery.tsx:287`, verified by grep), and that caller remains: a cell with no
+control still relocates to a sibling.
+
+Its `usable` helper accepts any id that is absent from `pendingFailuresRef` and whose
+`thumbRefs` entry is connected (`Gallery.tsx:222-225`). Both conditions are now satisfiable
+by a cell that must never be a relocation target, because §4.0.1 clears
+`pendingFailuresRef` the moment a retry starts. Two independent repairs, because either
+alone leaves a hole:
+
+1. **`thumbRefs` holds only the healthy thumbnail button** (§4.0.3). The retry button
+   registers in its own `retryRefs` map. Sharing one map is what would make a disabled
+   in-flight control look like a thumbnail.
+2. **`usable` additionally requires the id to be `idle`** — absent from `failedKeys` AND
+   from `retrying`. Deriving eligibility from the state machine rather than from two proxy
+   conditions is what stops the next variant of this finding.
+
+Without both, relocation can target a `disabled` retry button; `focus()` on a disabled
+element is a no-op, so focus would stay on the unmounting node and land on `<body>` — the
+exact outcome the ratified rule exists to prevent, reintroduced by its own repair.
 
 **Blast radius, enumerated.** The seven cases in
 `tests/components/diagrams/gallery.failedItem.test.tsx:429-527` and the two dialog cases at
@@ -392,18 +504,34 @@ nothing, so session state survives a props flip and every pair below is reachabl
 
 ### 9.1 The `unavailable` boundary, since it is reachable
 
-- **`failed`/`retrying` → `unavailable`** (a resync marks the item unpublished while the
-  cell is failed or mid-retry): `item.available` is a conjunct of every session state (§4),
-  so the cell renders the inert placeholder immediately. Any in-flight `<Image>` unmounts,
-  and its `onLoad`/`onError` are dropped by the connectedness guard (§4.1). The id is left
-  in `failedKeys`, deliberately: it costs nothing and describes a load that did fail.
-- **`unavailable` → `idle`** (the item is published again): the retained `failedKeys` entry
-  must NOT resurrect a placeholder for an item the manifest now says is fine. Entering
-  `available` clears the id from `failedKeys`, `retrying` and `pendingFailuresRef` in one
-  effect keyed on `item.available`, so the cell comes back as `idle`.
-- **`failed` → `unavailable` → `available`**: the same clear covers it. Without it the
-  round trip would land in `failed` with a control offering to retry an asset the manifest
-  has just republished, which is the specific case the reviewer named.
+**The clear happens when the item goes unavailable, not when it comes back.** An earlier
+draft did the opposite, and the ordering was the whole defect: an effect that runs AFTER
+`item.available` becomes true leaves the first render observing a retained `retrying` id,
+which mounts the hidden `<Image>` and starts a request nobody asked for. This spec excludes
+automatic retry (§12), so that render is a contract violation, not a cosmetic race.
+
+Clearing on the way in has no such window. All three session states require
+`item.available` (§4), so between the flip to false and the effect, the retained ids render
+nothing at all. A late clear cannot produce a wrong frame because there is no frame it
+could affect.
+
+- **`failed`/`retrying` → `unavailable`** (a resync unpublishes the item): the cell renders
+  the inert placeholder immediately, because `item.available` gates every session state. The
+  effect keyed on `item.available` becoming false then clears the id from `failedKeys`,
+  `retrying` and `pendingFailuresRef`. Any in-flight `<Image>` unmounts with the branch and
+  its handlers are dropped by the connectedness guard (§4.1).
+- **`demotedNotice` and `demoteTimerRef` are cleared by the same effect.** The chip's
+  predicate tests `demotedNotice.id`, its nonce, and `!failedKeys.has(id)`
+  (`GalleryLightbox.tsx:789-791`) — **not `item.available`**. So without this, a demoted
+  slide that goes unavailable keeps showing the `Full detail unavailable` chip stacked over
+  the `Image unavailable` placeholder until the timer expires. The predicate also gains `item.available` directly,
+  so the chip cannot render over an unavailable slide even for the one frame before the
+  effect runs. Belt and brace, deliberately: the predicate fixes the frame, the effect fixes
+  the timer.
+- **`unavailable` → `idle`**: nothing to clear, because the way in already did it. The cell
+  returns as `idle` by construction rather than by an effect winning a race.
+- **`failed` → `unavailable` → `available`**: same. The round trip cannot land in `failed`
+  with a control offering to retry an asset the manifest just republished.
 
 Compound transitions:
 
@@ -418,7 +546,8 @@ Compound transitions:
   (§4.1) drops it if the node is gone; otherwise the slide updates silently, since inactive
   slides do not announce (§6).
 - **A slide is zoomed, swiped away, fails inactive, and is swiped back.** §4.0.2. The retry
-  clears `wantsOriginal` and sets `demotedRef`, so it cannot re-pin the original. Pinned
+  clears `wantsOriginal` and deliberately does NOT write `demotedRef`, so it cannot re-pin
+  the original AND a later re-pinch still works. Pinned
   with an assertion on the requested tier, not merely on the outcome.
 
 ## 10. Documented limits
@@ -440,21 +569,24 @@ here rather than as a finding.
    picks from the `srcSet` candidate set and a viewport, orientation or DPR change between
    the failure and the tap can move that pick (§3). Bounded by the ladder, never the
    original. Re-file trigger: a `sizes` or ladder change that widens the candidate set.
-4. **An inactive lightbox slide that fails stays terminal until the user swipes to it.** §2
+4. **An inactive lightbox slide that fails carries no control until the user swipes to it.** §2
    gives the reason: a control there would be an off-screen Tab stop with no accessible
    representation. The recovery exists and costs one swipe. Re-file trigger: the dialog focus
    trap gaining `aria-hidden`-ancestor exclusion, which would remove the objection.
-5. **An originals-only diagram that fails is a dead end for the session.** §3.1. The four
-   causes are a sub-256px source, a GIF, a variant-generation failure, and a manifest older
-   than the pipeline. Withholding the control is the literal reading of the ratified answer
-   and avoids a retry that could pull up to 50 MB. Re-file trigger: an explicit product
-   decision to offer retry at original cost, or the variant pipeline gaining a fallback tier
-   that would give these entries a ladder.
-6. **No e2e coverage of the failure path.** No existing e2e forces a diagram `onError`
-   (nothing under `tests/e2e/` references `failedKeys`, and the one `onError` mention in
-   `tests/e2e/crew-layout-dimensions.spec.ts` is a defensive comment, not an injection).
-   Building that harness is a separate arc. Re-file trigger: the next arc needing real-browser
-   image-failure behavior for any reason.
+5. **A retry on an originals-only diagram can transfer up to 50 MB, and the app cannot
+   know the size before the request runs.** There is no `Content-Length` until the response
+   arrives, so no number can be shown in advance. Ratified in §3.1 with the ceiling stated.
+   The control is disabled while in flight, so the worst case is user-paced. Re-file
+   trigger: the variant pipeline gaining a fallback tier for GIFs and sub-256px sources,
+   which would remove the case entirely.
+6. **RETRACTED — the e2e failure path is built here, not deferred.** An earlier draft
+   fenced it out as a separate arc, which contradicted AC-7: the writing-plans rule makes a
+   real-browser layout assertion mandatory for a fixed-dimension parent, and the retry
+   button only exists in the failed state, so the fence removed the only admissible setup
+   for a measurement the same document required. The fence was wrong, not the requirement.
+   It is also cheap to retract: `page.route` is established in this suite (six specs use it,
+   e.g. `tests/e2e/published-review-modal.prefetch.spec.ts:115`), so aborting the diagram
+   asset request is a few lines rather than a harness. §8's measurement runs against that.
 
 ## 11. Acceptance criteria
 
@@ -467,8 +599,8 @@ here rather than as a finding.
 - **AC-3** Both outcomes are announced by name, on the channel audible at the time (gallery
   region, dialog region, or buffered through the exit window).
 - **AC-4** The control is `disabled` and `aria-busy` while in flight, and shows `Retrying…`.
-- **AC-5** A parse-time-unavailable item shows no control, and neither does an
-  originals-only item (§3.1).
+- **AC-5** A parse-time-unavailable item shows no control. An originals-only item DOES
+  show one, and its active-slide variant renders the `Full size.` line (§3.1, §5).
 - **AC-6** A runtime-failed cell that HAS a control keeps focus; one that does not still
   relocates to a sibling; focus never reaches `<body>` in either case.
 - **AC-7** In a real browser, the retry button's box equals the cell's within 0.5px (§8).
@@ -481,6 +613,17 @@ here rather than as a finding.
 - **AC-11** An item that goes unavailable and available again returns to `idle`, with no
   retained placeholder or control (§9.1).
 - **AC-12** No retry control is rendered on an inactive lightbox slide (§2).
+- **AC-13** A retry does not write `demotedRef`, so a re-pinch after a successful retry
+  still reaches the original (§4.0.2).
+- **AC-14** A demoted slide that goes unavailable shows no demote chip, in the first frame
+  and after its timer would have expired (§9.1).
+- **AC-15** `successorTo` never returns a retry button: relocation from an originals-only
+  failure skips any cell that is `failed` or `retrying` (§7).
+- **AC-16** A slide swiped away mid-retry does not return holding a disabled `Retrying…`,
+  and focus does not reach `<body>` when its control unmounts (§4.0.4).
+- **AC-17** Every per-item member of the §4.0.3 table has a clear path, or a row saying
+  deliberately none. Asserted as a source-derived guard over the grep in that section, so a
+  new member fails by default.
 
 ## 12. Out of scope
 
@@ -489,7 +632,6 @@ here rather than as a finding.
 - Changing the asset route's cache headers or adding an ETag. That would be a real
   improvement and it is a different arc with a different blast radius.
 - The `2026-08-10` demote path, chip, and zoom gate (§1.1).
-- e2e image-failure injection (§10.4).
 
 ## 13. Round-1 review dispositions
 
@@ -499,7 +641,7 @@ reversals are fenced in both directions.
 
 | # | finding | disposition |
 |---|---|---|
-| 1 | a slide holding `wantsOriginal` that fails while INACTIVE would retry at the original when swiped back | CONFIRMED. §4.0.2: entering `retrying` clears `wantsOriginal` and sets `demotedRef`, the same pair of writes the ratified demote path makes. AC-9 pins the requested tier. |
+| 1 | a slide holding `wantsOriginal` that fails while INACTIVE would retry at the original when swiped back | CONFIRMED. §4.0.2: entering `retrying` clears `wantsOriginal`. **The `demotedRef` half of this repair was itself wrong and round 2 caught it — see §14 finding 1.** AC-9 pins the requested tier. |
 | 2 | §7 amended the ratified focus contract while claiming to preserve it | CONFIRMED, and I had reached the same conclusion independently while enumerating the blast radius. §7 is now titled and argued as an amendment with its disposition. |
 | 3 | the byte-identical-URL claim is false; `next/image` emits a `srcSet` and the browser picks | CONFIRMED. §3 restated: the bound is the candidate SET, which for a laddered entry never contains the original. AC-2 now asserts the rendered `srcSet`, since a single-URL assertion cannot observe browser selection. |
 | 4 | a control on an inactive slide is `aria-hidden` yet still collected by the focus trap | CONFIRMED. §2: inactive slides get no control at all. §10.4 records the cost and its re-file trigger. |
@@ -511,3 +653,31 @@ reversals are fenced in both directions.
 **Fenced in both directions**, per the reversal rule: findings 3 and 7 each reversed a claim
 this spec previously made. Neither reversal is reopened by re-arguing the original — §3 has
 the srcSet mechanism cited in the framework source, and §3.1 has the ratification wording.
+
+**Finding 7 was then decided the other way by the product owner.** Review was right that it
+was a product fork this spec should not settle; it was escalated, and Eric chose to offer the
+control at original cost, knowing the ceiling is 50 MB. §3.1 carries all three positions and
+the reason the same argument does not reach §2.
+
+## 14. Round-2 review dispositions
+
+Round 2 returned BLOCKING with five findings. All five verified, all five repaired. The
+reviewer also positively confirmed two watchpoints the round-2 brief named: all nine
+relocation fixtures use `variants: []`, and a laddered `srcSet` cannot resolve to the
+original through `servingVariants`.
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | writing `demotedRef` on retry makes the promised re-pinch permanently impossible; it has no clear path | CONFIRMED. §4.0.2 now removes a write instead of adding one: retry clears `wantsOriginal` and does NOT touch `demotedRef`. Its guard has no hazard on this path, because a `failed` slide does not mount `TransformWrapper`. AC-13. |
+| 2 | the availability clear runs too late, and `demotedNotice`/`demoteTimerRef` were omitted | CONFIRMED. §9.1 inverted: the clear happens when the item goes UNAVAILABLE, where no render can observe the retained state. The chip predicate also gains `item.available`. AC-11, AC-14. |
+| 3 | clearing `pendingFailuresRef` makes an in-flight retry button eligible in `successorTo` | CONFIRMED. §7: `thumbRefs` holds only healthy thumbnails, the retry button gets its own map, and `usable` derives eligibility from the state machine rather than from two proxy conditions. AC-15. |
+| 4 | the active-to-inactive lifetime of the new control is undefined | CONFIRMED. §4.0.4 defines it: `retrying` clears and the id returns to `failedKeys`; focus moves to Close, the destination the existing error path already uses. AC-16. |
+| 5 | AC-7 cannot be discharged under §10.6's own e2e fence | CONFIRMED. §10.6 RETRACTED. The fence was mine and it contradicted a mandatory rule; `page.route` is already established in six specs, so the setup is a few lines. |
+
+**The class, not the five instances.** Six of the eleven findings across both rounds were one
+shape: per-item state whose lifetime the retry machine did not define. §4.0.3 closes it with
+a derived cover — every `useState`/`useRef` in either component keyed by or holding an item
+id gets a row, produced by a grep the section states, so a member added later fails by
+default rather than being silently exempt. AC-17 makes that executable. Per the
+structural-defense-calibration rule, it ships in this repair commit rather than waiting for a
+third round to confirm the class.
