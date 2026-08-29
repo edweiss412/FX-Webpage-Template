@@ -53,11 +53,30 @@ describe("/help/tour transition inventory (spec §5)", () => {
     }
   });
 
-  it("rest to focus-visible and hover to focus-visible are INSTANT — no animation is declared", () => {
-    // The inventory's other two rows are "instant", so the assertion is an ABSENCE:
-    // no transition or animation utility scoped to focus on this page. Stated as a
-    // row rather than left implicit, because an unstated instant transition and a
-    // forgotten one look identical in a diff.
+  it("the focus ring APPEARS instantly, and its colour is not excluded from the card's transition", () => {
+    // This row said "instant" and asserted only the ABSENCE of focus-scoped
+    // transition utilities. That absence is real and still asserted below, but it
+    // was never the whole claim: Tailwind 4's `transition-colors` includes
+    // `outline-color` (verified against this repo's own 4.2.4 build), and the cards
+    // carry it UNSCOPED, so the focus ring's colour is inside the transitioned
+    // property set. "No focus-scoped utility" and "nothing transitions on focus"
+    // are different statements, and the test only ever checked the first.
+    //
+    // What is actually true, and what this now pins: the ring's APPEARANCE is
+    // instant because `outline-style` is not an animatable property — going from
+    // no outline to `3px solid` cannot interpolate — while its COLOUR is subject
+    // to the anchor's pre-existing `transition-colors`. Both halves are
+    // pre-existing and unchanged by this branch; the defect was the description.
+    const globals = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    expect(
+      globals,
+      "the focus ring is a global :focus-visible rule, not a per-card animation",
+    ).toMatch(/:focus-visible\s*\{[^}]*outline:\s*3px solid/);
+    expect(globals, "the ring must not declare its own transition").not.toMatch(
+      /:focus-visible\s*\{[^}]*transition/,
+    );
+    // The absence the original row asserted, kept: no focus-SCOPED animation is
+    // declared on this page, so nothing overrides the two facts above.
     expect(src, "no focus-scoped transition utility").not.toMatch(/focus(-visible)?:transition/);
     expect(src, "no focus-scoped animation utility").not.toMatch(/focus(-visible)?:animate-/);
   });

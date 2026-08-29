@@ -96,6 +96,15 @@ Nothing else the gate raised changed the shipped design: the staggered right edg
 working as intended, and the 1.25:1 hover cue and the off-system eyebrow tracking are both
 pre-existing on all eight cards.
 
+**Amendment, 2026-08-29 (second) — §5 said focus was instant, and that was wrong.** Diff review
+round 2 found it. The row claimed "the focus ring is not animated anywhere in this project's help
+surfaces", and its guard asserted only the ABSENCE of focus-SCOPED transition utilities — a
+different and weaker statement, which is why it passed. Tailwind 4's `transition-colors` includes
+`outline-color`, the cards carry that utility unscoped, and the `focus-visible` rule in `app/globals.css`
+sets an outline colour, so the ring's colour IS transitioned. What is instant is the ring's
+appearance, because `outline-style` cannot interpolate. Both facts are pre-existing and untouched
+by this branch; only the description was wrong, and §5 now states both halves.
+
 ---
 
 ## 2. Probe
@@ -551,8 +560,8 @@ table is short because the surface is, not because it was skipped.
 | From | To | Treatment |
 | --- | --- | --- |
 | rest | hover | `border-color` only, via the existing `transition-colors` on the anchor. Unchanged by this branch. |
-| rest | focus-visible | Instant. The focus ring is not animated anywhere in this project's help surfaces. |
-| hover | focus-visible | Instant; the border-color transition already in flight is not interrupted, because the two properties do not overlap. |
+| rest | focus-visible | The ring APPEARS instantly — `outline-style` is not animatable, so no outline to `3px solid` cannot interpolate. Its COLOUR is inside the anchor's existing unscoped `transition-colors`, because Tailwind 4 includes `outline-color` in that utility (verified against this repo's 4.2.4 build). Pre-existing; this branch changes neither half. |
+| hover | focus-visible | The border-color transition already in flight is not interrupted. The two states change different properties — `border-color` and `outline-color` — and both are in the same transition set, so they run independently rather than one cancelling the other. |
 
 Compound: a viewport resize while a hover transition is mid-flight re-runs layout under the new
 grid template. Nothing is animated on width, so there is no interpolation to interrupt. No
