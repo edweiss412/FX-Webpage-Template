@@ -9,14 +9,16 @@ first: its done condition is a number outside the tooling, "rounds burned per ar
 drift". That measurement ran before any of this was drafted. **It says neither arm should be built.**
 What ships is a paragraph, two index rows, and a ledger move.
 
-**Two arguments carry this, and neither is economic.** First, the corpus has already ratified that
-naming a producing command is not a binding, so a marker satisfying the existence check can leave a
-table exactly as drifted as it found it (§5). Second, and found only by deriving the namings properly,
-**eleven arcs have now paid for this shape, and the practice the row would formalize is already
-widespread among them and already failing** (§5). Naming the producing command beside the table is
-common here; §5's live instance is an arc doing exactly that whose table drifted anyway, stating 53
-where its own command's comment says 56 and where the command returns 55 today. A marker is that
-practice with a linter able to see the comment, and the comment is not what drifted.
+**One argument carries this, and it is not economic.** The corpus has already ratified that naming a
+producing command is not a binding, so a marker satisfying the existence check can leave a table
+exactly as drifted as it found it (§5).
+
+One observation supports it, and is stated at the strength the records actually reach: §5's live
+instance is an arc that placed its producing command beside its table and drifted anyway, stating 53
+where its own command's comment says 56 and where the command returns 55 today. That demonstrates the
+practice a marker would formalize does not hold the property. It is one instance, not a survey — the
+census measures adjacency and purity, not how many authors follow the practice — and an earlier draft
+called the practice "already widespread", which the records do not support and which is withdrawn.
 
 **The economic argument does NOT support this disposition, and §3 says so.** An earlier draft leaned on
 it and was wrong: correcting the naming count from four arcs to eleven takes the class cost from 6
@@ -32,12 +34,13 @@ weak three and stops will misjudge how this case is built, so the ledger is stat
 | population (§6) | 8 tables reachable | **an upper bound**, at most 6 |
 | adoption (§4) | a demonstration | **thin** — the marker it leads with is 3 days old |
 | structural (§5) | decisive | **holds**, and gained a live in-domain instance |
-| repair shape (§5) | 3 arcs converging on a non-pointer repair | **withdrawn at R4 as tautological; replaced by the stronger reading of the same records, that naming a command beside a table is common practice here and did not prevent the drift** |
+| repair shape (§5) | 3 arcs converging on a non-pointer repair | **cut to one instance.** R4 withdrew it as tautological; R5 withdrew the prevalence claim that replaced it. What is left is a single arc that placed its producing command beside its table and drifted anyway, which supports and does not carry |
 
-The disposition rests on §5's structural argument, which has not moved in four rounds. §5's second
-argument was rewritten three times under review before reaching a form that survives, and it now
-supports rather than carries: it shows the row's practice already in use and already failing, which is
-the structural point arrived at from the arcs' behaviour instead of from the ratified ruling.
+The disposition rests on §5's structural argument alone, which has not moved in five rounds. §5's
+second argument was rewritten three times and then cut back twice more; what is left of it is a single
+demonstrated instance, which supports and does not carry. Round 5 confirmed the conclusion survives
+that subtraction, and subtraction is the right terminating move on a document whose purpose is to
+decline to build something: the finishing repair is fewer claims, not better ones.
 
 ## 1. Methodology
 
@@ -272,20 +275,24 @@ everything the row's marker would ask for. It is also why the repair is an ancho
 a reader told the figure was measured at a sha six weeks old learns something true and immediately
 useful, and one header line already delivers it.
 
-**And the practice the row would formalize is already widespread, and already failing.** This is the
-second argument, and diff review round 4 finding 2 is what got it to the right form: three earlier
-drafts claimed the eleven arcs converged on a repair that was not a pointer, and each was some mix of
-false and tautological. Eight of the eleven DO relate their table to a named script, query, command,
-extraction rule or committed output. `feat/speclint-ac-unclaimed-arm` places the producing command
-beside the table outright. So "nobody reached for a pointer" was true only if "pointer" meant the exact
-unshipped HTML syntax, which makes the absence a definition rather than a finding. It is withdrawn.
+**And one instance shows the practice the row would formalize failing on its own terms.** This is the
+supporting observation. It is deliberately small, because five rounds of review shrank it: three drafts
+claimed the eleven arcs converged on a repair that was not a pointer (round 4 finding 2 showed each was
+some mix of false and tautological — eight of the eleven DO relate their table to a named script, query,
+command, extraction rule or committed output, so "nobody reached for a pointer" was true only if
+"pointer" meant the exact unshipped HTML syntax), and a fourth called the practice "already widespread",
+which round 5 finding 1 showed the records do not support either. Only ONE cited repair explicitly
+places a producer beside its table, and the census measures adjacency and purity, not prevalence.
 
-**What the same records show instead is worse for the marker, not better.** Putting the producing
-command beside the table is common practice here, and §5's live instance is an arc doing exactly that
-and drifting anyway: `docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:394` prints
-its command directly above the table it produced, and states 53 where the command's own comment says 56
-and where the command returns 55 today. The practice was followed. The drift happened regardless,
-because a command names how a figure was derived and not what it was derived from.
+**What survives is one instance, and it is enough for what it is asked to do.**
+`docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:394` prints its producing command
+directly above the table, and states 53 where that command's own comment says 56 and where the command
+returns 55 today. The practice was followed and the drift happened regardless, because a command names
+how a figure was derived and not what it was derived from. That is a demonstration that the practice
+does not hold the property, which is all this observation claims. **It is not evidence about how many
+authors follow it**, and the disposition does not rest on it: §5's ratified structural argument above
+is what carries the conclusion, and round 5 confirmed the conclusion survives subtracting this
+paragraph entirely.
 
 A `<!-- table: cmd=` `` ` ``…`` ` ``` -->` marker is that same practice with an HTML comment around it
 and a linter able to see it. What the linter would then check is that the comment is present and
