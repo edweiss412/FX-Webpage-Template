@@ -2175,6 +2175,47 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
   });
 
+  test("AC-11: the persistence guarantee is stated whenever there is a draft, in BOTH disclosure states", () => {
+    const GUARANTEE = "Kept on this device until you close the tab.";
+    const q = renderBody(sectionData(), "report");
+    // Nothing to keep, nothing to promise.
+    expect(q.queryByText(GUARANTEE)).toBeNull();
+
+    typeInto(q, TYPED);
+    expect(q.getByText(GUARANTEE)).toBeTruthy(); // expanded, beside the text
+    fireEvent.click(q.getByTestId(TOGGLE)); // collapse
+    expect(q.queryByTestId(TEXTAREA)).toBeNull(); // genuinely collapsed
+    expect(q.getByText(GUARANTEE)).toBeTruthy(); // still stated, and now the only cue
+
+    // Emptying the field withdraws the promise rather than leaving it stale.
+    fireEvent.click(q.getByTestId(TOGGLE));
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: "" } });
+    expect(q.queryByText(GUARANTEE)).toBeNull();
+  });
+
+  test("AC-12: focus is never on the trigger at the moment its label flips, so no accessible name changes under the user", async () => {
+    // Assessment B: the label swap is not a WCAG 4.1.2 problem as implemented,
+    // but only because focus is provably elsewhere at both flip moments, and
+    // nothing pinned that. A later focus-restore-on-collapse change would
+    // reintroduce it silently. Both flip moments are asserted here.
+    const q = renderBody(sectionData(), "report");
+    const toggle = q.getByTestId(TOGGLE);
+
+    // Flip 1: empty -> non-empty, on the first keystroke. The §D1 effect has
+    // moved focus to the textarea by then.
+    fireEvent.click(toggle);
+    const textarea = q.getByTestId(TEXTAREA) as HTMLTextAreaElement;
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    fireEvent.change(textarea, { target: { value: "x" } });
+    expect(toggle.textContent).toBe("Continue your report"); // it really did flip
+    expect(document.activeElement).not.toBe(toggle);
+
+    // Flip 2: non-empty -> empty, clearing in place.
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: "" } });
+    expect(toggle.textContent).toBe("Write a report");
+    expect(document.activeElement).not.toBe(toggle);
+  });
+
   test("AC-6: sessionStorage throwing on every access degrades to today's behaviour, never to a crash", () => {
     const boom = () => {
       throw new DOMException("denied", "SecurityError");

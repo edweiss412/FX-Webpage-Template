@@ -56,6 +56,8 @@ A restored draft the operator cannot see is half a repair: they reopen, see the 
 
 The label is DERIVED from the current `draft` value, not captured at mount. A mount-time capture goes stale the moment the operator expands the form and deletes their text: the trigger would still promise a report to continue while the field behind it is empty. A derived label cannot drift, needs no extra state, and costs one ternary.
 
+**The guarantee is stated, not just kept.** Whenever the draft is non-empty the section renders one quiet line under the trigger: **"Kept on this device until you close the tab."** It is ambient helper text (`text-xs/relaxed text-text-subtle`), not a live region, so it never interrupts a screen reader mid-typing. It renders in BOTH disclosure states: collapsed it is the only thing on screen saying the text is safe, expanded it sits beside the text it describes. Without it a silent success is indistinguishable from a silent failure of the store, and an operator who does not already know the guarantee exists retypes instead of reopening.
+
 Auto-expanding on mount is DECLINED. The §D1 focus effect fires whenever `expanded` is true (`step3ReviewSections.tsx`, the `useEffect` guarded on `expanded`), and its comment states the contract it relies on: "mount starts collapsed so this never fires on initial render." Mounting expanded would steal focus from the shell's `initialFocusRef` (the close button, `Step3ReviewModal.tsx` `initialFocusRef={closeRef}`) at the exact moment the dialog opens. A label swap costs no focus behaviour and no new state.
 
 Copy rules: no em dash, and no apostrophe is needed in either string.
@@ -101,6 +103,27 @@ N/A. No fixed-dimension parent and no flex/grid child relationship is added or a
 - **AC-8** The trigger reads "Continue your report" whenever the draft is non-empty and "Write a report" otherwise, including after the operator clears a restored draft in place, and the disclosure is collapsed on mount in BOTH cases.
 - **AC-9** Focus on modal open is unchanged: it lands on the close button, never on the textarea, whether or not a draft was restored.
 - **AC-10** Drafts are scoped per wizard session and per drive file; neither leaks into the other.
+- **AC-11** The guarantee line renders whenever the draft is non-empty, in both disclosure states, and disappears when the field is emptied.
+- **AC-12** Focus is never on the trigger at either moment its label flips, so no accessible name changes under the user.
+
+## 6.1 Gate dispositions (invariant 8)
+
+The impeccable dual gate ran on this diff: `critique` as two isolated sub-agents (design review, detector plus evidence) and `audit`. Browser inspection was skipped throughout, with cause: the surface needs DB-backed staged wizard rows and the fleet was in a DB quiet period, where a locally booted app server points at a shared validation deployment that sends real mail.
+
+No P0. Dispositions, approved by bl-orch:
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| The restored draft is undiscoverable: the report section is always last, the modal reopens at the top, and the section's rail entry is the one with `railCount: null` and `hideDot: true` | P1 | DEFERRED to `BL-WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE`, class-sweep exception (a). The repair has to reopen the ratified §D2 no-status-dot contract, which this arc cannot settle. |
+| The guarantee is never stated in copy | P1 | FIXED in branch, §2.3 above, AC-11. |
+| The trigger carries two orthogonal meanings (disclosure state and draft state) | P2 | DECLINED. While collapsed the trigger is the only element on screen, so it is the only thing that can carry the cue; the guarantee line now carries the substance and the label carries the verb. Recorded so it is not re-derived. |
+| Auto-expand on mount when a draft was restored | P2 | DECLINED, and the reason is upgraded from mechanism to principle: it does not solve the real problem (the section is below the fold either way) and it changes mount state and focus for a case the operator may not care about. |
+| No character counter on a 2000-char field; a restored over-length draft is truncated silently | P3 | PARKED. The counter is pre-existing and unrelated to persistence; the truncation is already a documented limit in §3. |
+| Textarea has no disabled or error state; submit has no active state; submit shows hover fill while disabled | P2/P3 | PRE-EXISTING, not introduced here. A different defect class from this row, so out of scope under the class-sweep rule; not filed, because the class-sweep default applies to instances of the shape a PR is repairing, and this is not that shape. |
+| The label swap is not announced, and nothing pinned that focus is elsewhere when it flips | P2 | FIXED by pin rather than by code: AC-12 asserts focus is off the trigger at both flip moments, so a later focus-restore change fails loudly instead of silently reintroducing a WCAG 4.1.2 problem. |
+| Detector: two `broken-image` hits | n/a | FALSE POSITIVES. Both are the string `<img>` inside JSDoc prose, at lines this diff does not touch. |
+
+**SSR and hydration, the audit's load-bearing question.** `readStoredDraft` runs inside a `useState` lazy initialiser and touches `window.sessionStorage`, which would be a hydration mismatch if the subtree ever rendered on the server. It cannot. `step3ReviewSections.tsx`, `Step3SheetCard.tsx` and `Step3Review.tsx` all carry `"use client"` on line 1, and `ReportIssueSection` mounts only inside `{detailsOpen ? <Step3ReviewModal .../> : null}` (`Step3SheetCard.tsx:630`) where `detailsOpen` starts `false` (`Step3SheetCard.tsx:273`) and flips only on a user click. The first render of this subtree is always a client render after an interaction.
 
 ## 7. Documented limits
 

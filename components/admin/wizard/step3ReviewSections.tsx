@@ -4756,6 +4756,22 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
       >
         {draft === "" ? "Write a report" : "Continue your report"}
       </button>
+      {/* §D2: instant — deliberate (absent↔present with the draft).
+
+          The persistence guarantee, stated. Impeccable critique P1: the repair
+          keeps the draft and told nobody, so an operator who does not already
+          know it exists retypes rather than reopening, and a silent success is
+          indistinguishable from a silent failure of the store. Rendered
+          whenever there IS a draft, in both disclosure states: collapsed it is
+          the only thing on screen that says the text is safe, and expanded it
+          sits beside the text it is describing. `sr-only`-adjacent quiet, not a
+          live region — it is ambient reassurance, not an announcement, and it
+          must not interrupt a screen reader mid-typing. */}
+      {draft === "" ? null : (
+        <p className="text-xs/relaxed text-text-subtle">
+          Kept on this device until you close the tab.
+        </p>
+      )}
       {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too)
 
           BL-LIVE-REGION-AST-WALK-RESIDUE. The `expanded` disclosure is NOT an

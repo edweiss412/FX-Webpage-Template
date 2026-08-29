@@ -143,7 +143,11 @@ export const CENSUS: readonly CensusRow[] = [
   // testid on the merged tree, located by running the scanner.
   // Then 4697 -> 4703 on the R2 repair (the reportShowId prop and its comment).
   // Same report-toggle testid, located by the scanner.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4703 },
+  // Then 4703 -> 4747 on fix/wizard-report-draft-escape, which added the draft
+  // storage helpers above ReportIssueSection. Located by the unique
+  // `wizard-step3-card-${dfid}-report-toggle` testid and its `<button>` opener,
+  // per the method the notes above prescribe — never by adding the delta.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4747 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -167,7 +171,18 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4741 -> 4754 on the R1 repair commit, located by its own
   // `disabled={draft.trim()...}` opener.
   // Then 4754 -> 4760 on the R2 repair, same `disabled={draft.trim()...}` opener.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4760 },
+  // Then 4760 -> 4807 on fix/wizard-report-draft-escape. Same
+  // `disabled={draft.trim()...}` opener, located on the branch tree. Note the two
+  // rows did NOT move by the same amount (row 18 moved 44, this one 47): the draft
+  // write in the textarea's onChange sits BETWEEN them, which is exactly why the
+  // notes above forbid resolving either row by applying the other's delta.
+  // Then 4807 -> 4823 on the same branch, when the impeccable P1 repair added the
+  // persistence-guarantee line under the trigger. Row 18 did NOT move again (the
+  // new element sits below its `<button>`), so the two rows have now diverged
+  // twice within one branch. Located, as ever, by the `disabled={draft.trim()...}`
+  // opener on the final tree — re-run AFTER the last edit, because the first
+  // re-key of this arc was done before that edit and was stale within the hour.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4823 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
