@@ -314,7 +314,37 @@ a marker. The command now asserts the markers are absent and runs the ledger gua
 ## 12. Invariant-8 closeout
 
 UI surface touched: `app/help/tour/page.mdx`, `app/help/errors/page.tsx`, `app/globals.css`.
-Findings and dispositions land here when task 8 runs.
+
+Both halves ran as isolated parallel sub-agents, so no degraded-run banner applies. Setup gates:
+`context.mjs` loaded PRODUCT.md, then the **product** register reference (design serves the
+product — this is admin-facing help documentation for one primary reader, not a marketing surface).
+
+**Audit — clean.** Detector exit 0, zero findings over both markup files. Six mechanical checks
+pass: no em dash; eight card anchors each carrying `data-tour-card` and an `aria-label`; tap targets
+far over the 44px floor (`block` + `p-5`, and measured card heights 298.6-824.8px); `.help-bleed`
+scoped to a direct child of `.help-prose`; the errors jump list correctly takes NO bleed; contrast
+5.97-6.76:1 for the eyebrow and 5.02-9.65:1 for the call to action, all clear of 4.5:1.
+
+**Browser evidence: UNAVAILABLE, and not substituted.** The page needs an authenticated admin
+session plus a server on a port this arc had released with its database slot. The committed §2.3
+sweep — the proposed CSS injected into the real page at 4px from 320 to 1440 — stands in its place
+and is stronger evidence for every layout question the gate asks.
+
+**Critique — AI slop verdict: NO.** The uppercase tracked eyebrow is a genuine pre-existing page
+convention, differentiated per card across the seven that shipped on `origin/main`, not a template
+tic. Nielsen scores 3-4 across all ten.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| P1 | The `col-span-full` card reaches **80.9ch** inside a bled grid at 1280, up from 65.8ch on `origin/main` — over `DESIGN.md` §2.5's 75ch ceiling. | **FIXED.** Its body caps at `var(--help-measure)` (70.0ch), keeping the card's pre-existing full-width prominence while its text stays in band. |
+| P1 | AC-1 could not have caught that, twice over: it is a floor with NO ceiling, and it sampled only the FIRST card of each grid while the span card is card 3. | **FIXED, structurally.** AC-1 now reads every card body and asserts both bounds. A floor-only criterion called an 80.9ch regression an improvement. |
+| P2 | The new eyebrow restated its own group heading: "Once per environment" over "First time only" over "Set once, revisit rarely" — one sentence three times. | **FIXED.** Now "Admins, folder, emails", naming the content as the other six eyebrows do. |
+| P2 | Staggered right edge: headings and prose stay at 704.4px while the grids run to 856px. | **ACCEPTED as intentional.** That difference IS the bleed, and the bleed is the point of the change. Recorded so it reads as a decision rather than a container bug. |
+| P2 | The hover cue (`border-border` to `border-border-strong`) measures 1.25:1 light / 1.26:1 dark against itself — barely perceivable. | **PRE-EXISTING, already filed.** `DESIGN.md` §1.2a documents the pair and `DEFERRED.md` carries `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` for it. This diff adds an eighth instance of an existing pattern rather than introducing one; the CTA underline is the load-bearing cue either way. |
+| P3 | Eyebrow tracking is `tracking-wider` (0.05em), not `--tracking-eyebrow` (0.12em, `DESIGN.md` §2.6). | **PRE-EXISTING on all eight cards.** Tailwind defaults escape the bracket-form meta-test, so it drifts silently. Noted, not fixed here: changing it would restyle seven cards this arc otherwise leaves alone. |
+| obs | Three columns is unreachable — three 22rem tracks need 1088px and `max-w-6xl` caps the grid at 856px — so the "When a show is live" group renders 2+1 with a trailing card at half width. | **ACCEPTED.** Normal grid behaviour for three cards in two columns, and the alternative is the 80.9ch span the P1 above just fixed. The two findings are one problem seen twice: at 856px a trailing card is either too wide or visually ragged, and ragged is the better failure. |
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 
 No marker line yet, deliberately. The grammar admits only `critique=RAN` or `critique=RAN-DEGRADED`
 — there is no legal "not yet run" value — so the line cannot exist until task 8 has actually run

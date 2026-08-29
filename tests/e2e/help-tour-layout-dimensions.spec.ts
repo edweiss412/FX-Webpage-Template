@@ -26,6 +26,12 @@ import { premise, premiseHolds } from "@/tests/_shared/premise";
  *  columns cannot exceed 24ch, two cannot exceed 38ch). Spec §8 states the derivation. */
 const MEASURE_FLOOR_CH = 28;
 
+/** DESIGN.md §2.5 caps body copy at 65-75ch. The floor above is this arc's own,
+ *  derived in spec §8 because no multi-column card can reach 65ch; the CEILING is
+ *  the documented one, and it still binds — a full-span card is single-column, the
+ *  exact case the floor's derivation does not cover. */
+const MEASURE_CEILING_CH = 75;
+
 /** Sampled thresholds, from the spec §2.3 sweep. 752 and 1016 are the two-column
  *  switches; 768 is where the sidebar drops the container and the grid falls back to
  *  one column; 320 is the overflow pin; 390 is the mobile case asserted UNCHANGED. */
@@ -56,9 +62,16 @@ async function readTour(page: Page) {
     return {
       mainWidth: w(main),
       grids: grids.map((g) => {
-        const card = g.querySelector("a[data-tour-card]") as HTMLElement | null;
-        const body = card?.querySelector("p") as HTMLElement | null;
+        // EVERY card, not the first. Sampling one card per grid missed the
+        // col-span-full card entirely — it is card 3 of grid 1, and it is the
+        // widest thing on the page, so it is exactly the one a floor-only
+        // assertion on card 1 cannot see.
+        const cards = Array.from(g.querySelectorAll("a[data-tour-card]")) as HTMLElement[];
+        const bodies = cards
+          .map((c) => c.querySelector("p") as HTMLElement | null)
+          .filter((b): b is HTMLElement => b !== null);
         let ch = 0;
+        const body = bodies[0] ?? null;
         if (body) {
           const cs = getComputedStyle(body);
           const ctx = document.createElement("canvas").getContext("2d");
@@ -83,6 +96,8 @@ async function readTour(page: Page) {
           firstTrack,
           cardCount: g.querySelectorAll("a[data-tour-card]").length,
           measureCh: body && ch ? +(w(body) / ch).toFixed(1) : -1,
+          // every card body's measure, so a ceiling can be asserted over all of them
+          measuresCh: ch ? bodies.map((b) => +(w(b) / ch).toFixed(1)) : [],
         };
       }),
     };
@@ -124,9 +139,20 @@ test.describe("/help/tour card grids — real-browser layout", () => {
       premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
       for (const [i, g] of m.grids.entries()) {
         premise(`grid ${i + 1} measures a card body at ${vw}px`, g.measureCh, 0);
-        expect(g.measureCh, `grid ${i + 1} measure at ${vw}px`).toBeGreaterThanOrEqual(
-          MEASURE_FLOOR_CH,
-        );
+        premise(`grid ${i + 1} measures EVERY card at ${vw}px`, g.measuresCh.length, 0);
+        for (const [j, measure] of g.measuresCh.entries()) {
+          expect(measure, `grid ${i + 1} card ${j + 1} measure at ${vw}px`).toBeGreaterThanOrEqual(
+            MEASURE_FLOOR_CH,
+          );
+          // A CEILING as well as a floor. DESIGN.md §2.5 caps body copy at 75ch, and
+          // an AC-1 with only a floor cannot see a card that is too WIDE — which is
+          // exactly what the impeccable gate found: the col-span-full card reached
+          // 80.9ch inside a bled grid, up from 65.8ch before this change. A floor-only
+          // criterion called that an improvement.
+          expect(measure, `grid ${i + 1} card ${j + 1} measure at ${vw}px`).toBeLessThanOrEqual(
+            MEASURE_CEILING_CH,
+          );
+        }
       }
     }
   });
