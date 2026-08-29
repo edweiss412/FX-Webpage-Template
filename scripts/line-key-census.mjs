@@ -344,6 +344,7 @@ if (process.argv.includes("--proximity")) {
 // counting a row as anchored only when its anchor is unique in its target file.
 if (process.argv.includes("--ambiguity")) {
   const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const jsxRows = new Map();
   console.log("\nregistry\trows\ttestid-uniq\ttestid-dup\tlabel-uniq\tlabel-dup\temit\tno-anchor");
   let T = [0, 0, 0, 0, 0, 0, 0];
   for (const r of rows) {
@@ -403,6 +404,7 @@ if (process.argv.includes("--ambiguity")) {
     }
     if (tu + td + lu + ld + em + na === 0) continue;
     console.log(`${r.f}\t${tu + td + lu + ld + em + na}\t${tu}\t${td}\t${lu}\t${ld}\t${em}\t${na}`);
+    jsxRows.set(r.f, { tot: tu + td + lu + ld + em + na, tu, td, lu, ld, na });
     T = [
       T[0] + tu + td + lu + ld + em + na,
       T[1] + tu,
@@ -433,6 +435,24 @@ if (process.argv.includes("--ambiguity")) {
   }
   console.log(`\nDECLINE = testid-dup + label-dup + no-anchor = ${T[2] + T[4] + T[6]}`);
   console.log(`ANCHORED = testid-uniq + label-uniq + emit = ${T[1] + T[3] + T[5]}`);
+  // The five JSX style registries as their own subtotal. The spec quotes this split,
+  // and deriving it by hand from the rows above is precisely how a stale number gets in:
+  // an earlier draft claimed this line existed while the tool did not print it.
+  const JSX_REGISTRIES = [
+    "tests/styles/controlOutlineScan.ts",
+    "tests/styles/tapTargetCensus.ts",
+    "tests/styles/_metaControlOutlineFill.test.ts",
+    "tests/styles/subtleInteractiveExemptions.ts",
+    "tests/styles/_metaControlOutlineResidue.test.ts",
+  ];
+  let j = { tot: 0, tu: 0, td: 0, lu: 0, na: 0 };
+  for (const [f, v] of jsxRows) {
+    if (!JSX_REGISTRIES.includes(f)) continue;
+    j = { tot: j.tot + v.tot, tu: j.tu + v.tu, td: j.td + v.td, lu: j.lu + v.lu, na: j.na + v.na };
+  }
+  console.log(
+    `JSX-SUBTOTAL rows=${j.tot} anchored=${j.tu + j.lu} declining=${j.td + j.na} = ${Math.round((100 * (j.tu + j.lu)) / j.tot)}% anchorable`,
+  );
 }
 
 // --derivability: an emit anchor is only content-anchored if the SCANNER can

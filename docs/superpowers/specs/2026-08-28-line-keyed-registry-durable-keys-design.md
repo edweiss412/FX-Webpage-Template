@@ -53,7 +53,7 @@ without saying which is which (§4.1).
 
 ## 1. What is actually keyed by line
 
-Enumerated from disk, not hand-listed. One command produces every number in this section and in §4:
+Enumerated from disk, not hand-listed. The populations below come from one command; §4's anchor columns come from a different mode of it, and the ledger from a different script entirely (§0.1 has the full map):
 
 ```
 node scripts/line-key-census.mjs --anchors
@@ -209,15 +209,15 @@ because presence without discrimination is the whole subject (§7 item 6). `re-k
 
 One registry the ledger row mentions is deliberately ABSENT from this table: `tests/specLint/acAmbiguousRecord.ts` keys its 14 rows on a `plan:` field rather than a `file:` field, so the census does not emit it at all and no number here is derived for it. It is dispositioned in §4.2 on a hand count, flagged as such.
 
-| registry | rows | re-keys | commits | blast | testid | label | emit | decline |
+| registry | rows | re-keys | commits | blast | testid-uniq | label-uniq | emit | declining |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `tests/adminAlerts/alertProducerScope.registry.ts` | 47 | **189** | 44 | **20** | 0 | 0 | 40 | 7 |
-| `tests/styles/tapTargetCensus.ts` | 51 | 43 | 28 | 5 | 37 | 2 | 0 | 12 |
-| `tests/styles/controlOutlineScan.ts` | 62 | 35 | 19 | 4 | 50 | 3 | 0 | 9 |
+| `tests/styles/tapTargetCensus.ts` | 51 | 43 | 28 | 5 | 19 | 3 | 0 | 29 |
+| `tests/styles/controlOutlineScan.ts` | 62 | 35 | 19 | 4 | 26 | 0 | 0 | 36 |
 | `tests/db/postgrest-dml-lockdown.test.ts` | 33 | 35 | 4 | 11 | 0 | 0 | 0 | **33** |
-| `tests/styles/subtleInteractiveExemptions.ts` | 13 | 9 | 9 | 1 | 8 | 0 | 0 | 5 |
+| `tests/styles/subtleInteractiveExemptions.ts` | 13 | 9 | 9 | 1 | 3 | 0 | 0 | 10 |
 | `tests/styles/_metaControlOutlineResidue.test.ts` | 10 | 9 | 8 | 2 | 2 | 0 | 0 | 8 |
-| `tests/styles/_metaControlOutlineFill.test.ts` | 22 | 3 | 3 | 1 | 17 | 2 | 0 | 3 |
+| `tests/styles/_metaControlOutlineFill.test.ts` | 22 | 3 | 3 | 1 | 8 | 0 | 0 | 14 |
 | `tests/help/_metaServerTimeGuard.test.ts` | 13 | **0** | 0 | 0 | 0 | 0 | 13 | 0 |
 | `tests/specLint/expectContractCorpus.test.ts` | 10 | n/a | n/a | n/a | 0 | 0 | 0 | 10 |
 | `tests/mutation/source/registry.ts` accepted rows | 268 | see §4.2 | — | wholesale | 0 | 0 | 0 | **268** |
@@ -241,7 +241,7 @@ and an inline `onClick={() => ...}` contains one, so a present `data-testid` rea
 node scripts/line-key-census.mjs --ambiguity
 ```
 
-prints the per-registry split and the `JSX-SUBTOTAL` line. **The five style registries are 39%
+prints the per-registry split, a `DUPLICATE-TESTID-FILES` line, and a `JSX-SUBTOTAL` line. **The five style registries are 39%
 anchorable.** The per-registry rows are not restated here; the command prints them, and a table
 copied into prose is a line-key into a moving tree, which is this document's own subject.
 
@@ -340,7 +340,17 @@ live site-extraction proof.
 
 The `emit` anchor was almost `(file, code)`. Measured against the live registry, `(file, code)` is NOT unique: **6 surplus rows in 5 colliding groups across 47 rows, 41 distinct pairs**, reproduced by `node scripts/line-key-census.mjs --collisions`. Shipping that key would have merged distinct rows into one, which is precisely the silent misbind §2 says is worse than the disease.
 
-Adding the content-derived discriminators the row already carries (`contextKeys` and `scope`) resolves **1 of 5** collision groups. In each of the other four, at least two rows remain identical in every field the registry holds. Note the third `assetRecovery` row is NOT identical to its two siblings; it is listed because its group still contains an identical pair, and the anchor must decline for the whole group:
+Adding the content-derived discriminators the row already carries (`contextKeys` and `scope`)
+resolves **1 of 5** collision groups. In each of the other four, at least two rows remain
+identical in every field the registry holds.
+
+**`--collisions` reports nine declining rows, and the shipped resolver declines eight.** That is
+a policy difference, not a measurement disagreement (§4.4 item 3). `--collisions` refuses a whole
+group it cannot fully separate, so all three `ASSET_RECOVERY_REVISION_DRIFT` rows are counted;
+§3.3 resolves per row, and the third of those at line 656 has different context keys, so its anchor
+matches exactly one site and it BINDS. **Per-row governs, because that is what §3.3 specifies.**
+Nine is `--collisions`' conservative output, reported here as its own policy and not as the
+document's conclusion:
 
 ```
 lib/sync/runScheduledCronSync.ts::PARSE_ERROR_LAST_GOOD   lines 2768, 3635   ctx=[drive_file_id,sheet_name] scope=per-show
@@ -361,8 +371,9 @@ No registry migrates and no resolver ships. Three things do.
 ### 6.1 The measurement instrument
 
 `scripts/line-key-census.mjs` — walker-derived, five modes (`--anchors`, `--collisions`,
-`--proximity`, `--ambiguity`, `--derivability`), producing every number in this document that is
-not explicitly marked a historical git-history measurement (§4.5). It carries the two
+`--proximity`, `--ambiguity`, `--derivability`), plus `scripts/ledger-key-census.mts` for the
+mutation ledger. §0.1 maps every quantity in this document to one of the seven commands, to
+arithmetic over a printed block, to a named historical measurement, or to a citation. It carries the two
 repairs review found: a row is load-bearing only when it is actually joined against a
 recomputed line, so a constructed `ScanElement` naming a real file no longer counts (§4.4);
 and the `decline` column is named for what it measures, "no syntactic anchor present", with
