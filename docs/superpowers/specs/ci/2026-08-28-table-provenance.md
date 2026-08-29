@@ -12,9 +12,11 @@ What ships is a paragraph, two index rows, and a ledger move.
 **Two arguments carry this, and neither is economic.** First, the corpus has already ratified that
 naming a producing command is not a binding, so a marker satisfying the existence check can leave a
 table exactly as drifted as it found it (§5). Second, and found only by deriving the namings properly,
-**eleven arcs have now paid for this shape, all eleven repaired, and not one repair declared a table's
-provenance** (§5). They made the table an output, deleted it, or committed the command's raw output
-beside it. The row asks for a pointer to a command, and that is the one shape nobody reached for.
+**eleven arcs have now paid for this shape, and the practice the row would formalize is already
+widespread among them and already failing** (§5). Naming the producing command beside the table is
+common here; §5's live instance is an arc doing exactly that whose table drifted anyway, stating 53
+where its own command's comment says 56 and where the command returns 55 today. A marker is that
+practice with a linter able to see the comment, and the comment is not what drifted.
 
 **The economic argument does NOT support this disposition, and §3 says so.** An earlier draft leaned on
 it and was wrong: correcting the naming count from four arcs to eleven takes the class cost from 6
@@ -30,10 +32,12 @@ weak three and stops will misjudge how this case is built, so the ledger is stat
 | population (§6) | 8 tables reachable | **an upper bound**, at most 6 |
 | adoption (§4) | a demonstration | **thin** — the marker it leads with is 3 days old |
 | structural (§5) | decisive | **holds**, and gained a live in-domain instance |
-| repair shape (§5) | 3 arcs converging | **11 arcs repaired in 3 shapes; zero declared provenance** |
+| repair shape (§5) | 3 arcs converging on a non-pointer repair | **withdrawn at R4 as tautological; replaced by the stronger reading of the same records, that naming a command beside a table is common practice here and did not prevent the drift** |
 
-The disposition rests on the two §5 arguments. Both got stronger during review; the other three did
-not, and none of them is load-bearing.
+The disposition rests on §5's structural argument, which has not moved in four rounds. §5's second
+argument was rewritten three times under review before reaching a form that survives, and it now
+supports rather than carries: it shows the row's practice already in use and already failing, which is
+the structural point arrived at from the arcs' behaviour instead of from the ratified ruling.
 
 ## 1. Methodology
 
@@ -59,7 +63,7 @@ Tables come from the shipped parser, `remark` + `remark-gfm` + `blocksFrom`
 built later cannot disagree about what a table is. Fences come from the shipped `parseDoc`
 (`lib/specLint/parse.ts:65`).
 
-**Three corrections this arc made to its own numbers, all of them this row's own defect class arriving
+**Five corrections this arc made to its own numbers, all of them this row's own defect class arriving
 in its own paperwork.**
 
 1. **The census read the working tree while claiming a sha.** Its first version listed files with
@@ -268,61 +272,36 @@ everything the row's marker would ask for. It is also why the repair is an ancho
 a reader told the figure was measured at a sha six weeks old learns something true and immediately
 useful, and one header line already delivers it.
 
-**And in eleven arcs, not one repair declared provenance.** This is the second load-bearing argument,
-and it is evidence rather than prediction. Two earlier drafts of this paragraph were wrong about it, so
-the claim is now stated at exactly the strength the corpus supports and no further.
+**And the practice the row would formalize is already widespread, and already failing.** This is the
+second argument, and diff review round 4 finding 2 is what got it to the right form: three earlier
+drafts claimed the eleven arcs converged on a repair that was not a pointer, and each was some mix of
+false and tautological. Eight of the eleven DO relate their table to a named script, query, command,
+extraction rule or committed output. `feat/speclint-ac-unclaimed-arm` places the producing command
+beside the table outright. So "nobody reached for a pointer" was true only if "pointer" meant the exact
+unshipped HTML syntax, which makes the absence a definition rather than a finding. It is withdrawn.
 
-**All eleven arcs repaired.** Diff review round 2 finding 1 is right that an earlier "six of eleven"
-was false. Its reasoning was that an arc with a finding repairs it, that being what review is; rather
-than rest on that generalisation, the table below names the repair for each of the eleven and cites or
-quotes it, so the row count is checkable rather than inferred. What differs is the SHAPE of
-the repair, and the shapes partition cleanly:
+**What the same records show instead is worse for the marker, not better.** Putting the producing
+command beside the table is common practice here, and §5's live instance is an arc doing exactly that
+and drifting anyway: `docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:394` prints
+its command directly above the table it produced, and states 53 where the command's own comment says 56
+and where the command returns 55 today. The practice was followed. The drift happened regardless,
+because a command names how a figure was derived and not what it was derived from.
 
-| arc | repair shipped | shape | cited at |
-| --- | --- | --- | --- |
-| `fix/shell-brace-cross-construct` | wrote `weaker-walks.mts`; "The table is no longer written down; it is produced" | output | `docs/superpowers/specs/ci/2026-08-22-shell-brace-cross-construct-design.md:288` |
-| `fix/severityless-warning-filters` | "one query that produces every number in its table from a single transaction" | output | `BACKLOG.md:89` |
-| `fix/mutation-shard-budget-six` | "Every figure below is printed by commands, not retyped from a transcript" | output | `docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md:4` |
-| `fix/mutation-shard-weight-seconds` | "Each repair replaced the number with the COMMAND" | output | `docs/review-rounds/fix/mutation-shard-weight-seconds/300a9f937b8a.md:125` |
-| `feat/speclint-ac-unclaimed-arm` | prints the producing command beside the corrected 108 | output | `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:38`, `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:43` |
-| `docs/quick-wins-2-specs` | the truncated sweep table corrected and re-run, "authored AND run, 2026-08-09; corrected per R1 F3" | output | `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md:103` |
-| `fix/supabase-upstream-fault-class` | "Reusing a ratified extraction rule instead of inventing one" | output | `docs/review-rounds/fix/supabase-upstream-fault-class/d04d6370985f.md:15` |
-| `feat/review-modal-strip-dock` | "§9 REWRITTEN so there is no table of the command's output"; states the discovery command and the CHANGED set instead | delete | `docs/superpowers/specs/2026-08-25-review-modal-strip-dock.md:1210` |
-| `feat/speclint-red-reason-verification` | "DELETED instead of annotated" | delete | `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.md:21` |
-| `fix/sync-log-show-id-duration` | "a table of hits is authored by running the command and pasting its output, never the reverse" | commit the output | `docs/review-rounds/fix/sync-log-show-id-duration/d2a31e4aa021.md:159` |
-| `docs/sync-log-emit-guard-spec` | "raw output COMMITTED at ... `sink-sweep-2026-08-15.txt`", regenerated after the first artifact was corrupt | commit the output | `docs/superpowers/plans/2026-08-15-sync-log-emit-guard/plan.md:25` |
-| **any arc** | **declare the table's provenance with a pointer to a command** | **none** | |
+A `<!-- table: cmd=` `` ` ``…`` ` ``` -->` marker is that same practice with an HTML comment around it
+and a linter able to see it. What the linter would then check is that the comment is present and
+parses. It cannot check that the numbers still match, which §6 shows it could only do for at most eight
+tables corpus-wide, and it is the numbers that drifted in every one of the eleven arcs. **Formalizing a
+practice does not repair it when the practice itself does not hold the property.** That is the same
+conclusion as the ratified ruling above, reached from the arcs' own behaviour rather than from the
+ruling, and it is the only form of this argument that survives four rounds of review.
 
-Eleven rows, seven making the table an output, two deleting it, two committing the command's output
-beside it, and zero declaring provenance.
-
-**How the negative claim was checked, since a negative universal is only as good as its method.**
-Each of the eleven arcs in §2 was read for what it SHIPPED, not only for what its round found, and
-every row above carries a `file:line` for the repair, so each is checkable individually rather than on
-this document's word. Diff review round 3 finding 2 is why: an earlier version made this same claim
-while eight of the eleven rows carried a quotation and no location, which is the claim outrunning the
-page. Note also what the census does NOT do — §5 of its output produces the candidate FINDING
-locations, not the shipped repairs; the repair column is hand-verified, and it says so here rather
-than borrowing the census's authority. "Zero declared provenance" is therefore a claim over the
-eleven rows of that table and nothing wider: it does not say no author anywhere has ever wanted such a
-marker, and it does not survey arcs outside §2's boundary. Any arc the boundary excludes is excluded in
-public, in §2, with a reason.
-
-**"Convergence" was the wrong word and it is dropped.** Round 2 is right that three shapes across
-eleven arcs is heterogeneity, not convergence, and right that deleting a claim is not "shipping
-evidence" — an earlier draft used that phrase to unify rows it does not cover. What the table shows is
-not a shared choice. It is a shared ABSENCE: across eleven arcs and about twenty rounds, with the
-defect live in front of them, no author reached for the repair this row proposes.
-
-**What that is worth, stated precisely.** An absence is evidence about what practitioners reach for,
-not proof that the absent option is wrong. §5's first argument is what says the marker cannot work; this
-one says nobody who paid the cost tried it, in a corpus that documents its reasoning at length and would
-have recorded the attempt. Those are different claims and only the first is decisive. Together they are
-why an expensive class (§3) is still not a reason to ship this particular mechanism: the problem being
-worth solving does not make a pointer solve it.
+**How the eleven repairs actually partition, kept because it is checkable and useful, and no longer
+load-bearing.** Seven made the table an OUTPUT, two DELETED it, two kept it and COMMITTED the command's
+raw output beside it. Every row carries a `file:line`, and the exercise is what surfaced the fact above:
+the arcs that repaired by naming a command are the same arcs whose tables had drifted while naming one.
 
 **The narrowing that would fix that is already shipped as prose.** Command plus immutable anchor is
-the convention's own form, adopted by roughly nineteen documents today by writing a header line. A
+the convention's own form, adopted by 14 documents at this head (`git grep -l -iE 'every (number|figure|count)[^.]{0,60}(produced|printed) by' 8b4d521cac00 -- 'docs/**/*.md' | wc -l`) today by writing a header line. A
 marker mechanizing it would be a second spelling of a live convention, and the sibling arc declined
 even the record-level presence check for it: its producer red once, and that one red was wrong.
 
@@ -343,14 +322,14 @@ command that can actually be run.
 
 | window (lines) | tables with a shell fence within it | share of 3425 |
 | --- | ---: | ---: |
-| 8 | 12 | 0.4% |
-| 12 | 22 | 0.6% |
-| 20 | 53 | 1.5% |
-| 40 | 98 | 2.9% |
+| 8 | 10 | 0.3% |
+| 12 | 23 | 0.7% |
+| 20 | 55 | 1.6% |
+| 40 | 99 | 2.9% |
 
 | at the most generous 40-line window | tables |
 | --- | ---: |
-| adjacent to a shell fence | 98 |
+| adjacent to a shell fence | 99 |
 | ...whose command is pure, read-only, deterministic | 11 |
 | ...of those, reading a path outside the repo, so unreproducible in any CI checkout | 3 |
 
@@ -449,8 +428,8 @@ No source file under `lib/` or `scripts/` changes. No `Check` is added to `lib/s
   grew a JavaScript lexer one grammar corner per round across 20 diff rounds with the finding rate
   flat. Declined before round 1 rather than after round 20.
 - **Shipping the existence arm anyway as the enabling half.** Its value is conditional on the truth
-  half, and §6 declines the truth half on population. An enabling half with nothing to enable is 14
-  rounds for a comment.
+  half, and §6 declines the truth half on population. An enabling half with nothing to enable is the
+  roughly 7 transferable rounds of §3, spent on a comment.
 - **Retrofitting historical tables.** The row records it as out of scope; §5 gives the number.
 - **A mandatory binding check over `docs/**`.** Declined by the sibling arc on measurement
   (§5), and its ruling is cited rather than re-derived.

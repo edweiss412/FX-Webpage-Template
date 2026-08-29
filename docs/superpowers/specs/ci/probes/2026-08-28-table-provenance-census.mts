@@ -1,5 +1,11 @@
 /**
- * Reproduces every table in `docs/superpowers/specs/ci/2026-08-28-table-provenance.md`.
+ * Produces the POPULATION figures in `docs/superpowers/specs/ci/2026-08-28-table-provenance.md`.
+ *
+ * Not every table in that spec: the argument ledger, the arc-classification table, the marker-age
+ * table, the repair table and §8's disposition table are hand-built, and the spec says so at each
+ * one. This file produces the populations those tables classify -- §5 emits the naming CANDIDATES
+ * and §6 the row-count candidates, and a person supplies each verdict (diff review round 4
+ * finding 5 corrected the older, wider claim).
  *
  * The row `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` asked for a
  * `<!-- table: cmd=`…` -->` marker binding a stated table to a producing
@@ -116,8 +122,14 @@ function fencesOf(text: string): Fence[] {
       if (open === null) open = i;
       else {
         out.push({
-          start: open,
-          end: i,
+          // 1-BASED line numbers, deliberately: `blocksFrom` reports table lines from
+          // mdast `position.start.line`, which is 1-based, and every comparison below is
+          // fence-line against table-line. An earlier version stored the raw 0-based array
+          // indexes and compared them to 1-based table lines without conversion, which is
+          // silent corruption of every adjacency figure (diff review round 4 finding 1).
+          // `body` and `lang` below index the array directly and are unaffected.
+          start: open + 1,
+          end: i + 1,
           lang: (model.fencedInfo[open + 1] ?? "") as string,
           body: model.lines.slice(open + 1, i),
         });
