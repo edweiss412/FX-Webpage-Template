@@ -14,7 +14,16 @@ const TEST_ROOT =
     ? join(process.argv[rootFlag + 1], "tests")
     : "tests";
 
+/**
+ * This census's OWN test fixtures live under tests/, so without this exclusion the
+ * instrument measures its own corpus and every published population shifts whenever
+ * a fixture is added. Narrow on purpose: one path, not a `fixtures/` pattern, because
+ * the rest of the corpus's fixtures are legitimate subjects.
+ */
+const SELF_FIXTURES = join("tests", "scripts", "fixtures", "lineKeyCensus");
+
 function walk(dir, out = []) {
+  if (dir === SELF_FIXTURES || dir.startsWith(SELF_FIXTURES + "/")) return out;
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) walk(p, out);
@@ -446,6 +455,9 @@ if (process.argv.includes("--derivability")) {
   for (const [, a] of g) a.length === 1 ? bound++ : (ambiguous += a.length);
   console.log(`\n${REG}`);
   console.log(`rows=${rows.length}  dynamic=${dyn}  computedContext=${comp}  both=${both}`);
+  console.log(
+    `hand-authored (dynamic OR computedContext) = ${rows.length - derivable.length} of ${rows.length}`,
+  );
   console.log(
     `site-derivable (neither flag) = ${derivable.length} of ${rows.length} = ${Math.round((100 * derivable.length) / rows.length)}%`,
   );

@@ -28,7 +28,7 @@ Enumerated from disk, not hand-listed. One command produces every number in this
 node scripts/line-key-census.mjs --anchors
 ```
 
-The census walks all 2696 files under `tests/**` for two shapes: a `line:`/`lines:` field whose owning row carries a `file:`, and a string literal pairing a source path with a line number after a colon. It splits code from comment so a prose citation is never counted as a key, and it splits targets that exist on disk from targets that do not. That separates three populations a bare `rg` count conflates:
+The census walks all 2697 files under `tests/**` for two shapes: a `line:`/`lines:` field whose owning row carries a `file:`, and a string literal pairing a source path with a line number after a colon. It splits code from comment so a prose citation is never counted as a key, and it splits targets that exist on disk from targets that do not. That separates three populations a bare `rg` count conflates:
 
 | population | tokens | churns? | why |
 | --- | --- | --- | --- |
@@ -386,7 +386,19 @@ someone could measure rather than feel.
    31 of 57 surfaces). The only SILENT failure in the whole subject: `score()`
    (`tests/mutation/source/ledger.ts:79-89`) excludes ledgered equivalents from the denominator,
    so a mis-keyed row counts its mutant twice. The repair its own in-tree header prescribes
-   leaves 28% of rows resolvable. Re-file trigger: a non-positional disambiguator for
+   leaves 28% of rows resolvable, printed by `npx tsx scripts/ledger-key-census.mts`:
+
+   ```
+   surfaces=57 surfacesWithRows=31 rows=268
+   scopedDistinctKeys=121 uniquelyResolvableRows=76
+   expressible=28%
+   ```
+
+   That script IMPORTS `GUARD_SURFACES` rather than parsing it, which is both the method and the
+   reason it is a separate file: the regex parse this spec first used undercounted every figure
+   it produced (57 surfaces read as 58, 268 rows as 265). And 121 is the count of distinct
+   scoped KEYS, not resolvable rows; expressibility is 76/268, because counting keys keeps one
+   representative per collision group and discards the rest, which is the merge §0 forbids. Re-file trigger: a non-positional disambiguator for
    same-operator-same-text mutants, the harness keying mutants by something other than site, one
    re-key commit per calendar month on accepted rows, or a scoring incident traced to a mis-key.
 
