@@ -97,11 +97,18 @@ describe("diagram tile chrome lives on the wrapper", () => {
     // assertion would be failing for the wrong reason.
     expect(hasChromeToken("object-cover")).toBe(false);
     expect(hasChromeToken("size-full object-cover")).toBe(false);
-    // The boundary cases the previous whole-string regex got WRONG. These are
-    // the reason this helper is per-token: each has box chrome in the middle of
-    // the list, where an end-of-string anchor never reaches.
+    // Box chrome in the MIDDLE of a class list. The first two are the cases the
+    // previous whole-string regex got wrong: it anchored `border` and `rounded`
+    // with `(-|$)`, where `$` is end of the whole string, so a bare token
+    // followed by another class was never reached.
     expect(hasChromeToken("object-cover border size-full")).toBe(true);
     expect(hasChromeToken("object-cover rounded size-full")).toBe(true);
+    // The third was NOT missed by the old regex — `bg-` carried no end anchor,
+    // so it matched anywhere. It is kept because it pins the same boundary for a
+    // prefix token, and stating it accurately matters more than a tidier story:
+    // an earlier version of this comment claimed all three had failed, which was
+    // asserted rather than measured, and diff review R2 disproved it by running
+    // the old pattern.
     expect(hasChromeToken("object-cover bg-surface-sunken size-full")).toBe(true);
   });
 

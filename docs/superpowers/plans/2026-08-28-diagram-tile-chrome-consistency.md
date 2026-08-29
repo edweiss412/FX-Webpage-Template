@@ -51,6 +51,7 @@ lines longer.
 | invariant-9 infra-contract registries (`tests/auth/_metaInfraContract.test.ts` and peers) | no Supabase call boundary is added or moved | none applies |
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | no mutation surface, route handler, or server action is added | none applies |
 | source-mutation registry (`tests/mutation/source/registry.ts`) | the diff adds no guard, proof, or equivalence surface — the new suite is an ordinary component suite, not a recognizer | none applies; enrolment is not owed |
+| `tests/styles/controlOutlineScan.ts` | two LINE-KEYED registry rows address the component below the replaced comment, which is sixteen lines longer | rows relocated from `:4455`/`:4512` to `:4471`/`:4528` in the lockstep commit, LOCATED by the `<button>` openers rather than by adding a delta |
 
 ## CI wiring
 
@@ -89,9 +90,17 @@ The image's assertion is exact string equality, which is what AC-1 actually says
 through a diff that ADDS something non-chrome-shaped to the image.
 
 The negative half stays a SHAPE scan, because a negative keyed to today's token passes the moment someone
-re-adds chrome under a different one:
+re-adds chrome under a different one. It matches PER TOKEN:
 
-    /(^|\s)(rounded(-|$)|border(-|$)|bg-)/
+    const CHROME_TOKEN = /^(rounded|rounded-.+|border|border-.+|bg-.+)$/;
+    hasChromeToken(className)  // splits on whitespace, tests each token
+
+**An earlier draft specified a whole-string regex here and it was wrong**, which diff review R1 caught
+by execution: `/(^|\s)(rounded(-|$)|border(-|$)|bg-)/` anchors `border` and `rounded` with `$` meaning
+end of the whole STRING, so `object-cover border size-full` returned false and a bare chrome token in
+the middle of a class list slipped through the negative assertion. Tokenizing removes the boundary case
+by construction rather than patching it. Note `bg-` was NOT affected: it carried no end anchor and
+matched anywhere, a distinction R2 had to correct in the suite's own comment.
 
 Premises, each closing a way an assertion could pass while proving nothing:
 
@@ -227,14 +236,16 @@ prose still says "four":
 | `tests/e2e/step3-review-modal.layout.spec.ts` `boxSizing` is `border-box` | PASSES | Tailwind preflight already sets it; this row asserts a mechanism, not a change |
 | new suite, shared-box contract | FAILS | it requires `rounded-md` on BOTH branches, and the anchor has none yet |
 | new suite, transition audit | PASSES | neither element has ever declared `transition-*`; this pins the invariant §8 rests on, and pins nothing about the move |
-| new suite, `CHROME_SHAPE` negative control | PASSES | it asserts the regex does not match a bare fit class, which is a property of the regex, not of the tree |
+| new suite, chrome-token negative control | PASSES | it asserts the matcher does not fire on a bare fit class, and — since the R1 repair — that it DOES fire on box chrome mid-list. Properties of the matcher, not of the tree |
 | new suite, failed branch carries the box | PASSES | the placeholder already carries `rounded-md border bg-surface-sunken`; this diff does not touch that branch's chrome |
 | new suite, compound route A (focused tile fails) | PASSES | it asserts the PLACEHOLDER's box survives, and the placeholder is unchanged by this diff |
 | new suite, compound route B (focused tile reconciles) | PASSES | same |
 
-**The table's unit is the ASSERTION, not the test case**, which is why it has eight rows for a
-seven-case suite: the live-branch case contributes two, one for the anchor's box and one for the image's
-exact class string, and they fail for different reasons.
+**The table's unit is the ASSERTION, not the test case**, which is why it has more rows than the suite
+has cases: the live-branch case contributes two, one for the anchor's box and one for the image's exact
+class string, and they fail for different reasons. **The row count is not restated in prose**, because
+the diff-R1 repair added three positive assertions to the negative-control case and an earlier draft's
+stated count went stale the moment it did — the same drift this plan documents everywhere else.
 
 **Observed at the real RED, not predicted:** the suite runs 7 cases, 2 fail and 5 pass. The three rows
 just above pass because they assert the placeholder's box, which this change does not touch — they
@@ -264,6 +275,9 @@ line-keyed row is invalidated by the diff's shape and not by its content:
 - `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:816` — the count phrase becomes three, with a one-line note naming this spec. `§6.2` at
   `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:320` is NOT edited (spec §5).
 - `tests/styles/tapTargetCensus.ts:321` — the `reason` prose stops saying the chrome lives on the image.
+- `tests/styles/controlOutlineScan.ts:126` and `:139` — the two line-keyed rows move to `:4471` and
+  `:4528`. This one is not a prose edit and did not come from the sweep: the full styles suite found it,
+  eight failures, and it is listed here so the inventory and its repair agree.
 - `tests/styles/tintedPlateOutline.test.ts:221-223` — the comment's raw/comment split becomes 13 and
   four, and names the move.
 
