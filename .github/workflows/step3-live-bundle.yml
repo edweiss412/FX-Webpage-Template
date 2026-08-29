@@ -26,10 +26,16 @@ on:
       - "tests/e2e/_step3ReviewModalHarness.tsx"
       - "components/admin/wizard/Step3ReviewModal.tsx"
       # Geometry owners of the attention spec: a later edit to the menu, the
-      # shared frame or the clip helper must re-run this gate.
+      # shared frame or the placement stack must re-run this gate.
       - "components/admin/wizard/WizardAttentionMenu.tsx"
       - "components/admin/showpage/AttentionMenu.tsx"
-      - "components/admin/useFitWithinClip.ts"
+      # The clip helper `components/admin/useFitWithinClip.ts` was RETIRED
+      # 2026-08-28 (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW) when the attention
+      # menu, its last consumer, migrated onto the shared placement stack. A
+      # filter naming a deleted path matches nothing, so the geometry this job
+      # guards would have moved under it silently.
+      - "lib/popover/**"
+      - "lib/layout/fitWithinClip.ts"
       - "components/admin/wizard/step3ReviewSections.tsx"
       - "components/admin/review/**"
       - "components/crew/AgendaScheduleBlock.tsx"
