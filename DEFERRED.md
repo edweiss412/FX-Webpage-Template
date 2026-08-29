@@ -205,7 +205,7 @@ rather than the instance.
 
 ### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session (2026-08-11)
 
-**Effort:** S
+**Effort:** S · **Status:** IN PROGRESS · **Branch:** feat/diagram-failure-retry
 
 Surfaced by the invariant-8 dual gate on branch `feat/diagram-viewing-polish`, by the critique half
 (P1). Findings and dispositions are in §12 of
