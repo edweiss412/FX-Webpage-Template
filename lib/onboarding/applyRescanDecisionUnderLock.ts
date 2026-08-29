@@ -216,12 +216,13 @@ async function restoreStagedDecisions(
             use_raw_decisions = coalesce($4::jsonb, use_raw_decisions)
       where wizard_session_id = $1::uuid and drive_file_id = $2
       returning 1 as ok`,
-    [
-      wizardSessionId,
-      driveFileId,
-      prior.priorIgnoredWarnings === null ? null : JSON.stringify(prior.priorIgnoredWarnings),
-      prior.priorUseRawDecisions === null ? null : JSON.stringify(prior.priorUseRawDecisions),
-    ],
+    // RAW values, never JSON.stringify: postgres.js serializes once through the
+    // `::jsonb` cast, so pre-stringifying double-encodes the array into a jsonb STRING
+    // SCALAR and the column comes back as text that no reader can parse as decisions.
+    // The two writes a few lines below (`triggered_review_items`, `wizard_reviewer_choices`)
+    // have always passed their arrays raw; this one was the outlier.
+    // `null` still means "leave the column alone" — the coalesce handles it.
+    [wizardSessionId, driveFileId, prior.priorIgnoredWarnings, prior.priorUseRawDecisions],
   )) as unknown[];
   return rows.length > 0;
 }
