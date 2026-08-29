@@ -32,6 +32,15 @@
     "tests/e2e/attention-anchor-placement.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"f3eabb4cec93fc131553-21f0f11f2a53ebcecab6\",[\"attention-anchor-placement.spec.ts\",\"diagram card mounts inside the Diagrams sub-block; reel card inside the opening_reel field\"]]"
     ],
+    "tests/e2e/attention-autoopen-suppress.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-05be8747a6010d20d131\",[\"attention-autoopen-suppress.spec.ts\",\"AC-OPERATOR-OPENED-SURVIVES: a tapped-open menu survives a resize in both directions\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-1e96f44ee7a2291effef\",[\"attention-autoopen-suppress.spec.ts\",\"AC-TOGGLE-OPERABLE: at 375x667 the published toggle takes its own pointer events\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-3755f01bb586f591c7ed\",[\"attention-autoopen-suppress.spec.ts\",\"AC-RESIZE-SHRINK-STAYS-OPEN: auto-opened at desktop, then shrunk below sm, stays open\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-509b6363ce6815544620\",[\"attention-autoopen-suppress.spec.ts\",\"AC-ANCHOR-PANEL-HANGS-BELOW: the open panel hangs at or below the pill's bottom edge\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-a8f3b544a762faf4c871\",[\"attention-autoopen-suppress.spec.ts\",\"AC-PILL-TAP: the pill takes a tap at 375 and opens the menu\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-e00d6368b07d9674f776\",[\"attention-autoopen-suppress.spec.ts\",\"AC-RESIZE-WIDEN-STAYS-CLOSED: suppressed at 375, then widened, stays closed\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-ee7571fe859120e73add\",[\"attention-autoopen-suppress.spec.ts\",\"AC-TOGGLE-OPERABLE, positive control: with the menu OPEN at 375 the toggle IS covered\"]]"
+    ],
     "tests/e2e/attention-pill-focus.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"dea620f090533237e052-06d9f88da966c2adb6f9\",[\"attention-pill-focus.spec.ts\",\"open [a=1,n=1] -> D: menu closed, focus on dialog root, never body\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"dea620f090533237e052-1449977cb138f79a82f8\",[\"attention-pill-focus.spec.ts\",\"open [a=0,n=0] -> D: menu closed, focus on dialog root, never body\"]]",
@@ -717,5 +726,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 630
+  "totalTests": 637
 }
