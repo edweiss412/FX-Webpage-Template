@@ -19,7 +19,6 @@ Written under the probe-before-argue rule in [`../../../../agents/spec-self-revi
 | [`2026-08-22-derived-number-population-census.md`](./2026-08-22-derived-number-population-census.md) | Are the figures these records state derived or hand-carried, and is that classification stable enough to gate on? | `BL-DERIVED-NUMBERS-IN-DOCS-ROT` |
 | [`2026-08-25-ac-coverage-prototype-probes.md`](./2026-08-25-ac-coverage-prototype-probes.md) | Is the AC-table grammar stable enough to key a lint arm on, and does the declaration-driven arm reproduce the three review rounds it was filed for? | [`../2026-08-25-planlint-ac-command-observability-design.md`](../2026-08-25-planlint-ac-command-observability-design.md) §2, §4, §5, §6 |
 | [`2026-08-28-table-provenance-census.mts`](./2026-08-28-table-provenance-census.mts) | How many tables could an executing provenance arm actually reach, what have this corpus's two opt-in doc markers achieved in adoption, and what did the nearest precedent cost to build? | [`../2026-08-28-table-provenance.md`](../2026-08-28-table-provenance.md) §1, §3, §4, §6 |
-| [`2026-08-28-table-provenance-acceptance.mts`](./2026-08-28-table-provenance-acceptance.mts) | Do the figures the table-provenance spec states still agree with what its census prints, and do its plan's acceptance criteria still hold? | [`../../../plans/ci/2026-08-28-table-provenance.md`](../../../plans/ci/2026-08-28-table-provenance.md) AC-1 through AC-5 |
 
 ## Stating a figure
 
