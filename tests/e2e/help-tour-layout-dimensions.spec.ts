@@ -137,9 +137,14 @@ async function readTour(page: Page) {
         // TRACK while the grid element stays at container width, so an
         // element-vs-container comparison can never see it.
         const trackWidths = parsed.some((n) => !Number.isFinite(n)) ? [] : parsed;
-        // The full-span card, found by its resolved placement rather than by index:
+        // The full-span card, found by its RESOLVED placement rather than by index:
         // `grid-column: 1 / -1` computes to an end of -1 whatever the track count.
         const fullSpan = cards.filter((c) => getComputedStyle(c).gridColumnEnd === "-1");
+        // And the AUTHORED intent, so the resolved count can be pinned to something
+        // rather than to "at least one". Comparing the two is not circular: it is
+        // exactly the failure `md:col-span-2` had, where the class is present and
+        // the span it resolves to is wrong for the live track count.
+        const authoredSpan = cards.filter((c) => c.classList.contains("col-span-full"));
         return {
           cols: trackWidths.length === 0 ? -1 : trackWidths.length,
           trackWidths: trackWidths.map((n) => +n.toFixed(1)),
@@ -155,6 +160,7 @@ async function readTour(page: Page) {
           // the cards that remain.
           bodyCount: bodies.length,
           fullSpanCount: fullSpan.length,
+          authoredSpanCount: authoredSpan.length,
           fullSpanWidths: fullSpan.map(w),
           measureCh:
             bodies[0] && chOf(bodies[0]) ? +(w(bodies[0]) / chOf(bodies[0])).toFixed(1) : -1,
@@ -267,9 +273,15 @@ test.describe("/help/tour card grids — real-browser layout", () => {
     for (const vw of [768, 1016]) {
       await page.setViewportSize({ width: vw, height: 900 });
       const m = await readTour(page);
-      const spanning = m.grids.filter((g) => g.fullSpanCount > 0);
-      premise(`the tour renders a full-span card at ${vw}px`, spanning.length, 0);
-      for (const g of spanning) {
+      // Pinned to the AUTHORED count, not to "at least one". A filter plus a
+      // greater-than-zero premise is the shape that let a dropped card pass
+      // elsewhere in this file, and it would pass here too the day a second span
+      // card is added and only one of them resolves.
+      const authored = m.grids.reduce((n, g) => n + g.authoredSpanCount, 0);
+      const resolved = m.grids.reduce((n, g) => n + g.fullSpanCount, 0);
+      premise(`the tour authors a full-span card at ${vw}px`, authored, 0);
+      expect(resolved, `full-span cards resolving at ${vw}px`).toBe(authored);
+      for (const g of m.grids.filter((grid) => grid.fullSpanCount > 0)) {
         for (const [k, fw] of g.fullSpanWidths.entries()) {
           expect(fw, `full-span card ${k + 1} at ${vw}px`).toBeCloseTo(g.gridWidth, 1);
         }
