@@ -225,6 +225,20 @@ Stage each §3 violation on the finished tree, observe the named red, revert, re
 **AC-1d's row runs first**: the permanently-single-column page that spec R5 proved passes AC-1,
 AC-1a, AC-1b and AC-1c must go RED here, or AC-1d does not do its job.
 
+**Stage by copying the file aside, NEVER with `git stash`.** The stash stack is repo-global across
+worktrees, and `lint-staged` pushes an entry on every commit in every arc, so `stash@{0}` is
+routinely another branch's backup. A fleet arc popped a foreign entry on 2026-08-29 and left its
+own edit in place, flipping a pre-fix measurement from 5-failed to 5-passed — a run that reported
+the fix working before the fix existed. That is precisely this task's shape: stage a defect, measure,
+restore. The pattern is
+
+```
+cp <file> /tmp/fx-violation-backup && <apply violation> && <run the named command> && cp /tmp/fx-violation-backup <file>
+```
+
+`git checkout -- <file>` is also safe here, since every violation is staged against a committed
+baseline. Neither the stage nor the restore may touch the stash.
+
 <!-- tasks: end -->
 
 ## Task 7 — transition characterization (no red contract, and here is why)
