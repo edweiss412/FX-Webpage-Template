@@ -446,7 +446,7 @@ Rows are grouped by what the edit is, but the SET is the command's output.
 
 | File | Change | Why it is here anyway |
 | --- | --- | --- |
-| `tests/components/admin/transitionAudit.test.tsx` | Covers the `entered` re-place (§7) — one signal, not a pair; the `transitionend` half was withdrawn once §7 showed the geometry property never transitions. | `rg 'useFitWithinClip\|fit-within-clip'` over it exits 1 — it never named the hook. It is in scope because §7 changes transition-adjacent behavior, which is that audit's subject, not because it referenced the hook. |
+| `tests/components/admin/transitionAudit.test.tsx` | **NO CHANGE, explicitly.** An earlier draft assigned it an edit "covering the `entered` re-place". The suite cannot express that: it registers this component in a no-motion list (`tests/components/admin/transitionAudit.test.tsx:53`) banning motion libraries and `AnimatePresence`, and a re-place is neither. The registration stays green by construction. The transition-INVENTORY obligation is discharged in the plan's transition-audit section, which is where the rule puts it. |
 
 ### 4.2 Baselines — TWO move
 
