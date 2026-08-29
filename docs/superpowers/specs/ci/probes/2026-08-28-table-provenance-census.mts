@@ -57,7 +57,18 @@ const PARSER = remark().use(remarkGfm);
  * tree is not one.
  */
 const atFlag = process.argv.indexOf("--at");
-const REV = atFlag === -1 ? "HEAD" : (process.argv[atFlag + 1] ?? "HEAD");
+let REV = "HEAD";
+if (atFlag !== -1) {
+  const v = process.argv[atFlag + 1];
+  // Do NOT default here. `--at` with no value used to fall through to HEAD and print that sha as
+  // though it had been asked for, binding a figure to a tree the reader did not name and saying
+  // nothing about it. That is this document's own subject, so the instrument fails loud instead.
+  if (v === undefined || v.startsWith("-")) {
+    console.error("census: --at requires a revision (e.g. --at 8b4d521cac00)");
+    process.exit(2);
+  }
+  REV = v;
+}
 const RESOLVED = git("rev-parse", REV).trim();
 
 const mdFiles = git("ls-tree", "-r", "--name-only", RESOLVED, "docs")
