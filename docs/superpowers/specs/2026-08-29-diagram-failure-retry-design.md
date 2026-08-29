@@ -76,6 +76,33 @@ rule in `docs/agents/spec-self-review.md`:
 **Consequence:** the retry is a React `key` bump that remounts the `<Image>`. It needs no
 cache-busting query parameter, and must not use one, per the fence in §1.1.
 
+## 1.4 UNRATIFIED claims — what this spec asserts but cannot prove
+
+The spec stage closed at three rounds by orchestrator ruling, not by converging (record:
+`docs/review-rounds/feat/diagram-failure-retry/e7751f61de2c.md`). The reason was that the
+findings had stopped being about the design and started being about runtime behaviour, which
+prose review cannot decide and a running browser decides immediately.
+
+**Every claim below is UNRATIFIED.** Each is this spec's best current answer, each was
+corrected at least once by review, and none is settled until the named probe or RED says so.
+If a probe contradicts one, the probe wins and this section is amended — that is not a
+finding against the spec, it is the mechanism working. The probes are the plan's FIRST tasks,
+before any feature work, so a wrong assumption is discovered before anything is built on it.
+
+| # | UNRATIFIED claim | where | settled by |
+|---|---|---|---|
+| U-1 | Setting native `disabled` on the focused retry control ejects focus to `<body>`, so the control must use `aria-disabled` instead | §7.1 | **Plan Task P1**, a real-browser probe asserting focus location after the attribute is applied both ways. The repo's note at `components/admin/RecentAutoAppliedStrip.tsx:371-380` is evidence, not proof, for THIS control |
+| U-2 | Mounting the retry image as a separate element from the idle one causes a second unconditional GET on `retrying → idle` | §4.0.5 | **Plan Task P2**, a real-browser request count across the transition, run against both the separate-node and same-node shapes |
+| U-3 | A covered retry image left at the `loading` default can be deferred indefinitely, so it needs `loading="eager"` | §4.0.5 | **Plan Task P3**, a real-browser probe with the overlay in place, asserting the request is issued |
+| U-4 | The `srcSet` candidate set is stable across the failure and the retry, so the retry cannot escape the ladder | §3 | **Plan Task P4**, a real-browser probe that changes viewport and DPR between failure and tap, then reads the requested URL |
+| U-5 | A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Plan Task P5**, the meta-test itself: it must fail on a planted unclassified declaration, including a `Record` and an object literal, or it is not a cover |
+| U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task P6**, a test that plants each retained-state shape and asserts no request and no control in the first frame after the flip |
+
+Two things deliberately NOT in this table, because they are settled by reading rather than by
+running: `demotedRef` has no clear path (grep over the component establishes it), and
+`servingVariants` excludes any row naming the original (the function's body establishes it).
+Round 2 verified the second directly.
+
 ## 2. What ships
 
 A runtime-failed diagram cell becomes a retry control. Tapping it re-requests the image that
@@ -131,8 +158,8 @@ identical props reproduces the same candidate set, but a viewport, layout, orien
 DPR change between the failure and the tap can move the selection, so a 256-tier failure
 can retry at 512 or 1024.
 
-What survives, and is the actual bound: **the retry draws from the same candidate set the
-failed render offered, and for any entry with a variant ladder that set never contains the
+What survives, and is the actual bound (UNRATIFIED, U-4 — Task P4 settles it): **the retry
+draws from the same candidate set the failed render offered, and for any entry with a variant ladder that set never contains the
 original.** The clamped selector excludes any row naming the original by construction
 (`servingVariants` in `lib/images/diagramLoader.ts`), so the worst case is the largest
 ladder tier — 1024 — not the multi-megabyte source. That is a real ceiling and it is
@@ -310,7 +337,8 @@ work creates, under `tests/components/diagrams/`, named for per-item state lifet
 3. The test fails when the scanner finds a declaration the registry does not classify.
 
 That is what makes it fail by default: a member added later is unclassified, so the suite
-reds until someone decides. AC-17 is that test. The classification is a judgement the
+reds until someone decides. (UNRATIFIED, U-5 — Task P5 settles it, by planting shapes the
+old grep missed.) AC-17 is that test. The classification is a judgement the
 registry records; the ENUMERATION is mechanical, and the enumeration is the half that was
 previously being trusted to a grep.
 
@@ -366,6 +394,7 @@ originals-only entry that is up to 100 MB to display 50 MB, immediately after be
 retry succeeded.
 
 So: **the `<Image>` is mounted once, in its final position, for both `retrying` and `idle`.**
+(UNRATIFIED, U-2 — Task P2 settles it.)
 `retrying` differs only by an overlay above it carrying the in-flight control and
 `Retrying…`. `onLoad` removes the overlay. Nothing about the image element changes, so
 nothing remounts and no second request is issued. AC-1 asserts the node identity across the
@@ -375,7 +404,8 @@ transition, and AC-2 counts requests rather than only inspecting the URL.
 default of `lazy` unless `priority` is set (`get-img-props`, line 271), and neither component
 sets it. A lazily-loaded image that is visually covered can be deferred by the browser, which
 would leave `Retrying…` on screen with no request in flight. The retry image therefore sets
-`loading="eager"` for as long as the id is in `retrying`. The overlay is painted OVER it
+`loading="eager"` for as long as the id is in `retrying`. (UNRATIFIED, U-3 — Task P3
+settles it.) The overlay is painted OVER it
 rather than replacing it, so the image is in the viewport and eligible regardless.
 
 This also settles what the overlay may be: it must not be `display: none` or `visibility:
@@ -550,7 +580,7 @@ focus is ON this control when they press it, `failed → retrying` would drop fo
 immediately — the exact failure the amendment exists to avoid, reintroduced by the amendment.
 
 **So the in-flight control uses `aria-disabled="true"` plus an early-returning click handler,
-never the native attribute.** It stays focusable, focus stays put, and assistive technology
+never the native attribute.** (UNRATIFIED, U-1 — Task P1 settles it.) It stays focusable, focus stays put, and assistive technology
 still reports it as unavailable. `aria-busy="true"` is unchanged. `RetryWatchButton`'s native
 `disabled` is correct for its own site, where the button is not the focus origin; it is not a
 precedent for this one.
@@ -608,7 +638,8 @@ nothing, so session state survives a props flip and every pair below is reachabl
 
 ### 9.1 The `unavailable` boundary, since it is reachable
 
-**The clear happens when the item goes unavailable, not when it comes back.** An earlier
+**The clear happens when the item goes unavailable, not when it comes back.** (UNRATIFIED,
+U-6 — Task P6 settles it.) An earlier
 draft did the opposite, and the ordering was the whole defect: an effect that runs AFTER
 `item.available` becomes true leaves the first render observing a retained `retrying` id,
 which mounts the retry `<Image>` and starts a request nobody asked for. This spec excludes
