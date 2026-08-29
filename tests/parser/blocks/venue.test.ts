@@ -349,7 +349,14 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
   // Measured 3.58s exhaustive. Vitest's default is 5000ms and no testTimeout override exists in
   // vitest.config.ts / vitest.projects.ts / vitest.sequencer.ts / package.json, so this case
   // carries its own generous timeout rather than raising the global one for every other test.
-  const TYPO_SPACE_TIMEOUT_MS = 30_000;
+  //
+  // 30s -> 180s on 2026-08-28. The 8x headroom over 3.58s was not enough: measured at 80.5s
+  // under a loaded machine (a concurrent mutation-harness run holding the heavy slot), against
+  // 28s for the same case standalone. Machine load, not the code, was deciding the verdict,
+  // which makes the red uninformative in exactly the situation where a suite is most likely to
+  // be run. The number bounds a hang; it is not a performance assertion, so the generous value
+  // costs nothing on a quiet machine and buys a real signal on a busy one.
+  const TYPO_SPACE_TIMEOUT_MS = 180_000;
 
   it(
     "generator: every single-edit typo of every venue field alias (>=5 chars) routes correctly",

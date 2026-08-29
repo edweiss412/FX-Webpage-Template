@@ -381,18 +381,29 @@ describe("parseEventDetails — gate corrects unseen typos (PR-D1)", () => {
   // Generous explicit timeout: this is a comprehensive sweep over the FULL event vocab (the
   // largest fuzzable vocab in the milestone — ~31 members incl. long multi-word labels), so it
   // is heavier than the small PR-A/B vocab sweeps and exceeds the default 5s under CI shard load.
-  it("corrects unambiguous single-edit typos of every clean member back to that member", () => {
-    const opts = { minLen: 5, tieAbort: true } as const;
-    const clean = EVENT_LABEL_VOCAB.filter((m) => /^[A-Z ]+$/.test(m));
-    expect(clean.length).toBeGreaterThan(8);
-    for (const member of clean) {
-      for (const typo of unambiguousTypos(member, EVENT_LABEL_VOCAB, { minLen: 5 })) {
-        const fix = gatedVocabCorrect(typo, EVENT_LABEL_VOCAB, opts);
-        expect(fix?.corrected, `${typo} → ${member}`).toBe(true);
-        expect(fix?.match, `${typo} → ${member}`).toBe(member);
+  // Measured 96.5s under a loaded machine (a concurrent mutation-harness run holding the heavy
+  // slot) against 28s standalone, both on 2026-08-28. At the previous 30s the machine's load,
+  // not the code, decided the verdict. Named and documented to match its sibling generator in
+  // tests/parser/blocks/venue.test.ts, which carries the same shape for the same reason. The
+  // number bounds a hang rather than asserting performance.
+  const TYPO_CORRECTION_TIMEOUT_MS = 180_000;
+
+  it(
+    "corrects unambiguous single-edit typos of every clean member back to that member",
+    () => {
+      const opts = { minLen: 5, tieAbort: true } as const;
+      const clean = EVENT_LABEL_VOCAB.filter((m) => /^[A-Z ]+$/.test(m));
+      expect(clean.length).toBeGreaterThan(8);
+      for (const member of clean) {
+        for (const typo of unambiguousTypos(member, EVENT_LABEL_VOCAB, { minLen: 5 })) {
+          const fix = gatedVocabCorrect(typo, EVENT_LABEL_VOCAB, opts);
+          expect(fix?.corrected, `${typo} → ${member}`).toBe(true);
+          expect(fix?.match, `${typo} → ${member}`).toBe(member);
+        }
       }
-    }
-  }, 30000);
+    },
+    TYPO_CORRECTION_TIMEOUT_MS,
+  );
 });
 
 // ── unknown-label coverage (self-slug STORAGE for genuinely-unknown DETAILS labels) ──
