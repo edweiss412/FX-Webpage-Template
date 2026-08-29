@@ -398,6 +398,34 @@ Whichever appears in a losing iteration is the attribution, and a losing iterati
 
 **One candidate IS ruled out, for this surface only.** `escTransparentUntilEngaged` (`AttentionMenu.tsx:94`, on `AttentionMenuFrameProps`) is the 2026-08-28 amendment that makes an auto-opened panel Escape-transparent until the user engages. Its only opt-in is the WIZARD menu (`components/admin/wizard/WizardAttentionMenu.tsx:102`). The published modal renders `AttentionMenu`, whose props do not include the flag (`AttentionMenuProps`, `AttentionMenu.tsx:52-65`) and which does not pass it to the `AttentionMenuFrame` it renders (`AttentionMenu.tsx:138-146`), so it defaults false there (`AttentionMenu.tsx:327`) and `engagedRef` starts true (`AttentionMenu.tsx:333`, `useRef(!escTransparentUntilEngaged)`), which makes the early return at `:358` unreachable on this surface. An earlier draft claimed the prop had no opt-in call site ANYWHERE, which is false: it came from a `grep -v "AttentionMenu.tsx"` exclusion that also swallowed `WizardAttentionMenu.tsx`. The conclusion for the published surface survives the correction; the repo-wide claim does not.
 
+**THE LIVE TRACE (2026-08-28, `fix/published-attention-escape-race`), and what it retires.** 19 instrumented arrivals in one run, each a fresh `goto` plus auto-open plus one Escape:
+
+```
+BASELINE_SERVER_ONLY=1 ESCPROBE_N=20 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts \
+  --project=desktop-chromium --reporter=list
+```
+
+Zero losses, and all 19 produced ONE event sequence, identical across every iteration:
+
+```
+modal:mount → modal:state → modal:unmount → modal:mount → modal:state
+→ modal:setMenuOpen(true):auto-open → frame:listeners:setup → modal:state
+→ frame:listeners:cleanup → frame:listeners:setup
+→ frame:onKeyDown (panelInDoc: TRUE) → modal:setMenuOpen(false):frame-onClose
+→ frame:listeners:cleanup → modal:state
+```
+
+`shell:onKeyDown` ran in 0 of 19. `skeletonMounts`, `allZeroStates` and `reconciles` were 0 in every iteration, so none of E, F or G occurred. The `modal:unmount` in the middle is React's StrictMode double-invoke, which is dev-only; CI builds for production, so nothing about it belongs in a conclusion. Durable per-iteration records were written as the run went, so this survives the run's own ending.
+
+**Candidate 1 is RETIRED, and the evidence that pointed at it was instrument error.** `frame:onKeyDown` reports `panelInDoc: true` in 19 of 19: the panel is in the document at the moment the frame's handler claims the key. Together with the four jsdom methods above, nothing supports a listener outliving its element on this surface, and the `captureSawMenu: false` that made the candidate attractive is now positively explained rather than merely doubted.
+
+**Candidate 2 as this row writes it is RETIRED too**, by arm D, and survives only in the whole-data form (E) that requires `needsYou`, `k` and `selfHeal` to be zero together.
+
+**What the non-reproduction does and does not license.** P(0 losses in 19 | p = 1/7) = 0.054, which is suggestive and not decisive. It is also worth being plain about the baseline: the row's "about one time in seven" is ONE observation in seven runs, whose 95% interval runs from roughly 0.4% to 58%. So this run neither confirms nor damns any candidate; it establishes that the passing path is deterministic and that the losing path is rarer than a 20-sample probe reaches. Two deviations from the original conditions are recorded rather than argued: `BASELINE_SERVER_ONLY` skipped the :3001-3003 dev-gate servers that the row's own 13 runs booted (their cold builds are machine load, and the first attempt at this trace died when one of them overran its 300s budget), and the machine was under heavy concurrent load throughout, with `/admin` reaching 75s on the final iteration.
+
+**Disposition, with the repair direction still bl-orch's call.** The three surviving candidates differ only in TRIGGER and share one mechanism: the shell's Escape listener and the menu's capture claim live on different lifecycles, so any window in which the menu is down and the shell is up spends the operator's Escape on the modal. `ReviewModalShell`'s handler closes on any Escape without consulting `defaultPrevented`, which `ShareHub`'s own safety-net comment already records (`components/admin/showpage/ShareHub.tsx:684-690`). That asymmetry is proven; only its trigger rate is unmeasured. Two things follow. First, a mechanism-level repair does not need the trigger named, which is what makes this row actionable despite the non-reproduction. Second, the six DB-free arms are worth keeping as a permanent contract suite rather than deleted with the instrumentation: arms A and D pin that the frame claims Escape and that the menu survives an actionable-only blip, and C, E, F and G pin that each remaining window hands the key to the shell. They run against the real component through the committed harness, need no instrumentation, and would fail the moment any of the three windows became reachable.
+
 **Where it is no longer pinned, and the expansion trigger.** The resolve-lifecycle case used to dismiss the auto-opened menu with Escape; it now uses the pill toggle, because overlap clearance was all it wanted from the dismissal and the coupling bought it a foreign flake. The Escape contract stays pinned by that spec's "Esc closes the MENU first (modal stays), second Esc closes the modal" case. Its prelude is byte-identical to the one that was removed — `expect(MENU).toBeVisible()`, `keyboard.press("Escape")`, `expect(MENU).toHaveCount(0)`, `expect(MODAL).toBeVisible()` — so its exposure is the same by inspection, not by argument. It was not observed failing in any of the 13 full-file runs of the command above (the 8 hunt runs were scoped with `-g "resolve lifecycle"` and never executed it), which is weak evidence at a 1-in-7 rate and is recorded as such rather than as a clean bill. If it ever flakes, this row stops being a tail and becomes a gating defect: re-file it as such rather than adding a retry.
 
 ### BL-LOCAL-E2E-APP-SERVER-QUERIES-VALIDATION — the app server under local e2e resolves its DB from `TEST_DATABASE_URL`, which points at the validation pooler
