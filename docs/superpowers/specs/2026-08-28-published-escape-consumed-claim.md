@@ -92,16 +92,26 @@ Get this wrong in the permissive direction and Escape stops closing the modal af
 | W1 | render-phase `setMenuOpen(false)` under `menuOpen && !interactive` | transient | SURVIVES |
 | W2 | `onResolved`, last actionable item cleared | intentional | cleared |
 | W3 | pill `onClick` toggle | intentional | cleared |
-| W4 | frame `onClose` from its own Escape handler | intentional | cleared |
-| W5 | frame `onClose` from pointerdown-outside | intentional | cleared |
-| W6 | frame `onClose` from focusin-outside | intentional | cleared |
-| W7 | `interactive` falsifies while `menuOpen` stays true | transient | SURVIVES (this is W1's trigger; listed separately because the panel is gone in the same render, before the write commits) |
+| W4 | the `onClose` prop passed to `AttentionMenu` (`components/admin/showpage/PublishedReviewModal.tsx:1173`) | intentional, all five sources | cleared |
+| W5 | `interactive` falsifies while `menuOpen` stays true | transient | SURVIVES (this is W1's trigger; listed separately because the panel is gone in the same render, before the write commits) |
 
-W4 is listed for completeness and cannot reach the shell: the frame calls `stopPropagation` on that key, so the shell never sees it. It clears the claim anyway, because a second Escape must close the modal.
+W4 is ONE write with FIVE event sources, and the distinction matters because an enumeration by handler misses two of them. Adversarial review round 1 caught exactly that: the first draft listed the three sources inside `AttentionMenuFrame` and missed the two inside `AttentionMenu` itself.
+
+| source | site |
+| --- | --- |
+| the frame's own Escape handler | `components/admin/showpage/AttentionMenu.tsx:354-363` |
+| pointerdown outside the panel | `components/admin/showpage/AttentionMenu.tsx`, `onPointerDown` in the listener effect |
+| focus moving outside the panel | `components/admin/showpage/AttentionMenu.tsx`, `onFocusIn` in the listener effect |
+| selecting an ALERT row | `components/admin/showpage/AttentionMenu.tsx:182-185` |
+| selecting a SHEET WARNING row | `components/admin/showpage/AttentionMenu.tsx:221-224` |
+
+All five are the operator dismissing the panel on purpose, so all five clear the claim and W4 needs no per-source split. The two row sources are exercised by the live e2e fixture, which is why their omission would have shipped an unpinned path rather than a theoretical one.
+
+The frame's own Escape source cannot reach the shell at all: the frame calls `stopPropagation` on that key. It clears the claim anyway, because a second Escape must close the modal.
 
 **The enumeration produces a result that changes the repair's reach.** Every row above is a WRITE inside `PublishedReviewModal`. Candidates F and G are not writes at all: in F the component is replaced by `ShowReviewModalSkeleton`, and in G it remounts. Nothing in the table fires, and a claim held in a ref inside that component dies with it. So:
 
-- A modal-held claim closes **E** (W1 and W7), the only candidate that is a state write.
+- A modal-held claim closes **E** (W1 and W5), the only candidate that is a state write.
 - Closing **F** and **G** needs a holder ABOVE the Suspense boundary, since both destroy the component that would hold it.
 
 This spec ships the modal-held claim and records F and G as documented limits with the exact trace signature that re-files them (§8). The alternative, a module-scoped claim that survives any unmount, closes all three and is a larger change: it needs an explicit clear on modal close and on navigation, or a stale claim leaks into the next modal and swallows that operator's first Escape. Trading a rare, unobserved failure for a claim that can leak across modals is the wrong direction while F and G remain unobserved in 19 live arrivals.
@@ -120,12 +130,14 @@ The claim is a ref, not state: it is read at event time and must not re-render t
 | predicate present, returns false | shell closes |
 | predicate present, returns true | shell does not close, and consumes the claim |
 | panel never opened this mount | claim never set, so the first Escape closes the modal |
-| panel dismissed by click-outside (W5) or the pill (W3) | claim cleared, so the next Escape closes the modal |
+| panel dismissed by click-outside, focus-out, or the pill (W3, W4) | claim cleared, so the next Escape closes the modal |
+| panel dismissed by SELECTING a row, alert or sheet warning (W4) | claim cleared, so the next Escape closes the modal |
 | panel dismissed by its own Escape (W4) | shell never sees that key; claim cleared, so the NEXT Escape closes the modal |
-| panel taken down by a data blip (W1, W7) | claim survives; the next Escape is consumed and the modal stays |
+| panel taken down by a data blip (W1, W5) | claim survives; the next Escape is consumed and the modal stays |
+| a THIRD Escape after a consumed one | the claim was consumed by the second, so this closes the modal; the claim is consumed exactly once |
 | two Escapes in rapid succession | the first is consumed if a claim is pending, the second closes the modal |
 
-The click-outside and menu-Escape rows are the ones that can regress shipped behavior, and each gets its own red (§6.2).
+The click-outside, menu-Escape and row-selection rows are the ones that can regress shipped behavior, and each gets its own red (§6.2). So does the third-Escape row, which is the only thing standing between this repair and a claim that swallows every later key.
 
 ## 5. Transition inventory
 
@@ -133,8 +145,8 @@ States: **M** panel up, **N** panel down with a claim pending, **O** panel down 
 
 | pair | on Escape |
 | --- | --- |
-| M -> N | transient unmount (W1, W7). No key involved in the transition itself. |
-| M -> O | intentional dismissal (W2, W3, W4, W5, W6). No key involved except in W4, which the frame consumes. |
+| M -> N | transient unmount (W1, W5). No key involved in the transition itself. |
+| M -> O | intentional dismissal (W2, W3, and all five sources of W4). No key involved except the frame's own Escape source, which the frame consumes. |
 | N -> O | shell sees the key, predicate returns true, claim consumed, modal STAYS. Instant, no animation. |
 | O -> closed | shell sees the key, predicate returns false, modal closes. Existing exit animation, unchanged. |
 | N -> closed | cannot occur in one key. N always consumes its Escape into O first, which is the whole point. |
@@ -145,7 +157,18 @@ Compound: a panel torn down WHILE its exit animation runs is still classified by
 
 ### 6.1 The six arms become a permanent contract suite
 
-Arms A, C, D, E, F and G move from the deleted probe into a committed suite beside the existing frame tests; the plan names its path. They run against the real component through the existing harness, need no instrumentation, and each asserts the post-repair outcome: the modal survives in A, D, E and F; the modal closes in C. This is the arc's most durable artifact, because it fails the moment any window becomes reachable again rather than only when someone catches the flake.
+Arms A, C, D, E, F and G move from the deleted probe into a committed suite beside the existing frame tests; the plan names its path. They run against the real component through the existing harness and need no instrumentation. Each asserts the outcome the repair actually produces, which is NOT the same for every arm:
+
+| arm | post-repair outcome asserted | role |
+| --- | --- | --- |
+| A | modal survives | pins the shipped contract |
+| C | modal CLOSES | positive control; nothing claimed the key |
+| D | modal survives | pins that an actionable-only blip does not take the panel down |
+| E | modal survives | the repair's own red, and the window it closes |
+| F | modal CLOSES | executable record of a documented limit (§8) |
+| G | modal CLOSES | executable record of a documented limit (§8) |
+
+**F and G assert a CLOSE, and saying otherwise was a defect in the first draft.** §3.3 establishes that a modal-held claim cannot survive either window, so a suite demanding the modal stay open in F or G would be red forever against the repair this spec defines. Adversarial review round 1 caught the contradiction. What F and G are worth keeping for is different and narrower: they are change detectors over a documented limit. If someone later closes either window, its arm fails and has to be updated deliberately, which is how the limit stops being silent. That is a weaker claim than "the suite reds the moment a window becomes reachable", and the weaker claim is the true one.
 
 ### 6.2 New reds
 
@@ -153,7 +176,9 @@ Arms A, C, D, E, F and G move from the deleted probe into a committed suite besi
 2. Panel torn down by a whole-data blip, then Escape, modal stays. **Red before the repair** (arm E measures the shell running today).
 3. Panel replaced by the skeleton, then Escape, modal stays. **Red before the repair** (arm F).
 4. Panel dismissed by click-outside, then Escape, modal CLOSES. Guards the §4 regression.
-5. No panel at any point, Escape, modal closes. Guards against a claim that is never cleared.
+5. Panel dismissed by SELECTING a row, then Escape, modal CLOSES. Same guard for the two sources §3.3's first draft missed.
+6. No panel at any point, Escape, modal closes. Guards against a claim that is never cleared.
+7. **The claim is consumed exactly once.** From N, the first Escape leaves the modal open and the SECOND closes it. This is the only assertion standing between the repair and a predicate that returns true forever: an implementation that sets the claim in E and never clears it satisfies reds 1 through 6 while silently swallowing every later Escape, which is precisely the consequence bound this spec is written against. Round 1 found the gap; the existing two-Escape e2e case cannot cover it, because that case starts in M, where the frame handles and clears the first key, so it never observes state N at all.
 
 ### 6.3 Anti-tautology
 
@@ -172,5 +197,7 @@ None. This spec changes key handling and adds no rendered element, no layout, an
 ## 8. Documented limits
 
 - **The rate is unmeasured.** The repair is justified by a proven mechanism, not by a measured frequency. Re-file trigger: the row's own expansion trigger, an Esc-contract case that flakes, is unchanged and still applies.
-- **Candidate G is only partly closed.** A ref-held claim dies with a remount of the component that holds it. Closing G fully means holding the claim above `PublishedReviewModal`, which is a larger change on a surface another arc is editing. Re-file trigger: a losing trace whose signature is `modal:unmount` followed by a second `modal:mount` with no `skeleton:mount`.
+- **Candidates F and G are NOT closed by this repair, and both are recorded here rather than only one.** A ref held inside `PublishedReviewModal` dies when that component is replaced by the Suspense fallback (F) or remounted (G), so neither window is closed and each keeps its arm as an executable record (§6.1). The first draft named only G, which round 1 caught. Closing either fully means holding the claim above the Suspense boundary, which is the module-scoped alternative §3.3 rejects on the stale-claim trade.
+  - Re-file trigger for F: a losing trace carrying `modal:unmount` paired with `skeleton:mount`, and a `doc:capture` record with `modalInDom: true` and `titleInDom: false`.
+  - Re-file trigger for G: a losing trace carrying `modal:unmount` followed by a second `modal:mount` with no `skeleton:mount`.
 - **The instrument had a gap.** The repeat probe registered its `addInitScript` in a different test, so its iterations carry no `doc:capture` record. Component emits still separated E, F and G, so no conclusion rests on the missing records.
