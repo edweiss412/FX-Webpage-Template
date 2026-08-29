@@ -68,8 +68,33 @@ The repair landed on one file and the class was never swept. This spec sweeps it
 | **Two existing guards are retargeted, not weakened** — `tests/e2e/help-typography.spec.ts`'s measure assertion moves from the wrapper to a paragraph, and `tests/help/help-prose-layer.test.ts`'s `max-width: <n>ch` pattern moves to whatever declaration then carries the measure. Neither is weakened to accommodate the change: the wrapper stops being the element that carries the measure, and a paragraph is what the contract was always about, so the retargeted assertion is the stronger of the two because it measures rendered text rather than a container. Both still fail if the measure disappears. | §3.4. Flagged explicitly because "the diff changed a test" is a predictable finding and the reasoning belongs in the record, not in a review round. |
 | **Uncapping tables, screenshots and the custom prose components is out of scope.** The only elements that take `help-bleed` are the tour's three card grids: the two that exist (§3.2) and the one §3.3 creates. | §6 Documented limits. |
 | **The repair goes beyond the `DEFERRED.md` entry's named mechanism, deliberately.** The entry proposed lifting the grids out of the 70ch cap; §2.2 measures that cap binding only in two narrow intervals (740-767 and 1004 upward), so the named repair cannot reach 768px, where the measure is worst. The bleed still ships, joined by a derived column count. | bl-orch ruling, 2026-08-29: the owner ratified the OUTCOME (cards readable at full width), and a better mechanism for the same outcome is the arc's call. Conditions attached and met: the probe and the refutation are in this document (§1.1, §2.2), the floor carries real-browser assertions across the sampled matrix (AC-1), and the sweep covers the errors peer (§3.2a, §7). |
-| **AC-1's floor is 28ch, not `DESIGN.md` §2.5's 65-75ch.** §2.5 caps long-form prose; no multi-column card grid on an 856px column can reach it. | §8, AC-1. Stated because "the spec ignores the documented measure floor" is the obvious finding, and the answer is that the floor is a cap on a different thing. |
+| **AC-1's FLOOR is 28ch, not `DESIGN.md` §2.5's 65ch.** §2.5 caps long-form prose; no multi-column card grid on an 856px column can reach its lower bound. Its 75ch CEILING is a different matter and still binds — see the amendment below. | §8, AC-1. Stated because "the spec ignores the documented measure floor" is the obvious finding, and the answer is that the floor is a cap on a different thing. |
 | Both findings are pre-existing on `origin/main`, not regressions introduced by any recent arc. | `DEFERRED.md`, both entries, "Why deferred rather than repaired in-branch". |
+
+### Amendment, 2026-08-29 — what the invariant-8 gate changed
+
+The impeccable dual gate runs after this document converged, and it is a design authority: it
+found three things §§3 and 8 got wrong. Its dispositions are recorded in §12 of the plan, but
+under plan-wide invariant 7 a plan disposition does not move the spec. **These three are ratified
+here, and the normative text below is amended to match what ships.** A reader comparing this
+document to the code should find no difference; where they once did, that was this gap.
+
+1. **AC-1 gains a CEILING of 75ch** (§8). The gate measured the `col-span-full` card at **80.9ch**
+   at 1280 inside a bled grid, up from 65.8ch on `origin/main`, and a floor-only AC-1 called that
+   regression an improvement. The floor stays 28ch for the reason the row above gives; the
+   ceiling is `DESIGN.md` §2.5's, unchanged, and it binds on the one card the floor's derivation
+   never covered — a full-span card is single-column.
+2. **The parse-warnings card's body caps at the measure** (§3.2, §4). `col-span-full` gives the
+   card the whole grid; its `<p>` takes `max-w-[var(--help-measure)]` so the card keeps its
+   pre-existing full-width prominence while its text stays in band. This is the repair for 1.
+3. **The Settings card's eyebrow is `Admins, folder, emails`**, not `Set once, revisit rarely`
+   (§3.3). The original restated its own group heading — "Once per environment" over "First time
+   only" over "Set once, revisit rarely", one sentence three times. The six other cards name
+   their content; this one now does too.
+
+Nothing else the gate raised changed the shipped design: the staggered right edge is the bleed
+working as intended, and the 1.25:1 hover cue and the off-system eyebrow tracking are both
+pre-existing on all eight cards.
 
 ---
 
@@ -346,6 +371,13 @@ and a two-track span in a one-track grid creates an implicit second column and b
 becomes `col-span-full`, which is `grid-column: 1 / -1` and spans whatever count is live. This is
 the kind of interaction that makes `auto-fit` worth stating carefully rather than dropping in.
 
+**Its body caps at the measure** (amendment 2 in §1.1). The card spans the whole grid, so without
+a cap its `<p>` is the one element on the page that the bleed makes WIDER than the reading measure
+rather than better proportioned: the invariant-8 gate measured 80.9ch at 1280. The anchor keeps
+`col-span-full`; the `<p>` inside it takes `max-w-[var(--help-measure)]`, which is the same
+registered length §3.1 puts on every other prose child. The card stays prominent; its text does
+not exceed the band `DESIGN.md` §2.5 sets.
+
 ### 3.2a The errors-page jump list
 
 Confirmed by probe as the same defect, not a suspected peer: 5 of its 7 items wrap at 768px
@@ -402,7 +434,7 @@ Exact rendered copy, so this is a specification and not a description:
 
 | slot | text |
 | --- | --- |
-| eyebrow | `Set once, revisit rarely` |
+| eyebrow | `Admins, folder, emails` |
 | duration | `3 min` |
 | `h3` | `Settings` |
 | body | `Settings holds the account-wide choices: who can sign in as an admin, which Drive folder the app watches, and which emails it sends you. Nothing here changes day to day. You come back when someone joins or leaves, when the folder moves, or when you want different notifications.` |
@@ -502,6 +534,7 @@ project, so nothing here relies on an implicit stretch.
 | `main` | `.help-bleed` grid | grid width == `main` content width: 728 at 1024, 856 at 1280 and 1440 | `max-width: none` (§3.1); `max-w-6xl` on the page shell is what stops 1440 exceeding 1280 |
 | grid | each card | card width >= 22rem OR == the container, whichever is smaller; never wider than the container | `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` (§3.2). `auto-fit` collapses to one track rather than shrinking below the minimum, and the `min(...,100%)` is what stops that one track exceeding a container narrower than 22rem |
 | grid | parse-warnings card | spans every column, whatever the live count | `col-span-full` (`grid-column: 1 / -1`), NOT `md:col-span-2`, which assumes exactly two tracks and creates an implicit one when there is a single track |
+| parse-warnings card | its `<p>` | body width ≤ the measure, while the card itself stays full-width | `max-w-[var(--help-measure)]` on the `<p>` (§3.2, amendment 2 in §1.1). The card is the one element the bleed would otherwise make wider than the reading band rather than better proportioned |
 | grid | each card | equal column widths; cards in a row share a height | `grid-template-columns` from the `grid-cols-*` utilities; grid's default `align-items: stretch` (a grid default this project does not override, unlike the flex case) |
 
 Every row is asserted in a real browser (§3.5), each `data-testid`-addressed element measured
@@ -670,6 +703,13 @@ this layout has three.
   exceed 24ch and two cannot exceed 38ch, at any minimum width. Writing 65ch here would have made
   AC-1 unsatisfiable by the change it is supposed to accept, which is how it read before §2.2 was
   measured.
+
+  **And at most 75ch, which IS `DESIGN.md` §2.5's ceiling** (amendment 1 in §1.1). The floor's
+  derivation covers multi-column cards only; a `col-span-full` card is single-column, and the
+  invariant-8 gate measured it at 80.9ch inside a bled grid — a regression from 65.8ch that a
+  floor-only criterion scored as an improvement. Both bounds are asserted over EVERY card body,
+  not the first: the span card is card 3 of grid 1, so a criterion that samples card 1 cannot see
+  the only card that can breach the ceiling.
 - **AC-1a** The 390px measure is UNCHANGED at 31.4ch, single-column.
 
   **Narrowed deliberately, because the earlier wording had no independent violation.** It used to
