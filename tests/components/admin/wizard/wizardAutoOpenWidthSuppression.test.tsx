@@ -35,7 +35,13 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { DFID, renderStep3Modal, sectionData, warning } from "./__fixtures__/step3ModalHarness";
+import {
+  DFID,
+  renderStep3Modal,
+  rerenderStep3Modal,
+  sectionData,
+  warning,
+} from "./__fixtures__/step3ModalHarness";
 
 const MENU = `wizard-step3-card-${DFID}-review-attention-menu`;
 const CHIP = `wizard-step3-card-${DFID}-review-chip`;
@@ -147,6 +153,40 @@ describe("wizard auto-open width suppression (spec §5)", () => {
     installQueryAwareMatchMedia(640);
     renderStep3Modal({ d: needsLookData() });
     await waitFor(() => expect(screen.getByTestId(MENU), "640 should open").toBeInTheDocument());
+  });
+
+  it("AC-WIZARD-MIRROR: the width is read INSIDE the frame, not when the effect runs", async () => {
+    const probe = installQueryAwareMatchMedia(1280);
+    renderStep3Modal({ d: needsLookData() });
+    probe.setWidth(375);
+    await flushReveal();
+    expect(
+      screen.queryByTestId(MENU),
+      "the width was sampled at effect time, not inside the reveal frame",
+    ).toBeNull();
+  });
+
+  it("AC-WIZARD-MIRROR: suppression CONSUMES, so a later dependency change cannot retro-fire it", async () => {
+    // The wizard's effect depends on `n`, the needs-look count. Suppress at a
+    // phone width, widen, then change `n`: the reveal must not happen, because
+    // the decision was made and consumed on this mount. Catches the same
+    // consume-below-the-return mutant the published twin catches.
+    const probe = installQueryAwareMatchMedia(375);
+    const rendered = renderStep3Modal({ d: needsLookData() });
+    await flushReveal();
+    expect(screen.queryByTestId(MENU)).toBeNull();
+
+    probe.setWidth(1280);
+    const more = sectionData({ warnings: [warning("crew"), warning("venue"), warning("event")] });
+    await act(async () => {
+      rerenderStep3Modal(rendered, { d: more });
+    });
+    await flushReveal();
+
+    expect(
+      screen.queryByTestId(MENU),
+      "a needs-look change after widening retro-fired a reveal the suppression had consumed",
+    ).toBeNull();
   });
 
   it("AC-WIZARD-ESC-OWNERSHIP: a tap-opened menu on a suppressed arrival claims Escape", async () => {

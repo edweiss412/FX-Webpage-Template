@@ -38,6 +38,7 @@ vi.mock("next/navigation", () => ({
 import {
   actionableAlertItem,
   installModalDomStubs,
+  publishedModalElement,
   renderPublishedModal,
 } from "./__fixtures__/publishedModalHarness";
 
@@ -201,6 +202,117 @@ describe("auto-open width suppression (spec §2)", () => {
     installQueryAwareMatchMedia(640);
     renderPublishedModal([], { attentionItems: ITEMS });
     await waitFor(() => expect(screen.getByTestId(MENU), "640 should open").toBeInTheDocument());
+  });
+
+  it("AC-REVEAL-TIME-READ: the width is read INSIDE the frame, not when the effect runs", async () => {
+    // The whole point of reading inside `requestAnimationFrame`: the width that
+    // decides is the one the panel would have APPEARED at. Answer desktop while
+    // the effect runs, then move to a phone width before the frame fires. A
+    // predicate sampled at effect time opens; one sampled at reveal time does
+    // not.
+    const probe = installQueryAwareMatchMedia(1280);
+    renderPublishedModal([], { attentionItems: ITEMS });
+    // Effect has run and scheduled its frame; the frame has not fired yet.
+    probe.setWidth(375);
+    await flushReveal();
+    expect(
+      screen.queryByTestId(MENU),
+      "the width was sampled at effect time, not inside the reveal frame",
+    ).toBeNull();
+  });
+
+  it("AC-CANCELLED-FRAME: a cancelled frame leaves the one-shot UNCONSUMED", async () => {
+    // A dependency change cancels a pending frame before it fires. That is not a
+    // decision about anything, so the one-shot must survive it and the next
+    // frame must still reveal. An implementation that consumed the ref before
+    // scheduling would lose the reveal entirely.
+    installQueryAwareMatchMedia(1280);
+    const { rerender } = renderPublishedModal([], { attentionItems: ITEMS });
+
+    // Change a dependency (`actionable.length`) synchronously, before the
+    // scheduled frame can run, so the effect re-runs and cancels it.
+    await act(async () => {
+      rerender(
+        publishedModalElement([], { attentionItems: [...ITEMS, actionableAlertItem("a3")] }),
+      );
+    });
+    await flushReveal();
+
+    expect(
+      screen.queryByTestId(MENU),
+      "a cancelled frame consumed the one-shot and the reveal was lost",
+    ).not.toBeNull();
+  });
+
+  it("AC-EMPTY-NO-CONSUME: an empty phone arrival does not consume; items arriving later still open it", async () => {
+    // `actionable.length === 0` returns WITHOUT consuming, because nothing was
+    // decided. Widen, then let items arrive: the reveal is still owed. An
+    // implementation that consumed on the empty return would never open.
+    const probe = installQueryAwareMatchMedia(375);
+    const { rerender } = renderPublishedModal([], { attentionItems: [] });
+    await flushReveal();
+    expect(screen.queryByTestId(MENU)).toBeNull();
+
+    probe.setWidth(1280);
+    await act(async () => {
+      rerender(publishedModalElement([], { attentionItems: ITEMS }));
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(MENU),
+        "the empty arrival consumed the one-shot, so later items never revealed",
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("AC-RESIZE-WIDEN-STAYS-CLOSED: suppression CONSUMES, so a later dependency change cannot retro-fire it", async () => {
+    // The browser twin only resizes, and a resize touches none of the effect's
+    // dependencies -- so it cannot see whether the one-shot was consumed. Whole-
+    // diff review round 1 caught that: moving `autoOpenFiredRef.current = true`
+    // BELOW the suppression return passes every other case here and then reveals
+    // the menu on the next item-count change, at a width the operator has since
+    // left. Measured: with that mutant applied and this case absent, 9 of 9
+    // passed.
+    //
+    // So: suppress at a phone width, WIDEN past the boundary, then change a
+    // dependency. The reveal must not happen, because the decision was already
+    // made and consumed on this mount.
+    const probe = installQueryAwareMatchMedia(375);
+    const { rerender } = renderPublishedModal([], { attentionItems: ITEMS });
+    await flushReveal();
+    expect(screen.queryByTestId(MENU)).toBeNull();
+
+    probe.setWidth(1280);
+    await act(async () => {
+      rerender(
+        publishedModalElement([], { attentionItems: [...ITEMS, actionableAlertItem("a4")] }),
+      );
+    });
+    await flushReveal();
+
+    expect(
+      screen.queryByTestId(MENU),
+      "a dependency change after widening retro-fired a reveal the suppression had already consumed",
+    ).toBeNull();
+  });
+
+  it("AC-FOCUS-IDENTITY: arrival focus is the close button, identically with and without suppression", async () => {
+    // Read only after effects and frames are flushed: the focus-rescue effect
+    // carries NO dependency array and runs after every commit, so activeElement
+    // passes through intermediate values on its way to the settled one.
+    installQueryAwareMatchMedia(375);
+    renderPublishedModal([], { attentionItems: ITEMS });
+    await flushReveal();
+    const suppressed = (document.activeElement as HTMLElement | null)?.dataset?.testid;
+    cleanup();
+
+    installQueryAwareMatchMedia(1280);
+    renderPublishedModal([], { attentionItems: ITEMS });
+    await flushReveal();
+    const opened = (document.activeElement as HTMLElement | null)?.dataset?.testid;
+
+    expect(suppressed, "suppression moved arrival focus").toBe("published-show-review-close");
+    expect(opened).toBe(suppressed);
   });
 
   it("AC-ARIA-EXPANDED: a suppressed arrival reports aria-expanded=false on the pill", async () => {

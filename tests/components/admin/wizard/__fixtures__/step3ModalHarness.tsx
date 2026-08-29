@@ -64,6 +64,24 @@ export type RenderModalOpts = {
   onClose?: () => void;
 };
 
+/** Re-render the SAME tree with new props, for cases that must move one of the
+ *  auto-open effect's dependencies without remounting. Lives here rather than in
+ *  each suite so no test has to import the component and rebuild its prop set. */
+export function rerenderStep3Modal(
+  rendered: ReturnType<typeof renderStep3Modal>,
+  opts: RenderModalOpts = {},
+) {
+  rendered.q.rerender(
+    <Step3ReviewModal
+      data={opts.d ?? rendered.d}
+      checked={opts.checked ?? false}
+      isDirtyRescan={opts.isDirtyRescan ?? false}
+      onRequestSetChecked={opts.onRequestSetChecked ?? rendered.onRequestSetChecked}
+      onClose={opts.onClose ?? rendered.onClose}
+    />,
+  );
+}
+
 export function renderStep3Modal(opts: RenderModalOpts = {}) {
   const onClose = opts.onClose ?? vi.fn();
   const onRequestSetChecked = opts.onRequestSetChecked ?? vi.fn(async () => true);

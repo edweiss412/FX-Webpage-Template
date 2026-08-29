@@ -353,4 +353,3 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 **Owning record:** this index, plus the plan section of that arc's filing
 
 **Re-file trigger:** named by a 2nd distinct arc, OR a product-facing arc measurably blocked by a defect whose arm existed and was dormant. Note what would NOT settle it: promoting every advisory to a failure trades this shape for a louder one, and the repo has already measured advisory promotion producing noise that authors route around. A candidate repair has to make opting IN the default, or make the arm's region-gating unnecessary, rather than raise its severity.
-
