@@ -12,11 +12,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md` (canonical). Branch `feat/ref-error-cell-anchors`, worktree `/Users/ericweiss/FX-worktrees/reflink`. Closes no ledger row; files none.
 
-**The invariant-8 closeout marker lives in the stem-named sibling closeout file** new file 2026-08-29-ref-error-cell-anchors-closeout.md under `docs/superpowers/plans/`, written by Task 7.
+**The invariant-8 closeout marker lives in the stem-named sibling closeout file** new file 2026-08-29-ref-error-cell-anchors-closeout.md under `docs/superpowers/plans/`, written by Task 6.
 
 ## Global constraints
 
-- **THE ARC NEVER MERGES.** bl-orch (`w15:p2`) issues the merge word after its own gates. No `gh pr merge`, no `--auto`, no auto-merge at push time. Task 7 ends with a readiness line sent to bl-orch.
+- **THE ARC NEVER MERGES.** bl-orch (`w15:p2`) issues the merge word after its own gates. No `gh pr merge`, no `--auto`, no auto-merge at push time. Task 6 ends with a readiness line sent to bl-orch.
 - **The local Postgres is a named single slot.** Take no DB-touching run until bl-orch names you holder. Every command in this plan marked `DB-free` is DB-free by construction (scoped vitest over parser, drive, sheet-links, components and admin suites that open no client); the full suite (`pnpm heavy pnpm test`) is NOT, and waits for the slot. Local DB suites need the explicit loopback `TEST_DATABASE_URL` override (the wave-common brief under FX-worktrees/_briefs).
 - **The pre-push set is derived, not remembered.** Before every push, read `.github/workflows/quality.yml` and run what its `quality` job runs (read the file, do not recite this list), plus the DB-free half of the unit suite.
 - **Every message to bl-orch is chunked under 600 characters, numbered, with the arc name `arc-reflink` in EACH part**, sent with `herdr agent send w15:p2 "<msg>"` then `sleep 3; herdr pane send-keys w15:p2 Enter`, and read back. The decision ask goes in the LAST sentence.
@@ -33,7 +33,7 @@
 - **Invariant 2, advisory locks.** N/A. `attachWarningAnchors` is a pure raw-workbook read on both ingestion paths (`lib/sync/attachWarningAnchors.ts`, header comment, "NO pg_advisory* call (invariant 2)"); this plan adds one more pure family to it and touches no lock.
 - **Invariant 5, no raw codes in UI.** The new span renders `title` and `a1` from `sourceCell`, never a code.
 - **Invariant 7, spec is canonical.** No amendment.
-- **Invariant 8, UI gate.** IN SCOPE, two files under `components/`: `components/admin/wizard/step3ReviewSections.tsx` (one span in the warning row, Task 6) and `components/admin/PerShowActionableWarnings.tsx` (one span in the card, Task 6). Task 7 runs the critique + audit pair and writes the marker line in the sibling closeout file.
+- **Invariant 8, UI gate.** IN SCOPE, two files under `components/`: `components/admin/wizard/step3ReviewSections.tsx` (one span in the warning row, Task 5) and `components/admin/PerShowActionableWarnings.tsx` (one span in the card, Task 5). Task 6 runs the critique + audit pair and writes the marker line in the sibling closeout file.
 - **Invariant 9, Supabase call boundaries.** N/A. No Supabase client call is added or edited.
 - **Invariant 10, mutation-surface observability.** N/A. No route handler or server action is added or edited.
 - **Invariant 12, ledger.** No row closed, no row filed, no marker.
@@ -45,16 +45,16 @@ Spec §1.1 in full, plus:
 - **Ordinal pairing is the design, and the guards are what make it safe** (spec §2.4). A reviewer who wants a key join on `(kind, snippet)` is asking for the design spec §1 fact 1 measured as returning null on the dispatching workbook: five identical keys on five tabs.
 - **`tests/parser/waveCodesNoSourceCell.test.ts` is replaced, not extended.** Its header names this change as the reason it would be replaced (spec §2.5).
 - **The grain rule is a class repair, and `FIELD_UNREADABLE` is a peer of the shape** (spec §1.1 point 10 of the round-2 brief; AGENTS.md class-sweep default). A finding that it touches a code outside the three is reading the sweep.
-- **This plan does not name both gate halves; the closeout sibling does.** `tests/docs/_invariant8Closeout.ts` `declaresGate` folds the unit (plan + stem-named sibling) and requires both phrases; a plan that named both before the marker exists would red the guard on every intermediate commit. Task 7 writes both phrases and the marker in one commit.
+- **This plan does not name both gate halves; the closeout sibling does.** `tests/docs/_invariant8Closeout.ts` `declaresGate` folds the unit (plan + stem-named sibling) and requires both phrases; a plan that named both before the marker exists would red the guard on every intermediate commit. Task 6 writes both phrases and the marker in one commit.
 - **`attachWarningAnchors`'s fifth parameter stays optional.** Seven existing test call sites pass three or four arguments; both production call sites forward it (Task 4). A missing forward degrades to refusal (spec §2.4 "Same blocks"), never to a wrong cell.
 
 ## 2. Meta-test inventory
 
-- CREATES a new suite waveCodeAnchors.test.ts under `tests/drive/` (Task 3: replay equals parse over the corpus and six constructed variants; the four refusals; the dispatching workbook's five cells) and a new suite waveCodeAnchorsSeams.test.ts beside it (Task 6: the parse-side sequence equals the replay on workbooks where a seam demonstrably fired).
+- CREATES a new suite waveCodeAnchors.test.ts under `tests/drive/` (Task 3: replay equals parse over the corpus and six constructed variants, the sixth being the Step 2.5 seam pin; the refusals and the positive hand-built pairings) and a new suite waveCodeAnchors.resolution.test.ts beside it (Task 4: T3, the dispatching workbook's five cells through `attachWarningAnchors`).
 - REPLACES `tests/parser/waveCodesNoSourceCell.test.ts` with waveCodesSourceCell.test.ts under `tests/parser/` (Task 4).
-- EXTENDS `tests/parser/refErrorLiteral.test.ts`, `tests/parser/rowCellsFused.test.ts`, `tests/parser/leadingColumnAutocorrect.test.ts` (Task 2: scanner positions and emitter equivalence), `tests/drive/synthesizeBlocks.test.ts` (Task 1: `blockMarkdown`), `tests/sync/attachWarningAnchors.test.ts` (Task 4: `synthOpts` reaches the replay), `tests/parser/operatorActionableWarnings.test.ts` (Task 4: five rows stay five), `tests/components/step3SheetCard.test.tsx`, `tests/components/step3SheetCard.transitions.test.tsx`, `tests/admin/perShowActionableRenderControls.test.tsx`, `tests/admin/perShowActionableTransitions.test.tsx` (Task 6).
+- EXTENDS `tests/parser/refErrorLiteral.test.ts`, `tests/parser/rowCellsFused.test.ts`, `tests/parser/leadingColumnAutocorrect.test.ts` (Task 2: scanner positions and emitter equivalence), `tests/drive/synthesizeBlocks.test.ts` (Task 1: `blockMarkdown`), `tests/sync/attachWarningAnchors.test.ts` (Task 4: `synthOpts` reaches the replay), `tests/parser/operatorActionableWarnings.test.ts` and `tests/admin/sectionWarningModel.autocorrect.test.ts` (Task 4: five rows stay five on the staged selector and in the published model), `tests/components/step3SheetCard.test.tsx`, `tests/components/step3SheetCard.transitions.test.tsx`, `tests/admin/perShowActionableRenderControls.test.tsx`, `tests/admin/perShowActionableTransitions.test.tsx` (Task 5).
 - Not applicable: `tests/auth/_metaInfraContract.test.ts` (no Supabase call), `tests/log/_metaMutationSurfaceObservability.test.ts` (no mutation surface), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no lock), `tests/mutation/source/registry.ts` (no enrolled surface is touched: none of the three parser modules nor any `lib/drive/*Anchors.ts` has a row, `rg` 2026-08-29), `tests/messages/_metaWarningCardCopy.test.ts` (no catalog change).
-- `tests/docs/_metaInvariant8Closeout.test.ts` reads this plan and its sibling closeout file by walker; Task 7 satisfies it.
+- `tests/docs/_metaInvariant8Closeout.test.ts` reads this plan and its sibling closeout file by walker; Task 6 satisfies it.
 
 ## 3. Pre-draft verification (run 2026-08-29 on `origin/main` at `e7751f61d`, which this branch's code equals at `cb5cc3abd`)
 
@@ -74,10 +74,10 @@ Every symbol below was grepped on the live tree; line numbers are drafting-time 
 - `components/admin/wizard/step3ReviewSections.tsx:3232` `const rowLabel = w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null`, rendered at `components/admin/wizard/step3ReviewSections.tsx:3236-3243` as `data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}` with `Sheet row <span className="font-mono text-text">`; `components/admin/wizard/step3ReviewSections.tsx:3277-3287` the `-open` link. The warnings loop indexes the RAW `warnings` array (`components/admin/wizard/step3ReviewSections.tsx:2958-2970`).
 - `components/admin/PerShowActionableWarnings.tsx:109-154` props (`items`, `driveFileId`, `renderItemControls?`, `condensed?`, `showControlsNote?`); `components/admin/PerShowActionableWarnings.tsx:246` `href`; `components/admin/PerShowActionableWarnings.tsx:259-260` `rawLabel` / `rowLabel`; `components/admin/PerShowActionableWarnings.tsx:320-333` the `per-show-actionable-row-label` span and its `-value` child; `components/admin/PerShowActionableWarnings.tsx:396-409` the `Open in Sheet` link.
 - `tests/parser/waveCodesNoSourceCell.test.ts:48-52` `WAVE_CODES`; `tests/parser/waveCodesNoSourceCell.test.ts:66-71` `sources` (showDay, crewRole, unknownField, region with `crew`, `schedule`, `gear_packlist`); `tests/parser/waveCodesNoSourceCell.test.ts:77` `KIND_TO_REGION_UNDER_TEST`; `tests/parser/waveCodesNoSourceCell.test.ts:80-94` the control case; `tests/parser/waveCodesNoSourceCell.test.ts:96-134` the two arms per code.
-- `tests/drive/unknownFieldAnchors.test.ts:19` `buildInfoWorkbook`, `tests/drive/unknownFieldAnchors.test.ts:31` `buildWorkbook(tabs)` (multi-tab, gid = insertion index), `tests/drive/unknownFieldAnchors.test.ts:57` `fixtureBuffer(relative)` (pooled-buffer slice). `tests/sync/attachWarningAnchors.test.ts:7` `xlsxBuffer(aoa)`. `tests/components/step3SheetCard.test.tsx:134` `parseResult(overrides)`, `tests/components/step3SheetCard.test.tsx:155` `stagedRow(pr)`, `tests/components/step3SheetCard.test.tsx:164` `card(q)`, `WSID` / `DFID` constants. `tests/admin/perShowActionableRenderControls.test.tsx:28` `render(<PerShowActionableWarnings items={items} driveFileId="df" />)`. `tests/admin/perShowActionableTransitions.test.tsx:104` `VARIANTS`, `tests/admin/perShowActionableTransitions.test.tsx:143` the every-ordered-pair loop. `tests/components/step3SheetCard.transitions.test.tsx:82` the §4.5 transition describe. `tests/_shared/premise.ts` `premise` / `premiseHolds`.
+- `tests/drive/unknownFieldAnchors.test.ts:19` `buildInfoWorkbook`, `tests/drive/unknownFieldAnchors.test.ts:31` `buildWorkbook(tabs)` (multi-tab, gid = insertion index), `tests/drive/unknownFieldAnchors.test.ts:57` `fixtureBuffer(relative)` (pooled-buffer slice). `tests/sync/attachWarningAnchors.test.ts:7` `xlsxBuffer(aoa)`. `tests/components/step3SheetCard.test.tsx:134` `parseResult(overrides)`, `tests/components/step3SheetCard.test.tsx:155` `stagedRow(pr)`, `tests/components/step3SheetCard.test.tsx:164` `card(q)`, `WSID` / `DFID` constants. `tests/admin/perShowActionableRenderControls.test.tsx:28` `render(<PerShowActionableWarnings items={items} driveFileId="df" />)`. `tests/admin/perShowActionableTransitions.test.tsx:104` `VARIANTS`, `tests/admin/perShowActionableTransitions.test.tsx:143` the every-ordered-pair loop. `tests/components/step3SheetCard.transitions.test.tsx:82` the §4.5 transition describe. `tests/_shared/premise.ts:26` `premise(description, actual, mustExceed)` (numeric, strictly past) and `tests/_shared/premise.ts:36` `premiseHolds(description, condition)` (boolean); there is no boolean form of `premise` (the R1 review's first finding). `tests/admin/perShowActionableTransitions.test.tsx:88-93` `warn(code, autocorrect?)` spreads `autocorrect` conditionally; `tests/admin/perShowActionableTransitions.test.tsx:104-115` `VARIANTS` `as const satisfies Record<string, { code; guidance; trigger; note }>`, every member carrying every field (the file's own TS2339 note at `tests/admin/perShowActionableTransitions.test.tsx:101-102`); `tests/admin/perShowActionableTransitions.test.tsx:121-123` `itemsFor`. `tests/admin/sectionWarningModel.autocorrect.test.ts:24-29` calls `buildSectionWarningModel({ slug, warnings, ignoredFingerprints, renderedSectionIds })`; `lib/admin/sectionWarningModel.ts:48` `active: SectionWarningItem[]`; `lib/admin/step3SectionStatus.ts:76` `sectionForWarning` returns null for a kind absent from `KIND_TO_SECTION` (`section` is absent) and `lib/admin/step3SectionStatus.ts:92-104` `warningsBySection` files such a warning under `warnings`.
 - `tests/parser/parseWarningDeepLinkRender.test.tsx:21-42` pins `CELL_ANCHORED_CODES` = actionable + the five hotel codes; unchanged by this plan (no membership change). `tests/parser/operatorActionableWarnings.test.ts:8` "contains exactly the twenty-four codes", unchanged.
 - Snippet typecheck (writing-plans rule): the pure snippets of Task 3 (`WAVE_CODES`, `WaveCodeSite`, `rowOfLine`, `ownerOfFragment`, `cellAnchor`, `pairWaveCodeSites`) and Task 4 (`grainOf`) were compiled 2026-08-29 against this worktree's `tsconfig.json` (strict, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) with `@/` and `xlsx` resolved: zero errors. The parts that import the not-yet-existing scanners (`extractWaveCodeSites`, `pairAllWaveCodes`) compile once Task 2 lands and are checked by Task 3's own `pnpm typecheck` step.
-- Corpus probe (spec §1): `docs/superpowers/specs/probes/2026-08-29-ref-anchors-replay.report.txt`: fintech 5 REF, fixed-income 5, rpas 5, consultants 6, others 0; zero FUSED, zero LEADING; per-block equals whole-doc on 7 of 7.
+- Corpus probe (spec §1): `docs/superpowers/specs/probes/2026-08-29-ref-anchors-replay.report.txt`: fintech 5 REF, fixed-income 5, rpas 5, consultants 6, others 0; zero FUSED, zero LEADING; per-block equals whole-doc on 7 of 7. Reachability probe (spec §1, §8): `docs/superpowers/specs/probes/2026-08-29-leading-column-reachability.report.txt`, seven constructed workbook shapes (an unshifted section followed by a shifted one, a block-initial shifted section followed by `CLIENT`, by mixed-case `Venue`, by `DRESS`, by `VENUE`, a typo'd `TRANSPORTATON` header, a shifted row with a literal pipe), zero `LEADING_COLUMN_AUTOCORRECTED` warnings on all seven. The derivation: `lib/drive/exportSheetToMarkdown.ts:144-170` `splitBlocks` (an uppercase known header as a row's first non-blank cell starts a new block, `lib/parser/knownSections.ts:290` `isMidBlockSectionStart`) and `trimBlock` (a uniformly blank leading column is sliced off), `lib/parser/leadingColumnNormalize.ts:17-24` `leadsEmpty` (the alignment row's cell 1 is the colon-dash marker, not empty), `lib/parser/leadingColumnNormalize.ts:136-144` `opener` (a shifted opener needs `splitCellsUnescaped(line).length === lastUnshiftedWidth + 1`, impossible under `renderRow`'s padding to one width). `.github/workflows/mutation-harness.yml:30-33` triggers are `schedule` and `workflow_dispatch`; `.github/workflows/mutation-harness.yml:42-59` the `pull_request` path filter names no parser module; `.github/workflows/mutation-harness.yml:75` and `.github/workflows/mutation-harness.yml:186` `if: github.event_name != 'pull_request'` on the parser and source shard jobs; `.github/workflows/mutation-harness.yml:180-183` the documented escape `gh workflow run mutation-harness.yml --ref <branch>`. `tests/docs/_invariant8Closeout.ts:139-141`: `dispositions` must be `recorded` when `p0 + p1 > 0` and `none` otherwise.
 
 ## 4. File structure
 
@@ -91,8 +91,8 @@ Every symbol below was grepped on the live tree; line numbers are drafting-time 
 - EDIT `lib/sync/runOnboardingScan.ts`, `lib/sync/runScheduledCronSync.ts`: forward `synthOpts`.
 - EDIT `lib/sheet-links/buildSheetDeepLink.ts`: the `scope` doc comment names both scanners.
 - EDIT `components/admin/wizard/step3ReviewSections.tsx`, `components/admin/PerShowActionableWarnings.tsx`: the cell line.
-- NEW suite waveCodeAnchors.test.ts under `tests/drive/`; NEW suite waveCodeAnchorsSeams.test.ts under `tests/drive/` (Task 6); NEW suite waveCodesSourceCell.test.ts under `tests/parser/`; DELETE `tests/parser/waveCodesNoSourceCell.test.ts`; EDIT the suites listed in §2.
-- NEW sibling closeout file 2026-08-29-ref-error-cell-anchors-closeout.md under `docs/superpowers/plans/` (Task 7).
+- NEW suite waveCodeAnchors.test.ts under `tests/drive/` (Task 3); NEW suite waveCodeAnchors.resolution.test.ts under `tests/drive/` (Task 4); NEW suite waveCodesSourceCell.test.ts under `tests/parser/`; DELETE `tests/parser/waveCodesNoSourceCell.test.ts`; EDIT the suites listed in §2.
+- NEW sibling closeout file 2026-08-29-ref-error-cell-anchors-closeout.md under `docs/superpowers/plans/` (Task 6).
 
 All new test files match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts(x)`) and live in directories already in the parallel project; no wiring change.
 
@@ -114,8 +114,8 @@ What is red and why: `blockMarkdown` is not exported from `exportSheetToMarkdown
 describe("blockMarkdown is the one renderer synthesizeMarkdownFromXlsx uses (spec 2026-08-29 §2.2)", () => {
   const DIR = join(process.cwd(), "fixtures/shows/exporter-xlsx");
   const files = readdirSync(DIR).filter((f) => f.endsWith(".xlsx")).sort();
-  it("premise: the corpus has workbooks and at least one has an opaque block when its OLD tab is included", () => {
-    premise(files.length >= 7, "seven corpus workbooks");
+  it("premise: the corpus holds the seven workbooks the spec measured", () => {
+    premise("corpus workbooks", files.length, 6);
   });
   for (const f of files) {
     it(`${f}: blocks.map(blockMarkdown).join("\\n\\n") equals the document`, () => {
@@ -222,7 +222,7 @@ Run the task command: PASS. Then `pnpm vitest run tests/parser/mutation/signalTe
 
 ### Task 3: `waveCodeAnchors`, the replay and the pairing
 
-<!-- task: red=`pnpm vitest run tests/drive/waveCodeAnchors.test.ts` red-state=authored red-target=`lib/drive/showDayTimeAnchors.ts:143` why=`no waveCodeAnchors module exists under lib/drive, so the new suite's import fails; the production surface it feeds, attachSourceCellAnchors, admits the three codes at its gate and then has no branch that could anchor them` ac=AC-1,AC-3 -->
+<!-- task: red=`pnpm vitest run tests/drive/waveCodeAnchors.test.ts` red-state=authored red-target=`lib/drive/showDayTimeAnchors.ts:143` why=`no waveCodeAnchors module exists under lib/drive, so the new suite's import fails; the production surface it feeds, attachSourceCellAnchors, admits the three codes at its gate and then has no branch that could anchor them` ac=AC-3 -->
 
 **Files:**
 - Create: new module waveCodeAnchors.ts under `lib/drive/`
@@ -288,50 +288,27 @@ describe("T1 corpus: replay equals parse", () => {
       leadingSites += sites.filter((s) => s.code === "LEADING_COLUMN_AUTOCORRECTED").length;
     });
   }
-  it("premise: the corpus exercises REF and nothing else, so the variants below are what exercise FUSED and LEADING", () => {
-    premise(refSites > 0, "corpus REF sites");
-    premise(fusedSites === 0 && leadingSites === 0, "corpus has no FUSED / LEADING sites (spec §1)");
+  it("premise: the corpus yields REF sites and no FUSED / LEADING sites (both exporter-unreachable, spec §8); a corpus change that starts emitting either is noticed here", () => {
+    premise("corpus REF sites", refSites, 0);
+    premiseHolds("corpus has no FUSED / LEADING sites (spec §1, §8)", fusedSites === 0 && leadingSites === 0);
   });
 });
 ```
 
 (The premise case runs after the `for` cases in file order; if vitest ordering makes that fragile, compute the three counts in a `beforeAll` over the same files and premise on them in each variant case instead.)
 
-```ts
-describe("T3 the dispatching workbook", () => {
-  it("fintech.xlsx: five REF warnings resolve, in order, to the five #REF! cells an independent scan finds", async () => {
-    const buffer = fixtureBuffer("fixtures/shows/exporter-xlsx/fintech.xlsx");
-    const gids = gidsFor(buffer);
-    const { markdown } = synthesizeMarkdownFromXlsx(buffer);
-    const warnings = parseSheet(markdown, "fintech.xlsx").warnings;
-    await attachWarningAnchors(warnings, buffer, () => Promise.resolve(gids));
-    const refs = warnings.filter((w) => w.code === "REF_ERROR_LITERAL");
-    const expected = rawRefCells(buffer);
-    premise(expected.length === 5, "five raw #REF! cells (spec §1 table)");
-    expect(refs.map((w) => `${w.sourceCell?.title}!${w.sourceCell?.a1}`)).toEqual(expected);
-    for (const w of refs) {
-      expect(w.sourceCell?.scope).toBe("cell");
-      expect(SOURCE_LINK_ALLOWLIST as readonly string[]).not.toContain(w.sourceCell!.title);
-      expect(buildSheetDeepLink("DF", w.sourceCell)).toBe(`https://docs.google.com/spreadsheets/d/DF/edit#gid=${w.sourceCell!.gid}&range=${w.sourceCell!.a1}`);
-    }
-  });
-  it("consultants.xlsx: six REF warnings, AGENDA rows 3 and 4, columns A through C (merge fan-out, spec §1.1)", async () => { /* same shape; expected from rawRefCells expanded by the merge ranges read from sh["!merges"] */ });
-  it("east-coast.xlsx: no wave warnings, no sites", () => { /* sites.length === 0 and no wave code in warnings */ });
-});
-```
+T3 (the dispatching workbook through `attachWarningAnchors`) needs Task 4's router branch, so it lives in its own suite that Task 4 creates (waveCodeAnchors.resolution.test.ts under `tests/drive/`) and this task's command is green in full at its GREEN step (the R1 review's second finding).
 
-Note the T3 fintech case depends on Task 4's router branch; it is RED at Task 3 for a second reason (no `sourceCell`) and turns GREEN in Task 4. State that in the commit body; Task 4's red command includes this file.
-
-Variants (a)-(f) from spec §5 T1 (no workbook can produce `ROW_CELLS_FUSED`, spec §1; its scanner is covered by Task 2's hand-built markdown and its pairing by the T4 hand-built sites), each built from a corpus workbook with `editCell` / `buildWorkbook`, each asserting through `parseAndSites` + `pairWaveCodeSites`, and each asserting the anchor's `a1` against a coordinate computed from the edit it made (never read from the site):
+Variants (a)-(f) from spec §5 T1 (no workbook this exporter synthesizes can produce `ROW_CELLS_FUSED` or `LEADING_COLUMN_AUTOCORRECTED`, spec §1 and §8, the reachability probe in §3; their scanners are covered by Task 2's hand-built markdown and their pairing by the T4 hand-built sites below), each built from a corpus workbook with `editCell` / `buildWorkbook`, each asserting through `parseAndSites` + `pairWaveCodeSites`, and each asserting the anchor's `a1` against a coordinate computed from the edit it made (never read from the site):
 
 - (a) `editCell(east-coast, "INFO", <a data cell inside CREW>, "#REF!")` → one site, `anchor.a1` equals that cell, `title === "INFO"`. (Pick the cell by reading the INFO grid for the `CREW` header row and taking the row below it, column B; premise that the cell was blank or text before the edit.)
 - (b) same as (a) plus `editCell(..., <cell A of that row>, "a|b")` → the REF site's `anchor` is STILL the `#REF!` cell's true column (the fragment map absorbs the fracture); and `ownerOfFragment(["a|b", "#REF!"], 2, 5)` (out of range) is `null`, `ownerOfFragment` on a row whose per-cell counts cannot reconcile is `null` (construct by passing `width` smaller than `cells.length` so the padded whole-row render differs; assert null).
-- (c) `buildWorkbook` with one tab holding an unshifted `VENUE` section, then (no blank row: the shift must share the block) a shifted `HOTEL` section (every row starting with an empty cell, one of them containing `#REF!`), both in one block (no blank row between them; the shift shares the block) → one LEADING site at the `HOTEL` header row, `a1` at column A of that row; one REF site at the `#REF!` cell's true column; both pair.
-- (d) `fixtureBuffer(consultants)` → the six REF sites' `a1` equal `["A3","B3","C3","A4","B4","C4"]` on `AGENDA`, derived from `sh["!merges"]` for A3 and A4; then `editCell(consultants, "AGENDA", "A3", "prefix | #REF!")` (the merge copies it across B3 and C3) → three sites whose `a1` are `A3`, `B3`, `C3` in order (round-1 finding 1: the naive map sent the first to B3); and `buildWorkbook` with a row `["a|b", "#REF!", "#REF!"]` → two sites at `B` and `C` of that row exactly.
-- (e) `XLSX.utils.sheet_add_aoa(ws, rows, { origin: "B2" })` with a `#REF!` at the aoa's `[1][1]` → `a1 === "C3"`.
-- (f) `buildXlsx([{ name, grid }])` imported from `tests/helpers/buildXlsx` (as `tests/drive/synthesizeBlocks.test.ts:8` does) and the `regionA` pull-sheet grid of `tests/drive/synthesizeBlocks.test.ts:10-16` (copied, with a comment naming the source): an `INFO` tab holding a `#REF!` data cell and an `OLD PULL SHEET` tab holding `regionA` with `#REF!` written into one of its item cells. An OLD tab is collected only when `collectPullSheetRegionsFromMarkdown` finds a pull-sheet region in it (`exportSheetToMarkdown.ts:427-466`), which `regionA` satisfies (that file's own "included OLD pull-sheet region is opaque" case). `parseAndSites(buffer, gids, { includePullSheetFromTab: "OLD PULL SHEET" })` → two REF sites: the INFO one with its cell, the opaque one with `anchor: null`, and `pairWaveCodeSites` yields `[cell, null]` in workbook order (premise: the OLD tab is appended after INFO, so the opaque hit is second; assert the order from `sites.map(s => s.anchor === null)`). Then `parseSheet` on the markdown synthesized WITH the option but `extractWaveCodeSites` called WITHOUT it → one site against two warnings → all-null.
+- (c) `fixtureBuffer(consultants)` → the six REF sites' `a1` equal `["A3","B3","C3","A4","B4","C4"]` on `AGENDA`, derived from `sh["!merges"]` for A3 and A4; then `editCell(consultants, "AGENDA", "A3", "prefix | #REF!")` (the merge copies it across B3 and C3) → three sites whose `a1` are `A3`, `B3`, `C3` in order (round-1 finding 1: the naive map sent the first to B3); and `buildWorkbook` with a row `["a|b", "#REF!", "#REF!"]` → two sites at `B` and `C` of that row exactly.
+- (d) `XLSX.utils.sheet_add_aoa(ws, rows, { origin: "B2" })` with a `#REF!` at the aoa's `[1][1]` → `a1 === "C3"`.
+- (e) `buildXlsx([{ name, grid }])` imported from `tests/helpers/buildXlsx` (as `tests/drive/synthesizeBlocks.test.ts:8` does) and the `regionA` pull-sheet grid of `tests/drive/synthesizeBlocks.test.ts:10-16` (copied, with a comment naming the source): an `INFO` tab holding a `#REF!` data cell and an `OLD PULL SHEET` tab holding `regionA` with `#REF!` written into one of its item cells. An OLD tab is collected only when `collectPullSheetRegionsFromMarkdown` finds a pull-sheet region in it (`exportSheetToMarkdown.ts:427-466`), which `regionA` satisfies (that file's own "included OLD pull-sheet region is opaque" case). `parseAndSites(buffer, gids, { includePullSheetFromTab: "OLD PULL SHEET" })` → two REF sites: the INFO one with its cell, the opaque one with `anchor: null`, and `pairWaveCodeSites` yields `[cell, null]` in workbook order (premise: the OLD tab is appended after INFO, so the opaque hit is second; assert the order from `sites.map(s => s.anchor === null)`). Then `parseSheet` on the markdown synthesized WITH the option but `extractWaveCodeSites` called WITHOUT it → one site against two warnings → all-null.
+- (f) the Step 2.5 seam pin: `buildWorkbook` with one tab of three rows, `["TRANSPORTATON", "", ""]`, `["Driver", "#REF!", ""]`, `["Van", "v", ""]` (shape 6 of the reachability report). Premise, executable: `warnings` holds exactly one `SECTION_HEADER_AUTOCORRECTED` (`premiseHolds`; if that spelling stops being one `normalizeSectionHeaders` corrects, pick one from `lib/parser/sectionHeaderNormalize.ts`). Assert: the parse-side REF warning's `blockRef.kind` is `transportation` while the replay site's `kind` is `section` (the two sides disagree on kind by design), and `pairWaveCodeSites(warnings, sites, "REF_ERROR_LITERAL")` yields `B2` on that tab (computed from the row the test built), because REF pairing compares snippet and never kind (spec §2.4). If this case fails, STOP: a seam that rewrites or reorders is a design finding (spec §2.4 says none does); report it to bl-orch with the failing case before touching `pairWaveCodeSites`.
 
-T4 refusals, `pairWaveCodeSites` directly with hand-built `WaveCodeSite[]` and `ParseWarning[]`: counts 2 vs 3, 2 vs 1, snippet mismatch at index 1, LEADING kind mismatch at index 1 (all `[null, ...]`); a null-anchor placeholder at index 0 with a cell at index 1 yields `[null, cell]`.
+T4 refusals, `pairWaveCodeSites` directly with hand-built `WaveCodeSite[]` and `ParseWarning[]`: counts 2 vs 3, 2 vs 1, snippet mismatch at index 1, LEADING kind mismatch at index 1 (all `[null, ...]`); a null-anchor placeholder at index 0 with a cell at index 1 yields `[null, cell]`. Positive arms for the two codes no exporter workbook reaches: two `ROW_CELLS_FUSED` warnings against two FUSED sites with pairwise equal normalized snippets yield both cells; two `LEADING_COLUMN_AUTOCORRECTED` warnings against two LEADING sites with pairwise equal kinds yield both cells.
 
 Run: `pnpm vitest run tests/drive/waveCodeAnchors.test.ts` (DB-free). Expected: every case fails on the missing module.
 
@@ -447,22 +424,47 @@ The three scanners run per block in the order the parser emits their warnings wi
 
 In `lib/sheet-links/buildSheetDeepLink.ts`, amend the `scope` doc comment: set by the two raw-workbook anchor scanners (`unknownFieldAnchors`, `waveCodeAnchors`) and by nothing else.
 
-Run the task command: every T1, T4 and variant case PASS; the T3 fintech and consultants cases still fail on `sourceCell` undefined (Task 4). Then `pnpm typecheck`.
+Run the task command: PASS, every case. Then `pnpm typecheck`.
 
-- [ ] **Step 3: Commit** `feat(drive): waveCodeAnchors, a detector replay over the exporter's blocks with ordinal pairing`. Body states the T3 cases are red pending Task 4.
+- [ ] **Step 3: Commit** `feat(drive): waveCodeAnchors, a detector replay over the exporter's blocks with ordinal pairing`.
 
 ### Task 4: the router branch, the `wave` family, and `synthOpts` at both call sites
 
-<!-- task: red=`pnpm vitest run tests/drive/waveCodeAnchors.test.ts tests/parser/waveCodesSourceCell.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/operatorActionableWarnings.test.ts tests/drive/showDayTimeAnchors.test.ts` red-state=authored red-target=`lib/drive/showDayTimeAnchors.ts:145` why=`the branch chain in attachSourceCellAnchors names none of the three codes and WarningAnchorSources has no wave field, so a paired cell is never attached, the T3 fintech case reads sourceCell undefined, and the new waveCodesSourceCell suite's positive arm fails` ac=AC-1,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/drive/waveCodeAnchors.resolution.test.ts tests/parser/waveCodesSourceCell.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/operatorActionableWarnings.test.ts tests/admin/sectionWarningModel.autocorrect.test.ts tests/drive/showDayTimeAnchors.test.ts` red-state=authored red-target=`lib/drive/showDayTimeAnchors.ts:145` why=`the branch chain in attachSourceCellAnchors names none of the three codes and WarningAnchorSources has no wave field, so a paired cell is never attached, the T3 fintech case reads sourceCell undefined, and the new waveCodesSourceCell suite's positive arm fails` ac=AC-1,AC-3,AC-4 -->
 
 **Files:**
 - Modify: `lib/drive/showDayTimeAnchors.ts`, `lib/sync/attachWarningAnchors.ts`, `lib/sync/runOnboardingScan.ts`, `lib/sync/runScheduledCronSync.ts`, `lib/sync/applyParseResult.ts` (comment only: the "never clobbers" promise now cites the grain rule)
-- Create: new suite waveCodesSourceCell.test.ts under `tests/parser/`; Delete: `tests/parser/waveCodesNoSourceCell.test.ts`
-- Test: also `tests/sync/attachWarningAnchors.test.ts`, `tests/parser/operatorActionableWarnings.test.ts`
+- Create: new suite waveCodesSourceCell.test.ts under `tests/parser/`; new suite waveCodeAnchors.resolution.test.ts under `tests/drive/` (T3); Delete: `tests/parser/waveCodesNoSourceCell.test.ts`
+- Test: also `tests/sync/attachWarningAnchors.test.ts`, `tests/parser/operatorActionableWarnings.test.ts`, `tests/admin/sectionWarningModel.autocorrect.test.ts`
 
 What is red and why: `attachSourceCellAnchors` has no branch for the three codes (`showDayTimeAnchors.ts:145-199`), so every positive assertion below reads `undefined`.
 
-- [ ] **Step 1: RED.** `git rm tests/parser/waveCodesNoSourceCell.test.ts`. Create waveCodesSourceCell.test.ts under `tests/parser/` from the deleted file's fixture (`sources` with `showDay`, `crewRole`, `unknownField`, `region` incl. `schedule` and `gear_packlist`; the control case verbatim), plus:
+- [ ] **Step 1: RED.** First the T3 suite, waveCodeAnchors.resolution.test.ts under `tests/drive/` (`fixtureBuffer`, `gidsFor` and `rawRefCells` copied from the Task 3 suite, or imported if Task 3 exported them, with a comment naming the source; `attachWarningAnchors`, `SOURCE_LINK_ALLOWLIST`, `buildSheetDeepLink` imported from their modules):
+
+```ts
+describe("T3 the dispatching workbook, through attachWarningAnchors", () => {
+  it("fintech.xlsx: five REF warnings resolve, in order, to the five #REF! cells an independent scan finds", async () => {
+    const buffer = fixtureBuffer("fixtures/shows/exporter-xlsx/fintech.xlsx");
+    const gids = gidsFor(buffer);
+    const { markdown } = synthesizeMarkdownFromXlsx(buffer);
+    const warnings = parseSheet(markdown, "fintech.xlsx").warnings;
+    await attachWarningAnchors(warnings, buffer, () => Promise.resolve(gids));
+    const refs = warnings.filter((w) => w.code === "REF_ERROR_LITERAL");
+    const expected = rawRefCells(buffer);
+    premiseHolds("five raw #REF! cells (spec §1 table)", expected.length === 5);
+    expect(refs.map((w) => `${w.sourceCell?.title}!${w.sourceCell?.a1}`)).toEqual(expected);
+    for (const w of refs) {
+      expect(w.sourceCell?.scope).toBe("cell");
+      expect(SOURCE_LINK_ALLOWLIST as readonly string[]).not.toContain(w.sourceCell!.title);
+      expect(buildSheetDeepLink("DF", w.sourceCell)).toBe(`https://docs.google.com/spreadsheets/d/DF/edit#gid=${w.sourceCell!.gid}&range=${w.sourceCell!.a1}`);
+    }
+  });
+  it("consultants.xlsx: six REF warnings, AGENDA rows 3 and 4, columns A through C (merge fan-out, spec §1.1)", async () => { /* same shape; expected from rawRefCells expanded by the merge ranges read from sh["!merges"] */ });
+  it("east-coast.xlsx: no wave warnings, no sites", () => { /* sites.length === 0 and no wave code in warnings */ });
+});
+```
+
+- [ ] **Step 1, continued.** `git rm tests/parser/waveCodesNoSourceCell.test.ts`. Create waveCodesSourceCell.test.ts under `tests/parser/` from the deleted file's fixture (`sources` with `showDay`, `crewRole`, `unknownField`, `region` incl. `schedule` and `gear_packlist`; the control case verbatim), plus:
 
 ```ts
 const cell = (a1: string): SourceAnchor => ({ title: "VENUE", gid: 5, a1, scope: "cell" });
@@ -492,32 +494,90 @@ The grain pin (spec §2.1 "Assignment never demotes", T5), derived over `CELL_AN
 
 ```ts
 describe("assignment never demotes a cell anchor to a range (spec §2.1)", () => {
-  const regionOnly: WarningAnchorSources = { showDay: [], crewRole: [], unknownField: [], region: { crew: range("A2:D5"), schedule: range("A1:F40"), gear_packlist: range("A1:C9"), hotels: range("A10:D12") } };
-  const kindFor = (code: string): string => code.startsWith("HOTEL_") ? "hotels" : code === "FIELD_UNREADABLE" ? "crew" : "agenda";
-  let resolvedSomewhere = 0;
+  const range = (a1: string): SourceAnchor => ({ title: "INFO", gid: 0, a1 });
+  const isCell = (a: SourceAnchor | null | undefined): boolean =>
+    !!a && typeof a.a1 === "string" && a.a1.length > 0 && !a.a1.includes(":");
+  const regionOnly: WarningAnchorSources = {
+    showDay: [], crewRole: [], unknownField: [],
+    region: { crew: range("A2:D5"), schedule: range("A1:F40"), gear_packlist: range("A1:C9"), hotels: range("A10:D12"), rooms: range("A1:B4"), transportation: range("A20:D25"), details: range("A1:B9") },
+  };
+  // One kind per code that reaches that code's branch (the chain at showDayTimeAnchors.ts:145-199).
+  const kindFor = (code: string): string =>
+    code.startsWith("HOTEL_") ? "hotels"
+    : code === "FIELD_UNREADABLE" || code === "COLUMN_HEADER_AUTOCORRECTED" || code === "ORPHANED_CREW_ROWS" ? "crew"
+    : code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE" ? "rooms"
+    : code === "SECTION_HEADER_AUTOCORRECTED" ? "transportation"
+    : code === "FIELD_LABEL_AUTOCORRECTED" ? "details"
+    : code.startsWith("PULL_SHEET_") ? "pull_sheet"
+    : "agenda";
+  const warnFor = (code: string): ParseWarning =>
+    code === "UNKNOWN_FIELD"
+      ? { ...warn(code, "crew"), blockRef: { kind: "crew", name: "L" }, rawSnippet: "L | V" } // emitUnknownField's shape, lib/parser/rawSnippet.ts:1
+      : warn(code, kindFor(code));
+  // The pass that yields a CELL for a code, one entry per cell-yielding branch of the chain:
+  // showDay, crewRole (the five crew codes and FIELD_UNREADABLE), unknownField, and this
+  // task's wave family. Every other member of CELL_ANCHORED_CODES resolves to a region range
+  // by design and has no cell source, so the halves below run over two DERIVED sets whose
+  // union is the whole set: a new member is asserted in one half or the other, never skipped.
+  const CELL_PASS: Record<string, WarningAnchorSources> = {
+    SCHEDULE_TIME_UNPARSED: { ...regionOnly, showDay: [{ iso: "2026-06-24", anchor: cell("B7") }] },
+    UNKNOWN_FIELD: { ...regionOnly, unknownField: [{ kind: "crew", label: normalizeCellKey("L"), value: normalizeCellKey("V"), anchor: cell("D3") }] },
+  };
+  for (const c of ["UNKNOWN_ROLE_TOKEN", "UNKNOWN_DAY_RESTRICTION", "UNKNOWN_STAGE_RESTRICTION", "STAGE_WORD_AUTOCORRECTED", "ROLE_TOKEN_AUTOCORRECTED", "FIELD_UNREADABLE"]) {
+    CELL_PASS[c] = { ...regionOnly, crewRole: [{ name: normalizeCrewNameKey("Alice"), anchor: cell("C12") }] };
+  }
+  for (const c of WAVE_CODES) CELL_PASS[c] = { ...regionOnly, wave: { [c]: [cell("C3")] } };
+  const CELL_CAPABLE = [...CELL_ANCHORED_CODES].filter((c) => c in CELL_PASS);
+  const REGION_ONLY = [...CELL_ANCHORED_CODES].filter((c) => !(c in CELL_PASS));
+  it("premise: the two derived sets partition CELL_ANCHORED_CODES and neither is empty", () => {
+    premise("cell-capable members", CELL_CAPABLE.length, 0);
+    premise("region-only members", REGION_ONLY.length, 0);
+    expect(Object.keys(CELL_PASS).filter((c) => !CELL_ANCHORED_CODES.has(c))).toEqual([]);
+  });
+  const contested: string[] = [];
   for (const code of CELL_ANCHORED_CODES) {
-    it(`${code}: a cell survives a region-only pass; a range is upgraded by a cell`, () => {
-      const kept = [{ ...warn(code, kindFor(code)), sourceCell: cell("C3") }];
+    it(`${code}: a cell survives a region-only pass`, () => {
+      const probe = [warnFor(code)];
+      attachSourceCellAnchors(probe, regionOnly);
+      if (probe[0]!.sourceCell) contested.push(code); // this code's region-only pass yields a range: the survival below is contested, not vacuous
+      const kept = [{ ...warnFor(code), sourceCell: cell("C3") }];
       attachSourceCellAnchors(kept, regionOnly);
       expect(kept[0]!.sourceCell).toEqual(cell("C3"));
-      const probe = [warn(code, kindFor(code))];
-      attachSourceCellAnchors(probe, regionOnly);
-      if (probe[0]!.sourceCell) resolvedSomewhere += 1; // this code's region-only pass DOES resolve → the survival above was not vacuous
     });
   }
-  it("premise: the region-only pass resolved for at least FIELD_UNREADABLE and one agenda-kind wave code", () => {
-    premise(resolvedSomewhere >= 2, "region-only pass resolves for the branches the rule guards");
+  it("premise: the region-only pass contested FIELD_UNREADABLE and every wave code (kind agenda)", () => {
+    premiseHolds("FIELD_UNREADABLE contested", contested.includes("FIELD_UNREADABLE"));
+    premiseHolds("every wave code contested", WAVE_CODES.every((c) => contested.includes(c)));
   });
+  for (const code of CELL_CAPABLE) {
+    it(`${code}: a range is upgraded by its cell-yielding pass`, () => {
+      const probe = [warnFor(code)];
+      attachSourceCellAnchors(probe, CELL_PASS[code]!);
+      premiseHolds(`${code}: the cell pass resolves a cell from an unanchored warning`, isCell(probe[0]!.sourceCell));
+      const up = [{ ...warnFor(code), sourceCell: range("A1:F40") }];
+      attachSourceCellAnchors(up, CELL_PASS[code]!);
+      expect(up[0]!.sourceCell).toEqual(probe[0]!.sourceCell);
+    });
+  }
+  for (const code of REGION_ONLY) {
+    it(`${code}: has no cell-yielding branch; a range is overwritten by the same-grain region (spec §2.1 idempotency)`, () => {
+      const w = [{ ...warnFor(code), sourceCell: range("Z1:Z2") }];
+      attachSourceCellAnchors(w, regionOnly);
+      expect(isCell(w[0]!.sourceCell)).toBe(false);
+      expect(w[0]!.sourceCell).not.toEqual(range("Z1:Z2"));
+    });
+  }
 });
 ```
 
-(`range(a1)` is `{ title: "INFO", gid: 0, a1 }`; the premise counter is incremented by the same cases it guards, and the premise case is last in file order. On the live tree the `FIELD_UNREADABLE` case fails: its cell is replaced by `region.crew`.)
+(`cell` is this file's `{ title: "VENUE", gid: 5, a1, scope: "cell" }` helper; `normalizeCrewNameKey` from `@/lib/drive/crewRoleAnchors`, `normalizeCellKey` from `@/lib/drive/unknownFieldAnchors`. The `contested` list is filled by the same cases the second premise guards, and that premise case follows them in file order. On the live tree the `FIELD_UNREADABLE` survival case fails (its cell is replaced by `region.crew`), every wave-code survival case with kind `agenda` fails (replaced by `region.schedule`), and every wave-code upgrade case fails on its premise (no branch yields a cell yet); the upgrade cases for the seven non-wave cell-capable codes pass on arrival, which is the point of a class repair: those branches already behave as the rule states. The R1 review's fourth finding: the earlier draft titled the upgrade half and never ran it.)
 
-`tests/sync/attachWarningAnchors.test.ts` (T7): build variant (f)'s workbook with `xlsxBuffer`-style helpers (an `INFO` tab with a `#REF!` data cell and an `OLD PULL SHEET` tab with `#REF!`), parse with `{ includePullSheetFromTab: "OLD PULL SHEET" }`, then `attachWarningAnchors(warnings, buffer, gids, {}, { includePullSheetFromTab: "OLD PULL SHEET" })` → the INFO warning has a `scope: "cell"` anchor; the same call without the fifth argument → every REF warning's `sourceCell` is undefined.
 
-`tests/parser/operatorActionableWarnings.test.ts` (T8, regression pin, green on arrival): five `REF_ERROR_LITERAL` warnings with `sourceCell` `a1` `A1` on gids 1..5 survive `operatorActionableWarnings` as five (the staged page's selector, `app/admin/show/staged/[stagedId]/page.tsx:204`); `warningIdentityKey` over them yields five distinct strings. And in the suite that drives `buildSectionWarningModel` (`lib/admin/sectionWarningModel.ts`; file named in §3), the same five yield five active items: the published review modal applies no dedup (spec §2.5).
+`tests/sync/attachWarningAnchors.test.ts` (T7): build variant (e)'s workbook with `xlsxBuffer`-style helpers (an `INFO` tab with a `#REF!` data cell and an `OLD PULL SHEET` tab with `#REF!`), parse with `{ includePullSheetFromTab: "OLD PULL SHEET" }`, then `attachWarningAnchors(warnings, buffer, gids, {}, { includePullSheetFromTab: "OLD PULL SHEET" })` → the INFO warning has a `scope: "cell"` anchor; the same call without the fifth argument → every REF warning's `sourceCell` is undefined.
 
-Run the task command (DB-free). Expected: `waveCodesSourceCell` positive arms and the T7 positive case fail on `undefined`; T8 passes; the T3 fintech / consultants cases in the waveCodeAnchors suite still fail.
+`tests/parser/operatorActionableWarnings.test.ts` (T8, regression pin, green on arrival): five `REF_ERROR_LITERAL` warnings with `sourceCell` `a1` `A1` on gids 1..5 survive `operatorActionableWarnings` as five (the staged page's selector, `app/admin/show/staged/[stagedId]/page.tsx:204`); `warningIdentityKey` over them yields five distinct strings. And in `tests/admin/sectionWarningModel.autocorrect.test.ts` (the suite that drives `buildSectionWarningModel`, `lib/admin/sectionWarningModel.ts`), the same five, with `blockRef: { kind: "section" }`, passed to `buildSectionWarningModel({ slug: "s", warnings, ignoredFingerprints: new Set(), renderedSectionIds: new Set(["crew"]) })` land under `record.warnings!.active` as five items (`section` is not a wizard section, so `warningsBySection` files them under `warnings`, §3): the published review modal applies no dedup (spec §2.5).
+
+Run the task command (DB-free). Expected: the T3 fintech and consultants cases fail on `sourceCell` undefined (east-coast passes); the `waveCodesSourceCell` positive arms, the grain pin's contested survival cases and the wave-code upgrade cases, and the T7 positive case fail on `undefined`; both T8 cases pass.
 
 - [ ] **Step 2: GREEN.**
 
@@ -552,7 +612,7 @@ and make the `KIND_TO_REGION` branch reachable after it: the chain is `if / else
 
 `lib/sync/runScheduledCronSync.ts:3325`: fifth argument `includeOpts` (`lib/sync/runScheduledCronSync.ts:3149`; `{}` when no override, which the replay reads as no option).
 
-Run the task command: PASS, all files, including the T3 cases in the waveCodeAnchors suite. Then `pnpm vitest run tests/parser/parseWarningDeepLinkRender.test.tsx tests/drive/unknownFieldAnchors.test.ts tests/drive/unknownFieldAnchors.live.test.ts tests/drive/crewRoleAnchors.test.ts tests/drive/sourceAnchors.test.ts` (DB-free): PASS. `pnpm typecheck`: PASS.
+Run the task command: PASS, all files. Then `pnpm vitest run tests/drive/waveCodeAnchors.test.ts` (DB-free): still PASS. Then `pnpm vitest run tests/parser/parseWarningDeepLinkRender.test.tsx tests/drive/unknownFieldAnchors.test.ts tests/drive/unknownFieldAnchors.live.test.ts tests/drive/crewRoleAnchors.test.ts tests/drive/sourceAnchors.test.ts` (DB-free): PASS. `pnpm typecheck`: PASS.
 
 - [ ] **Step 3: Sweep (fix-round regression budget, authored and run).** `rg -n "waveCodesNoSourceCell" lib tests docs --glob '!docs/review-rounds/**'` → only the two specs' historical mentions (`docs/superpowers/specs/2026-08-27-wizard-warning-row-links-copy-design.md:164`, `docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md:288`) and this arc's spec; no code reference. `rg -n "attachWarningAnchors\(" lib` → exactly the two production call sites, both with five arguments.
 
@@ -568,10 +628,10 @@ Run the task command: PASS, all files, including the T3 cases in the waveCodeAnc
 
 Opus-only (UI). What is red and why: neither component renders a cell line; the positive cases query a test id that does not exist.
 
-- [ ] **Step 1: RED.** Cases per spec §5 T6 and §10. Wizard (`tests/components/step3SheetCard.test.tsx`), five cases over one warning at index 0, `REF_ERROR_LITERAL`, severity `warn`, message from the catalog title:
+- [ ] **Step 1: RED.** Cases per spec §5 T6 and §10. Wizard (`tests/components/step3SheetCard.test.tsx`), seven cases over one warning at index 0, `REF_ERROR_LITERAL`, severity `warn`, message from the catalog title:
 
 ```ts
-function refWarning(sourceCell: ParseWarning["sourceCell"]): ParseWarning {
+function refWarning(sourceCell: SourceAnchor | null): ParseWarning { // never ParseWarning["sourceCell"]: that includes undefined, which exactOptionalPropertyTypes refuses on a present optional property (the R1 review's sixth finding)
   return { severity: "warn", code: "REF_ERROR_LITERAL", message: "m", blockRef: { kind: "section" }, rawSnippet: "\\#REF\\!", sourceCell };
 }
 function cellLineText(q: ReturnType<typeof render>, i: number): string | null {
@@ -592,6 +652,7 @@ test.each([
   ["null", null],
   ["unscoped region range", { title: "INFO", gid: 0, a1: "A1:C3" }],
   ["blank a1", { title: "VENUE", gid: 5, a1: "  ", scope: "cell" as const }],
+  ["blank title", { title: " ", gid: 5, a1: "A1", scope: "cell" as const }],
 ])("no cell line for %s", (_, sc) => {
   const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [refWarning(sc)] }))} wizardSessionId={WSID} />);
   expect(q.queryByTestId(`wizard-step3-card-${DFID}-warning-0-cell`)).toBeNull();
@@ -601,9 +662,9 @@ test("UNKNOWN_FIELD with a Sheet row label renders the label and never the cell 
 
 (The warning rows live inside the review modal: the existing `-open` cases at `tests/components/step3SheetCard.test.tsx:646-672` render the card, then query through `const region = within(expand(q))`, the file's `expand` helper, which is a function local to its describe (`tests/components/step3SheetCard.test.tsx:552`, again at `tests/components/step3SheetCard.test.tsx:1013`), so the new cases go inside a describe that defines it or define their own two-line copy. Every case above queries `region`, not `q`, the same way.)
 
-Published (`tests/admin/perShowActionableRenderControls.test.tsx` or a new sibling perShowActionableCellLine.test.tsx under `tests/admin/`): the same five cases against `per-show-actionable-cell` / `per-show-actionable-cell-value` with `render(<PerShowActionableWarnings items={[w]} driveFileId="df" />)`, and the scope-cell case repeated with `condensed` (the line renders in both modes). Clone-and-strip the `Open in Sheet` anchor before reading the item's text where the assertion is on the item rather than the span.
+Published (`tests/admin/perShowActionableRenderControls.test.tsx` or a new sibling perShowActionableCellLine.test.tsx under `tests/admin/`): the same seven cases against `per-show-actionable-cell` / `per-show-actionable-cell-value` with `render(<PerShowActionableWarnings items={[w]} driveFileId="df" />)`, and the scope-cell case repeated with `condensed` (the line renders in both modes). Clone-and-strip the `Open in Sheet` anchor before reading the item's text where the assertion is on the item rather than the span.
 
-Transitions: `tests/components/step3SheetCard.transitions.test.tsx` gains one case: render with the null anchor, `rerender` with the scope-cell anchor, `rerender` with null; after each, the `-cell` element is present / absent synchronously (no `waitFor`) and, when present, has no ancestor with a `data-motion` attribute. `tests/admin/perShowActionableTransitions.test.tsx`: `VARIANTS` gains `H: { code: "SYN_H", ... sourceCell: cell }` and `expectVariant` asserts the cell line's presence for `H` and absence for every other key; the existing every-ordered-pair loop then covers C0↔C1.
+Transitions: `tests/components/step3SheetCard.transitions.test.tsx` gains one case: render with the null anchor, `rerender` with the scope-cell anchor, `rerender` with null; after each, the `-cell` element is present / absent synchronously (no `waitFor`) and, when present, has no ancestor with a `data-motion` attribute. `tests/admin/perShowActionableTransitions.test.tsx`: `warn` (`tests/admin/perShowActionableTransitions.test.tsx:88-93`) gains a third parameter `sourceCell?: SourceAnchor`, spread the way `autocorrect` is (`...(sourceCell ? { sourceCell } : {})`); EVERY `VARIANTS` member gains `sourceCell: null` and a new member `H: { code: "SYN_H", guidance: false, trigger: false, note: false, sourceCell: CELL }` with `const CELL: SourceAnchor = { title: "VENUE", gid: 5, a1: "A1", scope: "cell" }`, and the `satisfies` record type gains `sourceCell: SourceAnchor | null` (every member carries it: the file's own rule at `tests/admin/perShowActionableTransitions.test.tsx:101-102`, a field absent from one member is TS2339 on the union); `itemsFor` becomes `warn(VARIANTS[v].code, v === "G" ? AUTOCORRECT : undefined, VARIANTS[v].sourceCell ?? undefined)`; `expectVariant` adds `expect(!!screen.queryByTestId("per-show-actionable-cell"), `${v} cell line`).toBe(VARIANTS[v].sourceCell !== null)`. The existing every-ordered-pair loop then covers C0↔C1 in both directions (the R1 review's seventh finding: without the `warn` forward, `H` rendered no anchor and the expectation stayed red).
 
 Run the task command (DB-free). Expected: every positive case fails on a null test id; negatives pass (vacuously, which is why the positives exist).
 
@@ -632,26 +693,11 @@ Published: the same predicate beside `rowLabel` at `PerShowActionableWarnings.ts
 
 Pre-code mechanical checklist: `Sheet cell` has no em dash and no apostrophe; classes are the row label's (`wrap-break-word text-xs text-text-subtle`, `font-mono text-text`); the span is not interactive.
 
-Run the task command: PASS. Pre-dispatch mutants (writing-plans rule), each run and recorded in the commit body: guard inverted on `scope` (positive cases fail); `title` rendered without `!a1` (value assertion fails); line rendered alongside the row label (the UNKNOWN_FIELD case fails); `cellRef` emptied (text assertion fails).
+Run the task command: PASS. Pre-dispatch mutants (writing-plans rule, all four families), each run and recorded in the commit body: (a) value emptied: `cellRef` replaced by `""` (the text and value assertions fail); (b) expected content plus an appended suffix: `{cellRef}x` in the value span (the `toBe("VENUE!A1")` assertions fail, which is why they are `toBe` and never `toContain`); (c) present but not live: `cellRef` rendered into a `data-cell` attribute on the row with the span removed, and separately the span wrapped in `{false && ...}` (the test-id query returns null); (d) each discriminating input varied in turn: the `scope` test inverted (`!== "cell"`), the `a1` blank check dropped, the `title` blank check dropped, the `rowLabel === null` conjunct dropped (the negative cases `scope tab`, `blank a1`, `blank title` and `UNKNOWN_FIELD` each fail on exactly its input). A mutant every case survives is a test defect to repair before the commit.
 
 - [ ] **Step 3: Commit** `feat(admin): name the sheet cell on wave-code warning rows and cards`.
 
-### Task 6: seam variants and the replay premise, executed against the live seams
-
-<!-- task: red=`pnpm vitest run tests/drive/waveCodeAnchorsSeams.test.ts` red-state=authored red-target=`lib/parser/index.ts:616` why=`no suite yet drives a #REF! through parseSheet's Step 2.5 and Step 2.55 seams and compares the parse-side sequence to the replay; the new file's three cases are red until Tasks 3 and 4 hold on the seams as shipped, or they surface a seam that reorders or rewrites, which is a design finding` ac=AC-3 -->
-
-**Files:**
-- Test: new suite waveCodeAnchorsSeams.test.ts under `tests/drive/` (reuses the Task 3 helpers by import if Task 3 exported them, else by a copy naming the source)
-
-What is red and why: Task 3's variants (c) and (d) exercise the seams through `parseAndSites`, but no case asserts the PARSE-side sequence against the replay on a workbook where a seam demonstrably fired (a `SECTION_HEADER_AUTOCORRECTED` or `LEADING_COLUMN_AUTOCORRECTED` warning present). This task adds that suite, with an executable premise in each case that the seam fired, so spec §2.4's order argument is pinned on the seams as shipped rather than on the argument. A separate file rather than a `-t` name filter: a filter that matches nothing exits 0 and reads green from the moment it is written.
-
-- [ ] **Step 1: RED.** Create the suite with `describe("seam: the parse-side sequence equals the replay when a seam fired", ...)`: (i) variant (c)'s workbook: premise that `warnings` holds one `LEADING_COLUMN_AUTOCORRECTED`; assert `pairWaveCodeSites(warnings, sites, "REF_ERROR_LITERAL")` yields the `#REF!` cell inside the shifted section, at the column the edit placed it (the shift does not move a cell's sheet coordinate); (ii) a workbook with a `TRANSPORTATON`-headed UNSHIFTED section (one letter dropped) holding a `#REF!` data cell: premise that `warnings` holds one `SECTION_HEADER_AUTOCORRECTED` (else pick a spelling `normalizeSectionHeaders` corrects, `lib/parser/sectionHeaderNormalize.ts`); assert the REF pairing yields its cell although the parser's `blockRef.kind` for it is `transportation` while the replay's is `section` (the pairing never compares kind for REF, spec §2.4); (iii) a workbook with a shifted section holding `#REF!` in TWO cells of one row, one of them after a literal-pipe cell: premise the LEADING warning is present; assert both REF anchors are their true columns (the shift removes a leading cell from the parsed line, the replay maps fragments on the unshifted block row; both agree because the snippet guard compares content, not position). Run: the task command. Expected: the file does not exist → vitest exits non-zero (no test files found); once written, each case's premise must hold or the case fails loudly.
-
-- [ ] **Step 2: GREEN.** The cases pass against the code Tasks 3 and 4 shipped, or they surface a seam that reorders or rewrites (spec §2.4 says none does). If one fails, STOP: that is a design finding, not a test to adjust; report to bl-orch with the failing case before touching `pairWaveCodeSites`.
-
-- [ ] **Step 3: Commit** `test(drive): pin the replay against the live parser seams`.
-
-### Task 7: closeout: impeccable pair, suites, whole-diff review, PR, readiness line
+### Task 6: closeout: impeccable pair, suites, whole-diff review, PR, readiness line
 
 <!-- task: red=`test -f docs/superpowers/plans/2026-08-29-ref-error-cell-anchors-closeout.md` red-state=live red-target=`tests/docs/_invariant8Closeout.ts:45` why=`the stem-named sibling closeout file does not exist, so test -f exits 1; it exits 0 once this task writes the sibling carrying the RAN/RAN marker, whose form the walker's MARKER regex at that line then holds through the closeout guard (the gate command in Step 3). This plan itself deliberately never names both gate halves (the walker's declaresGate fold needs both, so naming them here before the marker exists would red the guard); the sibling is what makes the unit declare` ac=AC-5,AC-6,AC-7 -->
 
@@ -660,12 +706,12 @@ What is red and why: Task 3's variants (c) and (d) exercise the seams through `p
 - Commit: `docs/review-rounds/feat/ref-error-cell-anchors/*.jsonl` (written by the wrapper)
 
 - [ ] **Step 1: RED.** The task command (`test -f` on the sibling) exits 1: no such file. `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` is GREEN here and stays green, because this plan does not declare the gate (see the marker's `why=`); it becomes the sibling's form check once the sibling exists.
-- [ ] **Step 2: impeccable critique + audit** on the Task 5 diff (`git diff origin/main...HEAD -- components/`), each as an isolated sub-agent with cwd pinned to this worktree (the 2026-08-27 closeout's method). P0/P1 fixed in a commit or deferred with a `DEFERRED.md` row; every finding and disposition tabled in the sibling's §12, with the marker line `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`.
+- [ ] **Step 2: impeccable critique + audit** on the Task 5 diff (`git diff origin/main...HEAD -- components/`), each as an isolated sub-agent with cwd pinned to this worktree (the 2026-08-27 closeout's method). P0/P1 fixed in a commit or deferred with a `DEFERRED.md` row; every finding and disposition tabled in the sibling's §12, with the marker line `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>`: `recorded` when `p0 + p1 > 0`, `none` when both are zero (`tests/docs/_invariant8Closeout.ts:141`; a zero-finding pair marked `recorded` is malformed, the R1 review's tenth finding).
 - [ ] **Step 3: GREEN.** Write the sibling with §12 and the marker, naming both gate halves there (and only there); the task command exits 0, and `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` holds the marker's form (a malformed line reds §4.1.2; a declaring unit without a marker reds §4.1.1).
 - [ ] **Step 4: Unchanged-set check (AC-5).** `git diff origin/main...HEAD -- lib/parser/dataGaps.ts lib/sheet-links/buildSheetDeepLink.ts lib/messages tests/parser/_warningCodeAnchor.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` shows only the `scope` doc-comment hunk in `buildSheetDeepLink.ts`; paste the `--stat` in the sibling.
-- [ ] **Step 5: Suites.** DB-free half of the unit suite locally (`pnpm heavy pnpm test:fast` if it stays DB-free on this tree; else the scoped list of every suite this plan touches plus `tests/drive tests/parser tests/sheet-links tests/components tests/admin`), then the pre-push set from `.github/workflows/quality.yml`. Ask bl-orch for the DB slot before `pnpm heavy pnpm test`. The parser mutation harness runs in CI (AC-2's "score does not move"): compare the run's summary to main's last run on the same shards and paste both numbers in the sibling.
+- [ ] **Step 5: Suites.** DB-free half of the unit suite locally (`pnpm heavy pnpm test:fast` if it stays DB-free on this tree; else the scoped list of every suite this plan touches plus `tests/drive tests/parser tests/sheet-links tests/components tests/admin`), then the pre-push set from `.github/workflows/quality.yml`. Ask bl-orch for the DB slot before `pnpm heavy pnpm test`. The parser mutation harness does NOT run on pull requests (`.github/workflows/mutation-harness.yml:75`, the parser jobs skip `pull_request`; the PR path filter names no parser module, §3): dispatch it on this branch with `gh workflow run mutation-harness.yml --ref feat/ref-error-cell-anchors`, pin the run id from `gh run list --workflow mutation-harness.yml --branch feat/ref-error-cell-anchors --limit 1`, wait for it (`gh run watch <id>`), and compare its `parser-shards` and `parser-gates` job summaries to main's latest scheduled run on the same shards (`gh run list --workflow mutation-harness.yml --branch main --event schedule --limit 1`); paste both numbers in the sibling (AC-2's "score does not move"). A red or absent run is no comparison: AC-2 is undischarged until both numbers exist (the R1 review's eleventh finding).
 - [ ] **Step 6: Whole-diff adversarial review** via codex-guard, `--stage diff --round 1`, brief with `GUARD SURFACE: none in this diff, CANNOT-EXPRESS: resolvers, decided by the T1 replay-equals-parse suite and the T3/T4 resolution cases` (spec §6), the consequence bound / probe domain / threat fence from the spec review brief, REVIEWER ONLY, fresh eyes, the §1.1 do-not-relitigate list, `FINDINGS:` and `VERDICT:` terminal lines. Iterate to APPROVE within the four-round cap; commit the JSONL rows.
-- [ ] **Step 7: Live check (AC-1, second half).** After the DB slot is granted and the validation deploy has this branch's preview (or on request, bl-orch's call), rescan `II - FinTech Forum CTO Summit 2026` in the wizard and record that the five rows carry `Open in Sheet` and `Sheet cell <TAB>!A1`; paste the observed five coordinates in the sibling. If the deploy is not reachable from this arc, record that and the fixture result instead; the fixture IS the committed workbook of the same show.
+- [ ] **Step 7: Live check (AC-1, second half).** After the DB slot is granted and the validation deploy has this branch's preview (or on request, bl-orch's call), rescan `II - FinTech Forum CTO Summit 2026` in the wizard and record that the five rows carry `Open in Sheet` and `Sheet cell <TAB>!A1`; paste the observed five coordinates in the sibling. This half of AC-1 has no fixture substitute (the R1 review's twelfth finding): if the deploy or the DB slot is not reachable once every other step is done, set the marker's `blockedOn` to that, send bl-orch the ask, and hold; the arc is not READY until the five live coordinates are in the sibling.
 - [ ] **Step 8: PR + readiness.** Push; open the PR (body: the spec link, the sibling link, the preflight declaration, the round counts); wait for all required contexts green at the shipping head (read the protection rule's required list from the API in one pass; `unit-suite` is a rollup, ABSENT is not green); send bl-orch `arc-reflink READY: PR #<n> head <40-char sha>`. No merge action.
 
 <!-- tasks: end -->
@@ -676,13 +722,13 @@ The criteria live in the spec (§11). Coverage:
 
 | AC | Discharged by |
 | --- | --- |
-| AC-1 | Task 3 (T3 fintech, consultants, east-coast), Task 4 (router; the T3 cases turn green), Task 5 (the two surfaces), Task 7 step 7 (live) |
-| AC-2 | Task 1 (byte pin), Task 2 (emitter equivalence and the unchanged parser suites), Task 7 step 5 (harness score) |
-| AC-3 | Task 3 (variants, refusals), Task 4 (router fallthrough), Task 6 (seam pins) |
+| AC-1 | Task 4 (T3 fintech, consultants, east-coast through `attachWarningAnchors`, and the router), Task 5 (the two surfaces), Task 6 step 7 (live, mandatory) |
+| AC-2 | Task 1 (byte pin), Task 2 (emitter equivalence and the unchanged parser suites), Task 6 step 5 (harness score, dispatched on the branch) |
+| AC-3 | Task 3 (variants including the seam pin (f), refusals, positive hand-built arms), Task 4 (router fallthrough) |
 | AC-4 | Task 4 |
-| AC-5 | Task 7 step 4 |
-| AC-6 | Task 7 steps 2 and 3 |
-| AC-7 | Task 7 steps 5 and 8 |
+| AC-5 | Task 6 step 4 |
+| AC-6 | Task 6 steps 2 and 3 |
+| AC-7 | Task 6 steps 5 and 8 |
 
 ## 6. Registry reconciliation, run at plan time
 
