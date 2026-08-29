@@ -5,6 +5,10 @@ on:
       - "components/admin/**"
       - "app/admin/**"
       - "app/help/**"
+      # .help-prose, the @property measure and .help-bleed live here, and the
+      # help-tour layout spec asserts against all three. Without this line a change
+      # to the prose layer alone leaves every one of those assertions dark.
+      - "app/globals.css"
       - "lib/messages/**"
       - "lib/admin/**"
       - "tests/e2e/**"
