@@ -237,7 +237,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths
 
-**Status:** IN PROGRESS · **Branch:** fix/attention-autoopen-suppress-phone · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.
+**Status:** OPEN. · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.
 
 **What is wrong.** The attention menu auto-opens when actionable items exist (published-show-alerts §5.2). Now that it is CONTAINED inside the review-modal clip, it occupies the horizontal band its anchor sits in, and at 375 that band includes the published toggle. An operator arriving at the modal on a phone finds the toggle covered until they dismiss a menu they never opened.
 
