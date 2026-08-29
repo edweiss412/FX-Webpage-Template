@@ -21,7 +21,7 @@ geometry red in §4 is `red-state=authored` and is created by a task.
 `tests/docs/_metaInvariant8Closeout.test.ts` fails on this plan the moment the
 plan exists, because the plan declares the invariant-8 dual gate and carries no
 `impeccable-gate:` marker — the marker's counts are the gate's output and cannot
-be written before it runs. Task 3 carries `red-state=live` for exactly that, and
+be written before it runs. Task 2 carries `red-state=live` for exactly that, and
 this section states it so §1 and §4 cannot disagree about whether a live red
 exists.
 
@@ -34,7 +34,7 @@ tests/components/admin/useFitWithinClip.test.tsx                        PASS (48
 tests/e2e/wizard-attention-menu.spec.ts                                 PASS (9)
 tests/e2e/popover-clip-fit.spec.ts                                      PASS (34, §1.1)
 
-tests/docs/_metaInvariant8Closeout.test.ts                              FAIL (1 of 14) — LIVE RED, Task 3
+tests/docs/_metaInvariant8Closeout.test.ts                              FAIL (1 of 14) — LIVE RED, Task 2
   "declares the invariant-8 dual gate but carries no valid impeccable-gate
    marker line"
 ```
@@ -66,7 +66,7 @@ Run detached (the suite exceeds a 10-minute foreground window): **34 passed**.
 | `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` | EXTENDS | The `fit-within-clip` → hook-import mapping loses its last subject. |
 | `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` | EXTENDS | Four hook rows retire. |
 | `tests/components/admin/useFitWithinClip.test.tsx` | RETIRES | Deleted with its subject. |
-| `tests/docs/_metaInvariant8Closeout.test.ts` | **EXTENDS (new subject)** | This plan declares the invariant-8 dual gate, so the guard discovers it as a subject and reds until the marker lands. Task 3 owns that. Listed because a guard acquiring a new subject is an inventory entry, and an earlier draft omitted it. |
+| `tests/docs/_metaInvariant8Closeout.test.ts` | **EXTENDS (new subject)** | This plan declares the invariant-8 dual gate, so the guard discovers it as a subject and reds until the marker lands. Task 2 owns that. Listed because a guard acquiring a new subject is an inventory entry, and an earlier draft omitted it. |
 | Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) | **N/A** | This plan touches no `pg_advisory*` path, no DB, no RPC. Declared explicitly per the rule. |
 | Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) | **N/A** | No Supabase call is added or moved. |
 | Mutation registry (`tests/mutation/source/registry.ts`) | **N/A** | The subject is a React component's geometry, not a lib module or script whose defect class is "reports OK while the output moved". The spec's convergence criterion is the four-viewport probe domain, not a mutation score. |
@@ -126,7 +126,7 @@ is keyed by FILE (5 → 6); the overlay registry is keyed by OVERLAY (6 → 7).
 
 ## Task 1 — the migration, and everything it falsifies, in one cycle
 
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts tests/e2e/wizard-attention-menu.spec.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the authored eight-cell containment and width assertions fail on the six overhanging cells at the panel's live -36 left edge, produced by the viewport-sized width class at the cited line, and the SAME command passes at the end of this task's GREEN step` ac=AC-1,AC-2,AC-2b,AC-3,AC-4,AC-5,AC-6 -->
+<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts tests/e2e/wizard-attention-menu.spec.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the authored eight-cell containment and width assertions fail on the six overhanging cells at the panel's live -36 left edge, produced by the viewport-sized width class at the cited line, and the SAME command passes at the end of this task's GREEN step` ac=AC-1,AC-2,AC-2b,AC-3,AC-4,AC-5,AC-6,AC-7 -->
 
 **Why this is one task, and why the previous two attempts to split it were both
 wrong.** Round 1 split the assertions across three tasks and the fix into a
@@ -210,7 +210,75 @@ Six of the eight cells fail. Record the observed numbers.
 transition list. Both are ratified (spec §3.3, §7) and both were adversarial
 findings.
 
-Re-run the marker's command and observe green.
+7. **Retire the hook module.** Delete `components/admin/useFitWithinClip.ts` and
+   `tests/components/admin/useFitWithinClip.test.tsx`.
+
+   **This is a GREEN step here and NOT a task of its own**, because it has no red
+   to author. An earlier draft made it Task 2 and claimed the deletion would
+   falsify the defining-module map at
+   `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:169`. It
+   does not: that map only exempts declarations and the suite never checks that
+   its paths exist. The real failure comes from the consumer row at
+   `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:142` — which
+   step 4 above already removes, so by the time the deletion happens nothing reds
+   at all. A task whose red is created by deleting production code, and which
+   authors no failing assertion, is not a TDD cycle; it is cleanup, and it belongs
+   inside the cycle that made the module dead.
+
+   **Keep** `lib/layout/fitWithinClip.ts` — `MIN_FITTED_HEIGHT` is imported by
+   `lib/popover/place.ts:14` and is load-bearing for the whole stack's diagnostic.
+
+   **AC-7's two halves are asserted, not assumed** (spec §9): `pnpm typecheck`
+   resolves with the module deleted, since an import of a missing path cannot
+   resolve; and a direct source assertion in
+   `tests/components/admin/showpage/attentionMenu.test.tsx` that
+   `components/admin/showpage/AttentionMenu.tsx` contains none of `100vw`,
+   `100dvw`, `100svw`, since no existing guard scans CSS (L-3).
+
+   Update the stale live comment at
+   `tests/docs/_metaDeferralLedgerGraduation.test.ts:414`, which says the scroller
+   "now takes" the deleted hook. Leave the four historical-prose files in spec
+   §4.3 untouched. Dated retirement note on
+   `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md`.
+
+### The verification set — every command, all green, before the commit
+
+The marker's `red=` names the authored red, which is the Playwright pair. **It is
+not the whole contract.** This task edits five Vitest suites and two baselines, and
+an earlier draft ended by re-running only the Playwright command — so the task
+could have committed with those five red and never noticed. Every one of these is
+run and green before the commit:
+
+```
+pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts \
+  tests/e2e/popover-clip-fit.spec.ts tests/e2e/wizard-attention-menu.spec.ts
+pnpm heavy npx vitest run tests/components/admin/_metaPopoverViewportSource.test.ts
+pnpm heavy npx vitest run tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts
+pnpm heavy npx vitest run tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts
+pnpm heavy npx vitest run tests/components/admin/showpage/attentionMenu.test.tsx
+pnpm heavy npx vitest run tests/components/admin/showpage/publishedAttentionBaseline.test.tsx
+pnpm typecheck
+```
+
+Run them sequentially, not in parallel, per the machine's standing load guidance.
+The registry cycle is green→red→green within this one task: §1 records all of
+them passing at the unmodified head, step 1 falsifies them, step 4 restores them.
+
+### The host-portal assertion (durable, not scaffolding)
+
+`PopoverHostContext` resolving non-null proves the context exists; it does NOT
+prove the implementation portals into it. The panel must be asserted to be a
+DESCENDANT of the supplied host, following the precedent already in this suite at
+`tests/e2e/popover-clip-fit.spec.ts:938`.
+
+This assertion is durable and stays. It is the one thing separating "the menu is
+placed correctly" from "the menu is placed correctly AND is inside the shell's
+focus trap, aria-modal subtree and inert handling" — the property spec §3.2 gives
+as the whole reason for choosing the host portal over a body portal. An earlier
+draft filed it with the throwaway peer measurements, where it would have been
+deleted before the commit.
+
+Re-run the verification set and observe every command green.
 
 **Pre-code mechanical checklist** (invariant 8, before the edit): em-dash ban in
 user-visible copy, apostrophe literals, 44px tap targets, canonical type/token
@@ -260,9 +328,36 @@ placement clamp `x` to `bounds.left = 8`. The assertion is therefore at
 Not "remove a `transitionend` listener", which changes nothing because none fires
 (spec §7).
 
-Asserted under both motion settings — the harness default (`reducedMotion` true,
-probed) and `page.emulateMedia({ reducedMotion: "no-preference" })`. Equal results
-are the expected outcome and are the point.
+**Both motion settings are set EXPLICITLY. Neither case relies on the default,
+and an earlier draft's did.**
+
+| Case | How the setting is established |
+| --- | --- |
+| reduced motion | `page.emulateMedia({ reducedMotion: "reduce" })` |
+| motion-safe | `page.emulateMedia({ reducedMotion: "no-preference" })` |
+
+Both must read 684. Equal results are the expected outcome and are the point:
+they confirm the geometry does not depend on the setting.
+
+**Why explicit, stated with the conflicting evidence rather than a winner.** An
+earlier draft paired "the harness default" with one explicit setting, on the
+strength of a probe that read
+`matchMedia("(prefers-reduced-motion: reduce)").matches === true` in this harness.
+Adversarial review then showed the pinned library's nominal default is the
+opposite: `emulatedMedia()` in the pinned playwright-core (1.59.1,
+lib/server/page.js line 437 — an untracked vendored path, so it is named rather
+than cited) resolves an unset `reducedMotion` to `"no-preference"`, and
+`tests/e2e/standalone.config.ts` sets none.
+
+Both observations can hold at once — Playwright reports `"no-preference"` as the
+value it would emulate, while headless Chromium's own default for the media
+feature is `reduce`, so a run that never issues the override lands in reduce. **The
+plan does not need to settle which, because depending on the default at all is the
+defect.** Setting both explicitly makes the pair genuinely two settings under
+either reading. The unresolved question is recorded, not buried: re-verify the
+observed default when the machine load order lifts, and if it is `no-preference`
+then spec §7's parenthetical "(probed)" about the harness default is the thing to
+correct, not this task.
 
 ### Transition audit (the mandatory task, discharged here)
 
@@ -305,39 +400,7 @@ NON-NULL on both review surfaces.
 are NOT retained as assertions: those components are outside this arc's scope, and
 pinning their geometry here would create a test with no owner.
 
-## Task 2 — retire the hook module
-
-<!-- task: red=`pnpm heavy npx vitest run tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` red-state=authored red-target=`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:169` why=`deleting components/admin/useFitWithinClip.ts leaves the defining-module map at the cited line pointing at a path that no longer exists, which reds until the two rows naming it are removed` ac=AC-7 -->
-
-**What is red and why:** Task 1 removed the last CALL, leaving the module unused
-but present. Deleting the file falsifies the defining-module map at
-`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts:169-170`, which
-still maps `useFitWithinClip` and `findClippingAncestor` to it. Removing those two
-rows is the GREEN.
-
-Delete `components/admin/useFitWithinClip.ts` and
-`tests/components/admin/useFitWithinClip.test.tsx`.
-
-**Keep** `lib/layout/fitWithinClip.ts` — `MIN_FITTED_HEIGHT` is imported by
-`lib/popover/place.ts:14` and is load-bearing for the whole stack's diagnostic.
-
-**AC-7's two halves are asserted here, not assumed** (spec §9):
-
-1. No surviving import — proven by `pnpm typecheck` resolving with the module
-   deleted, since an import of a missing path cannot resolve. The command is
-   named, not implied.
-2. `components/admin/showpage/AttentionMenu.tsx` contains none of `100vw`,
-   `100dvw`, `100svw` — a direct source assertion added to
-   `tests/components/admin/showpage/attentionMenu.test.tsx`, since no existing
-   guard scans CSS (L-3).
-
-Update the stale live comment at
-`tests/docs/_metaDeferralLedgerGraduation.test.ts:414`, which says the scroller
-"now takes" the deleted hook. Leave the four historical-prose files in spec §4.3
-untouched. Dated retirement note on
-`docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md`.
-
-## Task 3 — closeout
+## Task 2 — closeout
 
 <!-- task: red=`pnpm heavy npx vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=live red-target=`docs/superpowers/plans/2026-08-28-attention-menu-clip-placement.md:1` why=`the guard walks plan files and reds on THIS file, so the plan is what causes and clears the failure, not a component line; RED AT PLAN TIME with the message declares the invariant-8 dual gate but carries no valid impeccable-gate marker line, and it goes green only when the gate has run and the marker lands with its real counts` ac=AC-7 -->
 
@@ -364,7 +427,7 @@ The marker line is written at closeout in the full form the guard requires for a
 UI plan (grammar at `tests/docs/_metaInvariant8Closeout.test.ts:254`). **It is
 deliberately not reproduced here, even as a fenced placeholder** — the guard
 scans this file for its own prefix and reads a template as a MALFORMED marker,
-which reds for the wrong reason and would make Task 3's `why=` false. Verified:
+which reds for the wrong reason and would make Task 2's `why=` false. Verified:
 with the placeholder present the guard reported `malformed marker line`, not the
 absent-marker branch this task claims.
 
@@ -381,14 +444,7 @@ Archive the ledger row, marker off in the PR's last commit before the merge
 
 ## 5. Acceptance criteria coverage
 
-Every criterion in spec §9 is claimed by exactly one task marker's `ac=`, and the
-owner named is where the DURABLE ASSERTION lives.
-
-**Two corrections an earlier draft needed.** It declared `AC-P1`, which spec §9
-does not contain — a plan may not mint acceptance criteria — and it double-counted
-the eight cells by having three suites assert them. The matrix spec now owns the
-grid outright; the other two suites keep their existing cells and gain edges, and
-neither is extended across viewports the matrix already covers.
+Two tasks. Task 1 owns every criterion; Task 2 verifies AC-7 at the gate.
 
 - AC-1 — `menu.left >= clip.left - TOL`, eight cells *(discharged by Task 1)*
 - AC-2 — `menu.right <= clip.right + TOL`, eight cells *(discharged by Task 1)*
@@ -397,26 +453,29 @@ neither is extended across viewports the matrix already covers.
 - AC-4 — `menu.width > 0` and the 44px row floor, both surfaces *(discharged by Task 1)*
 - AC-5 — 1280x800 exact geometry, width 400 and left 684, both surfaces *(discharged by Task 1)*
 - AC-6 — placement re-computed when the entrance settles *(discharged by Task 1)*
-- AC-7 — the hook module is gone and this component carries no viewport-derived width *(discharged by Task 2, Task 3)*
+- AC-7 — the hook module is gone and this component carries no viewport-derived width *(discharged by Task 1, Task 2)*
 
-**Seven criteria land on Task 1, and that is the honest count, not a
-concentration to be tidied.** The migration is indivisible: every geometry
-criterion is falsified by the same production change and restored by the same
-one. Two earlier drafts spread these across three and then six tasks, and both
-spreads were the same defect — a task claiming a red it did not author, or
-committing red and leaving it red for a later task to clear.
+**Every criterion lands on Task 1, and that is the honest count.** The production
+change is indivisible: every criterion is falsified by the same edit and restored
+by the same one. Three earlier drafts spread these across three, then six, then
+seven tasks, and each spread was the same defect — a task claiming a red it did
+not author, or committing red for a later task to clear.
 
-**AC-3 moved to Task 1.** A round-2 draft assigned it to the dimensional task
-while the grid also asserted it. Bottom containment is now one assertion in the
-eight-cell grid, and the flex work that makes it hold is a GREEN step of the same
-task rather than a task of its own.
+**AC-7 has two owners, and the account of them is now accurate.** Task 1 holds
+both durable assertions: `pnpm typecheck` for the surviving-import half and a
+direct source assertion for the viewport-width half. Task 2 re-runs them at the
+gate and is the closeout record. An earlier draft claimed "exactly one task marker"
+per criterion while two markers carried AC-7, and separately claimed Task 3
+asserted a half it did not contain — both statements were false, and both are
+replaced rather than reworded.
 
-**AC-7's two owners.** Task 2 deletes the module and adds both of the assertions
-spec §9 narrowed it to — `pnpm typecheck` for the surviving-import half, a direct
-source assertion for the viewport-width half. Task 3 verifies at closeout. Neither
-asserts what the other asserts.
+**The eight cells live in the two REGISTERED suites**, per spec §6.3. An earlier
+draft said "the matrix spec now owns the grid outright" — a sentence from the
+round-2 design that round 3 removed everywhere except here. There is no matrix
+spec: `tests/e2e/standalone.config.ts:85-86` is an explicit `testMatch` allowlist
+and an unlisted file would have run nowhere.
 
-- [ ] Tasks 1-3
+- [ ] Tasks 1-2
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — Codex, cap 4
 - [ ] Execution handoff
