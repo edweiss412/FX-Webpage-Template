@@ -670,17 +670,16 @@ this layout has three.
   exceed 24ch and two cannot exceed 38ch, at any minimum width. Writing 65ch here would have made
   AC-1 unsatisfiable by the change it is supposed to accept, which is how it read before §2.2 was
   measured.
-- **AC-1a** No viewport whose baseline measure was at or above the 28ch floor ends below it. 390 is
-  single-column at 31.4ch and is asserted UNCHANGED rather than improved (§7.1).
+- **AC-1a** The 390px measure is UNCHANGED at 31.4ch, single-column.
 
-  **This is deliberately not "no viewport's measure decreases", which is what an earlier draft
-  said and which this design cannot satisfy.** At 752px the baseline is a single column at 65.8ch:
-  `md` has not engaged, so the old grids are `grid-cols-1`, and the cap binds at 704.4px. The
-  proposed two-column state there is 30.8ch. That is a decrease, and it is the trade the whole
-  change is: a scannable grid of cards instead of one 65.8ch column of them. Writing the criterion
-  as monotonic measure made it contradict the design it was accepting — it would have failed a
-  correct implementation. What actually matters is that nothing crosses the floor, and that is
-  what it now says.
+  **Narrowed deliberately, because the earlier wording had no independent violation.** It used to
+  say "no viewport whose baseline was at or above the floor ends below it", which AC-1 already
+  pins at every matrix viewport — and the violation staged for it was AC-1's own. The one thing
+  AC-1a claims that AC-1 does not is that the mobile case is left alone: this change is desktop
+  work, 390px is single-column before and after, and a repair that improved desktop by touching
+  mobile would pass every other criterion. That is now what it asserts and what its violation
+  stages.
+
 - **AC-1b** Zero items in the errors-page jump list wrap, at every viewport in the matrix. The
   baseline is 5 of 7 wrapping at 768.
 - **AC-1d** The measured column sequences hold, asserted as column COUNTS and not as measures.
@@ -713,7 +712,11 @@ this layout has three.
   edit to the test.
 - **AC-5** The existing `/help` prose contracts still hold: heading scale, list markers, inline
   link affordance, paragraph rhythm, and the reading measure of body text.
-- **AC-6** The intro sentence's completeness claim is true: eight cards for eight admin surfaces.
+- **AC-6** The intro sentence's completeness claim is true: the NUMBER of `a[data-tour-card]`
+  anchors equals the number of `admin-surface` entries in `NAV`. This is a cardinality assertion and
+  not a restatement of AC-3, because **set equality cannot express it**: the guard compares
+  deduplicated sets, so eight correct hrefs plus a duplicated ninth card satisfy AC-3 while "eight
+  cards for eight admin screens" is false. Verified by construction, not supposed.
 - **AC-7** No user-visible copy introduced by this branch violates the mechanical UI invariants
   named in the `AGENTS.md` pre-code mechanical UI gate: no em dashes, apostrophe literals, 44px
   tap targets, canonical type and token classes.

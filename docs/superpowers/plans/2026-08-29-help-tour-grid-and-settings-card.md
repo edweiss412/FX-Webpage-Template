@@ -49,25 +49,27 @@ cannot be staged is not a criterion; it is a sentence.
 | --- | --- | --- | --- |
 | **AC-1d** | the measured column sequences hold | revert all three tour grids to `grid-cols-1` and drop `help-bleed` — the permanently-single-column page | layout spec fails on the column COUNT at 752, 1016 |
 | AC-1 | measure >= 28ch at the thresholds | set the minimum to `16rem` | switch measure 23.1ch, fails at 752 |
-| AC-1a | nothing crosses the floor | same 16rem stage | a viewport above the floor ends below it |
+| AC-1a | the 390px measure is unchanged | give the mobile single-column case the bleed as well, so 390 widens past its 31.4ch baseline | layout spec fails at 390 on a CHANGED measure |
 | AC-1b | zero jump-list wraps | restore `sm:grid-cols-2` on the errors list | 5 of 7 wrap at 768 |
 | AC-1c | no horizontal overflow at 320 | drop the `min(...,100%)`, leaving a bare `22rem` | track 352 in a 288 container, +64px |
 | AC-2 | other help pages unchanged | remove the `> *` scoping so the cap lifts entirely | typography spec fails on a widened paragraph |
 | AC-3 | cards cover every admin-surface slug | delete the Settings card | set equality fails naming `/help/admin/settings` |
 | AC-4 | a ninth entry fails by default | add a ninth `admin-surface` NAV entry, no card | same guard fails naming the new slug, with NO edit to the test |
 | AC-5 | prose contracts still hold | remove the `--help-measure` declaration | prose-layer guard fails on the missing measure |
-| AC-6 | eight cards for eight surfaces | point one card at a `reference`-group route | set equality fails in the OTHER direction, naming the stray href |
+| AC-6 | as many cards as admin surfaces | duplicate one card, giving nine cards for eight surfaces | the CARDINALITY assertion fails; set equality alone still passes, which is why AC-6 is not AC-3 |
 | AC-7 | copy invariants hold | put an em dash in the Settings card body | `page-tour.test.tsx` em-dash ban fails |
 
-**AC-3 and AC-6 are deliberately staged in opposite directions.** Both exercise the same assertion,
-and a single violation would leave one of them riding on the other's evidence — which is the
-`AC-1d` failure mode in miniature. AC-3 removes a card the set requires; AC-6 adds an href the set
-forbids.
+**AC-3 and AC-6 exercise DIFFERENT assertions, which an earlier draft of this plan got wrong.**
+AC-3 is set membership and AC-6 is cardinality, and the review round that caught it also proved the
+gap is real rather than pedantic: the guard compares deduplicated sets, so eight correct hrefs plus
+a duplicated ninth card pass AC-3 while "eight cards for eight admin screens" is false. AC-6's
+violation duplicates a card precisely so that set equality still passes and only the count fails.
 
-**AC-1 and AC-1a share the 16rem stage** and this is recorded rather than hidden: 16rem drops the
-switch measure to 23.1ch, which is both below the floor and a viewport that was above it ending
-below it. They are one observation seen twice, so AC-1a's independent value rests on the AC-1d
-stage as well, where the sequence changes without the floor being crossed.
+**Every row above stages a violation no other row stages.** The earlier draft had AC-1a reusing
+AC-1's `16rem` mutation and argued the difference away in a paragraph. That was the defect this
+inventory exists to prevent, one level up: two criteria, one piece of evidence. AC-1a is now
+narrowed in the spec to the only thing it claims that AC-1 does not — that the mobile case is left
+alone — and its violation touches mobile and nothing else.
 
 ## 4. CI wiring
 
@@ -93,17 +95,27 @@ does not propose changing branch protection to alter it.
 
 <!-- task: red=`pnpm vitest run tests/help/page-tour.test.tsx` red-state=authored red-target=`app/help/tour/page.mdx:95` why=`the task tags the seven existing cards with data-tour-card and replaces the hardcoded seven-URL list with set equality against the NAV entries whose group is admin-surface, so the observed RED is behavioural rather than a missing import: the page renders seven carded hrefs against eight admin-surface slugs and the assertion fails naming /help/admin/settings, which is the defect itself. The premise that at least one card anchor renders is what stops an empty set passing vacuously. The SAME command greens when task 2 adds the Settings card` ac=AC-3,AC-4,AC-6 -->
 
-Tag all seven existing card anchors with `data-tour-card`. Replace `ADMIN_REFERENCE_URLS` with set
-equality between `a[data-tour-card][href]` in the rendered tree and the `NAV` entries whose `group`
-is `admin-surface`, both directions, failing by name.
+Tag all seven existing card anchors with `data-tour-card`. Replace `ADMIN_REFERENCE_URLS` with TWO
+assertions over `a[data-tour-card]` in the rendered tree:
+
+1. **Set equality** between the anchors' hrefs and the `NAV` entries whose `group` is
+   `admin-surface`, both directions, failing by name. (AC-3, AC-4)
+2. **Cardinality**: the anchor COUNT equals the admin-surface entry count. (AC-6)
+
+The second is not redundant, and the plan review proved it: set comparison deduplicates, so eight
+correct hrefs plus a duplicated ninth card satisfy assertion 1 while the page's "every admin
+screen" claim is false. Constructed and confirmed before writing this — nine cards, eight distinct,
+eight slugs, set equality passes.
 
 **Commit this alone and observe the red before task 2.** Both tasks touch the tour page; combined,
 the red never appears.
 
 **The four presence-guard mutants run here**, results recorded in the commit: (a) drop
 `data-tour-card` from every card — the premise must fail, not the equality; (b) append a suffix to
-one href; (c) put `/help/admin/settings` in PROSE with no card — must STILL fail, which is the R1
-finding; (d) flip one entry's `group` — the expected set must shrink.
+one href; (c) put `/help/admin/settings` in PROSE with no card — must STILL fail, which is the spec
+R1 finding; (d) flip one entry's `group` — the expected set must shrink. A fifth runs here too,
+from the plan review: (e) duplicate a card — set equality must still pass and the CARDINALITY
+assertion must fail, which is what proves the two assertions are not one.
 
 ## Task 2 — the Settings card
 
@@ -113,46 +125,72 @@ Add the card with spec §3.3's exact copy, `data-tour-card`, and the standard (n
 
 ## Task 3 — move the measure cap
 
-<!-- task: red=`pnpm vitest run tests/help/help-prose-layer.test.ts` red-state=authored red-target=`app/globals.css:1211` why=`the task moves the measure from .help-prose to .help-prose > * behind an @property-registered length, so the literal max-width: <n>ch the prose-layer guard matches no longer exists at that declaration and the guard fails; the SAME command greens when the guard is retargeted to the declaration that now carries the measure, in this task` ac=AC-2,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/help/help-prose-layer.test.ts` red-state=authored red-target=`app/globals.css:1211` why=`the task FIRST adds a case asserting that a .help-bleed child escapes the measure while its siblings keep it, which fails on today's stylesheet because no such mechanism exists — the cap sits on the wrapper and no child can exceed it. The observed RED is therefore the absent mechanism, not a moved literal, and the SAME command greens when the @property length, the > * scoping and .help-bleed land in this task. The two guard retargets ride along because this task causes their drift; neither is what reds here` ac=AC-2,AC-5 -->
 
-`@property --help-measure`, the `> *` scoping, `.help-bleed`. Retarget both guards: the prose-layer
-pattern, and the typography spec's wrapper measurement (to a paragraph).
+Add the failing case first: a `.help-bleed` child escapes the measure, its siblings do not. Then
+`@property --help-measure`, the `> *` scoping, `.help-bleed`.
 
-## Task 4 — derived column counts
+**The retargets are not the red.** Moving the cap also breaks the prose-layer guard's literal
+`max-width: <n>ch` match and the typography spec's wrapper measurement, and both are retargeted in
+this task. An earlier draft made THAT the red — implementation breaks a guard, retargeting the
+guard greens it — which is implementation-red followed by test-green, the reverse of the contract.
+A cycle that greens because the test changed proves nothing about the implementation.
 
-<!-- task: red=`pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 5 writes the layout spec; this task is what makes its column-sequence cases pass. Before it, the grids carry md:grid-cols-N and the sequence at 752/1016 is one column, so the AC-1d cases fail on the COUNT. The SAME command greens once auto-fit with the min(22rem,100%) floor and col-span-full land` ac=AC-1,AC-1a,AC-1c,AC-1d -->
+## Task 4 — the layout-dimensions spec
+
+<!-- task: red=`pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`this task writes the spec AND its help-docs-desktop testMatch entry together, so the command collects and RUNS rather than reporting no tests, and the observed RED is the production defect: today's md:grid-cols-3 gives one column at 752 and 1016 where AC-1d asserts two, and the three-column state at 1024 measures 18.1ch against AC-1's 28ch floor. The SAME command greens when task 5 lands the derived column counts` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
+
+New spec: column sequences (AC-1d), measure floor (AC-1), the 390px measure unchanged (AC-1a), zero
+wraps (AC-1b), no overflow (AC-1c). Viewports 320, 390, 640, 740, 752, 768, 900, 904, 1004, 1016,
+1024, 1280. One `page.evaluate` per viewport. Readiness gate is `await expect(grid).toBeVisible()`,
+never `networkidle` alone. Premises: at least one card anchor renders, and the grid is multi-column
+where a case asserts a multi-column measure. Add to `help-docs-desktop` `testMatch`; add
+`app/globals.css` to `help-affordances.yml` `paths:`.
+
+**The spec lands BEFORE the implementation, deliberately.** An earlier draft had these two the other
+way round, and the review caught what that costs: the implementation would have landed while the
+command could only fail because the spec was absent, and the spec would then have greened
+immediately against already-fixed production. Neither task would have observed the defect causing
+red and the fix causing green, which is the entire content of invariant 1.
+
+## Task 5 — derived column counts
+
+<!-- task: red=`pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 4 authors the failing cases and leaves this command red on the production defect; this task lands auto-fit with the min(22rem,100%) floor, help-bleed and col-span-full, and the SAME command greens. The red is the grid's column count and measure, not a missing file` ac=AC-1,AC-1a,AC-1c,AC-1d -->
 
 All three tour grids to `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` plus
 `help-bleed`; `md:col-span-2` becomes `col-span-full`. Errors jump list to its own `18rem` minimum,
 no bleed.
 
-## Task 5 — the layout-dimensions spec
-
-<!-- task: red=`pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`tests/e2e/help-tour-layout-dimensions.spec.ts` why=`the spec file does not exist and is matched by no project until this task adds it to help-docs-desktop's testMatch, so the command reports no tests rather than a failure; the task lands the file AND the testMatch entry together, and the SAME command then runs and greens against task 4's implementation` ac=AC-1,AC-1b,AC-1d -->
-
-New spec: column sequences (AC-1d), measure floor (AC-1), zero wraps (AC-1b), no overflow (AC-1c).
-Viewports 320, 390, 640, 740, 752, 768, 900, 904, 1004, 1016, 1024, 1280. One `page.evaluate` per
-viewport. Readiness gate is `await expect(grid).toBeVisible()`, never `networkidle` alone. Premises:
-at least one card anchor renders, and the grid is multi-column where a case asserts a multi-column
-measure. Add to `help-docs-desktop` `testMatch`; add `app/globals.css` to `help-affordances.yml`
-`paths:`.
-
 ## Task 6 — the violation inventory
 
-<!-- task: red=`test -s docs/superpowers/plans/2026-08-29-help-tour-grid-and-settings-card-violations.md` red-state=authored red-target=`docs/superpowers/plans/2026-08-29-help-tour-grid-and-settings-card-violations.md` why=`the transcript file does not exist until this task stages each §3 violation against the finished tree and records the observed red; the SAME command greens when it is written with content. Its absence is the point — an inventory nobody ran is the defect spec R5 found, one level up` ac=AC-1d -->
+<!-- task: red=`bash -c 'f=docs/superpowers/plans/2026-08-29-help-tour-grid-and-settings-card-violations.md; for ac in AC-1 AC-1a AC-1b AC-1c AC-1d AC-2 AC-3 AC-4 AC-5 AC-6 AC-7; do grep -qE "^\\| $ac \\|.*\\| RED OBSERVED \\|" "$f" || exit 1; done'` red-state=authored red-target=`docs/superpowers/plans/2026-08-29-help-tour-grid-and-settings-card-violations.md` why=`the transcript does not exist, so the loop exits 1 on the first id. It checks each of the eleven AC ids has a row ending RED OBSERVED rather than merely that the file is non-empty — an earlier draft used test -s, which greens on a heading, so the command could pass while the defect its own why names, an inventory nobody ran, stayed true. The SAME command greens only when every row records a staged violation actually observed red` ac=AC-1d -->
 
 Stage each §3 violation on the finished tree, observe the named red, revert, record the transcript.
 **AC-1d's row runs first**: the permanently-single-column page that spec R5 proved passes AC-1,
 AC-1a, AC-1b and AC-1c must go RED here, or AC-1d does not do its job.
 
-## Task 7 — transition audit
+<!-- tasks: end -->
 
-<!-- task: red=`pnpm vitest run tests/help/tour-transitions.test.tsx` red-state=authored red-target=`tests/help/tour-transitions.test.tsx` why=`the file does not exist, so the command exits non-zero on a missing path rather than on a name filter that matches nothing and would report green from birth (spec:lint RED_TEST_NAME_FILTER, raised against an earlier draft of this very marker); the task creates it with the three cases from spec §5 and the SAME command then runs and greens` ac=AC-7 -->
+## Task 7 — transition characterization (no red contract, and here is why)
 
-A new transitions suite under `tests/help/` (path in the marker above). Spec §5's inventory is
-three rows. Assert each: rest to hover is `border-color` via the existing
-`transition-colors`; rest to focus-visible and hover to focus-visible are instant. Confirm by
-reading that no `AnimatePresence`, conditional render or exit animation exists on this page.
+**This task carries no marker, deliberately.** Spec §5's transition inventory is already satisfied
+by production: the cards carry `transition-colors`, and the page has no `AnimatePresence`, no
+conditional render and no exit animation. So there is no defect to red on. An earlier draft gave
+this task a red anyway — the suite does not exist, so the command fails on a missing path and
+greens the moment the file is created against already-correct behaviour. That is precisely the
+shape `docs/agents/writing-plans.md` rejects: a guard test that passes the moment it is authored.
+
+Dressing characterization coverage as a red-green cycle would have made the plan's red contract
+say something false about six of its nine tasks' worth of rigour. The coverage is still worth
+adding — it pins the inventory so a later change to the cards has something to break — but it is
+recorded as what it is.
+
+Add a transitions suite under `tests/help/`. Assert spec §5's three rows: rest to hover is
+`border-color` via the existing `transition-colors`; rest to focus-visible and hover to
+focus-visible are instant. Confirm by reading that no `AnimatePresence`, conditional render or exit
+animation exists on this page.
+
+<!-- tasks: depth=2 red-contract -->
 
 ## Task 8 — impeccable dual gate
 
