@@ -76,7 +76,7 @@ export default function ErrorsPage() {
 
       <nav aria-label="Jump to an error category" className="my-6">
         <p className="mb-2 font-semibold text-text-strong">Jump to a section</p>
-        <ul className="grid list-none grid-cols-1 gap-x-8 gap-y-1 pl-0 sm:grid-cols-2">
+        <ul className="grid list-none grid-cols-[repeat(auto-fit,minmax(min(18rem,100%),1fr))] gap-x-8 gap-y-1 pl-0">
           {groups.map(({ family, entries: groupEntries }) => (
             <li key={family.id}>
               <a href={`#${family.id}`}>{family.title}</a>{" "}
