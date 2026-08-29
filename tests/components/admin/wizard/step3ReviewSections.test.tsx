@@ -2063,7 +2063,13 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
   const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
 
   beforeEach(() => window.sessionStorage.clear());
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // This project sets no `restoreMocks`, so a Storage.prototype spy survives
+    // the test that installed it and breaks every later one. Today the only
+    // spying test is last in the file, which is luck, not a contract.
+    vi.restoreAllMocks();
+  });
 
   /** Expand and type, the way an operator reaches this field. */
   function typeInto(q: ReturnType<typeof renderBody>, text: string) {
@@ -2195,9 +2201,15 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
 
   test("AC-12: focus is never on the trigger at the moment its label flips, so no accessible name changes under the user", async () => {
     // Assessment B: the label swap is not a WCAG 4.1.2 problem as implemented,
-    // but only because focus is provably elsewhere at both flip moments, and
-    // nothing pinned that. A later focus-restore-on-collapse change would
-    // reintroduce it silently. Both flip moments are asserted here.
+    // but only because focus is provably elsewhere at the two ONCHANGE flip
+    // moments, and nothing pinned that. A later focus-restore-on-collapse change
+    // would reintroduce it silently. Both onChange flips are asserted here.
+    //
+    // There is a THIRD flip, and an earlier version of this comment claimed
+    // there were only two (diff review R1 F2): the success branch calls
+    // setDraft("") after two awaits, and the operator may have collapsed while
+    // pending, leaving focus on the trigger. AC-12b covers that one, including
+    // why it is acceptable.
     const q = renderBody(sectionData(), "report");
     const toggle = q.getByTestId(TOGGLE);
 
@@ -2214,6 +2226,128 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: "" } });
     expect(toggle.textContent).toBe("Write a report");
     expect(document.activeElement).not.toBe(toggle);
+  });
+
+  test("AC-13: a whitespace-only draft is not a report — label, guarantee line and Send agree", () => {
+    const GUARANTEE = "Kept on this device until you close the tab.";
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, "   ");
+    // The three predicates that read `draft` must not disagree. Untrimmed, the
+    // trigger promised a report to continue while Send sat disabled with
+    // nothing on screen explaining the contradiction.
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    expect(q.queryByText(GUARANTEE)).toBeNull();
+    expect((q.getByTestId(SUBMIT) as HTMLButtonElement).disabled).toBe(true);
+    // Real text flips all three together.
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+    expect(q.getByText(GUARANTEE)).toBeTruthy();
+    expect((q.getByTestId(SUBMIT) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("AC-14: a write that throws after an earlier one succeeded clears the key rather than leaving a stale prefix", () => {
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, "the crew list is");
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe("the crew list is");
+
+    // Now the store starts refusing writes mid-session, the QuotaExceededError
+    // shape. removeItem still works, which is the case this guards.
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    fireEvent.change(q.getByTestId(TEXTAREA), {
+      target: { value: "the crew list is missing two people" },
+    });
+    // The stale PREFIX is the danger: restored later it reads as a complete
+    // draft that silently lost its tail. Gone is the correct outcome.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    // The typed value is still on screen; only the persistence was lost.
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(
+      "the crew list is missing two people",
+    );
+  });
+
+  test("AC-15: a detached submit's success does not erase text a newer mount has typed", async () => {
+    // Diff review R1 F1. Submit A, close the modal while it is pending, reopen,
+    // type B, then let A's request succeed. The detached handler is still alive
+    // by design, and before the guard it cleared the SHARED key — taking B with
+    // it. B stayed on screen until the next close and then was gone, which is
+    // the exact loss this arc exists to stop, reintroduced by its own repair.
+    let resolveFetch!: (r: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, "draft A");
+    fireEvent.click(q.getByTestId(SUBMIT));
+    expect(q.getByTestId(STATUS).textContent).toBe("Sending…");
+
+    // The modal closes mid-flight. The section unmounts; the handler does not.
+    cleanup();
+    // A fresh mount restores A, and the operator replaces it with B.
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("draft A");
+    fireEvent.change(q2.getByTestId(TEXTAREA), { target: { value: "draft B" } });
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe("draft B");
+
+    // Now the old request succeeds.
+    await act(async () => {
+      resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
+    });
+
+    // B survives, in the store and on screen. The assertion is on the STORE,
+    // because the on-screen value would look fine either way until the next
+    // close — which is precisely what made the bug invisible.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe("draft B");
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("draft B");
+  });
+
+  test("AC-12b: the THIRD label flip — success while collapsed, with focus on the trigger — is announced by the status region", async () => {
+    // Diff review R1 F2: AC-12's conclusion was false as written. There are
+    // three flips, not two. The success branch calls setDraft("") after two
+    // awaits, and T-D3b ratifies collapsing while pending — which leaves focus
+    // on the trigger the operator just clicked. So the accessible name CAN
+    // change under focus here. It is acceptable because the same commit that
+    // changes it announces the outcome in the live region, and the change is a
+    // consequence of an action the operator took. That is the claim, and this
+    // pins it rather than pretending the flip does not happen.
+    let resolveFetch!: (r: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    fireEvent.click(q.getByTestId(SUBMIT));
+
+    const toggle = q.getByTestId(TOGGLE);
+    toggle.focus();
+    fireEvent.click(toggle); // collapse while pending — T-D3b's ratified move
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.textContent).toBe("Continue your report");
+
+    await act(async () => {
+      resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
+    });
+
+    // The flip really does happen under focus.
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.textContent).toBe("Write a report");
+    // And it is not silent: the live region carries the reason.
+    expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
   });
 
   test("AC-6: sessionStorage throwing on every access degrades to today's behaviour, never to a crash", () => {

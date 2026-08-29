@@ -4598,7 +4598,47 @@ function writeStoredDraft(storageKey: string, value: string): void {
     if (value === "") window.sessionStorage.removeItem(storageKey);
     else window.sessionStorage.setItem(storageKey, value);
   } catch {
-    /* storage unavailable — the draft stays mount-local, as it was before */
+    // Storage unavailable — the draft stays mount-local, as it was before.
+    // But a write can also fail AFTER an earlier one succeeded (a mid-session
+    // QuotaExceededError), and then the key still holds the older, SHORTER
+    // text. Restored later that reads as a complete draft while silently
+    // missing its tail, which is worse than restoring nothing at all — so drop
+    // the key rather than leave a stale prefix under it. Best-effort inside its
+    // own try: on the store-is-entirely-unavailable path this throws too, and
+    // there was never anything written to strand (impeccable audit P3).
+    try {
+      window.sessionStorage.removeItem(storageKey);
+    } catch {
+      /* nothing was ever stored, so there is nothing stale to clear */
+    }
+  }
+}
+
+/** Clear the draft ONLY if the store still holds the text this submit sent.
+ *
+ *  The success branch runs after two suspension points (`fetch`, then
+ *  `res.json()`), and a modal unmount mid-flight is fire-and-forget BY DESIGN
+ *  here — the detached handler keeps running. Before this arc that cost nothing,
+ *  because the detached instance's `setDraft("")` touched only its own dead
+ *  state. Persisting to a SHARED key changed that: submit A, press Escape while
+ *  it is pending, reopen, type B, then let A's request succeed, and an
+ *  unconditional clear removes B's stored text. B stays on screen until the next
+ *  close and then is gone — the exact data loss this arc exists to stop,
+ *  reintroduced through its own repair (diff review R1 F1).
+ *
+ *  A compare-and-clear rather than a mounted-ref guard, deliberately: the
+ *  shared `ReportModal` returns early on unmount (`ReportModal.tsx:372`), but
+ *  this section's fire-and-forget settlement is ratified behaviour with tests on
+ *  it (T-D3b), and the attempt-key rotation on the same branch must keep running
+ *  so a later report is not swallowed as a duplicate. Narrowing the guard to the
+ *  one line this arc added leaves all of that untouched. */
+function clearStoredDraftIfUnchanged(storageKey: string, expected: string): void {
+  try {
+    if (window.sessionStorage.getItem(storageKey) === expected) {
+      window.sessionStorage.removeItem(storageKey);
+    }
+  } catch {
+    /* storage unavailable — nothing was persisted, so nothing to clear */
   }
 }
 
@@ -4676,6 +4716,9 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
     event.preventDefault();
     const message = draft.trim();
     if (message.length === 0 || status.kind === "pending") return;
+    // Captured BEFORE the awaits: what this submit is responsible for clearing.
+    // A newer mount may own the key by the time the success branch runs.
+    const submittedDraft = draft;
     setStatus({ kind: "pending" });
     const storageKey = reportAttemptStorageKey(wizardSessionId, dfid);
     const idempotency_key = mintOrReuseAttemptKey(storageKey);
@@ -4716,8 +4759,9 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
         rotateAttemptKey(storageKey);
         // A sent report must not come back as a ghost draft (spec §2.2, AC-4).
         // setDraft("") alone would not do it: the store is written from the
-        // textarea's onChange, and this is not one.
-        writeStoredDraft(draftStorageKey, "");
+        // textarea's onChange, and this is not one. Conditional on the stored
+        // text still being ours — see clearStoredDraftIfUnchanged (AC-15).
+        clearStoredDraftIfUnchanged(draftStorageKey, submittedDraft);
         setDraft("");
         setStatus({ kind: "success" });
         return;
@@ -4754,9 +4798,15 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
            button below (never the accent CTA; that belongs to Publish). */
         className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
-        {draft === "" ? "Write a report" : "Continue your report"}
+        {draft.trim() === "" ? "Write a report" : "Continue your report"}
       </button>
       {/* §D2: instant — deliberate (absent↔present with the draft).
+
+          TRIMMED, like the submit guard and the disabled state above it, and
+          unlike the first draft of this code which tested `draft === ""`.
+          A single typed space is not a report: untrimmed, the trigger promised
+          one to continue while `Send report` sat disabled with nothing on
+          screen explaining the contradiction (impeccable audit P3).
 
           The persistence guarantee, stated. Impeccable critique P1: the repair
           keeps the draft and told nobody, so an operator who does not already
@@ -4767,7 +4817,7 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
           sits beside the text it is describing. `sr-only`-adjacent quiet, not a
           live region — it is ambient reassurance, not an announcement, and it
           must not interrupt a screen reader mid-typing. */}
-      {draft === "" ? null : (
+      {draft.trim() === "" ? null : (
         <p className="text-xs/relaxed text-text-subtle">
           Kept on this device until you close the tab.
         </p>

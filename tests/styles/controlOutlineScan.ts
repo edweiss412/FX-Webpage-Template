@@ -143,11 +143,16 @@ export const CENSUS: readonly CensusRow[] = [
   // testid on the merged tree, located by running the scanner.
   // Then 4697 -> 4703 on the R2 repair (the reportShowId prop and its comment).
   // Same report-toggle testid, located by the scanner.
-  // Then 4703 -> 4747 on fix/wizard-report-draft-escape, which added the draft
-  // storage helpers above ReportIssueSection. Located by the unique
+  // Then 4703 -> 4747 -> 4791 on fix/wizard-report-draft-escape, which added the
+  // draft storage helpers above ReportIssueSection and then, at diff review R1,
+  // a detached-submit guard above them again. Located each time by the unique
   // `wizard-step3-card-${dfid}-report-toggle` testid and its `<button>` opener,
   // per the method the notes above prescribe — never by adding the delta.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4747 },
+  //
+  // THREE re-keys in one branch, which is the real lesson: re-key LAST. The
+  // first two were done while the branch still had edits coming and were stale
+  // within the hour. This one follows the final source edit.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4791 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -176,13 +181,14 @@ export const CENSUS: readonly CensusRow[] = [
   // rows did NOT move by the same amount (row 18 moved 44, this one 47): the draft
   // write in the textarea's onChange sits BETWEEN them, which is exactly why the
   // notes above forbid resolving either row by applying the other's delta.
-  // Then 4807 -> 4823 on the same branch, when the impeccable P1 repair added the
-  // persistence-guarantee line under the trigger. Row 18 did NOT move again (the
-  // new element sits below its `<button>`), so the two rows have now diverged
-  // twice within one branch. Located, as ever, by the `disabled={draft.trim()...}`
-  // opener on the final tree — re-run AFTER the last edit, because the first
-  // re-key of this arc was done before that edit and was stale within the hour.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4823 },
+  // Then 4807 -> 4823 -> 4873 on the same branch: first the impeccable P1 repair
+  // added the persistence-guarantee line under the trigger (which moved this row
+  // and NOT row 18, since the new element sits below that row's `<button>`), then
+  // the R1 detached-submit guard moved both. So the two rows diverged, converged
+  // and diverged again inside one branch, which is the case that makes applying
+  // one row's delta to the other actively wrong rather than merely lazy.
+  // Located by the `disabled={draft.trim()...}` opener on the final tree.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4873 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21

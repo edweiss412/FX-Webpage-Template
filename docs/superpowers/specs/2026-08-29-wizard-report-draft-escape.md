@@ -6,7 +6,7 @@ A half-typed report message in the wizard review modal dies when the modal close
 
 ## 1. The defect, reproduced
 
-`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` holds its draft in mount-local state (`components/admin/wizard/step3ReviewSections.tsx:4621`, `const [draft, setDraft] = useState("")`), so the unmount takes the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
+`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4701`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
 
 This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraftEscape.test.tsx` carries two blocks, committed at `b230ccb9d`:
 
@@ -15,7 +15,7 @@ This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraf
 
 The PIN was tautological in its first draft. A 50 ms sleep expired inside the exit animation, `onClose` had not fired yet, and the still-painted textarea satisfied the "stayed open" branch on the very tree that was about to be destroyed. It now waits `DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS` (`ReviewModalShell.tsx:54` and `ReviewModalShell.tsx:62`) plus margin before reading the spy. That mistake is recorded because the same shape would silently pass any future test of this surface written the obvious way.
 
-The exposure is narrow by construction: this textarea is the only one in `components/admin` (`rg '<textarea' components/admin` returns exactly one hit, `step3ReviewSections.tsx:4742`). The published side's Report control is a one-click action with nothing to lose.
+The exposure is narrow by construction: this textarea is the only one in `components/admin` (`rg '<textarea' components/admin` returns exactly one hit, `step3ReviewSections.tsx:4852`). The published side's Report control is a one-click action with nothing to lose.
 
 ## 1.1 Resolved scope, do not relitigate
 
@@ -28,7 +28,7 @@ The exposure is narrow by construction: this textarea is the only one in `compon
 | **The `onEscapeCapture` prop stays unused by the wizard.** Its sole consumer remains `PublishedReviewModal.tsx:990`. | `components/admin/review/ReviewModalShell.tsx:100`, `components/admin/showpage/PublishedReviewModal.tsx:990` |
 | **`FinalizeButton`'s capture-phase Escape preempt is unaffected.** It listens in the capture phase and calls `stopImmediatePropagation`, so a finalize overlay above the review modal already swallows Escape before the shell sees it. Nothing here runs on that path. | `components/admin/FinalizeButton.tsx:767` |
 | **Collapse survival is existing, tested behaviour and is not the fix.** A draft already survives collapsing the disclosure, because `draft` lives at component level and only the form subtree unmounts. | `tests/components/admin/wizard/step3ReviewSections.test.tsx:1218` (T-D1) |
-| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4621` (`ReportIssueSection`) |
+| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4701` (`ReportIssueSection`) |
 
 ## 2. What ships
 
@@ -44,7 +44,7 @@ Persist the draft in `sessionStorage`, keyed the way the attempt key in the same
 
 | Path | When | Behaviour |
 |---|---|---|
-| **Write** | Every `onChange` on the textarea | Store the new value under the key. A non-empty draft writes; an empty one REMOVES the key rather than storing `""`, so a cleared field leaves nothing behind. |
+| **Write** | Every `onChange` on the textarea | Store the new value under the key. A non-empty draft writes; an empty one REMOVES the key rather than storing `""`, so a cleared field leaves nothing behind. If the write THROWS, the key is removed rather than left holding the previous, shorter value: a write can fail after an earlier one succeeded (a mid-session quota error), and a stale prefix restored later reads as a complete draft that silently lost its tail. Restoring nothing is honest; restoring a truncated draft is not. |
 | **Read** | `useState` lazy initialiser on mount | Return the stored string, truncated to `REPORT_MESSAGE_MAX_CHARS`. Absent key returns `""`, which is today's initial value exactly. |
 | **Clear** | Successful submit, beside the existing `rotateAttemptKey` call | Remove the key. A sent report must not come back as a ghost draft. |
 
@@ -53,6 +53,8 @@ Per-keystroke writes are chosen over a write-on-unmount effect. Unmount ordering
 ### 2.3 The restored draft has to be visible
 
 A restored draft the operator cannot see is half a repair: they reopen, see the collapsed disclosure, and retype. So whenever the draft is non-empty, the disclosure trigger reads **"Continue your report"** instead of **"Write a report"**; the disclosure itself stays COLLAPSED on mount and focus is untouched.
+
+All three predicates over the draft read the TRIMMED value: the trigger label, the guarantee line, and the existing submit guard and disabled state, which already trimmed. One typed space is not a report, and an untrimmed label promised one to continue while `Send report` sat disabled with nothing on screen explaining the contradiction (audit P3).
 
 The label is DERIVED from the current `draft` value, not captured at mount. A mount-time capture goes stale the moment the operator expands the form and deletes their text: the trigger would still promise a report to continue while the field behind it is empty. A derived label cannot drift, needs no extra state, and costs one ternary.
 
@@ -66,7 +68,7 @@ Copy rules: no em dash, and no apostrophe is needed in either string.
 
 | Input / state | Behaviour |
 |---|---|
-| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4572-4583`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
+| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4645`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
 | Stored value absent | `""`. Identical to today's initial state. |
 | Stored value empty string | Treated as absent. The write path never creates this, but a key written by an older build might hold it. |
 | Stored value longer than `REPORT_MESSAGE_MAX_CHARS` (2000, `step3ReviewSections.tsx:4548`) | Truncated to the cap on read. The textarea's own `maxLength` bounds what a user can type; a stale or hand-edited key is the only way an over-length value arrives, and it must not defeat the cap. |
@@ -89,7 +91,9 @@ Two states are added to a surface whose existing transitions are all §D2 instan
 
 ## 5. Dimensional invariants
 
-N/A. No fixed-dimension parent and no flex/grid child relationship is added or altered. The only DOM change is the text content of an existing button.
+N/A. No fixed-dimension parent and no flex/grid child relationship is added or altered.
+
+The DOM changes are the text content of an existing button and, when the draft is non-empty, one conditional `<p>` added as a sibling inside the section's existing flex column (§2.3). It inherits that column's `gap` and sets no width, height, or flex property of its own, so it introduces no parent-to-child dimension relationship to state. (An earlier draft of this section said the only DOM change was text inside a button; that was written before the guarantee line existed and was stale by the time it was read. Diff review R1 F3.)
 
 ## 6. Acceptance criteria
 
@@ -105,12 +109,28 @@ N/A. No fixed-dimension parent and no flex/grid child relationship is added or a
 - **AC-10** Drafts are scoped per wizard session and per drive file; neither leaks into the other.
 - **AC-11** The guarantee line renders whenever the draft is non-empty, in both disclosure states, and disappears when the field is emptied.
 - **AC-12** Focus is never on the trigger at either moment its label flips, so no accessible name changes under the user.
+- **AC-13** A whitespace-only draft is not a report: the trigger label, the guarantee line and the Send button agree, all three reading the trimmed value.
+- **AC-14** A write that throws after an earlier one succeeded clears the key rather than leaving a stale prefix under it.
+- **AC-15** A detached submit's success does not erase text a newer mount has typed: the clear is conditional on the store still holding the text that submit sent.
+- **AC-12b** The third label flip, on submit success while collapsed with focus on the trigger, is accompanied by the live-region success announcement.
+
+## 6.2 Cross-model review, diff round 1
+
+Verdict NEEDS-ATTENTION, three findings, all accepted. None relitigated a fenced decision.
+
+| # | Finding | Disposition |
+|---|---|---|
+| F1 (P1) | A detached successful submit could erase newer text. Submit A, close mid-flight, reopen, type B, then let A succeed: the detached handler's unconditional clear removed B's stored text, and B stayed on screen until the next close and then was gone. | FIXED, AC-15. The clear is now compare-and-clear. This one is the arc's own repair reintroducing the loss the arc exists to stop: before persistence, a detached instance's `setDraft("")` touched only its own dead state, and writing to a SHARED key is what gave it reach. |
+| F2 (P2) | AC-12's conclusion was false: there is a THIRD label flip, on submit success, and T-D3b ratifies collapsing while pending, which leaves focus on the trigger. | FIXED, AC-12b, and the claim in AC-12's own comment is corrected rather than quietly widened. The flip is acceptable because the same commit announces the outcome in the live region, and it is now pinned instead of assumed away. |
+| F3 (P3) | The spec was not reconciled after the guarantee paragraph landed: §5 still claimed the only DOM change was text in a button, and several citations were keyed to the pre-repair file. | FIXED. §5 now describes the conditional `<p>`, the stale anchors are re-cited, and `spec:lint` is down to two advisories from five. |
+
+The reviewer's own verification was partial and said so: its sandbox refused Vitest's temp directory, so no tests ran there, and `pnpm typecheck` failed on an `EPERM` writing `tsconfig.tsbuildinfo` rather than on any type error. Both commands run clean in the worktree. The findings stand on reading, which is where all three came from anyway.
 
 ## 6.1 Gate dispositions (invariant 8)
 
 The impeccable dual gate ran on this diff: `critique` as two isolated sub-agents (design review, detector plus evidence) and `audit`. Browser inspection was skipped throughout, with cause: the surface needs DB-backed staged wizard rows and the fleet was in a DB quiet period, where a locally booted app server points at a shared validation deployment that sends real mail.
 
-No P0. Dispositions, approved by bl-orch:
+No P0. The audit scored 19/20 with no P0 and no P1; the critique scored 24/40 and raised the two P1s below. Dispositions, approved by bl-orch:
 
 | Finding | Severity | Disposition |
 |---|---|---|
@@ -121,9 +141,18 @@ No P0. Dispositions, approved by bl-orch:
 | No character counter on a 2000-char field; a restored over-length draft is truncated silently | P3 | PARKED. The counter is pre-existing and unrelated to persistence; the truncation is already a documented limit in §3. |
 | Textarea has no disabled or error state; submit has no active state; submit shows hover fill while disabled | P2/P3 | PRE-EXISTING, not introduced here. A different defect class from this row, so out of scope under the class-sweep rule; not filed, because the class-sweep default applies to instances of the shape a PR is repairing, and this is not that shape. |
 | The label swap is not announced, and nothing pinned that focus is elsewhere when it flips | P2 | FIXED by pin rather than by code: AC-12 asserts focus is off the trigger at both flip moments, so a later focus-restore change fails loudly instead of silently reintroducing a WCAG 4.1.2 problem. |
+| Whitespace-only draft: the label predicate did not trim while every other consumer of `draft` did | P3 | FIXED in branch, AC-13. |
+| A write that throws after an earlier success leaves a stale prefix that restores silently | P3 | FIXED in branch, AC-14. |
+| Nothing announces the restore to a screen-reader user | P3 | DECLINED. The guarantee line is deliberately ambient rather than a live region: the restore is not an event the operator caused at that moment, and announcing it interrupts. The trigger's accessible name does carry "Continue your report" when they reach the control. |
 | Detector: two `broken-image` hits | n/a | FALSE POSITIVES. Both are the string `<img>` inside JSDoc prose, at lines this diff does not touch. |
 
-**SSR and hydration, the audit's load-bearing question.** `readStoredDraft` runs inside a `useState` lazy initialiser and touches `window.sessionStorage`, which would be a hydration mismatch if the subtree ever rendered on the server. It cannot. `step3ReviewSections.tsx`, `Step3SheetCard.tsx` and `Step3Review.tsx` all carry `"use client"` on line 1, and `ReportIssueSection` mounts only inside `{detailsOpen ? <Step3ReviewModal .../> : null}` (`Step3SheetCard.tsx:630`) where `detailsOpen` starts `false` (`Step3SheetCard.tsx:273`) and flips only on a user click. The first render of this subtree is always a client render after an interaction.
+**SSR and hydration, the audit's load-bearing question.** `readStoredDraft` runs inside a `useState` lazy initialiser and touches `window.sessionStorage`, which would be a hydration mismatch if the subtree ever rendered on the server. It cannot, and the reason is NOT that the files carry `"use client"` — a client component still server-renders, and an earlier draft of this section leaned on exactly that non-argument. The real argument is that the subtree is absent from both passes:
+
+- `ReportIssueSection` enters the tree only through the `report` section def, gated on `includesReport(d)` and again on `isStaged(s)` in its `render`, and `includesReport` is `d.mode === "staged"` (`components/admin/review/sectionInclusion.ts:44`).
+- Staged mode is reachable only through `Step3ReviewModal`, mounted behind `{detailsOpen ? ... : null}` (`components/admin/wizard/Step3SheetCard.tsx:630`) whose state starts `false` (`Step3SheetCard.tsx:273`). The server pass and the hydration pass both read `false`, so the mount is a post-hydration click.
+- The repo's one SSR-open-modal path is the published `/admin?show=` cold load, and `ReviewModalShell.tsx` says so in the comment on that path: "Client-side opens (step3) never hit this". That path is published mode, where `includesReport` is false, so this section is not in that tree either.
+
+Belt and braces, and worth stating because it bounds the blast radius if the mount chain is ever changed: `window is not defined` is a `ReferenceError`, which the bare `catch` in `readStoredDraft` does catch. The failure would be a trigger-label text mismatch and a recoverable hydration warning, never a crash.
 
 ## 7. Documented limits
 
