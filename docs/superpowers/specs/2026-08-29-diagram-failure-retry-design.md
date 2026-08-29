@@ -93,7 +93,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 
 | # | UNRATIFIED claim | where | settled by |
 |---|---|---|---|
-| U-1 | Setting native `disabled` on the focused retry control ejects focus to `<body>`, so the control must use `aria-disabled` instead | §7.1 | **Plan Task P1**, a standalone real-browser probe on a plain button, asserting focus location after each attribute is applied. The repo's note at `components/admin/RecentAutoAppliedStrip.tsx:371-380` is evidence, not proof |
+| U-1 | **RATIFIED 2026-08-29.** Setting native `disabled` on the focused retry control ejects focus to `<body>`; `aria-disabled` does not | §7.1 | **Task P1, run.** `tests/e2e/focus-disabled-eject.probe.spec.ts`, 2 passed in Chromium: the native arm reported `body`, the `aria-disabled` arm reported the button. Each arm carries a premise asserting focus was ON the button first, or "focus is on body afterwards" would be trivially true. Firefox is not independently probed; one engine ejecting is sufficient to reject the attribute |
 | U-2 | Mounting the retry image as a separate element from the idle one causes a second unconditional GET on `retrying → idle` | §4.0.5 | **Plan Task P2**, a standalone real-browser request count across an unmount-remount versus a same-node transition, everything else held constant |
 | U-3 | A covered retry image left at the `loading` default can be deferred indefinitely, so it needs `loading="eager"` | §4.0.5 | **Plan Task P3**, a standalone real-browser probe, three arms: covered at the default, covered with `eager`, uncovered at the default |
 | U-4 | The `srcSet` candidate set is stable across the failure and the retry, so the retry cannot escape the ladder | §3 | **Plan Task P4**, a standalone real-browser probe comparing two contexts at different `deviceScaleFactor`, asserting BOTH the rendered `srcSet` and the requested URL |
@@ -585,7 +585,8 @@ focus is ON this control when they press it, `failed → retrying` would drop fo
 immediately — the exact failure the amendment exists to avoid, reintroduced by the amendment.
 
 **So the in-flight control uses `aria-disabled="true"` plus an early-returning click handler,
-never the native attribute.** (UNRATIFIED, U-1 — Task P1 settles it.) It stays focusable, focus stays put, and assistive technology
+never the native attribute.** (RATIFIED — Task P1 measured both arms in Chromium and both
+behaved as claimed: `tests/e2e/focus-disabled-eject.probe.spec.ts`.) It stays focusable, focus stays put, and assistive technology
 still reports it as unavailable. `aria-busy="true"` is unchanged. `RetryWatchButton`'s native
 `disabled` is correct for its own site, where the button is not the focus origin; it is not a
 precedent for this one.
