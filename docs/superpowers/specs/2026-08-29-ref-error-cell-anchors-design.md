@@ -1,6 +1,6 @@
 # The three wave codes get a cell link: `#REF!`, fused rows, and shifted sections point at the cell that raised them
 
-**Status:** DRAFT 2026-08-29. Branch `feat/ref-error-cell-anchors`. Dispatched directly by Eric from a screenshot of the onboarding wizard (step 3, "Review before publishing", show `II - FinTech Forum CTO Summit 2026`, validation deploy); no ledger row dispatched it. Orchestrator: bl-orch (`w15:p2`). Roles: this session writes spec + plan; a separate Opus pane implements and closes out (bl-orch launches it on account3 at plan APPROVE); **bl-orch alone merges**.
+**Status:** APPROVED 2026-08-29 by cross-model review at its third round (the first two rounds returned findings, every one repaired by class sweep in the same round; the third returned none; rows in `docs/review-rounds/feat/ref-error-cell-anchors/`). Branch `feat/ref-error-cell-anchors`. Dispatched directly by Eric from a screenshot of the onboarding wizard (step 3, "Review before publishing", show `II - FinTech Forum CTO Summit 2026`, validation deploy); no ledger row dispatched it. Orchestrator: bl-orch (`w15:p2`). Roles: this session writes spec + plan; a separate Opus pane implements and closes out (bl-orch launches it on account3 at plan APPROVE); **bl-orch alone merges**.
 
 ## 1. The problem, as measured on the fixture
 
