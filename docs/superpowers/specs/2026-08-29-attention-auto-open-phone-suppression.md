@@ -256,7 +256,13 @@ Neither is an anchored-overlay occlusion, and a branch that treated them as one 
 
 **P-1, the wizard sweep (§5).** Real Chromium, wizard review modal with needs-look items, menu auto-opened, run at **375x667, 375x844 and 390x560**. Three cells, not one: vertical placement depends on `spaceAbove`/`spaceBelow`, side selection and fitted height (`lib/popover/position.ts:113-115` and `lib/popover/position.ts:134`), so a shorter phone changes which controls the panel covers, and the sibling row's own probe domain already treats these as three cells (the viewport loop at `tests/e2e/wizard-attention-menu.spec.ts:202-209`). The negative branch of §5 requires a negative in ALL THREE; one positive anywhere makes the wizard an instance. Measured at rest, after the entrance settles on `scale` (the file's containment cases document why `transform` reads "none" throughout). Records the full result and gates the §5 disposition, nothing else.
 
-**P-2, the fix itself.** Real Chromium at 375x667, published review modal, driven with actionable items:
+**P-2, the fix itself.** Real Chromium at 375x667, published review modal, driven with actionable items.
+
+**Where each item actually landed, corrected after whole-diff review round 4.** This list was written as though every item would live in one new browser file, and three of them did not — not because they are uncovered, but because a better vehicle already existed. Round 4 was right to call that an evidence-mapping defect: a spec that says "P-2 asserts X" while X is asserted somewhere else sends the next reader to the wrong file, and the reader who finds nothing concludes the wrong thing. The mapping, per item:
+
+- **Items 1, 4, 5, 7** are in `tests/e2e/attention-autoopen-suppress.spec.ts`, which is the new file this list anticipated.
+- **Items 2 and 6** — the accessible name and the 639/640 boundary pair — are in the jsdom suite `tests/components/admin/showpage/autoOpenWidthSuppression.test.tsx`. Neither needs layout: an accessible name is computed from the tree, and the boundary is a predicate answer. Putting them in a browser file would have bought a slower vehicle for the same evidence.
+- **Item 3**, the hit-band test, was ALREADY THERE: `tests/e2e/published-review-modal.layout.spec.ts:676-707` hit-tests the pill's band at 21px above and below centre, at 375x812, with an anti-inflation clause proving the visible box stays slim. Duplicating it would have added a second assertion that must be kept in step with the first, which is the drift this repo's meta-tests exist to prevent.
 
 1. the menu is CLOSED one frame past the reveal's rAF, so "closed" is settled rather than measured too early;
 2. the pill is visible and its ACCESSIBLE NAME carries the count (not the text of a container that also renders menu rows);
