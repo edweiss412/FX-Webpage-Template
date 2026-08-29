@@ -24,6 +24,7 @@ closed criterion.
 | `tests/help/help-prose-layer.test.ts` | measure pattern follows the declaration that now carries it |
 | a new `tests/e2e/` layout-dimensions spec (named in task 5) | real-browser column sequences and measure floor |
 | `playwright.config.ts` | new spec joins `help-docs-desktop`'s `testMatch` |
+| `tests/help/playwright-config.test.ts` | pins that `testMatch` regex VERBATIM (`:167`); the edit above breaks it unless updated in the same task |
 | `.github/workflows/help-affordances.yml` | `app/globals.css` joins `paths:` |
 
 ## 2. Meta-test inventory
@@ -48,8 +49,8 @@ cannot be staged is not a criterion; it is a sentence.
 | AC | What it claims | Staged violation | Expected red |
 | --- | --- | --- | --- |
 | **AC-1d** | the measured column sequences hold | revert all three tour grids to `grid-cols-1` and drop `help-bleed` — the permanently-single-column page | layout spec fails on the column COUNT at 752, 1016 |
-| AC-1 | measure >= 28ch at the thresholds | set the minimum to `16rem` | switch measure 23.1ch, fails at 752 |
-| AC-1a | the 390px measure is unchanged | give the mobile single-column case the bleed as well, so 390 widens past its 31.4ch baseline | layout spec fails at 390 on a CHANGED measure |
+| AC-1 | measure >= 28ch at the thresholds | set the minimum to `16rem` | fails at 640 (25.2ch), 900 (25.0ch), 904 (25.2ch) and 1280 (23.1ch); it does NOT fail at 752, which is 30.8ch |
+| AC-1a | the 390px measure is unchanged | drop the minimum to `10rem`, which is the largest value that fits two tracks in the 358px mobile container | layout spec fails at 390: 2 columns at 12.8ch against the 31.4ch single-column baseline |
 | AC-1b | zero jump-list wraps | restore `sm:grid-cols-2` on the errors list | 5 of 7 wrap at 768 |
 | AC-1c | no horizontal overflow at 320 | drop the `min(...,100%)`, leaving a bare `22rem` | track 352 in a 288 container, +64px |
 | AC-2 | other help pages unchanged | remove the `> *` scoping so the cap lifts entirely | typography spec fails on a widened paragraph |
@@ -138,7 +139,7 @@ A cycle that greens because the test changed proves nothing about the implementa
 
 ## Task 4 — the layout-dimensions spec
 
-<!-- task: red=`pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`this task writes the spec AND its help-docs-desktop testMatch entry together, so the command collects and RUNS rather than reporting no tests, and the observed RED is the production defect: today's md:grid-cols-3 gives one column at 752 and 1016 where AC-1d asserts two, and the three-column state at 1024 measures 18.1ch against AC-1's 28ch floor. The SAME command greens when task 5 lands the derived column counts` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
+<!-- task: red=`HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`this task writes the spec AND its help-docs-desktop testMatch entry together, so the command collects and RUNS rather than reporting no tests, and the observed RED is the production defect: today's md:grid-cols-3 gives ONE column at 752 (md has not engaged below 768) and THREE at 1016 (it has), where AC-1d asserts two at both, and that three-column state measures 18.1ch against AC-1's 28ch floor. The SAME command greens when task 5 lands the derived column counts` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
 
 New spec: column sequences (AC-1d), measure floor (AC-1), the 390px measure unchanged (AC-1a), zero
 wraps (AC-1b), no overflow (AC-1c). Viewports 320, 390, 640, 740, 752, 768, 900, 904, 1004, 1016,
@@ -146,6 +147,24 @@ wraps (AC-1b), no overflow (AC-1c). Viewports 320, 390, 640, 740, 752, 768, 900,
 never `networkidle` alone. Premises: at least one card anchor renders, and the grid is multi-column
 where a case asserts a multi-column measure. Add to `help-docs-desktop` `testMatch`; add
 `app/globals.css` to `help-affordances.yml` `paths:`.
+
+**Two companion surfaces, both found by sweeping rather than by remembering.**
+`tests/help/playwright-config.test.ts:167` pins the `help-docs-desktop` `testMatch` regex
+VERBATIM, so the config edit breaks it and it is updated in THIS task — without that, `unit-suite`
+goes red on a change the plan called complete. And `tests/ci/_metaE2eWorkflowCoverage.test.ts`
+fails by default for a NEW spec that no PR workflow invokes; it is what PROVES the
+`help-docs-desktop` choice over `desktop-chromium` rather than merely asserting it, so it must be
+green after this task.
+
+**The command pins its server and its database, and neither is optional.**
+`HELP_DOCS_WALKER_ONLY=1` boots only the :3004 server instead of all five. The loopback
+`TEST_DATABASE_URL` is load-bearing because `help-docs-setup` runs `pnpm db:seed` — against the
+ambient value that seeds the VALIDATION project, whose notify cron sends real mail. **Before
+running it, verify :3004 has no listener** (`lsof -nP -iTCP:3004 -sTCP:LISTEN`): the project's base
+URL is hardcoded to that port with `reuseExistingServer: !CI`, so a sibling worktree's server would
+be reused and the recorded red would belong to another branch's build. The converged spec records
+that hazard for the same port in §2.2, and a red measured against the wrong build is worse than no
+red at all.
 
 **The spec lands BEFORE the implementation, deliberately.** An earlier draft had these two the other
 way round, and the review caught what that costs: the implementation would have landed while the
@@ -155,7 +174,7 @@ red and the fix causing green, which is the entire content of invariant 1.
 
 ## Task 5 — derived column counts
 
-<!-- task: red=`pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 4 authors the failing cases and leaves this command red on the production defect; this task lands auto-fit with the min(22rem,100%) floor, help-bleed and col-span-full, and the SAME command greens. The red is the grid's column count and measure, not a missing file` ac=AC-1,AC-1a,AC-1c,AC-1d -->
+<!-- task: red=`HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 4 authors the failing cases and leaves this command red on the production defect; this task lands auto-fit with the min(22rem,100%) floor, help-bleed and col-span-full, and the SAME command greens. The red is the grid's column count and measure, not a missing file` ac=AC-1,AC-1a,AC-1c,AC-1d -->
 
 All three tour grids to `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` plus
 `help-bleed`; `md:col-span-2` becomes `col-span-full`. Errors jump list to its own `18rem` minimum,
