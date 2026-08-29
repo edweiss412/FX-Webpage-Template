@@ -273,15 +273,24 @@ and it is evidence rather than prediction. Two earlier drafts of this paragraph 
 the claim is now stated at exactly the strength the corpus supports and no further.
 
 **All eleven arcs repaired.** Diff review round 2 finding 1 is right that an earlier "six of eleven"
-was false: every arc with a finding repairs it, that being what review is. What differs is the SHAPE of
+was false. Its reasoning was that an arc with a finding repairs it, that being what review is; rather
+than rest on that generalisation, the table below names the repair for each of the eleven and cites or
+quotes it, so the row count is checkable rather than inferred. What differs is the SHAPE of
 the repair, and the shapes partition cleanly:
 
 | repair shape | arcs |
 | --- | --- |
-| make the table an OUTPUT — generate, derive, or replace the number with the command | `fix/shell-brace-cross-construct` (`weaker-walks.mts`), `fix/severityless-warning-filters` (one query produces every number), `fix/mutation-shard-budget-six` ("Every figure below is printed by commands"), `fix/mutation-shard-weight-seconds` ("Each repair replaced the number with the COMMAND"), `feat/speclint-ac-unclaimed-arm` (prints the producing command beside the corrected 108, `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:38` and `:43`), `docs/quick-wins-2-specs` (the truncated sweep table corrected), `fix/supabase-upstream-fault-class` (reused a ratified extraction rule instead of an invented one) |
+| make the table an OUTPUT — generate, derive, or replace the number with the command | `fix/shell-brace-cross-construct` (`weaker-walks.mts`), `fix/severityless-warning-filters` (one query produces every number), `fix/mutation-shard-budget-six` ("Every figure below is printed by commands"), `fix/mutation-shard-weight-seconds` ("Each repair replaced the number with the COMMAND"), `feat/speclint-ac-unclaimed-arm` (prints the producing command beside the corrected 108, `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:38` and `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:43`), `docs/quick-wins-2-specs` (the truncated sweep table corrected and re-run, "authored AND run, 2026-08-09; corrected per R1 F3", `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md:103`), `fix/supabase-upstream-fault-class` ("Reusing a ratified extraction rule instead of inventing one", `docs/review-rounds/fix/supabase-upstream-fault-class/d04d6370985f.md:15`) |
 | DELETE the table | `feat/review-modal-strip-dock`, `feat/speclint-red-reason-verification` ("both movement tables were DELETED instead of annotated") |
 | keep the table, COMMIT the command's raw output beside it | `fix/sync-log-show-id-duration`, `docs/sync-log-emit-guard-spec` |
 | **declare the table's provenance with a pointer to a command** | **none** |
+
+**How the negative claim was checked, since a negative universal is only as good as its method.**
+Each of the eleven arcs in §2 was read for what it SHIPPED, not only for what its round found, and the
+repair is quoted or cited per row above. "Zero declared provenance" is therefore a claim over the
+eleven rows of that table and nothing wider: it does not say no author anywhere has ever wanted such a
+marker, and it does not survey arcs outside §2's boundary. Any arc the boundary excludes is excluded in
+public, in §2, with a reason.
 
 **"Convergence" was the wrong word and it is dropped.** Round 2 is right that three shapes across
 eleven arcs is heterogeneity, not convergence, and right that deleting a claim is not "shipping
