@@ -27,7 +27,7 @@ critique scored heuristic 9 (recover from errors) 2/4 on exactly this account.
 | Retry fetches the **clamped tier**, not the original. Copy shape `"<name> could not be loaded. Tap to retry."` with an explicit in-flight state. | Eric, 2026-08-29, relayed through bl-orch. This is the ledger row's blocking product decision (class-sweep exception (a)) being answered. |
 | **No cache-buster query parameter.** The retry re-renders the same `srcSet` candidate set and the browser picks from it. | §3. A cache-buster would change every URL, defeat HTTP caching, and put the retry outside the ladder the cost bound rests on. It is not needed: a remount re-requests on its own (§1.3). |
 | Retry labels are **UI chrome, not catalog rows**. No `lib/messages` entry, no §12.4 code. | Established precedent for exactly this control class: `components/admin/RetryWatchButton.tsx:11-12` ("Labels are UI chrome (uncataloged, like Dismiss/Details)"). Invariant 5 governs raw error CODES surfacing in UI; these strings carry no code. |
-| A runtime-failed cell that HAS a control **keeps focus**; one without a control still relocates. | §7, and it is an explicit **amendment** to `2026-08-10` spec §4.2 / AC-3, not a reinterpretation of it. Dispositioned there with the reason. Cells covered by the §3.1 exclusion keep the ratified behavior unchanged. |
+| A runtime-failed cell **keeps focus** rather than relocating to a sibling, and `successorTo` is deleted. | §7, and it is an explicit **amendment** to `2026-08-10` spec §4.2 / AC-3, not a reinterpretation of it. Under the §3.1 override every runtime-failed cell has a control, so no relocation case remains. Parse-time-unavailable cells never held focus. |
 | Parse-time-unavailable items (`available: false`) get **no retry control**. | §4. There is no asset to re-fetch; the manifest never published one. |
 | Originals-only entries **do** get the control, at original cost, up to the route's 50 MB cap. | §3.1. Eric via bl-orch, 2026-08-29, decided with the 50 MB figure stated. Supersedes an earlier withhold that was my default, not his answer. |
 | Inactive lightbox slides get **no control**; active slides and gallery thumbnails do. | §2, on a11y grounds, and §3.1 explains why the no-dead-ends argument does not reach it: an inactive slide has two recovery routes, originals-only had none. |
@@ -304,7 +304,7 @@ implementation may improvise around.
 |---|---|---|
 | `failedKeys` (gallery) | `Gallery.tsx:122` | entering `retrying`; the item going unavailable (§9.1) |
 | `pendingFailuresRef` | `Gallery.tsx:156` | entering `retrying` (§4.0.1); the item going unavailable |
-| `thumbRefs` | `Gallery.tsx:132` | React, on unmount. **Holds ONLY the healthy thumbnail button.** The retry button gets its own map (§7), or `successorTo` would treat it as a relocation target |
+| `thumbRefs` | `Gallery.tsx:132` | React, on unmount. **Holds ONLY the healthy thumbnail button**; the retry button gets its own `retryRefs` map (§7), so an id's entry unambiguously says which kind of button it currently holds |
 | `restoreTargetRef` | `Gallery.tsx:139` | re-pointed on every failure that removes the current target (§7) |
 | `failedKeys` (lightbox) | `GalleryLightbox.tsx:293` | entering `retrying`; the item going unavailable |
 | `wantsOriginal` | `GalleryLightbox.tsx:303` | entering `retrying` (§4.0.2); the demote path, unchanged |
@@ -439,35 +439,59 @@ successor relocation is still the right and only behavior for those cells. This 
 case that keeps the old target, and it is why `successorTo` cannot simply be deleted
 unconditionally — see below.
 
-**`successorTo` survives, and its eligibility predicate must be tightened.** It has exactly
-one caller (`Gallery.tsx:287`, verified by grep), and that caller remains: a cell with no
-control still relocates to a sibling.
+**`successorTo` is DELETED, and the override is what settles it.** It has exactly one
+caller (`Gallery.tsx:287`, verified by grep). Whether that caller survives turned on §3.1,
+and §3.1 moved twice:
 
-Its `usable` helper accepts any id that is absent from `pendingFailuresRef` and whose
-`thumbRefs` entry is connected (`Gallery.tsx:222-225`). Both conditions are now satisfiable
-by a cell that must never be a relocation target, because §4.0.1 clears
-`pendingFailuresRef` the moment a retry starts. Two independent repairs, because either
-alone leaves a hole:
+- while originals-only entries were withheld a control, those cells still relocated to a
+  sibling, so the caller remained and its eligibility predicate needed tightening
+- under the ratified override every runtime-failed cell with `item.available` gets a
+  control, so focus always has somewhere to land inside the cell itself
 
-1. **`thumbRefs` holds only the healthy thumbnail button** (§4.0.3). The retry button
-   registers in its own `retryRefs` map. Sharing one map is what would make a disabled
-   in-flight control look like a thumbnail.
-2. **`usable` additionally requires the id to be `idle`** — absent from `failedKeys` AND
-   from `retrying`. Deriving eligibility from the state machine rather than from two proxy
-   conditions is what stops the next variant of this finding.
+Parse-time-unavailable cells are the only ones left without a control, and they never had a
+thumbnail button to hold focus, so `handleThumbnailFailure` never runs for them. The caller
+therefore has no remaining case: `successorTo` goes, and with it the whole successor
+concept for runtime failures.
 
-Without both, relocation can target a `disabled` retry button; `focus()` on a disabled
-element is a no-op, so focus would stay on the unmounting node and land on `<body>` — the
-exact outcome the ratified rule exists to prevent, reintroduced by its own repair.
+**This dissolves round 2's third finding rather than repairing it.** That finding was that
+clearing `pendingFailuresRef` on retry would make a `disabled` in-flight retry button
+eligible in `usable` (`Gallery.tsx:222-225`), and `focus()` on a disabled element is a
+no-op, so focus would land on `<body>` — the ratified rule's own failure mode, reintroduced
+by its repair. With the predicate deleted there is no eligibility question. Two guards
+proposed against that finding are dropped with it, and one is kept for an independent
+reason:
 
-**Blast radius, enumerated.** The seven cases in
+- DROPPED: adding a `retrying`/`failedKeys` conjunct to `usable`. There is no `usable`.
+- KEPT: **`thumbRefs` holds only the healthy thumbnail button, and the retry button gets its
+  own `retryRefs` map** (§4.0.3). Not for eligibility any more, but because §7's focus move
+  and §4's `focusOnMount` need to address the retry button specifically, and a shared map
+  cannot say which kind of button an id currently holds.
+
+AC-15 is restated accordingly: no successor-hop exists at all. It is a source-scan guard
+rather than only a behavioral one, because a behavioral test passes if someone reintroduces
+the helper unused.
+
+**Blast radius, enumerated — and it grew when §3.1 reversed.** The seven cases in
 `tests/components/diagrams/gallery.failedItem.test.tsx:429-527` and the two dialog cases at
 `tests/components/diagrams/gallery.failedItem.test.tsx:686` and the same file at line 706
-assert focus moves off a failing thumbnail. Their fixtures use `variants: []`, which under
-§3.1 is exactly the originals-only case that still relocates — so most of them are expected
-to pass UNCHANGED, and the plan re-runs them before rewriting anything. The plan's
-blast-radius table gives the per-test disposition, and adds laddered-fixture twins asserting
-the new target. No case is deleted.
+assert focus moves off a failing thumbnail. All nine build items through the shared helper
+at `tests/components/diagrams/gallery.failedItem.test.tsx:264-273`, which sets
+`variants: []` — confirmed by round 2's reviewer.
+
+Under the withhold that made them the no-control case and they would have passed unchanged.
+**Under the override it makes them the control case, so all nine change expectation**: focus
+stays on the failed cell's retry button. That is the larger reading, and it is the one that
+now holds. No case is deleted; the plan's blast-radius table gives the per-test disposition,
+and the case that asserts focus never lands on `<body>`
+(`tests/components/diagrams/gallery.failedItem.test.tsx:480`) survives unchanged and becomes
+a stronger claim.
+
+The one case that needs more than a retargeted expectation is
+`tests/components/diagrams/gallery.failedItem.test.tsx:470`, "with no control at all it
+relocates to the gallery list itself". Its premise — a grid where nothing focusable remains
+— is now unreachable, because a failed cell always carries a control. It is rewritten as
+the positive claim rather than deleted, since the property it was defending (focus never
+falls out of the gallery) still matters.
 
 ## 8. Dimensional invariants
 
@@ -617,8 +641,8 @@ here rather than as a finding.
   still reaches the original (§4.0.2).
 - **AC-14** A demoted slide that goes unavailable shows no demote chip, in the first frame
   and after its timer would have expired (§9.1).
-- **AC-15** `successorTo` never returns a retry button: relocation from an originals-only
-  failure skips any cell that is `failed` or `retrying` (§7).
+- **AC-15** `successorTo` is gone and no successor-hop returns, asserted by a source scan
+  as well as behaviorally (§7).
 - **AC-16** A slide swiped away mid-retry does not return holding a disabled `Retrying…`,
   and focus does not reach `<body>` when its control unmounts (§4.0.4).
 - **AC-17** Every per-item member of the §4.0.3 table has a clear path, or a row saying
@@ -670,7 +694,7 @@ original through `servingVariants`.
 |---|---|---|
 | 1 | writing `demotedRef` on retry makes the promised re-pinch permanently impossible; it has no clear path | CONFIRMED. §4.0.2 now removes a write instead of adding one: retry clears `wantsOriginal` and does NOT touch `demotedRef`. Its guard has no hazard on this path, because a `failed` slide does not mount `TransformWrapper`. AC-13. |
 | 2 | the availability clear runs too late, and `demotedNotice`/`demoteTimerRef` were omitted | CONFIRMED. §9.1 inverted: the clear happens when the item goes UNAVAILABLE, where no render can observe the retained state. The chip predicate also gains `item.available`. AC-11, AC-14. |
-| 3 | clearing `pendingFailuresRef` makes an in-flight retry button eligible in `successorTo` | CONFIRMED. §7: `thumbRefs` holds only healthy thumbnails, the retry button gets its own map, and `usable` derives eligibility from the state machine rather than from two proxy conditions. AC-15. |
+| 3 | clearing `pendingFailuresRef` makes an in-flight retry button eligible in `successorTo` | CONFIRMED, then DISSOLVED. The product owner's override gives every runtime-failed cell a control, so focus never leaves the cell and `successorTo` has zero callers. §7 deletes it, which removes the eligibility question rather than repairing it. The `retryRefs` split is kept for an independent reason stated there. AC-15. |
 | 4 | the active-to-inactive lifetime of the new control is undefined | CONFIRMED. §4.0.4 defines it: `retrying` clears and the id returns to `failedKeys`; focus moves to Close, the destination the existing error path already uses. AC-16. |
 | 5 | AC-7 cannot be discharged under §10.6's own e2e fence | CONFIRMED. §10.6 RETRACTED. The fence was mine and it contradicted a mandatory rule; `page.route` is already established in six specs, so the setup is a few lines. |
 
