@@ -53,6 +53,37 @@ $ git diff origin/main...HEAD --stat -- lib/parser/dataGaps.ts \
 The one hunk is the `scope` doc comment naming the second raw-workbook scanner. No
 membership set, no catalog row, no allowlist, no §12.4 prose changed.
 
+### 3.1 The production diff has not moved since review round 1 approved it
+
+Diff round 1 returned APPROVE with zero findings on the tree at `5e121028c`. Rounds 2, 3 and
+4 each returned one finding, and **all three were against this closeout's evidence, none
+against production code**. That claim is the load-bearing one behind shipping on round 4's
+verdict rather than a fifth round, so it is stated the way this arc learned to state things
+— as a command anyone can re-run, with a control proving the command can fail:
+
+<!-- prettier-ignore -->
+```
+$ git diff 5e121028c..HEAD -- lib components tests
+$ echo $?
+0                       # no output, and --quiet agrees:
+$ git diff --quiet 5e121028c..HEAD -- lib components tests ; echo $?
+0
+
+$ git diff --quiet ab664186e..5e121028c -- lib components tests ; echo $?
+1                       # NEGATIVE CONTROL: over a range that does touch those
+                        # paths the same command exits 1, so the 0 above is a
+                        # real result and not a mistyped pathspec
+```
+
+The control is the point. `git diff --quiet` over a wrong pathspec, a bad range or a typo
+also exits 0, and an unchecked 0 would be precisely the vacuous pass that rounds 3 and 4
+caught elsewhere in this document. The second invocation ranges over `ab664186e..5e121028c`,
+which contains the Task 5 UI commit and the census repairs, and it exits 1.
+
+Every commit after `5e121028c` is documentation and review corpus rows — this section
+included, so re-running the command at the shipping head is the check, and it stays 0 for as
+long as that remains true.
+
 ## 4. Parser mutation harness (AC-2) — discharged as EQUALITY against main
 
 The parser jobs do not run on pull requests (`.github/workflows/mutation-harness.yml`: the
