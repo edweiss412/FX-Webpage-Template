@@ -95,7 +95,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 |---|---|---|---|
 | U-1 | **RATIFIED 2026-08-29.** Setting native `disabled` on the focused retry control ejects focus to `<body>`; `aria-disabled` does not | §7.1 | **Task P1, run.** `tests/e2e/focus-disabled-eject.probe.spec.ts`, 2 passed in Chromium: the native arm reported `body`, the `aria-disabled` arm reported the button. Each arm carries a premise asserting focus was ON the button first, or "focus is on body afterwards" would be trivially true. Firefox is not independently probed; one engine ejecting is sufficient to reject the attribute |
 | U-2 | **RATIFIED 2026-08-29.** A separate element on `retrying → idle` costs a second unconditional GET; the surviving element costs none | §4.0.5 | **Task P2, run.** `tests/e2e/image-remount-request-count.probe.spec.ts`, 2 passed in Chromium: the remount arm issued exactly one further request, the same-node arm zero. Only node reuse varies — same URL, same headers, same interception, `loading="eager"` on every element, explicit load awaits — and the count window opens after the first load is asserted served |
-| U-3 | A covered retry image left at the `loading` default can be deferred indefinitely, so it needs `loading="eager"` | §4.0.5 | **Plan Task P3**, a standalone real-browser probe, three arms: covered at the default, covered with `eager`, uncovered at the default |
+| U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, which implies the cell is in the viewport, so no `loading` override is needed | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, 3 passed in Chromium. Lazy+covered+off-screen deferred; eager+covered+off-screen requested; lazy+UNCOVERED+off-screen ALSO deferred — which is the arm that refutes the covering mechanism |
 | U-4 | The `srcSet` candidate set is stable across the failure and the retry, so the retry cannot escape the ladder | §3 | **Plan Task P4**, a standalone real-browser probe comparing two contexts at different `deviceScaleFactor`, asserting BOTH the rendered `srcSet` and the requested URL |
 | U-5 | A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Plan Task P5**, the meta-test itself: it must fail on a planted unclassified declaration, including a `Record` and an object literal, and every `per-item` row must carry a clear path or the exact words `deliberately none`, or it is not a cover |
 | U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 8**, not a probe: this is feature behaviour, so it is settled where its implementation lands. Each retained-state shape is planted and the FIRST frame after the flip asserted |
@@ -403,19 +403,26 @@ So: **the `<Image>` is mounted once, in its final position, for both `retrying` 
 nothing remounts and no second request is issued. AC-1 asserts the node identity across the
 transition, and AC-2 counts requests rather than only inspecting the URL.
 
-**The in-flight image must be load-eligible.** `next/image` does not leave `loading` unset:
-with no `loading` prop and no `priority` it computes `isLazy` true (`get-img-props`, line
-271) and EMITS `loading="lazy"` (same file, line 553). Neither diagram component sets
-`priority`, so both surfaces render an explicitly lazy image. The distinction matters because
-a bare `<img>` with no attribute defaults to EAGER, so "the default" is the opposite of what
-`next/image` produces. A lazily-loaded image that is visually covered can be deferred by the browser, which
-would leave `Retrying…` on screen with no request in flight. The retry image therefore sets
-`loading="eager"` for as long as the id is in `retrying`. (UNRATIFIED, U-3 — Task P3
-settles it.) The overlay is painted OVER it
-rather than replacing it, so the image is in the viewport and eligible regardless.
+**The in-flight image needs no `loading` override, and an earlier draft was wrong about why
+it might.** That draft said a covered image at the `loading` default could be deferred
+indefinitely, and specified `loading="eager"` while retrying. Task P3 measured it and the
+mechanism does not hold: an uncovered off-screen lazy image is deferred exactly as a covered
+one is, so the OVERLAY is not what defers — being off-screen is.
 
-This also settles what the overlay may be: it must not be `display: none` or `visibility:
-hidden` on the image, and it must not unmount it. Any of those reintroduces the deferral.
+That distinction removes the requirement rather than restating it. The retry is reached by a
+tap on the control, and a tap implies the cell is in the viewport, so the image `next/image`
+mounts is intersecting at the moment it mounts and loads without help. No `loading` prop is
+set, which leaves `next/image` emitting its own `loading="lazy"` (`get-img-props`, lines 271
+and 553) — correct here, and one less attribute than the rejected design.
+
+**Re-file trigger:** if a retry ever becomes programmatic rather than tap-driven — an
+automatic retry, a retry-all control, a retry fired from a keyboard shortcut while the cell is
+scrolled out — the in-viewport guarantee is gone and this decision is revisited.
+
+The overlay's own constraint survives on a different and simpler ground: it must not be
+`display: none` or `visibility: hidden` ON THE IMAGE and must not unmount it, because an image
+that is not rendered has no layout box, and `next/image`'s lazy observer needs one to fire.
+Painting OVER the image satisfies that; replacing it does not.
 
 ### 4.1 Guard conditions for every input
 

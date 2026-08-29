@@ -82,8 +82,9 @@ hazard actually lives. The order matters and it is not an oversight.
 <!-- task: red=`pnpm heavy npx playwright test tests/e2e/diagram-retry.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:122` why=`the control from Task 1 renders but has no handler: failedKeys has no remover anywhere in either component (the only next.delete is GalleryLightbox.tsx:1040, inside setWantsOriginal on the demote path) and no onLoad exists on either surface, so tapping does nothing and no transition exists to count requests across` ac=AC-1,AC-2,AC-10 -->
 
 Lands the whole mechanism, because P2 and P3 have already settled its shape: the `retrying`
-set, the `attempt` key, `onLoad`/`onError`, the same-node overlay, and `loading="eager"` while
-retrying. Entering `retrying` clears `failedKeys` AND `pendingFailuresRef` (spec §4.0.1) —
+set, the `attempt` key, `onLoad`/`onError`, and the same-node overlay. **No `loading`
+override**: Task P3 refuted the mechanism that motivated one, and a tap implies the cell is in
+the viewport, so the image loads on its own. Entering `retrying` clears `failedKeys` AND `pendingFailuresRef` (spec §4.0.1) —
 without the second, a later failure of a recovered item is discarded at `Gallery.tsx:280` and
 the diagram breaks again in silence, which is AC-10.
 
