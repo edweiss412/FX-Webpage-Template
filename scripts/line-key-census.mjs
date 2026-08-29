@@ -414,6 +414,23 @@ if (process.argv.includes("--ambiguity")) {
     ];
   }
   console.log(`TOTAL\t${T[0]}\t${T[1]}\t${T[2]}\t${T[3]}\t${T[4]}\t${T[5]}\t${T[6]}`);
+  // Target files carrying a duplicated data-testid: the population behind the
+  // spec's "15 of 74" claim. A duplicate makes the anchor non-discriminating even
+  // where it is present, which is the shape §7 item 6 sweeps.
+  {
+    const targets = new Set();
+    for (const r of rows) for (const t of r.targets.keys()) if (/\.tsx?$/.test(t)) targets.add(t);
+    let dupFiles = 0;
+    for (const t of targets) {
+      if (!existsSync(t)) continue;
+      const src = readFileSync(t, "utf8");
+      const ids = [...src.matchAll(/data-testid=\{?["`]([^"`}]+)["`]\}?/g)].map((x) => x[1]);
+      const g = new Map();
+      for (const i of ids) g.set(i, (g.get(i) ?? 0) + 1);
+      if ([...g.values()].some((n) => n > 1)) dupFiles++;
+    }
+    console.log(`DUPLICATE-TESTID-FILES ${dupFiles} of ${targets.size} target files`);
+  }
   console.log(`\nDECLINE = testid-dup + label-dup + no-anchor = ${T[2] + T[4] + T[6]}`);
   console.log(`ANCHORED = testid-uniq + label-uniq + emit = ${T[1] + T[3] + T[5]}`);
 }

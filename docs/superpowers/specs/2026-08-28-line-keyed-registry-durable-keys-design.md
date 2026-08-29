@@ -50,7 +50,7 @@ Each row is settled. A reviewer verifies the ratification rather than re-derivin
 | decision | posture | ratified at |
 | --- | --- | --- |
 | The anchor grammar is CLOSED at three kinds | Narrowing is a constraint of the arc, not an omission. A site the grammar cannot name declines. | the arc brief (untracked, `FX-worktrees/_briefs/`), section "Subject", clause NARROWING; restated at §0, §3.2 |
-| Declining rows keep their line keys | 40 rows (§4.3) stay as they are. This is the narrowing rule working, not partial migration. | §3.4, §4.3 |
+| Every row keeps its line key | Under §4.5's outcome nothing migrates, so this is universal rather than a declining subset. The declining counts in §4.3 are evidence about the key, not a migration boundary. | §4.3, §4.5 |
 | Migrate-everything is rejected | Scope is set by measured churn. 287 load-bearing rows exist; §4.5 migrates none. | arc brief, "do NOT migrate everything"; §4.2 |
 | `postgrest-dml-lockdown` declines wholesale | It churns (35 re-keys, blast 11) but its targets are SQL and the grammar has no SQL anchor. Adding one is the forbidden ratchet. | §4.2, §7 item 4 |
 | `_metaServerTimeGuard` and `acAmbiguousRecord` are excluded | Both measured ZERO re-keys. Excluding an unchurning surface is evidence, not oversight. | §4.1, §4.2 |
@@ -168,7 +168,11 @@ A declined row keeps exactly the behaviour it has today. It is not a regression 
 
 ### 4.1 The churn table
 
-`rows` and the anchor columns are the census, verbatim. `re-keys` is the count of pure line-only edits in git history, `commits` how many distinct commits carried at least one, and `blast` the most that landed in a single commit, which is the wholesale-invalidation signature.
+`rows` is `--anchors`. **The anchor columns are `--ambiguity`, and the two are DIFFERENT
+metrics**: `--anchors` counts whether a syntactic anchor is present, `--ambiguity` whether it
+also discriminates. `--anchors` reports `_metaControlOutlineResidue` as `testid=7 /
+no-syntactic-anchor=3`; `--ambiguity` reports `2 / 8`. The columns below are `--ambiguity`'s,
+because presence without discrimination is the whole subject (§7 item 6). `re-keys` is the count of pure line-only edits in git history, `commits` how many distinct commits carried at least one, and `blast` the most that landed in a single commit, which is the wholesale-invalidation signature.
 
 **The table is every census registry with 10 or more rows, and nothing else.** That is the stated filter; the census emits a long tail of 1-to-5-row files that no incident names and that no scope decision turns on. `n/a` in a churn column means the git pass did not cover that registry, not that it measured zero.
 
@@ -246,7 +250,15 @@ The 43% is not meaningfully better than the 39% the JSX side was descoped FOR.
 
 1. JSX anchorability 79% → **39%** (window truncated at `>`).
 2. The census `emit` column 40 → a PATH test (`lib/`, `app/api/`), not an anchorability test.
-3. Decline count 9 → **8** (§5 groups by `(file, code)`; the shipped anchor discriminates one more).
+3. Decline count **9 under whole-group refusal, 8 under per-row resolution.** An earlier draft
+   of this item said the two differ because `--collisions` groups by `(file, code)` alone. That
+   was wrong, and it is the same class of error as the rest of this list: BOTH apply
+   `contextKeys` and `scope`. They differ in POLICY. `--collisions` finds 5 colliding groups,
+   resolves 1 by content, and declines every row of the 4 it cannot fully separate (2+2+3+2 =
+   **9**). The shipped resolver (§3.3) asks per row whether that row's anchor matches exactly
+   one site, so the third `ASSET_RECOVERY_REVISION_DRIFT` row binds alone and only 2 of its
+   group decline (**8**). **Per-row resolution governs, because §3.3 specifies it**; 9 is the
+   more conservative policy `--collisions` implements, reported as such.
 4. Emit anchorability 83% → **43%** (counted rows whose anchor fields are hand-authored).
 5. Ledger expressibility 45% → **28%** (counted distinct KEYS, not resolvable ROWS; §4.2).
 
@@ -278,6 +290,17 @@ site-derivable. Measured by two independent methods that agree:
   on site-derivable rows      :  78  = 41.5%
   on non-derivable rows       : 110  = 58.5%
 ```
+
+**Both passes are git-history analyses, not committed commands**, and are recorded as historical
+measurements with their methods named. The two methods: (1) hunk-pairing, treating a `-`/`+` pair
+as a pure re-key when the two lines are identical after masking every digit run, attributing each
+to a row by exact post-image line number; (2) a set-based per-commit recount. They agree at 192.
+
+**On 189 versus 192, since both appear in this document.** The FIRST pass (§4.1's corpus survey)
+counted 189 on this registry; the SECOND (above) counted 192 on it alone, with the stricter
+attribution that classification required. §4.1's corpus total of 323 comes from the first pass and
+is NOT commensurable with 192; **no ratio in this document mixes the two**, and 41.5% is computed
+entirely within the second.
 
 **41.5% is under half, so nothing migrates.** The reason it fails is worth more than the
 number: churn is PROPORTIONAL, not concentrated. Derivable rows are 20 of 47 (42.6%) of the
@@ -372,7 +395,7 @@ someone could measure rather than feel.
 
 3. **A template-literal `data-testid` identifies a runtime instance, not a site** (§4.3).
    `app/me/meShowSections.tsx` renders one at three sites; seven registry rows key to them and
-   all three would match every key. 15 of 74 target files carry some duplicated testid. This is
+   all three would match every key. `--ambiguity` prints `DUPLICATE-TESTID-FILES 15 of 114 target files`. This is
    the case an anchor grammar for JSX would have to solve first, and it is harder than the
    presence of a testid suggests. Re-file trigger: the duplicates are disambiguated by their
    authors, or a grammar appears that can name one branch of a conditional render.
