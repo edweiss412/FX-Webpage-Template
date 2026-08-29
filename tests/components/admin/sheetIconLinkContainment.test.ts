@@ -1068,10 +1068,17 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // three href assertions against the crew-page projection seam.
         "tests/data/sourceAnchorFreshness.db.test.ts": 3,
         "tests/dev/fullSplitComposite.test.ts": 1,
-        // Two asserted hrefs: the RIA corpus case and the FORM-tab case both
-        // compare buildSheetDeepLink's output against the literal it must produce
-        // (spec 2026-08-27-wizard-warning-row-links-copy §2.5, AC-1/AC-4).
-        "tests/drive/unknownFieldAnchors.test.ts": 2,
+        // ONE asserted href: the FORM-tab case, comparing buildSheetDeepLink's
+        // output against the literal it must produce (spec
+        // 2026-08-27-wizard-warning-row-links-copy §2.5, AC-1/AC-4).
+        //
+        // 2 -> 1 on 2026-08-28 (BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS). The RIA
+        // corpus case asserted a deep link for `Room Diagram`, `Backdrop` and
+        // `Speaker`; the block-candidacy narrowing means that workbook emits no
+        // near-miss rows at all, so the case now asserts the ABSENCE of emissions
+        // and has no href to build. The destination surface genuinely shrank by
+        // one, which is the change this census exists to make visible.
+        "tests/drive/unknownFieldAnchors.test.ts": 1,
         "tests/e2e/_pillFocusLiveEntry.tsx": 1,
         "tests/e2e/_publishedReviewModalHarness.tsx": 1,
         "tests/e2e/_skeletonParityHarness.tsx": 1,
