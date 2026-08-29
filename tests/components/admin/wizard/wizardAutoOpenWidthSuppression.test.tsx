@@ -37,6 +37,7 @@ vi.mock("next/navigation", () => ({
 
 import {
   DFID,
+  judgmentWarning,
   renderStep3Modal,
   rerenderStep3Modal,
   sectionData,
@@ -187,6 +188,73 @@ describe("wizard auto-open width suppression (spec §5)", () => {
       screen.queryByTestId(MENU),
       "a needs-look change after widening retro-fired a reveal the suppression had consumed",
     ).toBeNull();
+  });
+
+  it("AC-WIZARD-MIRROR: a cancelled frame leaves the one-shot UNCONSUMED", async () => {
+    installQueryAwareMatchMedia(1280);
+    const rendered = renderStep3Modal({ d: needsLookData() });
+    // Move `n` before the scheduled frame fires, so the effect re-runs and
+    // cancels it. Nothing was decided, so the reveal is still owed.
+    await act(async () => {
+      rerenderStep3Modal(rendered, {
+        d: sectionData({ warnings: [warning("crew"), warning("venue"), warning("event")] }),
+      });
+    });
+    await flushReveal();
+    expect(
+      screen.queryByTestId(MENU),
+      "a cancelled frame consumed the one-shot and the reveal was lost",
+    ).not.toBeNull();
+  });
+
+  it("AC-WIZARD-MIRROR: an empty needs-look arrival does not consume; items arriving later still open it", async () => {
+    // The wizard's early return is `n === 0`, its own count. Nothing decided,
+    // so nothing consumed.
+    // PREMISE FIRST, at a DESKTOP width, because it is the part that can be
+    // wrong: if this fixture does not actually reach `n === 0`, the case below
+    // exercises the width guard instead of the empty-items guard and proves
+    // nothing about consumption. Measured: without this assertion the
+    // consume-on-`n === 0` mutant escaped the whole suite.
+    // The fixture is JUDGMENT-ONLY, not empty, and that distinction is the
+    // whole case. `pillInteractive = !isDirtyRescan && n + m > 0` (:347) returns
+    // BEFORE the `n === 0` line, so a fixture with no warnings at all never
+    // reaches the guard under test -- measured: with an empty fixture the
+    // consume-on-`n === 0` mutant escaped this entire suite. A judgment warning
+    // makes the pill interactive while leaving `n` at zero.
+    installQueryAwareMatchMedia(1280);
+    const rendered = renderStep3Modal({ d: sectionData({ warnings: [judgmentWarning("rooms")] }) });
+    await flushReveal();
+    expect(
+      screen.queryByTestId(MENU),
+      "the judgment-only fixture did not reach the n === 0 return",
+    ).toBeNull();
+
+    const probe = installQueryAwareMatchMedia(1280);
+    await act(async () => {
+      rerenderStep3Modal(rendered, { d: needsLookData() });
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId(MENU),
+        "the empty arrival consumed the one-shot, so later items never revealed",
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("AC-WIZARD-MIRROR: arrival focus is identical with and without suppression", async () => {
+    installQueryAwareMatchMedia(375);
+    renderStep3Modal({ d: needsLookData() });
+    await flushReveal();
+    const suppressed = (document.activeElement as HTMLElement | null)?.dataset?.testid;
+    cleanup();
+
+    installQueryAwareMatchMedia(1280);
+    renderStep3Modal({ d: needsLookData() });
+    await flushReveal();
+    const opened = (document.activeElement as HTMLElement | null)?.dataset?.testid;
+
+    expect(suppressed, "suppression moved arrival focus").toBe(opened);
+    expect(suppressed, "arrival focus left the dialog entirely").not.toBeUndefined();
   });
 
   it("AC-WIZARD-ESC-OWNERSHIP: a tap-opened menu on a suppressed arrival claims Escape", async () => {

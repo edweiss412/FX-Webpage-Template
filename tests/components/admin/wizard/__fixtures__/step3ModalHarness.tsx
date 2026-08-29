@@ -56,6 +56,19 @@ export function warning(kind: string): ParseWarning {
   return { severity: "warn", code: "SHEET_TAB_MISSING", message: "", blockRef: { kind } };
 }
 
+/** A JUDGMENT warning, which counts toward `m` and not `n`
+ *  (Step3ReviewModal.tsx:335-336). Needed to reach the `n === 0` early return
+ *  at all: `pillInteractive = !isDirtyRescan && n + m > 0` (:347) returns FIRST
+ *  when both counts are zero, so a fixture with no warnings never gets there. */
+export function judgmentWarning(kind: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: "",
+    blockRef: { kind },
+  };
+}
+
 export type RenderModalOpts = {
   d?: StagedSectionData;
   checked?: boolean;
