@@ -235,6 +235,19 @@ findings.
    `components/admin/showpage/AttentionMenu.tsx` contains none of `100vw`,
    `100dvw`, `100svw`, since no existing guard scans CSS (L-3).
 
+   **The retired suite's three pinned shapes are dispositioned, not dropped.**
+   `tests/components/admin/useFitWithinClip.test.tsx` carries three lifecycle
+   cases the hook spec calls out as load-bearing — *"the suite's three lifecycle
+   cases (h15, h16, h17) still pin those historical SHAPES"*
+   (`docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md:43`).
+   Deleting the file deletes all three, so each gets a stated disposition:
+
+   | Case | Pins | Disposition |
+   | --- | --- | --- |
+   | h15 (`tests/components/admin/useFitWithinClip.test.tsx:931`) | The ReSyncButton lifecycle | **Dies with the module.** Its real consumer migrated to the placement stack on 2026-08-25; this case pinned the HOOK's behavior under that shape, and the hook is gone. No live subject remains. |
+   | h16 (`tests/components/admin/useFitWithinClip.test.tsx:968`) | The PublishedToggle lifecycle | **Dies with the module**, same reason and same migration. |
+   | h17 (`tests/components/admin/useFitWithinClip.test.tsx:995`) | The AttentionMenuPanel lifecycle — node present at ITS first render, then the entrance flip | **Its property SURVIVES, relocated.** This is the one shape whose consumer is still live, and the property it pins — that the entrance flip drives a second pass — is exactly what the settle assertion above asserts, in a real browser and against the new mechanism. The pin is not lost; it moves from a jsdom lifecycle count to a measured geometry. |
+
    Update the stale live comment at
    `tests/docs/_metaDeferralLedgerGraduation.test.ts:414`, which says the scroller
    "now takes" the deleted hook. Leave the four historical-prose files in spec
@@ -317,6 +330,14 @@ case's own inputs, unconditionally, never inside a `.each` callback.
 Without an `entered`-keyed re-place, placement is computed once at mount from a
 `scale-95` natural width and `menu.left` settles at `1084 - 380 = 704` instead of
 684.
+
+**The component already states this requirement, and the migration must carry it
+across.** `components/admin/showpage/AttentionMenu.tsx:335-337`: *"the scale-95
+entrance distorts the measured rect, and the mount measurement runs before the
+entrance rAF, so the settled cap needs a second pass"*. That is why `entered` is
+the hook's re-apply key today. It is not an inference of this plan — the second
+pass is a documented requirement of the surface, and dropping it while changing
+the mechanism underneath would silently retire a behavior the code names.
 
 **Why the obvious assertion is invalid, so it is not re-proposed:** asserting the
 settled width is 343 proves nothing — the rect reaches 343 when the scale reaches
