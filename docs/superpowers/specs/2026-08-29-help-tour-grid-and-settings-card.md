@@ -108,7 +108,14 @@ into the content column. A keyboard affordance is not worth a shorter diff.
 `@property` needs no support argument: `tailwindcss` 4.2.4 emits it, so every build of this app
 already ships registrations of this kind.
 
-### 2.2 The live measure — **Status: PENDING.** The probe spec is written as a throwaway under `tests/e2e/` (deleted before
+### 2.2 The live measure — **Status: PENDING.**
+
+What this section is now for, after §2.1 reshaped the design: it is the pre-implementation
+BASELINE the layout assertions are written against, and a fresh confirmation that the defect
+still reproduces. It is no longer load-bearing for the mechanism, which §2.1 settled on its own.
+The defect itself is entailed by two facts verified statically on today's tree — the wrapper caps
+at 70ch, and the second grid divides it three ways — so the probe is expected to confirm rather
+than to decide. The probe spec is written as a throwaway under `tests/e2e/` (deleted before
 the first commit, so it is deliberately not a tracked path this spec can cite) and is parked: it needs `signInAs`, which writes an `auth.users` row, and the help layout runs
 `requireAdmin()` per request, so it is DB-backed and a fleet-wide DB quiet period is in effect.
 **This section is filled before any review dispatch; a review must not be dispatched against a
@@ -389,7 +396,10 @@ N and showing a link to the rest is explicitly rejected.
 ## 8. Acceptance criteria
 
 - **AC-1** Each tour card's rendered body measure clears the `DESIGN.md` §2.5 floor at every
-  desktop viewport in the probe matrix, measured in a real browser.
+  desktop viewport in the matrix, measured in a real browser. **The matrix is 390, 768, 900, 1024
+  and 1280** — stated here rather than left as a reference to §2.2's output, so the criterion is
+  defined by this document and not by whatever the probe happened to sample. 390 is the mobile
+  single-column case and is asserted to be UNCHANGED, not improved (§7.1).
 - **AC-2** Every other `/help/*` page renders at the same widths as before the change — the cap
   moved, it was not lifted.
 - **AC-3** The tour page links to every `admin-surface` slug in `NAV`, and links to no
