@@ -48,15 +48,6 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       "`onLoad` (retrying -> idle) and `onError` (retrying -> failed), both per item; and the availability sweep, since a slide that goes unavailable mid-flight must not return holding an overlay (spec §4, §9.1)",
     sweep: { swept: true },
   },
-  "Gallery.tsx:attempts": {
-    kind: "per-item",
-    clearedBy:
-      "nothing, DELIBERATELY: the counter only ever increments, because resetting it on a failed retry would hand the next tap a key React has already seen and no remount would happen. It is a monotonic remount token, not retained UI state, so a stale entry for a departed item costs one map slot and can never render anything (spec §4)",
-    sweep: {
-      swept: false,
-      why: "monotonic remount token, never read as UI state; sweeping it would break the third tap by reusing a spent key",
-    },
-  },
   "Gallery.tsx:retryingRefs": {
     kind: "per-item",
     clearedBy: "React, on unmount of each in-flight overlay (the ref callback stores null)",

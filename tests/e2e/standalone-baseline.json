@@ -127,6 +127,9 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"4f37dba6840beb482db5-02b03cbf1c05ddfe212c\",[\"developer-toggle-layout.spec.ts\",\"DeveloperToggleButton layout invariants (spec §13)\",\"(a) every developer-toggle tap target is >= 44px in height AND width\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"4f37dba6840beb482db5-1be5f2919ad19fb50267\",[\"developer-toggle-layout.spec.ts\",\"DeveloperToggleButton layout invariants (spec §13)\",\"(b) the AdminRow does not collapse and fully contains the toggle\"]]"
     ],
+    "tests/e2e/diagram-retry.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd0e97bfa629be0faacd-982dd803ecd1f79358a9\",[\"diagram-retry.spec.ts\",\"one tap is one request, and the node that loads is the node that stays\"]]"
+    ],
     "tests/e2e/directive-form-action.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"03c27f11cd03906ece97-f2b0e3d1ea1c4adaec43\",[\"directive-form-action.spec.ts\",\"use-server directive stub is loud at the real form-action boundary\",\"submitting a form whose action is a stubbed server action throws the plugin message\"]]"
     ],
@@ -734,5 +737,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 641
+  "totalTests": 642
 }

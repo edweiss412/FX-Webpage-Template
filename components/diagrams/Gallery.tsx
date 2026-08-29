@@ -124,11 +124,6 @@ export function Gallery({
   // idle, failed, or retrying, and `item.available` is a conjunct of all three
   // so none can overlap the parse-time `unavailable` branch.
   const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
-  // Per-item remount counter. Keying the `<Image>` on it is what makes a retry
-  // actually re-request: the asset route sends `must-revalidate` with NO
-  // validator, so an unchanged key would let React reuse the errored element.
-  // NOT reset on a failed retry, so a third tap remounts again.
-  const [attempts, setAttempts] = useState<ReadonlyMap<string, number>>(() => new Map());
   // The in-flight controls, so focus can be handed to one. The failed control
   // UNMOUNTS as the overlay mounts, so without this hand-off focus falls to
   // `<body>` -- outside anything -- which is precisely the §7.1 defect this arc
@@ -327,7 +322,6 @@ export function Gallery({
       focusRetryingRef.current = item.id;
     }
     pendingFailuresRef.current.delete(item.id);
-    setAttempts((prev) => new Map(prev).set(item.id, (prev.get(item.id) ?? 0) + 1));
     setFailedKeys((prev) => {
       if (!prev.has(item.id)) return prev;
       const next = new Set(prev);
@@ -346,8 +340,8 @@ export function Gallery({
    * `retrying` → `failed` (spec §4). Leaving the id in `retrying` would strand
    * the cell under the in-flight overlay forever: `runtimeFailed` excludes
    * `retrying`, so the failed control could never render again and a second
-   * tap would be impossible. `attempts` is deliberately NOT reset, so a third
-   * tap still produces a new key and a new request.
+   * tap would be impossible. Each re-entry into the available branch mounts a
+   * fresh element on its own, so no remount token is needed.
    */
   const handleRetryFailure = (item: GalleryItem, visibleIndex: number): void => {
     setRetrying((prev) => {
@@ -502,11 +496,6 @@ export function Gallery({
                   parse-time-known-unavailable items.
                 */}
                     <Image
-                      // The remount key. Without it React reuses the errored
-                      // element and no new request is issued; with it the retry
-                      // re-requests. The key changes only on a TAP, so the element
-                      // survives retrying -> idle unchanged (§4.0.5).
-                      key={`${item.id}#${attempts.get(item.id) ?? 0}`}
                       loader={makeDiagramLoader({
                         showId,
                         rev: snapshotRevisionId,
