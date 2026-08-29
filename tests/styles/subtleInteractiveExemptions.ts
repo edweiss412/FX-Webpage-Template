@@ -105,7 +105,11 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // merged tree by its own `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`,
     // which is unique, never by adding a delta.
     // 3356 -> 3361 on the R1 repair commit; still the ignored-summary <summary>.
-    line: 3361,
+    // 3361 -> 3404 on the ref-error-cell-anchors arc, which added the warning row's
+    // `Sheet cell` line above it. Located by the scanner on the live tree, which reports
+    // this file's one hit as `3404 <summary> text-text-subtle` -- still that same
+    // ignored-summary <summary>.
+    line: 3404,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

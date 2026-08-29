@@ -325,7 +325,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // is that same `<a>`.
     // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
     // 4134 -> 4140 on the R2 repair; same `<a>`, located by the scanner.
-    line: 4140,
+    // 4140 -> 4183 on the ref-error-cell-anchors arc; the scanner reports this file's one
+    // unclassified site as 4183, and 4183 is that same `<a>`.
+    line: 4183,
     tag: "a",
     category: "full-bleed",
     reason:

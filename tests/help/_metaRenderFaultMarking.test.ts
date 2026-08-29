@@ -47,7 +47,9 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // the live tree — still the bare `if (failed)` this reason describes — never by
   // adding a delta. This registry is line-keyed like the tests/styles censuses and
   // moves for the same reason: edits above it in the same component.
-  "components/admin/wizard/step3ReviewSections.tsx:4101":
+  // 4101 -> 4144 (2026-08-29, ref-error-cell-anchors). Same method, same `if (failed)`:
+  // the warning row's new `Sheet cell` line sits 43 lines above it.
+  "components/admin/wizard/step3ReviewSections.tsx:4144":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -402,7 +404,16 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Nothing joined or left: the count assertion above still reads 35, the file set is
     // unchanged, and every `form` and `marked` value is unchanged. A membership change
     // would have shown up as a differing file or form, not a moved line.
-    expect(digest).toBe("62a1c86bfcc709c8ea46c8c307f4dcfcabb5005228456aae05839f138d6f2d8a");
+    //
+    // Regenerated again 2026-08-29 (ref-error-cell-anchors), same bar, same accounting.
+    // EXACTLY ONE input changed, a line number, in a file this arc edited:
+    //   components/admin/wizard/step3ReviewSections.tsx 4101 -> 4144 (net +43 above it,
+    //   the warning row's new `Sheet cell` line)
+    // Nothing joined or left: the membership assertion above is unchanged and passed on
+    // the same run that produced this digest. The arc's other new JSX conditional (the
+    // published card's `cellBand`) is not a candidate -- it is not a fault branch -- which
+    // is why TERNARY_SURVEY.jsxTernaries moved 740 -> 741 while this set did not.
+    expect(digest).toBe("e83ae3d13d3b3644e13a9de2fed544facc399a4aa8a6b5ff0d5913659a24c3cb");
   });
 });
 
