@@ -5,17 +5,26 @@
  *  docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md Task 1)
  *
  * WHICH ELEMENT carries the tile's box chrome. The ruling (spec §1) is: the
- * wrapper, because it is the only element present in every render state — this
- * component has a branch with no image at all, and chrome on the image has to be
- * declared once per branch and kept in agreement by hand. It had already drifted.
+ * wrapper — the element that FORMS the box in each branch.
+ *
+ * Not "the only element present in every render state". An earlier draft of this
+ * header said that and it is false: the `failed` branch returns before the live
+ * anchor exists, which this suite itself proves by asserting the failed box is
+ * NOT an anchor. The box is declared once per branch either way. What the ruling
+ * buys is that both declarations land on their branch's box-forming wrapper,
+ * rather than on a container in one branch and an image in the other — which is
+ * how they drifted apart in the first place.
  *
  * Concrete failure modes this catches:
  *  - the chrome moving back onto the <img>, under ANY token: the negative
- *    assertion scans for chrome SHAPES, not for today's class string, so a
+ *    assertion matches chrome SHAPES per token, not today's class string, so a
  *    re-add under `border-border` or a new token still reds.
  *  - the wrapper losing the box, which would leave a tile with no edge at all.
- *  - the two branches' boxes diverging in radius or clip, which reflows the grid
- *    under the reader when a tile fails at runtime.
+ *  - the two branches' boxes diverging in radius or clip. That is a VISUAL
+ *    divergence, not a layout one: neither `rounded-*` nor `overflow-hidden`
+ *    changes a box's dimensions, so nothing here reflows the grid. The grid's
+ *    stability rests on `aspect-4/3 w-full`, which both branches state and which
+ *    the real-browser suite measures.
  *
  * The token difference BETWEEN the branches is deliberate and is NOT asserted
  * here: `border-text-faint` is the control-outline token and the live branch is a
@@ -32,8 +41,23 @@ const TEST_ID = "chrome-probe-tile";
 
 /** Any box-chrome shape, not just the one shipped today. A negative assertion
  *  keyed to the current token would pass the moment someone re-adds chrome to
- *  the image under a different one. */
-const CHROME_SHAPE = /(^|\s)(rounded(-|$)|border(-|$)|bg-)/;
+ *  the image under a different one.
+ *
+ *  Matched per TOKEN, not against the whole string. An earlier draft used
+ *  `/(^|\s)(rounded(-|$)|border(-|$)|bg-)/`, where `$` means end of the whole
+ *  STRING rather than end of a token — so `object-cover border size-full`
+ *  returned false and a bare `border` in the middle of a class list slipped
+ *  straight through the negative assertion. Anchoring each token with ^...$
+ *  removes the boundary case by construction instead of patching it. */
+const CHROME_TOKEN = /^(rounded|rounded-.+|border|border-.+|bg-.+)$/;
+
+/** True when ANY class token is box chrome. */
+function hasChromeToken(className: string): boolean {
+  return className
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((t) => CHROME_TOKEN.test(t));
+}
 
 /** Exact utility tokens, NOT substrings. `toContain("border")` is satisfied by
  *  `border-text-faint` on its own, so a diff that dropped the bare `border`
@@ -65,14 +89,20 @@ function renderTile(hasPreviewSource: boolean) {
 }
 
 describe("diagram tile chrome lives on the wrapper", () => {
-  test("CHROME_SHAPE is a negative control, not a pattern that matches everything", () => {
+  test("the chrome-token check is a negative control, not a pattern matching everything", () => {
     // The POSITIVE half of this premise lives in the live-branch case below,
     // where it runs against the anchor's real className rather than a literal
     // typed in here. What remains is the other direction, which real data
     // cannot supply: the regex must NOT match a bare fit class, or the negative
     // assertion would be failing for the wrong reason.
-    expect(CHROME_SHAPE.test("object-cover")).toBe(false);
-    expect(CHROME_SHAPE.test("size-full object-cover")).toBe(false);
+    expect(hasChromeToken("object-cover")).toBe(false);
+    expect(hasChromeToken("size-full object-cover")).toBe(false);
+    // The boundary cases the previous whole-string regex got WRONG. These are
+    // the reason this helper is per-token: each has box chrome in the middle of
+    // the list, where an end-of-string anchor never reaches.
+    expect(hasChromeToken("object-cover border size-full")).toBe(true);
+    expect(hasChromeToken("object-cover rounded size-full")).toBe(true);
+    expect(hasChromeToken("object-cover bg-surface-sunken size-full")).toBe(true);
   });
 
   test("live branch: the anchor carries the box, the image carries only its fit", () => {
@@ -94,11 +124,11 @@ describe("diagram tile chrome lives on the wrapper", () => {
     // a literal typed into a premise: the regex must fire on the anchor before
     // its silence on the image means anything. This is the discriminating pair.
     premiseHolds(
-      "CHROME_SHAPE fires on the anchor's real className",
-      CHROME_SHAPE.test(anchor.className),
+      "the chrome-token check fires on the anchor's real className",
+      hasChromeToken(anchor.className),
     );
     expect(
-      CHROME_SHAPE.test(img!.className),
+      hasChromeToken(img!.className),
       `the image carries no box chrome, got: ${img!.className}`,
     ).toBe(false);
     // AC-1's actual contract: the image's class string is EXACTLY this. Stronger
@@ -210,9 +240,11 @@ describe("diagram tile chrome lives on the wrapper", () => {
     cleanup();
     const failed = tokens(renderTile(false).getByTestId(TEST_ID));
 
-    // The shared box contract, which is what keeps a runtime failure from
-    // reflowing the grid. Pinned as classes here; pinned as real-browser
-    // geometry at tests/e2e/step3-review-modal.layout.spec.ts:659.
+    // The shared box contract. `aspect-4/3` and `w-full` are the two that keep a
+    // runtime failure from reflowing the grid; `overflow-hidden` and `rounded-md`
+    // are here because the two branches should also LOOK like one box, not
+    // because they carry any layout dimension. Pinned as real-browser geometry at
+    // tests/e2e/step3-review-modal.layout.spec.ts:659.
     for (const cls of ["aspect-4/3", "w-full", "overflow-hidden", "rounded-md"]) {
       expect(live.has(cls), `live branch states the exact utility ${cls}`).toBe(true);
       expect(failed.has(cls), `failed branch states the exact utility ${cls}`).toBe(true);

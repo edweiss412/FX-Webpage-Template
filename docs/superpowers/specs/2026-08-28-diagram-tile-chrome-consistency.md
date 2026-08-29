@@ -134,12 +134,21 @@ The sweep criterion is also wider than that draft's, and the widening IS the fou
 `states where the chrome lives`, which cannot see a consumer that states a DERIVED NUMBER this change
 moves.
 
+**A FIFTH row was added during implementation, and the honest lesson is that no sweep of this kind
+is finished until the change runs.** `tests/styles/controlOutlineScan.ts` is keyed by LINE, and the
+comment this arc replaced is sixteen lines longer than the one before it, so two of its rows came to
+address the wrong elements. No grep for `states where the chrome lives` or `states a derived number`
+could reach it: that file says nothing about chrome and states no number this change moves. It is
+invalidated by the DIFF'S SHAPE rather than by its content. The full styles suite found it, eight
+failures, while every scoped run was green. It is repaired in the same lockstep commit as the rest.
+
 | Consumer | What stops being true | Repair |
 | --- | --- | --- |
 | `tests/e2e/step3-review-modal.layout.spec.ts:626-636` | asserts `imgBorderLeft > 0` in a real browser | invert it: the ANCHOR carries a border, the image carries none |
 | `tests/styles/tapTargetCensus.ts:321` | its `reason` prose says the tile's chrome lives on the image | update that sentence; the row's `line`, `tag` and `category` are unaffected, which the prose itself explains, because the row is about layout and not chrome |
 | `components/admin/wizard/step3ReviewSections.tsx:3926-3931` | the component's own comment says the chrome deliberately STAYS on the image, citing the perf arc's scope decision | replaced by this ruling, cross-referencing this spec |
 | `tests/styles/tintedPlateOutline.test.ts:221-223` | says the raw `border-text-faint` count is 11 with two in comments, and breaks the pin down as the report textarea plus "the four painted children" | update to 13 and four, and name the tile's move; the pin VALUE of 9 does not change |
+| `tests/styles/controlOutlineScan.ts:126` and `:139` | two line-keyed registry rows address `components/admin/wizard/step3ReviewSections.tsx:4455` and `:4512`, which the replaced comment pushed down by sixteen lines | relocate to `:4471` and `:4528`, LOCATED by the `<button>` openers themselves as those rows' own comments instruct, never by adding a delta |
 
 The first row reds after the move, and it should: it is a placement pin. Its own comment already says
 the pin is not there to discriminate placement, and that the image is only where it lives because a

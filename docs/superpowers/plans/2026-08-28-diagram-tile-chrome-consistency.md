@@ -36,8 +36,12 @@ not in tension once the tasks are drawn correctly.
 
 ## Structural meta-test inventory
 
-Required declaration, and the disposition is NOT "none applies" — three structural meta-tests own
-surfaces this diff touches, which is why the lockstep matters:
+Required declaration, and the disposition is NOT `none applies`: several structural meta-tests own
+surfaces this diff touches, which is why the lockstep matters. **The count is read off the table,
+not asserted beside it**, and that is not a stylistic preference. An earlier draft said three, and
+implementation turned up a fourth, `tests/styles/controlOutlineScan.ts`, which is invalidated by the
+diff's SHAPE rather than by anything it says: it is line-keyed, and the replaced comment is sixteen
+lines longer.
 
 | Meta-test | Relation to this diff | Disposition |
 | --- | --- | --- |
@@ -252,7 +256,10 @@ prose is updated, which is exactly what makes it a real check rather than a rest
 anchor; at `components/admin/wizard/step3ReviewSections.tsx:3955` reduce the image className to `object-cover`; replace the false comment at
 `components/admin/wizard/step3ReviewSections.tsx:3926-3931` with the ruling.
 
-**Step 3, the remaining consumers**, which have no independent RED and are declared as such:
+**Step 3, the remaining consumers**, which have no independent RED and are declared as such. This
+list is what the sweep could see BEFORE the change ran. `tests/styles/controlOutlineScan.ts` joined
+it during implementation, found by the full styles suite rather than by any grep, because a
+line-keyed row is invalidated by the diff's shape and not by its content:
 
 - `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:816` — the count phrase becomes three, with a one-line note naming this spec. `§6.2` at
   `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:320` is NOT edited (spec §5).
