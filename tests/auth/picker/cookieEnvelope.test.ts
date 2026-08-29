@@ -39,6 +39,13 @@ describe("cookieEnvelope", () => {
     const malformedPayloads = [
       `{"v":1,"selections":{"not-a-uuid":{"id":"${CREW_A}","e":1,"t":0}}}`,
       `{"v":1,"selections":{"${SHOW_A}":{"id":"not-uuid","e":1,"t":0}}}`,
+      // BL-BARE-TYPEOF-STRING-ID-GUARDS: isValidEntry reads `entry.id` behind a
+      // bare typeof-string (cookieEnvelope.ts:28) and UUID_RE on the same line is
+      // what rejects "". The "not-uuid" case above is a NON-EMPTY bad value, so a
+      // regex degraded to admit only the empty string would keep it green. Both the
+      // entry id and the show key get an empty-string case.
+      `{"v":1,"selections":{"${SHOW_A}":{"id":"","e":1,"t":0}}}`,
+      `{"v":1,"selections":{"":{"id":"${CREW_A}","e":1,"t":0}}}`,
       `{"v":1,"selections":{"${SHOW_A}":{"id":"${CREW_A}","e":-1,"t":0}}}`,
       `{"v":2,"selections":{}}`,
     ];

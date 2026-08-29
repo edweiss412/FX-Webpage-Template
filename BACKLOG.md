@@ -20,29 +20,6 @@ The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-
 
 **Done condition:** one arrangement across both diagram surfaces, with §15 table 3's family membership re-derived and the count updated in the same change rather than left to drift.
 
-## BL-BARE-TYPEOF-STRING-ID-GUARDS — an empty string passes as a usable id at 12 of 27 id-like guards
-
-**Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`, class sweep; owner-directed by bl-orch, which is the scheduling decision) · **Facing:** product · **Severity:** MEDIUM (auth and visibility surfaces are among the sites; an empty share token or viewer id is a security-posture question, not tooling hygiene) · **Class:** input validation · **Effort:** M · **Class-sweep exception:** (c) — a repair spanning auth, visibility and notify is a different blast radius from the diagram tile this arc opened, and an admin-diagram arc must not rewrite share-token validation under review pressure. · **Reachability:** INFERRED, NOT PROBED — see the probe below, which is this row's first scheduled step.
-
-`typeof x === "string"` is used as a stand-in for "is a usable id". An empty string satisfies it, so a corrupt or partially-written row can carry an id-shaped field that is present, correctly typed, and useless. The diagrams instance was found by execution, not by reading: `isPersistedDiagrams` (`lib/data/diagrams.ts:45-52`) accepts `snapshot_revision_id: ""`, and the published wizard tile then built `/api/asset/diagram/<show>//<key>` — a doubled slash the surface's own contract calls malformed. That door is closed (`perf/admin-diagram-next-image`: the published servability gate now requires a non-empty `rev`). The rest are open.
-
-**Derived cover, not an enumeration.** Over `lib/**/*.ts`: 191 `typeof … === "string"` guards in total; 27 of them sit on id-like fields (`revision`, `_id`/`Id`, `token`, `slug`, `key`); of those 27, **14 already guard non-emptiness** with a truthiness check, a `.length`, or a shape regex (`lib/data/showCacheTag.ts:84` is the correct form, `typeof showId === "string" && showId`; `lib/drive/isPlausibleFolderId.ts:20` is the regex form), and **12 are bare**. The derivation is the command plus that 191 / 27 / 14 / 12 split, so a new site changes the count rather than stranding a list.
-
-**The 12 bare sites, ranked by blast radius rather than by file order.** Auth and visibility first, because those are the ones where an empty id is a posture question:
-
-1. `lib/auth/picker/intentToken.ts:28` and `:30` — `slug`, `shareToken`.
-2. `lib/auth/picker/rotateShareToken.ts:24` — `new_share_token`.
-3. `lib/auth/picker/clearIdentity.ts:76` — the `s` passthrough.
-4. `lib/visibility/scopeTiles.ts:213` — `viewerId`.
-5. `lib/notify/detect/emailDeliveryFailed.ts:248` and `:249` — `live_token`, `mint_id`.
-6. `lib/realtime/subscribeToShow.ts:184` — `token`.
-7. `lib/sync/roleMappingOverlay.ts:74` and `:120`, `lib/parser/dataGaps.ts:471` — `roleToken` (three sites, one shape).
-8. `lib/drive/sheetGids.ts:31` — `props.title`.
-
-**The probe, and it is the first scheduled step.** For each site, decide whether an empty string can actually ARRIVE there, which the count above does not establish: read the producer of the field (RPC return shape, cookie/JWT claim, persisted column, Drive API response), and where the producer cannot be pinned by type, write a case feeding `""` through the guard and assert what the caller does with it. Rank as listed — `intentToken`, `rotateShareToken`, `clearIdentity` and `scopeTiles` before the rest. A site whose producer guarantees non-empty is dispositioned in place with the citation; a site where `""` reaches a URL, a query, or an authorization decision is the actual finding this row exists to surface.
-
-**Not proposed: a lint arm.** "Every id-like typeof-string guard must also check non-emptiness" is a recognizer over an open grammar of what counts as id-like, and the 27/14 split shows the codebase already disagrees with any single naming heuristic. The probe answers the question the row asks; a detector would answer a different and unbounded one.
-
 ## BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS - the near-miss detector flags rows in blocks that are not field lists, and the card's advice is wrong there
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`fix/wizard-warning-row-links-copy`, owner-directed from the RIA wizard screenshot) · **Facing:** product · **Severity:** LOW-MEDIUM (a wrong instruction on a shipped admin card; nothing is corrupted) · **Class:** detector candidacy scope · **Effort:** M · **Class-sweep exception:** (a): which block shapes are legitimate near-miss homes is a product decision the link arc could not settle. · **Reachability:** PROBED: the parser run recorded in spec 2026-08-27-wizard-warning-row-links-copy §1, `parseSheet` on `fixtures/shows/raw/2025-06-ria-investment-forum.md` at `66c9857f5`.
