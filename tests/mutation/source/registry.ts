@@ -2586,6 +2586,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
     suitePaths: [
       "tests/parser/fieldNearMiss.test.ts",
       "tests/parser/fieldNearMissBaseline.test.ts",
+      // The deciding suite for `blockMinValueCells`, enrolled in the same task that
+      // authors it (BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS). The statistic's identity —
+      // a MINIMUM over kept rows, over cleaned cells after column 0 — is decided here and
+      // nowhere else; the two detector suites reach it only through the candidacy gate. A
+      // deciding suite outside `suitePaths` runs, passes, and buys zero score, which is
+      // how eight #831 survivors existed under a green suite.
+      "tests/parser/rowScanCore.test.ts",
     ],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.95,
@@ -2594,13 +2601,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: { from: 'opener = clean(first[0] ?? "")', to: 'opener = ""' },
     accepted: [
       {
-        siteId: "relational-boundary:47:22:>>>=",
+        siteId: "relational-boundary:75:22:>>>=",
         kind: "equivalent",
         reason:
           "`cells.length > 0` can never be reached with a length of 0, so widening it to `>= 0` admits nothing: the alignment-row skip one line above is `cells.every(...)`, and `[].every(...)` is VACUOUSLY TRUE, so an empty cell array always `continue`s first. An empty array is itself only producible by a bare `|` line (`splitRow` slices off the leading and trailing fragments), which that same vacuous-true path already drops. Probed differentially — the mutated scan against the shipped one over all 20 corpus fixtures plus 14 adversarial documents (`|`, `||`, `|||`, alignment-only tables, table/non-table interleavings): zero output divergence",
       },
       {
-        siteId: 'statement-removal:115:7:opener = "";>(removed)',
+        siteId: 'statement-removal:155:7:opener = "";>(removed)',
         kind: "equivalent",
         reason:
           "the reset is redundant with the reassignment it precedes. On a non-table line the branch pushes the `\"\"` LITERAL, not `opener`, so the stale value is not read there; and the same branch sets `inTable = false`, which makes `!inTable` true at the next table line and reassigns `opener` from that line's first cell before any push reads it. No path exists on which the removed assignment's value is ever observed. Probed differentially — the mutated `openerByLine` against the shipped one over all 20 corpus fixtures plus the same 14 adversarial documents: zero output divergence",

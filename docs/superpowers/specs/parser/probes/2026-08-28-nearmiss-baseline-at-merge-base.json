@@ -2,12 +2,6 @@
   "note": [
     "Generated: UPDATE_NEAR_MISS_BASELINE=1 pnpm exec vitest run tests/parser/fieldNearMissBaseline.test.ts",
     "Spec: docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md (AC-N1, 3.2).",
-    "Narrowed 65 -> 33 by the block-candidacy rule:",
-    "  docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md (3.1, 3.2, 3.3).",
-    "  A near-miss card advises renaming a row, so it fires only in blocks shaped like FIELD",
-    "  LISTS. Form dumps (opener normalizing to `timestamp`) and inventory matrices (every row",
-    "  at 6 or more value cells) are not candidate homes, and the 32 rows that lived in them",
-    "  are gone. No true positive was lost; see that spec's 3.3 for the removed set.",
     "",
     "TIE-BREAK, and what actually pins it. Spec 3.1 makes vocabulary insertion order normative:",
     "it decides which raw spelling a near-miss reports, and the `candidate` column below is where",
@@ -55,6 +49,20 @@
       "candidate": "Client Email"
     },
     {
+      "fixture": "fixtures/shows/exporter-xlsx/consultants.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/consultants.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
       "fixture": "fixtures/shows/exporter-xlsx/east-coast.md",
       "key": "Stage",
       "block": "details",
@@ -90,6 +98,20 @@
       "candidate": "Client Email"
     },
     {
+      "fixture": "fixtures/shows/exporter-xlsx/fintech.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/fintech.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
       "fixture": "fixtures/shows/exporter-xlsx/fixed-income.md",
       "key": "Address:",
       "block": "client",
@@ -111,6 +133,55 @@
       "candidate": "Client Email"
     },
     {
+      "fixture": "fixtures/shows/exporter-xlsx/fixed-income.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/fixed-income.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/redefining-fi.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/redefining-fi.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/ria.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/ria.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/ria.md",
+      "key": "Speaker",
+      "block": "console",
+      "kind": "console",
+      "candidate": "Virtual Speaker"
+    },
+    {
       "fixture": "fixtures/shows/exporter-xlsx/rpas.md",
       "key": "Address:",
       "block": "client",
@@ -130,6 +201,20 @@
       "block": "client",
       "kind": "client",
       "candidate": "Client Email"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/rpas.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/exporter-xlsx/rpas.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
     },
     {
       "fixture": "fixtures/shows/raw/2024-05-east-coast-family-office.md",
@@ -151,6 +236,69 @@
       "block": "joann",
       "kind": "joann",
       "candidate": "DIagrams"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-03-dci-rpas-central.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-03-dci-rpas-central.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-06-ria-investment-forum.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-06-ria-investment-forum.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-06-ria-investment-forum.md",
+      "key": "Speaker",
+      "block": "console",
+      "kind": "console",
+      "candidate": "Virtual Speaker"
     },
     {
       "fixture": "fixtures/shows/raw/2025-10-consultants-roundtable.md",
@@ -181,6 +329,20 @@
       "candidate": "Client Email"
     },
     {
+      "fixture": "fixtures/shows/raw/2025-10-consultants-roundtable.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-10-consultants-roundtable.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
       "fixture": "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md",
       "key": "Address:",
       "block": "client",
@@ -200,6 +362,20 @@
       "block": "client",
       "kind": "client",
       "candidate": "Client Email"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
     },
     {
       "fixture": "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md",
@@ -223,6 +399,20 @@
       "candidate": "Client Email"
     },
     {
+      "fixture": "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
       "fixture": "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md",
       "key": "Address:",
       "block": "client",
@@ -244,6 +434,20 @@
       "candidate": "Client Email"
     },
     {
+      "fixture": "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
+    },
+    {
       "fixture": "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md",
       "key": "Address:",
       "block": "client",
@@ -263,6 +467,20 @@
       "block": "client",
       "kind": "client",
       "candidate": "Client Email"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md",
+      "key": "Room Diagram",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "DETAILS/ROOM DIAGRAM"
+    },
+    {
+      "fixture": "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md",
+      "key": "Backdrop",
+      "block": "timestamp",
+      "kind": "timestamp",
+      "candidate": "Backdrop / Scenic"
     }
   ]
 }

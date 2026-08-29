@@ -21,13 +21,41 @@ import { clean, splitRow } from "./_helpers";
  * this module and `_helpers.ts` mutually importing, which is the same cycle one level down.
  */
 
-/** One scanned table row plus the first-cell text of the row that opened its table. */
-export type ScannedRow = { cells: string[]; opener: string };
+/**
+ * One scanned table row, plus the first-cell text of the row that opened its table, plus
+ * its block's minimum value-cell count.
+ *
+ * `blockMinValueCells` is a property of the BLOCK, repeated on every row of it: the
+ * smallest number of non-empty cleaned cells after column 0 that any kept row of the
+ * block carries. It is REQUIRED rather than optional. Both construction sites are in this
+ * file, so the compiler enforces that neither forgets it, and an optional field would let
+ * a future site read `undefined`, which `>= 6` evaluates as false — silently admitting
+ * every block to the near-miss detector's candidacy test.
+ */
+export type ScannedRow = { cells: string[]; opener: string; blockMinValueCells: number };
 
 /** A scanned row plus its position in the INPUT array the core was handed. */
-export type ScannedBlockRow = { cells: string[]; opener: string; index: number };
+export type ScannedBlockRow = ScannedRow & { index: number };
 
 const ALIGNMENT_SEGMENT = /^[\s:|*-]*$/;
+
+/**
+ * Value cells in one row: non-empty CLEANED cells after column 0.
+ *
+ * Column 0 is the row's label, never a value, so it is skipped rather than counted and
+ * subtracted. Cleaning before the emptiness test is what makes a cell holding only a
+ * zero-width character count as empty; no corpus input distinguishes the two definitions
+ * (measured: 0 of 44,446 value cells), so the difference is pinned by a constructed
+ * witness in `tests/parser/rowScanCore.test.ts` rather than left to chance.
+ */
+function valueCellCount(cells: readonly string[]): number {
+  // `slice(1).filter(...)` rather than an indexed loop: an indexed loop's bound comparison
+  // has no observable boundary (reading one past the end yields `undefined`, which cleans
+  // to the empty string and is not counted anyway), so widening it produces an equivalent
+  // mutant the source-mutation gate reports as an unkillable survivor. The slice offset is
+  // observable — dropping it counts the label column — so this shape has no dead site.
+  return cells.slice(1).filter((cell) => clean(cell) !== "").length;
+}
 
 /**
  * The opener/alignment core shared by the markdown shell below and the raw-workbook
@@ -41,12 +69,19 @@ export function scanBlockCells(rowsOfCells: readonly (readonly string[])[]): Sca
   const first = rowsOfCells[0];
   if (!first) return [];
   const opener = clean(first[0] ?? "");
-  const out: ScannedBlockRow[] = [];
+  const kept: { cells: string[]; index: number }[] = [];
   rowsOfCells.forEach((cells, index) => {
     if (cells.every((seg) => ALIGNMENT_SEGMENT.test(seg))) return; // alignment row
-    if (cells.length > 0) out.push({ cells: [...cells], opener, index });
+    if (cells.length > 0) kept.push({ cells: [...cells], index });
   });
-  return out;
+  // Two passes, because the block statistic is not known while the rows are still being
+  // collected. The empty case is handled by emitting nothing rather than by choosing a
+  // value for it: with no kept rows there is no row to carry a number, so any constant
+  // would be unobservable, and an unobservable difference is an equivalent mutant the
+  // harness plants, cannot kill, and charges as a new accepted row.
+  if (kept.length === 0) return [];
+  const blockMinValueCells = Math.min(...kept.map((r) => valueCellCount(r.cells)));
+  return kept.map(({ cells, index }) => ({ cells, opener, index, blockMinValueCells }));
 }
 
 /**
@@ -74,7 +109,12 @@ export function scanRowsWithOpener(markdown: string): ScannedRow[] {
   // distinguish (the source-mutation gate reported exactly those four sites as
   // survivors, and an unreachable branch is a bigger guard, not a safer one).
   const flush = () => {
-    for (const r of scanBlockCells(run)) rows.push({ cells: r.cells, opener: r.opener });
+    for (const r of scanBlockCells(run))
+      rows.push({
+        cells: r.cells,
+        opener: r.opener,
+        blockMinValueCells: r.blockMinValueCells,
+      });
     run = [];
   };
   for (const line of markdown.split("\n")) {
