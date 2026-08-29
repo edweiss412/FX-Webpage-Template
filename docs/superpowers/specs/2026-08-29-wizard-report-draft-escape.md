@@ -202,6 +202,29 @@ No P0. The audit scored 19/20 with no P0 and no P1; the critique scored 24/40 an
 
 Belt and braces, and worth stating because it bounds the blast radius if the mount chain is ever changed: `window is not defined` is a `ReferenceError`, which the bare `catch` in `readStoredDraft` does catch. The failure would be a trigger-label text mismatch and a recoverable hydration warning, never a crash.
 
+## 6.5a The mutation score, and what it caught that review did not
+
+bl-orch's ruling closed the open axis mechanically. The result:
+
+```
+GUARD SURFACE: lib/admin/reportDraftStore.ts, MUTATION SCORE: 16/16,
+0 unaccepted survivors, OPERATORS: relational-boundary, equality-flip,
+integer-literal, statement-removal
+```
+
+Baseline green, 17 mutants, 16 killed, 0 no-ops, gate passed with zero failures. The single survivor is the ledgered equivalent below, excluded from the denominator.
+
+**The first run was 11/17 = 0.647 with six unaccepted survivors** — on a 21-case suite written specifically to be mutation-proof, after four rounds of adversarial review had already passed over this code. Five were real gaps:
+
+- **The cap CONSTANT was pinned by nothing.** Every expectation derived from `REPORT_MESSAGE_MAX_CHARS`, so mutating 2000 to 2001 moved the code and the expectations together and no assertion could tell. This is the "derive, never hardcode" rule applied without its exception: the number is a product decision, so exactly one assertion now states it outright.
+- **The surrogate range BOUNDARIES were pinned by nothing.** The fixture used U+D83D, comfortably inside 0xD800..0xDBFF, so `>=` to `>`, `<=` to `<`, and both literals off by one all survived a test named "never emits an unpaired surrogate". Four cases now sit ON the boundary and just outside each end.
+
+The first replacement fixture was itself defective — exactly cap-length, so `capDraft` returned early and never reached the branch under test. The test caught that before it could be believed.
+
+**The sixth survivor is equivalent and is ledgered rather than chased.** `capDraft`'s `value.length <= CAP` early return, weakened to `<`, sends a cap-length value through `slice(0, CAP)`, which on a string of exactly CAP units is the identity; the surrogate branch then reads the same final code unit and reaches the same verdict. No input distinguishes the two forms, so no test can kill it. It is the same edit that was rejected as this row's control, now recorded where an unkillable mutant belongs, with its argument attached.
+
+**Why this vindicates the route.** Seven of the arc's seventeen review findings were "a test weaker than it reads", one instance per round, and round 4's instance landed in a test written in round 3 to close round 3's instance. The score found five more instances of that same class in a single run, mechanically, including two the reviewer had looked straight at. The axis is not closable by argument; it is closable by a number.
+
 ## 6.6 Planted-mutant inventory
 
 bl-orch's ruling after round 4: the open axis the review could not close is "could a test be weaker than it reads", and it is closed mechanically rather than by argument. For `lib/admin/reportDraftStore.ts` that is the source-mutation row and its score. For the component-level tests the registry cannot express — they need a mounted React tree, which the overlay runner does not provide — the equivalent evidence is the planted mutant, and this is the inventory. Every row was run, not reasoned about.
