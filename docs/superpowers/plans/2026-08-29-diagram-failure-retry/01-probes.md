@@ -42,6 +42,13 @@ nothing".
 done until a run reports the spec collected.** A probe that runs in zero projects is the
 exact tautology this phase exists to avoid.
 
+**And the allowlist is only half the fan-out.** `tests/e2e/standalone-baseline.json` pins the
+config's resolved membership, and `tests/ci/_metaSpecRegistration.test.ts` fails when the two
+disagree — which it did, naming all four new probes, the moment they were added. The second
+step is therefore `node scripts/check-standalone-baseline.mjs --write`, committed with the
+config change. Found by running the gate rather than by reading, which is why this paragraph
+exists: the plan named the allowlist and would have left the baseline to be discovered by CI.
+
 ## Acceptance criteria
 
 - AC-P1 The probe establishes, in a real browser, where focus goes when a focused button
