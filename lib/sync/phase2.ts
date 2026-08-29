@@ -5,6 +5,8 @@ import type { ParseResult, ParseWarning, RunOfShow, TriggeredReviewItem } from "
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
 import { writeUseRawStaleChanges } from "@/lib/sync/changeLog/writeUseRawStaleChanges";
 import { applyUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { carryStagedIgnoredWarnings } from "@/lib/sync/carryStagedIgnoredWarnings";
+import type { StagedIgnoreEntry } from "@/lib/admin/wizardWarningModel";
 import {
   applyRoleTokenMappings,
   gateAppliedRoleMappings,
@@ -143,6 +145,12 @@ export type Phase2Args = {
   // BOTH applyShowSnapshot (dates→shows) AND applyParseResult (rooms/hotels→their tables).
   // Absent/[] → overlay no-op.
   useRawDecisions?: UseRawDecision[];
+  // wizard-warning-ignore-controls §2.7: the staged ignore decisions read (through
+  // normalizeStagedIgnoredWarnings) from pending_syncs.ignored_warnings
+  // (live-partition:n/a — doc reference, no statement; the read is the finalize
+  // caller's) by each finalize caller. Carried into public.ignored_warnings for snapshot.showId below — the first
+  // moment a show id exists on the first-seen path. Absent → nothing to carry.
+  stagedIgnoredWarnings?: StagedIgnoreEntry[];
   // "Recognize this role" mappings (spec 2026-07-15-extend-role-scope-vocab §6.2), loaded
   // (through normalizeRoleTokenMappings) from the global role_token_mappings table. The overlay
   // runs immediately after the use-raw overlay so grants land on crew role_flags before the crew
@@ -564,6 +572,21 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
         : {}),
     }),
   );
+
+  // wizard-warning-ignore-controls §2.7: the staged ignore decisions become durable rows
+  // for THIS show. Placed here because `snapshot.showId` is the first show id that exists
+  // on the first-seen path, and it is the correct id on the update path too — so one site
+  // serves both applies. Inside the locked txn, uncaught: a fault propagates exactly as the
+  // use-raw re-persist's does (§2.7 fault posture), never a publish that quietly dropped the
+  // operator's dismissals.
+  if (args.stagedIgnoredWarnings && args.stagedIgnoredWarnings.length > 0) {
+    await callTx("carryStagedIgnoredWarnings", () =>
+      carryStagedIgnoredWarnings(port, {
+        showId: snapshot.showId,
+        entries: args.stagedIgnoredWarnings ?? [],
+      }),
+    );
+  }
 
   // Task 2.9: write show_change_log rows for each AUTO-APPLIED notable change, using the
   // PRE-reconcile snapshot for before_image (load-bearing for Phase-4 undo). Held entities are

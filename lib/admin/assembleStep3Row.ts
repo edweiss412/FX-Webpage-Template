@@ -58,6 +58,12 @@ export type ShowCandidate = {
   published: boolean;
   archived: boolean;
   wizard_created_session_id: string | null;
+  // The show's crew-page slug (wizard-warning-ignore-controls §2.1 Phase A). Optional
+  // so pure buildStep3Row unit tests need not supply it; fetchStep3Data always selects
+  // it. When the candidate wins linked-show resolution AND the slug is a usable
+  // non-empty string, buildStep3Row emits `row.linkedShowRef` — the signal that this
+  // row's ignores live in the durable show-keyed table rather than the staged column.
+  slug?: string | null;
   // Summary fields (owner decision 2026-07-06) for the post-finalize badge-only
   // backfill. Optional so pure buildStep3Row unit tests need not supply them;
   // fetchStep3Data always selects them. When the candidate wins linked-show
@@ -81,6 +87,10 @@ export type StagedPreviewForRow = {
   agendaStateKey: string;
   lastFinalizeFailureCode: string | null;
   useRawDecisions: UseRawDecision[];
+  /** Raw `pending_syncs.ignored_warnings` jsonb (wizard-warning-ignore-controls §2.1).
+   *  Untyped on purpose: coercion is enrichment's single boundary
+   *  (`normalizeStagedIgnoredWarnings`), so no second copy can drift from it. */
+  ignoredWarnings: unknown;
 };
 
 /** The pending_ingestions projection the hard-fail branch layers onto a row. */
@@ -201,6 +211,14 @@ export function buildStep3Row(
   // Backfill summary from the linked live show (owner decision 2026-07-06). Only
   // attach when at least one summary field is present, so a pure buildStep3Row
   // unit test (candidates without summary fields) yields no linkedShowSummary.
+  // wizard-warning-ignore-controls §2.1 Phase A: the winning candidate's identity,
+  // emitted ONLY for a usable non-empty string slug. A matched candidate without one
+  // degrades the row to the staged ignore arm (spec §3), which needs no show record —
+  // strictly better than minting a slug-keyed route target that resolves to nothing.
+  const candidateSlug = matchedCandidate?.slug;
+  if (matchedCandidate && typeof candidateSlug === "string" && candidateSlug.trim() !== "") {
+    row.linkedShowRef = { id: matchedCandidate.id, slug: candidateSlug };
+  }
   if (
     matchedCandidate &&
     (matchedCandidate.title != null ||
@@ -269,6 +287,8 @@ export function assembleStep3Row(
         adminAgendaPreview: staged.adminAgendaPreview,
         agendaStateKey: staged.agendaStateKey,
         useRawDecisions: staged.useRawDecisions,
+        // Raw, un-coerced: normalization happens once, in enrichment (§2.1).
+        stagedIgnoredWarnings: staged.ignoredWarnings,
       };
       if (staged.title) return { ...withParse, stagedShowTitle: staged.title };
       return withParse;

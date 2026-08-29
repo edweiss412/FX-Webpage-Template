@@ -117,9 +117,12 @@ function SectionWarningItemControls(props: {
   const { warning, reportSurfaceId, mode, slug, showId, driveFileId, useRawDecisions } = props;
   return (
     <>
+      {/* no-newtab-announcement: `target` here is the discriminated ignore BACKEND
+          (spec §2.3), not a browser window target. This element renders no anchor. */}
       <DataQualityWarningControls
-        slug={slug}
-        showId={showId}
+        // Published mounts are always the show arm (§2.3): a published surface has a slug
+        // and a show record by definition.
+        target={{ kind: "show", slug, showId }}
         warning={warning}
         driveFileId={driveFileId}
         mode={mode}

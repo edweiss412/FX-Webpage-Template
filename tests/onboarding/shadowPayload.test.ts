@@ -97,6 +97,69 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parsed.useRawDecisions).toEqual([]);
   });
 
+  // ── wizard-warning-ignore-controls §2.7: staged ignore decisions ride the same channel ──
+  // The route writer is private SQL and cannot be invoked from a unit, so these cases pin
+  // the PARSER against the key set that writer emits. The two real-DB pipeline proofs in
+  // tests/sync/stagedIgnoreCarry.test.ts are what actually prove the writer; these
+  // supplement them, they do not replace them.
+  test("ignored_warnings in the payload round-trips to parsed.ignoredWarnings", () => {
+    const parsed = parseShadowPayloadForApply(
+      payload({
+        ignored_warnings: [
+          { fingerprint: "fp-1", code: "UNKNOWN_FIELD", ignored_by: "doug@fxav.com" },
+        ],
+      }),
+    );
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.ignoredWarnings).toEqual([
+      { fingerprint: "fp-1", code: "UNKNOWN_FIELD", ignored_by: "doug@fxav.com" },
+    ]);
+  });
+
+  test("ignored_warnings sits beside use_raw_decisions in a full writer-shaped payload", () => {
+    // The writer emits both in one jsonb_build_object; a parser that reads one key and
+    // shadows the other would pass every single-key case above.
+    const parsed = parseShadowPayloadForApply(
+      payload({
+        use_raw_decisions: [
+          {
+            code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+            contentHash: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            target: { kind: "rooms", name: "GENERAL SESSION" },
+            preference: "raw",
+            applied: false,
+            decidedAt: "2026-07-11T00:00:00.000Z",
+            decidedBy: "admin@example.com",
+          },
+        ],
+        source_anchors: {},
+        pull_sheet_override: null,
+        ignored_warnings: [
+          { fingerprint: "fp-1", code: "UNKNOWN_FIELD", ignored_by: "doug@fxav.com" },
+        ],
+      }),
+    );
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.useRawDecisions).toHaveLength(1);
+    expect(parsed.ignoredWarnings).toHaveLength(1);
+  });
+
+  test("absent ignored_warnings → [] (legacy shadows staged before this feature)", () => {
+    const parsed = parseShadowPayloadForApply(payload());
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.ignoredWarnings).toEqual([]);
+  });
+
+  test("malformed ignored_warnings is tolerated → [] (never blocks an otherwise-valid publish)", () => {
+    const parsed = parseShadowPayloadForApply(payload({ ignored_warnings: "not-an-array" }));
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.ignoredWarnings).toEqual([]);
+  });
+
   test("MISSING triggered_review_items key is REFUSED, never coerced to [] (an MI-11 would apply ungated)", () => {
     const { triggered_review_items: _omit, ...rest } = payload();
     const parsed = parseShadowPayloadForApply(rest);

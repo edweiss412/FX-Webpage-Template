@@ -46,7 +46,7 @@ import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
 import { buildStagedSnapshot } from "@/components/admin/dev/snapshots";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
-import { warningsBySection } from "@/lib/admin/step3SectionStatus";
+import { activeWarningEntries, ignoredWarningIndices } from "@/lib/admin/activeWarningEntries";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
 import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
 import {
@@ -312,7 +312,14 @@ export function Step3ReviewModal({
   // the operator is looking at.
   const attention = useMemo(() => {
     const defs = step3Sections(data);
-    const bySection = warningsBySection(data.warnings, new Set(defs.map((s) => s.id)));
+    // §2.4 choke point 2: the ACTIVE partition only, with original indices intact —
+    // the ids minted just below are `warning:${index}` and are resolved against
+    // `[data-attention-anchor]`, so a renumbered survivor sends the jump elsewhere.
+    const bySection = activeWarningEntries(
+      data.warnings,
+      new Set(defs.map((s) => s.id)),
+      ignoredWarningIndices(data.dq),
+    );
     const entries = [...bySection]
       .flatMap(([sectionId, list]) =>
         list.map((e) => ({

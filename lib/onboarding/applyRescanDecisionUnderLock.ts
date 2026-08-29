@@ -13,6 +13,8 @@ import {
   RESCAN_REVIEW_REQUIRED,
 } from "@/lib/onboarding/rescanReviewCode";
 import { parseShadowPayloadForApply } from "@/lib/onboarding/shadowPayload";
+import type { StagedIgnoreEntry } from "@/lib/admin/wizardWarningModel";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { asParseResult } from "@/lib/db/coerceJsonbObject";
 import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
@@ -78,6 +80,18 @@ type PriorState = {
   priorParse: ParseResult | null;
   priorDataGaps: DataGapsSummary | null;
   priorStagedModifiedTime: unknown;
+  /**
+   * The staged decisions that ride the Flow-B shadow, and ONLY the shadow.
+   *
+   * Flow A never needs these: its `pending_syncs` row survives the heal and the
+   * restage upsert's `do update set` does not touch either column, so they are
+   * preserved in place. Flow B deleted that row in Phase B, which makes the shadow
+   * payload their sole copy — and this core deletes the shadow. Null means "no
+   * shadow copy to restore", never "restore emptiness": the write below is skipped
+   * entirely rather than clobbering a live column with `[]`.
+   */
+  priorIgnoredWarnings: StagedIgnoreEntry[] | null;
+  priorUseRawDecisions: UseRawDecision[] | null;
 };
 
 /**
@@ -123,6 +137,9 @@ async function capturePriorState(
       priorParse,
       priorDataGaps: priorParse ? summarizeDataGaps(priorParse.warnings) : null,
       priorStagedModifiedTime: ps.staged_modified_time,
+      // Flow A: the row is alive and keeps both columns through the restage upsert.
+      priorIgnoredWarnings: null,
+      priorUseRawDecisions: null,
     };
   }
 
@@ -142,6 +159,9 @@ async function capturePriorState(
         priorParse: parsed.parseResult,
         priorDataGaps: summarizeDataGaps(parsed.parseResult.warnings),
         priorStagedModifiedTime: parsed.stagedModifiedTime,
+        // Flow B: the shadow is the only copy, and this core deletes it below.
+        priorIgnoredWarnings: parsed.ignoredWarnings,
+        priorUseRawDecisions: parsed.useRawDecisions,
       };
     }
     // Corrupt shadow: can't diff for cleanliness → prior=null (drives the §6 DIRTY clause).
@@ -151,6 +171,8 @@ async function capturePriorState(
       priorParse: null,
       priorDataGaps: null,
       priorStagedModifiedTime: null,
+      priorIgnoredWarnings: null,
+      priorUseRawDecisions: null,
     };
   }
 
@@ -160,7 +182,49 @@ async function capturePriorState(
     priorParse: null,
     priorDataGaps: null,
     priorStagedModifiedTime: null,
+    priorIgnoredWarnings: null,
+    priorUseRawDecisions: null,
   };
+}
+
+/**
+ * Write the Flow-B shadow's staged decisions onto this row's `pending_syncs`, and say
+ * whether anything took them.
+ *
+ * Whole-diff R3 P0. This was inline at the restage site, which is the path that HAS a
+ * row — and the `hard_failed` branch deletes the shadow and returns long before it. The
+ * hazard is the DELETE, not the restage, so the restore lives next to every delete now
+ * and the two callers cannot drift.
+ *
+ * The boolean is the whole point at the hard-fail site: in Flow B the row was consumed
+ * at finalize, so there may be nothing to receive the decisions, and the caller must
+ * know that before it destroys the only remaining copy.
+ *
+ * Returns true when a row took the write OR there was nothing to carry (null means Flow
+ * A, where the live column is authoritative and must not be clobbered).
+ */
+async function restoreStagedDecisions(
+  tx: PostgresTransaction,
+  wizardSessionId: string,
+  driveFileId: string,
+  prior: PriorState,
+): Promise<boolean> {
+  if (prior.priorIgnoredWarnings === null && prior.priorUseRawDecisions === null) return true;
+  const rows = (await tx.unsafe(
+    `update public.pending_syncs
+        set ignored_warnings = coalesce($3::jsonb, ignored_warnings),
+            use_raw_decisions = coalesce($4::jsonb, use_raw_decisions)
+      where wizard_session_id = $1::uuid and drive_file_id = $2
+      returning 1 as ok`,
+    // RAW values, never JSON.stringify: postgres.js serializes once through the
+    // `::jsonb` cast, so pre-stringifying double-encodes the array into a jsonb STRING
+    // SCALAR and the column comes back as text that no reader can parse as decisions.
+    // The two writes a few lines below (`triggered_review_items`, `wizard_reviewer_choices`)
+    // have always passed their arrays raw; this one was the outlier.
+    // `null` still means "leave the column alone" — the coalesce handles it.
+    [wizardSessionId, driveFileId, prior.priorIgnoredWarnings, prior.priorUseRawDecisions],
+  )) as unknown[];
+  return rows.length > 0;
 }
 
 /**
@@ -209,14 +273,33 @@ export async function applyRescanDecisionUnderLock(
   }
   const processed = scan.processed.find((p) => p.driveFileId === driveFileId);
   if (processed?.outcome === "hard_failed") {
-    // The orphan shadow is superseded by this re-scan; the hard_failed manifest keeps
-    // final CAS blocked via unresolvedManifestCount (spec §5.3 Flow-B postcondition).
-    await tx.unsafe(
-      `delete from public.shows_pending_changes
-        where wizard_session_id = $1::uuid and drive_file_id = $2`,
-      [wizardSessionId, driveFileId],
-    );
-    if (deps.onShadowDeleted) await deps.onShadowDeleted(tx);
+    // Whole-diff R3 P0: restore BEFORE the delete, and only delete if the restore
+    // landed somewhere.
+    //
+    // The shadow is superseded by this re-scan — but "superseded" and "the only copy of
+    // the operator's dismissals" can be the same row. In Flow B the `pending_syncs` row
+    // was consumed at finalize, so on a hard fail there may be nothing to carry the
+    // decisions into; deleting anyway is silent data loss, and the warnings Doug
+    // dismissed come back after he fixes the sheet with nothing said.
+    //
+    // So the shadow is RETAINED exactly when it still holds decisions nothing else took.
+    // Retention is safe here: the hard_failed manifest keeps final CAS blocked via
+    // unresolvedManifestCount (spec §5.3 Flow-B postcondition), so a retained shadow
+    // cannot publish anything — and the next re-scan reads it as prior state and carries
+    // the decisions forward, which is the outcome this branch was destroying.
+    const carried = await restoreStagedDecisions(tx, wizardSessionId, driveFileId, prior);
+    if (carried) {
+      await tx.unsafe(
+        `delete from public.shows_pending_changes
+          where wizard_session_id = $1::uuid and drive_file_id = $2`,
+        [wizardSessionId, driveFileId],
+      );
+      // Inside the guard by contract, not by accident: `onShadowDeleted` is documented
+      // to fire after EACH delete and never on a shadow-RETAINING outcome, and
+      // retention is now one of those outcomes. Firing it here would double-consume a
+      // rebuild cap for a shadow that still exists.
+      if (deps.onShadowDeleted) await deps.onShadowDeleted(tx);
+    }
     // Demote any retained Flow-A approval: a hard-failing re-scan writes only the manifest +
     // pending_ingestions, so an approved pending_syncs row survives with choices keyed to the OLD
     // staged item ids. A later Step-3 Retry re-stages fresh sentinel ids while upsertLivePendingSync
@@ -263,6 +346,11 @@ export async function applyRescanDecisionUnderLock(
   }
   const sentinelItems = stagedRow.triggered_review_items ?? [];
   const changed = isoOf(stagedRow.staged_modified_time) !== isoOf(prior.priorStagedModifiedTime);
+
+  // Restore the Flow-B shadow's staged decisions onto the row the restage just created.
+  //
+  // Same helper the hard-fail exit uses, so the two restore sites cannot drift.
+  await restoreStagedDecisions(tx, wizardSessionId, driveFileId, prior);
 
   // (b) heal finalize state (idempotent — no-op for a fresh Flow-A row, the blocker fix for Flow B).
   await tx.unsafe(

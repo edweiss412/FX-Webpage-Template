@@ -60,6 +60,11 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
     // row was the "Clear filters" action, which has no filter caption and no
     // dismiss glyph and therefore never met Family C's definition. It was
     // swapped rather than re-carved-out; spec §4.3 carries the correction.
-    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(14);
+    // 14 -> 15 (2026-08-28, wizard-warning-ignore-controls §2.3): the wizard panel
+    // gained its own Ignored (N) disclosure, copied verbatim from the published
+    // sectionWarningExtras one — same Family S shape, same token, so it earns a row
+    // rather than a new family. The tally moves deliberately; that is what this pin
+    // is for.
+    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(15);
   });
 });

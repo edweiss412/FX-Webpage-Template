@@ -50,6 +50,7 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import { deriveStep3Buckets } from "@/lib/admin/step3Buckets";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
@@ -150,6 +151,20 @@ export type Step3Row = {
   // backfills its client · dates · venue line + a View from THIS instead of
   // rendering a bare title. Absent when no show is linked.
   linkedShowSummary?: LiveShowSummary | null;
+  // ── wizard-warning-ignore-controls (spec §2.1) ──
+  // The linked show's identity, captured from the SAME candidate that resolved
+  // `linkedShow`, and only when that candidate carries a usable slug. Its presence
+  // is the row-linkage discriminator (spec §2.0): present → LINKED (durable
+  // show-keyed ignores), absent on a reviewable row → FIRST-SEEN (staged column).
+  linkedShowRef?: { id: string; slug: string } | null;
+  // The row's raw `pending_syncs.ignored_warnings` jsonb, un-coerced. Normalized
+  // exactly once, by the enrichment pass, through `normalizeStagedIgnoredWarnings`.
+  stagedIgnoredWarnings?: unknown;
+  // The active/ignored partition of this row's warnings, with ORIGINAL indices.
+  // Present exactly for FIRST-SEEN and LINKED rows (spec §2.0); absent for
+  // NO-PREVIEW rows and for every non-wizard mount, where the chrome stays
+  // byte-identical to today.
+  warningModel?: WizardWarningModel;
 };
 
 // The linked live show's display summary — raw `public.shows` columns (venue/

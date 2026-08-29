@@ -3,6 +3,10 @@ import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import type { ReviewerChoice } from "@/lib/sync/applyStagedCore";
 import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import {
+  normalizeStagedIgnoredWarnings,
+  type StagedIgnoreEntry,
+} from "@/lib/admin/wizardWarningModel";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
@@ -74,6 +78,12 @@ export type ParsedShadowPayloadForApply =
       // longer re-read them from pending_syncs — they must travel with the shadow or an existing show
       // publishes the parsed value despite the toggle. Tolerant: absent/malformed → [] (overlay no-op).
       useRawDecisions: UseRawDecision[];
+      // wizard-warning-ignore-controls §2.7: the staged ignore decisions, riding the shadow
+      // for the same reason useRawDecisions does — Flow B deletes the pending_syncs row in
+      // Phase B, so by Phase D this payload is their only channel. Tolerant: absent or
+      // malformed → [] (nothing carried), never a refusal. A corrupt decision list must not
+      // block an otherwise-valid publish.
+      ignoredWarnings: StagedIgnoreEntry[];
       // Deep-link region anchors staged at Phase B, so the Phase-D apply can refresh
       // shows.source_anchors on an existing-show re-onboard (spec §3.2). The ONE tolerant
       // field on this otherwise fail-closed boundary: anchors are cosmetic deep links, so
@@ -292,6 +302,8 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
     // Tolerant normalizer (the single JSONB boundary): absent key / null / malformed → [] (overlay
     // no-op), never a refusal — a corrupt decision list must not block an otherwise-valid publish.
     useRawDecisions: normalizeUseRawDecisions(obj.use_raw_decisions ?? null),
+    // §2.7: the same single-jsonb-boundary treatment — the one coercion, tolerant by design.
+    ignoredWarnings: normalizeStagedIgnoredWarnings(obj.ignored_warnings ?? null),
     sourceAnchors,
   };
 }

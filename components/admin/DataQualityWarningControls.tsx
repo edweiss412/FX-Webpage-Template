@@ -3,17 +3,63 @@ import { useContext, useState } from "react";
 import { useRouter } from "next/navigation";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 import { ReportButton } from "@/components/shared/ReportButton";
+import { setStagedWarningIgnore } from "@/app/admin/onboarding/_actions/stagedWarningIgnore";
 import { hasIgnorableSnippet } from "@/lib/dataQuality/ignorableSnippet";
 import type { ParseWarning } from "@/lib/parser/types";
 import { cn } from "@/lib/ui/cn";
 
+/**
+ * Which backend owns this warning's ignore state (spec §2.3 / §1.1.9).
+ *
+ * A published or LINKED row writes the durable show-keyed table through the existing
+ * slug routes. A FIRST-SEEN wizard row has no `shows` record at all — finalize creates
+ * it — so there is no slug to route to, and its decision goes to the staged column
+ * through the §2.6 server action. One component, two backends, discriminated so neither
+ * arm can be reached with the other's identity.
+ */
+export type WizardDqTarget =
+  | { kind: "show"; slug: string; showId: string }
+  | { kind: "staged"; wizardSessionId: string; driveFileId: string };
+
 type Props = {
-  slug: string;
-  showId: string;
+  target: WizardDqTarget;
+  /** A SECOND store holding the same dismissal, cleared in the same interaction.
+   *  Set only when the model reports `ignoreOrigin: "both"`; clearing one store while
+   *  the other still hides the row is the false success this exists to prevent. */
+  alsoClear?: WizardDqTarget;
+  /**
+   * The show this warning belongs to, for the REPORT — independent of `target`.
+   *
+   * Whole-diff R2 P1. `target` answers "which store does an Ignore write to", and the
+   * Ignored disclosure legitimately reroutes it to the staged backend when that is
+   * where the dismissal lives. Report was deriving its `showId` from that same value,
+   * so rerouting the ignore silently detached the report: a LINKED row filed with
+   * `show_id: null`, labeled a staged sheet with no show record, and nothing said.
+   *
+   * Two decisions, two inputs. Omitted falls back to the target-derived value, which
+   * is correct wherever the two genuinely coincide (every published mount, and a
+   * first-seen wizard row that really has no show).
+   */
+  reportShowId?: string | null;
   warning: ParseWarning;
   driveFileId: string | null;
   mode: "active" | "ignored";
   reportSurfaceId: string;
+  /** The background this cluster is painted on, for the focus-ring offset and the
+   *  outline token. Defaults to the PUBLISHED card grounds the two modes have always
+   *  implied, so every existing mount renders byte-identically. */
+  ground?: DqControlGround;
+  /** Called on the success branch, after the announce and BEFORE `router.refresh()`.
+   *
+   *  A successful ignore MOVES this row to the other list, which unmounts this
+   *  component — the button holding focus disappears and focus falls to `<body>`.
+   *  On the published page that is merely rude. Inside the wizard's review modal it
+   *  escapes the Tab trap: `useDialogFocus` binds its keydown handler to the panel
+   *  container (`lib/a11y/dialogFocus.ts:137`), so an event fired on `<body>` never
+   *  reaches it, and its recovery effect runs only on mount. Tab then walks the
+   *  background behind the dialog (WCAG 2.4.3 / 2.1.2). The mount that can be
+   *  unmounted by its own success is the one that has to hand focus somewhere first. */
+  onBeforeRefresh?: () => void;
 };
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
@@ -35,18 +81,35 @@ const NEUTRAL_BTN = cn(
 // non-text floor in dark; the Ignored card is surface-sunken, a neutral ground
 // where text-faint already clears (3.02 / 4.11). DESIGN §1.2a, design doc
 // 2026-08-25-ui-polish-class-sweep-design.md D2.
-const PLATE: Record<"active" | "ignored", string> = {
-  active: cn("focus-visible:ring-offset-warning-bg border-control-outline-tinted"),
-  ignored: cn("focus-visible:ring-offset-surface-sunken border-text-faint"),
+//
+// Impeccable critique P1 (2026-08-28): the two published grounds are NOT the only
+// ones any more. The wizard panel mounts these controls directly on the section
+// card, which is `bg-surface` — untinted, and neither `warning-bg` nor
+// `surface-sunken`. Keying the plate on `mode` was a proxy for the ground that held
+// only while every mount was a published card, so it now names the ground itself
+// and the call site says which one it is. On an untinted ground the outline is the
+// neutral `border-text-faint`, by the same contrast argument recorded above: the
+// tinted token exists for tinted plates.
+export type DqControlGround = "warning-bg" | "surface-sunken" | "surface";
+
+const PLATE: Record<DqControlGround, string> = {
+  "warning-bg": cn("focus-visible:ring-offset-warning-bg border-control-outline-tinted"),
+  "surface-sunken": cn("focus-visible:ring-offset-surface-sunken border-text-faint"),
+  surface: cn("focus-visible:ring-offset-surface border-text-faint"),
 };
 
 export function DataQualityWarningControls({
-  slug,
-  showId,
+  target,
+  alsoClear,
+  reportShowId,
   warning,
+  driveFileId,
   mode,
   reportSurfaceId,
+  ground,
+  onBeforeRefresh,
 }: Props) {
+  const plate: DqControlGround = ground ?? (mode === "active" ? "warning-bg" : "surface-sunken");
   const router = useRouter();
   const { announce } = useContext(WarningAnnounceContext);
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -57,23 +120,74 @@ export function DataQualityWarningControls({
       ? "Couldn't ignore that warning. Refresh and try again."
       : "Couldn't un-ignore that warning. Refresh and try again.";
 
+  /** The published route arm — byte-identical to what this component has always sent. */
+  async function runShowArm(slug: string): Promise<"ignored" | "unignored" | null> {
+    const res = await fetch(`/api/admin/show/${encodeURIComponent(slug)}/data-quality/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: warning.code, rawSnippet: warning.rawSnippet ?? "" }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { status?: string };
+    if (res.ok && (json.status === "ignored" || json.status === "unignored")) return json.status;
+    return null;
+  }
+
+  /** The staged arm — the §2.6 server action. Every `ok:false` code maps to the SAME
+   *  operator copy as a failed fetch: the codes are internal (invariant 5). */
+  async function runStagedArm(
+    t: Extract<WizardDqTarget, { kind: "staged" }>,
+  ): Promise<"ignored" | "unignored" | null> {
+    const result = await setStagedWarningIgnore({
+      wizardSessionId: t.wizardSessionId,
+      driveFileId: t.driveFileId,
+      action,
+      code: warning.code,
+      rawSnippet: warning.rawSnippet ?? "",
+    });
+    return result.ok ? result.state : null;
+  }
+
   async function run() {
     setState({ kind: "running" });
     try {
-      const res = await fetch(
-        `/api/admin/show/${encodeURIComponent(slug)}/data-quality/${action}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ code: warning.code, rawSnippet: warning.rawSnippet ?? "" }),
-        },
-      );
-      const json = (await res.json().catch(() => ({}))) as { status?: string };
-      if (res.ok && (json.status === "ignored" || json.status === "unignored")) {
+      const status =
+        target.kind === "show" ? await runShowArm(target.slug) : await runStagedArm(target);
+      // Whole-diff R1 P0: a dismissal held in BOTH stores needs BOTH cleared.
+      //
+      // Clearing one and announcing success is a lie the next read exposes: the
+      // enrichment unions the untouched store straight back in and the warning is still
+      // hidden. So the second arm runs before anything is announced, and its failure is
+      // the whole call's failure — a half-cleared dismissal reports an error, never
+      // "Warning restored". The reverse order would be no better; what matters is that
+      // no success is claimed until both stores have answered.
+      //
+      // Only ever set for `mode="ignored"`: there is no "ignore into both stores" —
+      // an Ignore writes exactly one, whichever surface the operator is on.
+      if (status !== null && alsoClear !== undefined) {
+        const second =
+          alsoClear.kind === "show"
+            ? await runShowArm(alsoClear.slug)
+            : await runStagedArm(alsoClear);
+        if (second === null) {
+          setState({ kind: "error", copy: failCopy });
+          return;
+        }
+      }
+      if (status !== null) {
         // Announcer spec 2026-07-22 §2.3: completion clause BEFORE the refresh
         // (ordering pinned by the producer tests); failures never announce.
-        announce(json.status === "ignored" ? "Warning ignored." : "Warning restored.");
+        announce(status === "ignored" ? "Warning ignored." : "Warning restored.");
+        // Hand focus somewhere that survives this refresh, BEFORE the refresh: this
+        // component is about to be unmounted by its own success.
+        onBeforeRefresh?.();
         router.refresh();
+        // Impeccable audit P1 (2026-08-28): do NOT rely on being unmounted to clear
+        // this. A LINKED row whose loader read faults resolves fail-OPEN to an empty
+        // ignore set (`lib/admin/enrichStep3WarningModels.ts`), so the row comes back
+        // ACTIVE, React keeps this instance alive on its content-derived key, and the
+        // button would sit disabled at "Ignoring…" forever — after a SUCCESS, with no
+        // error and no way to retry.
+        setState({ kind: "idle" });
         return;
       }
       setState({ kind: "error", copy: failCopy });
@@ -90,9 +204,18 @@ export function DataQualityWarningControls({
           surface="admin"
           variant="text"
           label="Report"
-          showId={showId}
+          /* R2 P1: the ROW's show, never the ignore backend's. `target` can be
+             rerouted to staging for a linked row, and deriving report identity from
+             it filed the report against nothing. */
+          showId={
+            reportShowId !== undefined
+              ? reportShowId
+              : target.kind === "show"
+                ? target.showId
+                : null
+          }
           surfaceId={reportSurfaceId}
-          ringOffset={mode === "active" ? "warning-bg" : "surface-sunken"}
+          ringOffset={plate}
           messageOptional
           autocapture={{
             parseWarnings: [warning],
@@ -101,6 +224,12 @@ export function DataQualityWarningControls({
               code: warning.code,
               sourceCell: warning.sourceCell ?? null,
               blockRef: warning.blockRef ?? null,
+              // §2.3: the submit path resolves a show-less report's sheet identity from
+              // exactly this field (`driveFileIdFromFieldRef`, lib/reports/submit.ts:299).
+              // Without it a FIRST-SEEN report reads only "staged wizard sheet (no show
+              // record)". Additive on the published arm, which simply carries one more
+              // identity field.
+              driveFileId,
             },
             ...(warning.rawSnippet ? { rawSnippet: warning.rawSnippet } : {}),
             viewerVisibleSection: "data-quality",
@@ -113,7 +242,7 @@ export function DataQualityWarningControls({
             onClick={run}
             disabled={state.kind === "running"}
             aria-busy={state.kind === "running"}
-            className={`${NEUTRAL_BTN} ${PLATE[mode]}`}
+            className={`${NEUTRAL_BTN} ${PLATE[plate]}`}
           >
             {mode === "active"
               ? state.kind === "running"

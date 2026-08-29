@@ -27,7 +27,24 @@
  * label scans are scoped `within(...)` the section's own testid container so a
  * sibling can never satisfy an assertion by accident.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+// The staged ignore action is a "use server" module; the focus repair below asserts
+// what happens on its SUCCESS branch, which the real action never reaches under test
+// (no admin session). Mocked to the ok arm so the branch is reachable at all.
+const stagedIgnoreImpl: { current: () => Promise<unknown> } = {
+  current: async () => ({ ok: true, state: "ignored" }),
+};
+vi.mock("@/app/admin/onboarding/_actions/stagedWarningIgnore", () => ({
+  setStagedWarningIgnore: () => stagedIgnoreImpl.current(),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams(),
+}));
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { isMessageCode } from "@/lib/messages/lookup";
@@ -52,6 +69,7 @@ import {
   DiagramsBreakdown,
   reviewWarningTitle,
   roomHasScope,
+  Step3RunStateContext,
   step3Sections,
   STEP3_SECTION_GROUPS,
   type Step3SectionDef,
@@ -60,7 +78,7 @@ import {
   buildStagedSectionData,
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
-import { buildParseResult, stagedRow, show } from "./_step3ReviewFixture";
+import { buildParseResult, stagedRow, show, STEP3_FIXTURE_WSID } from "./_step3ReviewFixture";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an
 // effect; no test here renders it (the hideDot modal tests use an empty
@@ -1299,5 +1317,725 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     fireEvent.click(q.getByTestId(TOGGLE)); // re-expand
     expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
+  });
+});
+
+// ── wizard-warning-ignore-controls spec §2.2 / §2.3 — Task 9 ───────────────────
+//
+// The panel learns the active/ignored partition. Two things make this delicate.
+//
+// First, the JUMP ANCHORS. Today `data-warning-index` and `data-attention-anchor`
+// carry the RENDERED position `i`, which is valid only because staged rendering has
+// always shown every row. Rendering the active subset breaks that equality, and the
+// attention menu resolves rows by `[data-attention-anchor="warning:${index}"]` over
+// the FULL array — so a rendered row keeping its position index sends every menu jump
+// to the wrong warning, silently.
+//
+// Second, the no-`dq` render must stay byte-identical, because that is every
+// published mount and every standalone fixture. The 62 cases above are the pin for
+// that; they run untouched.
+
+describe("WarningsBreakdown — dq threading and construction (§2.2)", () => {
+  const WARN_A: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: "Hotel notes | double occupancy",
+  };
+  const WARN_B: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: "Parking | validated onsite",
+  };
+  const INFO_C: ParseWarning = {
+    severity: "info",
+    code: "SCHEDULE_NOTE",
+    message: "Informational.",
+    rawSnippet: "call time moved",
+  };
+
+  /** A model over `warnings`, ignoring the ORIGINAL indices in `ignoredIndices`. */
+  function modelFor(warnings: ParseWarning[], ignoredIndices: number[]) {
+    const active: Array<{ index: number; reportSurfaceId: string }> = [];
+    const ignored: Array<{ index: number; reportSurfaceId: string }> = [];
+    warnings.forEach((_, index) => {
+      const item = { index, reportSurfaceId: `sid-${index}` };
+      if (ignoredIndices.includes(index)) ignored.push(item);
+      else active.push(item);
+    });
+    return { active, ignored };
+  }
+
+  const STAGED_TARGET = {
+    kind: "staged" as const,
+    wizardSessionId: STEP3_FIXTURE_WSID,
+    driveFileId: DFID,
+  };
+
+  function dqFor(warnings: ParseWarning[], ignoredIndices: number[]) {
+    return { target: STAGED_TARGET, model: modelFor(warnings, ignoredIndices) };
+  }
+
+  describe("dq construction from the production builder (§2.2)", () => {
+    test("a FIRST-SEEN row builds the staged target from the row's own identity", () => {
+      const pr = buildParseResult({ warnings: [WARN_A, WARN_B] });
+      const row = stagedRow(pr, { warningModel: modelFor([WARN_A, WARN_B], [0]) });
+      const d = sectionData({ warnings: [WARN_A, WARN_B] }, { row });
+      expect(d.dq?.target).toEqual({
+        kind: "staged",
+        wizardSessionId: STEP3_FIXTURE_WSID,
+        driveFileId: DFID,
+      });
+      expect(d.dq?.model).toEqual(row.warningModel);
+    });
+
+    test("a LINKED row builds the show target from linkedShowRef", () => {
+      const pr = buildParseResult({ warnings: [WARN_A] });
+      const row = stagedRow(pr, {
+        warningModel: modelFor([WARN_A], []),
+        linkedShowRef: { id: "show-77", slug: "east-coast-2026" },
+      });
+      const d = sectionData({ warnings: [WARN_A] }, { row });
+      expect(d.dq?.target).toEqual({
+        kind: "show",
+        slug: "east-coast-2026",
+        showId: "show-77",
+      });
+    });
+
+    test("a row with NO warningModel gets no dq key at all", () => {
+      const pr = buildParseResult({ warnings: [WARN_A] });
+      const d = sectionData({ warnings: [WARN_A] }, { row: stagedRow(pr) });
+      // Key ABSENT, not present-and-undefined: exactOptionalPropertyTypes, and the
+      // registry gates the prop on presence.
+      expect("dq" in d).toBe(false);
+    });
+  });
+
+  describe("panel render with dq (§2.3)", () => {
+    test("renders ONLY the active rows, each carrying its ORIGINAL index in every jump attribute", () => {
+      // Index 0 ignored, index 1 active. A row that kept its RENDERED position would
+      // carry 0 here and send the attention menu's `warning:1` entry nowhere.
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
+      const items = q.container.querySelectorAll("li[data-warning-index]");
+      expect(items.length).toBe(1);
+      const only = items[0]!;
+      expect(only.getAttribute("data-warning-index")).toBe("1");
+      expect(only.getAttribute("data-attention-anchor")).toBe("warning:1");
+      expect(only.getAttribute("data-testid")).toBe(`wizard-step3-card-${DFID}-warning-1`);
+    });
+
+    test("warn rows get dq-controls; info rows get none", () => {
+      const warnings = [WARN_A, INFO_C];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
+      const rows = Array.from(q.container.querySelectorAll("li[data-warning-index]"));
+      const byIndex = new Map(rows.map((r) => [r.getAttribute("data-warning-index"), r]));
+      expect(within(byIndex.get("0") as HTMLElement).queryByTestId("dq-controls")).toBeTruthy();
+      expect(within(byIndex.get("1") as HTMLElement).queryByTestId("dq-controls")).toBeNull();
+    });
+
+    test("a snippet-less warn row renders Report but not Ignore", () => {
+      const noSnippet: ParseWarning = {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "Unrecognized field.",
+      };
+      const warnings = [noSnippet];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
+      const controls = q.getByTestId("dq-controls");
+      expect(within(controls).getByRole("button", { name: /report/i })).toBeTruthy();
+      expect(within(controls).queryByRole("button", { name: /^ignore$/i })).toBeNull();
+    });
+
+    test("dfid null renders NO controls in either arm (the panel's existing gate)", () => {
+      const warnings = [WARN_A];
+      for (const target of [STAGED_TARGET, { kind: "show" as const, slug: "s", showId: "id-1" }]) {
+        const q = renderBody(
+          sectionData(
+            { warnings },
+            {
+              // The panel receives `dfid={s.driveFileId}` from the registry — the
+              // SectionCore locator, NOT StagedSectionData.dfid. Overriding the wrong
+              // one leaves the real id flowing through and the assertion vacuous.
+              driveFileId: null,
+              dq: { target, model: modelFor(warnings, []) },
+            },
+          ),
+          "warnings",
+        );
+        expect(q.queryByTestId("dq-controls")).toBeNull();
+        q.unmount();
+      }
+    });
+
+    test("an out-of-range model index is SKIPPED rather than crashing the panel", () => {
+      // A model built against a longer array than the one rendered. Server-side this
+      // cannot happen (both derive from one array in one pass), which is exactly why
+      // the client must not assume it.
+      const warnings = [WARN_A];
+      const q = renderBody(
+        sectionData(
+          { warnings },
+          {
+            dq: {
+              target: STAGED_TARGET,
+              model: {
+                active: [
+                  { index: 0, reportSurfaceId: "sid-0" },
+                  { index: 7, reportSurfaceId: "sid-7" },
+                ],
+                ignored: [],
+              },
+            },
+          },
+        ),
+        "warnings",
+      );
+      expect(q.container.querySelectorAll("li[data-warning-index]").length).toBe(1);
+    });
+  });
+
+  describe("Ignored (N) disclosure (§2.3)", () => {
+    test("renders a details disclosure with ignored rows in ignored mode and NO jump attributes", () => {
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
+      const details = q.getByTestId(`wizard-step3-card-${DFID}-ignored-warnings`);
+      expect(details.tagName.toLowerCase()).toBe("details");
+      expect(details.textContent).toContain("Ignored (1)");
+
+      // A disclosure row must carry NEITHER jump attribute — it is filtered out of
+      // attention, so a stale anchor there would shadow the active target.
+      const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+      expect(list.querySelectorAll("[data-attention-anchor]").length).toBe(0);
+      expect(list.querySelectorAll("[data-warning-index]").length).toBe(0);
+      // And it renders the un-ignore affordance, not the ignore one.
+      expect(within(list).getByRole("button", { name: /un-ignore/i })).toBeTruthy();
+    });
+
+    test("no ignored rows → no disclosure element at all, not an empty one", () => {
+      const warnings = [WARN_A];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
+      expect(q.queryByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeNull();
+    });
+
+    test("closed → open reveals the body INSTANTLY, with only the chevron animating", () => {
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
+      const details = q.getByTestId(
+        `wizard-step3-card-${DFID}-ignored-warnings`,
+      ) as HTMLDetailsElement;
+      expect(details.open).toBe(false);
+      fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-ignored-summary`));
+
+      const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+      // No height/opacity wrapper around the body: the published pattern this copies
+      // is "chevron transform only, body instant".
+      expect(list.className).not.toMatch(/transition|animate|duration/);
+      // The chevron itself DOES rotate, and the group-open class is what drives it.
+      const summary = q.getByTestId(`wizard-step3-card-${DFID}-ignored-summary`);
+      expect(summary.innerHTML).toContain("group-open:rotate-90");
+    });
+
+    test("all rows ignored → the clean sentence PLUS the disclosure, never the empty-warnings one", () => {
+      const warnings = [WARN_A];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, [0]) }), "warnings");
+      expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-clean`).textContent).toContain(
+        "Nothing needs a look on this sheet.",
+      );
+      expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-empty`)).toBeNull();
+      expect(q.getByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeTruthy();
+    });
+
+    test("zero warnings → the existing empty sentence and no disclosure", () => {
+      const q = renderBody(sectionData({ warnings: [] }, { dq: dqFor([], []) }), "warnings");
+      expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-empty`)).toBeTruthy();
+      expect(q.queryByTestId(`wizard-step3-card-${DFID}-ignored-warnings`)).toBeNull();
+    });
+  });
+
+  describe("registry forwarding (§2.2)", () => {
+    test("the warnings section def passes dq through to the panel", () => {
+      // Rendered through the REGISTRY, not by calling WarningsBreakdown directly: the
+      // pass-through is the wiring under test, and a panel that accepts the prop while
+      // the registry never sends it renders no controls in production.
+      const warnings = [WARN_A];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
+      expect(q.getByTestId("dq-controls")).toBeTruthy();
+    });
+
+    test("no BulkIgnoreControls in the wizard panel (§1.1.3 deferred, absence probe)", () => {
+      const warnings = [WARN_A, WARN_B];
+      const q = renderBody(sectionData({ warnings }, { dq: dqFor(warnings, []) }), "warnings");
+      expect(q.queryByTestId("bulk-ignore-controls")).toBeNull();
+    });
+  });
+
+  describe("row identity survives an upstream insert (§2.3 React keys)", () => {
+    // React keys are not DOM-visible, and deriving expectations from stableWarningKeys
+    // would test the helper against itself. So: open a row-local control state, then
+    // re-render with a DIFFERENT warning inserted ABOVE it. Content-derived keys keep
+    // the state on the row it belongs to; index-derived keys migrate it to the
+    // neighbour, which is the rescan bug the content keys exist to prevent.
+    async function openErrorPlateOn(
+      q: ReturnType<typeof render>,
+      surfaceId: string,
+    ): Promise<void> {
+      const btn = q.getByTestId(`dq-ignore-${surfaceId}`);
+      fireEvent.click(btn);
+      await waitFor(() => expect(q.getByTestId(`dq-error-${surfaceId}`)).toBeTruthy());
+    }
+
+    test("active list: the error plate follows the row's CONTENT, not its position", async () => {
+      // The staged arm calls the server action, not fetch — fail the action so the
+      // row-local error plate opens.
+      stagedIgnoreImpl.current = async () => {
+        throw new Error("network down");
+      };
+      const warnings = [WARN_B];
+      const first = sectionData({ warnings }, { dq: dqFor(warnings, []) });
+      const q = renderBody(first, "warnings");
+      await openErrorPlateOn(q, "sid-0");
+
+      // Insert WARN_A above WARN_B. WARN_B is now index 1, surface id sid-1.
+      const grown = [WARN_A, WARN_B];
+      const def = defById(
+        step3Sections(sectionData({ warnings: grown }, { dq: dqFor(grown, []) })),
+        "warnings",
+      );
+      q.rerender(<>{def.render(sectionData({ warnings: grown }, { dq: dqFor(grown, []) }))}</>);
+
+      // The plate is on WARN_B's NEW surface id — it travelled with the content.
+      await waitFor(() => expect(q.queryByTestId("dq-error-sid-1")).toBeTruthy());
+      expect(q.queryByTestId("dq-error-sid-0")).toBeNull();
+      stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
+    });
+  });
+});
+
+// ── wizard-warning-ignore-controls spec §2.4 counts + §5 transitions — Task 11 ──
+describe("panel + rail counts read the active partition (§2.4)", () => {
+  const ACTIVE_WARN: ParseWarning = {
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: "Parking | validated onsite",
+  };
+  const IGNORED_WARN: ParseWarning = {
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: "Hotel notes | double occupancy",
+  };
+  const INFO_ROW: ParseWarning = {
+    severity: "info",
+    code: "SCHEDULE_NOTE",
+    message: "Informational.",
+  };
+  // 1 ignored warn + 1 active warn + 1 info.
+  const FIXTURE = [IGNORED_WARN, ACTIVE_WARN, INFO_ROW];
+  const DQ = {
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: [
+        { index: 1, reportSurfaceId: "sid-1" },
+        { index: 2, reportSurfaceId: "sid-2" },
+      ],
+      ignored: [{ index: 0, reportSurfaceId: "sid-0" }],
+    },
+  };
+  // Derived from the fixture: three rows, one ignored.
+  const EXPECTED = FIXTURE.length - DQ.model.ignored.length;
+
+  test("the heading count shows the active total, not the raw row count", () => {
+    const q = renderBody(sectionData({ warnings: FIXTURE }, { dq: DQ }), "warnings");
+    const heading = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    // Scope the extraction: clone the section and REMOVE the disclosure subtree first,
+    // so the ignored row's own copy of a count-shaped string cannot satisfy this.
+    const clone = heading.cloneNode(true) as HTMLElement;
+    clone.querySelector(`[data-testid="wizard-step3-card-${DFID}-ignored-warnings"]`)?.remove();
+    expect(clone.textContent).toContain(String(EXPECTED));
+  });
+
+  test("the rail count matches the heading for the same row", () => {
+    const d = sectionData({ warnings: FIXTURE }, { dq: DQ });
+    const def = defById(step3Sections(d), "warnings");
+    expect(def.railCount?.(d, { routedWarningsRenderElsewhere: false })).toBe(EXPECTED);
+  });
+
+  test("with no dq the rail count is unchanged (published and standalone)", () => {
+    const d = sectionData({ warnings: FIXTURE });
+    const def = defById(step3Sections(d), "warnings");
+    expect(def.railCount?.(d, { routedWarningsRenderElsewhere: false })).toBe(FIXTURE.length);
+  });
+});
+
+describe("panel transition inventory (spec §5)", () => {
+  const W: ParseWarning = {
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: "Parking | validated onsite",
+  };
+  const dq = (activeIdx: number[], ignoredIdx: number[]) => ({
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: activeIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+      ignored: ignoredIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+    },
+  });
+
+  test("no new AnimatePresence anywhere in the panel — every treatment is instant", () => {
+    // §5: the ONLY animation this feature introduces is the disclosure chevron rotate,
+    // which is a CSS transform. A mount/unmount animation would make the active↔ignored
+    // swap lag the server truth it is supposed to be showing.
+    const source = readFileSync(
+      join(process.cwd(), "components/admin/wizard/step3ReviewSections.tsx"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/AnimatePresence/);
+  });
+
+  test("two active rows each own their control state (compound: second while first runs)", () => {
+    const warnings = [W, { ...W, rawSnippet: "Storage | second row" }];
+    const q = renderBody(sectionData({ warnings }, { dq: dq([0, 1], []) }), "warnings");
+    const controls = q.getAllByTestId("dq-controls");
+    expect(controls.length).toBe(2);
+    // Distinct testids per row means distinct component instances, so neither row's
+    // running state can disable the other's button.
+    expect(q.getByTestId("dq-ignore-sid-0")).toBeTruthy();
+    expect(q.getByTestId("dq-ignore-sid-1")).toBeTruthy();
+    expect((q.getByTestId("dq-ignore-sid-1") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("jump-anchor contract survives the partition (§2.4)", () => {
+  const W = (snippet: string): ParseWarning => ({
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: "Unreadable field.",
+    rawSnippet: snippet,
+  });
+
+  test("the menu's `warning:1` entry resolves through the SAME selector the surface uses", () => {
+    // With warning 0 ignored, the surviving row is the FULL-array index 1. The surface
+    // resolves an attention jump with
+    // `scroller.querySelector('[data-attention-anchor="${id}"]')`
+    // (components/admin/review/ShowReviewSurface.tsx:583), so this asserts against that
+    // exact selector expression rather than a testid that only the test knows.
+    const warnings = [W("Hotel notes | double"), W("Parking | validated")];
+    const q = renderBody(
+      sectionData(
+        { warnings },
+        {
+          dq: {
+            target: {
+              kind: "staged" as const,
+              wizardSessionId: STEP3_FIXTURE_WSID,
+              driveFileId: DFID,
+            },
+            model: {
+              active: [{ index: 1, reportSurfaceId: "sid-1" }],
+              ignored: [{ index: 0, reportSurfaceId: "sid-0" }],
+            },
+          },
+        },
+      ),
+      "warnings",
+    );
+    const target = q.container.querySelector('[data-attention-anchor="warning:1"]');
+    expect(target).toBeTruthy();
+    // And the STALE anchor is gone — an ignored row keeping it would shadow this one.
+    expect(q.container.querySelector('[data-attention-anchor="warning:0"]')).toBeNull();
+  });
+});
+
+describe("§5 transition dispositions — publish-run independence", () => {
+  test("an ignore control is NOT disabled while a publish run is active", () => {
+    // The §4.4 footer freeze set does not include these controls, exactly as it does not
+    // include the use-raw toggle. A freeze here would strand the operator mid-run with no
+    // way to dismiss a warning they had already judged.
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "Unreadable field.",
+        rawSnippet: "Parking | validated onsite",
+      },
+    ];
+    const d = sectionData(
+      { warnings },
+      {
+        dq: {
+          target: {
+            kind: "staged" as const,
+            wizardSessionId: STEP3_FIXTURE_WSID,
+            driveFileId: DFID,
+          },
+          model: { active: [{ index: 0, reportSurfaceId: "sid-0" }], ignored: [] },
+        },
+      },
+    );
+    const def = defById(step3Sections(d), "warnings");
+    const q = render(
+      <Step3RunStateContext.Provider value={{ isPublishRunActive: true }}>
+        {def.render(d)}
+      </Step3RunStateContext.Provider>,
+    );
+    expect((q.getByTestId("dq-ignore-sid-0") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// ── Impeccable critique repairs (2026-08-28) ───────────────────────────────────
+describe("impeccable critique repairs", () => {
+  const W = (snippet: string): ParseWarning => ({
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: snippet,
+  });
+  const dqFor = (activeIdx: number[], ignoredIdx: number[]) => ({
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: activeIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+      ignored: ignoredIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+    },
+  });
+
+  test("P1: an ignored row carries its Sheet row label, so identical titles stay distinguishable", () => {
+    // Both warnings share the code, so `reviewWarningTitle` gives both the SAME class
+    // title. Without the row label the drawer renders two identical lines above two
+    // identical Un-ignore buttons and the operator cannot tell them apart.
+    const warnings = [W("Hotel notes | double occupancy"), W("Parking | validated onsite")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([], [0, 1]) }), "warnings");
+    const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+    const rows = Array.from(list.querySelectorAll("li"));
+    expect(rows).toHaveLength(2);
+
+    const texts = rows.map((r) => r.textContent ?? "");
+    // Derived from the fixture snippets, not hardcoded: the label is the part before
+    // the pipe.
+    expect(texts[0]).toContain("Hotel notes");
+    expect(texts[1]).toContain("Parking");
+    // And the premise that makes this test mean anything: the TITLES really are equal,
+    // so the label is the only thing telling the rows apart.
+    const titles = rows.map((r) => r.querySelector("span.text-sm")?.textContent ?? "");
+    expect(titles[0]).toBe(titles[1]);
+  });
+
+  test("P1: the controls declare the panel's own ground, not a published card's", () => {
+    // The panel card is `bg-surface`. Shipping the published `warning-bg` /
+    // `surface-sunken` offsets here paints a focus halo in a colour the ground never
+    // has — the exact defect the component's own comment warns about.
+    const warnings = [W("Hotel notes | double occupancy")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    const btn = q.getByTestId("dq-ignore-sid-0");
+    expect(btn.className).toContain("focus-visible:ring-offset-surface");
+    expect(btn.className).not.toContain("ring-offset-warning-bg");
+    expect(btn.className).not.toContain("ring-offset-surface-sunken");
+  });
+
+  test("P0: a successful ignore leaves focus INSIDE the panel, never on <body>", async () => {
+    // Inside the review modal, focus on <body> escapes the Tab trap
+    // (lib/a11y/dialogFocus.ts binds keydown to the panel container), so the next Tab
+    // walks the background behind the dialog. The control hands focus to the panel's
+    // anchor before the refresh unmounts it.
+    const warnings = [W("Hotel notes | double occupancy")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    const btn = q.getByTestId("dq-ignore-sid-0");
+    btn.focus();
+    expect(document.activeElement).toBe(btn);
+
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(btn);
+    });
+    expect(document.activeElement).not.toBe(document.body);
+    expect(panel.contains(document.activeElement)).toBe(true);
+  });
+});
+
+// ── Whole-diff review R1 repairs ──────────────────────────────────────────────
+describe("whole-diff R1 repairs", () => {
+  const UNKNOWN = (snippet: string): ParseWarning => ({
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: snippet,
+  });
+  // The parser's two committed HOTEL_GUEST_SPLIT_AMBIGUOUS emit sites both write
+  // `rawSnippet: params.rawCell`, so two of them differ ONLY by that cell.
+  const HOTEL = (cell: string): ParseWarning => ({
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: "Ambiguous guest split.",
+    rawSnippet: cell,
+  });
+  const dqFor = (activeIdx: number[], ignoredIdx: number[]) => ({
+    target: {
+      kind: "staged" as const,
+      wizardSessionId: STEP3_FIXTURE_WSID,
+      driveFileId: DFID,
+    },
+    model: {
+      active: activeIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+      ignored: ignoredIdx.map((index) => ({ index, reportSurfaceId: `sid-${index}` })),
+    },
+  });
+
+  test("P1: a control-bearing row renders the catalog's controlsNote", () => {
+    // The catalog copy is what promised this affordance; the wizard was the surface
+    // where it was false. Expectation read from the CATALOG, never hardcoded — a test
+    // carrying its own copy of the sentence would pass against a catalog edit.
+    const expected = MESSAGE_CATALOG.UNKNOWN_FIELD.controlsNote as string;
+    expect(typeof expected).toBe("string");
+    const warnings = [UNKNOWN("Hotel notes | double occupancy")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    const note = q.getByTestId(`wizard-step3-card-${DFID}-warning-0-controls-note`);
+    expect(note.textContent).toBe(expected);
+  });
+
+  test("P1: a row with NO controls renders no controlsNote", () => {
+    // The 2026-08-27 §4.3 gate: the note describes controls, so it may not appear
+    // where none mounted. An info row is the case that would otherwise leak it.
+    const warnings: ParseWarning[] = [
+      { severity: "info", code: "UNKNOWN_FIELD", message: "Informational." },
+    ];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([0], []) }), "warnings");
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warning-0-controls-note`)).toBeNull();
+  });
+
+  test("P1: two ignored rows of a NON-UNKNOWN_FIELD family are still distinguishable", () => {
+    // The earlier repair gated the discriminator to UNKNOWN_FIELD, so this family
+    // rendered one repeated catalog title above two identical Un-ignore buttons.
+    const warnings = [HOTEL("Room 214 | 2 guests"), HOTEL("Room 318 | 3 guests")];
+    const q = renderBody(sectionData({ warnings }, { dq: dqFor([], [0, 1]) }), "warnings");
+    const rows = Array.from(
+      q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).querySelectorAll("li"),
+    );
+    expect(rows).toHaveLength(2);
+    // Derived from the fixture cells, not hardcoded prose.
+    expect(rows[0]?.textContent).toContain("Room 214");
+    expect(rows[1]?.textContent).toContain("Room 318");
+    // The premise that makes this discriminating: the TITLES really are identical.
+    const titles = rows.map((r) => r.querySelector("span.text-sm")?.textContent ?? "");
+    expect(titles[0]).toBe(titles[1]);
+  });
+
+  test("P1: a long snippet is capped rather than dominating the disclosure", () => {
+    const long = "x".repeat(400);
+    const q = renderBody(
+      sectionData({ warnings: [HOTEL(long)] }, { dq: dqFor([], [0]) }),
+      "warnings",
+    );
+    const text = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).textContent ?? "";
+    expect(text).toContain("…");
+    expect(text.length).toBeLessThan(long.length);
+  });
+});
+
+describe("whole-diff P0: the ignored control targets the store its ignore lives in", () => {
+  const W: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized field.",
+    rawSnippet: "Hotel notes | double occupancy",
+  };
+
+  test("a LINKED row's STAGED ignore routes Un-ignore to the staged action, not the slug route", async () => {
+    // The row reads as a show row (it gained one via a concurrent finalize), but this
+    // dismissal lives in the staged column. Routing by linkage sent it to the slug
+    // route, which deletes nothing and still answers `unignored`, so the operator got
+    // "Warning restored" and the warning stayed hidden.
+    const d = sectionData(
+      { warnings: [W] },
+      {
+        row: stagedRow(buildParseResult({ warnings: [W] }), {
+          linkedShowRef: { id: "show-1", slug: "east-coast-2026" },
+        }),
+        dq: {
+          target: { kind: "show" as const, slug: "east-coast-2026", showId: "show-1" },
+          model: {
+            active: [],
+            ignored: [{ index: 0, reportSurfaceId: "sid-0", ignoreOrigin: "staged" as const }],
+          },
+        },
+      },
+    );
+    const calls: Array<{ action: string }> = [];
+    stagedIgnoreImpl.current = async () => {
+      calls.push({ action: "staged" });
+      return { ok: true, state: "unignored" };
+    };
+    const fetchMock = vi.fn(async () => {
+      calls.push({ action: "fetch" });
+      return { ok: true, json: async () => ({ status: "unignored" }) } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const q = renderBody(d, "warnings");
+    const list = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`);
+    fireEvent.click(within(list).getByRole("button", { name: /un-ignore/i }));
+    await waitFor(() => expect(calls.length).toBe(1));
+
+    // THE assertion: the staged action, not the slug route. The slug route would delete
+    // nothing from the staged column and still answer `unignored`.
+    expect(calls[0]?.action).toBe("staged");
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+    stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
+  });
+
+  test("a LINKED row's DURABLE ignore keeps the show target", async () => {
+    const d = sectionData(
+      { warnings: [W] },
+      {
+        row: stagedRow(buildParseResult({ warnings: [W] }), {
+          linkedShowRef: { id: "show-1", slug: "east-coast-2026" },
+        }),
+        dq: {
+          target: { kind: "show" as const, slug: "east-coast-2026", showId: "show-1" },
+          model: {
+            active: [],
+            ignored: [{ index: 0, reportSurfaceId: "sid-0", ignoreOrigin: "show" as const }],
+          },
+        },
+      },
+    );
+    const calls: string[] = [];
+    stagedIgnoreImpl.current = async () => {
+      calls.push("staged");
+      return { ok: true, state: "unignored" };
+    };
+    const fetchMock = vi.fn(async (url: unknown) => {
+      calls.push(String(url));
+      return { ok: true, json: async () => ({ status: "unignored" }) } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const q = renderBody(d, "warnings");
+    fireEvent.click(
+      within(q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`)).getByRole("button", {
+        name: /un-ignore/i,
+      }),
+    );
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]).toBe("/api/admin/show/east-coast-2026/data-quality/unignore");
+    vi.unstubAllGlobals();
+    stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
   });
 });

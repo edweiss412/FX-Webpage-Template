@@ -103,9 +103,9 @@ export const CENSUS: readonly CensusRow[] = [
   // import to this file. The ELEMENT is untouched: same `<Link>`, same `border-text-faint`.
   { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 257 },
   // spec §4.2 row 16
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 790 },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 797 },
   // spec §4.2 row 17
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 876 },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 883 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
@@ -126,7 +126,24 @@ export const CENSUS: readonly CensusRow[] = [
   // edit moves these rows exactly as a code edit does, which is the whole hazard of keying by line.
   // LOCATED by the `<button>` opener itself both times, per the instruction two comments up, never
   // by adding a delta.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4472 },
+  //
+  // Then 4472 -> 4672 on the wizard-ignore merge. BOTH parents moved this row — main to 4472 for
+  // the tile-chrome comment growth, this branch to 4655 for the warnings panel's partition block,
+  // dq controls and Ignored (N) disclosure — so NEITHER parent's number describes the merged tree,
+  // which is the third time this row has hit that exact situation. Resolved the way the two notes
+  // above prescribe and the way the 6441d5e4c merge did: by locating the `<button>` opener on the
+  // MERGED file, never by adding the two sides' deltas.
+  //
+  // Then 4687 -> 4684 on the 2026-08-29 three-way absorb of #940/#941/#942. Same method, and this
+  // time with a second discriminator, because the file now holds TWO elements carrying
+  // `aria-expanded={expanded}` — the agenda `show-all` toggle at 3600 and this one. The anchor text
+  // alone would have been ambiguous; the row was resolved by running the scanner and matching
+  // `data-testid={`wizard-step3-card-${dfid}-report-toggle`}`, which is unique.
+  // Then 4684 -> 4697 on the R1 repair commit. Same `wizard-step3-card-${dfid}-report-toggle`
+  // testid on the merged tree, located by running the scanner.
+  // Then 4697 -> 4703 on the R2 repair (the reportShowId prop and its comment).
+  // Same report-toggle testid, located by the scanner.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4703 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -139,8 +156,18 @@ export const CENSUS: readonly CensusRow[] = [
   // `<button>` openers themselves (4438 and 4495), then confirmed by the scanner —
   // not by adding the two sides' deltas, which is what put them 5 lines short.
   // Then 4512 -> 4528, then 4528 -> 4529 on 2026-08-28, same causes and same method as the row
-  // above.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4529 },
+  // above. Then 4529 -> 4744 on the wizard-ignore merge, both parents having moved it, located on
+  // the merged file by its own `<button>` opener — same cause and same method as row 18. (This
+  // note read 4729 until 2026-08-29; the ROW was always 4744 and the guards were green on it, so
+  // the stale number was in the prose only. Recorded rather than quietly overwritten, because a
+  // comment trail that can drift from its own row is worth knowing about.)
+  //
+  // Then 4744 -> 4741 on the 2026-08-29 three-way absorb of #940/#941/#942, located by the
+  // `disabled={draft.trim()...}` opener on the merged file.
+  // Then 4741 -> 4754 on the R1 repair commit, located by its own
+  // `disabled={draft.trim()...}` opener.
+  // Then 4754 -> 4760 on the R2 repair, same `disabled={draft.trim()...}` opener.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4760 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
@@ -205,8 +232,8 @@ export const CENSUS: readonly CensusRow[] = [
   // :814 / :993 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
   // :815 / :994 until 2026-08-27 — the attentionJump effect gained the
   // details-opening loop (spec §4.4), 11 lines above both.
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 826 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1005 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 838 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1019 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
   { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1083 },

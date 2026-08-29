@@ -41,6 +41,7 @@ const stagedFor = (title: string, stagedId: string): StagedPreviewForRow => ({
   agendaStateKey: "k",
   lastFinalizeFailureCode: null,
   useRawDecisions: [],
+  ignoredWarnings: null,
 });
 
 describe("assembleStep3Row (mechanical extraction of the OnboardingWizard loop body)", () => {
@@ -125,5 +126,110 @@ describe("assembleStep3Row (mechanical extraction of the OnboardingWizard loop b
     );
     expect(row.sessionLinked).toBe(true);
     expect(row.linkedShow).toEqual({ published: true, archived: false });
+  });
+});
+
+/**
+ * wizard-warning-ignore-controls spec §2.1 Phase A — Task 3.
+ *
+ * The enrichment pass (Phase B) forks on `linkedShowRef`: present means the row
+ * reads durable ignores through the slug-keyed routes, absent means it reads the
+ * staged column. A candidate whose `slug` is missing must therefore degrade to
+ * the staged arm rather than mint a route target that 404s (spec §3, the
+ * "candidate without a usable string slug" guard row).
+ */
+describe("assembleStep3Row — linked-show identity capture (§2.1 Phase A)", () => {
+  const candidate = (over: Record<string, unknown> = {}) => ({
+    id: "show-1",
+    drive_file_id: "dfid-1",
+    published: true,
+    archived: false,
+    wizard_created_session_id: "s1",
+    slug: "east-coast-2026",
+    ...over,
+  });
+
+  test("session-provenance branch captures the winning candidate's id and slug", () => {
+    const row = assembleStep3Row(
+      mani({ wizard_session_id: null, created_show_id: "show-1" }),
+      null,
+      [candidate()],
+      undefined,
+      undefined,
+      "s1",
+    );
+    expect(row.sessionLinked).toBe(true);
+    expect(row.linkedShowRef).toEqual({ id: "show-1", slug: "east-coast-2026" });
+  });
+
+  test("existing-show branch captures the same identity", () => {
+    const row = assembleStep3Row(
+      mani({ created_show_id: null }),
+      null,
+      [candidate({ id: "show-2", wizard_created_session_id: "some-other-session", slug: "rpas" })],
+      undefined,
+      undefined,
+      "s1",
+    );
+    expect(row.sessionLinked).toBe(false);
+    expect(row.linkedShowRef).toEqual({ id: "show-2", slug: "rpas" });
+  });
+
+  test.each([
+    ["null slug", { slug: null }],
+    ["missing slug", { slug: undefined }],
+    ["empty slug", { slug: "" }],
+    ["whitespace-only slug", { slug: "   " }],
+    ["non-string slug", { slug: 7 as unknown as string }],
+  ])("a matched candidate with a %s yields no linkedShowRef", (_label, over) => {
+    const row = assembleStep3Row(
+      mani({ wizard_session_id: null, created_show_id: "show-1" }),
+      null,
+      [candidate(over)],
+      undefined,
+      undefined,
+      "s1",
+    );
+    // The candidate still WON resolution — the row is linked, only the ref is absent.
+    expect(row.linkedShow).toEqual({ published: true, archived: false });
+    expect(row.linkedShowRef ?? null).toBeNull();
+  });
+
+  test("no matching candidate yields no linkedShowRef", () => {
+    const row = assembleStep3Row(mani({}), null, [], undefined, undefined, "s1");
+    expect(row.linkedShow).toBeNull();
+    expect(row.linkedShowRef ?? null).toBeNull();
+  });
+});
+
+describe("assembleStep3Row — staged ignored_warnings pass-through (§2.1 Phase B input)", () => {
+  const RAW = [{ fingerprint: "x", code: "C", ignored_by: "a@b.c" }];
+
+  test("a clean row carries the raw column value through untouched", () => {
+    const staged = stagedFor("Parsed Title", "st-1");
+    const row = assembleStep3Row(
+      mani({}),
+      null,
+      [],
+      { ...staged, ignoredWarnings: RAW },
+      undefined,
+      "s1",
+    );
+    // Reference identity: the assembly must NOT normalize here — normalization is
+    // enrichment's job (Task 4), and a copy made at this hop could drift from it.
+    expect(row.stagedIgnoredWarnings).toBe(RAW);
+  });
+
+  test("a malformed column value passes through un-coerced (no throw at this hop)", () => {
+    const staged = stagedFor("Parsed Title", "st-1");
+    const row = assembleStep3Row(
+      mani({}),
+      null,
+      [],
+      { ...staged, ignoredWarnings: "not-an-array" },
+      undefined,
+      "s1",
+    );
+    expect(row.stagedIgnoredWarnings).toBe("not-an-array");
   });
 });

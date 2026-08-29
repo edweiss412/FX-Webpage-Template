@@ -408,6 +408,20 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "setStagedUseRawDecisionAction",
     code: "USE_RAW_DECISION_CLEARED",
   },
+  // Wizard staged per-warning ignore (spec 2026-08-28-wizard-warning-ignore-controls
+  // §2.6). One action with an `action` discriminator emitting BOTH directions' forensic
+  // codes, so — like the use-raw pair above — it is registered TWICE, one row per code.
+  // Emits are POST-COMMIT, outside the advisory-lock tx (invariant 2/10).
+  {
+    file: "app/admin/onboarding/_actions/stagedWarningIgnore.ts",
+    fn: "setStagedWarningIgnore",
+    code: "STAGED_WARNING_IGNORED",
+  },
+  {
+    file: "app/admin/onboarding/_actions/stagedWarningIgnore.ts",
+    fn: "setStagedWarningIgnore",
+    code: "STAGED_WARNING_UNIGNORED",
+  },
   // Sheet-changes feed accept pair (spec 2026-07-15 §3): per-show Accept /
   // Accept-all. Same CHANGES_ACKNOWLEDGED code as the dashboard strip; sources
   // admin.show.feed.accept / admin.show.feed.acceptAll. Emits are POST-COMMIT,
@@ -590,6 +604,14 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // flow into NEW_FORENSIC_CODES via spread.
   "DEV_SCENARIO_APPLIED",
   "DEV_SCENARIO_CLEARED",
+  // Wizard staged per-warning ignore (spec 2026-08-28-wizard-warning-ignore-controls
+  // §2.6): forensic outcome codes for the one staged ignore action, which emits each
+  // code on its own committed-mutation branch (action === "ignore" ? IGNORED :
+  // UNIGNORED), so each is used by ≥1 AUDITABLE_MUTATIONS row (Assertion 3).
+  // §12.4-exempt (logAdminOutcome-stamped -> stripped from the producer scan); flow
+  // into NEW_FORENSIC_CODES via spread.
+  "STAGED_WARNING_IGNORED",
+  "STAGED_WARNING_UNIGNORED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

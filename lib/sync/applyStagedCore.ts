@@ -15,6 +15,7 @@ import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import type { PullSheetOverride } from "@/lib/sync/pullSheetOverride";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import type { StagedIgnoreEntry } from "@/lib/admin/wizardWarningModel";
 import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
 
 /**
@@ -458,6 +459,12 @@ export type ApplyStagedCoreArgs = {
   // pending_syncs.use_raw_decisions by each caller. Forwarded to runPhase2, which runs the overlay.
   // Absent → the overlay is a no-op ([]).
   useRawDecisions?: UseRawDecision[];
+  // wizard-warning-ignore-controls §2.7: staged ignore decisions read from
+  // pending_syncs.ignored_warnings (live-partition:n/a — doc reference, no statement;
+  // the read is the finalize route's, the write is phase 2's) on the first-seen path,
+  // or out of the shadow payload
+  // (existing-show path). Forwarded to runPhase2, which makes them durable. Absent → none.
+  stagedIgnoredWarnings?: StagedIgnoreEntry[];
   // §6.2: the global role-mapping vocabulary (normalized), forwarded to runPhase2's overlay so
   // recognized tokens auto-apply on the staged apply. Absent → overlay no-op ([]).
   roleTokenMappings?: RoleTokenMapping[];
@@ -612,6 +619,8 @@ export async function applyStagedCore(
     ...(args.mi11Items.length > 0 ? { mi11Items: args.mi11Items } : {}),
     // Task 6: forward the staged "use raw" decisions to runPhase2's overlay (staged finalize path).
     ...(args.useRawDecisions ? { useRawDecisions: args.useRawDecisions } : {}),
+    // §2.7: forward the staged ignore decisions to the phase-2 carry.
+    ...(args.stagedIgnoredWarnings ? { stagedIgnoredWarnings: args.stagedIgnoredWarnings } : {}),
     // §6.2/§10: forward the global role mappings + prior parse warnings to runPhase2's overlay + gate.
     // no-telemetry: ROLE_TOKEN_MAPPED for the staged surface is emitted POST-COMMIT by the applyStaged
     // tail (applyStaged.ts, outside the lock tx per invariant 10) from coreResult.appliedRoleMappings.

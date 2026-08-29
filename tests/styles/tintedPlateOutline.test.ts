@@ -153,12 +153,19 @@ const REGISTRY: readonly RegistryRow[] = [
   {
     file: "components/admin/DataQualityWarningControls.tsx",
     anchor: "const PLATE",
-    window: 8,
+    window: 14,
     plate: "warning-bg",
     carries: TINTED,
     invisibleBecause:
-      "the ring-offset is a Record indexed by the `mode` prop, so the scanner resolves no plate string for the element. The outline joins that same record rather than the shared NEUTRAL_BTN, because `ignored` cards are surface-sunken and already clear.",
-    neutralFaintCount: 1,
+      "the ring-offset is a Record indexed by the resolved GROUND, so the scanner resolves no plate string for the element. The outline joins that same record rather than the shared NEUTRAL_BTN, because the `surface-sunken` and `surface` grounds already clear.",
+    // 1 -> 2 (2026-08-28, wizard-warning-ignore-controls, impeccable critique P1). The
+    // record gained a third ground: the wizard panel card is `bg-surface`, which is
+    // neither published card tone, and keying the plate on `mode` was a proxy for the
+    // ground that held only while every mount was a published card. The new entry is a
+    // NEUTRAL ground, so it takes `border-text-faint` by the same contrast argument the
+    // existing `surface-sunken` entry does — the tinted token stays for tinted plates.
+    // `window` grew with the record.
+    neutralFaintCount: 2,
   },
   {
     file: "components/admin/wizard/archivedTabOffer.tsx",

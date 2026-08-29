@@ -14,6 +14,7 @@
  * (step3SectionStatus.ts `sectionStatus`) uses the broader ALL-warn universe, so a
  * row can be judgment at the summary while one of its sections is flagged.
  */
+import type { WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 import {
   GAP_CLASSES,
@@ -32,6 +33,12 @@ import { isWarnSeverity } from "@/lib/parser/dataGaps";
 export type Step3RowLike = {
   parseResult?: { show?: unknown; warnings?: unknown } | null;
   lastFinalizeFailureCode?: string | null;
+  /** wizard-warning-ignore-controls §2.4: the row's active/ignored partition. When
+   *  present, every derivation below reads the ACTIVE side — otherwise the card
+   *  chrome contradicts the panel under it, wearing a "needs a look" border over a
+   *  list showing nothing to look at. Absent on every published and standalone row,
+   *  where all of this behaves exactly as it always has. */
+  warningModel?: WizardWarningModel;
 };
 
 // Local, dependency-free `Array.isArray` coercion (mirrors step3ReviewSections
@@ -44,9 +51,28 @@ const arr = <T>(value: T[] | null | undefined): T[] => (Array.isArray(value) ? v
  * `rowNeedsLook` / the card `needsLook` consume today).
  */
 function gapWarnings(row: Step3RowLike): ParseWarning[] {
-  return stripLegacyUnknownFieldAnchors(
-    arr((row.parseResult as ParseResult | null | undefined)?.warnings),
-  );
+  const all = arr((row.parseResult as ParseResult | null | undefined)?.warnings);
+  const ignored = row.warningModel?.ignored;
+  // Filter BEFORE stripping. Model indices address the RAW warnings array, and
+  // `stripLegacyUnknownFieldAnchors` can drop entries — so stripping first would
+  // renumber the array under the indices and silently exclude the wrong warning.
+  const active =
+    ignored && ignored.length > 0
+      ? all.filter((_, index) => !ignored.some((item) => item.index === index))
+      : all;
+  return stripLegacyUnknownFieldAnchors(active);
+}
+
+/**
+ * The row's ACTIVE gap-universe warnings — `gapWarnings` under its public name.
+ *
+ * Exported for the ONE row-level consumer that sits outside the accessor: the card's
+ * data-gap glyph, which called `summarizeDataGaps` on a raw array
+ * (`components/admin/wizard/Step3SheetCard.tsx`). Every other row-level derivation
+ * already routes through `gapWarnings`, so this is the whole remaining surface.
+ */
+export function activeGapWarnings(row: Step3RowLike): ParseWarning[] {
+  return gapWarnings(row);
 }
 
 /**

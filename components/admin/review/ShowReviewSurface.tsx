@@ -39,7 +39,8 @@ import {
   type RefObject,
 } from "react";
 import type { LucideIcon } from "lucide-react";
-import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
+import { activeWarningEntries, ignoredWarningIndices } from "@/lib/admin/activeWarningEntries";
+import { sectionStatus, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
 import {
@@ -279,9 +280,16 @@ export function ShowReviewSurface({
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
   // warnings-array position — the §E4 jump-target key). The §7.1 section-status
   // split reads from THIS map so flags and callouts can never disagree.
+  // §2.4 choke point 2: every consumer of this map — the section dots, both rails,
+  // and the staged callouts with their overflow line — inherits the ACTIVE partition
+  // from here, so none of them re-derives ignore state on its own.
+  const ignoredIndices = useMemo(
+    () => ignoredWarningIndices(isStaged(data) ? data.dq : undefined),
+    [data],
+  );
   const bySection = useMemo(
-    () => warningsBySection(data.warnings, new Set(sections.map((s) => s.id))),
-    [sections, data.warnings],
+    () => activeWarningEntries(data.warnings, new Set(sections.map((s) => s.id)), ignoredIndices),
+    [sections, data.warnings, ignoredIndices],
   );
   // §7.1 (spec 2026-07-07): each section carrying warnings is either flagged
   // (≥1 NON-ambiguity warn) or judgment (≥1 warn, ALL ambiguity-class) — mutually
@@ -340,8 +348,12 @@ export function ShowReviewSurface({
       // and those warnings already light their own sections' dots via `flagged`.
       return routedWarnings.here > 0;
     }
-    return data.warnings.some(isWarnSeverity);
-  }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere]);
+    // §2.4: "any ACTIVE warn entry", not any warn entry — a dot over a panel whose
+    // rows the operator has all dismissed is the chrome-contradicts-the-list defect.
+    return data.warnings.some(
+      (w, index) => isWarnSeverity(w) && !(ignoredIndices?.has(index) ?? false),
+    );
+  }, [data.warnings, routedWarnings, routedWarningsRenderElsewhere, ignoredIndices]);
 
   // Combined rail order (spec §5): Overview (extraSectionsBefore), the registry
   // sections, then Changes (extraSectionsAfter) — in the SAME order they mount in
@@ -858,12 +870,14 @@ export function ShowReviewSurface({
 
   return (
     <Step3RunStateContext.Provider value={{ isPublishRunActive }}>
-      {/* Announcer spec 2026-07-22 §2.2: real announce only on the published
-          surface (same gate as the region); the wizard keeps the no-op
-          default so producers mounted there announce nothing. */}
-      <WarningAnnounceContext.Provider
-        value={routedWarningsRenderElsewhere ? announceCtx : NOOP_WARNING_ANNOUNCE}
-      >
+      {/* Announcer spec 2026-07-22 §2.2 gave real announce to the published surface
+          only, because the wizard mounted no control that changed anything. The wizard
+          panel now has Ignore and Un-ignore (wizard-warning-ignore-controls §2.5), so a
+          silent state change there is an a11y defect and §1.1.2 supersedes that clause
+          deliberately. Every surface mount gets the real context; a control mounted
+          OUTSIDE this provider — a standalone harness — still gets the no-op default
+          from the context itself, which is the part §2.5 keeps. */}
+      <WarningAnnounceContext.Provider value={announceCtx}>
         <div
           data-testid={`wizard-step3-card-${dfid}-review-main`}
           className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
@@ -1180,8 +1194,12 @@ export function ShowReviewSurface({
                   whole container), additions announced, removals not.
                   Children are append-only; existing entry text NEVER
                   mutates (spec §2.6). */}
+                  {/* §2.5: mounted on staged surfaces too. Widening the provider alone
+                      would hand producers a real `announce` with no region to write
+                      into — the announcement would go nowhere while every assertion
+                      about the context still passed. */}
                   {/* §11: instant — deliberate (sr-only additions; no visual transition; spec §2.6) */}
-                  {s.id === "warnings" && routedWarningsRenderElsewhere ? (
+                  {s.id === "warnings" ? (
                     <AnnounceLogRegion
                       entries={announceLog}
                       label="Warning updates"

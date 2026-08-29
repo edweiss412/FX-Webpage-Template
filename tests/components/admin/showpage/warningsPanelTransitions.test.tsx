@@ -157,8 +157,30 @@ describe("transition audit: nothing in the four-state path animates", () => {
     // — added by warning-trim un-defer §2.3 — the published-vs-wizard `count`
     // expression on the BreakdownSection. All are content facts of one render
     // (instant; §2.6 precedent). 1 `&&`: the parse-notes null check.
+    //
+    // 6 -> 9 ternaries and 1 -> 2 guards, added by wizard-warning-ignore-controls §2.3.
+    // Enumerated rather than bumped, because "the count moved" is the only thing this
+    // assertion can say and the reader needs to know WHICH branches moved it:
+    //   +1  `dq ? pick(dq.model.active) : …`   — active list vs the unpartitioned rows
+    //   +1  `dq ? pick(dq.model.ignored) : []` — the ignored list
+    //   +1  `allRows.length > 0 ? clean : empty` — all-ignored vs genuinely no warnings
+    //   +1 `&&` in `item.index >= 0 && item.index < allRows.length` — the defensive
+    //      re-join bound, spec §3's out-of-range row. LEFT AGAIN at whole-diff R2: the
+    //      R1 P1 repair moved that bound out of this region into
+    //      `reconcileWizardWarningItems` on the model, because the rail needed to count
+    //      the same reconciled items the panel renders and a filter spelled inside one
+    //      local closure could not reach it. So guards go 2 -> 1 here. The branch did
+    //      not disappear, it moved to where both callers can share it, which is the
+    //      whole point of that repair — and this audit only ever claimed that nothing
+    //      in THIS region introduces cross-render state.
+    //   +1  `dq ? <focus anchor> : null` — the sr-only `tabIndex={-1}` target the
+    //       controls hand focus to before a refresh unmounts them (impeccable critique
+    //       P0). It renders nothing and has no state of its own.
+    // Every one is a content fact of a single render, decided from props the server
+    // already computed. None introduces a state that persists across renders, so none
+    // can animate — which is what this audit is actually asserting.
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
-      ternaries: 6,
+      ternaries: 10,
       ifs: 0,
       guards: 1,
     });

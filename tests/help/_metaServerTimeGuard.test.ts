@@ -129,10 +129,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // files import DIRECTLY at runtime. Depth 1, not the transitive closure: a
   // module a rendered file imports directly is on the render path, while one
   // four hops behind it is in the same module graph for reasons that have
-  // nothing to do with rendering. Measured -- depth 1 is 215 lib files and 13
-  // violations, unbounded is 396 and 31, the whole directory is 532 and 55; all
-  // three reach the survivor, and every violation unbounded depth adds sits in a
-  // module whose only app/ importers are under app/api/** or a cron path.
+  // nothing to do with rendering. Measured ONCE, 2026-08-27, to settle the depth:
+  // depth 1 was 215 lib files and 13 violations, unbounded 396 and 31, the whole
+  // directory 532 and 55; all three reach the survivor, and every violation
+  // unbounded depth adds sits in a module whose only app/ importers are under
+  // app/api/** or a cron path. Those are a dated comparison of three walks, not a
+  // claim about today's tree -- the live depth-1 count is the assertion below, and
+  // it has moved since (219 as of the 2026-08-29 three-way merge).
   const libFiles = deriveImportedLibFiles(allFiles);
   const libViolations = findViolations(libFiles);
 
@@ -180,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 214 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 219 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -212,27 +215,41 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // as well as counted, per the note above: a count alone cannot say WHICH
     // member joined, and it passes just as happily on a swap.
     expect(rel).toContain("lib/admin/warningAttention.ts");
-    // 215 -> 216 (2026-08-28): lib/admin/escapeClaim.ts, the published review
-    // modal's consumed-key decision. It lives in lib rather than inline in the
-    // component because the branch it decides is reachable only in a state jsdom
-    // cannot stage, so the decision is tested directly instead of through a proxy.
-    // Named as well as counted, for the reason above.
-    expect(rel).toContain("lib/admin/escapeClaim.ts");
-    // 216 -> 215 (2026-08-29, MERGE of two concurrent population changes):
-    // `lib/layout/fitWithinClip.ts` LEFT as `lib/admin/escapeClaim.ts` joined.
-    // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW deleted
-    // `components/admin/useFitWithinClip.ts`, its only depth-1 importer under
-    // components/ or app/admin/. The module is NOT retired — `lib/popover/place.ts`
-    // still imports `MIN_FITTED_HEIGHT` from it — it is simply no longer reachable
-    // at depth 1.
+    // 215 -> 219 (2026-08-29, MERGE of three concurrent population changes).
+    // The number below is RE-DERIVED against the merged tree, never added up from
+    // the diffs -- which matters most where the arithmetic looks easy: the other
+    // parent's two moves happen to cancel (escapeClaim.ts joined, fitWithinClip.ts
+    // left), so a reader adding up its net would conclude nothing of that branch
+    // survived here. Both of its moves are real and both are named below. Every
+    // arrival and every departure is named as well as counted, because a bare count
+    // cannot tell "one left and one joined" from "nothing changed".
     //
-    // BOTH branches moved this count from 215, one up and one down, and the union
-    // happens to land back on 215. The number is therefore NOT arithmetic from the
-    // two diffs — it was re-derived against the merged tree, and both the arrival
-    // and the DEPARTURE are named, because a bare count cannot distinguish "one
-    // left and one joined" from "nothing changed".
+    // Joined, from wizard-warning-ignore-controls — four, of which only three are
+    // new files, which is exactly why this block names members instead of trusting
+    // the count. The fourth, lib/admin/loadIgnoredWarnings.ts, already existed and
+    // joined because a RENDERED file (OnboardingWizard) now imports it directly for
+    // the first time.
+    expect(rel).toContain("lib/admin/wizardWarningModel.ts");
+    expect(rel).toContain("lib/admin/enrichStep3WarningModels.ts");
+    expect(rel).toContain("lib/admin/activeWarningEntries.ts");
+    expect(rel).toContain("lib/admin/loadIgnoredWarnings.ts");
+    // That arc's own fourth new module, lib/sync/carryStagedIgnoredWarnings.ts, is
+    // deliberately ABSENT: it is reached only from the finalize / phase-2 path, which
+    // is not on the render walk. That is the depth-1 rule working, not an omission,
+    // and it is asserted so a later widening cannot pull it in unnoticed.
+    expect(rel).not.toContain("lib/sync/carryStagedIgnoredWarnings.ts");
+    // Joined, from published-escape-consumed-claim: lib/admin/escapeClaim.ts, the
+    // published review modal's consumed-key decision. It lives in lib rather than
+    // inline in the component because the branch it decides is reachable only in a
+    // state jsdom cannot stage, so the decision is tested directly, not by proxy.
+    expect(rel).toContain("lib/admin/escapeClaim.ts");
+    // LEFT, from attention-panel-left-overflow-narrow: it deleted
+    // components/admin/useFitWithinClip.ts, the only depth-1 importer of
+    // lib/layout/fitWithinClip.ts under components/ or app/admin/. That module is
+    // NOT retired — lib/popover/place.ts still imports MIN_FITTED_HEIGHT from it —
+    // it is simply no longer reachable at depth 1.
     expect(rel).not.toContain("lib/layout/fitWithinClip.ts");
-    expect(rel.length).toBe(215);
+    expect(rel.length).toBe(219);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

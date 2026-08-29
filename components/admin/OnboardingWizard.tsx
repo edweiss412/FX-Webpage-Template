@@ -40,6 +40,8 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { enrichStep3WarningModels } from "@/lib/admin/enrichStep3WarningModels";
+import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
 import {
   assembleStep3Row,
   type PendingSyncRowForBuild,
@@ -377,7 +379,9 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const { data, error } = await supabase
       .from("pending_syncs")
       .select(
-        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items, use_raw_decisions, pull_sheet_override",
+        // `ignored_warnings` (wizard-warning-ignore-controls §2.1) is the FIRST-SEEN
+        // row's ignore store — read here, never re-queried downstream.
+        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items, use_raw_decisions, pull_sheet_override, ignored_warnings",
       )
       .eq("wizard_session_id", wizardSessionId);
     if (error) {
@@ -428,7 +432,9 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
         // backfill (owner decision 2026-07-06) — the finalize batch deletes the
         // pending_syncs parse preview, so the live show is the only source left.
         .select(
-          "id, drive_file_id, published, archived, wizard_created_session_id, title, client_label, venue, dates",
+          // `slug` (wizard-warning-ignore-controls §2.1 Phase A) is the LINKED row's
+          // report scope + ignore-route key.
+          "id, drive_file_id, published, archived, wizard_created_session_id, title, client_label, venue, dates, slug",
         )
         .in("drive_file_id", driveFileIds);
       if (error) {
@@ -453,6 +459,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       published: s.published === true,
       archived: s.archived === true,
       wizard_created_session_id: (s.wizard_created_session_id as string | null) ?? null,
+      slug: (s.slug as string | null) ?? null,
       title: (s.title as string | null) ?? null,
       clientLabel: (s.client_label as string | null) ?? null,
       venue: s.venue ?? null,
@@ -486,6 +493,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       agendaStateKey: string;
       lastFinalizeFailureCode: string | null;
       useRawDecisions: UseRawDecision[];
+      ignoredWarnings: unknown;
     }
   >();
   for (const ps of pendingSyncsRows) {
@@ -531,6 +539,8 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       // spec §8/§9a: staged use-raw decisions (jsonb) read through the single
       // normalize boundary; the wizard judgment callout renders the toggle from these.
       useRawDecisions: normalizeUseRawDecisions(ps.use_raw_decisions ?? null),
+      // wizard-warning-ignore-controls §2.1: raw jsonb, coerced once in enrichment.
+      ignoredWarnings: ps.ignored_warnings,
     });
   }
 
@@ -578,7 +588,14 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   const finishable =
     rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status) && !r.lastFinalizeFailureCode);
 
-  return { kind: "ok", rows, finishable };
+  // wizard-warning-ignore-controls §2.1 Phase B: attach each reviewable row's
+  // active/ignored warning partition. LINKED rows read the durable show-keyed table
+  // through `loadIgnoredWarnings`; FIRST-SEEN rows read the column already selected
+  // above and issue no query. A read fault renders every warning active (§1.1.7), so
+  // this pass can degrade the partition but never the step-3 render.
+  const enriched = await enrichStep3WarningModels(rows, loadIgnoredWarnings);
+
+  return { kind: "ok", rows: enriched, finishable };
 }
 
 async function Step3Container({

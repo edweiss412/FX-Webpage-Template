@@ -205,7 +205,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     file: "components/admin/wizard/Step3ReviewModal.tsx",
     // :783 until 2026-08-27 — the attention pill's state block and its effects
     // (spec §3.2/§3.5) sit above the resolution radios.
-    line: 972,
+    line: 979,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -314,7 +314,18 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the live unclassified site is 3904, and 3904 is that same `<a>`.
     // Then 3904 -> 3909 when the announce-log import block landed. Located again: 3909 is
     // that same `<a>`.
-    line: 3909,
+    // Then 3909 -> 4124 when the wizard-ignore arc added the panel's active/ignored
+    // partition and its Ignored (N) disclosure above this component. Located on the live
+    // tree by running the scanner, not by adding a delta: 4124 is that same `<a>`. (This
+    // note read 3998 -> 4002 until 2026-08-29 while the ROW was 4124 and the guard was
+    // green on it, so the stale pair was in the prose only — same drift as controlOutlineScan
+    // row 19, and recorded for the same reason.)
+    // Then 4124 -> 4121 on the 2026-08-29 three-way absorb of #940/#941/#942. The scanner
+    // on the merged tree reports exactly one unclassified site in this file, 4121, and it
+    // is that same `<a>`.
+    // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
+    // 4134 -> 4140 on the R2 repair; same `<a>`, located by the scanner.
+    line: 4140,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -456,10 +467,24 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/DataQualityWarningControls.tsx",
-    line: 110,
+    // 110 -> 189 when the wizard-ignore arc added the discriminated `target` type and
+    // split the run path into its two backend arms above this button. Same `<button>`,
+    // same computed-member className, same reason — confirmed by its own
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` on the live tree. (This note read
+    // 149 while the row was 189; fourth and last of the comment-trail drifts the
+    // 2026-08-29 sweep found. This one is in a file the merge never touched, which is how
+    // we know the class predates the absorb rather than being caused by it.)
+    // 189 -> 215 on the R1 repair commit: the both-store clear added the `alsoClear`
+    // prop and its comment above this button, and prettier then reflowed the JSX. Same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>, located on the tree as
+    // it stands AFTER formatting — measuring before the formatter runs is measuring a
+    // file nobody ships.
+    // 215 -> 239 on the R2 repair: the reportShowId prop and its doc comment landed
+    // above this button. Same `data-testid={`dq-${action}-${reportSurfaceId}`}`.
+    line: 239,
     tag: "button",
     category: "unresolvable-dynamic",
-    reason: "`${NEUTRAL_BTN} ${RING_OFFSET[mode]}` — computed member access in the template.",
+    reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",
   },
   {
     file: "components/admin/HoverHelp.tsx",

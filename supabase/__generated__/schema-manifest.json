@@ -306,6 +306,7 @@
     "base_modified_time",
     "drive_file_id",
     "id",
+    "ignored_warnings",
     "last_finalize_failure_code",
     "parse_result",
     "parsed_at",

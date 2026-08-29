@@ -203,3 +203,95 @@ describe("§7.1 asymmetry: same row is judgment while its section is flagged", (
     expect(sectionStatus(warnings)).toBe("flagged");
   });
 });
+
+// ── wizard-warning-ignore-controls spec §2.4 choke point 1 — Task 10 ───────────
+//
+// Every row-level bucket derivation already routes through the single private
+// accessor `gapWarnings`. Teaching THAT one function about the ignored partition
+// makes the card border, the Review/View label, the judgment chip and both summary
+// counts active-aware at once — no per-surface edit, and no surface left behind.
+//
+// The failure this prevents is chrome contradicting the list under it: an operator
+// dismisses the only gap warning, the panel shows nothing needing a look, and the
+// card still wears its amber "needs a look" border.
+
+describe("gapWarnings reads the ACTIVE partition (§2.4 choke point 1)", () => {
+  /** Two non-ambiguity gap warnings; index 0 ignored, index 1 active. */
+  const TWO_GAPS = [w(NON_AMBIGUITY_GAP), w(NON_AMBIGUITY_GAP)];
+  const IGNORE_FIRST = {
+    active: [{ index: 1, reportSurfaceId: "sid-1" }],
+    ignored: [{ index: 0, reportSurfaceId: "sid-0" }],
+  };
+
+  test("nonAmbiguityGapTotal drops exactly the ignored row's contribution", () => {
+    const withoutModel = nonAmbiguityGapTotal(row(TWO_GAPS));
+    const withModel = nonAmbiguityGapTotal(row(TWO_GAPS, { warningModel: IGNORE_FIRST }));
+    // Both numbers derive from the fixture: two gap warnings, one ignored.
+    expect(withoutModel).toBe(TWO_GAPS.length);
+    expect(withModel).toBe(TWO_GAPS.length - IGNORE_FIRST.ignored.length);
+  });
+
+  test("an ABSENT model leaves every number byte-identical (published and standalone)", () => {
+    // The regression pin. `gapWarnings` is on the path of every wizard card and both
+    // summary counts, so a model-less row must behave exactly as it always has.
+    for (const warnings of [
+      [w(NON_AMBIGUITY_GAP)],
+      [w(AMBIGUITY_GAP)],
+      [w(NON_GAP_WARN)],
+      [w(NON_AMBIGUITY_GAP), w(AMBIGUITY_GAP), w(NON_GAP_WARN, "info")],
+      [],
+    ]) {
+      // The key is OMITTED, not set to undefined: exactOptionalPropertyTypes, and
+      // omission is the shape a published or standalone row actually has.
+      expect(nonAmbiguityGapTotal(row(warnings))).toBe(nonAmbiguityGapTotal(row(warnings, {})));
+    }
+  });
+
+  test("rowIsJudgment flips when the only non-ambiguity warn is ignored", () => {
+    // Needs-look outranks judgment, so with the gap ACTIVE this row is needs-look and
+    // NOT judgment. Ignoring it demotes the row to judgment on the surviving ambiguity
+    // warning — a precedence change, not just a smaller number.
+    const warnings = [w(NON_AMBIGUITY_GAP), w(AMBIGUITY_GAP)];
+    const active = row(warnings);
+    expect(rowNeedsLookPure(active)).toBe(true);
+    expect(rowIsJudgment(active)).toBe(false);
+
+    const ignoredGap = row(warnings, {
+      warningModel: {
+        active: [{ index: 1, reportSurfaceId: "sid-1" }],
+        ignored: [{ index: 0, reportSurfaceId: "sid-0" }],
+      },
+    });
+    expect(rowNeedsLookPure(ignoredGap)).toBe(false);
+    expect(rowIsJudgment(ignoredGap)).toBe(true);
+  });
+
+  test("deriveStep3Buckets counts follow the partition", () => {
+    const warnings = [w(NON_AMBIGUITY_GAP), w(AMBIGUITY_GAP)];
+    const before = deriveStep3Buckets([row(warnings)]);
+    expect(before).toMatchObject({ needsLook: 1, judgment: 0, clean: 0 });
+
+    const after = deriveStep3Buckets([
+      row(warnings, {
+        warningModel: {
+          active: [{ index: 1, reportSurfaceId: "sid-1" }],
+          ignored: [{ index: 0, reportSurfaceId: "sid-0" }],
+        },
+      }),
+    ]);
+    expect(after).toMatchObject({ needsLook: 0, judgment: 1, clean: 0 });
+  });
+
+  test("an out-of-range ignored index is ignored rather than dropping a live warning", () => {
+    // A model built against a longer array. Skipping the bad index must not shift the
+    // remaining ones, or the wrong warning silently stops counting.
+    const warnings = [w(NON_AMBIGUITY_GAP)];
+    expect(
+      nonAmbiguityGapTotal(
+        row(warnings, {
+          warningModel: { active: [], ignored: [{ index: 9, reportSurfaceId: "sid-9" }] },
+        }),
+      ),
+    ).toBe(1);
+  });
+});
