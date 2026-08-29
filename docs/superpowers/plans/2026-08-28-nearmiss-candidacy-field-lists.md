@@ -167,7 +167,7 @@ Round 4 is the one that settles it. `tests/mutation/_metaPremiseContract.test.ts
 
 **The only scope that is not a claim is the whole suite.** Task 2's marker command is therefore `pnpm heavy pnpm test`. There is no larger scope left to be wrong about, which is what makes it terminating rather than merely bigger. The heavy wrapper is mandatory for a full vitest run per the machine-wide slot rule.
 
-Iterate however you like while implementing — a scoped run is fine and fast (`tests/parser` is 152 files, 2887 tests, 13.5s at head) — but what the marker PINS, and what green means for this task, is the full suite. A scoped green is a progress signal, never the completion criterion.
+Iterate however you like while implementing — a scoped run is fine and fast (`pnpm exec vitest run tests/parser` reports its own file and test counts; measured 152 files / 2887 tests / 13.5s at the arc head, and this task's own cases move both numbers, which is why the command is cited rather than its output) — but what the marker PINS, and what green means for this task, is the full suite. A scoped green is a progress signal, never the completion criterion.
 
 Text search is retired entirely as an enumeration method, for a reason this arc measured three separate ways: a dependency can live in test SOURCE, in a committed FIXTURE, or in a COMPACT SIGNATURE inside that fixture. `venueSignalParity` stores its entries as compact signatures of the form R-colon-namespace-pipe-label-x-count, which defeats a source grep and a fixture grep alike; only flattening the JSON found it. Three representations, three misses.
 
