@@ -41,24 +41,46 @@ this arc: on a refutation record the terminating repair is fewer claims.
 So the script is DELETED, and the criteria below are only those a SHIPPED guard decides. Each names
 that guard.
 
-- **AC-1:** `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` is archived, its `IN PROGRESS` and `Branch:`
-  fields come off in the SAME commit, and the archived section names the branch that resolved it.
-  **Decided by** `tests/docs/_metaDeferralLedgerGraduation.test.ts` (archive-only membership plus
-  heading-anchored provenance) with `tests/docs/_metaLedgerInProgress.test.ts` and
+- **AC-1:** `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` ends in `BACKLOG-archive.md` and not in
+  `BACKLOG.md`, the archived entry carries no `IN PROGRESS` text, and its section names the branch that
+  resolved it. **Decided by** `tests/docs/_metaDeferralLedgerGraduation.test.ts` (archive-only
+  membership plus heading-anchored provenance), with `tests/docs/_metaLedgerInProgress.test.ts` and
   `tests/docs/_metaLedgerReferentialIntegrity.test.ts`.
 - **AC-2:** the spec has an index row under `docs/superpowers/specs/ci/`.
   **Decided by** `tests/docs/specsReadmeIndexParity.test.ts`, which has exact parity semantics.
-- **AC-3:** the review-round filing declares its own round count per stage, carries `**Examined:**`,
-  and its `Mechanizable:` entry carries a `declined:` reason. The plan stage's rounds are recorded
-  alongside the spec stage's.
+- **AC-3:** the review-round filing declares its own per-stage round count and carries `**Examined:**`
+  and a disposition. The plan stage's rounds are recorded alongside the spec stage's.
   **Decided by** `tests/docs/_metaReviewRoundEconomy.test.ts`.
-- **AC-4:** the plan's fenced snippets satisfy the corpus fence rules.
-  **Decided by** `tests/docs/_metaPlanSnippetFences.test.ts`, which walks `docs/superpowers/plans`
-  from disk.
-- **AC-5:** the row's `Facing` and `Mint-exception` fields survive the archive move.
-  **Decided by** `tests/docs/_metaLedgerMintBar.test.ts`.
-- **AC-6:** the closeout marker is well-formed.
-  **Decided by** `tests/docs/_metaInvariant8Closeout.test.ts`.
+- **AC-4:** if this plan carries fenced snippets, they satisfy the corpus fence rules.
+  **Decided by** `tests/docs/_metaPlanSnippetFences.test.ts`, which walks `docs/superpowers/plans` from
+  disk.
+- **AC-5:** the closeout marker is well-formed.
+  **Decided by** `tests/docs/_metaInvariant8Closeout.test.ts`. (Kept: the round-4 subtraction dropped
+  this one by accident while removing the vacuous mint-bar criterion. A shipped guard does decide it,
+  so it belongs — subtraction is for claims nothing decides, not for claims that hold.)
+
+### What the named guards do NOT decide, stated because three drafts implied they did
+
+Plan review round 4 found four criteria claiming more than their guard delivers. Each is corrected
+above by describing the guard accurately; what is left over is recorded here rather than given a new
+checker, for the reason the next section gives.
+
+- **Same-commit atomicity is not machine-decided.** The graduation guard and the in-progress guard
+  inspect FINAL STATE only, so two commits producing the same tree pass identically. Invariant 12's
+  same-commit rule is therefore an authoring discipline this arc follows and the PR's commit history
+  shows, not something these suites verify. AC-1 above no longer claims otherwise.
+- **`Mechanizable: none` is legal without a `declined:` reason.** The economy guard accepts it; its own
+  passing plant at `tests/docs/_metaReviewRoundEconomy.test.ts:679` confirms. This arc's filing carries
+  a `declined:` reason because the entry is not `none`, which is the arc's choice rather than the
+  guard's requirement, and AC-3 no longer states it as one.
+- **The mint bar leaves the row's jurisdiction the moment it is archived.** That guard deliberately
+  scans open ledgers only (`BACKLOG.md`, `DEFERRED.md`). It decides the row's `Facing` and
+  `Mint-exception` fields while the row is OPEN and says nothing after the move, so the former AC-5 was
+  vacuous as a post-archive criterion and is **deleted** rather than reworded.
+- **AC-4 passes vacuously today.** The shipped analyzer reports zero fenced blocks in this plan: the
+  one fenced block an earlier draft carried was the hand-rolled archive check that round 3 deleted. The
+  guard stays in the inventory because it walks the plans tree from disk and would cover this file the
+  moment a fence is added, which is coverage by construction rather than a criterion being met now.
 
 ### Deliberately NOT acceptance criteria
 
@@ -126,13 +148,16 @@ see the subtraction note above.
 
 | criterion | command |
 | --- | --- |
-| AC-1 | `pnpm vitest run --no-file-parallelism tests/docs/_metaDeferralLedgerGraduation.test.ts tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` (run one at a time) |
+| AC-1 | `pnpm vitest run --no-file-parallelism tests/docs/_metaDeferralLedgerGraduation.test.ts`, then the same for `_metaLedgerInProgress` and `_metaLedgerReferentialIntegrity` |
 | AC-2 | `pnpm vitest run --no-file-parallelism tests/docs/specsReadmeIndexParity.test.ts` |
 | AC-3 | `pnpm vitest run --no-file-parallelism tests/docs/_metaReviewRoundEconomy.test.ts` |
 | AC-4 | `pnpm vitest run --no-file-parallelism tests/docs/_metaPlanSnippetFences.test.ts` |
-| AC-5 | `pnpm vitest run --no-file-parallelism tests/docs/_metaLedgerMintBar.test.ts` |
-| AC-6 | `pnpm vitest run --no-file-parallelism tests/docs/_metaInvariant8Closeout.test.ts` |
+| AC-5 | `pnpm vitest run --no-file-parallelism tests/docs/_metaInvariant8Closeout.test.ts` |
 | all | `pnpm spec:lint` on the spec and this plan; `pnpm typecheck`; `pnpm format:check` |
+
+`_metaLedgerMintBar` remains in the inventory below because the diff is subject to it; it is not
+listed here because, per the section above, it leaves the row's jurisdiction at the archive move and so
+no post-move criterion can rest on it.
 
 ### Meta-test inventory
 
