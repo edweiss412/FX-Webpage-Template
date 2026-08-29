@@ -253,8 +253,36 @@ function rawRefCells(buffer: ArrayBuffer): string[] {
   }
   return out;
 }
+const DIR = join(process.cwd(), "fixtures/shows/exporter-xlsx");
+/** gid per tab = its index in SheetNames, the convention `buildWorkbook` and `attachWarningAnchors`'s resolver share in these suites. */
+function gidsFor(buffer: ArrayBuffer): Map<string, number> {
+  return new Map(XLSX.read(buffer, { type: "array" }).SheetNames.map((name, i) => [name, i] as const));
+}
 /** Edit one cell of a committed workbook and re-serialize (one ordinary edit away from the corpus). */
-function editCell(buffer: ArrayBuffer, tab: string, a1: string, text: string): ArrayBuffer { /* XLSX.read, set cell {t:"s",v:text}, XLSX.write to ArrayBuffer */ }
+function editCell(buffer: ArrayBuffer, tab: string, a1: string, text: string): ArrayBuffer {
+  const wb = XLSX.read(buffer, { type: "array" });
+  const sh = wb.Sheets[tab];
+  if (!sh) throw new Error(`no tab ${tab}`);
+  sh[a1] = { t: "s", v: text };
+  const at = XLSX.utils.decode_cell(a1);
+  const r = XLSX.utils.decode_range(sh["!ref"] ?? a1);
+  r.s.r = Math.min(r.s.r, at.r); r.s.c = Math.min(r.s.c, at.c); r.e.r = Math.max(r.e.r, at.r); r.e.c = Math.max(r.e.c, at.c);
+  sh["!ref"] = XLSX.utils.encode_range(r);
+  return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+}
+/** Fan a merged top-left cell out across its merge's columns on the top row, as the exporter's `expandMerges` does. */
+function expandMerged(buffer: ArrayBuffer, cells: string[]): string[] {
+  const wb = XLSX.read(buffer, { type: "array" });
+  return cells.flatMap((ref) => {
+    const [tab, a1] = ref.split("!") as [string, string];
+    const at = XLSX.utils.decode_cell(a1);
+    const m = (wb.Sheets[tab]?.["!merges"] ?? []).find((mr) => mr.s.r === at.r && mr.s.c === at.c);
+    if (!m) return [ref];
+    const out: string[] = [];
+    for (let c = m.s.c; c <= m.e.c; c++) out.push(`${tab}!${XLSX.utils.encode_cell({ r: at.r, c })}`);
+    return out;
+  });
+}
 function parseAndSites(buffer: ArrayBuffer, gids: Map<string, number>, opts?: SynthOpts) {
   const { markdown } = synthesizeMarkdownFromXlsx(buffer, opts);
   const warnings = parseSheet(markdown, "probe.xlsx").warnings;
@@ -439,7 +467,7 @@ Run the task command: PASS, every case. Then `pnpm typecheck`.
 
 What is red and why: `attachSourceCellAnchors` has no branch for the three codes (`showDayTimeAnchors.ts:145-199`), so every positive assertion below reads `undefined`.
 
-- [ ] **Step 1: RED.** First the T3 suite, waveCodeAnchors.resolution.test.ts under `tests/drive/` (imports: `describe`, `it`, `expect` from `vitest`; `readFileSync` from `node:fs`; `join` from `node:path`; `* as XLSX` from `xlsx`; `synthesizeMarkdownFromXlsx` from `@/lib/drive/exportSheetToMarkdown`; `parseSheet` from `@/lib/parser`; `attachWarningAnchors` from `@/lib/sync/attachWarningAnchors`; `SOURCE_LINK_ALLOWLIST`, `buildSheetDeepLink` from `@/lib/sheet-links/buildSheetDeepLink`; `WAVE_CODES`, `extractWaveCodeSites` from `@/lib/drive/waveCodeAnchors`; `premiseHolds` from `@/tests/_shared/premise`; `fixtureBuffer`, `gidsFor` and `rawRefCells` copied from the Task 3 suite, or imported if Task 3 exported them, with a comment naming the source):
+- [ ] **Step 1: RED.** First the T3 suite, waveCodeAnchors.resolution.test.ts under `tests/drive/` (imports: `describe`, `it`, `expect` from `vitest`; `readFileSync` from `node:fs`; `join` from `node:path`; `* as XLSX` from `xlsx`; `synthesizeMarkdownFromXlsx` from `@/lib/drive/exportSheetToMarkdown`; `parseSheet` from `@/lib/parser`; `attachWarningAnchors` from `@/lib/sync/attachWarningAnchors`; `SOURCE_LINK_ALLOWLIST`, `buildSheetDeepLink` from `@/lib/sheet-links/buildSheetDeepLink`; `WAVE_CODES`, `extractWaveCodeSites` from `@/lib/drive/waveCodeAnchors`; `premise`, `premiseHolds` from `@/tests/_shared/premise`; `fixtureBuffer`, `gidsFor`, `rawRefCells` and `expandMerged` copied from the Task 3 suite, or imported if Task 3 exported them, with a comment naming the source):
 
 ```ts
 describe("T3 the dispatching workbook, through attachWarningAnchors", () => {
@@ -459,8 +487,29 @@ describe("T3 the dispatching workbook, through attachWarningAnchors", () => {
       expect(buildSheetDeepLink("DF", w.sourceCell)).toBe(`https://docs.google.com/spreadsheets/d/DF/edit#gid=${w.sourceCell!.gid}&range=${w.sourceCell!.a1}`);
     }
   });
-  it("consultants.xlsx: six REF warnings, AGENDA rows 3 and 4, columns A through C (merge fan-out, spec §1.1)", async () => { /* same shape; expected from rawRefCells expanded by the merge ranges read from sh["!merges"] */ });
-  it("east-coast.xlsx: no wave warnings, no sites", () => { /* sites.length === 0 and no wave code in warnings */ });
+  it("consultants.xlsx: six REF warnings, AGENDA rows 3 and 4, columns A through C (merge fan-out, spec §1.1)", async () => {
+    const buffer = fixtureBuffer("fixtures/shows/exporter-xlsx/consultants.xlsx");
+    const gids = gidsFor(buffer);
+    const { markdown } = synthesizeMarkdownFromXlsx(buffer);
+    const warnings = parseSheet(markdown, "consultants.xlsx").warnings;
+    await attachWarningAnchors(warnings, buffer, () => Promise.resolve(gids));
+    const refs = warnings.filter((w) => w.code === "REF_ERROR_LITERAL");
+    const raw = rawRefCells(buffer);
+    const expected = expandMerged(buffer, raw); // A3 and A4 each fan out across their merge's three columns
+    premiseHolds("two raw #REF! cells, each merged three wide (spec §1 table)", raw.length === 2 && expected.length === 6);
+    expect(expected).toEqual(["AGENDA!A3", "AGENDA!B3", "AGENDA!C3", "AGENDA!A4", "AGENDA!B4", "AGENDA!C4"]); // the spec §1 table, so the derived list and the measured one must agree
+    expect(refs.map((w) => `${w.sourceCell?.title}!${w.sourceCell?.a1}`)).toEqual(expected);
+    for (const w of refs) expect(w.sourceCell?.scope).toBe("cell");
+  });
+  it("east-coast.xlsx: no wave warnings, no sites", () => {
+    const buffer = fixtureBuffer("fixtures/shows/exporter-xlsx/east-coast.xlsx");
+    const gids = gidsFor(buffer);
+    const { markdown } = synthesizeMarkdownFromXlsx(buffer);
+    const warnings = parseSheet(markdown, "east-coast.xlsx").warnings;
+    premise("east-coast parses with some warnings, so an empty wave filter is a selection, not an empty parse", warnings.length, 0);
+    expect(warnings.filter((w) => (WAVE_CODES as readonly string[]).includes(w.code))).toEqual([]);
+    expect(extractWaveCodeSites(buffer, gids)).toEqual([]);
+  });
 });
 ```
 
@@ -474,7 +523,19 @@ for (const code of WAVE_CODES) {
     attachSourceCellAnchors(warnings, { ...sources, wave: { [code]: [cell("A1"), cell("B7")] } });
     expect(warnings.map((w) => w.sourceCell)).toEqual([cell("A1"), cell("B7")]);
   });
-  it(`${code}: with no wave family, crew stays undefined and agenda/pull_sheet get the region (ratified fallback)`, () => { /* the two arms of the deleted file, verbatim */ });
+  it(`${code}: with no wave family, a crew-kind warning stays undefined (the deleted file's first arm)`, () => {
+    expect(OPERATOR_ACTIONABLE_ANCHORED.has(code), `${code} in the anchored set`).toBe(true);
+    const warnings = [warn(code, "crew")];
+    attachSourceCellAnchors(warnings, sources);
+    expect(warnings[0]!.sourceCell, `${code} must stay link-less`).toBeUndefined();
+  });
+  it(`${code}: with no wave family, agenda and pull_sheet get the region (the ratified fallback, the deleted file's second arm)`, () => {
+    for (const kind of ["agenda", "pull_sheet"] as const) {
+      const warnings = [warn(code, kind)];
+      attachSourceCellAnchors(warnings, sources);
+      expect(warnings[0]!.sourceCell, `${code}/${kind}`).toEqual(sources.region[KIND_TO_REGION_UNDER_TEST[kind]]);
+    }
+  });
   it(`${code}: a paired null falls through to the region fallback for kind agenda`, () => {
     const warnings = [warn(code, "agenda")];
     attachSourceCellAnchors(warnings, { ...sources, wave: { [code]: [null] } });
@@ -488,7 +549,7 @@ for (const code of WAVE_CODES) {
 }
 ```
 
-(`warn(code, kind)` builds `{ severity: "warn", code, message: "m", blockRef: { kind, name: "Alice", iso: "2026-06-24" }, rawSnippet: "| Alice | A1 | 08:00 |" } as ParseWarning`, the deleted file's shape. The "shorter array" case pins the cursor's bounds; `pairWaveCodeSites` never produces one, but the router must not trust that.)
+(`warn(code, kind)` builds `{ severity: "warn", code, message: "m", blockRef: { kind, name: "Alice", iso: "2026-06-24" }, rawSnippet: "| Alice | A1 | 08:00 |" } as ParseWarning`, the deleted file's shape; `KIND_TO_REGION_UNDER_TEST` is the deleted file's local copy of the mapping (`tests/parser/waveCodesNoSourceCell.test.ts:77`), kept local so the suite pins the mapping it depends on. The "shorter array" case pins the cursor's bounds; `pairWaveCodeSites` never produces one, but the router must not trust that.)
 
 The grain pin (spec §2.1 "Assignment never demotes", T5), derived over `CELL_ANCHORED_CODES`:
 
@@ -630,22 +691,27 @@ Opus-only (UI). What is red and why: neither component renders a cell line; the 
 
 - [ ] **Step 1: RED.** Cases per spec §5 T6 and §10. Wizard (`tests/components/step3SheetCard.test.tsx`; imports: `type SourceAnchor` from `@/lib/sheet-links/buildSheetDeepLink`, and `ParseWarning` added to the file's `@/lib/parser/types` type import at `tests/components/step3SheetCard.test.tsx:21-28`), eight cases over one warning at index 0, `REF_ERROR_LITERAL`, severity `warn`, message `m`:
 
-```ts
+```tsx
+// Inside the §4.3 breakdown describe (the one titled with the component name and the section number) (`tests/components/step3SheetCard.test.tsx:551`), which owns `expand`.
 function refWarning(sourceCell: SourceAnchor | null): ParseWarning { // never ParseWarning["sourceCell"]: that includes undefined, which exactOptionalPropertyTypes refuses on a present optional property (the R1 review's sixth finding)
   return { severity: "warn", code: "REF_ERROR_LITERAL", message: "m", blockRef: { kind: "section" }, rawSnippet: "\\#REF\\!", sourceCell };
 }
-function cellLineText(q: ReturnType<typeof render>, i: number): string | null {
-  const el = q.queryByTestId(`wizard-step3-card-${DFID}-warning-${i}-cell`);
+/** Render the card and open the review modal: the warning rows live inside it and nothing in the list is queryable before "More" (the R3 review's third finding). */
+function renderExpanded(warnings: ParseWarning[]) {
+  const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings }))} wizardSessionId={WSID} />);
+  return within(expand(q));
+}
+function cellLineText(region: ReturnType<typeof within>, i: number): string | null {
+  const el = region.queryByTestId(`wizard-step3-card-${DFID}-warning-${i}-cell`);
   if (!el) return null;
-  const clone = el.cloneNode(true) as HTMLElement; // the -open link is a SIBLING, not a child; clone anyway and assert no anchor inside
-  expect(clone.querySelector("a")).toBeNull();
-  return clone.textContent;
+  expect(el.querySelector("a")).toBeNull(); // the -open link is a sibling, never inside the line
+  return el.textContent;
 }
 test("scope cell: renders Sheet cell VENUE!A1 with the value in its own mono span", () => {
-  const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [refWarning({ title: "VENUE", gid: 5, a1: "A1", scope: "cell" })] }))} wizardSessionId={WSID} />);
-  expect(cellLineText(q, 0)).toBe("Sheet cell VENUE!A1");
-  expect(q.getByTestId(`wizard-step3-card-${DFID}-warning-0-cell-value`).textContent).toBe("VENUE!A1");
-  expect(q.getByTestId(`wizard-step3-card-${DFID}-warning-0-open`).getAttribute("href")).toContain("range=A1");
+  const region = renderExpanded([refWarning({ title: "VENUE", gid: 5, a1: "A1", scope: "cell" })]);
+  expect(cellLineText(region, 0)).toBe("Sheet cell VENUE!A1");
+  expect(region.getByTestId(`wizard-step3-card-${DFID}-warning-0-cell-value`).textContent).toBe("VENUE!A1");
+  expect(region.getByTestId(`wizard-step3-card-${DFID}-warning-0-open`).getAttribute("href")).toContain("range=A1");
 });
 test.each([
   ["scope tab", { title: "VENUE", gid: 5, scope: "tab" as const }],
@@ -655,17 +721,52 @@ test.each([
   ["blank a1", { title: "VENUE", gid: 5, a1: "  ", scope: "cell" as const }],
   ["blank title", { title: " ", gid: 5, a1: "A1", scope: "cell" as const }],
 ])("no cell line for %s", (_, sc) => {
-  const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [refWarning(sc)] }))} wizardSessionId={WSID} />);
-  expect(q.queryByTestId(`wizard-step3-card-${DFID}-warning-0-cell`)).toBeNull();
+  const region = renderExpanded([refWarning(sc)]);
+  // Premise: the row itself is mounted (its catalog copy names #REF!), so the absence below is the line's, not the list's.
+  expect(region.queryAllByText(/#REF!/).length).toBeGreaterThan(0);
+  expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-0-cell`)).toBeNull();
 });
-test("UNKNOWN_FIELD with a Sheet row label renders the label and never the cell line", () => { /* warning with rawSnippet "Backdrop | " and a scope-cell anchor: -label present, -cell absent */ });
+test("UNKNOWN_FIELD with a Sheet row label renders the label and never the cell line", () => {
+  const w: ParseWarning = {
+    severity: "warn", code: "UNKNOWN_FIELD", message: "m",
+    blockRef: { kind: "crew", name: "Backdrop" }, rawSnippet: "Backdrop | ",
+    sourceCell: { title: "INFO", gid: 0, a1: "C4", scope: "cell" },
+  };
+  const region = renderExpanded([w]);
+  expect(region.getByTestId(`wizard-step3-card-${DFID}-warning-0-label`).textContent).toContain("Backdrop");
+  expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-0-cell`)).toBeNull(); // rowLabel wins: dropping the `rowLabel === null` conjunct fails here
+});
 ```
 
-(The warning rows live inside the review modal: the existing `-open` cases at `tests/components/step3SheetCard.test.tsx:646-672` render the card, then query through `const region = within(expand(q))`, the file's `expand` helper, which is a function local to its describe (`tests/components/step3SheetCard.test.tsx:552`, again at `tests/components/step3SheetCard.test.tsx:1013`), so the new cases go inside a describe that defines it or define their own two-line copy. Every case above queries `region`, not `q`, the same way.)
+(Placement: inside the §4.3 breakdown describe (the one titled with the component name and the section number) at `tests/components/step3SheetCard.test.tsx:551`, which owns `expand` (`tests/components/step3SheetCard.test.tsx:552-557`: click `-more`, return the `-review-content` pane), the way the existing `-open` cases at `tests/components/step3SheetCard.test.tsx:648-672` query `within(expand(q))`. The negative cases premise that the row mounted before asserting the line is absent, so an unmounted list cannot pass them.)
 
 Published, in `tests/admin/perShowActionableRenderControls.test.tsx` (the suite the task command names; no new sibling, so RED and GREEN run the same command, the R2 review's fourth finding; imports: `type SourceAnchor` from `@/lib/sheet-links/buildSheetDeepLink`): the same eight cases against `per-show-actionable-cell` / `per-show-actionable-cell-value` with `render(<PerShowActionableWarnings items={[w]} driveFileId="df" />)`, and the scope-cell case repeated with `condensed` (the line renders in both modes). Clone-and-strip the `Open in Sheet` anchor before reading the item's text where the assertion is on the item rather than the span.
 
-Transitions: `tests/components/step3SheetCard.transitions.test.tsx` gains one case: render with the null anchor, `rerender` with the scope-cell anchor, `rerender` with null; after each, the `-cell` element is present / absent synchronously (no `waitFor`) and, when present, has no ancestor with a `data-motion` attribute. `tests/admin/perShowActionableTransitions.test.tsx` (imports: `type SourceAnchor` from `@/lib/sheet-links/buildSheetDeepLink`): `warn` (`tests/admin/perShowActionableTransitions.test.tsx:88-93`) gains a third parameter `sourceCell?: SourceAnchor`, spread the way `autocorrect` is (`...(sourceCell ? { sourceCell } : {})`); EVERY `VARIANTS` member gains `sourceCell: null` and a new member `H: { code: "SYN_H", guidance: false, trigger: false, note: false, sourceCell: CELL }` with `const CELL: SourceAnchor = { title: "VENUE", gid: 5, a1: "A1", scope: "cell" }`, and the `satisfies` record type gains `sourceCell: SourceAnchor | null` (every member carries it: the file's own rule at `tests/admin/perShowActionableTransitions.test.tsx:101-102`, a field absent from one member is TS2339 on the union); `itemsFor` becomes `warn(VARIANTS[v].code, v === "G" ? AUTOCORRECT : undefined, VARIANTS[v].sourceCell ?? undefined)`; `expectVariant` adds `expect(!!screen.queryByTestId("per-show-actionable-cell"), `${v} cell line`).toBe(VARIANTS[v].sourceCell !== null)`. The existing every-ordered-pair loop then covers C0↔C1 in both directions (the R1 review's seventh finding: without the `warn` forward, `H` rendered no anchor and the expectation stayed red).
+Transitions: `tests/components/step3SheetCard.transitions.test.tsx` (imports: `type SourceAnchor` from `@/lib/sheet-links/buildSheetDeepLink`, `type ParseWarning` added to its `@/lib/parser/types` import) gains one case inside its §4.5 describe:
+
+```tsx
+it("the cell line mounts and unmounts instantly with the anchor (C0 to C1 and back, spec §10)", () => {
+  const dfid = "df-tr-cell";
+  const row = (sc: SourceAnchor | null): Step3Row => ({
+    ...stagedRow(dfid, "Tr"),
+    parseResult: {
+      ...parseResult("Tr"),
+      warnings: [{ severity: "warn", code: "REF_ERROR_LITERAL", message: "m", blockRef: { kind: "section" }, rawSnippet: "\\#REF\\!", sourceCell: sc } satisfies ParseWarning],
+    } as unknown as ParseResult,
+  });
+  const { getByTestId, queryByTestId, rerender } = render(<Step3SheetCard row={row(null)} wizardSessionId={WSID} />);
+  fireEvent.click(getByTestId(`wizard-step3-card-${dfid}-more`)); // open the review modal once; rerenders keep component state, so it stays open
+  const id = `wizard-step3-card-${dfid}-warning-0-cell`;
+  expect(queryByTestId(id)).toBeNull();
+  rerender(<Step3SheetCard row={row({ title: "VENUE", gid: 5, a1: "A1", scope: "cell" })} wizardSessionId={WSID} />);
+  const el = getByTestId(id); // synchronous, no waitFor: the span is a bare conditional
+  expect(el.closest("[data-motion]")).toBeNull();
+  rerender(<Step3SheetCard row={row(null)} wizardSessionId={WSID} />);
+  expect(queryByTestId(id)).toBeNull();
+});
+```
+
+(If the modal needs more of `parseResult` than `show` to render its warnings list, build the row from the §4.3 suite's `parseResult(overrides)` fixture shape, `tests/components/step3SheetCard.test.tsx:134`, instead of this file's title-only one.) `tests/admin/perShowActionableTransitions.test.tsx` (imports: `type SourceAnchor` from `@/lib/sheet-links/buildSheetDeepLink`): `warn` (`tests/admin/perShowActionableTransitions.test.tsx:88-93`) gains a third parameter `sourceCell?: SourceAnchor`, spread the way `autocorrect` is (`...(sourceCell ? { sourceCell } : {})`); EVERY `VARIANTS` member gains `sourceCell: null` and a new member `H: { code: "SYN_H", guidance: false, trigger: false, note: false, sourceCell: CELL }` with `const CELL: SourceAnchor = { title: "VENUE", gid: 5, a1: "A1", scope: "cell" }`, and the `satisfies` record type gains `sourceCell: SourceAnchor | null` (every member carries it: the file's own rule at `tests/admin/perShowActionableTransitions.test.tsx:101-102`, a field absent from one member is TS2339 on the union); `itemsFor` becomes `warn(VARIANTS[v].code, v === "G" ? AUTOCORRECT : undefined, VARIANTS[v].sourceCell ?? undefined)`; `expectVariant` adds `expect(!!screen.queryByTestId("per-show-actionable-cell"), `${v} cell line`).toBe(VARIANTS[v].sourceCell !== null)`. The existing every-ordered-pair loop then covers C0↔C1 in both directions (the R1 review's seventh finding: without the `warn` forward, `H` rendered no anchor and the expectation stayed red).
 
 Run the task command (DB-free). Expected: every positive case fails on a null test id; negatives pass (vacuously, which is why the positives exist).
 
@@ -712,7 +813,7 @@ Run the task command: PASS. Pre-dispatch mutants (writing-plans rule, all four f
 - [ ] **Step 4: Unchanged-set check (AC-5).** `git diff origin/main...HEAD -- lib/parser/dataGaps.ts lib/sheet-links/buildSheetDeepLink.ts lib/messages tests/parser/_warningCodeAnchor.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` shows only the `scope` doc-comment hunk in `buildSheetDeepLink.ts`; paste the `--stat` in the sibling.
 - [ ] **Step 5: Suites, local.** DB-free half of the unit suite locally (`pnpm heavy pnpm test:fast` if it stays DB-free on this tree; else the scoped list of every suite this plan touches plus `tests/drive tests/parser tests/sheet-links tests/components tests/admin`), then the pre-push set from `.github/workflows/quality.yml`. Ask bl-orch for the DB slot before `pnpm heavy pnpm test`.
 - [ ] **Step 6: Push and open the PR.** `git push -u origin feat/ref-error-cell-anchors`; open the PR (body: the spec link, the sibling link, the preflight declaration, the round counts so far). This push is what Steps 7 and 8 measure: `gh workflow run --ref` resolves the branch on origin, and the validation preview builds from the pushed head, so a dispatch or a live check before the push measures the plan-only head (the R2 review's sixth and seventh findings).
-- [ ] **Step 7: Mutation harness on the pushed head (AC-2).** The parser mutation harness does NOT run on pull requests (`.github/workflows/mutation-harness.yml:75`, the parser jobs skip `pull_request`; the PR path filter names no parser module, §3): `gh workflow run mutation-harness.yml --ref feat/ref-error-cell-anchors`, pin the run id from `gh run list --workflow mutation-harness.yml --branch feat/ref-error-cell-anchors --limit 1`, confirm its head sha equals the pushed head, wait for it (`gh run watch <id>`), and compare its `parser-shards` and `parser-gates` job summaries to main's latest scheduled run on the same shards (`gh run list --workflow mutation-harness.yml --branch main --event schedule --limit 1`); record the run id, its head sha and both numbers in the sibling. A red or absent run is no comparison: AC-2 is undischarged until both numbers exist.
+- [ ] **Step 7: Mutation harness on the pushed head (AC-2).** The parser mutation harness does NOT run on pull requests (`.github/workflows/mutation-harness.yml:75`, the parser jobs skip `pull_request`; the PR path filter names no parser module, §3): `gh workflow run mutation-harness.yml --ref feat/ref-error-cell-anchors`, pin the run id from `gh run list --workflow mutation-harness.yml --branch feat/ref-error-cell-anchors --limit 1`, confirm its head sha equals the pushed head, wait for it (`gh run watch <id>`), and read the nine parser jobs' conclusions (`parser-shards` ×8, `parser-gates`; `gh run view <id> --json jobs`). The score IS the ledger reconciliation each shard suite performs (`tests/parser/mutationHarness.shard0.test.ts`, the `slice alarms == ledger slice` case: `newHoles`, `fixedHoles`, `driftedAlarms`, `noOps`, `cosmeticViolations` all `[]`), so nine green jobs on the pushed head is "score unchanged" (AC-2), and a red shard names the moved sites in its assertion message. Record in the sibling: the run id, its head sha, the nine conclusions, and the eight `[mutation shard i/8] DONE …` lines (`gh run view <id> --log | grep 'mutation shard'`, emitted at `tests/parser/mutation/runShard.ts:139`). A red, cancelled or absent run is no evidence: AC-2 is undischarged until the nine conclusions exist (the R3 review's fifth finding: the harness has no per-run score to compare against main, the ledger is the comparison).
 - [ ] **Step 8: Live check on the preview of the pushed head (AC-1, second half).** Once the validation deploy has this branch's preview and bl-orch has granted the DB slot, rescan `II - FinTech Forum CTO Summit 2026` in the wizard and record that the five rows carry `Open in Sheet` and `Sheet cell <TAB>!A1`; paste the observed five coordinates and the preview's head sha in the sibling. This half of AC-1 has no fixture substitute: if the preview or the slot is not reachable, set the marker's `blockedOn` to that, send bl-orch the ask, and hold; the arc is not READY until the five live coordinates are in the sibling.
 - [ ] **Step 9: Commit the evidence.** Commit the sibling (§12 dispositions and marker, the Step 4 stat, the Step 7 numbers, the Step 8 coordinates) and push. The branch now holds everything that merges except the corpus rows Step 10's dispatches write.
 - [ ] **Step 10: Whole-diff adversarial review** via codex-guard, `--stage diff --round 1`, on the tree at the Step 9 head; brief with `GUARD SURFACE: none in this diff, CANNOT-EXPRESS: resolvers, decided by the T1 replay-equals-parse suite and the T3/T4 resolution cases` (spec §6), the consequence bound / probe domain / threat fence from the spec review brief, REVIEWER ONLY, fresh eyes, the §1.1 do-not-relitigate list, `FINDINGS:` and `VERDICT:` terminal lines. Iterate to APPROVE within the four-round cap; commit each round's JSONL rows. Ordering rule, so the reviewed diff is the merging diff ("review covers what merges", `docs/agents/writing-plans.md:32`) without the literal reading the 2026-08-18 orchestrator ruling overrode (the wrapper appends a corpus row to `docs/review-rounds/**` inside the reviewed tree on every dispatch, so no review can be literally last on this repo): after the final APPROVE the only commits are corpus rows under `docs/review-rounds/**`. A repair a round demands is committed, re-run from Step 5 (and Step 2 if it touches Task 5 files, Step 7 if it touches `lib/`), pushed, re-recorded in the sibling where a number moved, and re-reviewed in the next round.
