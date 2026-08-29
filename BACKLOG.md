@@ -8,18 +8,6 @@ Last reconciled: 2026-08-22 — `docs/derived-numbers-provenance` graduated `BL-
 
 ---
 
-## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements
-
-**Status:** IN PROGRESS · **Branch:** fix/diagram-tile-chrome-consistency · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
-
-The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-cover` on the image (`components/diagrams/Gallery.tsx:351`). The admin wizard tile puts `rounded-md border border-text-faint bg-surface-sunken` on the `<img>` and leaves the anchor carrying only `relative` and its aspect box (`components/admin/wizard/step3ReviewSections.tsx`). Two arrangements for one visual idiom across the two diagram surfaces.
-
-**It is cosmetic, and that is measured rather than assumed.** `perf/admin-diagram-next-image` tried the move and ran it as a mutant: with the border on the anchor instead of the image, the whole real-browser layout suite passed, 44 of 44, including the geometry row. With no border on the anchor its padding box IS its border box, so a `fill` image insets to the same rectangle either way. An earlier justification claiming the move was required by that insetting is disproved and must not be revived.
-
-**Why it is a row and not a rider.** That arc is a `next/image` adoption, and the image change demonstrably does not require the move. Taking it would also move the tile's `<img>` out of the painted-child family counted by `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` §15 table 3 — spending a ratified design claim on a preference a perf arc picked up in passing. The honest home is the UI polish class sweep, where the same question can be asked of every surface that has a bordered thumbnail rather than of one.
-
-**Done condition:** one arrangement across both diagram surfaces, with §15 table 3's family membership re-derived and the count updated in the same change rather than left to drift.
-
 ## BL-BARE-TYPEOF-STRING-ID-GUARDS — an empty string passes as a usable id at 12 of 27 id-like guards
 
 **Status:** OPEN · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`, class sweep; owner-directed by bl-orch, which is the scheduling decision) · **Facing:** product · **Severity:** MEDIUM (auth and visibility surfaces are among the sites; an empty share token or viewer id is a security-posture question, not tooling hygiene) · **Class:** input validation · **Effort:** M · **Class-sweep exception:** (c) — a repair spanning auth, visibility and notify is a different blast radius from the diagram tile this arc opened, and an admin-diagram arc must not rewrite share-token validation under review pressure. · **Reachability:** INFERRED, NOT PROBED — see the probe below, which is this row's first scheduled step.
