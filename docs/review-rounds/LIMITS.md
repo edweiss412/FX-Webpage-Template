@@ -341,3 +341,16 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 **Owning record:** none — this index is the record (the filing ships the structural repair in its own spec §9.3 and declines a detector)
 
 **Re-file trigger:** named by a 3rd distinct arc
+
+## LIM-OPTIN-GUARD-DORMANT
+
+**Shape:** A guard arm that names the defect exists in the repo, and does not reach the author, for two reasons that compound: it fires only inside a region the document must opt into by a keyword, and inside that region it is ADVISORY, landing in a list the author has usually been told to discount as heuristic noise. The defect then costs review rounds that the existing mechanism was written to prevent, and the post-mortem reads as "we should build a guard" when the guard is already there.
+
+**Named by:** 1 arc — fix/attention-autoopen-suppress-phone/e7751f61de2c.md (plan)
+
+**Measured instance:** `lib/specLint/redContract.ts:259` reports `RED_CONJUNCTION` on a `red=` joined by `&&`, which is the exact shape that cost that arc's plan round 3. It never fired: the arm looks up a `contractExtents` entry and `continue`s when there is none (`lib/specLint/redContract.ts:256`), and that plan's tasks region was opened `<!-- tasks: depth=3 -->` rather than `<!-- tasks: depth=3 red-contract -->`. Had it fired, it is `advise(...)` rather than `fail(...)`, and the plan carried 22 advisories at dispatch, with its own dispatch note telling the reviewer the advisory list is a density heuristic.
+
+**Owning record:** this index, plus the plan section of that arc's filing
+
+**Re-file trigger:** named by a 2nd distinct arc, OR a product-facing arc measurably blocked by a defect whose arm existed and was dormant. Note what would NOT settle it: promoting every advisory to a failure trades this shape for a louder one, and the repo has already measured advisory promotion producing noise that authors route around. A candidate repair has to make opting IN the default, or make the arm's region-gating unnecessary, rather than raise its severity.
+
