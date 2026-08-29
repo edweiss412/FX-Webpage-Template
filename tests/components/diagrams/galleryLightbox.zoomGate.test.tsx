@@ -1516,6 +1516,61 @@ describe("GalleryLightbox — only the ACTIVE slide offers a retry (Task 6)", ()
     expect(container.querySelector('[data-testid="lightbox-retry"]')).not.toBeNull();
   });
 
+  test("AC-6: tapping retry keeps focus INSIDE the dialog", () => {
+    // Found by the invariant-8 audit, not by me. `focusRetryTargetRef` was
+    // written on both transitions and READ BY NOTHING -- a flag that looked like
+    // a focus hand-off while doing nothing. The gallery's twin survives its
+    // equivalent gap because React reuses the thumbnail's DOM node; here the
+    // controls are genuinely different elements, so focus really is lost, and to
+    // `<body>` OUTSIDE an aria-modal dialog that is still trapping.
+    const { container } = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    const control = container.querySelector('[data-testid="lightbox-retry"]') as HTMLElement;
+    premiseHolds("the slide offered a retry to focus", control !== null);
+    act(() => control.focus());
+    premiseHolds(
+      "the control really held focus before the tap",
+      document.activeElement === control,
+    );
+
+    act(() => {
+      fireEvent.click(control);
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    premiseHolds("the dialog is present to be trapped inside", dialog !== null);
+    expect(document.activeElement, "focus never reaches <body>").not.toBe(document.body);
+    expect(
+      dialog!.contains(document.activeElement),
+      "and it stays inside the aria-modal dialog",
+    ).toBe(true);
+  });
+
+  test("AC-6: a retry that fails again keeps focus inside the dialog too", () => {
+    const { container } = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    const control = container.querySelector('[data-testid="lightbox-retry"]') as HTMLElement;
+    premiseHolds("the slide offered a retry", control !== null);
+    act(() => {
+      fireEvent.click(control);
+    });
+    const overlay = container.querySelector('[data-testid="lightbox-retrying"]') as HTMLElement;
+    premiseHolds("the in-flight overlay exists to hold focus", overlay !== null);
+    act(() => overlay.focus());
+
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(document.activeElement, "focus never reaches <body>").not.toBe(document.body);
+    expect(dialog!.contains(document.activeElement), "still inside the dialog").toBe(true);
+  });
+
   test("AC-16: swiping away mid-retry strands no `Retrying…`, and focus reaches Close", () => {
     const { container } = open([item(1), item(2)]);
     act(() => {

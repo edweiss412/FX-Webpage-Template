@@ -529,6 +529,19 @@ export function Gallery({
                 <>
                   <button
                     type="button"
+                    // While the overlay covers this button it is still in the tab
+                    // order, and it still opens the lightbox for the diagram that
+                    // is currently failing. A pointer user cannot reach it; a
+                    // keyboard user Shift+Tabs straight onto it. Removed from the
+                    // tab order and hidden from the accessibility tree for exactly
+                    // as long as the overlay is up, rather than disabled -- the
+                    // button is fine, it is just not the cell's action right now.
+                    // NOT `aria-hidden`: that also hides the <Image> nested
+                    // inside this button from the accessibility tree, which is
+                    // collateral the defect does not call for. `tabIndex={-1}`
+                    // alone removes the phantom tab stop, and the opaque overlay
+                    // already blocks pointer reach.
+                    {...(isRetrying ? { tabIndex: -1 } : {})}
                     ref={(node) => {
                       thumbRefs.current.set(item.id, node);
                     }}

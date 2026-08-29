@@ -329,6 +329,20 @@ export function GalleryLightbox({
    * of the dialog session -- the user could never reach full detail again, with
    * nothing on screen saying why (AC-13).
    */
+  // The swipe-away focus rescue, AFTER the commit that unmounts the departing
+  // slide's controls. A slide's retry controls are active-only (Task 6), so
+  // swiping away removes whichever one held focus; without this, focus lands on
+  // `<body>` -- outside an `aria-modal` dialog that is still on screen and still
+  // trapping, where the non-Escape keymap gate stops responding (AC-16, §7.1).
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body || !dialog.contains(active)) {
+      closeRef.current?.focus();
+    }
+  }, [activeIndex]);
+
   const handleSlideRetry = (item: GalleryItem): void => {
     const control = retryControlRefs.current.get(item.id) ?? null;
     if (control && document.activeElement === control) {
@@ -462,19 +476,12 @@ export function GalleryLightbox({
       // Next under the user's focus with no click anywhere in the story.
       keepFocusInDialog(prevRef.current, index === 0, nextRef.current);
       keepFocusInDialog(nextRef.current, index === items.length - 1, prevRef.current);
-      // A slide's retry controls are ACTIVE-ONLY (Task 6), so swiping away
-      // unmounts whichever one held focus and drops it to `<body>` -- outside an
-      // `aria-modal` dialog that is still on screen and still trapping, where
-      // the non-Escape keymap gate stops responding. Close is the destination
-      // the dialog already uses when a focused element goes away (AC-16).
-      //
-      // Read AFTER the chevron handling above so a focus move they already made
-      // is respected rather than overridden.
-      const active = document.activeElement;
-      const dialog = dialogRef.current;
-      if (dialog && (active === null || active === document.body || !dialog.contains(active))) {
-        closeRef.current?.focus();
-      }
+      // The focus rescue for a swipe-away lives in an EFFECT keyed on
+      // `activeIndex`, not here. Reading `document.activeElement` at this point
+      // is too early: the element that is about to be unmounted is still mounted
+      // and still focused, so the check passes and declines to act, and the
+      // unmount then drops focus to `<body>` a commit later. Measured by AC-16
+      // once the retry controls actually took focus.
       // Per shape brief: navigation resets per-slide zoom. The
       // previous slide's TransformWrapper unmounts when we re-key on
       // activeIndex, so its scale state is gone — but we also need
@@ -909,6 +916,18 @@ export function GalleryLightbox({
                       data-testid="lightbox-retrying"
                       ref={(node) => {
                         retryingRefs.current.set(item.id, node);
+                        // THE READER. `focusRetryTargetRef` was written on both
+                        // transitions and consumed by nothing -- a flag that read
+                        // as a focus hand-off while doing nothing at all, found by
+                        // the invariant-8 audit. The gallery's twin survives its
+                        // equivalent gap because React reuses the thumbnail node;
+                        // here the controls are different elements, so focus is
+                        // genuinely lost -- to `<body>`, outside an aria-modal
+                        // dialog that is still trapping (§7.1, AC-6).
+                        if (node && focusRetryTargetRef.current === item.id) {
+                          focusRetryTargetRef.current = null;
+                          node.focus();
+                        }
                       }}
                       aria-busy="true"
                       aria-disabled="true"
@@ -1392,6 +1411,12 @@ export function GalleryLightbox({
                         data-testid="lightbox-retry"
                         ref={(node) => {
                           retryControlRefs.current.set(item.id, node);
+                          // The other direction: a retry that fails again unmounts
+                          // the overlay, and this control is what replaces it.
+                          if (node && focusRetryTargetRef.current === item.id) {
+                            focusRetryTargetRef.current = null;
+                            node.focus();
+                          }
                         }}
                         onClick={() => handleSlideRetry(item)}
                         aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Tap to retry.`}

@@ -230,6 +230,34 @@ describe("Task 2 — the gallery retry mechanism", () => {
     ).toBe(within(slot(0)).getByTestId("diagram-retry-0"));
   });
 
+  test("a retrying cell exposes ONE tab stop, not a phantom under the overlay", () => {
+    // Found by the invariant-8 audit. The image's open button survives beneath
+    // the opaque overlay -- covered to a pointer, but still in the tab order and
+    // still opening the lightbox for the very diagram that is failing. A
+    // keyboard user Shift+Tabs onto a control they cannot see, for a thing that
+    // is not there.
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
+    failThumb(0);
+    tapRetry(0);
+    premiseHolds(
+      "the cell is really in flight, or there is no overlay to hide anything",
+      within(slot(0)).queryByTestId("diagram-retrying-0") !== null,
+    );
+
+    // The oracle is what the focus trap's own collector would take
+    // (lib/a11y/dialogFocus.ts): tabIndex >= 0. A button with tabIndex={-1} is
+    // still clickable programmatically but is NOT a tab stop, which is the
+    // defect -- a keyboard user landing on an invisible control.
+    const reachable = [
+      ...slot(0).querySelectorAll<HTMLElement>("a[href],button,input,select,textarea,[tabindex]"),
+    ].filter((el) => !el.hasAttribute("disabled") && el.tabIndex >= 0);
+
+    expect(
+      reachable.map((el) => el.dataset.testid ?? el.getAttribute("aria-label")),
+      "exactly one reachable control while retrying: the in-flight one",
+    ).toEqual(["diagram-retrying-0"]);
+  });
+
   test("AC-3: a successful retry announces by name", async () => {
     // Task 2's onLoad clears the retrying set and says nothing, so the cell goes
     // from "Retrying…" to a picture in silence. A screen-reader user who tapped
