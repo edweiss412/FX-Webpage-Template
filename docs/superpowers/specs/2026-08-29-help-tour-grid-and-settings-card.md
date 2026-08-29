@@ -50,7 +50,7 @@ The repair landed on one file and the class was never swept. This spec sweeps it
 | **Container units (`100cqi` against `main`) were considered and rejected**, although they are the least invasive option on paper and passed the same probe. `container-type: inline-size` applies `contain: layout`, which makes `main` a containing block for absolutely positioned descendants, and `app/help/errors/page.tsx` renders a `focus:absolute` skip link inside it. Adopting them would move that skip link's focused position from the page corner into `main`, which is a WCAG 2.4.1 regression traded for a CSS convenience. | §2.1. Recorded so the cheaper-looking option is not proposed again without its cost. |
 | **`@property` is not a new primitive here.** Tailwind 4.2.4 emits `@property` itself, so the generated stylesheet already carries these registrations and the project already assumes browsers that honour them. | Verified against the installed `tailwindcss` build, §2.1. |
 | **Two existing guards are retargeted, not weakened** — `tests/e2e/help-typography.spec.ts`'s measure assertion moves from the wrapper to a paragraph, and `tests/help/help-prose-layer.test.ts`'s `max-width: <n>ch` pattern moves to whatever declaration then carries the measure. Neither is weakened to accommodate the change: the wrapper stops being the element that carries the measure, and a paragraph is what the contract was always about, so the retargeted assertion is the stronger of the two because it measures rendered text rather than a container. Both still fail if the measure disappears. | §3.4. Flagged explicitly because "the diff changed a test" is a predictable finding and the reasoning belongs in the record, not in a review round. |
-| **Uncapping tables, screenshots and the custom prose components is out of scope.** Only the three grids named in §3.2 and §3.3 opt in. | §6 Documented limits. |
+| **Uncapping tables, screenshots and the custom prose components is out of scope.** The only elements that take `help-bleed` are the tour's three card grids: the two that exist (§3.2) and the one §3.3 creates. | §6 Documented limits. |
 | Both findings are pre-existing on `origin/main`, not regressions introduced by any recent arc. | `DEFERRED.md`, both entries, "Why deferred rather than repaired in-branch". |
 
 ---
@@ -177,12 +177,33 @@ The "Once per environment" section is currently a bare `<div className="my-6">` 
 (the onboarding wizard). It becomes a two-column grid matching the "Daily" group's shape, also
 carrying `help-bleed`, with a second card for `/help/admin/settings`.
 
-The new card copies the structural shape of the seven existing cards exactly — the same
+The new card copies the structural shape of the seven existing cards exactly: the same
 `className` run on the anchor, the same eyebrow / duration / `h3` / body / call-to-action
-skeleton, the same `aria-label` form (`"Settings: read the reference"`). Its accent treatment
-matches the wizard card it sits beside.
+skeleton, and the same `aria-label` form (`"Settings: read the reference"`).
 
-Copy is written fresh for this card and is subject to the mechanical UI invariants named in AC-7.
+**It is a standard card, not an accent card.** The wizard card carries `border-accent` and an
+accent eyebrow because it marks the one thing you do once and never again. Giving the Settings
+card the same treatment would spend that emphasis on two of two cards, which is the same as
+having none. The contrast between the two is the hierarchy, and it is deliberate.
+
+Exact rendered copy, so this is a specification and not a description:
+
+| slot | text |
+| --- | --- |
+| eyebrow | `Set once, revisit rarely` |
+| duration | `3 min` |
+| `h3` | `Settings` |
+| body | `Settings holds the account-wide choices: who can sign in as an admin, which Drive folder the app watches, and which emails it sends you. Nothing here changes day to day. You come back when someone joins or leaves, when the folder moves, or when you want different notifications.` |
+| call to action | `Read the settings reference →` |
+
+The body is faithful to `app/help/admin/settings/page.mdx`, which opens on the same three
+subjects (the administrators list, the watched Drive folder, and notification preferences) and
+makes the same "set it up once and come back only when something needs reconnecting" point.
+
+This copy satisfies the invariants `tests/help/page-tour.test.tsx` already enforces over the whole
+file: no em dash, no `<ScreenshotPlaceholder>`, and no token matching the raw catalog error-code
+shape. It contains no apostrophes, so the apostrophe-literal invariant is satisfied vacuously
+rather than by choosing a character.
 
 ### 3.4 The derived guard — the class, not the instance
 
@@ -199,6 +220,19 @@ an assertion derived from the data source:
   what let this defect live.
 - **Fails by default for a ninth surface.** Adding an entry to `NAV` with no card fails this test
   with no edit to it, which is the property the hardcoded list did not have.
+- **The links are read from the RENDERED DOM, never from the MDX source text.** `page-tour.test.tsx`
+  already renders the page through the real MDX pipeline under an `MDXProvider`, so the guard
+  collects `a[href]` from that tree. A regex over the source would be the same defect wearing a
+  new coat: the page mentions routes in prose as well as in cards, so a source scan could match
+  `/help/admin/settings` in a sentence and report the surface covered while no card exists. Reading
+  rendered anchors cannot be satisfied by prose.
+
+**Why this guard is not enrolled in the source-mutation registry.** The registry mutates a module
+named by `sourcePath` and decides KILLED against a suite. This guard has no such module: after the
+change above it is a rendering assertion, and its logic is set equality over two collections it
+obtains structurally. There is nothing to mutate that is not the test itself. That is the same
+disposition the step3 tap-target surface reached, and it is stated here rather than resolved by
+enrolling a surface symbolically.
 
 Held to the same bar, `tests/e2e/help-pages.spec.ts` already derives correctly and needs no change.
 
@@ -233,7 +267,7 @@ project, so nothing here relies on an implicit stretch.
 
 | Parent | Child | Relationship required | What guarantees it |
 | --- | --- | --- | --- |
-| `.help-prose` | every direct child that is not `.help-bleed` | child width ≤ 70ch | `.help-prose > * { max-width: 70ch }` (§3.1) |
+| `.help-prose` | every direct child that is not `.help-bleed` | child width ≤ the measure, and identical to today's width for every child that exists | `.help-prose > * { max-width: var(--help-measure) }` over an `@property`-registered length (§3.1); the registration is what makes this hold for the headings as well as the body (§2.1) |
 | `.help-prose` | `.help-bleed` grid | child width == the `main` column's content width, not 70ch | `.help-prose > .help-bleed { max-width: none }` plus the grid's own default `width: auto` as a block child |
 | `main` | `.help-prose` | wrapper width == `main` content width | wrapper carries no `max-width` after §3.1 |
 | grid | each card | equal column widths; cards in a row share a height | `grid-template-columns` from the `grid-cols-*` utilities; grid's default `align-items: stretch` (a grid default this project does not override, unlike the flex case) |
@@ -288,8 +322,10 @@ naming the pages believed to have them.
 grep -rn 'grid-cols\|className="grid\|grid ' app/help --include='*.mdx' --include='*.tsx'
 ```
 
-Three hits across the whole tree: the two tour grids, and `app/help/errors/page.tsx`, a
-`sm:grid-cols-2` list of error-code links. The errors grid is a different shape — short link
+Three hits across the tree AS IT STANDS: the two tour grids, and `app/help/errors/page.tsx`, a
+`sm:grid-cols-2` list of error-code links. (Do not read this three as the three that take
+`help-bleed` — that set is the tour's grids, and the errors grid is the one this sweep is about.
+After §3.3 the tree holds four grids, three of them on the tour page.) The errors grid is a different shape — short link
 labels on a tight `gap-y-1`, not paragraphs of body copy — so whether it is an instance of this
 finding at all depends on whether its items wrap. The probe measures it. Disposition:
 
@@ -316,6 +352,23 @@ One instance in the class, repaired in branch. Nothing deferred, so no exception
 
 ---
 
+## 7.1 Mode boundaries and growth
+
+**Which elements belong to which mode.** Every grid is `grid-cols-1` below the `md` breakpoint,
+so on mobile all three groups are single-column stacks and the bleed buys nothing: at that width
+the prose column is already narrower than 70ch, so the cap is not what binds and no card changes
+size. `help-bleed` therefore has a visible effect only at `md` and above. Nothing is hidden or
+shown per mode; the same cards render at every width, in a different number of columns.
+
+**Growth.** The card list is bounded by the `admin-surface` group, which has eight entries today
+and grows only when someone adds an admin help page. There is no truncation and no cap: a ninth
+entry means a ninth card, and the grid reflows it onto a new row. AC-4 is what makes that a
+deliberate act rather than a silent omission — the guard fails until the card exists. This is the
+right behaviour for a page whose entire purpose is to be exhaustive, so capping the list at some
+N and showing a link to the rest is explicitly rejected.
+
+---
+
 ## 8. Acceptance criteria
 
 - **AC-1** Each tour card's rendered body measure clears the `DESIGN.md` §2.5 floor at every
@@ -339,5 +392,5 @@ One instance in the class, repaired in branch. Nothing deferred, so no exception
 
 - Any change to the seven existing cards' copy. Only the new card carries new copy.
 - The `/help` sidebar, breadcrumb, and nav ordering.
-- Uncapping any prose element other than the three grids named in §3.2 and §3.3.
+- Uncapping any prose element other than the tour's three card grids (§3.2, §3.3).
 - The looseness noted in §6 for `help-prose-layer.test.ts`.
