@@ -53,33 +53,66 @@ promise, and each names the command that decides it.
 
 - [ ] **1. Archive the ledger row.** Move `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` from `BACKLOG.md`
       to `BACKLOG-archive.md`, rewriting its status line to `CLOSED 2026-08-28
-      (feat/speclint-table-provenance), DEMOTED ON A MEASURED REFUTATION` and dropping the `IN
-      PROGRESS` / `Branch:` fields in the same edit. Carry the corrected recurrence count into the
-      archive entry, since the row's own title says "four arcs" and the measurement says eleven.
+      (feat/speclint-table-provenance), DEMOTED ON A MEASURED REFUTATION`, dropping the `IN PROGRESS`
+      and `Branch:` fields in the same edit, and carrying the corrected recurrence count into the
+      archive entry (the row's own title says "four arcs"; the measurement says eleven).
 
-      red: `pnpm vitest run --no-file-parallelism tests/docs/_metaLedgerInProgress.test.ts` fails
-      while an archived entry still declares in-flight work.
-      green: that suite plus `tests/docs/_metaLedgerReferentialIntegrity.test.ts` pass, the second
-      proving every citation of the archived row still resolves.
+      **The suites alone do not decide this, which plan review round 1 finding 1 is right about.**
+      `_metaLedgerInProgress` passes on the merge-base state, passes on the current state, and passes
+      if the row simply stays in `BACKLOG.md` with its marker deleted; it only fails in the forbidden
+      intermediate. So the task carries an explicit four-part check, and every part must hold at the
+      SAME commit:
+
+      ```
+      # 1. absent from the open ledger, present in the archive
+      git show HEAD:BACKLOG.md         | grep -c 'BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE'   # expect 0
+      git show HEAD:BACKLOG-archive.md | grep -c 'BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE'   # expect >=1
+      # 2. the archived entry carries NO flight field (invariant 12: archives reject in-flight work)
+      git show HEAD:BACKLOG-archive.md | awk '/^## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE/,/^## [^B]/' \
+        | grep -cE 'IN PROGRESS|\*\*Branch:\*\*|\*\*PR:\*\*'                                # expect 0
+      # 3. atomicity: the SAME commit both removed it from BACKLOG.md and added it to the archive
+      git show --stat --name-only HEAD | grep -c '^BACKLOG.md$'                                # expect 1
+      git show --stat --name-only HEAD | grep -c '^BACKLOG-archive.md$'                        # expect 1
+      # 4. the corrected count reached the archive entry
+      git show HEAD:BACKLOG-archive.md | awk '/^## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE/,/^## [^B]/' \
+        | grep -c 'eleven arcs\|11 arcs'                                                      # expect >=1
+      ```
+
+      red, and it is a real red rather than a described one: before the change, check 1's first command
+      returns 1 and its second returns 0 — the row is in the open ledger and not the archive.
+      green: all four checks return their expected values, AND
+      `pnpm vitest run --no-file-parallelism tests/docs/_metaLedgerInProgress.test.ts
+      tests/docs/_metaLedgerReferentialIntegrity.test.ts` passes, the second proving every citation of
+      the archived row still resolves.
 
 - [ ] **2. Closeout.** Record the gate results in this plan's §12 and confirm the invariant-8 marker.
 
 ## Verification surface
 
-Docs-only, so the surface is the gates that walk this corpus rather than a citation table over source.
-Every one below is RUN, not resolved by reading.
+Docs-only, so the surface is the gates that walk this corpus plus explicit commands for the criteria
+no suite decides. **Four criteria had no deciding command in the first draft** (plan review round 1
+findings 2, 3 and 4); each now names one that would fail if the thing it checks were wrong. Every
+command below is RUN, not resolved by reading.
 
-| gate | what it decides for this arc | when |
+| criterion | command that decides it | why this one |
 | --- | --- | --- |
-| `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-28-table-provenance-census.mts --at 8b4d521cac00` | AC-1, AC-2 | every task |
-| `pnpm spec:lint docs/superpowers/specs/ci/2026-08-28-table-provenance.md` | citations resolve, no hard findings | every task |
-| `tests/docs/specsReadmeIndexParity.test.ts` | AC-3 | every task |
-| `tests/docs/_metaLedgerInProgress.test.ts` | AC-6, and that no archive holds in-flight work | after task 1 |
-| `tests/docs/_metaLedgerReferentialIntegrity.test.ts` | every citation of the archived row still resolves | after task 1 |
-| `tests/docs/_metaLedgerMintBar.test.ts` | the row's `Facing` and `Mint-exception` fields | every task |
-| `tests/docs/_metaInvariant8Closeout.test.ts` | the closeout marker grammar | every task |
-| `tests/docs/_metaReviewRoundEconomy.test.ts` | AC-7, corpus contiguity and the threshold filing | every task |
-| `pnpm typecheck`, `pnpm format:check` | the `.mts` compiles; prettier clean | before push |
+| AC-1 | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-28-table-provenance-census.mts --at 8b4d521cac00` | reproduces the population figures; exits 0 |
+| AC-2, default branch | the same command | reads at the rev, not the working tree |
+| AC-2, **missing-value branch** | `pnpm exec tsx docs/…/2026-08-28-table-provenance-census.mts --at; echo $?` — expect the error line and **exit 2** | the `--at 8b4d521cac00` run CANNOT observe this branch, so a regression silently defaulting to `HEAD` would leave it green |
+| AC-3, spec index | `tests/docs/specsReadmeIndexParity.test.ts` | walks `docs/superpowers/specs/*/README.md` |
+| AC-3, **census index** | `grep -c '2026-08-28-table-provenance-census.mts' docs/superpowers/specs/ci/probes/README.md` — expect 1 | that suite reads only ONE level below `specs/`, so it never opens the probes README one level deeper; the census row is otherwise unguarded |
+| AC-3, **plan index** | `grep -c '2026-08-28-table-provenance.md' docs/superpowers/plans/ci/README.md` — expect 1 | no suite covers the plans index at all |
+| AC-4 | `python3` one-liner over `docs/review-rounds/LIMITS.md`: assert the declared arc count equals the number of enumerated per-arc entries and that their round counts sum to the declared total | the count and the enumeration drifted apart once already in this arc |
+| AC-5 | `grep -c 'named by eleven arcs' docs/superpowers/specs/ci/probes/README.md` — expect 1 | the cross-reference carried a stale "four arcs" through two rounds |
+| AC-6 | task 1's four-part check above, plus `tests/docs/_metaLedgerInProgress.test.ts` and `tests/docs/_metaLedgerReferentialIntegrity.test.ts` | the suites alone accept three states; the check pins the one that is correct |
+| AC-7 | `tests/docs/_metaReviewRoundEconomy.test.ts` | declared count, `**Examined:**`, and a `Mechanizable:` entry with a `declined:` reason |
+| all | `pnpm spec:lint` on both spec and plan; `pnpm typecheck`; `pnpm format:check` | citations resolve, the `.mts` compiles, prettier clean |
+
+**A syntactic gate cannot decide whether a filing's prose contradicts the spec.** Plan review round 1
+finding 5 found exactly that: `_metaReviewRoundEconomy` returned zero problems on a `declined:` reason
+that misstated the ratified convention and repeated a claim round 5 had withdrawn. That is review's
+class, not a gate's, and it is recorded here so the next arc does not read a green corpus check as
+proof the prose is right.
 
 Suites run ONE AT A TIME with `--no-file-parallelism`, per the fleet load discipline in force during
 this arc.
