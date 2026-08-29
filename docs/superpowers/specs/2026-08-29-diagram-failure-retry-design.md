@@ -96,7 +96,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 | U-1 | **RATIFIED 2026-08-29.** Setting native `disabled` on the focused retry control ejects focus to `<body>`; `aria-disabled` does not | §7.1 | **Task P1, run.** `tests/e2e/focus-disabled-eject.probe.spec.ts`, 2 passed in Chromium: the native arm reported `body`, the `aria-disabled` arm reported the button. Each arm carries a premise asserting focus was ON the button first, or "focus is on body afterwards" would be trivially true. Firefox is not independently probed; one engine ejecting is sufficient to reject the attribute |
 | U-2 | **RATIFIED 2026-08-29.** A separate element on `retrying → idle` costs a second unconditional GET; the surviving element costs none | §4.0.5 | **Task P2, run.** `tests/e2e/image-remount-request-count.probe.spec.ts`, 2 passed in Chromium: the remount arm issued exactly one further request, the same-node arm zero. Only node reuse varies — same URL, same headers, same interception, `loading="eager"` on every element, explicit load awaits — and the count window opens after the first load is asserted served |
 | U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, which implies the cell is in the viewport, so no `loading` override is needed | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, 3 passed in Chromium. Lazy+covered+off-screen deferred; eager+covered+off-screen requested; lazy+UNCOVERED+off-screen ALSO deferred — which is the arm that refutes the covering mechanism |
-| U-4 | The `srcSet` candidate set is stable across the failure and the retry, so the retry cannot escape the ladder | §3 | **Plan Task P4**, a standalone real-browser probe comparing two contexts at different `deviceScaleFactor`, asserting BOTH the rendered `srcSet` and the requested URL |
+| U-4 | **RATIFIED 2026-08-29.** The candidate SET is stable; the browser's PICK within it moves with device scale; every pick is a ladder tier and never the original | §3 | **Task P4, run.** `tests/e2e/srcset-candidate-stability.probe.spec.ts`, 2 passed in Chromium. The rendered `srcset` was byte-identical at DPR 1 and DPR 3 while the requested tier changed between them, which both confirms the bound and proves the fixture discriminates rather than being insensitive |
 | U-5 | A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Plan Task P5**, the meta-test itself: it must fail on a planted unclassified declaration, including a `Record` and an object literal, and every `per-item` row must carry a clear path or the exact words `deliberately none`, or it is not a cover |
 | U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 8**, not a probe: this is feature behaviour, so it is settled where its implementation lands. Each retained-state shape is planted and the FIRST frame after the flip asserted |
 
@@ -160,7 +160,9 @@ identical props reproduces the same candidate set, but a viewport, layout, orien
 DPR change between the failure and the tap can move the selection, so a 256-tier failure
 can retry at 512 or 1024.
 
-What survives, and is the actual bound (UNRATIFIED, U-4 — Task P4 settles it): **the retry
+What survives, and is the actual bound (RATIFIED — Task P4 measured a byte-identical `srcset`
+across device-scale factors while the selected tier moved between them:
+`tests/e2e/srcset-candidate-stability.probe.spec.ts`): **the retry
 draws from the same candidate set the failed render offered, and for any entry with a variant ladder that set never contains the
 original.** The clamped selector excludes any row naming the original by construction
 (`servingVariants` in `lib/images/diagramLoader.ts`), so the worst case is the largest
