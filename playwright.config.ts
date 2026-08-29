@@ -271,6 +271,17 @@ export default defineConfig({
       // Playwright before app-e2e.yml's redirect could capture it. No other log level is
       // available: warn and error persist, and info persists whenever it carries a code.
       stdout: "pipe" as const,
+      env: {
+        // NEVER the ambient TEST_DATABASE_URL. `.env.local` points it at the REMOTE
+        // validation project for the schema-parity gates, and `next dev` / `next start`
+        // load `.env.local` INSIDE this server, so an absent key lets the remote value
+        // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
+        // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
+        DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        TEST_DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      },
       url: `http://127.0.0.1:${E2E_PORT}`,
       reuseExistingServer: !process.env.CI,
       // 300s in CI: the crew-e2e job (CREW_E2E_ONLY) boots ONLY this server and it
@@ -297,6 +308,17 @@ export default defineConfig({
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-dev " +
         "pnpm exec next start --port 3001",
+      env: {
+        // NEVER the ambient TEST_DATABASE_URL. `.env.local` points it at the REMOTE
+        // validation project for the schema-parity gates, and `next dev` / `next start`
+        // load `.env.local` INSIDE this server, so an absent key lets the remote value
+        // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
+        // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
+        DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        TEST_DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      },
       url: "http://localhost:3001",
       // false (not !CI): the gallery e2e MUST run against a freshly BUILT
       // artifact (ADMIN_DEV_PANEL_ENABLED=true). Reusing a stale port-3001
@@ -323,6 +345,17 @@ export default defineConfig({
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-prod " +
         "pnpm exec next start --port 3002",
+      env: {
+        // NEVER the ambient TEST_DATABASE_URL. `.env.local` points it at the REMOTE
+        // validation project for the schema-parity gates, and `next dev` / `next start`
+        // load `.env.local` INSIDE this server, so an absent key lets the remote value
+        // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
+        // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
+        DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        TEST_DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      },
       url: "http://localhost:3002",
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
@@ -347,6 +380,17 @@ export default defineConfig({
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-prod-flip " +
         "pnpm exec next start --port 3003",
+      env: {
+        // NEVER the ambient TEST_DATABASE_URL. `.env.local` points it at the REMOTE
+        // validation project for the schema-parity gates, and `next dev` / `next start`
+        // load `.env.local` INSIDE this server, so an absent key lets the remote value
+        // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
+        // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
+        DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        TEST_DATABASE_URL:
+          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      },
       url: "http://localhost:3003",
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
