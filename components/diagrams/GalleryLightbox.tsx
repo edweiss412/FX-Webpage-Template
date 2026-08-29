@@ -310,6 +310,50 @@ export function GalleryLightbox({
    * A ref, not state, because the intent marker below must stay identity-stable.
    */
   const demotedRef = useRef<Set<string>>(new Set());
+  // Task 5 (spec §4). The lightbox's own copy of the retry machine; Task 2's is
+  // gallery-only by design, so nothing here inherits from it.
+  const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
+  const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  const retryControlRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  const focusRetryTargetRef = useRef<string | null>(null);
+
+  /**
+   * `failed` → `retrying` on the ACTIVE slide (spec §4, §4.0.2).
+   *
+   * Clears `wantsOriginal` so the retry fetches the CLAMPED tier: a tap asking
+   * to see the diagram again must not inherit an earlier gesture's request for
+   * the whole object (AC-9).
+   *
+   * DOES NOT write `demotedRef`. That set is the never-re-pin latch for the
+   * demote path, and writing it here would refuse every later pinch for the rest
+   * of the dialog session -- the user could never reach full detail again, with
+   * nothing on screen saying why (AC-13).
+   */
+  const handleSlideRetry = (item: GalleryItem): void => {
+    const control = retryControlRefs.current.get(item.id) ?? null;
+    if (control && document.activeElement === control) {
+      focusRetryTargetRef.current = item.id;
+    }
+    setWantsOriginal((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+    setFailedKeys((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+    setRetrying((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+  };
+
   /**
    * The slide whose ORIGINAL just failed, for the sighted half of the signal.
    *
@@ -771,7 +815,12 @@ export function GalleryLightbox({
         <div ref={emblaRef} className="size-full overflow-hidden">
           <div className="flex size-full">
             {items.map((item, i) => {
-              const available = item.available && !failedKeys.has(item.id);
+              const isRetrying = retrying.has(item.id);
+              // The image renders for BOTH idle and retrying, mounted once in its
+              // final position (§4.0.5), with the in-flight control overlaid.
+              const available = item.available && (!failedKeys.has(item.id) || isRetrying);
+              // `failed` is disjoint from `retrying`: the render picks one branch.
+              const showRetry = item.available && failedKeys.has(item.id) && !isRetrying;
               const isActive = i === activeIndex;
               // Computed once per slide: both tiers branch on it, and calling the
               // guard twice per branch invites the two calls to disagree.
@@ -796,6 +845,33 @@ export function GalleryLightbox({
                   // while the slide it describes swipes out from under it.
                   className="relative flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
                 >
+                  {isRetrying ? (
+                    /*
+                      The in-flight overlay (§4.0.5), above the image rather than
+                      replacing it: the node that loads is the node the idle slide
+                      then shows, so one tap stays one request.
+
+                      `aria-disabled` and never the native `disabled`. A natively
+                      disabled control leaves the tab order and the browser drops
+                      focus to `<body>` -- OUTSIDE this `aria-modal` dialog, where
+                      the non-Escape keymap gate stops responding. That is the
+                      §7.1 defect, and it is worse here than in the gallery.
+                    */
+                    <button
+                      type="button"
+                      data-testid="lightbox-retrying"
+                      ref={(node) => {
+                        retryingRefs.current.set(item.id, node);
+                      }}
+                      aria-busy="true"
+                      aria-disabled="true"
+                      onClick={(event) => event.preventDefault()}
+                      aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Retrying…`}
+                      className="absolute inset-x-0 top-2 z-dropdown mx-auto inline-flex min-h-tap-min w-fit items-center gap-1 rounded-sm bg-surface-raised px-3 py-2 text-sm font-medium text-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      Retrying…
+                    </button>
+                  ) : null}
                   {demotedNotice?.id === item.id &&
                   demotedNotice.nonce === openNonce &&
                   !failedKeys.has(item.id) ? (
@@ -1006,7 +1082,49 @@ export function GalleryLightbox({
                             // to the letterboxed image.
                             style={{ objectFit: "contain" }}
                             {...(dims ?? { fill: true as const, sizes: "100vw" })}
+                            onLoad={() => {
+                              // `retrying` → `idle` (§4.0.5): the overlay clears
+                              // and the image node itself does not change.
+                              if (!retrying.has(item.id)) return;
+                              setRetrying((prev) => {
+                                if (!prev.has(item.id)) return prev;
+                                const next = new Set(prev);
+                                next.delete(item.id);
+                                return next;
+                              });
+                              onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} loaded.`);
+                            }}
                             onError={() => {
+                              // A retry that failed AGAIN. Handled first and
+                              // returned from, so it never reaches the demote
+                              // branch below: `handleSlideRetry` cleared
+                              // `wantsOriginal`, so this failure is a CLAMPED
+                              // tier failure and there is nothing to demote to.
+                              // The copy is distinct from the first failure's,
+                              // or a user cannot tell a failed retry from the
+                              // original break (AC-3).
+                              if (retrying.has(item.id)) {
+                                const overlay = retryingRefs.current.get(item.id) ?? null;
+                                if (overlay && document.activeElement === overlay) {
+                                  focusRetryTargetRef.current = item.id;
+                                }
+                                setRetrying((prev) => {
+                                  if (!prev.has(item.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.delete(item.id);
+                                  return next;
+                                });
+                                setFailedKeys((prev) => {
+                                  if (prev.has(item.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.add(item.id);
+                                  return next;
+                                });
+                                onAnnounce?.(
+                                  `${item.alt || `Diagram ${i + 1}`} still could not be loaded.`,
+                                );
+                                return;
+                              }
                               // DEMOTE, don't destroy (impeccable critique P0,
                               // 2026-08-11). The zoom gate made the original a
                               // fetch the USER triggers, so on venue wifi a
@@ -1198,6 +1316,38 @@ export function GalleryLightbox({
                         />
                       </div>
                     )
+                  ) : showRetry ? (
+                    /*
+                      The active slide's retry (spec §5). Full width, so unlike the
+                      117px thumbnail it can say what happened above the action.
+
+                      `Full size.` ONLY for an originals-only entry, and the
+                      predicate takes the ORIGINAL KEY because a well-formed row
+                      can name the original itself. It is the one honest thing we
+                      know about cost in advance: there is no smaller tier, so this
+                      fetch is the whole object. A laddered entry gets no such line
+                      -- the clamped tier is what it will fetch, and inventing a
+                      number the route never sends would be worse than silence.
+                    */
+                    <div className="flex flex-col items-center gap-3 text-text-subtle">
+                      <span aria-hidden="true">⊘</span>
+                      <span className="text-xs/relaxed">Could not be loaded.</span>
+                      <button
+                        type="button"
+                        data-testid="lightbox-retry"
+                        ref={(node) => {
+                          retryControlRefs.current.set(item.id, node);
+                        }}
+                        onClick={() => handleSlideRetry(item)}
+                        aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Tap to retry.`}
+                        className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-3 py-2 text-sm font-medium text-accent-on-bg hover:bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      >
+                        Tap to retry
+                      </button>
+                      {hasVariantTier(item.variants, item.key) ? null : (
+                        <span className="text-xs/relaxed">Full size.</span>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-text-subtle">
                       <span aria-hidden="true">⊘</span>

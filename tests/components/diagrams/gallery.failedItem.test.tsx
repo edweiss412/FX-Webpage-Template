@@ -915,8 +915,13 @@ describe("Gallery — the lightbox announces the failure that DESTROYS, not only
     });
 
     premiseHolds(
+      // Task 5: a destroyed slide now lands on the retry offer rather than the
+      // inert placeholder (§3.1). The premise asks the same question it always
+      // did -- was this a DESTRUCTION and not a demote -- against the branch that
+      // now represents it. The demote case shows the chip and keeps the image, so
+      // the two remain distinguishable.
       "the slide really was destroyed, or this is the demote case in disguise",
-      dialog.textContent!.includes("Image unavailable"),
+      dialog.textContent!.includes("Tap to retry"),
     );
     expect(entriesOf(screen.getByTestId(LIGHTBOX_LOG))).toEqual(["Plot 1 could not be loaded."]);
   });

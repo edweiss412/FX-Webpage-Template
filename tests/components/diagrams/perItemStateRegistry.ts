@@ -156,6 +156,36 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     clearedBy: "entering `retrying`; the item going unavailable or leaving `items` (spec §9.1)",
     sweep: { swept: true },
   },
+  "GalleryLightbox.tsx:retrying": {
+    kind: "per-item",
+    clearedBy:
+      "`onLoad` (retrying -> idle) and the retry-failure branch of `onError` (retrying -> failed), both per item; and the availability sweep, so a slide going unavailable mid-flight cannot return holding an overlay (spec §4, §9.1)",
+    sweep: { swept: true },
+  },
+  "GalleryLightbox.tsx:retryingRefs": {
+    kind: "per-item",
+    clearedBy: "React, on unmount of each in-flight overlay (the ref callback stores null)",
+    sweep: {
+      swept: false,
+      why: "a DOM ref map, not session state: React nulls each entry as its control unmounts, and it is read only to ask whether that element currently holds focus",
+    },
+  },
+  "GalleryLightbox.tsx:retryControlRefs": {
+    kind: "per-item",
+    clearedBy: "React, on unmount of each retry control (the ref callback stores null)",
+    sweep: {
+      swept: false,
+      why: "same shape as retryingRefs; React owns the lifetime",
+    },
+  },
+  "GalleryLightbox.tsx:focusRetryTargetRef": {
+    kind: "per-item",
+    clearedBy: "the focus hand-off that consumes it, which nulls it on read",
+    sweep: {
+      swept: false,
+      why: "single-shot and self-clearing: it names the item whose control should take focus after a transition, and is nulled as it is read, so no sweep can find a stale id",
+    },
+  },
   "GalleryLightbox.tsx:wantsOriginal": {
     kind: "per-item",
     clearedBy:

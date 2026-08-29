@@ -609,7 +609,19 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     });
 
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
-    expect(container.textContent).toContain("Image unavailable");
+    // Task 5 moved this outcome, and the move is ratified in spec §3.1. A slide
+    // that CANNOT demote no longer falls to the inert placeholder: it is offered
+    // the retry, at full size, because there is no smaller tier to retreat to and
+    // a dead end is the thing this arc removes. The zoom wrapper still unmounts,
+    // which is the claim above and is unchanged.
+    expect(
+      container.textContent,
+      "the failed slide offers its next step instead of a dead end",
+    ).toContain("Tap to retry");
+    expect(
+      container.textContent,
+      "and the inert parse-time placeholder is NOT what a runtime failure shows",
+    ).not.toContain("Image unavailable");
     // WHICH announcement fires is the point. The placeholder speaks — silence
     // would strand a screen-reader user watching a slide that simply stopped —
     // but it must speak the FAILURE, not the demote: there was no fallback, so
@@ -645,7 +657,19 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     });
 
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
-    expect(container.textContent).toContain("Image unavailable");
+    // Task 5 moved this outcome, and the move is ratified in spec §3.1. A slide
+    // that CANNOT demote no longer falls to the inert placeholder: it is offered
+    // the retry, at full size, because there is no smaller tier to retreat to and
+    // a dead end is the thing this arc removes. The zoom wrapper still unmounts,
+    // which is the claim above and is unchanged.
+    expect(
+      container.textContent,
+      "the failed slide offers its next step instead of a dead end",
+    ).toContain("Tap to retry");
+    expect(
+      container.textContent,
+      "and the inert parse-time placeholder is NOT what a runtime failure shows",
+    ).not.toContain("Image unavailable");
     // Same discrimination as the ladder cases above: it speaks the FAILURE, and
     // must not promise a fallback that this ladder cannot supply.
     expect(spoken).toEqual([`${fixture.alt} could not be loaded.`]);
@@ -713,7 +737,19 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     });
 
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
-    expect(container.textContent).toContain("Image unavailable");
+    // Task 5 moved this outcome, and the move is ratified in spec §3.1. A slide
+    // that CANNOT demote no longer falls to the inert placeholder: it is offered
+    // the retry, at full size, because there is no smaller tier to retreat to and
+    // a dead end is the thing this arc removes. The zoom wrapper still unmounts,
+    // which is the claim above and is unchanged.
+    expect(
+      container.textContent,
+      "the failed slide offers its next step instead of a dead end",
+    ).toContain("Tap to retry");
+    expect(
+      container.textContent,
+      "and the inert parse-time placeholder is NOT what a runtime failure shows",
+    ).not.toContain("Image unavailable");
   });
 
   test("a failure with NO zoom intent still falls back to the placeholder even after painting", () => {
@@ -730,7 +766,19 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     });
 
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
-    expect(container.textContent).toContain("Image unavailable");
+    // Task 5 moved this outcome, and the move is ratified in spec §3.1. A slide
+    // that CANNOT demote no longer falls to the inert placeholder: it is offered
+    // the retry, at full size, because there is no smaller tier to retreat to and
+    // a dead end is the thing this arc removes. The zoom wrapper still unmounts,
+    // which is the claim above and is unchanged.
+    expect(
+      container.textContent,
+      "the failed slide offers its next step instead of a dead end",
+    ).toContain("Tap to retry");
+    expect(
+      container.textContent,
+      "and the inert parse-time placeholder is NOT what a runtime failure shows",
+    ).not.toContain("Image unavailable");
   });
 });
 
@@ -998,8 +1046,12 @@ describe("GalleryLightbox — the demote's sighted chip", () => {
       fireEvent.error(activeImage(placeholder.container));
     });
     premiseHolds(
-      "the slide really reached the placeholder",
-      placeholder.container.textContent?.includes("Image unavailable") === true,
+      // Task 5 moved the destination of a non-demotable failure from the inert
+      // placeholder to the retry offer (§3.1). The premise still asks the same
+      // question -- did this failure land on the NON-demote branch -- but reads
+      // the branch that now exists.
+      "the slide really reached the non-demote branch",
+      placeholder.container.textContent?.includes("Tap to retry") === true,
     );
     expect(placeholder.container.querySelector(CHIP)).toBeNull();
   });
@@ -1082,8 +1134,11 @@ describe("GalleryLightbox — the demote's sighted chip", () => {
       // "Full detail unavailable" floating over "Image unavailable" is a
       // contradiction: the chip's premise died with the clamped tier.
       premiseHolds(
-        "the second failure really reached the placeholder",
-        container.textContent?.includes("Image unavailable") === true,
+        // §3.1 again: a demoted slide whose clamped tier then fails has nothing
+        // left to demote to, so it lands on the retry offer rather than the inert
+        // placeholder. The claim under test is unchanged -- the chip clears.
+        "the second failure really reached the non-demote branch",
+        container.textContent?.includes("Tap to retry") === true,
       );
       expect(container.querySelector(CHIP)).toBeNull();
       expect(
@@ -1123,8 +1178,9 @@ describe("GalleryLightbox — the demote's sighted chip", () => {
 
       act(() => emblaApis.at(-1)!.scrollTo(0));
       premiseHolds(
-        "the slide really reached the placeholder",
-        container.textContent?.includes("Image unavailable") === true,
+        // Same §3.1 move as above: the non-demote branch is now the retry offer.
+        "the slide really reached the non-demote branch",
+        container.textContent?.includes("Tap to retry") === true,
       );
       expect(container.querySelector(CHIP)).toBeNull();
       expect(
@@ -1183,5 +1239,228 @@ describe("GalleryLightbox — the demote's sighted chip", () => {
     expect(cls).toContain("transition-opacity");
     expect(cls).toMatch(/\bduration-(fast|normal|slow)\b/);
     expect(cls).not.toMatch(/\d+ms/);
+  });
+});
+
+/**
+ * Task 5 — the ACTIVE slide's retry, and the tier it must not request
+ * (spec 2026-08-29-diagram-failure-retry; AC-3, AC-4, AC-6, AC-8, AC-9, AC-13, AC-17).
+ *
+ * The gallery's mechanism does not reach here: Task 2 is gallery-only by design,
+ * so every criterion below was unowned for this surface until now.
+ *
+ * The tier cases are why these live in THIS file. AC-9's claim is about the URL a
+ * retry requests after a zoom has already set `wantsOriginal`, and only this
+ * harness can drive a real gesture through the component's own wiring and read
+ * the loader's output back.
+ */
+describe("GalleryLightbox — the active slide can be retried (Task 5)", () => {
+  function failActive(container: HTMLElement): void {
+    const img = activeImage(container);
+    act(() => {
+      fireEvent.error(img);
+    });
+  }
+
+  /**
+   * A successful load, driven through next/image's OWN path.
+   *
+   * next/image does not use the img's `onLoad` attribute: it installs a ref
+   * handler and routes through `handleLoading`, which calls `img.decode()` and
+   * resolves the caller's `onLoad` inside a `.then()`
+   * (next/dist/client/image-component.js:30, :51). A synchronous `act()` returns
+   * before the component has seen the load, so every assertion about the settled
+   * state would read the in-flight state instead.
+   */
+  async function loadActive(container: HTMLElement): Promise<void> {
+    const img = activeImage(container);
+    await act(async () => {
+      fireEvent.load(img);
+      await Promise.resolve();
+    });
+  }
+
+  function retryControl(container: HTMLElement): HTMLElement {
+    const el = container.querySelector('[data-testid="lightbox-retry"]');
+    premiseHolds("the active slide offers a retry control", el !== null);
+    return el as HTMLElement;
+  }
+
+  test("AC-17: a failed active slide offers a retry, with the slide's own copy", () => {
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    failActive(container);
+
+    const control = retryControl(container);
+    expect(container.textContent, "the slide is full width, so it says what happened").toContain(
+      "Could not be loaded.",
+    );
+    expect(control.textContent).toContain("Tap to retry");
+    expect(control.getAttribute("aria-label")).toBe(
+      `${fixture.alt} could not be loaded. Tap to retry.`,
+    );
+  });
+
+  test("AC-5: `Full size.` appears ONLY for an entry with no smaller tier", () => {
+    // The honesty line, and the discriminator is the pair: a laddered entry must
+    // NOT carry it, or the assertion would pass on a component that always shows it.
+    const laddered = open([item(1), item(2)]);
+    failActive(laddered.container);
+    // Scoped to the SLIDE, not the button: §5.1 specifies `Full size.` as its own
+    // line beside the control, not as part of the action's label.
+    premiseHolds(
+      "the laddered slide really offered a retry",
+      retryControl(laddered.container) !== null,
+    );
+    expect(
+      laddered.container.textContent,
+      "a laddered retry fetches the clamped tier, so there is no full-size claim to make",
+    ).not.toContain("Full size.");
+    cleanup();
+
+    const originalsOnly = open([item(1, { variants: [] }), item(2)]);
+    failActive(originalsOnly.container);
+    premiseHolds(
+      "the originals-only slide really offered a retry",
+      retryControl(originalsOnly.container) !== null,
+    );
+    expect(
+      originalsOnly.container.textContent,
+      "an originals-only retry IS the whole object, and says so",
+    ).toContain("Full size.");
+  });
+
+  test("AC-4: the in-flight control is busy and aria-disabled, never natively disabled", () => {
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    act(() => {
+      fireEvent.click(retryControl(container));
+    });
+
+    const busy = container.querySelector('[data-testid="lightbox-retrying"]') as HTMLElement | null;
+    premiseHolds("the slide entered the in-flight state", busy !== null);
+    expect(busy!.textContent).toContain("Retrying…");
+    expect(busy!.getAttribute("aria-busy")).toBe("true");
+    expect(busy!.getAttribute("aria-disabled")).toBe("true");
+    // A natively disabled control leaves the tab order and drops focus to
+    // `<body>` -- OUTSIDE an aria-modal dialog, where the keymap gate stops
+    // responding. That is the §7.1 defect, and it is worse inside the dialog.
+    expect(busy!.hasAttribute("disabled")).toBe(false);
+  });
+
+  test("AC-3: both outcomes are announced by name on the dialog's channel", async () => {
+    const fixture = item(1);
+    const view = open([fixture, item(2)]);
+    failActive(view.container);
+    const beforeRetry = view.spoken.length;
+
+    act(() => {
+      fireEvent.click(retryControl(view.container));
+    });
+    await loadActive(view.container);
+    expect(view.spoken[view.spoken.length - 1]).toBe(`${fixture.alt} loaded.`);
+    const afterSuccess = view.spoken.length;
+    expect(afterSuccess, "the success added exactly one message").toBe(beforeRetry + 1);
+
+    failActive(view.container);
+    act(() => {
+      fireEvent.click(retryControl(view.container));
+    });
+    act(() => {
+      fireEvent.error(activeImage(view.container));
+    });
+    expect(view.spoken[view.spoken.length - 1]).toBe(`${fixture.alt} still could not be loaded.`);
+  });
+
+  test("AC-9: a retry never requests the original, even after a zoom asked for it", () => {
+    // The full path the spec names: zoom (so `wantsOriginal` holds the id), the
+    // slide fails, then retry. A retry that inherited the zoom's pin would fetch
+    // the whole object -- up to 50MB on venue wifi -- for a tap that asked only
+    // to see the diagram again.
+    // Spec §4.0.2's exact path, and the swipe is load-bearing. Failing while
+    // ZOOMED is an original-tier failure with a smaller tier, which correctly
+    // DEMOTES and never reaches the retry branch at all (that is AC-8, asserted
+    // separately). The hazard §4.0.2 names is subtler: the pin outlives the
+    // gesture, so a slide that failed on its CLAMPED tier while inactive comes
+    // back active still holding `wantsOriginal`, and a retry there would fetch
+    // the whole object for a tap that asked only to see the diagram again.
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    emitScale(2);
+    premiseHolds(
+      "the zoom really pinned the original, or the pin cannot outlive anything",
+      activeLoaderUrls(container).has(originalUrlOf(fixture)),
+    );
+
+    act(() => emblaApis.at(-1)!.scrollTo(1)); // away: slide 1 renders CLAMPED
+    const inactiveImg = [...container.querySelectorAll("img")].find((img) =>
+      (img.getAttribute("src") ?? "").includes("embedded-obj-1"),
+    );
+    premiseHolds("the inactive slide still renders an image to fail", inactiveImg !== undefined);
+    act(() => {
+      fireEvent.error(inactiveImg as HTMLImageElement);
+    });
+    act(() => emblaApis.at(-1)!.scrollTo(0)); // back: still holds wantsOriginal
+
+    act(() => {
+      fireEvent.click(retryControl(container));
+    });
+
+    const urls = activeLoaderUrls(container);
+    expect(urls, "the retry asks for the clamped tier").toContain(topTierUrlOf(fixture));
+    expect(urls, "and never the original").not.toContain(originalUrlOf(fixture));
+  });
+
+  test("AC-13: a re-pinch after a retry can still reach the original", async () => {
+    // The half that would silently disappear if entering `retrying` wrote
+    // `demotedRef`: the session would refuse to re-pin for the rest of its life
+    // and the user could never get full detail back, with nothing saying so.
+    // Same §4.0.2 path as AC-9: the retry has to be reached WITHOUT going through
+    // the demote branch, or this asserts nothing about `demotedRef`.
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    emitScale(2);
+    act(() => emblaApis.at(-1)!.scrollTo(1));
+    const inactiveImg = [...container.querySelectorAll("img")].find((img) =>
+      (img.getAttribute("src") ?? "").includes("embedded-obj-1"),
+    );
+    premiseHolds("the inactive slide still renders an image to fail", inactiveImg !== undefined);
+    act(() => {
+      fireEvent.error(inactiveImg as HTMLImageElement);
+    });
+    act(() => emblaApis.at(-1)!.scrollTo(0));
+
+    act(() => {
+      fireEvent.click(retryControl(container));
+    });
+    await loadActive(container);
+
+    emitScale(2.4);
+
+    expect(
+      activeLoaderUrls(container),
+      "a fresh gesture still reaches full detail after a retry",
+    ).toContain(originalUrlOf(fixture));
+  });
+
+  test("AC-8: an original-tier failure with a smaller tier DEMOTES, and offers no retry", () => {
+    // The negative. The demote path predates this arc and must not be captured
+    // by it: falling back to a cached smaller tier beats a control the user has
+    // to tap, when there is something smaller to fall back TO.
+    const fixture = item(1);
+    const view = open([fixture, item(2)]);
+    emitScale(2);
+    premiseHolds(
+      "the slide is pinned to the original, so its failure is an ORIGINAL-tier failure",
+      activeLoaderUrls(view.container).has(originalUrlOf(fixture)),
+    );
+
+    failActive(view.container);
+
+    expect(
+      view.container.querySelector('[data-testid="lightbox-retry"]'),
+      "the demote handled it; no retry control is offered",
+    ).toBeNull();
+    expect(view.spoken.join(" ")).toContain("less detailed view");
   });
 });
