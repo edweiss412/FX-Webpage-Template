@@ -98,6 +98,13 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/speclint-table-provenance (2026-08-28): the row asked for a
+  // `<!-- table: cmd=`…` -->` marker binding a stated table to a producing
+  // command, and scheduled the measurement first. The measurement said not to
+  // build it: the corpus had already ratified that a producing command is not a
+  // binding, so a marked table can satisfy the check and be exactly as drifted.
+  // A graduation is leaving the open queue, not necessarily an implementation.
+  { id: "BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE", provenance: "feat/speclint-table-provenance" },
   // fix/published-attention-escape-race (2026-08-28, PR #940): Escape could close the
   // whole published review modal whenever the attention panel was down for a frame,
   // losing the operator's scroll position and section. Both candidates the row named

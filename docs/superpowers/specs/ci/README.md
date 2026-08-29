@@ -74,5 +74,6 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-26-lifecycle-popover-docked-geometry-repair.md`](./2026-08-26-lifecycle-popover-docked-geometry-repair.md) | 2026-08-26 |
 | [`2026-08-26-mutation-gate-fidelity-design.md`](./2026-08-26-mutation-gate-fidelity-design.md) | 2026-08-26 |
 | [`2026-08-28-speclint-expect-n-exit-status.md`](./2026-08-28-speclint-expect-n-exit-status.md) | 2026-08-28 |
+| [`2026-08-28-table-provenance.md`](./2026-08-28-table-provenance.md) | 2026-08-28 |
 | [`2026-08-28-local-e2e-webserver-validation-pooler.md`](./2026-08-28-local-e2e-webserver-validation-pooler.md) | 2026-08-28 |
 | [`probes`](./probes) | 2026-08-04 |
