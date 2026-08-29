@@ -333,14 +333,18 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/diagrams/Gallery.tsx",
-    line: 354,
+    // 354 -> 530: the diagram-failure-retry arc inserted the availability sweep
+    // and the retry branches above it. The ELEMENT and its reason are unchanged.
+    line: 530,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
   },
   {
     file: "components/diagrams/GalleryLightbox.tsx",
-    line: 622,
+    // 622 -> 715: same arc, the lightbox's retry state and sweep. Element and
+    // reason unchanged.
+    line: 715,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",

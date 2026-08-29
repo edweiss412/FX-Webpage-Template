@@ -169,7 +169,10 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4754 -> 4760 on the R2 repair, same `disabled={draft.trim()...}` opener.
   { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4760 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
+  // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
+  // the in-flight overlay and the availability sweep above this chip. The ELEMENT
+  // is unchanged: same `<button data-testid="lightbox-reset-chip">`, same ground.
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 821 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.

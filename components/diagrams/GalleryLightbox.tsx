@@ -914,7 +914,10 @@ export function GalleryLightbox({
                       aria-disabled="true"
                       onClick={(event) => event.preventDefault()}
                       aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Retrying…`}
-                      className="absolute inset-x-0 top-2 z-dropdown mx-auto inline-flex min-h-tap-min w-fit items-center gap-1 rounded-sm bg-surface-raised px-3 py-2 text-sm font-medium text-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      // `text-text` for DESIGN.md §1.1a: in-flight is not an
+                      // action, but it is a button, and the rule's default for
+                      // anything interactive is text or stronger.
+                      className="absolute inset-x-0 top-2 z-dropdown mx-auto inline-flex min-h-tap-min w-fit items-center gap-1 rounded-sm bg-surface-raised px-3 py-2 text-sm font-medium text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
                       Retrying…
                     </button>

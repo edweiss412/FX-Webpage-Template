@@ -619,7 +619,14 @@ export function Gallery({
                       aria-disabled="true"
                       onClick={(event) => event.preventDefault()}
                       aria-label={`${nameOf(item, i)} could not be loaded. Retrying…`}
-                      className="absolute inset-0 flex min-h-tap-min flex-col items-center justify-center gap-1 bg-surface-sunken/80 text-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      // OPAQUE, not `/80`: over a translucent ground the label
+                      // composites against whatever the diagram happens to be, and
+                      // the worst case measured 3.80:1 -- under the 4.5:1 floor, on
+                      // the surface a crew member reads in direct sun. An opaque
+                      // ground makes the ratio a property of the tokens instead of
+                      // the image. `text-text` for §1.1a: in-flight is not an action,
+                      // but it is a button, and the rule's default is text or stronger.
+                      className="absolute inset-0 flex min-h-tap-min flex-col items-center justify-center gap-1 bg-surface-sunken text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
                       <ImageOff aria-hidden="true" className="size-5" />
                       <span className="text-xs/relaxed">Retrying…</span>
@@ -665,7 +672,14 @@ export function Gallery({
                   }}
                   onClick={() => handleRetry(item)}
                   aria-label={`${nameOf(item, i)} could not be loaded. Tap to retry.`}
-                  className="flex size-full min-h-tap-min flex-col items-center justify-center gap-1 text-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  // `text-accent-on-bg`, not `text-subtle`: DESIGN.md §1.1a says
+                  // subtle is never an action target's resting colour, and the
+                  // three carve-out families are owner-ratified rather than
+                  // extendable here. It also settles an inconsistency the critique
+                  // found -- the lightbox's retry was already an accent action
+                  // while this one was grey, so one screen offered the same action
+                  // in two visual languages.
+                  className="flex size-full min-h-tap-min flex-col items-center justify-center gap-1 text-accent-on-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 >
                   <ImageOff aria-hidden="true" className="size-5" />
                   <span className="text-xs/relaxed">Tap to retry</span>
