@@ -221,6 +221,15 @@ prose still says "four":
 | `tests/styles/controlOutlineTransitions.test.ts` §15 prose parity | **PASSES** | derivation four, prose still "four". They agree, wrongly but consistently |
 | `tests/e2e/step3-review-modal.layout.spec.ts` inverted pin | FAILS | the anchor has no border yet |
 | `tests/e2e/step3-review-modal.layout.spec.ts` `boxSizing` is `border-box` | PASSES | Tailwind preflight already sets it; this row asserts a mechanism, not a change |
+| new suite, shared-box contract | FAILS | it requires `rounded-md` on BOTH branches, and the anchor has none yet |
+| new suite, transition audit | PASSES | neither element has ever declared `transition-*`; this pins the invariant §8 rests on, and pins nothing about the move |
+| new suite, `CHROME_SHAPE` negative control | PASSES | it asserts the regex does not match a bare fit class, which is a property of the regex, not of the tree |
+
+**The table is complete over the suite, deliberately including the three rows that pass on BOTH trees.**
+Two of them are invariant pins and one is an instrument control; none of them discriminates the change,
+and saying so is the point. A table that listed only the discriminating assertions would read as though
+every assertion in the suite discriminates, which is the impression that lets a check-that-cannot-fail
+hide in plain sight.
 
 The parity assertion passing here is not a defect. It goes red at the NEXT step and stays red until the
 prose is updated, which is exactly what makes it a real check rather than a restatement.
@@ -288,7 +297,14 @@ NOT carry the filing arc's 44 forward.
     comm -23 <(grep -oE '^\| AC-[0-9]+' <plan> | tr -d '| ' | sort -u) \
              <(grep -oE 'ac=[A-Z0-9,-]+' <plan> | sed 's/ac=//' | tr ',' '\n' | sort -u)
 
-must print nothing. `spec:lint` reports an `ac=` id that appears nowhere else in the plan; the OPPOSITE
+must print nothing — and `comm` exits 0 whether it prints or not, so pipe it through a length check
+rather than reading the empty output as a verdict:
+
+       orphans=$(comm -23 <(grep -oE '^\| AC-[0-9]+' <plan> | tr -d '| ' | sort -u) \
+                          <(grep -oE 'ac=[A-Z0-9,-]+' <plan> | sed 's/ac=//' | tr ',' '\n' | sort -u))
+       [ -z "$orphans" ] || { echo "AC declared but claimed by no task: $orphans"; exit 1; }
+
+`spec:lint` reports an `ac=` id that appears nowhere else in the plan; the OPPOSITE
 direction — an AC declared in the table and claimed by no task — needs the opt-in `ac-declared` region
 this plan does not use, so it is checked here by hand. That direction is not hypothetical: AC-5 was
 orphaned by this very plan's round-2 repair, when the browser run moved into Task 1 and Task 2's marker
@@ -300,36 +316,66 @@ Then, in order:
    registry and the transitions suite, all re-run rather than reasoned about (AC-6, AC-7, AC-9's census
    half).
 2. **AC-2, as a command that can FAIL.** `git diff --name-only` exits 0 whether the file is listed or
-   not, so "must not list it" was prose, not a verdict — R3 was right. Written so each step's status is
-   its own, rather than reading a verdict off a pipe whose first stage could have died:
+   not, so "must not list it" was prose, not a verdict — R3 was right. But the R3 form was ALSO wrong,
+   and R4 probed it: it exits 1 on a clean tree too, because a trailing `grep … && { … exit 1; }` leaves
+   grep's own non-match as the script's status. `if` blocks fix that, and git's status is now genuinely
+   checked rather than merely claimed:
 
-       git diff --name-only origin/main...HEAD > /tmp/tilechrome-changed.txt
-       grep -qx 'components/diagrams/Gallery.tsx' /tmp/tilechrome-changed.txt \
-         && { echo 'AC-2 VIOLATED: Gallery.tsx is in the diff'; exit 1; }
+       git diff --name-only origin/main...HEAD > /tmp/tilechrome-changed.txt \
+         || { echo 'AC-2: git diff failed; the check proves nothing'; exit 1; }
+       if grep -qx 'components/diagrams/Gallery.tsx' /tmp/tilechrome-changed.txt; then
+         echo 'AC-2 VIOLATED: Gallery.tsx is in the diff'; exit 1
+       fi
 
-   The redirect fails loudly if `git diff` itself errors; piping straight into `grep` would turn a dead
-   git into an empty match and read as a pass.
+   Probed both ways before landing: a clean list exits 0, a list containing `Gallery.tsx` exits 1.
 3. **AC-4's same-commit half, as a history check rather than a claim:** the commit that last touched
    `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` must be the same commit that last touched `components/admin/wizard/step3ReviewSections.tsx`.
 
-       test "$(git log -1 --format=%H -- docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md)" \
-          = "$(git log -1 --format=%H -- components/admin/wizard/step3ReviewSections.tsx)"
+       spec_sha=$(git log -1 --format=%H -- docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md)
+       comp_sha=$(git log -1 --format=%H -- components/admin/wizard/step3ReviewSections.tsx)
+       [ -n "$spec_sha" ] && [ -n "$comp_sha" ] \
+         || { echo 'AC-4: a path matched no commit — check the paths before trusting this'; exit 1; }
+       [ "$spec_sha" = "$comp_sha" ] \
+         || { echo 'AC-4 VIOLATED: prose and class move landed in different commits'; exit 1; }
+
+   The emptiness guard is not decoration: two empty shas compare EQUAL, so a typo'd path would make
+   this pass while proving nothing. Both paths are touched on this branch, so the guard never fires
+   here — it exists because a check must fail on the tree where it should fail, not merely pass on
+   the one where it should pass.
 
    A count-parity test compares two sides of the FINAL tree and passes just as happily on a history that
    landed them in separate commits, which is exactly the gap R2 named. This reads the history.
 3. **AC-9's prose half, DISCRIMINATING.** The first draft grepped `lives on the`, which matches the
    stale sentence as happily as the repaired one and therefore passes on an unrepaired tree — R3 caught
-   it. Both directions are required:
+   it. Asserting both directions was necessary and not sufficient: the R3 form still exited 1 on a
+   REPAIRED tree, because the final intentional non-match became the script's status. R4 probed that too.
 
-       grep -q 'lives on the ANCHOR' tests/styles/tapTargetCensus.ts \
-         || { echo 'AC-9: census prose not repaired'; exit 1; }
-       grep -q 'lives on the IMAGE'  tests/styles/tapTargetCensus.ts \
-         && { echo 'AC-9: stale census prose survives'; exit 1; }
+       f=tests/styles/tapTargetCensus.ts
+       if ! grep -q 'lives on the ANCHOR' "$f"; then
+         echo 'AC-9: census prose not repaired'; exit 1
+       fi
+       if grep -q 'lives on the IMAGE' "$f"; then
+         echo 'AC-9: stale census prose survives'; exit 1
+       fi
 
-4. **AC-9's `line`/`tag`/`category` half is already covered executably**, and this is cited rather than
-   claimed: `tests/styles/_metaTapTargetFloor.test.ts:59` asserts every census row's `file:line` key
-   exists in the LIVE scan, so a row whose `line` drifted reds the styles suite. That run is step 1
-   above, so this half needs no extra command — only the citation, which the first draft omitted.
+   Probed: stale prose exits 1, repaired prose exits 0.
+
+4. **AC-9's `line`/`tag`/`category` half is a claim about the DIFF, so it is checked against the diff.**
+   An earlier draft cited `tests/styles/_metaTapTargetFloor.test.ts:59` as proof. R4 was right that it
+   proves something else: that assertion keys rows by their CURRENT `file:line` and shows the line
+   resolves to a live site, not that it is unchanged from base. `tag` is never compared, and the category
+   checks establish internal census consistency rather than baseline equality.
+
+       git diff origin/main...HEAD -- tests/styles/tapTargetCensus.ts > /tmp/tilechrome-census.diff \
+         || { echo 'AC-9: git diff failed'; exit 1; }
+       if grep -E '^[+-]' /tmp/tilechrome-census.diff | grep -vE '^(\+\+\+|---)' \
+            | grep -qE '^[+-][[:space:]]*(line|tag|category):'; then
+         echo 'AC-9 VIOLATED: a line/tag/category field moved'; exit 1
+       fi
+
+   Probed against a fabricated prose-only diff (exits 0) and a fabricated line-moved diff (exits 1). The
+   live-site assertion still runs in the styles suite and still earns its place — it catches a row
+   pointing at nothing — but it is no longer offered as proof of a property it does not check.
 4. The full suite, typecheck, lint and format, per the ledger.
 5. The invariant-8 UI quality gate on the affected diff.
 
