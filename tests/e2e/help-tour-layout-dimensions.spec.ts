@@ -10,6 +10,12 @@
  * could fail to happen with every other criterion green. AC-1d is the criterion that
  * sees it, and it asserts COUNTS.
  *
+ * WHY THE BLEED IS ASSERTED SEPARATELY. Column counts and measures are both satisfied
+ * by a grid that never escapes the 70ch cap at all — the cap is wide enough for two
+ * 22rem columns, so a grid capped at the measure still reports 2 columns at 752 and
+ * 1016 and still clears the floor. The change's whole point is the escape, and spec §4
+ * states it with numbers (728 at 1024, 856 at 1280). Those numbers are asserted below.
+ *
  * WHY THESE VIEWPORTS. `auto-fit` has no breakpoint — the column count is continuous in
  * container width — and the shell adds a 240px sidebar plus a 24px gap at `md`, so the
  * container is NOT monotonic in viewport: it grows, DROPS at 768, then grows again. A
@@ -50,17 +56,53 @@ const ERRORS_SEQUENCE: ReadonlyArray<{ vw: number; cols: number }> = [
 const MEASURE_VIEWPORTS = [752, 768, 1016, 1024, 1280] as const;
 const MOBILE_BASELINE = { vw: 390, cols: 1, measureCh: 31.4 } as const;
 
+/** Spec §4, stated with numbers. The shell is `max-w-6xl px-4` (1152 - 32 = 1120)
+ *  minus a 240px sidebar and a 24px gap at `md`, so the main column is 728 at 1024
+ *  and 856 at 1280. A bled grid takes all of it; a grid still under the measure cap
+ *  does not, which is what these absolutes see and the relative assertion alone
+ *  would not if every box shrank together. */
+const BLED_GRID_WIDTH: ReadonlyArray<{ vw: number; width: number }> = [
+  { vw: 1024, width: 728 },
+  { vw: 1280, width: 856 },
+];
+
+const TOL = 0.5;
+
 /** One evaluate per viewport. `boundingBox()` is viewport-relative and actionability
  *  scrolls, so two separate Locator reads can report geometry that never coexisted. */
 async function readTour(page: Page) {
   return page.evaluate(() => {
-    const main = document.querySelector("main") as HTMLElement;
+    const w = (el: Element) => +el.getBoundingClientRect().width.toFixed(1);
+    /** Content width, not border-box: spec §4's comparand is the CONTENT box, and
+     *  `getBoundingClientRect` includes padding. Comparing a grid to a padded
+     *  border-box would fail a correct layout by exactly the padding. */
+    const contentWidth = (el: HTMLElement) => {
+      const cs = getComputedStyle(el);
+      return +(
+        el.clientWidth -
+        parseFloat(cs.paddingLeft || "0") -
+        parseFloat(cs.paddingRight || "0")
+      ).toFixed(1);
+    };
+    /** Per element. Applying the FIRST body's metric to every body misreports any
+     *  body rendered at a different size — and the full-span card is exactly the
+     *  one whose measure a shared metric would get wrong. */
+    const chOf = (el: HTMLElement) => {
+      const cs = getComputedStyle(el);
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (!ctx) return 0;
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      return ctx.measureText("0".repeat(50)).width / 50;
+    };
+    const main = document.querySelector("main") as HTMLElement | null;
+    const prose = document.querySelector("main .help-prose") as HTMLElement | null;
     const grids = Array.from(
       document.querySelectorAll("main .help-prose div.grid"),
     ) as HTMLElement[];
-    const w = (el: Element) => +el.getBoundingClientRect().width.toFixed(1);
     return {
-      mainWidth: w(main),
+      mainWidth: main ? w(main) : -1,
+      mainContentWidth: main ? contentWidth(main) : -1,
+      proseContentWidth: prose ? contentWidth(prose) : -1,
       grids: grids.map((g) => {
         // EVERY card, not the first. Sampling one card per grid missed the
         // col-span-full card entirely — it is card 3 of grid 1, and it is the
@@ -70,34 +112,41 @@ async function readTour(page: Page) {
         const bodies = cards
           .map((c) => c.querySelector("p") as HTMLElement | null)
           .filter((b): b is HTMLElement => b !== null);
-        let ch = 0;
-        const body = bodies[0] ?? null;
-        if (body) {
-          const cs = getComputedStyle(body);
-          const ctx = document.createElement("canvas").getContext("2d");
-          if (ctx) {
-            ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-            ch = ctx.measureText("0".repeat(50)).width / 50;
-          }
-        }
         const tracks = getComputedStyle(g).gridTemplateColumns.trim();
-        // The resolved width of the FIRST track. A minimum that cannot shrink
-        // overflows the TRACK while the grid element stays at container width, so
-        // an element-vs-container comparison can never see it.
-        const firstTrack = /repeat\(|minmax\(|none/.test(tracks) ? -1 : parseFloat(tracks);
+        // Refuse a count we cannot resolve rather than reporting one that is not a
+        // number: on a non-grid element this string is the unresolved repeat(...).
+        const unresolved = !tracks || tracks === "none" || /repeat\(|minmax\(/.test(tracks);
+        const parsed = unresolved ? [] : tracks.split(/\s+/).map((t) => parseFloat(t));
+        // The RESOLVED track widths. A minimum that cannot shrink overflows the
+        // TRACK while the grid element stays at container width, so an
+        // element-vs-container comparison can never see it.
+        const trackWidths = parsed.some((n) => !Number.isFinite(n)) ? [] : parsed;
+        // The full-span card, found by its resolved placement rather than by index:
+        // `grid-column: 1 / -1` computes to an end of -1 whatever the track count.
+        const fullSpan = cards.filter((c) => getComputedStyle(c).gridColumnEnd === "-1");
         return {
-          // Refuse a count we cannot resolve rather than reporting one that is not a
-          // number: on a non-grid element this string is the unresolved repeat(...).
-          cols:
-            !tracks || tracks === "none" || /repeat\(|minmax\(/.test(tracks)
-              ? -1
-              : tracks.split(/\s+/).length,
+          cols: trackWidths.length === 0 ? -1 : trackWidths.length,
+          trackWidths: trackWidths.map((n) => +n.toFixed(1)),
           gridWidth: w(g),
-          firstTrack,
-          cardCount: g.querySelectorAll("a[data-tour-card]").length,
-          measureCh: body && ch ? +(w(body) / ch).toFixed(1) : -1,
-          // every card body's measure, so a ceiling can be asserted over all of them
-          measuresCh: ch ? bodies.map((b) => +(w(b) / ch).toFixed(1)) : [],
+          // The DIRECT overflow reading. Per-track catches a minimum that cannot
+          // shrink; this catches tracks that each fit while their sum plus the
+          // gaps does not. Integers, so the tolerance is a pixel.
+          gridScrollWidth: g.scrollWidth,
+          gridClientWidth: g.clientWidth,
+          cardCount: cards.length,
+          // Pinned against cardCount by the caller: `bodies` is a FILTER, and a
+          // card that lost its <p> would leave every measure bound satisfied by
+          // the cards that remain.
+          bodyCount: bodies.length,
+          fullSpanCount: fullSpan.length,
+          fullSpanWidths: fullSpan.map(w),
+          measureCh:
+            bodies[0] && chOf(bodies[0]) ? +(w(bodies[0]) / chOf(bodies[0])).toFixed(1) : -1,
+          // every card body's measure, each in its OWN font context
+          measuresCh: bodies.map((b) => {
+            const ch = chOf(b);
+            return ch ? +(w(b) / ch).toFixed(1) : -1;
+          }),
         };
       }),
     };
@@ -127,6 +176,65 @@ test.describe("/help/tour card grids — real-browser layout", () => {
     }
   });
 
+  test("§4: the bled grids take the whole main column, not the measure", async ({ page }) => {
+    await page.goto("/help/tour", { waitUntil: "networkidle" });
+    await expect(page.locator("main .help-prose div.grid").first()).toBeVisible();
+
+    for (const { vw, width } of BLED_GRID_WIDTH) {
+      await page.setViewportSize({ width: vw, height: 900 });
+      const m = await readTour(page);
+      premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
+      premiseHolds(`main resolves a content width at ${vw}px`, m.mainContentWidth > 0);
+      premiseHolds(
+        `the prose wrapper resolves a content width at ${vw}px`,
+        m.proseContentWidth > 0,
+      );
+
+      // §4 row 3: the wrapper carries no max-width after the cap moved to its children.
+      expect(m.proseContentWidth, `.help-prose content width at ${vw}px`).toBeCloseTo(
+        m.mainContentWidth,
+        1,
+      );
+      // §4 rows 2 and 4. The ABSOLUTE is what sees a grid still under the cap: the
+      // relative assertion alone passes if every box shrinks together.
+      expect(m.mainContentWidth, `main content width at ${vw}px`).toBeCloseTo(width, 1);
+
+      for (const [i, g] of m.grids.entries()) {
+        expect(g.gridWidth, `grid ${i + 1} width at ${vw}px`).toBeCloseTo(width, 1);
+        // §4 row 7: equal column widths. `1fr` tracks are equal by construction, so
+        // this fails only if the track list stopped being uniform.
+        premiseHolds(`grid ${i + 1} resolves its tracks at ${vw}px`, g.trackWidths.length > 0);
+        const [firstTrack, ...restTracks] = g.trackWidths;
+        premiseHolds(`grid ${i + 1} resolves a first track at ${vw}px`, firstTrack !== undefined);
+        for (const [t, tw] of restTracks.entries()) {
+          expect(tw, `grid ${i + 1} track ${t + 2} at ${vw}px`).toBeCloseTo(
+            firstTrack as number,
+            1,
+          );
+        }
+      }
+    }
+  });
+
+  test("§4: the parse-warnings card spans every column, whatever the count", async ({ page }) => {
+    await page.goto("/help/tour", { waitUntil: "networkidle" });
+    await expect(page.locator("main .help-prose div.grid").first()).toBeVisible();
+
+    // Both column counts, so `col-span-full` is proved to track the live count rather
+    // than to coincide with it. `md:col-span-2` would pass at 1016 and fail at 768.
+    for (const vw of [768, 1016]) {
+      await page.setViewportSize({ width: vw, height: 900 });
+      const m = await readTour(page);
+      const spanning = m.grids.filter((g) => g.fullSpanCount > 0);
+      premise(`the tour renders a full-span card at ${vw}px`, spanning.length, 0);
+      for (const g of spanning) {
+        for (const [k, fw] of g.fullSpanWidths.entries()) {
+          expect(fw, `full-span card ${k + 1} at ${vw}px`).toBeCloseTo(g.gridWidth, 1);
+        }
+      }
+    }
+  });
+
   test("AC-1: every card body clears the measure floor at each desktop threshold", async ({
     page,
   }) => {
@@ -139,7 +247,11 @@ test.describe("/help/tour card grids — real-browser layout", () => {
       premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
       for (const [i, g] of m.grids.entries()) {
         premise(`grid ${i + 1} measures a card body at ${vw}px`, g.measureCh, 0);
-        premise(`grid ${i + 1} measures EVERY card at ${vw}px`, g.measuresCh.length, 0);
+        // EVERY card, pinned to the card count. Without this the body list is a
+        // FILTER: drop the <p> from the card that breaks a bound and both bounds
+        // still pass on the cards that are left.
+        expect(g.bodyCount, `grid ${i + 1} card bodies at ${vw}px`).toBe(g.cardCount);
+        expect(g.measuresCh.length, `grid ${i + 1} measured bodies at ${vw}px`).toBe(g.cardCount);
         for (const [j, measure] of g.measuresCh.entries()) {
           expect(measure, `grid ${i + 1} card ${j + 1} measure at ${vw}px`).toBeGreaterThanOrEqual(
             MEASURE_FLOOR_CH,
@@ -188,17 +300,28 @@ test.describe("/help/tour card grids — real-browser layout", () => {
       await page.setViewportSize({ width: vw, height: 900 });
       const m = await readTour(page);
       premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
+      premiseHolds(`main resolves a content width at ${vw}px`, m.mainContentWidth > 0);
       for (const [i, g] of m.grids.entries()) {
-        // The TRACK, not the grid element. A grid element is a block child and sits
+        // The TRACKS, not the grid element. A grid element is a block child and sits
         // at container width whatever its tracks do, so comparing it to the container
         // is a tautology — it can never fail. The violation inventory caught exactly
         // that: staging a bare 22rem minimum produced NO red here until this line
-        // read the track instead.
-        premiseHolds(`grid ${i + 1} resolves a track width at ${vw}px`, g.firstTrack > 0);
+        // read the tracks instead.
+        premiseHolds(`grid ${i + 1} resolves its tracks at ${vw}px`, g.trackWidths.length > 0);
+        // EVERY track, not the first: a first track that fits says nothing about the
+        // others once the track list stops being uniform.
+        for (const [t, tw] of g.trackWidths.entries()) {
+          expect(
+            tw,
+            `grid ${i + 1} track ${t + 1} within its container at ${vw}px`,
+          ).toBeLessThanOrEqual(m.mainContentWidth + TOL);
+        }
+        // And the direct reading, which catches the case per-track cannot: N tracks
+        // that each fit while their sum plus the gaps does not.
         expect(
-          g.firstTrack,
-          `grid ${i + 1} track within its container at ${vw}px`,
-        ).toBeLessThanOrEqual(m.mainWidth + 0.5);
+          g.gridScrollWidth,
+          `grid ${i + 1} content overflows its own box at ${vw}px`,
+        ).toBeLessThanOrEqual(g.gridClientWidth + 1);
       }
     }
   });
@@ -216,29 +339,125 @@ test.describe("/help/errors jump list — real-browser layout", () => {
     for (const { vw, cols } of ERRORS_SEQUENCE) {
       await page.setViewportSize({ width: vw, height: 900 });
       const m = await page.evaluate(() => {
+        const main = document.querySelector("main") as HTMLElement | null;
         const ul = document.querySelector("main .help-prose nav ul.grid") as HTMLElement;
         const items = Array.from(ul.querySelectorAll("li")) as HTMLElement[];
         const first = items[0];
-        if (!first) return { cols: -1, items: 0, wrapped: -1 };
+        const mainContentWidth = main
+          ? +(
+              main.clientWidth -
+              parseFloat(getComputedStyle(main).paddingLeft || "0") -
+              parseFloat(getComputedStyle(main).paddingRight || "0")
+            ).toFixed(1)
+          : -1;
+        // The list and the sections it points at are rendered from ONE array
+        // (`groups` in app/help/errors/page.tsx), so the section ids are the
+        // derived expectation for the list's hrefs. A hardcoded count would go
+        // stale the day a family is added; this cannot.
+        const sectionIds = (
+          Array.from(document.querySelectorAll("main .help-prose > h2[id]")) as HTMLElement[]
+        )
+          .map((h) => h.id)
+          .sort();
+        const linkTargets = (
+          Array.from(ul.querySelectorAll('li a[href^="#"]')) as HTMLAnchorElement[]
+        )
+          .map((a) => (a.getAttribute("href") ?? "").slice(1))
+          .sort();
+        if (!first) {
+          return {
+            cols: -1,
+            items: 0,
+            wrapped: -1,
+            sectionIds,
+            linkTargets,
+            mainContentWidth,
+            trackWidths: [] as number[],
+            scrollWidth: -1,
+            clientWidth: -1,
+          };
+        }
         const cs = getComputedStyle(first);
         const lineH = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
         const tracks = getComputedStyle(ul).gridTemplateColumns.trim();
+        const unresolved = !tracks || tracks === "none" || /repeat\(|minmax\(/.test(tracks);
+        const parsed = unresolved ? [] : tracks.split(/\s+/).map((t) => parseFloat(t));
+        const trackWidths = parsed.some((n) => !Number.isFinite(n)) ? [] : parsed;
         return {
-          cols:
-            !tracks || tracks === "none" || /repeat\(|minmax\(/.test(tracks)
-              ? -1
-              : tracks.split(/\s+/).length,
+          cols: trackWidths.length === 0 ? -1 : trackWidths.length,
+          trackWidths: trackWidths.map((n) => +n.toFixed(1)),
           items: items.length,
           // A wrapped item is taller than one line. Derived from the item's own
           // computed line-height, never a hardcoded pixel count.
           wrapped: items.filter((li) => li.getBoundingClientRect().height > lineH * 1.6).length,
+          sectionIds,
+          linkTargets,
+          mainContentWidth,
+          scrollWidth: ul.scrollWidth,
+          clientWidth: ul.clientWidth,
         };
       });
 
       premise(`the jump list renders items at ${vw}px`, m.items, 0);
       premiseHolds(`the jump list resolves a column count at ${vw}px`, m.cols > 0);
+      // Cardinality, derived from the page's own sections. Without it the wrap count
+      // is a FILTER result: delete the items that wrap and zero wrap.
+      premise(`the errors page renders family sections at ${vw}px`, m.sectionIds.length, 0);
+      expect(m.linkTargets, `jump-list targets at ${vw}px`).toEqual(m.sectionIds);
+      expect(m.items, `jump-list item count at ${vw}px`).toBe(m.sectionIds.length);
       expect(m.cols, `jump list columns at ${vw}px`).toBe(cols);
       expect(m.wrapped, `wrapped jump-list items at ${vw}px`).toBe(0);
+    }
+  });
+
+  test("AC-1c: the errors jump list does not overflow its container either", async ({ page }) => {
+    await page.goto("/help/errors", { waitUntil: "networkidle" });
+    await expect(page.locator("main .help-prose nav ul.grid")).toBeVisible();
+
+    // AC-1c says "no grid on EITHER page", and 320 is the pin: a bare 18rem minimum
+    // overflows a 288px container by 32px, so this is what proves the `min(...,100%)`
+    // on the jump list is doing work rather than decorating the declaration.
+    for (const vw of [320, 390, 640, 1280]) {
+      await page.setViewportSize({ width: vw, height: 900 });
+      const m = await page.evaluate(() => {
+        const main = document.querySelector("main") as HTMLElement | null;
+        const ul = document.querySelector("main .help-prose nav ul.grid") as HTMLElement | null;
+        if (!main || !ul)
+          return {
+            mainContentWidth: -1,
+            trackWidths: [] as number[],
+            scrollWidth: -1,
+            clientWidth: -1,
+          };
+        const mcs = getComputedStyle(main);
+        const tracks = getComputedStyle(ul).gridTemplateColumns.trim();
+        const unresolved = !tracks || tracks === "none" || /repeat\(|minmax\(/.test(tracks);
+        const parsed = unresolved ? [] : tracks.split(/\s+/).map((t) => parseFloat(t));
+        return {
+          mainContentWidth: +(
+            main.clientWidth -
+            parseFloat(mcs.paddingLeft || "0") -
+            parseFloat(mcs.paddingRight || "0")
+          ).toFixed(1),
+          trackWidths: parsed.some((n) => !Number.isFinite(n))
+            ? []
+            : parsed.map((n) => +n.toFixed(1)),
+          scrollWidth: ul.scrollWidth,
+          clientWidth: ul.clientWidth,
+        };
+      });
+
+      premiseHolds(`main resolves a content width at ${vw}px`, m.mainContentWidth > 0);
+      premiseHolds(`the jump list resolves its tracks at ${vw}px`, m.trackWidths.length > 0);
+      for (const [t, tw] of m.trackWidths.entries()) {
+        expect(tw, `jump-list track ${t + 1} within its container at ${vw}px`).toBeLessThanOrEqual(
+          m.mainContentWidth + TOL,
+        );
+      }
+      expect(
+        m.scrollWidth,
+        `jump-list content overflows its own box at ${vw}px`,
+      ).toBeLessThanOrEqual(m.clientWidth + 1);
     }
   });
 });
