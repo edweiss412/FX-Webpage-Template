@@ -168,12 +168,21 @@ larger diff with no bearing on this defect.
 
 ### 5.1 CI posture is untouched, verified live
 
-Every workflow that boots a Playwright webServer supplies **`DATABASE_URL`** and deliberately not
+**Three** workflows that boot a Playwright webServer supply **`DATABASE_URL`** and deliberately not
 `TEST_DATABASE_URL` (`app-e2e.yml:187`, `published-modal-e2e.yml:177`,
-`lifecycle-layout-e2e.yml:222` and `lifecycle-layout-e2e.yml:257`), each with a comment saying so in as many words:
-"DATABASE_URL, not TEST_DATABASE_URL: the latter is this repo's name for..." Under the pin those jobs
-resolve `process.env.DATABASE_URL` — the same loopback DSN the resolver reaches today by falling
-through to `DATABASE_URL`. Identical value, so identical behavior.
+`lifecycle-layout-e2e.yml:222` and `lifecycle-layout-e2e.yml:257`), each with a comment saying so in
+as many words: "DATABASE_URL, not TEST_DATABASE_URL: the latter is this repo's name for..." Under the
+pin those three resolve `process.env.DATABASE_URL` — the same loopback DSN the resolver reaches today
+by falling through — so their behavior is identical.
+
+**They are not the whole set, and an earlier draft of this section said they were.** That claim was
+reached by grepping for workflows that MENTION the variable and generalising from the ones that
+turned up, which cannot see the workflows that mention neither. Four workflows boot a newly-pinned
+server while setting no DB key, and for them the pin is a real change rather than a no-op. The full
+derivation — by `webServer` filter env var, by which config each job passes to Playwright, and by
+whether that config declares a `webServer` at all — plus the reachability argument for those four,
+lives in the plan's Task 1 under "What this does to CI, derived rather than assumed". It is kept in
+one place rather than restated here, because two copies of a four-group derivation drift.
 
 The only workflow that sets `TEST_DATABASE_URL` to the validation secret is `x-audits.yml` (lines
 325, 363, 411, 484), and it runs **no** Playwright at all (`rg -c playwright .github/workflows/x-audits.yml`
@@ -381,10 +390,17 @@ one for the same reason. T3 asserts on the child process's real stdout, not on t
   measuring the wrong package. That is the intended direction: the premise is about binding, and a
   changed layout is a fact worth surfacing.
   *Re-file trigger:* the premise failing because the two resolutions converged.
-- **T1's discovery is rooted at the repo root.** A Playwright config placed in a subdirectory would
-  not be found. No such file exists today (`ls playwright*.config.ts` returns exactly two), and the
-  root is where both live and where Playwright's own conventions put them.
-  *Re-file trigger:* the first config committed outside the repo root.
+- **T1 discovers configs by declaration, anywhere in the repo, so the subdirectory case is covered
+  rather than deferred.** An earlier draft scoped discovery to `playwright*.config.ts` at the root
+  and recorded the subdirectory case as a limit on the ground that no such file existed. That ground
+  was false: `tests/e2e/visual.config.ts` and `tests/e2e/standalone.config.ts` are both Playwright
+  configs outside the root. Neither declares a `webServer` today, so there was no live gap, but the
+  limit's stated reason was wrong and the scope was one commit from being wrong too. Discovery now
+  walks the repo for `*.config.ts` whose source declares a `webServer`, which finds exactly the two
+  that do (out of eleven `*.config.ts` files) and would find a third the day one appears.
+  What remains a limit is narrower: a config that builds its `webServer` key dynamically, so the
+  source-level `webServer:` grep does not see it. Nothing in the repo does this.
+  *Re-file trigger:* a config assembling its `webServer` key programmatically.
 
 ## 9. Invariants
 
