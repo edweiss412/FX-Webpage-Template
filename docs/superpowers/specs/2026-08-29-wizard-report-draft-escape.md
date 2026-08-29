@@ -6,7 +6,7 @@ A half-typed report message in the wizard review modal dies when the modal close
 
 ## 1. The defect, reproduced
 
-`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4701`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
+`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4723`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
 
 This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraftEscape.test.tsx` carries two blocks, committed at `b230ccb9d`:
 
@@ -28,7 +28,7 @@ The exposure is narrow by construction: this textarea is the only one in `compon
 | **The `onEscapeCapture` prop stays unused by the wizard.** Its sole consumer remains `PublishedReviewModal.tsx:990`. | `components/admin/review/ReviewModalShell.tsx:100`, `components/admin/showpage/PublishedReviewModal.tsx:990` |
 | **`FinalizeButton`'s capture-phase Escape preempt is unaffected.** It listens in the capture phase and calls `stopImmediatePropagation`, so a finalize overlay above the review modal already swallows Escape before the shell sees it. Nothing here runs on that path. | `components/admin/FinalizeButton.tsx:767` |
 | **Collapse survival is existing, tested behaviour and is not the fix.** A draft already survives collapsing the disclosure, because `draft` lives at component level and only the form subtree unmounts. | `tests/components/admin/wizard/step3ReviewSections.test.tsx:1218` (T-D1) |
-| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4701` (`ReportIssueSection`) |
+| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4723` (`ReportIssueSection`) |
 
 ## 2. What ships
 
@@ -68,10 +68,10 @@ Copy rules: no em dash, and no apostrophe is needed in either string.
 
 | Input / state | Behaviour |
 |---|---|
-| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4645`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
+| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4667`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
 | Stored value absent | `""`. Identical to today's initial state. |
 | Stored value empty string | Treated as absent. The write path never creates this, but a key written by an older build might hold it. |
-| Stored value longer than `REPORT_MESSAGE_MAX_CHARS` (2000, `step3ReviewSections.tsx:4548`) | Truncated to the cap on read. The textarea's own `maxLength` bounds what a user can type; a stale or hand-edited key is the only way an over-length value arrives, and it must not defeat the cap. |
+| Stored value longer than `REPORT_MESSAGE_MAX_CHARS` (2000, `step3ReviewSections.tsx:4548`) | Truncated to the cap on read, by `capDraft`, which never splits a character: a cap landing between the two code units of an astral code point drops the orphan rather than emitting a lone surrogate. The textarea's own `maxLength` bounds what a user can type; a stale or hand-edited key is the only way an over-length value arrives, and it must not defeat the cap. The clear-on-success comparison runs through the SAME `capDraft` normalisation, so an over-length stored value still matches the capped state it was restored into. |
 | `wizardSessionId` or `dfid` empty | The key is still well-formed and still scoped. No special case: an empty segment yields a distinct key that simply never collides with a populated one. |
 | Two cards open in sequence in one wizard session | Distinct `dfid`, distinct key. Card A's draft never appears in card B. |
 | Draft submitted successfully, then modal reopened | Key cleared at submit, so the field is empty. |
@@ -113,6 +113,20 @@ The DOM changes are the text content of an existing button and, when the draft i
 - **AC-14** A write that throws after an earlier one succeeded clears the key rather than leaving a stale prefix under it.
 - **AC-15** A detached submit's success does not erase text a newer mount has typed: the clear is conditional on the store still holding the text that submit sent.
 - **AC-12b** The third label flip, on submit success while collapsed with focus on the trigger, is accompanied by the live-region success announcement.
+- **AC-4b** An over-length stored draft does not survive a successful send: the clear compares through the same cap the read applies.
+- **AC-7b** The cap never splits a character: no unpaired surrogate can reach the textarea.
+
+## 6.3 Cross-model review, diff round 2
+
+Verdict NEEDS-ATTENTION, three findings, all accepted. Two of the three are consequences of round 1's own repair, which is worth stating rather than smoothing over.
+
+| # | Finding | Disposition |
+|---|---|---|
+| F1 (P1) | An over-length restored draft resurrected after a successful send. The state is capped on read, the store is not, so R1's compare-and-clear read the store RAW, never matched, and never cleared. AC-4 broken by the guard added to protect AC-15. | FIXED, AC-4b. The comparison runs through `readStoredDraft`, so both sides pass the same cap. |
+| F2 (P2) | `slice(0, 2000)` counts UTF-16 code units, so 1999 ASCII characters plus an emoji yields a lone high surrogate: malformed text, not the truncation §7 documents. The AC-7 fixture was `"x".repeat(n)`, which cannot distinguish prefix truncation from a suffix, from filler, or from boundary corruption. | FIXED, AC-7b, plus AC-7's fixture rebuilt from distinct characters so each wrong answer fails. |
+| F3 (P2) | AC-6 promised the section still submits under throwing storage and the test stopped after typing. It would have passed while throwing storage broke attempt-key minting, the success settlement, or the compare-and-clear. | FIXED. AC-6 submits and asserts the success settles. The submit path is the half that touches storage most and was the half going unasserted. |
+
+The reviewer's sandbox again could not start Vitest, so all three came from reading. Two of them were about tests being weaker than the claims above them, which is the failure mode a sandbox cannot mask.
 
 ## 6.2 Cross-model review, diff round 1
 

@@ -2112,15 +2112,71 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     expect(q.queryByTestId(TEXTAREA)).toBeNull();
   });
 
-  test("AC-7: a stored value longer than the cap is truncated on read", () => {
-    const overLong = "x".repeat(REPORT_MESSAGE_MAX_CHARS + 250);
+  test("AC-7: a stored value longer than the cap is truncated on read, from the FRONT", () => {
+    // Diff review R2 F2: the first version of this fixture was `"x".repeat(n)`,
+    // which cannot tell prefix-preserving truncation from a suffix, from
+    // hard-coded filler, or from boundary corruption — every candidate answer
+    // is the same string. Distinct characters make each of those fail.
+    const overLong = Array.from({ length: REPORT_MESSAGE_MAX_CHARS + 250 }, (_, i) =>
+      String.fromCharCode(97 + (i % 26)),
+    ).join("");
     window.sessionStorage.setItem(DRAFT_KEY, overLong);
     const q = renderBody(sectionData(), "report");
     fireEvent.click(q.getByTestId(TOGGLE));
     const value = (q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value;
-    // Length derived from the exported cap, never a literal.
+    // Length and content both derived from the exported cap and the fixture,
+    // never restated as literals.
     expect(value.length).toBe(REPORT_MESSAGE_MAX_CHARS);
-    expect(overLong.startsWith(value)).toBe(true);
+    expect(value).toBe(overLong.slice(0, REPORT_MESSAGE_MAX_CHARS));
+    expect(value[value.length - 1]).toBe(overLong[REPORT_MESSAGE_MAX_CHARS - 1]);
+  });
+
+  test("AC-7b: the cap never splits a character in half", () => {
+    // A code point outside the BMP is two UTF-16 code units, so a cap landing
+    // between them yields a lone high surrogate: malformed text, not truncated
+    // text. The operator may lose the character they were warned about; they
+    // must never gain a broken one (diff review R2 F2).
+    const emoji = "😀"; // U+1F600, one code point, two code units
+    const stored = "a".repeat(REPORT_MESSAGE_MAX_CHARS - 1) + emoji;
+    window.sessionStorage.setItem(DRAFT_KEY, stored);
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    const value = (q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value;
+
+    // One code unit SHORT of the cap, because the half character was dropped
+    // rather than kept.
+    expect(value.length).toBe(REPORT_MESSAGE_MAX_CHARS - 1);
+    // The decisive assertion: no unpaired surrogate survives anywhere.
+    expect(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value),
+    ).toBe(false);
+    expect(value.endsWith("a")).toBe(true);
+  });
+
+  test("AC-4b: an OVER-LENGTH stored draft does not survive a successful send as a ghost", () => {
+    // Diff review R2 F1. The restored state is capped; the store was not. The
+    // compare-and-clear added in R1 read the store RAW, so the two never
+    // matched, the key was never cleared, and a sent report came back on the
+    // next open — AC-4 broken by the guard that protects AC-15.
+    const overLong = "b".repeat(REPORT_MESSAGE_MAX_CHARS + 40);
+    window.sessionStorage.setItem(DRAFT_KEY, overLong);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ ok: true, status: "created" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value.length).toBe(
+      REPORT_MESSAGE_MAX_CHARS,
+    );
+    fireEvent.click(q.getByTestId(SUBMIT));
+    return waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY)).then(() => {
+      expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+    });
   });
 
   test("AC-10: drafts are scoped per drive file — one card's text never appears under another", () => {
@@ -2350,7 +2406,7 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
   });
 
-  test("AC-6: sessionStorage throwing on every access degrades to today's behaviour, never to a crash", () => {
+  test("AC-6: sessionStorage throwing on every access degrades to today's behaviour, never to a crash — including the submit path", async () => {
     const boom = () => {
       throw new DOMException("denied", "SecurityError");
     };
@@ -2365,5 +2421,22 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
     expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
     expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+
+    // AC-6 promises the section still SUBMITS, and diff review R2 F3 found this
+    // test stopping at typing — it would have passed while throwing storage
+    // broke attempt-key minting, the success settlement, or the compare-and-clear.
+    // The submit path touches storage three times, so it is the half of AC-6
+    // most likely to break and was the half going unasserted.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ ok: true, status: "created" }),
+      }),
+    );
+    fireEvent.click(q.getByTestId(SUBMIT));
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
   });
 });

@@ -4581,11 +4581,27 @@ function reportDraftStorageKey(wizardSessionId: string, driveFileId: string): st
  *  never to a crash. The cap is re-applied on READ because the textarea's
  *  maxLength bounds only what a user can type — a stale or hand-edited key is
  *  the one way an over-length value arrives, and it must not defeat the cap. */
+/** The cap, applied so it can never split a character in half.
+ *
+ *  `slice` counts UTF-16 code units, so 1999 ASCII characters followed by an
+ *  emoji sliced at 2000 ends in a lone high surrogate: not truncated text but
+ *  MALFORMED text, which is a different and worse thing than the truncation
+ *  §7 documents as a limit (diff review R2 F2). Dropping the orphan is the
+ *  whole fix; the operator loses the character they were told they might lose,
+ *  and never gains a broken one. */
+function capDraft(value: string): string {
+  if (value.length <= REPORT_MESSAGE_MAX_CHARS) return value;
+  const cut = value.slice(0, REPORT_MESSAGE_MAX_CHARS);
+  const last = cut.charCodeAt(cut.length - 1);
+  const isLoneHighSurrogate = last >= 0xd800 && last <= 0xdbff;
+  return isLoneHighSurrogate ? cut.slice(0, -1) : cut;
+}
+
 function readStoredDraft(storageKey: string): string {
   try {
     const stored = window.sessionStorage.getItem(storageKey);
     if (stored == null || stored === "") return "";
-    return stored.slice(0, REPORT_MESSAGE_MAX_CHARS);
+    return capDraft(stored);
   } catch {
     return ""; // storage unavailable — exactly the pre-repair initial value
   }
@@ -4634,7 +4650,13 @@ function writeStoredDraft(storageKey: string, value: string): void {
  *  one line this arc added leaves all of that untouched. */
 function clearStoredDraftIfUnchanged(storageKey: string, expected: string): void {
   try {
-    if (window.sessionStorage.getItem(storageKey) === expected) {
+    // Compared through readStoredDraft, NOT a raw getItem, so both sides of the
+    // comparison have been through the same cap. A raw read fails to match
+    // whenever the stored value was over-length: the state it was restored into
+    // is capped, the store is not, so the guard declined to clear and a sent
+    // report came back as a ghost draft on the next open — AC-4 violated by the
+    // very guard added to protect AC-15 (diff review R2 F1).
+    if (readStoredDraft(storageKey) === expected) {
       window.sessionStorage.removeItem(storageKey);
     }
   } catch {

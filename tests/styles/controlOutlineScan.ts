@@ -149,10 +149,13 @@ export const CENSUS: readonly CensusRow[] = [
   // `wizard-step3-card-${dfid}-report-toggle` testid and its `<button>` opener,
   // per the method the notes above prescribe — never by adding the delta.
   //
-  // THREE re-keys in one branch, which is the real lesson: re-key LAST. The
-  // first two were done while the branch still had edits coming and were stale
-  // within the hour. This one follows the final source edit.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4791 },
+  // Then 4791 -> 4813 at diff review R2, which added the surrogate-safe cap.
+  // FOUR re-keys in one branch, which is the real lesson: re-key LAST. The first
+  // three were each done while the branch still had edits coming, and each was
+  // stale within the hour. Every adversarial round that touches this component
+  // moves both rows again, so the re-key belongs after the final source edit of
+  // the round, not alongside the fix that prompted it.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4813 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -187,8 +190,9 @@ export const CENSUS: readonly CensusRow[] = [
   // the R1 detached-submit guard moved both. So the two rows diverged, converged
   // and diverged again inside one branch, which is the case that makes applying
   // one row's delta to the other actively wrong rather than merely lazy.
-  // Located by the `disabled={draft.trim()...}` opener on the final tree.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4873 },
+  // Then 4873 -> 4895 at diff review R2, same cause as row 18.
+  // Located by the `disabled={draft.trim()...}` opener on the final tree, every time.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4895 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
