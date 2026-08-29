@@ -380,7 +380,7 @@ Removed from the panel:
 
 ### 3.4 Retiring the hook
 
-Migrating the last consumer makes `components/admin/useFitWithinClip.ts` dead
+Migrating the last consumer makes the retired hook module (components/admin/useFitWithinClip.ts) dead
 code. **Disposition: delete it, with its test file, in this PR.**
 
 The reasoning is `subtract-before-you-add`, and one specific hazard: a dead
@@ -430,8 +430,8 @@ Rows are grouped by what the edit is, but the SET is the command's output.
 | File | Change |
 | --- | --- |
 | `components/admin/showpage/AttentionMenu.tsx` | The frame portals into the host and is placed by the shared module; the viewport-sized width class, `right-0`, `top-[calc(100%+8px)]` and the `useFitWithinClip` call go. Panel becomes a clipping flex column (§7.1). |
-| `components/admin/useFitWithinClip.ts` | Deleted (§3.4). |
-| `tests/components/admin/useFitWithinClip.test.tsx` | Deleted with its subject. |
+| the retired hook module (components/admin/useFitWithinClip.ts) | Deleted (§3.4). |
+| its retired suite (tests/components/admin/useFitWithinClip.test.tsx) | Deleted with its subject. |
 | `tests/components/admin/_metaPopoverViewportSource.test.ts` | Derived registry discovers a sixth placement consumer; consumer/exemption rows updated. |
 | `tests/components/admin/showpage/popoverOverlayRegistry.ts` | AttentionMenu's row moves from `disposition: "fit-within-clip"` (`tests/components/admin/showpage/popoverOverlayRegistry.ts:123`) to `"placement-module"`, with a reason citing the 2026-08-25 toggle-banner migration at `tests/components/admin/showpage/popoverOverlayRegistry.ts:108-110`. Held both ways, so a stale row fails. |
 | `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` | Validates the `"fit-within-clip"` disposition through an import of the deleted module; the contract row follows the disposition change. |
@@ -716,7 +716,7 @@ opacity.
 **The hook's `transitionend` listener is not being dropped carelessly** — it is
 being dropped because on THIS consumer it is already dead. It remains meaningful
 in general, for a positioned ancestor that genuinely transitions `transform`,
-which is the case `components/admin/useFitWithinClip.ts:300-304` was written for.
+which is the case the retired hook (components/admin/useFitWithinClip.ts line 300-304, deleted in this arc) was written for.
 Retiring the hook removes it from a consumer where it never fired.
 
 **Ratified, and load-bearing for the implementer: this change does NOT add `scale`
@@ -885,7 +885,7 @@ checks the transient.
   they confirm the geometry does not depend on the setting.
 - **AC-7.** Two assertable halves, narrowed from an earlier draft that stated a
   tree-wide claim nothing could falsify:
-  1. `components/admin/useFitWithinClip.ts` no longer exists, and no module
+  1. the retired hook module (components/admin/useFitWithinClip.ts) no longer exists, and no module
      imports it — proven by the build and typecheck resolving with the file
      deleted, since a surviving import cannot resolve.
   2. `components/admin/showpage/AttentionMenu.tsx` carries no viewport-derived
@@ -978,6 +978,43 @@ degrade to the signaled outcomes above and file to documented limits.
 ---
 
 ## 12. Closeout
+### 12.1 Pre-code mechanical checklist
+
+Run before the component edit, per the pre-code UI gate. All arms are no-ops on
+this diff, and that was PREDICTED rather than discovered: the change writes
+geometry and adds no user-visible copy. Verified rather than assumed:
+
+| Arm | Result |
+| --- | --- |
+| em-dash in user-visible copy | 5 occurrences, all in comments; none in rendered copy |
+| apostrophe literals | 0 curly apostrophes |
+| 44px tap targets | `min-h-tap-min` retained on the row button |
+| canonical type/token classes | only `text-xs`, `text-xs/relaxed`, `text-sm`, `text-text-subtle` |
+| new rendered copy | none — the diff's added non-comment lines contain no rendered strings |
+
+### 12.2 Impeccable dual gate
+
+**Provenance.** Assessments A (design review) and B (detector + browser evidence)
+ran as two isolated sub-agents, per the command's hard invariant.
+
+**Disclosed deviation, because a silent degraded critique is a failed one:** the
+parent context ran the impeccable detector directly for corroboration BEFORE Assessment A
+finished, which the command orders the other way so detector output cannot anchor
+the design review. The scan returned `[]` at exit 0, so there were no findings
+available to anchor on, and Assessment A's review was already dispatched and
+isolated when it ran. Recorded rather than omitted.
+
+**Deterministic scan:** the impeccable detector (detect.mjs, a skill script outside this repo) run with --json over `components/admin/showpage/AttentionMenu.tsx`
+→ exit 0, `[]`. Clean.
+
+**Browser evidence:** the standalone harness renders the real published review
+modal with this menu open and needs no app server or database.
+`tests/e2e/popover-clip-fit.spec.ts` 42/42 and
+`tests/e2e/wizard-attention-menu.spec.ts` 13/13 at this head, including the
+eight-cell containment matrix, the host-descendancy pin, the dimensional
+invariants and both motion branches of the re-place assertion.
+
+
 
 UI surface, so invariant 8 applies in full.
 
