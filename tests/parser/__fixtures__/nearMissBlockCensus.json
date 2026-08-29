@@ -1,0 +1,277 @@
+{
+  "note": "Per-block candidacy census (spec docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md section 3.5). EXCLUDED blocks in full, keyed fixture#ordinal; kept blocks are counted, not listed. Regenerate with docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-block-census.ts, never by pasting a test's actual output.",
+  "totalBlocks": 514,
+  "excludedCount": 33,
+  "keptCount": 481,
+  "familyCounts": {
+    "venue": 21,
+    "details": 13,
+    "console": 4
+  },
+  "excluded": [
+    {
+      "id": "fixtures/shows/exporter-xlsx/consultants.md#21",
+      "arm": "matrix",
+      "ns": "section",
+      "opener": "",
+      "minValueCells": 7,
+      "rowCount": 2
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/consultants.md#37",
+      "arm": "matrix",
+      "ns": "ballroom a b 8th floor room dimensions total 82 x 94 x 14 a b 82 x 63 x 14",
+      "opener": "BALLROOM A/B - 8th Floor ROOM DIMENSIONS: TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'",
+      "minValueCells": 8,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/consultants.md#38",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/east-coast.md#21",
+      "arm": "matrix",
+      "ns": "east coast single family office symposium ft lauderdale set 5 13 24",
+      "opener": "East Coast Single Family Office Symposium Ft Lauderdale Set 5/13/24",
+      "minValueCells": 6,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/fintech.md#23",
+      "arm": "matrix",
+      "ns": "general session adler ballroom 75 x 37 x 15th floor",
+      "opener": "GENERAL SESSION ADLER BALLROOM 75' x 37' x 15th Floor",
+      "minValueCells": 7,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/fintech.md#24",
+      "arm": "matrix",
+      "ns": "adler ballroom 3d view",
+      "opener": "ADLER BALLROOM 3D VIEW",
+      "minValueCells": 7,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/fintech.md#25",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/fixed-income.md#22",
+      "arm": "matrix",
+      "ns": "general session salon abc 43 x 49 x 12",
+      "opener": "GENERAL SESSION SALON ABC 43' x 49' x 12'",
+      "minValueCells": 7,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/fixed-income.md#23",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/redefining-fi.md#25",
+      "arm": "matrix",
+      "ns": "lakeview ballroom 7th floor room dimensions 61 x 55 x 11",
+      "opener": "LAKEVIEW BALLROOM - 7th Floor ROOM DIMENSIONS: 61' x 55' x 11'",
+      "minValueCells": 6,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/redefining-fi.md#26",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/ria.md#26",
+      "arm": "matrix",
+      "ns": "salon abcd 41 x 73 x 12",
+      "opener": "SALON ABCD&#10;41' x 73' x 12'",
+      "minValueCells": 6,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/ria.md#27",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/ria.md#41",
+      "arm": "matrix",
+      "ns": "audio",
+      "opener": "AUDIO",
+      "minValueCells": 8,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/ria.md#43",
+      "arm": "matrix",
+      "ns": "audio",
+      "opener": "AUDIO",
+      "minValueCells": 8,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/ria.md#44",
+      "arm": "matrix",
+      "ns": "console",
+      "opener": "Console",
+      "minValueCells": 6,
+      "rowCount": 7
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/ria.md#45",
+      "arm": "matrix",
+      "ns": "console",
+      "opener": "Console",
+      "minValueCells": 10,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/rpas.md#26",
+      "arm": "matrix",
+      "ns": "general session grand ballroom a b total 82 x 94 x 14 a b 82 x 63 x 14 8th floor",
+      "opener": "GENERAL SESSION GRAND BALLROOM A/B TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14' 8th Floor",
+      "minValueCells": 7,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/rpas.md#45",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2025-03-dci-rpas-central.md#21",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md#17",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md#16",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2025-06-ria-investment-forum.md#17",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2025-06-ria-investment-forum.md#25",
+      "arm": "matrix",
+      "ns": "audio",
+      "opener": "AUDIO",
+      "minValueCells": 8,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/raw/2025-06-ria-investment-forum.md#26",
+      "arm": "matrix",
+      "ns": "audio",
+      "opener": "AUDIO",
+      "minValueCells": 8,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/raw/2025-06-ria-investment-forum.md#29",
+      "arm": "matrix",
+      "ns": "console",
+      "opener": "Console",
+      "minValueCells": 6,
+      "rowCount": 7
+    },
+    {
+      "id": "fixtures/shows/raw/2025-06-ria-investment-forum.md#30",
+      "arm": "matrix",
+      "ns": "console",
+      "opener": "Console",
+      "minValueCells": 10,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/raw/2025-10-consultants-roundtable.md#24",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md#14",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md#28",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md#13",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md#24",
+      "arm": "matrix",
+      "ns": "orange case 3 eiki projectors park hyatt only 1 ab168 digital snake 1 confidence monitor stand 2 projector stands 1 15 camlock set",
+      "opener": "ORANGE CASE/(3) EIKI Projectors (PARK HYATT ONLY)&#10;(1) AB168 Digital Snake&#10;(1) Confidence Monitor Stand&#10;(2) Projector Stands&#10;(1) 15' Camlock Set",
+      "minValueCells": 10,
+      "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md#14",
+      "arm": "form-dump",
+      "ns": "timestamp",
+      "opener": "Timestamp",
+      "minValueCells": 0,
+      "rowCount": 50
+    }
+  ]
+}
