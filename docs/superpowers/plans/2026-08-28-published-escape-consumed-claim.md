@@ -42,7 +42,7 @@
 - AC-3 The contract suite covers arms A, C, D, E, F and G against the real component through the committed harness, with executable premises and no instrumentation, each asserting the outcome in spec §6.1's table rather than a uniform survival.
 - AC-4 The three regression paths hold end to end: click-outside, menu-Escape, and row-selection, each followed by an Escape that closes the modal.
 - AC-6 The claim is consumed exactly once: from state N the first Escape is deferred and the second closes the modal.
-- AC-7 The claim is ACQUIRED on both entry paths, the auto-open and the pill, and CLEARED on every intentional write including the two that never pass through `onClose` (W2 and W3).
+- AC-7 The claim is ACQUIRED before paint, on both entry paths (auto-open and pill), and CLEARED on every row of spec §4's coverage matrix, including the two intentional writes that never pass through `onClose` (W2 and W3) and the focus-out source round 3 found uncovered.
 - AC-5 The row graduates with its documented limits recorded, F and G named by their disjoint trace signatures. (discharged by Task 4)
 
 <!-- tasks: depth=3 red-contract -->
@@ -69,7 +69,7 @@
 
 ### Task 2: the claim and the shell predicate
 
-<!-- task: red=`pnpm vitest run tests/components/admin/showpage/publishedEscapeClaim.test.tsx` red-state=live red-target=`components/admin/review/ReviewModalShell.tsx:246` why=`Task 1 leaves this command failing on arm E and on the single-consumption case; this task is the production change that turns it green, and the SAME command is the gate on both sides.` ac=AC-1,AC-2 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/showpage/publishedEscapeClaim.test.tsx` red-state=live red-target=`components/admin/review/ReviewModalShell.tsx:246` why=`Task 1 leaves this command failing BEHAVIORALLY on arm E, the acquisition case and the exact-once case; this task is the production change that turns it green, and the SAME command is the gate on both sides. red-state=live is declared relative to THIS task's starting tree, which includes Task 1's commit: run at plan time the same command also exits non-zero, but only because the suite does not exist yet, and a collection failure expresses no verdict in either direction.` ac=AC-1,AC-2 -->
 
 **Files:**
 
@@ -79,7 +79,9 @@
 **Steps:**
 
 - [ ] Add the optional predicate to `ReviewModalShellProps`. Absent or returning false, the shell closes exactly as today. Returning true, it does not close.
-- [ ] Hold the claim in a ref in `PublishedReviewModal`, set when the panel opens, and write it at each of the seven sites in spec §3.3. Ref, not state: read at event time, never re-rendering the panel.
+- [ ] Hold the claim in a ref in `PublishedReviewModal` and write it at every row of spec §4's coverage matrix.
+- [ ] ACQUIRE the claim in a LAYOUT effect, not a passive one (spec §3.4). A passive acquisition leaves a painted panel with neither a claim nor the frame's capture listener behind it, since that listener is passive too, and an Escape in that window reaches the shell with nothing to defer it. That is this spec's own defect reintroduced by its repair; round 3 found it.
+- [ ] Ref, not state: read at event time, never re-rendering the panel.
 - [ ] GREEN: the Task 1 command passes in full.
 - [ ] Commit.
 
@@ -95,7 +97,8 @@
 
 - [ ] Add "click outside dismisses the menu, and the next Escape closes the modal".
 - [ ] Add "Escape dismisses the menu, and a second Escape closes the modal" as its sibling. The existing Esc-contract case already covers the second half; this one asserts the pair explicitly so a claim that is set and never cleared fails here rather than silently.
-- [ ] Add "selecting a menu row dismisses the menu, and the next Escape closes the modal". Row selection is the fifth source of W4 (`components/admin/showpage/AttentionMenu.tsx:182-185` for the alert row and `components/admin/showpage/AttentionMenu.tsx:221-224` for the sheet-warning row) and the one an enumeration by handler misses; adversarial review round 1 found it absent from the first draft.
+- [ ] Add "focus moving outside the menu dismisses it, and the next Escape closes the modal" (spec §6.2 case 5a). Round 3 found this promised in §4 and absent from §6.2; the existing frame test proves only that focus-out calls `onClose`, which says nothing about the claim.
+- [ ] Add "selecting a menu row dismisses the menu, and the next Escape closes the modal", alert and sheet warning separately (cases 5b and 5c). Row selection is the fifth source of W4 (`components/admin/showpage/AttentionMenu.tsx:182-185` for the alert row and `components/admin/showpage/AttentionMenu.tsx:221-224` for the sheet-warning row) and the one an enumeration by handler misses; adversarial review round 1 found it absent from the first draft.
 - [ ] Both cases run under the harness-readiness contract already in the file: `openModal` awaits `awaitModalHydrated`, never `networkidle`.
 - [ ] RED then GREEN on the same command, under `pnpm heavy`.
 - [ ] Commit.
