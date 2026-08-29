@@ -148,6 +148,17 @@ async function readTour(page: Page) {
         const el = document.querySelector("main .help-prose > p") as HTMLElement | null;
         return el ? w(el) : -1;
       })(),
+      // The measure as the browser RESOLVES it, read off the capped child itself.
+      // Asserting the child's rendered width against this is the only form that
+      // survives an override: a token pin guards the declaration, and CSS is not
+      // decided by declarations, it is decided by the cascade. A later, more
+      // specific `.help-prose > p { max-width: 69ch }` leaves every token pin green.
+      cappedChildMeasurePx: (() => {
+        const el = document.querySelector("main .help-prose > p") as HTMLElement | null;
+        if (!el) return -1;
+        const v = parseFloat(getComputedStyle(el).getPropertyValue("--help-measure") || "NaN");
+        return Number.isFinite(v) ? +v.toFixed(1) : -1;
+      })(),
       grids: grids.map((g) => {
         // EVERY card, not the first. Sampling one card per grid missed the
         // col-span-full card entirely — it is card 3 of grid 1, and it is the
@@ -276,6 +287,25 @@ test.describe("/help/tour card grids — real-browser layout", () => {
         m.mainContentWidth,
         1,
       );
+
+      // AC-2 AT THE EFFECT, not at the token. Round 3 pinned the `70ch` literal and
+      // round 4 showed why that is not enough: the generic `.help-prose > *` rule
+      // loses to any later, more specific one, so an ordinary prose edit adding
+      // `max-width: 69ch` to `.help-prose > p` shrinks every paragraph on every help
+      // page with both token pins still green, the typography ceiling (<= 76ch)
+      // still satisfied, and the bleed comparison BELOW made easier rather than
+      // harder, because a shrinking sibling widens the gap it measures.
+      //
+      // A capped child renders at EXACTLY the measure wherever the container exceeds
+      // it. Asserting that equality is cascade-proof: it does not care which rule
+      // set the width, only what the width is. The token pins stay, because the two
+      // close opposite directions — this one cannot see the declaration itself
+      // changing, since the resolved property would move with it.
+      premiseHolds(`the measure resolves on a capped child at ${vw}px`, m.cappedChildMeasurePx > 0);
+      expect(
+        m.cappedChildWidth,
+        `capped prose child renders at exactly the measure at ${vw}px`,
+      ).toBeCloseTo(m.cappedChildMeasurePx, 1);
 
       for (const [i, g] of m.grids.entries()) {
         // §4 rows 2 and 4, relative form.
