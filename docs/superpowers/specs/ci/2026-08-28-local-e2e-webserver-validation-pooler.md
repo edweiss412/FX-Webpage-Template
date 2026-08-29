@@ -404,12 +404,16 @@ one for the same reason. T3 asserts on the child process's real stdout, not on t
   `{ webServer }` shorthand and `{ "webServer": [] }` are ordinary static forms it misses, and the
   same scan fires on the word in a comment, a type, or a string in an unrelated config, which would
   make correct code fail loudly.
-  What remains is bounded and fails closed rather than silently. Three configs THROW on import
-  (`tests/e2e/visual.config.ts` guards on an env var, `tests/mutation/source/mutantOverlay.config.ts`
-  requires `MUTATION_TARGET`, and `vitest.config.ts` cannot resolve its own exports entry under
-  vitest). A thrower is invisible to the walk, so the three are listed and the guard asserts set
-  equality both ways: a new thrower fails until dispositioned, and a listed one that starts
-  importing cleanly must be delisted rather than left standing as a stale excuse.
+  What remains is bounded and fails closed rather than silently. TWO configs throw on import under vitest
+  (`tests/e2e/visual.config.ts` guards on `SECTION_HEADER_VISUAL_CONTAINER`, and
+  `tests/mutation/source/mutantOverlay.config.ts` requires `MUTATION_TARGET`). A thrower is invisible
+  to the walk, so both are listed and the guard asserts set equality in both directions: a new
+  thrower fails until dispositioned, and a listed one that starts importing cleanly must be delisted
+  rather than left standing as a stale excuse.
+  That second direction paid for itself on the guard's first run. `vitest.config.ts` was on the list
+  from a standalone `tsx` probe, where it does throw; under vitest it imports cleanly, and the
+  premise failed loudly rather than the list being quietly wrong. A guard whose registry is asserted
+  only in the direction its author expected would have carried that error indefinitely.
   *Re-file trigger:* a config that must throw on import AND declares a `webServer`, which no listed
   thrower does today.
 

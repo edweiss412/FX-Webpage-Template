@@ -48,7 +48,6 @@ written. What each check established, and where it is used:
 
 ## Task 1 — pin both DB keys on every webServer, in every Playwright config
 
-<!-- spec-lint: ignore — tests/ci/webserverDatabasePin.test.ts is created by this task -->
 **Red:** new `tests/ci/webserverDatabasePin.test.ts`. Fails on 4 of the 6 discovered entries.
 
 ```
@@ -349,7 +348,6 @@ both wants that DSN and boots a server this change touches.
 
 ## Task 2 — pin the precedence the repair depends on
 
-<!-- spec-lint: ignore — tests/ci/nextEnvPrecedence.test.ts is created by this task -->
 **Red:** new `tests/ci/nextEnvPrecedence.test.ts`, four arms, each in its own child process.
 
 ```
@@ -470,7 +468,6 @@ package the server actually runs.
 
 ## Task 3 — make the preflight remedy executable advice
 
-<!-- spec-lint: ignore — tests/scripts/preflightAdvice.test.ts is created by this task -->
 **Red:** new `tests/scripts/preflightAdvice.test.ts`, spawning `scripts/preflight-env.mjs --no-db`
 with a non-loopback `TEST_DATABASE_URL` and the `REQUIRED_ENV` map from
 `tests/scripts/preflightClaims.test.ts:26-41`. Without that map a checkout with no `.env.local` exits
@@ -664,9 +661,9 @@ row was filed against.
 Update the row (marker off in this PR's last commit, per invariant 12), and confirm the spec's §8
 documented limits still read true against what shipped.
 
-Remove each `<!-- spec-lint: ignore -->` waiver above as its target file lands: they exist only
-because the plan cites three files it has not created yet, and a waiver left behind after the file is
-tracked suppresses a real citation check from then on.
+All three `<!-- spec-lint: ignore -->` waivers are REMOVED, their target files now being tracked. A
+waiver left behind after its file lands suppresses a real citation check from then on, which is why
+this was a task rather than a hope.
 
 ## Anti-tautology notes
 
