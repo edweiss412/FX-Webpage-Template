@@ -95,7 +95,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 |---|---|---|---|
 | U-1 | **RATIFIED 2026-08-29.** Setting native `disabled` on the focused retry control ejects focus to `<body>`; `aria-disabled` does not | §7.1 | **Task P1, run.** `tests/e2e/focus-disabled-eject.probe.spec.ts`, 2 passed in Chromium: the native arm reported `body`, the `aria-disabled` arm reported the button. Each arm carries a premise asserting focus was ON the button first, or "focus is on body afterwards" would be trivially true. Firefox is not independently probed; one engine ejecting is sufficient to reject the attribute |
 | U-2 | **RATIFIED 2026-08-29.** A separate element on `retrying → idle` costs a second unconditional GET; the surviving element costs none | §4.0.5 | **Task P2, run.** `tests/e2e/image-remount-request-count.probe.spec.ts`, 2 passed in Chromium: the remount arm issued exactly one further request, the same-node arm zero. Only node reuse varies — same URL, same headers, same interception, `loading="eager"` on every element, explicit load awaits — and the count window opens after the first load is asserted served |
-| U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, so the cell is in the viewport and a covered in-view lazy image loads | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, **5** passed in Chromium. Three off-screen arms refute the covering mechanism; **the two IN-VIEW arms are what the design actually rests on** and both issue the request. Plan review R2 finding 1 was right that the off-screen arms alone could not carry the conclusion |
+| U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, so the cell is in the viewport and a covered in-view lazy image loads | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, **5 passed in Chromium AND 5 in WebKit** (`standalone-webkit-load-eligibility`). Three off-screen arms refute the covering mechanism; **the two IN-VIEW arms are what the design actually rests on** and both issue the request. Plan review R2 found the off-screen arms could not carry the conclusion; R3 found the evidence was Chromium-only while mobile Safari is a shipped target. Both closed |
 | U-4 | **RATIFIED 2026-08-29.** The candidate SET is stable; the browser's PICK within it moves with device scale; every pick is a ladder tier and never the original | §3 | **Task P4, run.** `tests/e2e/srcset-candidate-stability.probe.spec.ts`, 2 passed in Chromium. The rendered `srcset` was byte-identical at DPR 1 and DPR 3 while the requested tier changed between them, which both confirms the bound and proves the fixture discriminates rather than being insensitive |
 | U-5 | **RATIFIED 2026-08-29, and it proved itself on first contact.** A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Task P5, run.** `tests/components/diagrams/perItemStateLifetime.probe.test.ts`, 7 passed. Four planted shapes are each SEEN and each RED while unclassified. Its first run against the live tree found `prefersReducedMotion` (`GalleryLightbox.tsx:257`), a member every hand-derivation had missed |
 | U-6 | Clearing session state when an item goes unavailable OR leaves `items`, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 7**, not a probe: this is feature behaviour, so it is settled where its implementation lands. EVERY per-item member §4.0.3 classifies is planted and the FIRST frame after the flip asserted, `wantsOriginal` included |
@@ -422,9 +422,11 @@ That distinction removes the requirement rather than restating it. The retry is 
 tap on the control, and a tap implies the cell is in the viewport, so the image `next/image`
 mounts is intersecting at the moment it mounts and loads without help — **measured directly,
 not inferred**: a lazy image mounted in view UNDER an opaque overlay issues its request
-(`tests/e2e/covered-image-load-eligibility.probe.spec.ts`, the in-view arms). An earlier draft
-rested this on three off-screen arms, which show only that covering is not what defers, and
-plan review R2 correctly refused the inference. The load-bearing arm is now the shipped one.
+(`tests/e2e/covered-image-load-eligibility.probe.spec.ts`, the in-view arms), **in Chromium and
+in WebKit**. Two review rounds were needed to get this evidence right: R2 found that three
+off-screen arms show only that covering is not what defers, and R3 found that a Chromium-only
+result cannot remove an attribute for every supported client when mobile Safari is a shipped
+target. Both engines now agree on all five arms.
 
 The stake in getting it right: if a covered in-view lazy image WERE deferred, neither `onLoad`
 nor `onError` would fire, the control would sit on `Retrying…` indefinitely, and that is a
@@ -701,6 +703,17 @@ could affect.
   effect keyed on `item.available` becoming false then clears the id from `failedKeys`,
   `retrying` and `pendingFailuresRef`. Any in-flight `<Image>` unmounts with the branch and
   its handlers are dropped by the connectedness guard (§4.1).
+- **The zoom members are cleared by the same sweep, and leaving them out was the SECOND
+  instance of this defect.** `activeScale` (`GalleryLightbox.tsx:272`) and `requestedScaleRef`
+  (`GalleryLightbox.tsx:391`) are reset only by the active-slide ERROR path
+  (`GalleryLightbox.tsx:1110-1112`), which an availability flip does not run. So a zoomed slide
+  that goes unavailable keeps `activeScale > 1`, the Reset chip stays rendered because its
+  predicate is `zoomed` (`GalleryLightbox.tsx:726`), and `controlsSlotRef` is null because the
+  unavailable branch does not mount `TransformWrapper` — a visible control whose action cannot
+  fire, with `watchDrag` still disabled underneath it. The sweep resets both to 1, which hides
+  the chip and re-enables the drag by the component's own existing predicates rather than by
+  new logic. `controlsSlotRef` needs no sweep entry: React nulls it on that unmount, and the
+  chip it would have stranded is gone once `activeScale` is 1.
 - **`wantsOriginal` is cleared by the same sweep, and leaving it out was a real defect.**
   Plan review R2 found it: the member has no availability clear path, so a slide that is
   zoomed, goes unavailable, and comes back still holds its id — and `pinOriginal:
@@ -812,9 +825,12 @@ here rather than as a finding.
 - **AC-10** After a successful retry, a SECOND failure of the same item announces and shows
   the control again — `pendingFailuresRef` does not swallow it (§4.0.1).
 - **AC-11** An item that goes unavailable and available again returns to `idle`, with no
-  retained placeholder or control, and **every** per-item member §4.0.3 classifies is clear —
-  asserted by iterating that registry rather than by naming members, so a member added later
-  is covered without editing the test (§9.1).
+  retained placeholder or control, and every member the §4.0.3 registry marks `swept: true` is
+  observably clear through the component's own rendered surface. The registry is prose plus a
+  typed sweep decision, not a handle on private hook state, so the oracle is the DOM and the
+  requested URLs — not reflection over the registry, which plan review R3 correctly said it
+  cannot support. The registry's job is to make the LIST complete; this criterion's job is to
+  check the behaviour.
 - **AC-18** A slide that is zoomed, goes unavailable, and returns does NOT request the
   original: `wantsOriginal` did not survive the round trip (§9.1).
 - **AC-12** No retry control is rendered on an inactive lightbox slide (§2).

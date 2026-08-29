@@ -13,8 +13,22 @@
  */
 export const DELIBERATELY_NONE = "deliberately none";
 
+/**
+ * Whether the availability sweep (spec §9.1) clears this member when its item
+ * goes unavailable or leaves `items`.
+ *
+ * REQUIRED on every per-item row, and that is the whole point. Plan review found
+ * FOUR members of this class in two consecutive rounds — `wantsOriginal` in R2,
+ * then `activeScale`, `requestedScaleRef` and `controlsSlotRef` in R3 — each by
+ * reading the code and noticing an absence. Prose `clearedBy` could not be
+ * queried for "does the sweep touch this?", so every instance had to be found by
+ * a human. A required field cannot be silent: a new member forces the question,
+ * and `false` forces a reason.
+ */
+export type SweepDecision = { swept: true } | { swept: false; why: string };
+
 export type Classification =
-  | { kind: "per-item"; clearedBy: string }
+  | { kind: "per-item"; clearedBy: string; sweep: SweepDecision }
   | { kind: "not-per-item"; why: string };
 
 /** Keyed by `<basename>:<declared name>`. */
@@ -26,6 +40,7 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   "Gallery.tsx:failedKeys": {
     kind: "per-item",
     clearedBy: "entering `retrying`; the item going unavailable or leaving `items` (spec §9.1)",
+    sweep: { swept: true },
   },
   "Gallery.tsx:listRef": { kind: "not-per-item", why: "the grid container" },
   "Gallery.tsx:showMoreRef": { kind: "not-per-item", why: "the single toggle control" },
@@ -33,10 +48,18 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     kind: "per-item",
     clearedBy:
       "React, on unmount. Holds ONLY the healthy thumbnail button; the retry button has its own map (spec §7)",
+    sweep: {
+      swept: false,
+      why: "React nulls the entry when the healthy thumbnail unmounts, which the availability flip already causes",
+    },
   },
   "Gallery.tsx:restoreTargetRef": {
     kind: "per-item",
     clearedBy: "re-pointed on every failure that removes the current target (spec §7)",
+    sweep: {
+      swept: false,
+      why: "re-pointed on every failure that removes the current target; an availability flip unmounts that target and the closure rule re-points on the next failure",
+    },
   },
   "Gallery.tsx:dialogMountedRef": { kind: "not-per-item", why: "one flag per dialog session" },
   "Gallery.tsx:exitBufferRef": {
@@ -46,6 +69,7 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   "Gallery.tsx:pendingFailuresRef": {
     kind: "per-item",
     clearedBy: "entering `retrying` (spec §4.0.1); the item going unavailable or leaving `items`",
+    sweep: { swept: true },
   },
   "Gallery.tsx:lightboxOpenRef": { kind: "not-per-item", why: "one flag for the dialog" },
 
@@ -72,6 +96,7 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     kind: "per-item",
     clearedBy:
       "the active-slide error path already resets it (`GalleryLightbox.tsx:1112`); a retry returning the slide to idle leaves it at 1, correct for a freshly loaded clamped tier",
+    sweep: { swept: true },
   },
   "GalleryLightbox.tsx:liveRegionText": { kind: "not-per-item", why: "one live region" },
   "GalleryLightbox.tsx:navigatedRef": { kind: "not-per-item", why: "one flag per session" },
@@ -82,23 +107,31 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   "GalleryLightbox.tsx:failedKeys": {
     kind: "per-item",
     clearedBy: "entering `retrying`; the item going unavailable or leaving `items` (spec §9.1)",
+    sweep: { swept: true },
   },
   "GalleryLightbox.tsx:wantsOriginal": {
     kind: "per-item",
     clearedBy:
       "entering `retrying` (spec §4.0.2); the demote path, unchanged; AND the availability sweep (spec §9.1) — without that last one a zoomed slide that goes unavailable and returns re-requests the original through `pinOriginal`",
+    sweep: { swept: true },
   },
   "GalleryLightbox.tsx:demotedRef": {
     kind: "per-item",
     clearedBy: DELIBERATELY_NONE,
+    sweep: {
+      swept: false,
+      why: "deliberately never cleared at all (spec §4.0.2); its only effect is to decline a re-pin, which is conservative in every direction",
+    },
   },
   "GalleryLightbox.tsx:demotedNotice": {
     kind: "per-item",
     clearedBy: "its own timer; `failedKeys` gaining the id; the item going unavailable (spec §9.1)",
+    sweep: { swept: true },
   },
   "GalleryLightbox.tsx:demoteTimerRef": {
     kind: "per-item",
     clearedBy: "cleared with `demotedNotice`, never separately",
+    sweep: { swept: true },
   },
   "GalleryLightbox.tsx:closedAtNonce": {
     kind: "not-per-item",
@@ -108,10 +141,15 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     kind: "per-item",
     clearedBy:
       "React, on `TransformWrapper` unmount. The failed branch does not mount it, so it is null for the whole failed-and-retrying window",
+    sweep: {
+      swept: false,
+      why: "React nulls it when TransformWrapper unmounts, which the unavailable render already does. The chip that would strand is hidden by sweeping activeScale instead",
+    },
   },
   "GalleryLightbox.tsx:requestedScaleRef": {
     kind: "per-item",
     clearedBy: "the active-slide error path already resets it (`GalleryLightbox.tsx:1110`)",
+    sweep: { swept: true },
   },
   "GalleryLightbox.tsx:wasZoomedRef": {
     kind: "not-per-item",

@@ -110,7 +110,14 @@
     "tests/e2e/covered-image-load-eligibility.probe.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"618b3342b59a322d7bfb-39465c7ab5f9d1f742eb\",[\"covered-image-load-eligibility.probe.spec.ts\",\"lazy + UNCOVERED + off-screen: still deferred, so the overlay is not the cause\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"618b3342b59a322d7bfb-ba2aaa5a147288f54c30\",[\"covered-image-load-eligibility.probe.spec.ts\",\"lazy + covered + off-screen: the request is DEFERRED\"]]",
-      "[\"standalone-chromium\",\"standalone-chromium\",\"618b3342b59a322d7bfb-fb300cf0f60224825bcc\",[\"covered-image-load-eligibility.probe.spec.ts\",\"eager + covered + off-screen: the request is issued anyway\"]]"
+      "[\"standalone-chromium\",\"standalone-chromium\",\"618b3342b59a322d7bfb-e9303d47e31af5f0e106\",[\"covered-image-load-eligibility.probe.spec.ts\",\"control: lazy + UNCOVERED + in view also issues it, so covering changes nothing in view\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"618b3342b59a322d7bfb-ea7034cc40606f271563\",[\"covered-image-load-eligibility.probe.spec.ts\",\"THE CASE THAT ACTUALLY SHIPS: lazy + covered + IN VIEW issues the request\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"618b3342b59a322d7bfb-fb300cf0f60224825bcc\",[\"covered-image-load-eligibility.probe.spec.ts\",\"eager + covered + off-screen: the request is issued anyway\"]]",
+      "[\"standalone-webkit-load-eligibility\",\"standalone-webkit-load-eligibility\",\"618b3342b59a322d7bfb-352a91a6e983308ada24\",[\"covered-image-load-eligibility.probe.spec.ts\",\"lazy + UNCOVERED + off-screen: still deferred, so the overlay is not the cause\"]]",
+      "[\"standalone-webkit-load-eligibility\",\"standalone-webkit-load-eligibility\",\"618b3342b59a322d7bfb-41f94c6009d4a24ac219\",[\"covered-image-load-eligibility.probe.spec.ts\",\"THE CASE THAT ACTUALLY SHIPS: lazy + covered + IN VIEW issues the request\"]]",
+      "[\"standalone-webkit-load-eligibility\",\"standalone-webkit-load-eligibility\",\"618b3342b59a322d7bfb-ab4104445301847e6942\",[\"covered-image-load-eligibility.probe.spec.ts\",\"eager + covered + off-screen: the request is issued anyway\"]]",
+      "[\"standalone-webkit-load-eligibility\",\"standalone-webkit-load-eligibility\",\"618b3342b59a322d7bfb-e8ea94a19400062c77f0\",[\"covered-image-load-eligibility.probe.spec.ts\",\"control: lazy + UNCOVERED + in view also issues it, so covering changes nothing in view\"]]",
+      "[\"standalone-webkit-load-eligibility\",\"standalone-webkit-load-eligibility\",\"618b3342b59a322d7bfb-f14ea426aadb6dae271c\",[\"covered-image-load-eligibility.probe.spec.ts\",\"lazy + covered + off-screen: the request is DEFERRED\"]]"
     ],
     "tests/e2e/dataQualityBadge.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"ba37ace767492345786f-79068ebd5573b67103b7\",[\"dataQualityBadge.layout.spec.ts\",\"adding the second chip does not wrap (both ≈ single-chip height)\"]]",
@@ -727,5 +734,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 634
+  "totalTests": 641
 }

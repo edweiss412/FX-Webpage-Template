@@ -56,13 +56,14 @@ spec collected.** Neither is a standalone-config member: both drive the real cre
 
 ## Acceptance criteria
 
-Spec §11 declares AC-1 through AC-17. This maps them.
+Spec §11 declares AC-1 through AC-18. This maps them, and the probe file declares AC-P1
+through AC-P5.
 
 - AC-1 the retry re-requests and the loaded node survives. (discharged by Task 2)
 - AC-2 one tap one request, `srcSet` set unchanged and free of the original. (discharged by Task 2)
 - AC-3 both outcomes announced by name on the audible channel, gallery AND active lightbox slide. (discharged by Task 3, extended by Task 5)
 - AC-4 in-flight control is `aria-busy`/`aria-disabled`, never native `disabled`, and keeps
-  focus. (discharged by Task 1)
+  focus. (discharged by Task 2)
 - AC-5 no control on a parse-time-unavailable item; a control on an originals-only item with
   `Full size.` on its active-slide variant. (discharged by Task 1)
 - AC-6 focus never reaches `<body>` on ANY removal path in the §7.1 table. (discharged by Task 4)
@@ -170,7 +171,7 @@ unused.
 
 ## Task 5 — lightbox active slide, and the tier it must not request
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failedItem.test.tsx tests/components/diagrams/GalleryLightbox.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:1121` why=`the active-slide onError only adds to failedKeys and nothing clears wantsOriginal, so a slide that dies is terminal and a retry after a zoom would request the original` ac=AC-8,AC-9,AC-13,AC-17 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failedItem.test.tsx tests/components/diagrams/GalleryLightbox.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:1121` why=`the active-slide onError only adds to failedKeys and nothing clears wantsOriginal, so a slide that dies is terminal and a retry after a zoom would request the original` ac=AC-3,AC-8,AC-9,AC-13,AC-17 -->
 
 Entering `retrying` clears `wantsOriginal` and **does not write `demotedRef`** (spec §4.0.2).
 AC-9 drives the full path — zoom, swipe away, fail inactive, swipe back, retry — and asserts
@@ -178,6 +179,13 @@ the REQUESTED URL, not merely that something loaded. AC-13 then re-pinches and a
 original is reachable, which is the half that would silently disappear if `demotedRef` were
 written. AC-8 is the negative: an original-tier failure with a smaller tier still demotes and
 never reaches the retry branch.
+
+**AC-3 extends to this surface HERE, and plan review R3 was right that it was unowned.** Task
+3 covers gallery outcomes only, because the active-slide retry does not exist until this task.
+So this task carries the announcement oracle for the active slide: a successful retry appends
+`<name> loaded.` and a repeated failure appends `<name> still could not be loaded.`, each
+asserted before/after on the SAME dialog region node. Without it this suite could pass while
+an active-slide retry succeeds or fails in silence, which is the gap R3 named.
 
 ## Task 6 — inactive slides render no control
 
@@ -245,14 +253,20 @@ per spec §10.6's retraction.
 
 ## Task 9 — transition audit
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.transitions.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:353` why=`the idle-to-failed swap is instant by inheritance from the pre-existing ternary, and NOTHING makes the failed-to-retrying and retrying-to-idle pairs instant on purpose - Task 2 mounts the overlay inside the same AnimatePresence subtree the gallery already uses, so those two pairs animate on mount and unmount by default. The inventory declares all four session pairs instant, so the audit reds on the two that are not, and greens when the overlay is exempted from the presence animation` ac=AC-6 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.transitions.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:267` why=`the audit asserts every row of the spec's transition inventory INCLUDING the compound rows, and the lightbox compound row - a retry outcome landing while the dialog is mid-exit - is unhandled at this point: Task 5 routes active-slide announcements through onAnnounce, and the exit-window buffering that Gallery.tsx:267-272 provides for FAILURES has no equivalent for retry OUTCOMES, so an outcome landing inside the 220ms exit window is dropped and the assertion fails. It greens when the outcome messages route through the same exit buffer` ac=AC-6 -->
 
-**What is red and why, restated.** Plan review R2 rejected the earlier justification and was
-right to: "no test enumerates the pairs" describes a missing test, and a missing test cannot
-make a newly authored assertion fail against production. The red named above is a production
-defect — the overlay Task 2 mounts animates by default inside the gallery's existing presence
-subtree, while spec §9 declares `failed → retrying` and `retrying → idle` instant. The audit
-reds on those two, and the GREEN step is exempting the overlay from the presence animation.
+**What is red and why, restated TWICE now.** R2 rejected "no test enumerates the pairs" —
+a missing test cannot make a new assertion fail against production, and that was right. My R2
+repair then claimed the overlay animates by default inside the gallery's presence subtree, and
+R3 checked and refuted it: the only `AnimatePresence` in `Gallery.tsx` is at line 464 and wraps
+the LIGHTBOX, while the cell ternary sits at 353-419, outside it. A plain overlay in the cell
+animates nothing. I asserted a mechanism twice without reading the boundary.
+
+The red named above is the one that survives reading: the exit-window buffer
+(`Gallery.tsx:267-272`) exists for failure announcements and has no equivalent for retry
+OUTCOMES, so an outcome landing inside the 220 ms exit window is dropped. The spec's compound
+inventory declares that row handled, so the audit reds on it and greens when outcomes route
+through the same buffer.
 
 Walks every `AnimatePresence`, ternary and conditional block in both components against spec
 §9. Asserts every row of §7.1's focus-destination table rather than sampling, and exercises

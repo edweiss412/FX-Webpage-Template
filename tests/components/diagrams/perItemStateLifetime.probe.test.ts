@@ -84,6 +84,31 @@ describe("per-item state lifetime — the live tree", () => {
       "the deliberately-none form is in use, not just permitted",
     ).toBeGreaterThan(0);
   });
+
+  it("every per-item row DECIDES the availability sweep, and a `false` gives a reason", () => {
+    // THE CLASS CLOSURE. Plan review found four members of one shape across two
+    // consecutive rounds — `wantsOriginal`, then `activeScale`,
+    // `requestedScaleRef` and `controlsSlotRef` — each by a human reading the
+    // code and noticing an absence. Prose could not be asked "does the sweep
+    // touch this?", so each instance cost a round. A required field cannot be
+    // silent: adding a member forces the decision, and declining forces a why.
+    const perItemRows = Object.entries(PER_ITEM_STATE_REGISTRY).filter(
+      ([, c]) => c.kind === "per-item",
+    );
+    premise("there are per-item rows to check", perItemRows.length, 5);
+
+    const unreasoned = perItemRows
+      .filter(([, c]) => c.kind === "per-item" && !c.sweep.swept && !c.sweep.why.trim())
+      .map(([k]) => k);
+    expect(unreasoned, "rows declining the sweep without saying why").toEqual([]);
+
+    // Both answers must be IN USE, or the field is decorative: a registry where
+    // every row says `true` proves nothing about the ones that should not be.
+    const swept = perItemRows.filter(([, c]) => c.kind === "per-item" && c.sweep.swept);
+    const declined = perItemRows.filter(([, c]) => c.kind === "per-item" && !c.sweep.swept);
+    expect(swept.length, "rows the sweep clears").toBeGreaterThan(0);
+    expect(declined.length, "rows that decline it, with reasons").toBeGreaterThan(0);
+  });
 });
 
 describe("per-item state lifetime — the gate REDS on a planted member", () => {

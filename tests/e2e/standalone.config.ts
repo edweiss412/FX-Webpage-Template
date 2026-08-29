@@ -101,6 +101,22 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      // Plan review R3 finding 1: P3's conclusion — that a covered, in-view lazy
+      // image issues its request, so the retry needs no `loading` override —
+      // removes the override for EVERY supported client, while the evidence was
+      // Chromium-only. Mobile Safari is an existing project target in
+      // playwright.config.ts, and a deferred request there strands the control on
+      // `Retrying…` forever, which is a consequence-bound violation rather than a
+      // cosmetic gap. The load-eligibility probe therefore runs on WebKit too.
+      //
+      // Scoped to that ONE spec deliberately: the other probes settle questions
+      // (focus ejection, request counting, srcset selection) whose answers the
+      // design does not generalise across engines the same way.
+      name: "standalone-webkit-load-eligibility",
+      testMatch: /covered-image-load-eligibility\.probe\.spec\.ts/,
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
       // BL-AGENDA-A11Y-WEBKIT-COVERAGE: the fold's a11y proof (h3-inside-summary exposure)
       // is an empirical per-engine claim and Safari is an explicit crew target. Desktop
       // Safari matches the hand-run probe measured during #610 (green in 5.0s).
