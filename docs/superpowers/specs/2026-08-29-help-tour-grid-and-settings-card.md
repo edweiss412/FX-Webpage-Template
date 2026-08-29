@@ -237,7 +237,7 @@ nothing. The column count is what divides a 472px space three ways. Both parts s
 **Part one, the bleed.** `help-bleed` on both grids, which buys 23.6px at 1024 and 151.6px at 1280.
 
 **Part two, a minimum card width instead of a fixed column count.** Each grid's
-`grid-cols-1 md:grid-cols-N` becomes `grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]`. The column
+`grid-cols-1 md:grid-cols-N` becomes `grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]`. The column
 count then falls out of the space available rather than being asserted against it, and no
 breakpoint has to be kept in sync with a sidebar width. Arbitrary `minmax()` track utilities are
 already this codebase's idiom for exactly this (`app/admin/dev/telemetry/page.tsx`,
@@ -251,11 +251,34 @@ already this codebase's idiom for exactly this (`app/admin/dev/telemetry/page.ts
 | 16rem | 1 col, 31ch | 1 col, 43ch | 2 col, 25ch | 2 col, 31ch | 3 col, 23ch | 23.1ch |
 | 18rem | 1 col, 31ch | 1 col, 43ch | 2 col, 25ch | 2 col, 31ch | 2 col, 38ch | 25.0ch |
 | **20rem** | 1 col, 31ch | 1 col, 43ch | 1 col, 56ch | 2 col, 31ch | 2 col, 38ch | **31.2ch** |
-| 24rem | 1 col, 31ch | 1 col, 43ch | 1 col, 56ch | 1 col, 68ch | 2 col, 38ch | 31.4ch |
+| 24rem | **overflows by 26px** | 1 col, 43ch | 1 col, 56ch | 1 col, 68ch | 2 col, 38ch | n/a |
 
-20rem takes the worst case from 10.4ch to 31.2ch, threefold. 24rem buys 0.2ch more and costs the
-grid its second column at 1024px, where a one-card-per-row "grid" stops reading as one. 22rem
-produces column counts identical to 20rem, so it is the same layout with a less round number.
+20rem takes the worst case from 10.4ch to 31.2ch, threefold. 22rem produces column counts identical
+to 20rem, so it is the same layout with a less round number.
+
+**24rem does not merely buy less; it breaks.** A `minmax()` minimum cannot shrink below itself, so
+where the minimum exceeds the container the track overflows it. At 390px the prose column is 358px
+and 24rem is 384px, giving a 384px track and 26px of horizontal overflow. An earlier draft of this
+table reported "1 col, 31ch" there and claimed 24rem bought 0.2ch, both of which came from a column
+formula that assumed a track always fits. Measured, per track width against container width:
+
+| container | 20rem | 24rem | `min(20rem,100%)` |
+| --- | --- | --- | --- |
+| 256 | 320, **over by 64** | 384, over by 128 | 256 |
+| 288 | 320, **over by 32** | 384, over by 96 | 288 |
+| 320 | 320 | 384, over by 64 | 320 |
+| 358 | 358 | 384, **over by 26** | 358 |
+| 472 | 472 | 472 | 472 |
+| 728 | 2 col, 356 | 1 col, 728 | 2 col, 356 |
+| 856 | 2 col, 420 | 2 col, 420 | 2 col, 420 |
+
+**So the minimum ships as `min(20rem, 100%)`, not as a bare `20rem`.** The bold rows are why: a
+320px phone gives this layout a 288px container once `px-4` is taken off, and a bare 20rem
+minimum overflows it by 32px. That is below the AC-1 matrix, which starts at 390, so no acceptance
+criterion would have caught it — the review finding was about 24rem at 390, and sweeping its shape
+rather than its instance is what surfaced the same defect in the value actually being shipped.
+`min(20rem, 100%)` is identical to a bare 20rem at every container from 320px up, and can never
+exceed the container by construction.
 
 **The parse-warnings card's span changes with it.** That card carries `md:col-span-2`
 (`app/help/tour/page.mdx`), which assumes exactly two columns. Under `auto-fit` the count varies,
@@ -267,7 +290,7 @@ the kind of interaction that makes `auto-fit` worth stating carefully rather tha
 
 Confirmed by probe as the same defect, not a suspected peer: 5 of its 7 items wrap at 768px
 (§2.2). Same repair shape, one part rather than two —
-`sm:grid-cols-2` becomes `grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]`, and it takes **no**
+`sm:grid-cols-2` becomes `grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]`, and it takes **no**
 `help-bleed`. Its `gap-x-8` is 32px, so the same arithmetic gives one column at 472px and 604px,
 and two at 728px and above with each item at 348px or wider, comfortably past the 336.2px that
 already fits the longest label without wrapping.
@@ -281,7 +304,7 @@ it off also avoids the one place this repair is easy to misapply.
 
 The "Once per environment" section is currently a bare `<div className="my-6">` holding one card
 (the onboarding wizard). It becomes a grid carrying the same
-`grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]` and `help-bleed` as the other two, with a second
+`grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]` and `help-bleed` as the other two, with a second
 card for `/help/admin/settings`. Two cards under `auto-fit` sit side by side wherever there is room
 for two 20rem columns and stack below that, so the group needs no column count of its own.
 
@@ -328,12 +351,29 @@ an assertion derived from the data source:
   what let this defect live.
 - **Fails by default for a ninth surface.** Adding an entry to `NAV` with no card fails this test
   with no edit to it, which is the property the hardcoded list did not have.
-- **The links are read from the RENDERED DOM, never from the MDX source text.** `page-tour.test.tsx`
-  already renders the page through the real MDX pipeline under an `MDXProvider`, so the guard
-  collects `a[href]` from that tree. A regex over the source would be the same defect wearing a
-  new coat: the page mentions routes in prose as well as in cards, so a source scan could match
-  `/help/admin/settings` in a sentence and report the surface covered while no card exists. Reading
-  rendered anchors cannot be satisfied by prose.
+- **The links are read from the RENDERED DOM, never from the MDX source text**, AND only from
+  anchors the page marks as cards. Each card anchor carries a `data-tour-card` attribute, and the
+  guard collects `a[data-tour-card][href]`.
+
+  **Both halves are load-bearing, and the second was missing from this spec's first draft.** Reading
+  rendered anchors instead of scanning source defeats a source regex matching a route named in a
+  sentence. It does NOT defeat a prose LINK, because an ordinary Markdown link renders as an anchor
+  too — so a contributor who deleted the Settings card while leaving or adding
+  `[Settings](/help/admin/settings)` in a sentence would satisfy a bare `a[href]` set equality with
+  no card on the page, defeating AC-3, AC-4 and AC-6.
+
+  That is not a hypothetical shape: `](/help/admin/` appears on **8 of the 14** help pages
+  (`app/help/daily-rhythm/page.mdx`, `app/help/getting-started/page.mdx`,
+  `app/help/whats-different/page.mdx`, and five pages under `app/help/admin/`). Prose links to
+  admin routes are ordinary authoring on this corpus, which puts the failure squarely inside the
+  threat fence rather than outside it. The tour page happens to carry none today — all seven of its
+  admin references are card hrefs — so the bare form would have passed on the day it shipped and
+  broken on an ordinary edit later, which is the worst available failure shape.
+
+  `data-tour-card` is the page DECLARING its accept-set rather than the guard inferring one. It is
+  keyed on an attribute rather than on nesting depth or a class-name substring, so it survives this
+  branch's own regrouping of the cards, and a reviewer can see what counts as a card by reading the
+  page.
 
 **Why this guard is not enrolled in the source-mutation registry.** The registry mutates a module
 named by `sourcePath` and decides KILLED against a suite. This guard has no such module: after the
@@ -379,7 +419,7 @@ project, so nothing here relies on an implicit stretch.
 | `.help-prose` | `.help-bleed` grid | child width == the `main` column's content width, not 70ch | `.help-prose > .help-bleed { max-width: none }` plus the grid's own default `width: auto` as a block child |
 | `main` | `.help-prose` | wrapper width == `main` content width | wrapper carries no `max-width` after §3.1 |
 | `main` | `.help-bleed` grid | grid width == `main` content width: 728 at 1024, 856 at 1280 and 1440 | `max-width: none` (§3.1); `max-w-6xl` on the page shell is what stops 1440 exceeding 1280 |
-| grid | each card | card width >= 20rem, or one column | `grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]` (§3.2); `auto-fit` collapses to one track rather than shrinking below the minimum |
+| grid | each card | card width >= 20rem OR == the container, whichever is smaller; never wider than the container | `grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]` (§3.2). `auto-fit` collapses to one track rather than shrinking below the minimum, and the `min(...,100%)` is what stops that one track exceeding a container narrower than 20rem |
 | grid | parse-warnings card | spans every column, whatever the live count | `col-span-full` (`grid-column: 1 / -1`), NOT `md:col-span-2`, which assumes exactly two tracks and creates an implicit one when there is a single track |
 | grid | each card | equal column widths; cards in a row share a height | `grid-template-columns` from the `grid-cols-*` utilities; grid's default `align-items: stretch` (a grid default this project does not override, unlike the flex case) |
 
@@ -479,6 +519,18 @@ two or more literal `/help/admin/*` URLs, checked for whether it imports `NAV`.
 
 One instance in the class, repaired in branch. Nothing deferred, so no exception (a)/(b)/(c) is owed.
 
+**A third sweep, owed by the review's second finding.** Its shape is a `minmax()` minimum that can
+exceed its container, so the sweep is every `minmax(` in the rendered tree:
+
+```
+grep -rno 'minmax([^,]*,' app/ components/ --include='*.tsx' --include='*.mdx' --include='*.css' | grep -v 'minmax(0,'
+```
+
+Empty. Every existing `minmax()` on this codebase uses a `0` minimum and therefore cannot overflow;
+the non-zero minimum this branch introduces would be the first. That is the honest reason the
+hazard had no precedent here to learn from, and the reason §3.2 now carries the measured track
+widths rather than a column-count formula.
+
 ---
 
 ## 7.1 Mode boundaries and growth
@@ -516,6 +568,9 @@ output, so these criteria are defined by this document.
   31.4ch and is asserted UNCHANGED rather than improved (§7.1).
 - **AC-1b** Zero items in the errors-page jump list wrap, at every viewport in the matrix. The
   baseline is 5 of 7 wrapping at 768.
+- **AC-1c** No grid on either page overflows its container horizontally, asserted at **320px** as
+  well as across the matrix. 320 is deliberately below the AC-1 matrix: it is where a bare `20rem`
+  minimum would have overflowed by 32px, and no other criterion looks there.
 - **AC-2** Every `/help/*` page other than the tour and the errors page renders at the same widths
   as before the change: the cap moved, it was not lifted. The errors page is deliberately in scope
   (§3.2a); its prose, headings, lists and tables are still asserted unchanged, and only its
