@@ -222,6 +222,15 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // ALREADY environment-touching on a DIRECT import; the barrel hid it, so the
   // three refusal cases that emit through `log.warn` read free. The number is
   // re-derived, not adjusted: the reach was always there.
+  // fix/wizard-report-draft-escape (2026-08-29): the draft-store suite, enrolled
+  // as the deciding suite for the `reportDraftStore` mutation row. ZERO
+  // environment-touching tests, and that is the honest number rather than an
+  // omission: every case drives `capDraft` / `readStoredDraft` /
+  // `writeStoredDraft` / `clearStoredDraftIfUnchanged` through jsdom's own
+  // `window.sessionStorage`, or through a spy on `Storage.prototype`, or through
+  // a redefined accessor that is restored in a `finally`. Nothing reaches a
+  // filesystem, a network, a process or a clock.
+  "tests/admin/reportDraftStore.test.ts": 0,
   "tests/auth/sameOriginServerAction.test.ts": 10,
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
   // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as

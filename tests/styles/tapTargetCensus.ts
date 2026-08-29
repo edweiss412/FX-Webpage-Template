@@ -327,7 +327,12 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // is that same `<a>`.
     // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
     // 4134 -> 4140 on the R2 repair; same `<a>`, located by the scanner.
-    line: 4140,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    line: 4147,
     tag: "a",
     category: "full-bleed",
     reason:

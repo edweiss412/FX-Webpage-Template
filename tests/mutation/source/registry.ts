@@ -212,6 +212,49 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * uninteresting, and widening is a registry change carrying its own numbers.
    */
   {
+    id: "reportDraftStore",
+    // Measured, three consecutive runs of the deciding suite: 0.96s, 0.97s,
+    // 0.97s wall clock. Not estimated.
+    millisPerBoot: 970,
+    sourcePath: "lib/admin/reportDraftStore.ts",
+    suitePaths: ["tests/admin/reportDraftStore.test.ts"],
+    operators: ["relational-boundary", "equality-flip", "integer-literal", "statement-removal"],
+    scoreFloor: 1,
+    // Blinds the surrogate-orphan drop, so a cap landing between the two code
+    // units of an astral character emits a lone high surrogate — malformed
+    // text rather than truncated text. The suite asserts no unpaired surrogate
+    // survives, so a live overlay kills it deterministically.
+    //
+    // The FIRST control considered was `<=` -> `<` on the length guard, and
+    // planting it showed the suite green: slicing a value of exactly the cap to
+    // the cap is a no-op, so that edit is equivalent on every input the guard
+    // can see. Recorded because it is the whole argument for proving a control
+    // instead of asserting one (`grep -c -F` = 1 on the text below).
+    control: {
+      from: "isLoneHighSurrogate ? cut.slice(0, -1) : cut",
+      to: "isLoneHighSurrogate ? cut : cut",
+    },
+    accepted: [
+      {
+        // The same edit that was REJECTED as this row's control, for the same
+        // reason, now recorded where an unkillable mutant belongs.
+        //
+        // `capDraft` returns early when `value.length <= CAP`. Weaken that to
+        // `<` and a value of EXACTLY the cap falls through to
+        // `value.slice(0, CAP)` instead — which, on a string of exactly CAP
+        // units, returns an identical string. The surrogate branch then reads
+        // the same final code unit and reaches the same verdict. There is no
+        // input on which the two forms differ, so no test can kill it: it is
+        // equivalent, not a gap. Proved by planting it (2026-08-29): the full
+        // 21-case suite stayed green.
+        siteId: "relational-boundary:51:20:<=><",
+        kind: "equivalent",
+        reason:
+          "capDraft's early return; slicing a value of exactly REPORT_MESSAGE_MAX_CHARS to that length is the identity, so `<=` and `<` agree on every input (lib/admin/reportDraftStore.ts capDraft)",
+      },
+    ],
+  },
+  {
     id: "captureRenderFault",
     millisPerBoot: 935,
     sourcePath: "scripts/capture-render-fault.ts",

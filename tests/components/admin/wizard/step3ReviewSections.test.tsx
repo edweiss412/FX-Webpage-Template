@@ -67,6 +67,8 @@ import {
   BreakdownSection,
   DIAGRAM_TILE_CAP,
   DiagramsBreakdown,
+  REPORT_GENERIC_ERROR_COPY,
+  REPORT_MESSAGE_MAX_CHARS,
   reviewWarningTitle,
   roomHasScope,
   Step3RunStateContext,
@@ -2037,5 +2039,525 @@ describe("whole-diff P0: the ignored control targets the store its ignore lives 
     expect(calls[0]).toBe("/api/admin/show/east-coast-2026/data-quality/unignore");
     vi.unstubAllGlobals();
     stagedIgnoreImpl.current = async () => ({ ok: true, state: "ignored" });
+  });
+});
+
+// ── ReportIssueSection — draft persistence (BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE)
+// Spec 2026-08-29-wizard-report-draft-escape.md §2, AC-4..AC-8, AC-10.
+// The draft outlives the section's unmount, which is what a modal close is.
+// Failure modes: the key unscoped (one show's draft appearing under another),
+// a sent report returning as a ghost, a failed send losing the text it exists
+// to keep, an over-length stored value defeating the cap, storage throwing and
+// taking the section down with it, and a trigger label that lies about whether
+// there is anything to continue.
+
+describe("ReportIssueSection — draft persistence across unmount (spec §2)", () => {
+  const TOGGLE = `wizard-step3-card-${DFID}-report-toggle`;
+  const TEXTAREA = `wizard-step3-card-${DFID}-report-textarea`;
+  const SUBMIT = `wizard-step3-card-${DFID}-report-submit`;
+  const STATUS = `wizard-step3-card-${DFID}-report-status`;
+  // Mirrors reportDraftStorageKey — deliberately restated so a key-format drift
+  // fails HERE rather than silently orphaning every operator's saved draft.
+  const DRAFT_KEY = `fxav-report-draft-wizard-${WSID}-${DFID}`;
+  // The ATTEMPT key, restated here for the same reason DRAFT_KEY is: a format
+  // drift should fail in this block rather than silently stop asserting.
+  const ATTEMPT_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
+  // Read from the live catalog, never restated: a copy edit must not silently
+  // stop this test from asserting anything.
+  const HORIZON_COPY = MESSAGE_CATALOG.REPORT_HORIZON_EXPIRED.dougFacing as string;
+  const TYPED = "the crew list is missing two people";
+  const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
+
+  beforeEach(() => window.sessionStorage.clear());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // This project sets no `restoreMocks`, so a Storage.prototype spy survives
+    // the test that installed it and breaks every later one. Today the only
+    // spying test is last in the file, which is luck, not a contract.
+    vi.restoreAllMocks();
+  });
+
+  /** Expand and type, the way an operator reaches this field. */
+  function typeInto(q: ReturnType<typeof renderBody>, text: string) {
+    fireEvent.click(q.getByTestId(TOGGLE));
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: text } });
+  }
+
+  test("AC-1/AC-2: a typed draft is written under the scoped key and restored on a fresh mount", () => {
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+
+    cleanup(); // the unmount a modal close performs
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+  });
+
+  test("AC-8: the trigger says 'Continue your report' whenever the draft is non-empty, and reverts when it is cleared in place", () => {
+    const q = renderBody(sectionData(), "report");
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    typeInto(q, TYPED);
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+
+    cleanup();
+    const q2 = renderBody(sectionData(), "report");
+    // Restored, and the trigger says so BEFORE the operator expands anything.
+    expect(q2.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+    // Clearing in place must not leave the label promising a report to continue.
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    fireEvent.change(q2.getByTestId(TEXTAREA), { target: { value: "" } });
+    expect(q2.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull(); // emptied, not stored as ""
+  });
+
+  test("AC-8: the disclosure is COLLAPSED on mount even when a draft was restored", () => {
+    window.sessionStorage.setItem(DRAFT_KEY, TYPED);
+    const q = renderBody(sectionData(), "report");
+    expect(q.getByTestId(TOGGLE).getAttribute("aria-expanded")).toBe("false");
+    expect(q.queryByTestId(TEXTAREA)).toBeNull();
+  });
+
+  test("AC-7: a stored value longer than the cap is truncated on read, from the FRONT", () => {
+    // Diff review R2 F2: the first version of this fixture was `"x".repeat(n)`,
+    // which cannot tell prefix-preserving truncation from a suffix, from
+    // hard-coded filler, or from boundary corruption — every candidate answer
+    // is the same string. Distinct characters make each of those fail.
+    const overLong = Array.from({ length: REPORT_MESSAGE_MAX_CHARS + 250 }, (_, i) =>
+      String.fromCharCode(97 + (i % 26)),
+    ).join("");
+    window.sessionStorage.setItem(DRAFT_KEY, overLong);
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    const value = (q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value;
+    // Length and content both derived from the exported cap and the fixture,
+    // never restated as literals.
+    expect(value.length).toBe(REPORT_MESSAGE_MAX_CHARS);
+    expect(value).toBe(overLong.slice(0, REPORT_MESSAGE_MAX_CHARS));
+    expect(value[value.length - 1]).toBe(overLong[REPORT_MESSAGE_MAX_CHARS - 1]);
+  });
+
+  test("AC-7b: the cap never splits a character in half", () => {
+    // A code point outside the BMP is two UTF-16 code units, so a cap landing
+    // between them yields a lone high surrogate: malformed text, not truncated
+    // text. The operator may lose the character they were warned about; they
+    // must never gain a broken one (diff review R2 F2).
+    const emoji = "😀"; // U+1F600, one code point, two code units
+    const stored = "a".repeat(REPORT_MESSAGE_MAX_CHARS - 1) + emoji;
+    window.sessionStorage.setItem(DRAFT_KEY, stored);
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    const value = (q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value;
+
+    // One code unit SHORT of the cap, because the half character was dropped
+    // rather than kept.
+    expect(value.length).toBe(REPORT_MESSAGE_MAX_CHARS - 1);
+    // The decisive assertion: no unpaired surrogate survives anywhere.
+    expect(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value),
+    ).toBe(false);
+    expect(value.endsWith("a")).toBe(true);
+  });
+
+  test("AC-4b: an OVER-LENGTH stored draft does not survive a successful send as a ghost", () => {
+    // Diff review R2 F1. The restored state is capped; the store was not. The
+    // compare-and-clear added in R1 read the store RAW, so the two never
+    // matched, the key was never cleared, and a sent report came back on the
+    // next open — AC-4 broken by the guard that protects AC-15.
+    const overLong = "b".repeat(REPORT_MESSAGE_MAX_CHARS + 40);
+    window.sessionStorage.setItem(DRAFT_KEY, overLong);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ ok: true, status: "created" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value.length).toBe(
+      REPORT_MESSAGE_MAX_CHARS,
+    );
+    fireEvent.click(q.getByTestId(SUBMIT));
+    return waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY)).then(() => {
+      expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+    });
+  });
+
+  test("AC-10: drafts are scoped per drive file — one card's text never appears under another", () => {
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    cleanup();
+
+    const otherDfid = `${DFID}-other`;
+    const other = sectionData({}, { dfid: otherDfid });
+    const q2 = renderBody(other, "report");
+    fireEvent.click(q2.getByTestId(`wizard-step3-card-${otherDfid}-report-toggle`));
+    expect(
+      (q2.getByTestId(`wizard-step3-card-${otherDfid}-report-textarea`) as HTMLTextAreaElement)
+        .value,
+    ).toBe("");
+    // The first card's key is untouched by the second card's mount.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+  });
+
+  test("AC-4: a successful submit clears the stored draft, so it cannot come back as a ghost", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ ok: true, status: "created" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+    fireEvent.click(q.getByTestId(SUBMIT));
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    cleanup();
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  test("AC-5: a FAILED submit keeps the draft — that text is exactly what the operator would have to retype", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({ ok: false, code: "REPORT_SEND_FAILED" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    fireEvent.click(q.getByTestId(SUBMIT));
+    // The EXACT settled error copy, never "non-empty": "Sending…" is non-empty
+    // too, so a not-empty poll resolves on the pending frame and the assertion
+    // below would read storage before the request had settled at all.
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(REPORT_GENERIC_ERROR_COPY));
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+  });
+
+  test("AC-11: the persistence guarantee is stated whenever there is a draft, in BOTH disclosure states", () => {
+    const GUARANTEE = "Kept on this device until you close the tab.";
+    const q = renderBody(sectionData(), "report");
+    // Nothing to keep, nothing to promise.
+    expect(q.queryByText(GUARANTEE)).toBeNull();
+
+    typeInto(q, TYPED);
+    expect(q.getByText(GUARANTEE)).toBeTruthy(); // expanded, beside the text
+    fireEvent.click(q.getByTestId(TOGGLE)); // collapse
+    expect(q.queryByTestId(TEXTAREA)).toBeNull(); // genuinely collapsed
+    expect(q.getByText(GUARANTEE)).toBeTruthy(); // still stated, and now the only cue
+
+    // Emptying the field withdraws the promise rather than leaving it stale.
+    fireEvent.click(q.getByTestId(TOGGLE));
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: "" } });
+    expect(q.queryByText(GUARANTEE)).toBeNull();
+  });
+
+  test("AC-12: focus is never on the trigger at the moment its label flips, so no accessible name changes under the user", async () => {
+    // Assessment B: the label swap is not a WCAG 4.1.2 problem as implemented,
+    // but only because focus is provably elsewhere at the two ONCHANGE flip
+    // moments, and nothing pinned that. A later focus-restore-on-collapse change
+    // would reintroduce it silently. Both onChange flips are asserted here.
+    //
+    // There is a THIRD flip, and an earlier version of this comment claimed
+    // there were only two (diff review R1 F2): the success branch calls
+    // setDraft("") after two awaits, and the operator may have collapsed while
+    // pending, leaving focus on the trigger. AC-12b covers that one, including
+    // why it is acceptable.
+    const q = renderBody(sectionData(), "report");
+    const toggle = q.getByTestId(TOGGLE);
+
+    // Flip 1: empty -> non-empty, on the first keystroke. The §D1 effect has
+    // moved focus to the textarea by then.
+    fireEvent.click(toggle);
+    const textarea = q.getByTestId(TEXTAREA) as HTMLTextAreaElement;
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+    fireEvent.change(textarea, { target: { value: "x" } });
+    expect(toggle.textContent).toBe("Continue your report"); // it really did flip
+    expect(document.activeElement).not.toBe(toggle);
+
+    // Flip 2: non-empty -> empty, clearing in place.
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: "" } });
+    expect(toggle.textContent).toBe("Write a report");
+    expect(document.activeElement).not.toBe(toggle);
+  });
+
+  test("AC-13: a whitespace-only draft is not a report — label, guarantee line and Send agree", () => {
+    const GUARANTEE = "Kept on this device until you close the tab.";
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, "   ");
+    // The three predicates that read `draft` must not disagree. Untrimmed, the
+    // trigger promised a report to continue while Send sat disabled with
+    // nothing on screen explaining the contradiction.
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    expect(q.queryByText(GUARANTEE)).toBeNull();
+    expect((q.getByTestId(SUBMIT) as HTMLButtonElement).disabled).toBe(true);
+    // Real text flips all three together.
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+    expect(q.getByText(GUARANTEE)).toBeTruthy();
+    expect((q.getByTestId(SUBMIT) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("AC-14: a write that throws after an earlier one succeeded clears the key rather than leaving a stale prefix", () => {
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, "the crew list is");
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe("the crew list is");
+
+    // Now the store starts refusing writes mid-session, the QuotaExceededError
+    // shape. removeItem still works, which is the case this guards.
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    fireEvent.change(q.getByTestId(TEXTAREA), {
+      target: { value: "the crew list is missing two people" },
+    });
+    // The stale PREFIX is the danger: restored later it reads as a complete
+    // draft that silently lost its tail. Gone is the correct outcome.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    // The typed value is still on screen; only the persistence was lost.
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(
+      "the crew list is missing two people",
+    );
+  });
+
+  test("AC-15: a detached submit's success does not erase text a newer mount has typed", async () => {
+    // Diff review R1 F1. Submit A, close the modal while it is pending, reopen,
+    // type B, then let A's request succeed. The detached handler is still alive
+    // by design, and before the guard it cleared the SHARED key — taking B with
+    // it. B stayed on screen until the next close and then was gone, which is
+    // the exact loss this arc exists to stop, reintroduced by its own repair.
+    let resolveFetch!: (r: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, "draft A");
+    fireEvent.click(q.getByTestId(SUBMIT));
+    expect(q.getByTestId(STATUS).textContent).toBe("Sending…");
+
+    // The modal closes mid-flight. The section unmounts; the handler does not.
+    cleanup();
+    // A fresh mount restores A, and the operator replaces it with B.
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("draft A");
+    fireEvent.change(q2.getByTestId(TEXTAREA), { target: { value: "draft B" } });
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe("draft B");
+
+    // Now the old request succeeds.
+    await act(async () => {
+      resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
+    });
+
+    // B survives, in the store and on screen. The assertion is on the STORE,
+    // because the on-screen value would look fine either way until the next
+    // close — which is precisely what made the bug invisible.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe("draft B");
+    expect((q2.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("draft B");
+  });
+
+  test("AC-12b: the THIRD label flip — success while collapsed, with focus on the trigger — is announced by the status region", async () => {
+    // Diff review R1 F2: AC-12's conclusion was false as written. There are
+    // three flips, not two. The success branch calls setDraft("") after two
+    // awaits, and T-D3b ratifies collapsing while pending — which leaves focus
+    // on the trigger the operator just clicked. So the accessible name CAN
+    // change under focus here. It is acceptable because the same commit that
+    // changes it announces the outcome in the live region, and the change is a
+    // consequence of an action the operator took. That is the claim, and this
+    // pins it rather than pretending the flip does not happen.
+    let resolveFetch!: (r: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    fireEvent.click(q.getByTestId(SUBMIT));
+
+    const toggle = q.getByTestId(TOGGLE);
+    toggle.focus();
+    fireEvent.click(toggle); // collapse while pending — T-D3b's ratified move
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.textContent).toBe("Continue your report");
+
+    await act(async () => {
+      resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
+    });
+
+    // The flip really does happen under focus.
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.textContent).toBe("Write a report");
+    // And it is not silent: the live region carries the reason.
+    expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
+  });
+
+  test("AC-5b: the 410 terminal branch keeps the draft — a fresh attempt needs the text", async () => {
+    // Diff review R3 F2. The 410 REPORT_HORIZON_EXPIRED branch rotates the
+    // attempt key, because a retry after it is a NEW report, and deliberately
+    // does NOT clear the draft — the operator still has to send that text. AC-5
+    // exercised only a 500, and the existing 410 test checks only the attempt
+    // key, so clearing the draft in this branch would have passed both.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 410,
+        json: async () => ({ ok: false, code: "REPORT_HORIZON_EXPIRED" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    // Every assertion below has to be FALSE before the submit and TRUE after,
+    // or the test passes on a section that never sent anything. R4 F1 found the
+    // first version satisfiable with the submit click deleted: idle status is
+    // already unequal to "Sending…", the draft is already retained, and the
+    // attempt key is already absent because it had never been minted.
+    expect(window.sessionStorage.getItem(ATTEMPT_KEY)).toBeNull(); // not yet minted
+    fireEvent.click(q.getByTestId(SUBMIT));
+    expect(window.sessionStorage.getItem(ATTEMPT_KEY)).toBeTruthy(); // minted by THIS submit
+
+    // The settled 410 copy, from the catalog, never a "not still pending" proxy.
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(HORIZON_COPY));
+
+    // The text survives, in the store and on screen.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+    // And the attempt key was ROTATED by the 410, since a retry is a new report.
+    // Observable only because it was asserted present a moment ago.
+    expect(window.sessionStorage.getItem(ATTEMPT_KEY)).toBeNull();
+  });
+
+  test("AC-15b: the clear compares the UNTRIMMED draft, so surrounding spaces cannot make it clobber a newer edit", async () => {
+    // Diff review R3 F3. The store holds what onChange wrote, untrimmed, so the
+    // comparison must use the raw draft and not the trimmed `message`. AC-15's
+    // fixture had no surrounding whitespace, so swapping submittedDraft for
+    // message would have passed it — and then submit A of "  spaced  " would
+    // match a newer mount's "spaced" and erase it.
+    let resolveFetch!: (r: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const padded = "  spaced draft  ";
+    const trimmed = padded.trim();
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, padded);
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(padded); // stored raw
+    fireEvent.click(q.getByTestId(SUBMIT));
+
+    // The modal closes mid-flight; a newer mount trims the same text by hand.
+    cleanup();
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    fireEvent.change(q2.getByTestId(TEXTAREA), { target: { value: trimmed } });
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(trimmed);
+
+    await act(async () => {
+      resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
+    });
+
+    // Compared untrimmed, `padded` !== `trimmed`, so the newer edit stands.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(trimmed);
+  });
+
+  test("AC-6b: a sessionStorage ACCESSOR that throws is survived, through submit as well as typing", async () => {
+    // Diff review R3 F4. AC-6 makes Storage.prototype methods throw, which
+    // leaves `window.sessionStorage` itself readable. Real browsers throw
+    // SecurityError from the PROPERTY ACCESS when site data is blocked, so a
+    // future edit hoisting that read out of its try would pass AC-6 and crash
+    // the section in the one environment AC-6 exists to cover.
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    try {
+      const q = renderBody(sectionData(), "report");
+      // Mounts, restores nothing, and the trigger reads the empty-draft label.
+      expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+      fireEvent.click(q.getByTestId(TOGGLE));
+      fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
+      expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+      expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+
+      // R4 F2: stopping at typing left the SUBMIT path unasserted, and that is
+      // where the remaining accessor sites are — compare-and-clear, attempt-key
+      // minting, and rotation. Hoisting the accessor read out of any one of
+      // those `try` blocks would have survived both AC-6 and AC-6b.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 201,
+          json: async () => ({ ok: true, status: "created" }),
+        }),
+      );
+      fireEvent.click(q.getByTestId(SUBMIT));
+      return waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
+    } finally {
+      if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
+    }
+  });
+
+  test("AC-6: sessionStorage throwing on every access degrades to today's behaviour, never to a crash — including the submit path", async () => {
+    const boom = () => {
+      throw new DOMException("denied", "SecurityError");
+    };
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(boom);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(boom);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(boom);
+
+    const q = renderBody(sectionData(), "report");
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    // Typing still works; only the persistence is lost.
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+
+    // AC-6 promises the section still SUBMITS, and diff review R2 F3 found this
+    // test stopping at typing — it would have passed while throwing storage
+    // broke attempt-key minting, the success settlement, or the compare-and-clear.
+    // The submit path touches storage three times, so it is the half of AC-6
+    // most likely to break and was the half going unasserted.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ ok: true, status: "created" }),
+      }),
+    );
+    fireEvent.click(q.getByTestId(SUBMIT));
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
+    expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
   });
 });
