@@ -220,7 +220,15 @@ const REGISTRY: readonly RegistryRow[] = [
       "the control is a <RescanSheetButton> child, so the plate lives on the enclosing div and the button's own class string never mentions it. This is the site that passes the plate, and it is pinned on the prop for the same reason the link above is pinned on the constant.",
     // 4 until 2026-08-26; the control-outline-cover sweep added five to this
     // file (the report textarea and the four painted children), all on neutral
-    // grounds. Counted CODE-ONLY: the raw count is 11, two of them in comments.
+    // grounds. Then on 2026-08-28 the diagram tile's chrome moved off its
+    // <Image> and onto the anchor that forms the tile box, so one of those five
+    // now sits on the CONTROL rather than on a painted child
+    // (docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md).
+    // The pin does not move for it: the class string was relocated within this
+    // one file, not added or removed, so the code count is unchanged. What DID
+    // move is the raw/comment split: the ruling is explained in two new
+    // comment lines inside the component itself.
+    // Counted CODE-ONLY: the raw count is 13, four of them in comments.
     neutralFaintCount: 9,
   },
 ];

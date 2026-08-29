@@ -23,7 +23,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { premise } from "../_shared/premise";
+import { premise, premiseHolds } from "../_shared/premise";
 import { allStrings, scanInteractiveElements } from "./interactiveScanCore";
 import { stripCommentsForFile } from "../_shared/stripComments";
 
@@ -226,8 +226,13 @@ describe("§15 table 3: every Family A field stays instant (derived)", () => {
 });
 
 /**
- * §15 table 3, last row: "the four `step3ReviewSections` visuals ... single-state;
+ * §15 table 3, last row: "the three `step3ReviewSections` visuals ... single-state;
  * no state pair exists; instant by construction".
+ *
+ * Four until 2026-08-28, when the diagram tile's chrome moved off its <Image>
+ * onto the anchor that forms the tile box, taking that image out of the
+ * painted-child family by design
+ * (docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md §5).
  *
  * DERIVED for the same reason as Family A, and scoped the same way §15's own row
  * is: by FILE. The four were originally cited by line, and every one of those
@@ -248,10 +253,37 @@ describe("§15 table 3: the step-3 single-state visuals stay instant (derived)",
       allStrings(el).some((str) => SWEPT.test(str)),
   );
 
-  it("the derivation finds the four visuals §15 names", () => {
-    // Exactly four, and the count IS the claim here: §15 says "the four", so a
-    // fifth appearing is a change to the inventory rather than a passing test.
-    expect(visuals.map((el) => `${el.line} <${el.tag}>`)).toHaveLength(4);
+  it("the derivation finds the three visuals §15 names", () => {
+    // Exactly three, and the count IS the claim here: §15 says "the three", so a
+    // fourth appearing is a change to the inventory rather than a passing test —
+    // and so is a second one disappearing. The count was four until the diagram
+    // tile's chrome moved off its <Image> and onto the anchor that forms the tile
+    // box, which took that image out of the painted-child family by design
+    // (docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md §5).
+    // The anchor does not replace it: an interactive control is admitted as
+    // itself, never as a painted child, so it cannot enter this filter.
+    expect(visuals.map((el) => `${el.line} <${el.tag}>`)).toHaveLength(3);
+  });
+
+  it("§15's prose states the same count this derivation returns", () => {
+    // The prose and the derivation are two statements of one fact, and this arc
+    // watched them drift twice: once between the assertion and its docblock, and
+    // once between the plan and the spec. Tie them together rather than trusting
+    // a commit to have carried both.
+    const specPath = join(
+      ROOT,
+      "docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md",
+    );
+    const row = readFileSync(specPath, "utf8")
+      .split(String.fromCharCode(10))
+      .find((l) => l.includes("`step3ReviewSections` visuals") && l.includes("single-state"));
+    premiseHolds("the §15 table 3 row was located in the spec", row !== undefined);
+    const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+    const word = WORDS[visuals.length];
+    premiseHolds(`the derived count ${visuals.length} has a word form`, word !== undefined);
+    expect(row, `§15 table 3 must say "the ${word}"`).toContain(
+      `the ${word} \`step3ReviewSections\` visuals`,
+    );
   });
 
   it.each(visuals.map((el) => [`${el.file}:${el.line} <${el.tag}>`, el] as const))(

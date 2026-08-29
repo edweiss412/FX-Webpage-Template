@@ -224,6 +224,20 @@ prose still says "four":
 | new suite, shared-box contract | FAILS | it requires `rounded-md` on BOTH branches, and the anchor has none yet |
 | new suite, transition audit | PASSES | neither element has ever declared `transition-*`; this pins the invariant §8 rests on, and pins nothing about the move |
 | new suite, `CHROME_SHAPE` negative control | PASSES | it asserts the regex does not match a bare fit class, which is a property of the regex, not of the tree |
+| new suite, failed branch carries the box | PASSES | the placeholder already carries `rounded-md border bg-surface-sunken`; this diff does not touch that branch's chrome |
+| new suite, compound route A (focused tile fails) | PASSES | it asserts the PLACEHOLDER's box survives, and the placeholder is unchanged by this diff |
+| new suite, compound route B (focused tile reconciles) | PASSES | same |
+
+**The table's unit is the ASSERTION, not the test case**, which is why it has eight rows for a
+seven-case suite: the live-branch case contributes two, one for the anchor's box and one for the image's
+exact class string, and they fail for different reasons.
+
+**Observed at the real RED, not predicted:** the suite runs 7 cases, 2 fail and 5 pass. The three rows
+just above pass because they assert the placeholder's box, which this change does not touch — they
+discriminate a future REGRESSION (a placeholder that loses its box) rather than this move. An earlier
+draft of this table claimed to be complete over the suite while omitting them, which is the same
+self-consistency defect this arc kept finding elsewhere; it was caught by comparing the table against
+the actual run rather than by re-reading it.
 
 **The table is complete over the suite, deliberately including the three rows that pass on BOTH trees.**
 Two of them are invariant pins and one is an instrument control; none of them discriminates the change,
