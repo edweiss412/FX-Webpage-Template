@@ -85,7 +85,8 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   },
   "GalleryLightbox.tsx:wantsOriginal": {
     kind: "per-item",
-    clearedBy: "entering `retrying` (spec §4.0.2); the demote path, unchanged",
+    clearedBy:
+      "entering `retrying` (spec §4.0.2); the demote path, unchanged; AND the availability sweep (spec §9.1) — without that last one a zoomed slide that goes unavailable and returns re-requests the original through `pinOriginal`",
   },
   "GalleryLightbox.tsx:demotedRef": {
     kind: "per-item",

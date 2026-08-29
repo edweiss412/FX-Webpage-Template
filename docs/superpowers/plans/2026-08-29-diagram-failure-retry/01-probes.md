@@ -26,8 +26,9 @@ about React, the browser and `next/image`, not about this feature. The feature t
 built on proven mechanics instead of on prose.
 
 **U-6 is no longer a probe.** It is a claim about the availability sweep, which IS feature
-behaviour, so it moved to Task 8 where its implementation lives. Spec §1.4's U-6 row names
-Task 8.
+behaviour, so it moved to **Task 7**, where its implementation lives. Spec §1.4's U-6 row names
+Task 7. (An earlier draft said Task 8 here and Task P6 in the spec; plan review R2 found the
+three-way drift.)
 
 ## Where they run, which is a real fan-out and not a detail
 

@@ -1,7 +1,33 @@
 # Tasks 1-10 — the retry affordance
 
-Runs after Tasks P1-P5 and the five spec amendments they produce. Every task: RED observed →
+Runs after Tasks P1-P5 and the five spec amendments they produce. Task numbering below is the authority; the probe file owns P1-P5 and there is no P6. Every task: RED observed →
 minimal implementation → GREEN on the SAME command → commit.
+
+## Every task that adds per-item state extends the registry in the SAME commit
+
+Task P5's scanner enumerates every `useState`/`useRef` in both components and reds on any it
+cannot classify. Tasks 2, 4 and 5 add `retrying`, `attempt`, `focusOnMount` and `retryRefs`,
+so each of those tasks WILL red that guard the moment its state lands — correctly, which is
+the whole point of a cover that fails by default.
+
+**So each of those tasks carries `pnpm vitest run tests/components/diagrams/perItemStateLifetime.probe.test.ts`
+in its GREEN step and adds its own registry rows with their clear paths, in the same commit.**
+Plan review R2 found this missing: AC-17 was assigned wholly to a completed P5, and no feature
+task had a step for the guard it was certain to trip. A red with no owning step is a task that
+cannot finish.
+
+The rows each task owes:
+
+| task | members it adds | clear path each must state |
+|---|---|---|
+| Task 2 | `retrying`, `attempt` (gallery) | `retrying`: `onLoad`, `onError`, the availability sweep. `attempt`: `deliberately none`, monotonic by design |
+| Task 4 | `focusOnMount`, `retryRefs` (gallery) | `focusOnMount`: the ref callback on consume, and the availability sweep. `retryRefs`: React, on unmount |
+| Task 5 | `retrying`, `attempt`, `retryRefs` (lightbox) | as Task 2 and Task 4, plus a slide going inactive (§4.0.4) |
+
+Task 5 adds the LAST of them, so AC-17 is claimed there: that is the first point at which
+"every per-item member is classified" is true of the finished component pair rather than of a
+snapshot. Tasks 2 and 4 still run the guard in their own GREEN steps — they simply cannot be
+where the criterion finally holds.
 
 ## Task order is a correctness constraint, not a preference
 
@@ -34,7 +60,7 @@ Spec §11 declares AC-1 through AC-17. This maps them.
 
 - AC-1 the retry re-requests and the loaded node survives. (discharged by Task 2)
 - AC-2 one tap one request, `srcSet` set unchanged and free of the original. (discharged by Task 2)
-- AC-3 both outcomes announced by name on the audible channel. (discharged by Task 3)
+- AC-3 both outcomes announced by name on the audible channel, gallery AND active lightbox slide. (discharged by Task 3, extended by Task 5)
 - AC-4 in-flight control is `aria-busy`/`aria-disabled`, never native `disabled`, and keeps
   focus. (discharged by Task 1)
 - AC-5 no control on a parse-time-unavailable item; a control on an originals-only item with
@@ -50,21 +76,24 @@ Spec §11 declares AC-1 through AC-17. This maps them.
 - AC-14 no demote chip over an unavailable slide. (discharged by Task 7)
 - AC-15 `successorTo` is gone and no successor-hop returns. (discharged by Task 4)
 - AC-16 a slide swiped away mid-retry does not return disabled-and-stranded. (discharged by Task 6)
-- AC-17 every per-item member is classified and carries a clear path. (discharged by Task P5)
+- AC-17 every per-item member is classified and carries a clear path. (discharged by Task 5)
+- AC-18 a slide zoomed, made unavailable, and returned does not request the original.
+  (discharged by Task 7)
 
 <!-- tasks: depth=2 red-contract -->
 
 ## Task 1 — render the control, with the copy split and the right disabled semantics
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failureRecovery.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:416` why=`one placeholder div serves both the runtime-failed and the parse-time-unavailable case, so no branch can carry a control for only one of them and there is no element on which the attribute and copy assertions could be made` ac=AC-4,AC-5 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failureRecovery.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:416` why=`one placeholder div serves both the runtime-failed and the parse-time-unavailable case, so no branch can carry a control for only one of them and there is no element on which the copy and presence assertions could be made` ac=AC-5 -->
 
 Splits the shared branch so `!item.available` keeps the inert `<div>`. Copy per spec §5 and
 §5.1: the thumbnail says `Tap to retry` with the full string as its accessible name; the
 active slide adds `Full size.` only when `hasVariantTier` is false.
 
-**AC-4 asserts the native attribute is ABSENT**, not merely that focus survived — the test
-pins the mechanism Task P1 justified, not the symptom. Asserting focus alone would pass on a
-browser that did not eject.
+**AC-4 is NOT claimed here**, and plan review R2 was right that it was. AC-4 is about the
+IN-FLIGHT control — `aria-busy`, `aria-disabled`, focus retained — and the `retrying` state
+those assertions need does not exist until Task 2. This task ships the idle-failed control and
+its copy only. AC-4 lands in Task 2 with the state it describes.
 
 **Four pre-dispatch mutants** for the string-presence assertions, each recorded in the commit:
 the label emptied; the label with a suffix appended; the label present but on a `hidden`
@@ -79,10 +108,13 @@ hazard actually lives. The order matters and it is not an oversight.
 
 ## Task 2 — the retry mechanism: one tap, one request, one node
 
-<!-- task: red=`pnpm heavy npx playwright test tests/e2e/diagram-retry.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:122` why=`the control from Task 1 renders but has no handler: failedKeys has no remover anywhere in either component (the only next.delete is GalleryLightbox.tsx:1040, inside setWantsOriginal on the demote path) and no onLoad exists on either surface, so tapping does nothing and no transition exists to count requests across` ac=AC-1,AC-2,AC-10 -->
+<!-- task: red=`pnpm heavy npx playwright test tests/e2e/diagram-retry.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:122` why=`the control from Task 1 renders but has no handler and there is no retrying state, so nothing can carry the in-flight attributes AC-4 asserts: failedKeys has no remover anywhere in either component (the only next.delete is GalleryLightbox.tsx:1040, inside setWantsOriginal on the demote path) and no onLoad exists on either surface, so tapping does nothing and no transition exists to count requests across` ac=AC-1,AC-2,AC-4,AC-10 -->
 
-Lands the whole mechanism, because P2 and P3 have already settled its shape: the `retrying`
-set, the `attempt` key, `onLoad`/`onError`, and the same-node overlay. **No `loading`
+**Scope: the GALLERY only.** Plan review R2 found "the whole mechanism" ambiguous across the
+two components, and the ambiguity broke Task 5's red either way it was read. The gallery gets
+the `retrying` set, the `attempt` key, `onLoad`/`onError`, the same-node overlay, and AC-4's
+in-flight attributes. The lightbox gets its own copy in Task 5, whose red is therefore intact:
+`GalleryLightbox.tsx:1121` is still add-only when Task 5 starts. **No `loading`
 override**: Task P3 refuted the mechanism that motivated one, and a tap implies the cell is in
 the viewport, so the image loads on its own. Entering `retrying` clears `failedKeys` AND `pendingFailuresRef` (spec §4.0.1) —
 without the second, a later failure of a recovered item is discarded at `Gallery.tsx:280` and
@@ -106,7 +138,9 @@ cell under measurement is the one that swaps branches.
 <!-- task: red=`npx vitest run tests/components/diagrams/gallery.failureRecovery.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:411` why=`Task 2's onLoad handler clears the retrying set and does NOT call routeAnnouncement, so a successful retry changes the DOM silently; this red is a defect in code Task 2 wrote, not an absence` ac=AC-3 -->
 
 `<name> loaded.` and `<name> still could not be loaded.`, routed through `routeAnnouncement`
-(`Gallery.tsx:239`) so the dialog-open and exit-window cases follow. Each oracle is
+(`Gallery.tsx:239`) so the dialog-open and exit-window cases follow. **Gallery outcomes only** —
+the active-slide retry does not exist until Task 5, which extends AC-3 to it rather than
+leaving those announcements unowned, which is what R2 found. Each oracle is
 before/after on the SAME region node, matching the existing suite's posture. The exit-window
 case is pinned, not assumed.
 
@@ -136,7 +170,7 @@ unused.
 
 ## Task 5 — lightbox active slide, and the tier it must not request
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failedItem.test.tsx tests/components/diagrams/GalleryLightbox.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:1121` why=`the active-slide onError only adds to failedKeys and nothing clears wantsOriginal, so a slide that dies is terminal and a retry after a zoom would request the original` ac=AC-8,AC-9,AC-13 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failedItem.test.tsx tests/components/diagrams/GalleryLightbox.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:1121` why=`the active-slide onError only adds to failedKeys and nothing clears wantsOriginal, so a slide that dies is terminal and a retry after a zoom would request the original` ac=AC-8,AC-9,AC-13,AC-17 -->
 
 Entering `retrying` clears `wantsOriginal` and **does not write `demotedRef`** (spec §4.0.2).
 AC-9 drives the full path — zoom, swipe away, fail inactive, swipe back, retry — and asserts
@@ -161,7 +195,7 @@ AC-16 swipes away mid-retry and asserts the slide does not return holding a stra
 
 ## Task 7 — the unavailable boundary
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.availabilitySweep.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:789` why=`the demote chip predicate tests demotedNotice, its nonce and failedKeys but not item.available, so a demoted slide going unavailable keeps its chip until the timer expires; and no sweep exists, so session state survives the round trip` ac=AC-11,AC-14 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.availabilitySweep.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:789` why=`the demote chip predicate tests demotedNotice, its nonce and failedKeys but not item.available, so a demoted slide going unavailable keeps its chip until the timer expires; and no sweep exists, so session state survives the round trip` ac=AC-11,AC-14,AC-18 -->
 
 Absorbs what an earlier draft called probe P6: this is feature behaviour, not a mechanism
 claim, so it lives where its implementation does. Spec §1.4's U-6 row names this task.
@@ -171,6 +205,17 @@ The sweep is keyed on the rendered id set, not on `item.available` — an item r
 directly, so no frame can paint it over an unavailable slide. Both, deliberately: the
 predicate fixes the frame, the sweep fixes the timer.
 
+**AC-18 is the case plan review R2 surfaced, and it is a real bug rather than a docs gap.**
+`wantsOriginal` had no availability clear path, so a slide that is zoomed, goes unavailable
+and returns still holds its id — and `pinOriginal: wantsOriginal.has(item.id)`
+(`GalleryLightbox.tsx:987`) then makes the returning ACTIVE slide request the original
+immediately, with no gesture and no tap. The sweep clears it; AC-18 asserts the requested tier
+after that round trip, not merely that the slide rendered.
+
+**AC-11 iterates the §4.0.3 registry** rather than naming members, so a member added later is
+covered without editing this test. Naming them is how `wantsOriginal` was missed in the first
+place.
+
 Every case asserts the FIRST render after the flip rather than a settled state, because the
 defect §9.1 repairs is a single frame. The `retrying` case additionally asserts NO request is
 issued, since the visible symptom of the wrong ordering is an unrequested retry rather than a
@@ -179,11 +224,19 @@ state becomes visible.
 
 ## Task 8 — layout dimensions, real browser
 
-<!-- task: red=`pnpm heavy npx playwright test tests/e2e/diagram-retry-dimensions.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:416` why=`Task 1's control inherits the placeholder div's flex classes and no size-full, and this project's Tailwind v4 does not default .flex to align-items stretch, so the button's box does not equal the aspect-square cell's; the geometry assertion fails on that until the sizing lands. The testMatch entry is the task's first step because without it the run collects zero tests and expresses no verdict either way` ac=AC-7 -->
+<!-- task: red=`pnpm heavy npx playwright test tests/e2e/diagram-retry-dimensions.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:416` why=`the red here is OBSERVED AGAINST A PLANTED MUTANT, not against an accidental defect, and the task says so rather than pretending otherwise: the placeholder div Task 1 carries over already has size-full, so the geometry may well be correct on arrival and a guard that passes the moment it is authored is rejected as a red. The cycle is: write the assertion, REMOVE size-full from the control, observe the SAME command red, restore it, observe it green. That is a real red-then-green on one command and it proves the assertion discriminates` ac=AC-7 -->
 
 Spec §8's table verbatim: `<li>` `aspect-square` → retry `<button>` `size-full`; button → icon
 and label column; button → the 44px floor. `getBoundingClientRect()` on each documented
 `data-testid`, equality within 0.5px. jsdom cannot establish this.
+
+**Why the red is planted.** Plan review R2 was right that the earlier justification was false:
+the overview says Task 1 carries over the placeholder's classes, and that div's class list
+already contains `size-full`, so following the instruction makes this test green immediately.
+The mandatory layout-dimensions rule still requires the assertion to exist. A guard that
+passes on arrival is not a red, so the red is created deliberately and removed, which also
+proves the assertion has discriminating power — the same reason Task 1 runs four mutants
+against its string assertions.
 
 **e2e harness readiness**, same three points as Task 2: the repo's `webServer` config boots
 the server; the gallery's hydration signal is awaited before the first measurement; every
@@ -192,11 +245,34 @@ per spec §10.6's retraction.
 
 ## Task 9 — transition audit
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.transitions.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:353` why=`the availability ternary now has a retrying branch from Task 2 but no test enumerates the pairs, so the five compound transitions spec §9 names are unexercised and the new cases fail on the unasserted ones` ac=AC-6 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.transitions.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:353` why=`the idle-to-failed swap is instant by inheritance from the pre-existing ternary, and NOTHING makes the failed-to-retrying and retrying-to-idle pairs instant on purpose - Task 2 mounts the overlay inside the same AnimatePresence subtree the gallery already uses, so those two pairs animate on mount and unmount by default. The inventory declares all four session pairs instant, so the audit reds on the two that are not, and greens when the overlay is exempted from the presence animation` ac=AC-6 -->
+
+**What is red and why, restated.** Plan review R2 rejected the earlier justification and was
+right to: "no test enumerates the pairs" describes a missing test, and a missing test cannot
+make a newly authored assertion fail against production. The red named above is a production
+defect — the overlay Task 2 mounts animates by default inside the gallery's existing presence
+subtree, while spec §9 declares `failed → retrying` and `retrying → idle` instant. The audit
+reds on those two, and the GREEN step is exempting the overlay from the presence animation.
 
 Walks every `AnimatePresence`, ternary and conditional block in both components against spec
 §9. Asserts every row of §7.1's focus-destination table rather than sampling, and exercises
 all five compound transitions §9 names.
+
+**The spec's transition inventory verbatim**, as the writing-plans rule mandates the task body
+carry it:
+
+| pair | treatment |
+|---|---|
+| idle → failed | instant swap, no animation |
+| failed → retrying | instant label swap within the same button node; the `<Image>` mounts in its final position beneath the overlay in the same commit |
+| retrying → idle | instant; the overlay unmounts and the image becomes visible in the same commit |
+| retrying → failed | instant label swap back, same node |
+| idle → retrying | unreachable by construction: `retrying` is entered only from `failed` |
+| any session state ↔ unavailable | reachable both ways and instant; `item.available` flipping does not remount the cell |
+
+Compound rows, also verbatim: a retry outcome landing while the lightbox is mid-exit; a
+sibling failing while this cell retries; a double tap; a retry succeeding after the user
+swiped away; and a slide zoomed, swiped away, failed inactive and swiped back.
 
 <!-- tasks: end -->
 

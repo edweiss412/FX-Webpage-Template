@@ -7,10 +7,11 @@ Closes `DIAGRAM-FAILURE-RECOVERY-1` (DEFERRED.md). Branch `feat/diagram-failure-
 
 The spec stage closed at three rounds by orchestrator ruling rather than by converging
 (record: `docs/review-rounds/feat/diagram-failure-retry/e7751f61de2c.md`). Six of its claims
-are marked UNRATIFIED in spec §1.4 because they are statements about runtime behaviour that
+were marked UNRATIFIED in spec §1.4 because they are statements about runtime behaviour that
 prose review cannot decide.
 
-**Tasks P1 through P6 settle those six, and they run before any feature work.** Each is a
+**Tasks P1 through P5 settle five of them, and they run before any feature work.** The sixth,
+U-6, is feature behaviour rather than a mechanism claim and is settled by Task 7. Each is a
 probe with an executable assertion, each maps to exactly one UNRATIFIED row, and each is
 cheap. If a probe contradicts the spec, the spec is amended and the feature tasks are
 re-planned around the real behaviour — which is the entire point of running them first
@@ -84,8 +85,8 @@ already has (`Gallery.tsx:382`, `Gallery.tsx:430`). No new atom, no new tokens.
 
 ## Heavy-phase discipline
 
-Every Playwright task (P1 through P4, and Task 9) runs under `pnpm heavy`. Scoped vitest runs
-stay unwrapped. No DB suite is touched by any task in this plan.
+Every Playwright task runs under `pnpm heavy`: probes P1 through P4, and feature Tasks 2 and
+8. P5, and feature Tasks 1, 3, 4, 5, 6, 7 and 9, are scoped vitest and stay unwrapped. No DB suite is touched by any task in this plan.
 
 ## Red-command validation (run at plan time, output pasted)
 

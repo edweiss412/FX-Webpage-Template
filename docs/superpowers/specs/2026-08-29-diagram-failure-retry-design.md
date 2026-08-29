@@ -98,7 +98,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 | U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, so the cell is in the viewport and a covered in-view lazy image loads | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, **5** passed in Chromium. Three off-screen arms refute the covering mechanism; **the two IN-VIEW arms are what the design actually rests on** and both issue the request. Plan review R2 finding 1 was right that the off-screen arms alone could not carry the conclusion |
 | U-4 | **RATIFIED 2026-08-29.** The candidate SET is stable; the browser's PICK within it moves with device scale; every pick is a ladder tier and never the original | §3 | **Task P4, run.** `tests/e2e/srcset-candidate-stability.probe.spec.ts`, 2 passed in Chromium. The rendered `srcset` was byte-identical at DPR 1 and DPR 3 while the requested tier changed between them, which both confirms the bound and proves the fixture discriminates rather than being insensitive |
 | U-5 | **RATIFIED 2026-08-29, and it proved itself on first contact.** A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Task P5, run.** `tests/components/diagrams/perItemStateLifetime.probe.test.ts`, 7 passed. Four planted shapes are each SEEN and each RED while unclassified. Its first run against the live tree found `prefersReducedMotion` (`GalleryLightbox.tsx:257`), a member every hand-derivation had missed |
-| U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 8**, not a probe: this is feature behaviour, so it is settled where its implementation lands. Each retained-state shape is planted and the FIRST frame after the flip asserted |
+| U-6 | Clearing session state when an item goes unavailable OR leaves `items`, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 7**, not a probe: this is feature behaviour, so it is settled where its implementation lands. EVERY per-item member §4.0.3 classifies is planted and the FIRST frame after the flip asserted, `wantsOriginal` included |
 
 Two things deliberately NOT in this table, because they are settled by reading rather than by
 running: `demotedRef` has no clear path (grep over the component establishes it), and
@@ -685,7 +685,7 @@ nothing, so session state survives a props flip and every pair below is reachabl
 ### 9.1 The `unavailable` boundary, since it is reachable
 
 **The clear happens when the item goes unavailable, not when it comes back.** (UNRATIFIED,
-U-6 — Task P6 settles it.) An earlier
+U-6 — Task 7 settles it.) An earlier
 draft did the opposite, and the ordering was the whole defect: an effect that runs AFTER
 `item.available` becomes true leaves the first render observing a retained `retrying` id,
 which mounts the retry `<Image>` and starts a request nobody asked for. This spec excludes
@@ -701,6 +701,14 @@ could affect.
   effect keyed on `item.available` becoming false then clears the id from `failedKeys`,
   `retrying` and `pendingFailuresRef`. Any in-flight `<Image>` unmounts with the branch and
   its handlers are dropped by the connectedness guard (§4.1).
+- **`wantsOriginal` is cleared by the same sweep, and leaving it out was a real defect.**
+  Plan review R2 found it: the member has no availability clear path, so a slide that is
+  zoomed, goes unavailable, and comes back still holds its id — and `pinOriginal:
+  wantsOriginal.has(item.id)` (`GalleryLightbox.tsx:987`) then makes the returning ACTIVE
+  slide request the original immediately, with no gesture and no tap. That is precisely what
+  §4.0.2 exists to prevent, reached by a route §4.0.2 does not cover. The user's zoom intent
+  did not survive the item being unpublished and republished; treating it as if it did costs
+  up to 50 MB on a slide nobody asked to see at full detail.
 - **`demotedNotice` and `demoteTimerRef` are cleared by the same effect.** The chip's
   predicate tests `demotedNotice.id`, its nonce, and `!failedKeys.has(id)`
   (`GalleryLightbox.tsx:789-791`) — **not `item.available`**. So without this, a demoted
@@ -804,7 +812,11 @@ here rather than as a finding.
 - **AC-10** After a successful retry, a SECOND failure of the same item announces and shows
   the control again — `pendingFailuresRef` does not swallow it (§4.0.1).
 - **AC-11** An item that goes unavailable and available again returns to `idle`, with no
-  retained placeholder or control (§9.1).
+  retained placeholder or control, and **every** per-item member §4.0.3 classifies is clear —
+  asserted by iterating that registry rather than by naming members, so a member added later
+  is covered without editing the test (§9.1).
+- **AC-18** A slide that is zoomed, goes unavailable, and returns does NOT request the
+  original: `wantsOriginal` did not survive the round trip (§9.1).
 - **AC-12** No retry control is rendered on an inactive lightbox slide (§2).
 - **AC-13** A retry does not write `demotedRef`, so a re-pinch after a successful retry
   still reaches the original (§4.0.2).
