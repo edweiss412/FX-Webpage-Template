@@ -202,10 +202,15 @@ entry. Findings and dispositions in §12.
 
 ## Task 9 — closeout
 
-<!-- task: red=`bash -c 'git log -1 --format=%H | xargs -I{} git show {} --stat | grep -q DEFERRED.md'` red-state=live why=`the current HEAD does not touch DEFERRED.md, so the grep exits non-zero on today's tree — verified, not assumed; the SAME command greens on the PR's final commit, when this task removes both in-progress markers and archives the graduated entries. Invariant 12 requires the marker come off BEFORE the merge, never after` ac=AC-6 -->
+<!-- task: red=`bash -c '! grep -qE "^\\*\\*Effort:.*IN PROGRESS" DEFERRED.md && npx vitest run tests/docs/_metaLedgerInProgress.test.ts'` red-state=live why=`DEFERRED.md carries two IN PROGRESS markers today, so the negated grep exits non-zero on the current tree — verified by running it, not assumed. It asserts the markers are GONE rather than that the commit touched the file: an earlier draft grepped the last commit's stat for DEFERRED.md, which greens on ANY touch including one that ADDS a marker, the same over-permissive shape the review found in task 6's test -s. The ledger guard runs alongside so removal cannot break the convention. The SAME command greens on the PR's final commit` ac=AC-6 -->
 
 Remove both `**Status:** IN PROGRESS` markers and archive the graduated entries, in the PR's LAST
 commit. A marker that reaches `main` names a branch the merge has just deleted.
+
+**Found by sweeping the review's task-6 finding rather than raised by it.** F5 was that `test -s`
+greens on a heading; the same shape was in this task's original command, which grepped the last
+commit's stat for `DEFERRED.md` and so greened on any touch at all — including a commit that ADDED
+a marker. The command now asserts the markers are absent and runs the ledger guard beside it.
 
 <!-- tasks: end -->
 
