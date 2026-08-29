@@ -37,7 +37,7 @@
 
 ## Acceptance criteria
 
-- AC-1 The shell closes only on an unconsumed Escape: absent the new prop its behavior is byte-identical to today, and the wizard modal and skeleton are unaffected.
+- AC-1 The shell delegates the key to the modal's handler and closes only when it declines: absent the new prop its behavior is byte-identical to today, and the wizard modal and skeleton are unaffected.
 - AC-2 The claim classifies per spec §3.3: it survives W1 and W5 (transient) and is cleared by W2, W3 and all five sources of W4 (intentional).
 - AC-3 The contract suite covers arms A, C, D, E, F and G against the real component through the committed harness, with executable premises and no instrumentation, each asserting the outcome in spec §6.1's table rather than a uniform survival.
 - AC-4 The three regression paths hold end to end: click-outside, menu-Escape, and row-selection, each followed by an Escape that closes the modal.
@@ -61,6 +61,7 @@
 - [ ] Assert per spec §6.1's table, which is NOT uniform: A, D and E assert the modal survives; C, F and G assert it CLOSES. F and G are executable records of the §8 documented limits, since a modal-held claim cannot survive either window; asserting a survival there would be red forever.
 - [ ] Each arm states its premise with `premiseHolds` immediately above the assertion that rests on it, executing unconditionally and proven on that arm's OWN inputs: arm D asserts `k >= 1` for its fixture, arm A asserts the panel is in the DOM before the key, arm C asserts it is absent.
 - [ ] Derive every fixture from the harness builders. No hardcoded counts.
+- [ ] Add the pre-listener case, spec §6.2 case 11: deliver Escape after the panel commits but BEFORE its passive listener installs, assert the PANEL is dismissed and the modal stays, then that a second Escape closes the modal. Construct the window with the probe's arm-1 technique, a synchronous commit with the passive queue unflushed. A veto-only implementation passes every other case and swallows this key silently.
 - [ ] Add the single-consumption case, spec §6.2 red 10: from state N, the FIRST Escape leaves the modal open and the SECOND closes it. Without it a predicate that returns true forever passes every other assertion here while swallowing every later Escape. The existing two-Escape e2e case cannot substitute: it starts in state M, where the frame consumes and clears the first key, so it never observes N.
 - [ ] Add the two intentional dismissals that never pass through `onClose`, spec §6.2 reds 6 and 7: resolving the last actionable item (W2) and the pill toggle (W3), each followed by an Escape that CLOSES the modal. No W4 red reaches either, so without these an implementation can leave the claim pending on an ordinary dismissal and swallow the next key.
 - [ ] Add the acquisition case, spec §6.2 red 8: open the panel with the PILL rather than the auto-open, take it down transiently, then Escape leaves the modal open. Arms A, D and E all auto-open, so an implementation that acquires the claim only on that path passes every one of them and fails the first operator who opens the panel by hand. This is an acquisition gap, not a clearing gap.
@@ -78,7 +79,7 @@
 
 **Steps:**
 
-- [ ] Add the optional predicate to `ReviewModalShellProps`. Absent or returning false, the shell closes exactly as today. Returning true, it does not close.
+- [ ] Add the optional HANDLER to `ReviewModalShellProps`, not a boolean veto (spec §3.2). Absent, the shell closes exactly as today. Present, the shell asks it first and closes only when it declines the key. A veto-only shape leaves the pre-listener state P swallowing a key with nothing dismissed, which round 4 found.
 - [ ] Hold the claim in a ref in `PublishedReviewModal` and write it at every row of spec §4's coverage matrix.
 - [ ] ACQUIRE the claim in a LAYOUT effect, not a passive one (spec §3.4). A passive acquisition leaves a painted panel with neither a claim nor the frame's capture listener behind it, since that listener is passive too, and an Escape in that window reaches the shell with nothing to defer it. That is this spec's own defect reintroduced by its repair; round 3 found it.
 - [ ] Ref, not state: read at event time, never re-rendering the panel.

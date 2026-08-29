@@ -122,6 +122,21 @@ This spec ships the modal-held claim and records F and G as documented limits wi
 
 The claim is a ref, not state: it is read at event time and must not re-render the panel.
 
+**The modal HANDLES the key; it does not merely veto the close.** Round 4 found the hole in the veto-only form. Between the layout-effect acquisition and the frame's passive listener setup there is a state the first draft did not model: the panel is MOUNTED and its own Escape claim is not yet live. A boolean "do not close" predicate consumes the claim there and nothing visible happens, because the panel is still up and nobody dismissed it. The operator's next Escape then dismisses the panel and only a THIRD closes the modal, so the first key was silently swallowed, which is exactly the consequence bound this spec is written against.
+
+So the modal's hook is a HANDLER, not a veto. On an Escape the shell would otherwise act on, the modal decides:
+
+| state at the key | what the modal does | net effect |
+| --- | --- | --- |
+| panel mounted, its listener live | never reached; the frame claims the key and stops propagation | panel dismissed |
+| **P**: panel mounted, listener not yet live | dismiss the panel and keep the dialog | panel dismissed, exactly one thing |
+| **N**: panel down, claim pending | consume the claim and keep the dialog | the one deliberate defer, see below |
+| **O**: panel down, no claim | do nothing; the shell closes | dialog closed |
+
+State P is the one round 4 named. Handling it rather than vetoing in it is what keeps "exactly one thing happens" true in the window where the panel is visible but cannot yet defend itself.
+
+**The one sanctioned swallow, stated rather than left for a reviewer to find.** In state N the key produces no visible change: the panel the operator aimed at is already gone. That is deliberate, it is bounded to exactly ONE key by §6.2 case 10, and it is the alternative to closing a modal the operator did not aim at. The consequence bound is therefore precise: every Escape dismisses exactly one thing, EXCEPT the single deferred key that follows a transient takedown, and no transient takedown may swallow two.
+
 **Acquisition happens BEFORE PAINT, and "when the panel opens" was too loose to be a contract.** Round 3 found the gap: if the claim were acquired in a passive effect, there would be an ordinary post-commit window in which the panel is painted and neither the claim nor the frame's own capture listener is live, because that listener is a passive effect too (`components/admin/showpage/AttentionMenu.tsx:353`). An Escape in that window reaches the shell with nothing to defer it, which is the very defect this spec exists to close, reintroduced by its own repair. The window is reachable rather than theoretical: the auto-open is scheduled from `requestAnimationFrame` (`components/admin/showpage/PublishedReviewModal.tsx:705`).
 
 So the claim is acquired in a LAYOUT effect, which runs before the browser paints. The panel is therefore never visible without a claim behind it, and the claim deliberately covers the passive-listener gap: during it the frame cannot claim the key, the shell sees the Escape, the predicate returns true, and the modal stays. That is the correct outcome for a key aimed at a panel the operator can already see.
@@ -143,7 +158,7 @@ So the claim is acquired in a LAYOUT effect, which runs before the browser paint
 
 Coverage is stated ONCE, in the matrix below, and no other section restates it.
 
-**Why a matrix rather than a sentence.** Four of the eleven findings across the first three review rounds were the same shape: a section promising coverage that another section did not deliver. Round 2 caught §4 claiming a red for each regression path while §6.2 listed only some; round 3 caught the repaired sentence claiming all five W4 sources while §6.2 still omitted focus-out. Each time the repair fixed the instance and left the shape, because a prose promise and its fulfilment sit in different sections and drift independently. A matrix cannot promise what it does not list, and a missing row is visible rather than inferred.
+**Why a matrix rather than a sentence.** Four of the twelve findings across the first four review rounds were the same shape: a section promising coverage that another section did not deliver. Round 2 caught §4 claiming a red for each regression path while §6.2 listed only some; round 3 caught the repaired sentence claiming all five W4 sources while §6.2 still omitted focus-out. Each time the repair fixed the instance and left the shape, because a prose promise and its fulfilment sit in different sections and drift independently. A matrix cannot promise what it does not list, and a missing row is visible rather than inferred.
 
 | write or source | classification | case in §6.2 |
 | --- | --- | --- |
@@ -157,8 +172,9 @@ Coverage is stated ONCE, in the matrix below, and no other section restates it.
 | W4 via alert-row selection | intentional | 5b |
 | W4 via sheet-warning-row selection | intentional | 5c |
 | the deferred key itself | n/a | 10, the exact-once guarantee |
+| state P, panel mounted before its listener installs | n/a | 11, the pre-listener window |
 
-Every row has a case and every case has a row. The focus-out row is the one round 3 found missing: the existing frame test proves only that focus-out calls `onClose`, which says nothing about the modal-held claim or about what the NEXT Escape does.
+Every write and every source has a case. The converse is NOT claimed, and an earlier draft claimed it: cases 3 and 9 have no row here because they test the ABSENCE of a write, case 3 recording a documented limit and case 9 guarding against a claim that is never cleared. The matrix mechanises the direction that matters and nothing more. The focus-out row is the one round 3 found missing: the existing frame test proves only that focus-out calls `onClose`, which says nothing about the modal-held claim or about what the NEXT Escape does.
 
 ## 5. Transition inventory
 
@@ -166,6 +182,8 @@ States: **M** panel up, **N** panel down with a claim pending, **O** panel down 
 
 | pair | on Escape |
 | --- | --- |
+| M -> P | the panel commits and the claim is acquired, before its passive listener installs. No key involved. |
+| P -> M | the frame's passive listener installs. No key involved. |
 | M -> N | transient unmount (W1, W5). No key involved in the transition itself. |
 | M -> O | intentional dismissal (W2, W3, and all five sources of W4). No key involved except the frame's own Escape source, which the frame consumes. |
 | N -> O | shell sees the key, predicate returns true, claim consumed, modal STAYS. Instant, no animation. |
@@ -197,7 +215,7 @@ Each case carries its status at authoring, because four of the ten are not reds 
 section title asserting otherwise is the same over-claim round 2 caught in §4. The
 plan's Task 1 marker cites these statuses rather than inferring them.
 
-1. Panel up, Escape, modal stays and menu closes. **PASSES AT AUTHORING.** Fails today only if the frame regresses; it pins the existing contract.
+1. Panel up, Escape dismisses the MENU and the modal stays; a SECOND Escape then closes the modal. **PASSES AT AUTHORING.** The second key is the half round 4 found missing: without it the case passes even when the frame's own Escape source fails to clear the modal-held claim, so the matrix would advertise coverage that the cited case did not provide.
 2. Panel torn down by a whole-data blip, then Escape, modal stays. **RED BEFORE REPAIR.** **Red before the repair** (arm E measures the shell running today).
 3. Panel replaced by the skeleton, then Escape, modal CLOSES. **PASSES AT AUTHORING.** Not a red: this is arm F recording the §8 limit executably, and demanding a survival here is the contradiction rounds 1 and 2 both caught. Round 1 fixed §6.1's table and left this line, which is why the round-2 sweep is derived from a grep over every F and G outcome claim rather than from the words the previous repair touched.
 4. Panel dismissed by click-outside, then Escape, modal CLOSES. **PASSES AT AUTHORING.** Guards the §4 regression.
@@ -209,6 +227,7 @@ plan's Task 1 marker cites these statuses rather than inferring them.
 8. **Claim acquisition through the pill.** **RED BEFORE REPAIR.** Open the panel with the PILL rather than the auto-open, take it down transiently (W1), then Escape: the modal STAYS. Arms A, D and E all auto-open, so an implementation that sets the claim only on the auto-open path passes all of them and then fails the first operator who opens the panel by hand. Round 2 found this; it is an acquisition gap, not a clearing gap, and no other red reaches it.
 9. No panel at any point, Escape, modal closes. **PASSES AT AUTHORING.** Guards against a claim that is never cleared.
 10. **The claim is consumed exactly once.** **RED BEFORE REPAIR.** From N, the first Escape leaves the modal open and the SECOND closes it. This is the only assertion standing between the repair and a claim that is never SPENT. State the implementation it catches precisely, because an earlier draft stated it too widely: an implementation that never clears at all fails cases 4 through 7, which assert a close after an intentional dismissal. What survives every other case here is narrower — one that clears correctly on every intentional write but does not consume the claim when the shell defers. That one swallows every Escape after the first transient takedown, which is exactly the consequence bound this spec is written against. Round 1 found the gap; the existing two-Escape e2e case cannot cover it, because that case starts in M, where the frame handles and clears the first key, so it never observes state N at all.
+11. **The pre-listener window (state P).** Deliver Escape after the panel commits but BEFORE its passive listener installs: the PANEL is dismissed and the modal stays, and a second Escape then closes the modal. **RED BEFORE REPAIR.** Round 4 found this state unmodelled. A veto-only predicate passes every other case here and swallows this key silently, since the panel is still mounted and nothing dismisses it. Construct the window by driving the commit without flushing passive effects, which is the jsdom arm-1 technique from the attribution probe recorded in the row.
 
 ### 6.3 Anti-tautology
 
