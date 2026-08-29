@@ -242,52 +242,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
 
-### BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE — Escape can close the whole published modal instead of just the attention menu, about one time in seven
-
-**Status:** OPEN · **Filed:** 2026-08-28 (`fix/published-attention-resolve-red`, Task 1 attribution) · **Facing:** product · **Severity:** MEDIUM-LOW (an operator who presses Escape to dismiss the auto-opened attention menu occasionally loses the entire review modal, and any scroll position and section they had reached goes with it; nothing is corrupted and reopening restores the state) · **Class:** listener-lifecycle race · **Effort:** S to attribute the losing interleaving, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before the interleaving is known, and that attribution is this row's first task.
-
-**What happens.** The attention menu auto-opens on arrival. Pressing Escape should close the menu and leave the modal open: `ReviewModalShell` closes the dialog from a document-level BUBBLE-phase Escape listener (`components/admin/review/ReviewModalShell.tsx:244-252`), and while the menu is open `AttentionMenuFrame` claims the key first from a document-level CAPTURE-phase listener that calls `stopPropagation` (`components/admin/showpage/AttentionMenu.tsx:353-388`). About one time in seven the modal closes too.
-
-**Reachability:** PROBED 2026-08-28, on unmodified `origin/main`, by 7 runs of
-
-```
-TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test tests/e2e/published-show-attention.spec.ts --project=desktop-chromium --reporter=list
-```
-
-Observed once, at `tests/e2e/published-show-attention.spec.ts` line 318 as it then stood: after `expect(MENU).toHaveCount(0)` passed, `expect(MODAL).toBeVisible()` failed for the full 5s window. Playwright's own message:
-
-```
-Locator: locator('[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])')
-Expected: visible
-Timeout: 5000ms
-Error: element(s) not found
-```
-
-A temporary snapshot probe at that point reported `{"modalAny":0,"title":0,"menu":0,"url":"http://127.0.0.1:3000/admin"}` — no modal element at all and the `?show=` parameter gone from the URL, so a real dialog close rather than a title-less skeleton. Rate: 1 of those 7 runs. The probe was removed before commit; it is reproduced in this row because the run artifacts are not durable.
-
-**What an 8-run instrumented hunt established, and what it did not.** A temporary recorder was added to the case (removed before commit) capturing, at the instant Escape is delivered, whether the menu element is in the DOM — read from a document capture-phase listener the recorder registers itself — and whether the key survives to a document bubble-phase listener. It was validated against a deliberate mutant that closes the menu before pressing Escape, which reported
-
-```
-PROBE-ESC {"esc":{"captureSawMenu":false,"bubbleSaw":true},"menuTimeline":["37:out"]}
-```
-
-with the modal closed, so the recorder does register the bubble-phase arrival when it happens. Across 8 further runs of the command above the flake did not reproduce, and all 8 reported the same signature, e.g.
-
-```
-PROBE-ESC {"esc":{"captureSawMenu":false},"menuTimeline":["12:out"]}
-```
-
-**What that supports, stated no wider than the evidence.** In all 8 passing runs the menu's testid was already out of the DOM when Escape was delivered, and the recorder's own bubble-phase listener did not run, so SOMETHING stopped propagation before it. The recorder does not identify which listener did so, and it does not establish its own registration order against the other document listeners, so "the menu's capture handler claimed it" is the likely reading and not a measured one. The one observed red was never instrumented — the recorder was written after it — so nothing here connects these 8 passing signatures to that failure beyond both involving the same keypress. Treat this paragraph as a characterization of the passing path, not as a cause of the red.
-
-**The losing interleaving is NOT established, and naming it is this row's first task.** Two candidates, neither settled:
-
-1. **The listener outliving its own element.** The probe evidence points AT this one rather than away from it: in all 8 runs a capture handler stopped Escape while the menu's testid was already out of the DOM. It cannot be settled from the render path. `AttentionMenu` returns null when closed (`AttentionMenu.tsx:119`) and `AttentionMenuFrame`, which owns the listeners, renders only while open (`AttentionMenu.tsx:315`) — but those listeners are installed and removed by a passive `useEffect` (`AttentionMenu.tsx:353-388`), and conditional rendering says nothing about when that cleanup runs relative to the DOM removal and the next key event. Settling this needs a probe on the cleanup's timing, not a reading of the structure. (An earlier draft of this row called the candidate DISPROVED on exactly that structural reading. It was not; adversarial review round 1 caught it.)
-2. **The actionable-count blip**, untested, that `PublishedReviewModal`'s auto-open effect already documents in its own comment (`components/admin/showpage/PublishedReviewModal.tsx:693`): a 1 to 0 to 1 rebound during the revalidate-on-open `router.refresh()`, which would unmount and remount the menu around the keypress.
-
-**One candidate IS ruled out, for this surface only.** `escTransparentUntilEngaged` (`AttentionMenu.tsx:94`, on `AttentionMenuFrameProps`) is the 2026-08-28 amendment that makes an auto-opened panel Escape-transparent until the user engages. Its only opt-in is the WIZARD menu (`components/admin/wizard/WizardAttentionMenu.tsx:102`). The published modal renders `AttentionMenu`, whose props do not include the flag (`AttentionMenuProps`, `AttentionMenu.tsx:52-65`) and which does not pass it to the `AttentionMenuFrame` it renders (`AttentionMenu.tsx:138-146`), so it defaults false there (`AttentionMenu.tsx:327`) and `engagedRef` starts true (`AttentionMenu.tsx:333`, `useRef(!escTransparentUntilEngaged)`), which makes the early return at `:358` unreachable on this surface. An earlier draft claimed the prop had no opt-in call site ANYWHERE, which is false: it came from a `grep -v "AttentionMenu.tsx"` exclusion that also swallowed `WizardAttentionMenu.tsx`. The conclusion for the published surface survives the correction; the repo-wide claim does not.
-
-**Where it is no longer pinned, and the expansion trigger.** The resolve-lifecycle case used to dismiss the auto-opened menu with Escape; it now uses the pill toggle, because overlap clearance was all it wanted from the dismissal and the coupling bought it a foreign flake. The Escape contract stays pinned by that spec's "Esc closes the MENU first (modal stays), second Esc closes the modal" case. Its prelude is byte-identical to the one that was removed — `expect(MENU).toBeVisible()`, `keyboard.press("Escape")`, `expect(MENU).toHaveCount(0)`, `expect(MODAL).toBeVisible()` — so its exposure is the same by inspection, not by argument. It was not observed failing in any of the 13 full-file runs of the command above (the 8 hunt runs were scoped with `-g "resolve lifecycle"` and never executed it), which is weak evidence at a 1-in-7 rate and is recorded as such rather than as a clean bill. If it ever flakes, this row stops being a tail and becomes a gating defect: re-file it as such rather than adding a retry.
-
 ### BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths
 
 **Status:** OPEN · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.

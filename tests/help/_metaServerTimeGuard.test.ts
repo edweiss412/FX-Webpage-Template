@@ -212,18 +212,27 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // as well as counted, per the note above: a count alone cannot say WHICH
     // member joined, and it passes just as happily on a swap.
     expect(rel).toContain("lib/admin/warningAttention.ts");
-    // 215 -> 214 (2026-08-29): `lib/layout/fitWithinClip.ts` LEFT the population.
+    // 215 -> 216 (2026-08-28): lib/admin/escapeClaim.ts, the published review
+    // modal's consumed-key decision. It lives in lib rather than inline in the
+    // component because the branch it decides is reachable only in a state jsdom
+    // cannot stage, so the decision is tested directly instead of through a proxy.
+    // Named as well as counted, for the reason above.
+    expect(rel).toContain("lib/admin/escapeClaim.ts");
+    // 216 -> 215 (2026-08-29, MERGE of two concurrent population changes):
+    // `lib/layout/fitWithinClip.ts` LEFT as `lib/admin/escapeClaim.ts` joined.
     // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW deleted
-    // `components/admin/useFitWithinClip.ts`, which was its only depth-1 importer
-    // under components/ or app/admin/. The module itself is NOT retired —
-    // `lib/popover/place.ts` still imports `MIN_FITTED_HEIGHT` from it — but that
-    // import is depth 2 from a component, so the derivation no longer reaches it.
+    // `components/admin/useFitWithinClip.ts`, its only depth-1 importer under
+    // components/ or app/admin/. The module is NOT retired — `lib/popover/place.ts`
+    // still imports `MIN_FITTED_HEIGHT` from it — it is simply no longer reachable
+    // at depth 1.
     //
-    // Named as well as counted, in the same spirit as the arrivals above: a count
-    // alone cannot say WHICH member left, and it passes just as happily on a swap
-    // that dropped one module and added another.
+    // BOTH branches moved this count from 215, one up and one down, and the union
+    // happens to land back on 215. The number is therefore NOT arithmetic from the
+    // two diffs — it was re-derived against the merged tree, and both the arrival
+    // and the DEPARTURE are named, because a bare count cannot distinguish "one
+    // left and one joined" from "nothing changed".
     expect(rel).not.toContain("lib/layout/fitWithinClip.ts");
-    expect(rel.length).toBe(214);
+    expect(rel.length).toBe(215);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

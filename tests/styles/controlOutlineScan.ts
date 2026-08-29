@@ -209,7 +209,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/review/ShowReviewSurface.tsx", line: 1005 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1007 },
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1083 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
