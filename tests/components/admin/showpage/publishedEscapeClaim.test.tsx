@@ -41,8 +41,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import { createRoot, type Root } from "react-dom/client";
-import type { ReactElement } from "react";
+import { cloneElement } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { premiseHolds } from "@/tests/_shared/premise";
@@ -139,36 +138,6 @@ const closed = () =>
     (c) => c[0] === CLOSED_WITH[0] && (c[1] as { scroll?: boolean } | undefined)?.scroll === false,
   );
 
-/** State P: panel mounted, its claim acquired in a layout effect, its passive
- *  listener NOT yet installed.
- *
- *  Staging is probed rather than assumed, and the obvious routes do not reach it.
- *  A `flushSync` mount runs BOTH effect phases before returning on React 19.2.4.
- *  Mounting the modal and waiting one macrotask does not reach it either: the
- *  auto-open is scheduled from a `requestAnimationFrame` INSIDE a passive effect
- *  (PublishedReviewModal.tsx:705), so by the time the panel exists that flush has
- *  already happened. The route that works opens the panel from a DISCRETE event
- *  outside `act`: the click commits the panel on React's sync lane, its layout
- *  effect runs with it, and its passive effect is left to the scheduler. */
-async function openPanelIntoStateP(root: Root, el: ReactElement): Promise<void> {
-  await act(async () => {
-    root.render(el);
-    await new Promise((r) => setTimeout(r, 80));
-  });
-  const pill = document.querySelector(PILL_BUTTON) as HTMLButtonElement | null;
-  if (pill === null) throw new Error("no interactive pill to open the panel with");
-  captureKeydownCount = 0;
-  // From a TIMER callback rather than a discrete event: a discrete click commits on
-  // the sync lane and flushes passives before returning, which lands in state M.
-  await new Promise<void>((resolve) => {
-    setTimeout(() => {
-      pill.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      resolve();
-    }, 0);
-  });
-  await Promise.resolve();
-}
-
 describe("published modal: an Escape claim that outlives the panel", () => {
   it("case 1: the frame claims Escape; a second key then closes the modal", async () => {
     render(publishedModalElement(WARN_ROW, { attentionItems: ONE }));
@@ -201,6 +170,55 @@ describe("published modal: an Escape claim that outlives the panel", () => {
     escape();
     await settle();
     expect(closed(), "the claim outlived the panel, so the shell defers").toBe(false);
+  });
+
+  it("arm D: an actionable-only blip does NOT take the panel down, so no claim is spent", async () => {
+    // spec §6.2 case D. The classifier reads needsYou || k || selfHeal, not the
+    // actionable count, so a seeded parse warning pins the panel up across a
+    // 1-0-1 change. This is the arm that RETIRED the backlog row's second
+    // candidate, and it belongs in the permanent suite for that reason.
+    const { rerender } = render(publishedModalElement(WARN_ROW, { attentionItems: ONE }));
+    await settle();
+    premiseHolds("the panel was up before the blip", menuUp());
+    premiseHolds(
+      "this fixture seeds a sheet warning, which is what pins the panel up",
+      document.querySelector('[data-testid^="attention-menu-row-warning:"]') !== null,
+    );
+
+    rerender(publishedModalElement(WARN_ROW, { attentionItems: [] }));
+    await settle();
+    expect(menuUp(), "an actionable-only change must NOT take the panel down").toBe(true);
+
+    rerender(publishedModalElement(WARN_ROW, { attentionItems: ONE }));
+    await settle();
+    premiseHolds("the panel stayed mounted across the whole change", menuUp());
+
+    escape();
+    await settle();
+    expect(closed(), "the panel never went down, so the frame claims the key as usual").toBe(false);
+  });
+
+  it("arm G: a remount before the auto-open leaves no claim, and the modal closes", async () => {
+    // spec §8's second documented limit, executable: a claim held inside the
+    // component cannot survive the component being remounted. The arm records
+    // that outcome rather than asserting a survival the repair cannot deliver.
+    const { rerender } = render(publishedModalElement(WARN_ROW, { attentionItems: ONE }));
+    await settle();
+    premiseHolds("the panel was up before the remount", menuUp());
+
+    // A fresh instance: key changes force React to unmount and remount rather
+    // than update, which is what a remount means for the claim.
+    rerender(
+      cloneElement(publishedModalElement(WARN_ROW, { attentionItems: ONE }), { key: "remounted" }),
+    );
+    premiseHolds(
+      "the remount happened and the auto-open has NOT yet reopened the panel",
+      !menuUp(),
+    );
+
+    escape();
+    await settle();
+    expect(closed(), "the claim died with the instance: spec §8's remount limit").toBe(true);
   });
 
   it("case 3: a skeleton swap is a documented limit, and the modal closes", async () => {
@@ -258,13 +276,39 @@ describe("published modal: an Escape claim that outlives the panel", () => {
     const dismissing = handler.slice(0, handler.indexOf("if (escapeClaimRef.current)"));
     const deferring = handler.slice(handler.indexOf("if (escapeClaimRef.current)"));
 
-    expect(
-      dismissing.includes("pillRef.current?.focus()"),
-      "the branch that dismisses the panel must return focus to the pill, as the panel's own handler does; without it the key strands focus on <body>, outside the dialog's trap",
-    ).toBe(true);
+    // The branch is reachable only in state P, so these pin its WHOLE behaviour and
+    // not one attribute of it. Whole-diff review round 1 found the earlier version
+    // vacuous in three directions at once: deleting the dismissal, the clear, or the
+    // return each left it green while respectively swallowing every Escape,
+    // requiring a third key, or closing panel AND dialog together.
+    for (const [fragment, why] of [
+      [
+        "setMenuOpen(false)",
+        "state P must DISMISS the panel; without it the key is swallowed and nothing happens",
+      ],
+      [
+        "clearEscapeClaim()",
+        "the dismissal must spend the claim, or the next key is deferred again and a third is needed to close",
+      ],
+      [
+        "pillRef.current?.focus()",
+        "focus returns to the pill, as the panel's own handler does, or the key strands focus outside the dialog's trap",
+      ],
+      [
+        "return true",
+        "the shell must be told the host took the key, or it closes the dialog as well and one key dismisses two things",
+      ],
+    ] as const) {
+      expect(dismissing.includes(fragment), why).toBe(true);
+    }
+
     expect(
       deferring.includes("focus()"),
       "the branch that dismisses nothing must not move focus: that key changed nothing visible",
+    ).toBe(false);
+    expect(
+      deferring.includes("setMenuOpen"),
+      "the deferring branch must not touch the panel: there is no panel to dismiss",
     ).toBe(false);
   });
 

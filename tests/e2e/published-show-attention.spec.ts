@@ -335,6 +335,15 @@ test.describe("published show attention surface (spec §5/§6)", () => {
       },
     ],
     [
+      "moving focus outside it",
+      async (page: Page) => {
+        // The fifth W4 source. Focus, do not click: a click would exercise the
+        // click-outside path this table already covers, and the two dismissals
+        // are different listeners on the frame.
+        await page.locator(`${MODAL} [data-testid="${BASE}-close"]`).focus();
+      },
+    ],
+    [
       "selecting an alert row",
       async (page: Page) => {
         await page.locator(`${MENU} [data-testid^="attention-menu-row-alert:"]`).first().click();

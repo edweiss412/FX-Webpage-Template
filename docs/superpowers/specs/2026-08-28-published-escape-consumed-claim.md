@@ -234,17 +234,17 @@ plan's Task 1 marker cites these statuses rather than inferring them.
 8. **Claim acquisition through the pill.** **RED BEFORE REPAIR.** Open the panel with the PILL rather than the auto-open, take it down transiently (W1), then Escape: the modal STAYS. Arms A, D and E all auto-open, so an implementation that sets the claim only on the auto-open path passes all of them and then fails the first operator who opens the panel by hand. Round 2 found this; it is an acquisition gap, not a clearing gap, and no other red reaches it.
 9. No panel at any point, Escape, modal closes. **PASSES AT AUTHORING.** Guards against a claim that is never cleared.
 10. **The claim is consumed exactly once.** **RED BEFORE REPAIR.** From N, the first Escape leaves the modal open and the SECOND closes it. This is the only assertion standing between the repair and a claim that is never SPENT. State the implementation it catches precisely, because an earlier draft stated it too widely: an implementation that never clears at all fails cases 4 through 7, which assert a close after an intentional dismissal. What survives every other case here is narrower — one that clears correctly on every intentional write but does not consume the claim when the shell defers. That one swallows every Escape after the first transient takedown, which is exactly the consequence bound this spec is written against. Round 1 found the gap; the existing two-Escape e2e case cannot cover it, because that case starts in M, where the frame handles and clears the first key, so it never observes state N at all.
-11. **The pre-listener window (state P).** Deliver Escape while the panel is mounted with its claim acquired and its passive listener not yet installed: the PANEL is dismissed and the modal stays, and a second Escape then closes the modal. **RED BEFORE REPAIR.** A veto-only implementation passes every other case here and swallows this key silently, since the panel is still mounted and nothing dismisses it.
+11. **The pre-listener window (state P).** State P is UNOBSERVABLE from test code in jsdom, and this case is an ORDER assertion rather than a staged window. **RED BEFORE REPAIR**, structurally.
 
-    **How to stage it, and why the first draft's technique could not.** An earlier draft cited the attribution probe's arm 1, a `flushSync` UNMOUNT. Round 5 refuted that and the refutation was confirmed by probe on this repository's React 19.2.4: a `flushSync` mount runs BOTH effect phases before returning, so the frame's listener is already live and the case would pass against unrepaired code.
+    **Three staging routes were probed and each was refuted by the case's own premise**, which is why the earlier draft of this case was wrong rather than merely unlucky:
 
     ```
-    flushSync-mount   atReturn=["layout","passive"]  mounted=true
-    concurrent-mount  macrotask inDom=true  order=["layout"]
-    flushSync-open    atReturn=["layout","passive"]
+    flushSync mount    atReturn=["layout","passive"]   both phases run before it returns
+    discrete click     commits on the sync lane and flushes passives before returning
+    timer-lane click   not yet committed at the microtask boundary, so no panel exists
     ```
 
-    The second line is the technique: render OUTSIDE `act` and `flushSync`, advance to a macrotask boundary, and the panel is in the DOM with its layout effect run and its passive effect not. That is state P, reached without touching product code. The probe is reproduced here rather than committed, because its value is the three numbers and not the file.
+    One mechanism explains all three: whenever the DOM shows the panel, its passive listener is already live. Holding for a fourth route buys nothing the mechanism forbids, so the window is a documented limit (§8) carrying this probe, and what GUARDS it is executable instead: the acquisition runs in the layout phase, and the state-P branch dismisses the panel, spends the claim, restores focus and tells the shell it took the key. All four are asserted, because whole-diff review round 1 found a version asserting only one of them, which three separate mutants survived.
 
 ### 6.3 Anti-tautology
 
@@ -263,6 +263,7 @@ None. This spec changes key handling and adds no rendered element, no layout, an
 ## 8. Documented limits
 
 - **The rate is unmeasured.** The repair is justified by a proven mechanism, not by a measured frequency. Re-file trigger: the row's own expansion trigger, an Esc-contract case that flakes, is unchanged and still applies.
+- **The pre-listener window (state P) is a documented limit of the TESTS, not of the repair.** The repair closes it: acquisition runs before paint, so a painted panel always has a claim behind it. What cannot be done is staging that window in jsdom to watch it behave, for the reason §6.2 case 11 records with its probe. Re-file trigger: a test environment in which a committed panel can be observed before its passive effects flush, at which point the structural assertions should be replaced by behavioural ones.
 - **Candidates F and G are NOT closed by this repair, and both are recorded here rather than only one.** A ref held inside `PublishedReviewModal` dies when that component is replaced by the Suspense fallback (F) or remounted (G), so neither window is closed and each keeps its arm as an executable record (§6.1). The first draft named only G, which round 1 caught. Closing either fully means holding the claim above the Suspense boundary, which is the module-scoped alternative §3.3 rejects on the stale-claim trade.
   - Re-file trigger for F: a losing trace carrying `modal:unmount` paired with `skeleton:mount`, and a `doc:capture` record with `modalInDom: true` and `titleInDom: false`.
   - Re-file trigger for G: a losing trace carrying `modal:unmount` followed by a second `modal:mount` with no `skeleton:mount`.
