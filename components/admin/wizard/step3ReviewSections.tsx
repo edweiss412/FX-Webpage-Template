@@ -3934,8 +3934,9 @@ export function DiagramTile({
          is the control-edge token, DESIGN.md 1.2a) and the radius on the
          element that does the clipping: `overflow-hidden` with no radius clips
          square. The rendered rectangle does not change AT REST, measured: a
-         `fill` image insets to the padding box, and the image's own border
-         already insets its content by that same 1px today. Under keyboard
+         `fill` image insets to the padding box, and BEFORE this move the
+         image's own border already inset its content by that same 1px, so the
+         bitmap lands in the same place either way. Under keyboard
          focus it DOES change: the unlayered `:focus-visible` block in
          app/globals.css forces border-radius to --radius-sm, so this element's
          corners go 12px to 6px while focused. That rule already does the same

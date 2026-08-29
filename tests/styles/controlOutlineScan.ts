@@ -121,9 +121,12 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4438/4495 -> 4455/4512 when the announce-log import block landed; the `<button>`
   // openers were located again rather than bumped.
   // Then 4455 -> 4471 on 2026-08-28: the diagram-tile chrome ruling replaced the tile anchor's
-  // comment block far above, adding 16 lines. LOCATED by the `<button>` opener itself, per the
-  // instruction two comments up, not by adding a delta.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4471 },
+  // comment block far above, adding 16 lines. Then 4471 -> 4472 later the same day, when diff
+  // review R4 corrected a tense error in that same comment and it grew one more line — a COMMENT
+  // edit moves these rows exactly as a code edit does, which is the whole hazard of keying by line.
+  // LOCATED by the `<button>` opener itself both times, per the instruction two comments up, never
+  // by adding a delta.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4472 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -135,8 +138,9 @@ export const CENSUS: readonly CensusRow[] = [
   // parent's number describes the merged tree. LOCATED on the merged tree by the
   // `<button>` openers themselves (4438 and 4495), then confirmed by the scanner —
   // not by adding the two sides' deltas, which is what put them 5 lines short.
-  // Then 4512 -> 4528 on 2026-08-28, same cause and same method as the row above.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4528 },
+  // Then 4512 -> 4528, then 4528 -> 4529 on 2026-08-28, same causes and same method as the row
+  // above.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4529 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
