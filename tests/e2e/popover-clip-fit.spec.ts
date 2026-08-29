@@ -446,11 +446,29 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
         Math.min(400, m.panel.right - m.panel.left - 2 * VIEWPORT_INSET),
         0,
       );
-      // Where the clip does not bind, the panel stays flush with its trigger, so
-      // the clamp is proved to fire only when it must.
-      if (m.pill.right - m.menu.width >= m.panel.left) {
+      // Where NEITHER clamp binds, the panel stays flush with its trigger, so the
+      // clamp is proved to fire only when it must.
+      //
+      // BOTH edges are guarded, and an earlier draft guarded only the left. The
+      // core clamps x into `[bounds.left, bounds.right - width]`, so flushness
+      // also requires the anchor's own right edge to sit INSIDE the inset bounds.
+      // On the published surface at 1280 the pill extends past `bounds.right`, so
+      // a flush panel would overhang the inset and the core correctly pulls it
+      // left — CI measured menu.right 1068.16 against pill.right 1084. Guarding
+      // one edge asserted flushness in a case where the contract does not promise
+      // it.
+      const boundsLeft = m.panel.left + VIEWPORT_INSET;
+      const boundsRight = m.panel.right - VIEWPORT_INSET;
+      if (m.pill.right - m.menu.width >= boundsLeft && m.pill.right <= boundsRight) {
         expect(m.menu.right).toBeCloseTo(m.pill.right, 0);
       }
+      // NO unconditional "never past the anchor's right edge" assertion here. It
+      // was written and removed the same minute: at 375 the panel is clamped to
+      // `bounds.left` and extends to 367 while the pill ends at 307, which is
+      // precisely the AC-2 trade-off — containment is bought with alignment, and
+      // the panel shifting past its anchor is the ratified behaviour, not a
+      // violation. The suite caught it immediately, which is the assertion
+      // contradicting a settled decision rather than guarding one.
 
       // AC-5 pins the MEASURED desktop geometry rather than a self-consistent
       // relation: `menu.right === pill.right` above is satisfied by ANY anchor

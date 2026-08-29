@@ -289,7 +289,14 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
       // Where the clip does NOT bind, the panel stays flush with its trigger, so
       // the placement clamp is proved to fire only when it must. Derived from the
       // measured chip rect rather than a pixel constant.
-      if (box.chip.right - box.menu.width >= box.clip.left) {
+      // BOTH edges: the core clamps x into `[bounds.left, bounds.right - width]`,
+      // so flushness also requires the anchor's right edge to sit inside the inset
+      // bounds. The one-sided form passed here by luck of geometry and FAILED on
+      // the published twin in CI, where the pill extends past `bounds.right`
+      // (menu.right 1068.16 against pill.right 1084).
+      const boundsLeft = box.clip.left + VIEWPORT_INSET;
+      const boundsRight = box.clip.right - VIEWPORT_INSET;
+      if (box.chip.right - box.menu.width >= boundsLeft && box.chip.right <= boundsRight) {
         expect(box.menu.right).toBeCloseTo(box.chip.right, 0);
       }
 
