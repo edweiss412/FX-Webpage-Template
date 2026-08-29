@@ -8,7 +8,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A declared `red=` that cannot be red for its stated reason, and nothing executes it to find out: a new killing case that passes against clean production the moment it is written, a red satisfied by an unresolved import or by a surface an earlier task creates, or a red that already exits zero at the merge base. Parts of collectability are mechanized in `lib/specLint/redContract.ts` (collection probes over eligible markers of both states, with findings such as `RED_COLLECTS_NOTHING` and `RED_SUITE_UNCOLLECTED`, and `--exec-red` execution of eligible live reds; eligibility rules and per-state finding routing live in that file). What remains parked is truth of the red itself: a collectable red that already passes at the merge base, or a new killing case green against clean production the moment it is written.
 
-**Named by:** 7 arcs — docs/quick-wins-2-specs/97e179d831aa.md (plan), feat/planlint-declared-limit-pin-collision/03953337388b.md (spec), fix/replacement-string-class-sweep/bcd3d088ec76.md (plan), feat/review-modal-strip-dock/d4cd838727a3.md (plan), fix/mutation-gate-fidelity/75b8f7a3ec76.md (plan), feat/nearmiss-surface/b30413cf5e51.md (plan), feat/ref-error-cell-anchors/e7751f61de2c.md (plan).
+**Named by:** 6 arcs — docs/quick-wins-2-specs/97e179d831aa.md (plan), feat/planlint-declared-limit-pin-collision/03953337388b.md (spec), fix/replacement-string-class-sweep/bcd3d088ec76.md (plan), feat/review-modal-strip-dock/d4cd838727a3.md (plan), fix/mutation-gate-fidelity/75b8f7a3ec76.md (plan), feat/nearmiss-surface/b30413cf5e51.md (plan)
 
 **Owning record:** the out-of-scope fence in docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md (mechanizing existence-of-declaration is that arm; truth-of-claim is not), plus this index
 
@@ -193,7 +193,7 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Shape:** A sweep whose conclusion is "exactly N instances" quoted without the instrument being shown finding a known member first, and still finding it after one ordinary edit to that member; two rounds each killed a spelling-list census whose instrument could not find its own known target (`(el)`, then a named callback value `ref={fitRef}` at five sites inside the arc's own probe domain).
 
-**Named by:** 2 arcs — feat/fitwithinclip-measure-class/449f29faba03.md (spec); feat/ref-error-cell-anchors/e7751f61de2c.md (diff: an AC-2 evidence extractor that published 826 records and a three-operator list, both wrong, with nothing checking the instrument against a known total; repaired by asserting the extracted set size equals vitest's own declared array length, per shard)
+**Named by:** 1 arc — feat/fitwithinclip-measure-class/449f29faba03.md (spec)
 
 **Owning record:** the filing is the documented limit; the repair that held is committed at docs/superpowers/specs/2026-08-25-fitwithinclip-ref-callable-probe.mjs for reuse
 
@@ -203,7 +203,7 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Shape:** An assertion whose extraction is narrower than the property in its own test name, so it passes for a reason unrelated to the behaviour: eight instances across two rounds, three proven by mutant. The general repair is to give the assertion a contest it can lose, a negative control, a premise on the fixture, or a bound derived from the same quantity the implementation uses; the sketched guard fails any case whose fixture cannot discriminate.
 
-**Named by:** 4 arcs — feat/ref-error-cell-anchors/e7751f61de2c.md (diff: a committed comparison script with no premises, so two empty sets — a missing extractor or a failed log download — would have compared equal and reported SAME inside AC-2 evidence; repaired with five per-shard premises plus a negative control proving the abort fires); feat/review-modal-strip-dock/75b8f7a3ec76.md (diff); fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks); fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it). The last two arcs each bumped this count from 1 to 2 on the same day without seeing the other, and their edits conflicted on this line; whichever an auto-merge had taken, the number would have read 2 with three arcs listed underneath it. Recorded because this index's counts are hand-maintained and that is the shape in which they go wrong.
+**Named by:** 5 arcs — feat/ref-error-cell-anchors/e7751f61de2c.md (diff: a committed comparison script with no premises, so two empty sets — a missing extractor or a failed log download — would have compared equal and reported SAME inside AC-2 evidence; repaired with five per-shard premises plus a negative control proving the abort fires); feat/review-modal-strip-dock/75b8f7a3ec76.md (diff); fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks); fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it); fix/attention-autoopen-suppress-phone/e7751f61de2c.md (spec: seven instances across all four rounds of one stage, and the arc that extends this shape from a WRITTEN fixture to a SPECIFIED one — an oracle described in a spec fails the same way and is cheaper to fix there). The two 2026-08-27 arcs each bumped this count from 1 to 2 on the same day without seeing the other, and their edits conflicted on this line; whichever an auto-merge had taken, the number would have read 2 with three arcs listed underneath it. Recorded because this index's counts are hand-maintained and that is the shape in which they go wrong.
 
 **Owning record:** none — this index is the record (the filing notes the done condition ranges over an open space of test shapes, so it is refutable once per round forever)
 
@@ -263,7 +263,7 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Shape:** A lint advisory whose reasoning is correct is dismissed as noise because nothing requires it to be dispositioned before the artifact is dispatched for review, and it returns as a paid review finding. Distinct from LIM-RED-NAME-FILTER-SEVERITY, where the advisory's severity is the defect: here the severity is arguably right, since the arm genuinely cannot tell a stale claim from a drifted line anchor, and what is missing is a dispatch-time obligation to say which it is. Repairable without a new detector: one line per advisory in the brief, saying why it is noise.
 
-**Named by:** 2 arcs — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding, feat/ref-error-cell-anchors/e7751f61de2c.md (plan).
+**Named by:** 1 arc — fix/fitwithinclip-stale-clip-subscription/4cb585b3508a.md (spec), where `CITATION_SYMBOL_ABSENT` named the symbol and the file in the round-1 lint output, was read as locator granularity, and came back nine minutes later as that round's fourth finding.
 
 **Near-miss, recorded so it is not miscounted:** perf/admin-diagram-next-image/66c9857f56a5.md (plan) first claimed this slug for its stale-citation finding and then REFUTED itself by probe — restoring the stale citation left the advisory set byte-identical at 35 rows, so no advisory was ever raised and none was dismissed. That arc's instance is LIM-FOREIGN-CITATION-DRIFT. This slug's count stays at 1.
 
@@ -341,7 +341,6 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 **Owning record:** the anti-tautology rule in `docs/agents/writing-plans.md` (every test task states the failure mode it catches), plus this index.
 
 **Re-file trigger:** default (three distinct arcs).
-
 ## LIM-SNIPPET-IMPORTS-UNRESOLVED
 
 **Shape:** A plan snippet destined for an EXISTING test file uses identifiers that file does not import (`join`, `premise`, a helper from a sibling suite), and the pre-dispatch snippet typecheck, run on the snippet in a scratch harness, resolves them there and never sees the target file's import block. The RED then fails on a test-local `ReferenceError` instead of the production absence the marker names, and GREEN cannot pass. Distinct from LIM-PLACEHOLDER-SNIPPET-BODY: the code is real, its context is not.
@@ -351,3 +350,24 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 **Owning record:** the snippet-typecheck sentence of `docs/agents/writing-plans.md`, plus this index. The repair that held was an explicit imports sentence at every RED step, checked against the file's current import block at HEAD.
 
 **Re-file trigger:** default (three distinct arcs).
+## LIM-CLAIM-WITHOUT-ORACLE
+
+**Shape:** A document states a property, calls it load-bearing in as many words, and its test plan does not mention the property at all. Distinct from LIM-NONDISCRIMINATING-FIXTURE, where an assertion exists and is too weak: here there is nothing to weaken. Five instances in one spec stage, and the last one is the shape's argument for existing — the spec said explicitly that a probe must not "fix" an occlusion by re-anchoring the panel to its trigger, the source file records that exact attempt and the measured breakage it caused, and no assertion covered it, so the arc's own defect stayed reachable by a second route through a fully green suite. Not mechanizable as stated: deciding which sentences of a spec are load-bearing claims ranges over an open grammar, which is the recognizer-growth shape this repo has already measured. The repair that held is structural, an obligations table mapping every claim to the assertion that settles it, which turns the next instance into a visibly missing row rather than a paid review round.
+
+**Named by:** 1 arc — fix/attention-autoopen-suppress-phone/e7751f61de2c.md (spec)
+
+**Owning record:** none — this index is the record (the filing ships the structural repair in its own spec §9.3 and declines a detector)
+
+**Re-file trigger:** named by a 3rd distinct arc
+
+## LIM-OPTIN-GUARD-DORMANT
+
+**Shape:** A guard arm that names the defect exists in the repo, and does not reach the author, for two reasons that compound: it fires only inside a region the document must opt into by a keyword, and inside that region it is ADVISORY, landing in a list the author has usually been told to discount as heuristic noise. The defect then costs review rounds that the existing mechanism was written to prevent, and the post-mortem reads as "we should build a guard" when the guard is already there.
+
+**Named by:** 1 arc — fix/attention-autoopen-suppress-phone/e7751f61de2c.md (plan)
+
+**Measured instance:** `lib/specLint/redContract.ts:259` reports `RED_CONJUNCTION` on a `red=` joined by `&&`, which is the exact shape that cost that arc's plan round 3. It never fired: the arm looks up a `contractExtents` entry and `continue`s when there is none (`lib/specLint/redContract.ts:256`), and that plan's tasks region was opened `<!-- tasks: depth=3 -->` rather than `<!-- tasks: depth=3 red-contract -->`. Had it fired, it is `advise(...)` rather than `fail(...)`, and the plan carried 22 advisories at dispatch, with its own dispatch note telling the reviewer the advisory list is a density heuristic.
+
+**Owning record:** this index, plus the plan section of that arc's filing
+
+**Re-file trigger:** named by a 2nd distinct arc, OR a product-facing arc measurably blocked by a defect whose arm existed and was dormant. Note what would NOT settle it: promoting every advisory to a failure trades this shape for a louder one, and the repo has already measured advisory promotion producing noise that authors route around. A candidate repair has to make opting IN the default, or make the arm's region-gating unnecessary, rather than raise its severity.

@@ -8,6 +8,24 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### ATTENTION-PILL-PHONE-LEGIBILITY-1 — impeccable P1: the pill now carries discovery alone at phone widths, at 12px in ~108px (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a missed actionable item on a phone, or any arc that opens the review-modal header's action cluster.
+
+`fix/attention-autoopen-suppress-phone` stops the attention menu auto-opening below `sm`, because the panel covered the published toggle at 375 and, on the wizard, the entire chip rail. That change is right and shipped. What it also does is promote the pill from a redundant summary to the ONLY zero-scroll signal that actionable items exist — and the pill was built for the redundant job.
+
+**The measurement.** The pill is `text-xs` (12px semibold) inside the shared header action cluster, which is capped at `max-sm:max-w-40` (160px) by `HEADER_ACTION_CAP` (`components/admin/review/headerActionCap.ts:21`, applied at `components/admin/showpage/PublishedReviewModal.tsx:1096`). The cluster also holds a 44px Close at `gap-2`, leaving roughly 108px for the pill. With both segments populated, "20 issues · 10 monitoring" wraps to two 12px lines under `max-sm:flex-wrap` (`:1128`). Measured live at 375x667 during the arc: the pill renders **84.4px tall**, because it has wrapped.
+
+**Why it matters for Doug specifically.** PRODUCT.md puts him on the venue floor, one-handed, glancing, in variable lighting. A two-line 12px count 8px from a Close button that discards the modal is the wrong shape for that context, and it is now the first and only thing telling him anything is wrong.
+
+**The recommendation from the critique**, kept because it is concrete: below `sm`, demote the monitoring segment to `sr-only` and let the urgent count own the full width at `text-sm`. Monitoring items are by definition the ones that do not need him now.
+
+**Why deferred rather than fixed in that arc.** Class-sweep exception (a): it is a product decision, not a bug fix. Hiding the monitoring count on phones changes what Doug is told at a glance, and "the monitoring segment is not worth 12px of a 108px budget" is a call about his workflow that the arc that removed an auto-open cannot settle. The arc's own change is strictly subtractive and leaves the pill exactly as it was; this asks to make it louder, which is new design on a surface that arc does not otherwise touch.
+
+**What that arc DID close** rather than leave with this: the sibling P1, that its occlusion assertion filtered pill-band interceptions out as "pre-existing", which would have stayed green while an invisible 12px band ate taps on the publish control. The assertion now covers every interceptor.
+
+---
+
 ### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27)
 
 **Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.
@@ -270,14 +288,15 @@ unreachable at any point.
 
 The warning-announcer-copy bundle's manual assistive-technology half (spec §8
 F10 mitigation): owner runs VoiceOver over ignore / bulk-ignore / pointer
-reveal on the published Sheet-warnings panel (titled "Parse warnings" until
-`feat/warning-trim-undefer`) and confirms one polite utterance
-per action, silence on background refreshes, and the reveal focus move. The
+reveal on the Sheet warnings panel and confirms one polite utterance per
+action, silence on background refreshes, and the reveal focus move. The
 automated halves (impeccable audit a11y dimension; role/mutation structural
 tests) shipped pre-merge. Un-defer trigger: owner performs and records the
 pass.
 
 screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is not a hypothetical filing at all — it is a manual pass only the owner can perform ("owner runs VoiceOver over ignore / bulk-ignore / pointer reveal"; un-defer trigger "owner performs and records the pass"), so the filing bar's probe-or-reachability test is satisfied by the surfaces themselves. **Stale parenthetical corrected:** the body dates the warnings panel as "titled 'Parse warnings' until `feat/warning-trim-undefer`" — that branch merged (PR #568, `6da2139e7`), `components/admin/showpage/WarningsBreakdown.tsx` no longer exists, and "Parse warnings" survives only in prose and comments (`components/admin/showpage/OverviewSection.tsx:18,65`; `components/admin/wizard/step3ReviewSections.tsx:570,615,698`). The pass should be run against the surfaces as they are now.
+
+**Pass kit (2026-08-29, `docs/voiceover-spotcheck-kit`):** `docs/agents/voiceover-spotcheck-kit.md` carries the step script, every expected utterance quoted from the shipped code with a verified `file:line`, and a fill-in recording form whose completed copy IS the evidence this row's un-defer trigger asks for. It settles three things the body did not. First, the panel is titled **Sheet warnings** (`components/admin/wizard/step3ReviewSections.tsx:5004`); "Parse warnings" survives only in code comments and in the jump-button copy, so the body's stale parenthetical is now removed rather than annotated. (The 2026-08-04 note above stays as the dated record it is. Its citations have partly drifted since: `OverviewSection.tsx:18,65` still resolve, `step3ReviewSections.tsx:615` still lands on a Parse-warnings comment, and `:570` and `:698` no longer do. Read it as history, not as a map.) Second, there are now TWO surfaces to run, not one: PR #943 (`feat/wizard-warning-ignore-controls`) put Ignore and Un-ignore on the onboarding wizard's step-3 panel and gave every surface mount the real announce channel (`components/admin/review/ShowReviewSurface.tsx:873-880`), so a silent state change there is an a11y defect too. Third, the pass cannot be run on `/admin/dev/attention-gallery`: that page answers every mutating call with a synthetic 403 (`components/admin/dev/GalleryWriteGuard.tsx:118-119`) and its bulk-ignore script admits only partial, fail, and pending outcomes (`lib/dev/attentionScenarios/types.ts:180`). The fetch-success branch every announcement fires on is unreachable there, so the silence would mean nothing. Row stays OPEN; the pass itself is still the owner's to perform.
 
 ### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
 

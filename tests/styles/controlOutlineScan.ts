@@ -102,10 +102,13 @@ export const CENSUS: readonly CensusRow[] = [
   // Line moved 256 -> 257 on 2026-08-27 by feat/telemetry-fallback-retry, which added one
   // import to this file. The ELEMENT is untouched: same `<Link>`, same `border-text-faint`.
   { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 257 },
-  // spec §4.2 row 16
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 797 },
-  // spec §4.2 row 17
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 883 },
+  // spec §4.2 row 16 — the `review-resolution-ignore` button. 797 until
+  // fix/attention-autoopen-suppress-phone added the auto-open suppression
+  // predicate and its comment above it; the button itself is untouched.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 821 },
+  // spec §4.2 row 17 — the `review-publish` button. 883 until the same arc,
+  // same cause.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 907 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
@@ -242,7 +245,9 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/review/ShowReviewSurface.tsx", line: 1019 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1083 },
+  // :1083 until fix/attention-autoopen-suppress-phone, whose suppression
+  // predicate and comment sit above the pill button.
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1113 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
