@@ -118,7 +118,7 @@ This spec ships the modal-held claim and records F and G as documented limits wi
 
 ### 3.4 Shape
 
-`PublishedReviewModal` holds the claim in a ref, written per the table above. `ReviewModalShell` gains an optional predicate prop and closes only when it returns false. Absent the prop the shell behaves exactly as today, so the wizard modal and the skeleton are unaffected.
+`PublishedReviewModal` holds the claim in a ref, written per the table above. `ReviewModalShell` gains an optional HANDLER prop and closes only when the handler declines the key. Absent the prop the shell behaves exactly as today, so the wizard modal and the skeleton are unaffected.
 
 The claim is a ref, not state: it is read at event time and must not re-render the panel.
 
@@ -139,15 +139,16 @@ State P is the one round 4 named. Handling it rather than vetoing in it is what 
 
 **Acquisition happens BEFORE PAINT, and "when the panel opens" was too loose to be a contract.** Round 3 found the gap: if the claim were acquired in a passive effect, there would be an ordinary post-commit window in which the panel is painted and neither the claim nor the frame's own capture listener is live, because that listener is a passive effect too (`components/admin/showpage/AttentionMenu.tsx:353`). An Escape in that window reaches the shell with nothing to defer it, which is the very defect this spec exists to close, reintroduced by its own repair. The window is reachable rather than theoretical: the auto-open is scheduled from `requestAnimationFrame` (`components/admin/showpage/PublishedReviewModal.tsx:705`).
 
-So the claim is acquired in a LAYOUT effect, which runs before the browser paints. The panel is therefore never visible without a claim behind it, and the claim deliberately covers the passive-listener gap: during it the frame cannot claim the key, the shell sees the Escape, the predicate returns true, and the modal stays. That is the correct outcome for a key aimed at a panel the operator can already see.
+So the claim is acquired in a LAYOUT effect, which runs before the browser paints. The panel is therefore never visible without a claim behind it, and the claim covers the passive-listener gap, which is state P in the table above: the frame cannot claim the key, so the shell sees it and hands it to the modal, which dismisses the PANEL and keeps the dialog. Dismissing rather than merely staying is what makes exactly one thing happen for a key aimed at a panel the operator can already see.
 
 ## 4. Guard conditions
 
 | Input | Behavior |
 | --- | --- |
-| predicate prop absent or undefined | shell closes on Escape, unchanged from today |
-| predicate present, returns false | shell closes |
-| predicate present, returns true | shell does not close, and consumes the claim |
+| handler prop absent or undefined | shell closes on Escape, unchanged from today |
+| handler present, declines the key | shell closes |
+| handler present, takes the key in state P | shell does not close; the modal dismisses the PANEL |
+| handler present, takes the key in state N | shell does not close; the modal consumes the claim and nothing is dismissed, the one sanctioned swallow |
 | panel never opened this mount | claim never set, so the first Escape closes the modal |
 | panel dismissed by click-outside, focus-out, or the pill (W3, W4) | claim cleared, so the next Escape closes the modal |
 | panel dismissed by SELECTING a row, alert or sheet warning (W4) | claim cleared, so the next Escape closes the modal |
@@ -178,16 +179,22 @@ Every write and every source has a case. The converse is NOT claimed, and an ear
 
 ## 5. Transition inventory
 
-States: **M** panel up, **N** panel down with a claim pending, **O** panel down with no claim.
+States, with P added because round 5 found it defined only in §3.4 and used here:
+
+- **O** panel down, no claim. Also the state before the panel has ever opened.
+- **P** panel MOUNTED and its claim acquired, but its own passive Escape listener not yet installed.
+- **M** panel mounted with its listener live, so the frame claims Escape itself.
+- **N** panel down with a claim pending, after a transient takedown.
 
 | pair | on Escape |
 | --- | --- |
-| M -> P | the panel commits and the claim is acquired, before its passive listener installs. No key involved. |
+| O -> P | the panel commits and the layout effect acquires the claim, before the passive listener installs. No key involved. An earlier draft wrote this edge as `M -> P`, which is backwards: P precedes M. |
 | P -> M | the frame's passive listener installs. No key involved. |
 | M -> N | transient unmount (W1, W5). No key involved in the transition itself. |
 | M -> O | intentional dismissal (W2, W3, and all five sources of W4). No key involved except the frame's own Escape source, which the frame consumes. |
-| N -> O | shell sees the key, predicate returns true, claim consumed, modal STAYS. Instant, no animation. |
-| O -> closed | shell sees the key, predicate returns false, modal closes. Existing exit animation, unchanged. |
+| N -> O | shell sees the key, hands it to the modal, claim consumed, modal STAYS and nothing is dismissed. Instant, no animation. |
+| P -> O | shell sees the key, hands it to the modal, the modal dismisses the PANEL and keeps the dialog. The panel's own exit applies; the dialog does not move. |
+| O -> closed | shell sees the key, the modal declines it, the dialog closes. Existing exit animation, unchanged. |
 | N -> closed | cannot occur in one key. N always consumes its Escape into O first, which is the whole point. |
 
 Compound: a panel torn down WHILE its exit animation runs is still classified by which write took it down, because the claim is written at the write and not at animation end.
@@ -227,7 +234,17 @@ plan's Task 1 marker cites these statuses rather than inferring them.
 8. **Claim acquisition through the pill.** **RED BEFORE REPAIR.** Open the panel with the PILL rather than the auto-open, take it down transiently (W1), then Escape: the modal STAYS. Arms A, D and E all auto-open, so an implementation that sets the claim only on the auto-open path passes all of them and then fails the first operator who opens the panel by hand. Round 2 found this; it is an acquisition gap, not a clearing gap, and no other red reaches it.
 9. No panel at any point, Escape, modal closes. **PASSES AT AUTHORING.** Guards against a claim that is never cleared.
 10. **The claim is consumed exactly once.** **RED BEFORE REPAIR.** From N, the first Escape leaves the modal open and the SECOND closes it. This is the only assertion standing between the repair and a claim that is never SPENT. State the implementation it catches precisely, because an earlier draft stated it too widely: an implementation that never clears at all fails cases 4 through 7, which assert a close after an intentional dismissal. What survives every other case here is narrower — one that clears correctly on every intentional write but does not consume the claim when the shell defers. That one swallows every Escape after the first transient takedown, which is exactly the consequence bound this spec is written against. Round 1 found the gap; the existing two-Escape e2e case cannot cover it, because that case starts in M, where the frame handles and clears the first key, so it never observes state N at all.
-11. **The pre-listener window (state P).** Deliver Escape after the panel commits but BEFORE its passive listener installs: the PANEL is dismissed and the modal stays, and a second Escape then closes the modal. **RED BEFORE REPAIR.** Round 4 found this state unmodelled. A veto-only predicate passes every other case here and swallows this key silently, since the panel is still mounted and nothing dismisses it. Construct the window by driving the commit without flushing passive effects, which is the jsdom arm-1 technique from the attribution probe recorded in the row.
+11. **The pre-listener window (state P).** Deliver Escape while the panel is mounted with its claim acquired and its passive listener not yet installed: the PANEL is dismissed and the modal stays, and a second Escape then closes the modal. **RED BEFORE REPAIR.** A veto-only implementation passes every other case here and swallows this key silently, since the panel is still mounted and nothing dismisses it.
+
+    **How to stage it, and why the first draft's technique could not.** An earlier draft cited the attribution probe's arm 1, a `flushSync` UNMOUNT. Round 5 refuted that and the refutation was confirmed by probe on this repository's React 19.2.4: a `flushSync` mount runs BOTH effect phases before returning, so the frame's listener is already live and the case would pass against unrepaired code.
+
+    ```
+    flushSync-mount   atReturn=["layout","passive"]  mounted=true
+    concurrent-mount  macrotask inDom=true  order=["layout"]
+    flushSync-open    atReturn=["layout","passive"]
+    ```
+
+    The second line is the technique: render OUTSIDE `act` and `flushSync`, advance to a macrotask boundary, and the panel is in the DOM with its layout effect run and its passive effect not. That is state P, reached without touching product code. The probe is reproduced here rather than committed, because its value is the three numbers and not the file.
 
 ### 6.3 Anti-tautology
 
