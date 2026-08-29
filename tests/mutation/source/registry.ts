@@ -212,6 +212,31 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * uninteresting, and widening is a registry change carrying its own numbers.
    */
   {
+    id: "reportDraftStore",
+    // Measured, three consecutive runs of the deciding suite: 0.96s, 0.97s,
+    // 0.97s wall clock. Not estimated.
+    millisPerBoot: 970,
+    sourcePath: "lib/admin/reportDraftStore.ts",
+    suitePaths: ["tests/admin/reportDraftStore.test.ts"],
+    operators: ["relational-boundary", "equality-flip", "integer-literal", "statement-removal"],
+    scoreFloor: 1,
+    // Blinds the surrogate-orphan drop, so a cap landing between the two code
+    // units of an astral character emits a lone high surrogate — malformed
+    // text rather than truncated text. The suite asserts no unpaired surrogate
+    // survives, so a live overlay kills it deterministically.
+    //
+    // The FIRST control considered was `<=` -> `<` on the length guard, and
+    // planting it showed the suite green: slicing a value of exactly the cap to
+    // the cap is a no-op, so that edit is equivalent on every input the guard
+    // can see. Recorded because it is the whole argument for proving a control
+    // instead of asserting one (`grep -c -F` = 1 on the text below).
+    control: {
+      from: "isLoneHighSurrogate ? cut.slice(0, -1) : cut",
+      to: "isLoneHighSurrogate ? cut : cut",
+    },
+    accepted: [],
+  },
+  {
     id: "captureRenderFault",
     millisPerBoot: 935,
     sourcePath: "scripts/capture-render-fault.ts",

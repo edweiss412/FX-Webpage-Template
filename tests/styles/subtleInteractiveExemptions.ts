@@ -92,7 +92,12 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // running the scanner on the merged tree, which reports the live hit; 1639 is the
     // `{hidden.length} more` disclosure, this row's own `<summary>`.
     // 1639 -> 1640 on the R1 repair commit; still the `{hidden.length} more` <summary>.
-    line: 1640,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    line: 1647,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -105,7 +110,12 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // merged tree by its own `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`,
     // which is unique, never by adding a delta.
     // 3356 -> 3361 on the R1 repair commit; still the ignored-summary <summary>.
-    line: 3361,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    line: 3368,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

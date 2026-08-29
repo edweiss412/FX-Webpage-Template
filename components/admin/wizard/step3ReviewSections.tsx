@@ -176,6 +176,13 @@ import {
   AGENDA_CLIENT_QUEUE_BUDGET_MS,
 } from "@/lib/agenda/constants";
 import { cn } from "@/lib/ui/cn";
+import {
+  clearStoredDraftIfUnchanged,
+  readStoredDraft,
+  REPORT_MESSAGE_MAX_CHARS,
+  reportDraftStorageKey,
+  writeStoredDraft,
+} from "@/lib/admin/reportDraftStore";
 
 // ── §4.3 caps (single source of truth — values unchanged, spec §13) ──
 export const CREW_CAP = 30;
@@ -4545,7 +4552,11 @@ export function PublishedDiagramsBreakdown({
 }
 
 /** Report message textarea cap (spec §D3). */
-export const REPORT_MESSAGE_MAX_CHARS = 2000;
+/** Re-exported so the existing importers of this module keep working; the cap
+ *  and the draft store now live in `lib/admin/reportDraftStore.ts`, extracted
+ *  so the source-mutation harness can overlay them (it overlays only modules a
+ *  Vitest suite imports, and these were module-private in a component file). */
+export { REPORT_MESSAGE_MAX_CHARS } from "@/lib/admin/reportDraftStore";
 /** Payload parse-warnings cap (spec §D3). */
 export const REPORT_PARSE_WARNINGS_CAP = 50;
 /** Rendered whenever a failure code resolves to no usable dougFacing copy —
@@ -4567,115 +4578,6 @@ function reportAttemptStorageKey(wizardSessionId: string, driveFileId: string): 
   // duplicate of a stale attempt (mirrors ReportModal's surfaceId-validated
   // reuse, components/shared/ReportModal.tsx:110-133; rotate-on-success :327).
   return `fxav-report-attempt-wizard-${wizardSessionId}-${driveFileId}`;
-}
-
-/** BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE (spec 2026-08-29 §2.1). Scoped exactly
- *  as the attempt key above is, and for the same reason: a later wizard session
- *  for the same file is a DIFFERENT report, so it must not inherit the earlier
- *  session's half-typed text. */
-function reportDraftStorageKey(wizardSessionId: string, driveFileId: string): string {
-  return `fxav-report-draft-wizard-${wizardSessionId}-${driveFileId}`;
-}
-
-/** Spec §3: an unreadable store degrades to today's mount-local behaviour and
- *  never to a crash. The cap is re-applied on READ because the textarea's
- *  maxLength bounds only what a user can type — a stale or hand-edited key is
- *  the one way an over-length value arrives, and it must not defeat the cap. */
-/** The cap, applied so it can never split a character in half.
- *
- *  `slice` counts UTF-16 code units, so 1999 ASCII characters followed by an
- *  emoji sliced at 2000 ends in a lone high surrogate: not truncated text but
- *  MALFORMED text, which is a different and worse thing than the truncation
- *  §7 documents as a limit (diff review R2 F2). Dropping the orphan is the
- *  whole fix; the operator loses the character they were told they might lose,
- *  and never gains a broken one. */
-function capDraft(value: string): string {
-  if (value.length <= REPORT_MESSAGE_MAX_CHARS) return value;
-  const cut = value.slice(0, REPORT_MESSAGE_MAX_CHARS);
-  const last = cut.charCodeAt(cut.length - 1);
-  const isLoneHighSurrogate = last >= 0xd800 && last <= 0xdbff;
-  return isLoneHighSurrogate ? cut.slice(0, -1) : cut;
-}
-
-function readStoredDraft(storageKey: string): string {
-  try {
-    const stored = window.sessionStorage.getItem(storageKey);
-    if (stored == null || stored === "") return "";
-    return capDraft(stored);
-  } catch {
-    return ""; // storage unavailable — exactly the pre-repair initial value
-  }
-}
-
-/** An empty draft REMOVES the key rather than storing `""`, so a cleared field
- *  leaves nothing behind for the next mount to find.
- *
- *  THE INVARIANT THESE THREE HELPERS SHARE, stated because nothing enforces it
- *  mechanically: `capDraft(whatever is in the store) === the state it restores
- *  into`. `readStoredDraft` caps on the way out and `clearStoredDraftIfUnchanged`
- *  compares through the same cap, so the two agree by construction. This
- *  function does NOT cap on the way in, and it does not need to only because
- *  every value reaching it comes from the textarea's `onChange`, bounded by its
- *  `maxLength={REPORT_MESSAGE_MAX_CHARS}`. That is an attribute three hundred
- *  lines away, so if a future edit drops it, or writes a draft from anywhere
- *  other than that handler, the invariant breaks silently and a sent report
- *  starts coming back as a ghost. Capping here as well would close it by
- *  construction; it is deliberately NOT done, because no reachable input can
- *  currently exercise the difference and a guard no test can distinguish from
- *  its absence is worse than a stated limit (spec §7). */
-function writeStoredDraft(storageKey: string, value: string): void {
-  try {
-    if (value === "") window.sessionStorage.removeItem(storageKey);
-    else window.sessionStorage.setItem(storageKey, value);
-  } catch {
-    // Storage unavailable — the draft stays mount-local, as it was before.
-    // But a write can also fail AFTER an earlier one succeeded (a mid-session
-    // QuotaExceededError), and then the key still holds the older, SHORTER
-    // text. Restored later that reads as a complete draft while silently
-    // missing its tail, which is worse than restoring nothing at all — so drop
-    // the key rather than leave a stale prefix under it. Best-effort inside its
-    // own try: on the store-is-entirely-unavailable path this throws too, and
-    // there was never anything written to strand (impeccable audit P3).
-    try {
-      window.sessionStorage.removeItem(storageKey);
-    } catch {
-      /* nothing was ever stored, so there is nothing stale to clear */
-    }
-  }
-}
-
-/** Clear the draft ONLY if the store still holds the text this submit sent.
- *
- *  The success branch runs after two suspension points (`fetch`, then
- *  `res.json()`), and a modal unmount mid-flight is fire-and-forget BY DESIGN
- *  here — the detached handler keeps running. Before this arc that cost nothing,
- *  because the detached instance's `setDraft("")` touched only its own dead
- *  state. Persisting to a SHARED key changed that: submit A, press Escape while
- *  it is pending, reopen, type B, then let A's request succeed, and an
- *  unconditional clear removes B's stored text. B stays on screen until the next
- *  close and then is gone — the exact data loss this arc exists to stop,
- *  reintroduced through its own repair (diff review R1 F1).
- *
- *  A compare-and-clear rather than a mounted-ref guard, deliberately: the
- *  shared `ReportModal` returns early on unmount (`ReportModal.tsx:372`), but
- *  this section's fire-and-forget settlement is ratified behaviour with tests on
- *  it (T-D3b), and the attempt-key rotation on the same branch must keep running
- *  so a later report is not swallowed as a duplicate. Narrowing the guard to the
- *  one line this arc added leaves all of that untouched. */
-function clearStoredDraftIfUnchanged(storageKey: string, expected: string): void {
-  try {
-    // Compared through readStoredDraft, NOT a raw getItem, so both sides of the
-    // comparison have been through the same cap. A raw read fails to match
-    // whenever the stored value was over-length: the state it was restored into
-    // is capped, the store is not, so the guard declined to clear and a sent
-    // report came back as a ghost draft on the next open — AC-4 violated by the
-    // very guard added to protect AC-15 (diff review R2 F1).
-    if (readStoredDraft(storageKey) === expected) {
-      window.sessionStorage.removeItem(storageKey);
-    }
-  } catch {
-    /* storage unavailable — nothing was persisted, so nothing to clear */
-  }
 }
 
 function mintOrReuseAttemptKey(storageKey: string): string {

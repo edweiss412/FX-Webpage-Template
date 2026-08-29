@@ -156,7 +156,15 @@ export const CENSUS: readonly CensusRow[] = [
   // moves both rows again, so the re-key belongs after the final source edit of
   // the round, not alongside the fix that prompted it.
   // Then 4813 -> 4827 documenting the store-versus-state invariant. Fifth.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4827 },
+  // Then 4827 -> 4778 when the draft-storage helpers were EXTRACTED to
+  // lib/admin/reportDraftStore.ts, which is the first move of this arc that went
+  // UP. Sixth re-key on one branch.
+  // Then 4778 -> 4729, removing the docblocks the extraction orphaned. SEVENTH
+  // re-key on one branch, and the count is the point: this row moves on almost
+  // every commit that touches the component, so the ONLY safe time to re-key is
+  // after the final source edit of a change, immediately before the run that
+  // reads it.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4729 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -194,7 +202,9 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4873 -> 4895 at diff review R2, same cause as row 18.
   // Located by the `disabled={draft.trim()...}` opener on the final tree, every time.
   // Then 4895 -> 4909, same cause. Fifth for this row too.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4909 },
+  // Then 4909 -> 4860, same extraction.
+  // Then 4860 -> 4811, same removal.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4811 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21

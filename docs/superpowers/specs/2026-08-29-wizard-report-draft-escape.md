@@ -6,7 +6,7 @@ A half-typed report message in the wizard review modal dies when the modal close
 
 ## 1. The defect, reproduced
 
-`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4737`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
+`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4639`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
 
 This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraftEscape.test.tsx` carried two blocks when it was written, committed at `b230ccb9d`. Only the PIN remains in the tree; the PROBE flipped when the repair landed and was deleted then, exactly as its own docblock said it would be:
 
@@ -15,7 +15,7 @@ This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraf
 
 The PIN was tautological in its first draft. A 50 ms sleep expired inside the exit animation, `onClose` had not fired yet, and the still-painted textarea satisfied the "stayed open" branch on the very tree that was about to be destroyed. It now waits `DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS` (`ReviewModalShell.tsx:54` and `ReviewModalShell.tsx:62`) plus margin before reading the spy. That mistake is recorded because the same shape would silently pass any future test of this surface written the obvious way.
 
-The exposure is narrow by construction: this textarea is the only one in `components/admin` (`rg '<textarea' components/admin` returns exactly one hit, `step3ReviewSections.tsx:4888`). The published side's Report control is a one-click action with nothing to lose.
+The exposure is narrow by construction: this textarea is the only one in `components/admin` (`rg '<textarea' components/admin` returns exactly one hit, `step3ReviewSections.tsx:4790`). The published side's Report control is a one-click action with nothing to lose.
 
 ## 1.1 Resolved scope, do not relitigate
 
@@ -28,7 +28,7 @@ The exposure is narrow by construction: this textarea is the only one in `compon
 | **The `onEscapeCapture` prop stays unused by the wizard.** Its sole consumer remains `PublishedReviewModal.tsx:990`. | `components/admin/review/ReviewModalShell.tsx:100`, `components/admin/showpage/PublishedReviewModal.tsx:990` |
 | **`FinalizeButton`'s capture-phase Escape preempt is unaffected.** It listens in the capture phase and calls `stopImmediatePropagation`, so a finalize overlay above the review modal already swallows Escape before the shell sees it. Nothing here runs on that path. | `components/admin/FinalizeButton.tsx:767` |
 | **Collapse survival is existing, tested behaviour and is not the fix.** A draft already survives collapsing the disclosure, because `draft` lives at component level and only the form subtree unmounts. | `tests/components/admin/wizard/step3ReviewSections.test.tsx:1220` (T-D1) |
-| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4737` (`ReportIssueSection`) |
+| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4639` (`ReportIssueSection`) |
 
 ## 2. What ships
 
@@ -36,7 +36,7 @@ Persist the draft in `sessionStorage`, keyed the way the attempt key in the same
 
 ### 2.1 The key
 
-`fxav-report-draft-wizard-${wizardSessionId}-${driveFileId}`, produced by a `reportDraftStorageKey` helper sitting beside `reportAttemptStorageKey` (`step3ReviewSections.tsx:4564`) and scoped identically. The existing key's own comment gives the reason and it applies unchanged: a later wizard session for the same file is a DIFFERENT report, so it must not inherit the earlier session's text.
+`fxav-report-draft-wizard-${wizardSessionId}-${driveFileId}`, produced by a `reportDraftStorageKey` helper sitting beside `reportAttemptStorageKey` (`step3ReviewSections.tsx:4575`) and scoped identically. The existing key's own comment gives the reason and it applies unchanged: a later wizard session for the same file is a DIFFERENT report, so it must not inherit the earlier session's text.
 
 `sessionStorage`, not `localStorage`, matching the attempt key. The draft dies with the tab, which is the correct lifetime for an un-sent message.
 
@@ -68,10 +68,10 @@ Copy rules: no em dash, and no apostrophe is needed in either string.
 
 | Input / state | Behaviour |
 |---|---|
-| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4681`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
+| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4583`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
 | Stored value absent | `""`. Identical to today's initial state. |
 | Stored value empty string | Treated as absent. The write path never creates this, but a key written by an older build might hold it. |
-| Stored value longer than `REPORT_MESSAGE_MAX_CHARS` (2000, `step3ReviewSections.tsx:4548`) | Truncated to the cap on read, by `capDraft`, which never splits a character: a cap landing between the two code units of an astral code point drops the orphan rather than emitting a lone surrogate. The textarea's own `maxLength` bounds what a user can type; a stale or hand-edited key is the only way an over-length value arrives, and it must not defeat the cap. The clear-on-success comparison runs through the SAME `capDraft` normalisation, so an over-length stored value still matches the capped state it was restored into. |
+| Stored value longer than `REPORT_MESSAGE_MAX_CHARS` (2000, `lib/admin/reportDraftStore.ts:33`) | Truncated to the cap on read, by `capDraft`, which never splits a character: a cap landing between the two code units of an astral code point drops the orphan rather than emitting a lone surrogate. The textarea's own `maxLength` bounds what a user can type; a stale or hand-edited key is the only way an over-length value arrives, and it must not defeat the cap. The clear-on-success comparison runs through the SAME `capDraft` normalisation, so an over-length stored value still matches the capped state it was restored into. |
 | `wizardSessionId` or `dfid` empty | The key is still well-formed and still scoped. No special case: an empty segment yields a distinct key that simply never collides with a populated one. |
 | Two cards open in sequence in one wizard session | Distinct `dfid`, distinct key. Card A's draft never appears in card B. |
 | Draft submitted successfully, then modal reopened | Key cleared at submit, so the field is empty. |
@@ -201,6 +201,26 @@ No P0. The audit scored 19/20 with no P0 and no P1; the critique scored 24/40 an
 - The repo's one SSR-open-modal path is the published `/admin?show=` cold load, and `ReviewModalShell.tsx` says so in the comment on that path: "Client-side opens (step3) never hit this". That path is published mode, where `includesReport` is false, so this section is not in that tree either.
 
 Belt and braces, and worth stating because it bounds the blast radius if the mount chain is ever changed: `window is not defined` is a `ReferenceError`, which the bare `catch` in `readStoredDraft` does catch. The failure would be a trigger-label text mismatch and a recoverable hydration warning, never a crash.
+
+## 6.6 Planted-mutant inventory
+
+bl-orch's ruling after round 4: the open axis the review could not close is "could a test be weaker than it reads", and it is closed mechanically rather than by argument. For `lib/admin/reportDraftStore.ts` that is the source-mutation row and its score. For the component-level tests the registry cannot express — they need a mounted React tree, which the overlay runner does not provide — the equivalent evidence is the planted mutant, and this is the inventory. Every row was run, not reasoned about.
+
+| Guard | Mutant planted | Outcome |
+|---|---|---|
+| AC-15 | `clearStoredDraftIfUnchanged(...)` → unconditional `writeStoredDraft(key, "")` | KILLED: `expected null to be 'draft B'` |
+| AC-13 | label predicate `draft.trim() === ""` → `draft === ""` | KILLED |
+| AC-14 | the failed-write `removeItem` deleted, leaving a stale prefix | KILLED |
+| AC-4b | the clear's `readStoredDraft(key)` → raw `sessionStorage.getItem(key)` | KILLED: the over-length ghost survives the send |
+| AC-7b | `capDraft`'s surrogate branch → plain `slice(0, CAP)` | KILLED: `expected 2000 to be 1999` |
+| AC-5b | the draft cleared in the 410 branch as well as on success | KILLED |
+| AC-5b | the submit click deleted from the test itself (the reviewer's own R4 F1 mutant) | KILLED: `expected '' to be 'This report attempt has expired…'` |
+| AC-15b | `submittedDraft` → the trimmed `message` | KILLED |
+| AC-6b | `window.sessionStorage` read hoisted out of `readStoredDraft`'s `try` | KILLED: real `SecurityError` |
+| registry control (rejected) | `value.length <= CAP` → `<` | **SURVIVED** — equivalent, see below |
+| registry control (adopted) | `isLoneHighSurrogate ? cut.slice(0, -1) : cut` → `... ? cut : cut` | KILLED |
+
+**The rejected control is the most useful row here.** `<=` → `<` was the obvious choice and it survived: slicing a value of exactly the cap to the cap is a no-op, so the edit is equivalent on every input the guard can see. Registering it would have shipped a control that proves nothing, and the registry would have looked correctly configured while its own liveness check was dead. It was caught only because the control was PLANTED rather than asserted, which is the same discipline this whole inventory exists to make routine.
 
 ## 7. Documented limits
 
