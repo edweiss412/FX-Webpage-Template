@@ -51,9 +51,9 @@ cannot be staged is not a criterion; it is a sentence.
 | **AC-1d** | the measured column sequences hold | revert all three tour grids to `grid-cols-1` and drop `help-bleed` — the permanently-single-column page | layout spec fails on the column COUNT at 752, 1016 |
 | AC-1 | measure >= 28ch at the thresholds | set the minimum to `16rem` | fails at 640 (25.2ch), 900 (25.0ch), 904 (25.2ch) and 1280 (23.1ch); it does NOT fail at 752, which is 30.8ch |
 | AC-1a | the 390px measure is unchanged | drop the minimum to `10rem`, which is the largest value that fits two tracks in the 358px mobile container | layout spec fails at 390: 2 columns at 12.8ch against the 31.4ch single-column baseline |
-| AC-1b | zero jump-list wraps | restore `sm:grid-cols-2` on the errors list | 5 of 7 wrap at 768 |
-| AC-1c | no horizontal overflow at 320 | drop the `min(...,100%)`, leaving a bare `22rem` | track 352 in a 288 container, +64px |
-| AC-2 | other help pages unchanged | remove the `> *` scoping so the cap lifts entirely | typography spec fails on a widened paragraph |
+| AC-1b | zero jump-list wraps | restore `sm:grid-cols-2` on the errors list | 5 of 7 wrap at **768**, the measured baseline, and at no other sampled viewport |
+| AC-1c | no horizontal overflow at 320 | drop the `min(...,100%)`, leaving a bare `22rem` | overflows at **320** only: a 352px track in a 288px container, +64px. At 390 the container is 358 and the same track fits with 6px to spare, which is why this row is pinned to 320 |
+| AC-2 | other help pages unchanged | remove the `> *` scoping so the cap lifts entirely | typography spec fails at **1280** on an 85.1ch paragraph; NOT at 1024, where the uncapped 728px column is 72.3ch and still inside the spec's 76ch bound |
 | AC-3 | cards cover every admin-surface slug | delete the Settings card | set equality fails naming `/help/admin/settings` |
 | AC-4 | a ninth entry fails by default | add a ninth `admin-surface` NAV entry, no card | same guard fails naming the new slug, with NO edit to the test |
 | AC-5 | prose contracts still hold | remove the `--help-measure` declaration | prose-layer guard fails on the missing measure |
@@ -65,6 +65,16 @@ AC-3 is set membership and AC-6 is cardinality, and the review round that caught
 gap is real rather than pedantic: the guard compares deduplicated sets, so eight correct hrefs plus
 a duplicated ninth card pass AC-3 while "eight cards for eight admin screens" is false. AC-6's
 violation duplicates a card precisely so that set equality still passes and only the count fails.
+
+**Every row names the viewport where its red is observed, and every one was COMPUTED from the
+§2.3 sweep rather than asserted.** That is this table's structural defense, and it exists because
+the table failed the same way twice. Review round 2 found three rows whose stated red was simply
+wrong — a 16rem minimum named at the one matrix viewport it passes, a mobile mutation that was a
+no-op, and a claim that today's grid is single-column at 1016 when `md` is active there. Re-running
+every row against the sweep afterwards found a fourth the review had not flagged: AC-2's violation
+is still INSIDE the typography bound at 1024 (72.3ch) and only breaches at 1280. A violation
+inventory whose entries are written from a mental model has the exact defect it exists to catch,
+one level up.
 
 **Every row above stages a violation no other row stages.** The earlier draft had AC-1a reusing
 AC-1's `16rem` mutation and argued the difference away in a paragraph. That was the defect this
