@@ -86,17 +86,19 @@ prose review cannot decide and a running browser decides immediately.
 **Every claim below is UNRATIFIED.** Each is this spec's best current answer, each was
 corrected at least once by review, and none is settled until the named probe or RED says so.
 If a probe contradicts one, the probe wins and this section is amended — that is not a
-finding against the spec, it is the mechanism working. The probes are the plan's FIRST tasks,
-before any feature work, so a wrong assumption is discovered before anything is built on it.
+finding against the spec, it is the mechanism working. Five of the six are the plan's FIRST tasks, run against
+STANDALONE fixtures rather than the shipped component — they are claims about React, the
+browser and `next/image`, so they need none of this feature to exist. U-6 is the exception:
+it is feature behaviour, so it is settled by the task that implements it.
 
 | # | UNRATIFIED claim | where | settled by |
 |---|---|---|---|
-| U-1 | Setting native `disabled` on the focused retry control ejects focus to `<body>`, so the control must use `aria-disabled` instead | §7.1 | **Plan Task P1**, a real-browser probe asserting focus location after the attribute is applied both ways. The repo's note at `components/admin/RecentAutoAppliedStrip.tsx:371-380` is evidence, not proof, for THIS control |
-| U-2 | Mounting the retry image as a separate element from the idle one causes a second unconditional GET on `retrying → idle` | §4.0.5 | **Plan Task P2**, a real-browser request count across the transition, run against both the separate-node and same-node shapes |
-| U-3 | A covered retry image left at the `loading` default can be deferred indefinitely, so it needs `loading="eager"` | §4.0.5 | **Plan Task P3**, a real-browser probe with the overlay in place, asserting the request is issued |
-| U-4 | The `srcSet` candidate set is stable across the failure and the retry, so the retry cannot escape the ladder | §3 | **Plan Task P4**, a real-browser probe that changes viewport and DPR between failure and tap, then reads the requested URL |
-| U-5 | A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Plan Task P5**, the meta-test itself: it must fail on a planted unclassified declaration, including a `Record` and an object literal, or it is not a cover |
-| U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task P6**, a test that plants each retained-state shape and asserts no request and no control in the first frame after the flip |
+| U-1 | Setting native `disabled` on the focused retry control ejects focus to `<body>`, so the control must use `aria-disabled` instead | §7.1 | **Plan Task P1**, a standalone real-browser probe on a plain button, asserting focus location after each attribute is applied. The repo's note at `components/admin/RecentAutoAppliedStrip.tsx:371-380` is evidence, not proof |
+| U-2 | Mounting the retry image as a separate element from the idle one causes a second unconditional GET on `retrying → idle` | §4.0.5 | **Plan Task P2**, a standalone real-browser request count across an unmount-remount versus a same-node transition, everything else held constant |
+| U-3 | A covered retry image left at the `loading` default can be deferred indefinitely, so it needs `loading="eager"` | §4.0.5 | **Plan Task P3**, a standalone real-browser probe, three arms: covered at the default, covered with `eager`, uncovered at the default |
+| U-4 | The `srcSet` candidate set is stable across the failure and the retry, so the retry cannot escape the ladder | §3 | **Plan Task P4**, a standalone real-browser probe comparing two contexts at different `deviceScaleFactor`, asserting BOTH the rendered `srcSet` and the requested URL |
+| U-5 | A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Plan Task P5**, the meta-test itself: it must fail on a planted unclassified declaration, including a `Record` and an object literal, and every `per-item` row must carry a clear path or the exact words `deliberately none`, or it is not a cover |
+| U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 8**, not a probe: this is feature behaviour, so it is settled where its implementation lands. Each retained-state shape is planted and the FIRST frame after the flip asserted |
 
 Two things deliberately NOT in this table, because they are settled by reading rather than by
 running: `demotedRef` has no clear path (grep over the component establishes it), and
