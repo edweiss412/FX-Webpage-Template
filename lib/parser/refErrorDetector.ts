@@ -107,13 +107,31 @@ function firstCell(line: string): string {
   return close === -1 ? "" : line.slice(open + 1, close);
 }
 
-export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
-  const warnings: ParseWarning[] = [];
+/** One `#REF!` hit, with the position the emitter deliberately does not carry.
+ *
+ *  `cell` is the index into `splitRow(line)`, which is a FRAGMENT index rather than a
+ *  spreadsheet column: `escapeCell` writes a literal pipe as `\|` and `splitRow` splits on
+ *  every pipe regardless. The anchor replay maps it back to the owning exporter cell
+ *  (spec 2026-08-29 §2.1); nothing here interprets it. */
+export type RefErrorHit = { line: number; cell: number; kind: string; snippet: string };
+
+/**
+ * The walker under `detectRefErrorLiterals`: same traversal, same order, plus the line and
+ * cell of every hit.
+ *
+ * The position is reported HERE, for the anchor replay to consume in `lib/drive/`, and is
+ * never placed on the emitted warning (spec 2026-08-29 §2.3) — a document ordinal in the
+ * signal channel scored 603 harness rows as SILENT_SIGNAL_LOSS, which is why `blockRef`
+ * still carries `kind` and no `index`.
+ */
+export function scanRefErrorLiterals(markdown: string): RefErrorHit[] {
+  const hits: RefErrorHit[] = [];
   const lines = markdown.split("\n");
   let sectionKind: string = GENERIC_SECTION_KIND;
   let prevBlank = true;
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]!;
     // Character scan rather than trimStart()/trim(): both allocate a new string for
     // every line of every parse, which is pure waste on a pass that reads two facts.
     const start = firstNonSpace(line);
@@ -143,18 +161,24 @@ export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
     // takes this exit.
     if (!line.includes("#")) continue;
 
-    for (const cellRaw of splitRow(line)) {
+    const cells = splitRow(line);
+    for (let cell = 0; cell < cells.length; cell++) {
+      const cellRaw = cells[cell]!;
       if (!cellRaw.includes("#")) continue;
       if (!clean(cellRaw).includes(REF_LITERAL)) continue;
-      warnings.push({
-        severity: "warn",
-        code: "REF_ERROR_LITERAL",
-        message:
-          'A broken spreadsheet reference ("#REF!") appears in the sheet where a real value belongs.',
-        blockRef: { kind: sectionKind },
-        rawSnippet: cellRaw.trim(),
-      });
+      hits.push({ line: lineIndex, cell, kind: sectionKind, snippet: cellRaw.trim() });
     }
   }
-  return warnings;
+  return hits;
+}
+
+export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
+  return scanRefErrorLiterals(markdown).map((h) => ({
+    severity: "warn",
+    code: "REF_ERROR_LITERAL",
+    message:
+      'A broken spreadsheet reference ("#REF!") appears in the sheet where a real value belongs.',
+    blockRef: { kind: h.kind },
+    rawSnippet: h.snippet,
+  }));
 }

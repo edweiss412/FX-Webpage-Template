@@ -9,8 +9,13 @@ import { splitCellsUnescaped } from "./rowWidthDiscriminator"; // round-3 escape
 export function normalizeLeadingColumn(markdown: string): {
   corrected: string;
   warnings: ParseWarning[];
+  /** The corrected spans, `[from, to)` in line indexes, with the kind the emitter computed.
+   *  Additive: the anchor replay in `lib/drive/` reads it (spec 2026-08-29 §2.3), and the
+   *  warning itself still carries NO POSITIONAL ORDINAL (see `correct` below). */
+  shifted: { from: number; to: number; kind: string }[];
 } {
   const warnings: ParseWarning[] = [];
+  const shifted: { from: number; to: number; kind: string }[] = [];
   const lines = markdown.split("\n");
   let start = -1;
 
@@ -29,6 +34,9 @@ export function normalizeLeadingColumn(markdown: string): {
       const parts = lines[i]!.split("|");
       lines[i] = [parts[0], ...parts.slice(2)].join("|");
     }
+    const kind =
+      canonicalSectionKind((lines[from]!.split("|")[1] ?? "").trim()) ?? GENERIC_SECTION_KIND;
+    shifted.push({ from, to, kind });
     warnings.push({
       severity: "warn",
       code: "LEADING_COLUMN_AUTOCORRECTED",
@@ -40,10 +48,7 @@ export function normalizeLeadingColumn(markdown: string): {
       // over the signal channel, so a blank row injected anywhere above shifts the
       // ordinal and scores the mutant SILENT_SIGNAL_LOSS (measured on refErrorDetector.ts:
       // 603 rows, 564 blank-row, in `newHoles`, the bucket spec §9 marks HARD).
-      blockRef: {
-        kind:
-          canonicalSectionKind((lines[from]!.split("|")[1] ?? "").trim()) ?? GENERIC_SECTION_KIND,
-      }, // retro F2
+      blockRef: { kind }, // retro F2
       autocorrect: {
         subject: null,
         corrections: [{ detected: "empty leading column", corrected: "shifted left" }],
@@ -165,5 +170,5 @@ export function normalizeLeadingColumn(markdown: string): {
         lastUnshiftedWidth = splitCellsUnescaped(lines[i]!).length;
     }
   }
-  return { corrected: lines.join("\n"), warnings };
+  return { corrected: lines.join("\n"), warnings, shifted };
 }

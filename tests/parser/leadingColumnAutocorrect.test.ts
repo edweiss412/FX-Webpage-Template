@@ -288,3 +288,37 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
     );
   });
 });
+
+describe("normalizeLeadingColumn reports the shifted span (spec 2026-08-29 §2.3)", () => {
+  const path = "fixtures/shows/exporter-xlsx/east-coast.md";
+  const md = readFileSync(path, "utf8");
+  const firstSection = md.split("\n").findIndex((l) => l.startsWith("|"));
+
+  /** The exclusive end of the logical section `shiftLogicalSection` shifts: the first later
+   *  line that is not a row, or that opens a new logical section. Derived from the mutated
+   *  lines with this file's own `openerCell`, never read off the function under test. */
+  function endOfLogicalSection(lines: string[], start: number): number {
+    for (let i = start; i < lines.length; i++) {
+      const l = lines[i]!;
+      if (!l.trimStart().startsWith("|")) return i;
+      if (i > start && openerCell(l) !== null) return i;
+    }
+    return lines.length;
+  }
+
+  it("the shifted span is the section the mutation shifted, with the warning's own kind", () => {
+    const mutated = shiftLogicalSection(md, firstSection);
+    premiseHolds("section was shifted", mutated !== md);
+    const result = normalizeLeadingColumn(mutated);
+    premiseHolds("exactly one shift was corrected", result.warnings.length === 1);
+    const to = endOfLogicalSection(mutated.split("\n"), firstSection);
+    premise("the shifted span covers more than one line", to - firstSection, 1);
+    expect(result.shifted).toEqual([
+      { from: firstSection, to, kind: result.warnings[0]!.blockRef?.kind },
+    ]);
+  });
+
+  it("the unshifted corpus fixture reports no shifted span", () => {
+    expect(normalizeLeadingColumn(md).shifted).toEqual([]);
+  });
+});
