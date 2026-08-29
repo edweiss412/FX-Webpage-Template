@@ -29,7 +29,13 @@ import {
 } from "./popoverOverlayRegistry";
 
 const IMPORT_FOR_DISPOSITION: Partial<Record<OverlayRow["disposition"], RegExp>> = {
-  "placement-module": /from\s+"@\/lib\/popover\/position"/,
+  // The MECHANISM by name, not the module that happens to carry its types.
+  // `/from "@\/lib\/popover\/position"/` was satisfied by every consumer's
+  // `import type { Rect }` — so all seven rows could have stopped placing
+  // anything, kept the type import, and passed. The registry's stated proof
+  // proved nothing. `placeWithinVisibleViewport` cannot arrive through a type
+  // import, so this is the call site or nothing.
+  "placement-module": /\bplaceWithinVisibleViewport\b/,
   // `fit-within-clip` RETIRED 2026-08-28 (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW).
   // The attention menu was its last holder and migrated to the placement module;
   // the hook this row matched no longer exists, so a mapping for it would name a

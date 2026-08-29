@@ -168,7 +168,7 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(MAY_MATCH.test("const w = window/* gap */.innerWidth;")).toBe(true);
   });
 
-  it("discovers EXACTLY the five known consumers", { timeout: 60_000 }, () => {
+  it("discovers EXACTLY the six known consumers", { timeout: 60_000 }, () => {
     const rels = consumers.map((f) => relative(REPO_ROOT, f)).sort();
     expect(rels).toEqual(
       [

@@ -13,11 +13,10 @@ import { join } from "node:path";
 import { stripCommentsForFile } from "../../../_shared/stripComments";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { autoResolveNote } from "@/lib/adminAlerts/audience";
-import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
 
 function mk(over: Partial<AttentionItem>): AttentionItem {
   return {
@@ -204,7 +203,6 @@ describe("AttentionMenu", () => {
 describe("AttentionMenu clip fit (§4.2)", () => {
   const CAP_PX = 384; // the scroller's declared `max-h-96`
   const CLIP_BOTTOM = 560;
-  const CLIP_BOTTOM_AFTER = 460;
   const SCROLLER_TOP = 230;
 
   let geometry: { scrollerTop: number; clipBottom: number };
@@ -213,12 +211,6 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   let observedTargets: Element[];
   /** Frames held rather than run: the hook coalesces event-driven applies. */
   let pendingFrames: FrameRequestCallback[];
-
-  function flushFrames(): void {
-    const queued = pendingFrames;
-    pendingFrames = [];
-    for (const cb of queued) cb(0);
-  }
 
   function installLayoutStubs() {
     geometry = { scrollerTop: SCROLLER_TOP, clipBottom: CLIP_BOTTOM };
@@ -290,15 +282,6 @@ describe("AttentionMenu clip fit (§4.2)", () => {
       },
     );
     return clip;
-  }
-
-  /** Derived from the mocked rects through the exported pure core. */
-  function expectedFitted(): string {
-    return `${computeFittedMaxHeight({
-      elementTop: geometry.scrollerTop,
-      clipBottom: geometry.clipBottom,
-      cap: CAP_PX,
-    })}px`;
   }
 
   /** Renders the menu INSIDE the clip ancestor so the hook walk lands on it. */
@@ -416,9 +399,13 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   // jsdom never implements `offsetParent` — it returns null unconditionally — so
   // the placement anchor does not exist in this environment and a unit assertion
   // on it can only pass vacuously or fail on its own premise. It failed on its
-  // premise when first written, which is the premise doing its job. The live
-  // assertion is in popover-clip-fit.spec.ts: change the attention load, which
-  // reflows the pill wrapper, and the panel must follow the wrapper's new edge.
+  // premise when first written, which is the premise doing its job. THERE IS NO
+  // BROWSER CASE EITHER, and that is probed rather than pending: the stimulus
+  // tried (changing the attention load) does not move the wrapper's RIGHT edge,
+  // the only edge `align: "right"` reads, because the wrapper is right-pinned in
+  // the modal header. The subscription ships DEFENSIVE. popover-clip-fit.spec.ts
+  // documents the absence where the case would sit. An earlier draft of this
+  // comment claimed the browser case exists, which it never did.
   test("the panel is observed, and a host-less mount observes nothing spurious", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
@@ -433,25 +420,26 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     expect(observedTargets).toEqual([panel]);
   });
 
-  test("visualViewport scroll and resize are subscribed, and torn down", () => {
-    const added: string[] = [];
-    const removed: string[] = [];
+  test("visualViewport scroll and resize are subscribed, and torn down BY IDENTITY", () => {
+    const added = new Map<string, EventListener>();
+    const removed = new Map<string, EventListener>();
     const vv = {
-      addEventListener: (t: string) => added.push(t),
-      removeEventListener: (t: string) => removed.push(t),
+      addEventListener: (t: string, fn: EventListener) => added.set(t, fn),
+      removeEventListener: (t: string, fn: EventListener) => removed.set(t, fn),
     };
     vi.stubGlobal("visualViewport", vv);
     Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
     const clip = installLayoutStubs();
     const { unmount } = renderMenuInto(clip);
     // Pinch-zoom and the mobile keyboard move the VISUAL viewport without firing
-    // a window resize. Doug is on a phone; every other consumer of this stack
-    // subscribes to both.
-    expect(added).toContain("scroll");
-    expect(added).toContain("resize");
+    // a window resize. Doug is on a phone; every other consumer subscribes to both.
+    expect([...added.keys()].sort()).toEqual(["resize", "scroll"]);
     unmount();
-    expect(removed).toContain("scroll");
-    expect(removed).toContain("resize");
+    // IDENTITY, not just the event name. An earlier draft recorded names only,
+    // which a no-op handler or a teardown passing a DIFFERENT callback would both
+    // have satisfied — leaking a listener per mount while the test stayed green.
+    expect(removed.get("scroll")).toBe(added.get("scroll"));
+    expect(removed.get("resize")).toBe(added.get("resize"));
   });
 
   test("a scroll from INSIDE the panel does not schedule a re-place", () => {
@@ -473,13 +461,19 @@ describe("AttentionMenu clip fit (§4.2)", () => {
       // scroller, and every measurement can emit a scroll event from it (clearing
       // the cap reflows the child). Unfiltered, the pair feeds itself a re-measure
       // per frame while the operator is scrolling the list.
-      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+      // NON-bubbling, which is how the platform actually dispatches element
+      // scroll. An earlier draft used `bubbles: true`, and that masked the whole
+      // mechanism: a bubbling event reaches a listener whether or not it is
+      // registered in the CAPTURE phase, so dropping `capture` from the
+      // production listener would have kept this test green while outside
+      // scrolling silently stopped scheduling placement.
+      scroller.dispatchEvent(new Event("scroll"));
       const afterSelf = frames.length;
       expect(afterSelf, "a self-originated scroll must not schedule a re-place").toBe(0);
 
       // PREMISE: the listener is live at all. Without this the case passes on a
       // component that subscribed to nothing.
-      outside.dispatchEvent(new Event("scroll", { bubbles: true }));
+      outside.dispatchEvent(new Event("scroll"));
       expect(
         frames.length,
         "premise: an OUTSIDE scroll must still schedule, or the filter proves nothing",

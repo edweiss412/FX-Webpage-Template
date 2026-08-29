@@ -485,9 +485,14 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
   // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW: the placement migration's own pins.
   // -------------------------------------------------------------------------
 
-  test("the panel is a DESCENDANT of the clip host, and keyboard order reaches it", async ({
-    page,
-  }) => {
+  // NAMED FOR WHAT IT ASSERTS. An earlier title said "and keyboard order reaches
+  // it", which this body does not check — it checks DOM descendancy only. Keyboard
+  // order IS covered, by the pill-to-scroller tab case further down, and it was
+  // that case which caught the portal regression. But a title claiming coverage
+  // its body does not carry is worse than no title: the standalone --list baseline
+  // records test names, so the overstatement would have been committed as the
+  // suite's public contract.
+  test("the panel is a DESCENDANT of the clip host", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await openMenu(page, 10, 10, 10);
     // Descendancy is what the shell's focus trap, aria-modal subtree and inert
