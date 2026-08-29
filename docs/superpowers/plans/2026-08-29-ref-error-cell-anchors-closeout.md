@@ -61,55 +61,73 @@ path filter names no parser module), so the arc dispatches the workflow explicit
 
 | | run | head | outcome |
 | --- | --- | --- | --- |
-| this branch | `33272516851` (`workflow_dispatch`) | `70585f0b4` | parser shards fail |
-| main, control | `33253670579` (`schedule`) | `e7751f61d` | parser shards fail |
+| this branch | `33272516851` (`workflow_dispatch`) | `70585f0b4` | all 8 parser shards fail |
+| main, control | `33253670579` (`schedule`) | `e7751f61d` | all 8 parser shards fail |
 
 **The harness is already red on main, at this branch's exact merge-base.** `e7751f61d` is
-`git merge-base origin/main HEAD`, and main's own scheduled run on that commit fails the
-same way; the preceding scheduled run (`33202704320`, 2026-08-28) failed too. The failure is
-`AssertionError: DRIFTED fingerprints`, whose drifted operators are `section-reorder`,
-`header-typo` and `blank-row:remove` — none of which touches `#REF!`, fused rows or a
-leading column.
+`git merge-base origin/main HEAD`; main's own scheduled run on that commit fails the same
+way, and the preceding scheduled run (`33202704320`, 2026-08-28) failed too. The failure is
+`AssertionError: DRIFTED fingerprints`.
 
 **So AC-2 is discharged as equality, not as green**, on bl-orch's ruling: an inherited red
-is not this arc's regression, and what has to be shown is that the diff moved nothing the
-harness measures. That is settled mechanically rather than by reading. `.claude/`-local
-script `harness-compare.sh` pulls both runs' logs and compares, per shard, (a) the `DONE`
-summary line with the wall-clock duration stripped — the one field that legitimately
-differs between two runs of identical code — and (b) the FULL drifted-fingerprint set,
-sorted, as sets rather than as a sample:
+is not this arc's regression, and what must be shown is that the diff moved nothing the
+harness measures. That is settled by comparison, not by reading. The differential is
+committed beside this plan so it can be re-run and checked:
+`docs/superpowers/specs/probes/2026-08-29-harness-differential.{sh,awk}.txt` with its
+`.report.txt`.
+
+Per shard, three independent numbers agree — vitest's OWN declared `driftedAlarms` length
+(`expected [ …(74) ] to deeply equal []`), the size of the extracted record set, and set
+equality against main:
 
 <!-- prettier-ignore -->
 ```
-shard 0: summary=SAME drift=SAME driftCount=79
-shard 1: summary=SAME drift=SAME driftCount=82
-shard 2: summary=SAME drift=SAME driftCount=167
-shard 3: summary=SAME drift=SAME driftCount=84
-shard 4: summary=SAME drift=SAME driftCount=109
-shard 5: summary=SAME drift=SAME driftCount=74
-shard 6: summary=SAME drift=SAME driftCount=84
-shard 7: summary=SAME drift=SAME driftCount=147
+shard 0: vitest=74  extracted=74  drift=SAME
+shard 1: vitest=77  extracted=77  drift=SAME
+shard 2: vitest=162 extracted=162 drift=SAME
+shard 3: vitest=80  extracted=80  drift=SAME
+shard 4: vitest=105 extracted=105 drift=SAME
+shard 5: vitest=70  extracted=70  drift=SAME
+shard 6: vitest=80  extracted=80  drift=SAME
+shard 7: vitest=143 extracted=143 drift=SAME
 ```
 
-**All eight shards are identical on both axes**: same mutant count, same
-`alarms=… cosmeticViolations=0 noOps=0`, and drifted fingerprint sets that match entry for
-entry including the hashes — 826 drifted entries across the eight, every one of them
-present on main with the same hash. Shard 0, for instance, reads
+Pooled across the eight: **791 drifted records, and the branch set and the main set are
+identical** — same records, same hashes, same per-operator breakdown
+(`blank-row` 489, `header-typo` 121, `merged-cell` 116, `section-reorder` 54,
+`column-shift` 11) and same kind breakdown (`wrong` 774, `text_drift` 13, `signal_loss` 4).
+Shard summaries match on every field once the wall-clock duration is stripped, which is the
+one field that legitimately differs between two runs of identical code: shard 0 reads
 `DONE 12712 mutants — alarms=177 cosmeticViolations=0 noOps=0` on both sides.
 
-`cosmeticViolations=0` and `noOps=0` on every shard are the load-bearing numbers beside the
-equality: no mutant became a no-op and none drifted cosmetically, so the scanner/emitter
-split of Task 2 changed neither what the detectors emit nor how the harness classifies it.
+`cosmeticViolations=0` and `noOps=0` on every shard, both sides, are the load-bearing
+numbers beside the equality: no mutant became a no-op and none drifted cosmetically, so the
+Task 2 scanner/emitter split changed neither what the detectors emit nor how the harness
+classifies it. `parser-gates` and `source-gates` both concluded success on this branch's run.
 
-All eight parser shards on this branch's run concluded `failure`, exactly as all eight did
-on main's control run, and the eight comparisons above are the complete set — AC-2 is
-discharged on the whole population, not on a sample. `parser-gates` and `source-gates`
-concluded `success` on this branch's run.
+**The drifted operators include the shapes these codes detect, and that strengthens the
+control rather than weakening it.** `merged-cell` (116) is the fused-row shape and
+`column-shift` (11) is the leading-column shape — the very families `ROW_CELLS_FUSED` and
+`LEADING_COLUMN_AUTOCORRECTED` exist for. Had they been absent, the equality would only have
+shown that unrelated operators were untouched. Because they are present in the drift AND
+identical between the two runs, the comparison covers exactly the surface this arc edited.
 
-If PR #945 merges before this branch does, its branch regenerated the ledger and has a
-green harness run (`33274539375`); the ledger-seam merge of main would inherit that ledger,
-and a re-dispatch on the merged head should then be GREEN, which supersedes this equality
-evidence. Whichever actually fires is recorded here with its run id.
+**Correction, recorded because a review caught it.** Diff round 2 found this section's first
+draft materially inaccurate: the extractor was a block parse that also swallowed vitest's
+source excerpts (`63|     ).toEqual([]);`), which inflated the totals to 826 and truncated
+the operator list to three, on the strength of which the draft asserted that no drifted
+operator concerned fused rows or a leading column. That assertion was false. The repair is
+in the committed `.awk`: match the record SHAPE anywhere in the log rather than parsing a
+block — the log prints the list twice, once plainly and once inside vitest's diff, and the
+runner wrap-truncates a few lines — then require a full-width hash and dedupe. The rebuilt
+extractor reproduces vitest's own per-shard length on all eight shards, which is the check
+the first draft never had. The equality conclusion was correct in the first draft and is
+unchanged; the numbers and the operator account behind it were not.
+
+If PR #945 merges before this branch does, its branch regenerated the ledger and has a green
+harness run (`33274539375`); a ledger-seam merge of main would inherit that ledger, and a
+re-dispatch on the merged head should then be GREEN, superseding this equality evidence.
+Whichever actually fires is recorded here with its run id.
 
 ## 5. Live check (AC-1, second half) — AC-1-LOCAL, deploy half DEFERRED-BY-QUOTA
 

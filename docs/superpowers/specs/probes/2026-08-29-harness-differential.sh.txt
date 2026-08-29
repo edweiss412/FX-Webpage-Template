@@ -1,0 +1,27 @@
+#!/bin/sh
+# Compare this branch's mutation-harness run against main's scheduled run on the SAME
+# merge-base commit, shard by shard: the DONE summary line and the full drifted set.
+# AC-2 is "the score is unchanged"; with main itself red, the honest discharge is EQUALITY.
+BRANCH_RUN="$1"; MAIN_RUN="$2"; OUT="$3"
+mkdir -p "$OUT"
+for shard in ${SHARDS:-0 1 2 3 4 5 6 7}; do
+  for side in branch main; do
+    run=$([ "$side" = branch ] && echo "$BRANCH_RUN" || echo "$MAIN_RUN")
+    job=$(gh run view "$run" --json jobs --jq '[.jobs[]|select(.name=="parser-shards ('"$shard"')")|.databaseId][0]' 2>/dev/null)
+    [ -z "$job" ] || [ "$job" = "null" ] && { echo "MISSING $side shard $shard" >> "$OUT/report.txt"; continue; }
+    gh api "repos/edweiss412/FX-Webpage-Template/actions/jobs/$job/logs" 2>/dev/null \
+      | sed 's/^[0-9-]*T[0-9:.]*Z //' \
+      | sed 's/\x1b\[[0-9;]*m//g' > "$OUT/$side-$shard.raw"
+    # Strip the wall-clock duration: it is the one field that legitimately differs between
+    # two runs of identical code, and comparing it would report a false DIFF forever.
+    grep -aE "^\[mutation shard $shard/8\] DONE" "$OUT/$side-$shard.raw" | tail -1 \
+      | sed -E 's/ [0-9]+(\.[0-9]+)?m / <duration> /' > "$OUT/$side-$shard.done"
+    awk -f .claude/extract-drift.awk "$OUT/$side-$shard.raw" | sort -u > "$OUT/$side-$shard.drift"
+  done
+  d=$(diff "$OUT/branch-$shard.done" "$OUT/main-$shard.done" >/dev/null 2>&1 && echo SAME || echo DIFF)
+  f=$(diff "$OUT/branch-$shard.drift" "$OUT/main-$shard.drift" >/dev/null 2>&1 && echo SAME || echo DIFF)
+  n=$(wc -l < "$OUT/branch-$shard.drift" | tr -d ' ')
+  printf 'shard %s: summary=%s drift=%s driftCount=%s\n  branch: %s\n  main  : %s\n' \
+    "$shard" "$d" "$f" "$n" "$(cat "$OUT/branch-$shard.done")" "$(cat "$OUT/main-$shard.done")" >> "$OUT/report.txt"
+done
+cat "$OUT/report.txt"

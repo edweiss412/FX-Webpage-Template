@@ -1,0 +1,19 @@
+# Every drifted-fingerprint record in a mutation-harness shard log, normalized and unique.
+#
+# Deliberately NOT a block parse. The log prints the same list TWICE — once as the
+# AssertionError's plain list, once again inside vitest's diff as `+   "<record>",` — and
+# the message itself recurs in the `##[error]` echo, so "start at the marker, stop at the
+# first non-record" both over- and under-reads depending on which copy it lands in.
+#
+# Instead: match the record SHAPE anywhere, strip the diff decoration, and require a
+# full-width hash. A handful of lines are wrap-truncated by the runner (hashes of 3, 12 and
+# 14 chars were observed); each truncated copy has a full-width twin elsewhere in the log,
+# so requiring 16 hex drops the artifact without losing the record. `sort -u` then makes
+# the double-printing harmless.
+{
+  line = $0
+  sub(/^[+-][[:space:]]+/, "", line)   # vitest diff gutter
+  gsub(/^"|",?$/, "", line)            # its quoting
+  sub(/: expected .*$/, "", line)      # the assertion tail on the final record
+  if (line ~ /^[a-z-]+:[^|]+\|[a-z_]+\|[0-9a-f]{16}$/) print line
+}
