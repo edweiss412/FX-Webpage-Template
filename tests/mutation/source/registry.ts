@@ -234,7 +234,25 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: "isLoneHighSurrogate ? cut.slice(0, -1) : cut",
       to: "isLoneHighSurrogate ? cut : cut",
     },
-    accepted: [],
+    accepted: [
+      {
+        // The same edit that was REJECTED as this row's control, for the same
+        // reason, now recorded where an unkillable mutant belongs.
+        //
+        // `capDraft` returns early when `value.length <= CAP`. Weaken that to
+        // `<` and a value of EXACTLY the cap falls through to
+        // `value.slice(0, CAP)` instead — which, on a string of exactly CAP
+        // units, returns an identical string. The surrogate branch then reads
+        // the same final code unit and reaches the same verdict. There is no
+        // input on which the two forms differ, so no test can kill it: it is
+        // equivalent, not a gap. Proved by planting it (2026-08-29): the full
+        // 21-case suite stayed green.
+        siteId: "relational-boundary:51:20:<=><",
+        kind: "equivalent",
+        reason:
+          "capDraft's early return; slicing a value of exactly REPORT_MESSAGE_MAX_CHARS to that length is the identity, so `<=` and `<` agree on every input (lib/admin/reportDraftStore.ts capDraft)",
+      },
+    ],
   },
   {
     id: "captureRenderFault",

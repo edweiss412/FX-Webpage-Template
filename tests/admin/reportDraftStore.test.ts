@@ -93,6 +93,39 @@ describe("capDraft", () => {
     expect(got.endsWith(emoji)).toBe(true);
   });
 
+  test("the cap CONSTANT is 2000, pinned against the value and not against itself", () => {
+    // Every other expectation in this file derives from REPORT_MESSAGE_MAX_CHARS,
+    // which is correct for behaviour and useless for the constant: change it to
+    // 2001 and the code and the expectations move together. The product decision
+    // is 2000 characters (spec §3, and the textarea's maxLength), so exactly one
+    // assertion states the number outright. Found by a surviving integer-literal
+    // mutant at the declaration, not by review.
+    expect(REPORT_MESSAGE_MAX_CHARS).toBe(2000);
+  });
+
+  test("the surrogate range is pinned at BOTH ends, at the exact boundary code units", () => {
+    // The 😀 fixture uses U+D83D, comfortably inside the range, so every
+    // boundary mutant on `last >= 0xd800 && last <= 0xdbff` survived it: >= to
+    // >, <= to <, and either literal off by one. These four cases sit ON the
+    // boundary, where each of those mutants changes the answer.
+    // Longer than the cap, so capDraft actually SLICES — the first draft of this
+    // fixture was exactly cap-length, which returns early and never reaches the
+    // surrogate branch at all. The boundary unit sits at index cap-1, i.e. it is
+    // the last unit KEPT by the slice.
+    const at = (code: number) =>
+      "a".repeat(REPORT_MESSAGE_MAX_CHARS - 1) + String.fromCharCode(code) + "zz";
+
+    // 0xD800, the FIRST high surrogate: dropped. Kills `>=` -> `>` and 0xd800 -> 0xd801.
+    expect(capDraft(at(0xd800)).length).toBe(REPORT_MESSAGE_MAX_CHARS - 1);
+    // 0xDBFF, the LAST high surrogate: dropped. Kills `<=` -> `<` and 0xdbff -> 0xdc00.
+    expect(capDraft(at(0xdbff)).length).toBe(REPORT_MESSAGE_MAX_CHARS - 1);
+
+    // Just OUTSIDE each end: kept, because neither is a high surrogate. Without
+    // these the range could be widened without any test noticing.
+    expect(capDraft(at(0xd7ff)).length).toBe(REPORT_MESSAGE_MAX_CHARS);
+    expect(capDraft(at(0xdc00)).length).toBe(REPORT_MESSAGE_MAX_CHARS);
+  });
+
   test("does not trim a LOW surrogate, which is only ever a paired tail here", () => {
     // Guards the bound direction: widening the check to 0xDFFF would strip the
     // second half of a pair that fits, corrupting text the cap should keep.
