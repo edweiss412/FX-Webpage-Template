@@ -377,6 +377,44 @@ every `ac=` and from every test file". Run literally against `tests/`, the right
 ids from every arc in the repo and the output is unreadable. The check is only meaningful scoped
 to the branch's own touched test files, which is how it is run above.
 
+### 12.4 Deviation from the graduation-last convention: a CI repair followed it
+
+The close-out step below states that graduation is the PR's last commit and that
+"nothing follows it, which is what makes the marker-off legal: whole-diff review has
+already converged, so no repair commits can land after it." That premise turned out to
+be false. Real CI on the graduation head red the `unit-suite` rollup across three shards,
+the failures were mine and reproduced locally on the first attempt, and the repair had to
+land after graduation.
+
+**What the repair was.** Two causes, neither in the shipped change. The first is a SECOND
+line-keyed census: `tests/styles/tapTargetCensus.ts` pinned a Step-3 checkbox at
+`Step3ReviewModal.tsx:979` and the suppression predicate plus its comments moved the site
+to `:1003`. That is the same `LIM-LINE-KEYED-SITEID` class as the control-outline census
+this arc already repaired, and the arc repaired the instance it had been shown instead of
+sweeping for the shape — the class-sweep rule's exact failure mode, committed by the arc
+that cites the rule. The derived cover, run after the fix rather than a longer list: every
+line-keyed census referencing either touched component, which is three files, green
+together at 1453 tests. The second is corpus staleness in `tests/specLint`: this plan
+introduced three multi-id declaring lines that were never entered in
+`acAmbiguousRecord.ts`, and adding a plan to the corpus moved four counts quoted as prose
+in `docs/agents/writing-plans.md`. The declined count was measured after two wrong guesses
+(1293 rows across 111 plans, not the 1266 that arithmetic on the ambiguous rows suggested).
+
+**Why the ordering is not restored.** Invariant 12's binding half is that the in-progress
+marker never reaches `main`. It does not: the marker is off, the row is archived,
+`_metaLedgerInProgress` passes, and nothing has merged. Graduation-literally-last is the
+convention that serves that guarantee, and where CI forces a follower a documented
+deviation serves it equally. Rebasing reviewed history to restore a cosmetic ordering
+would trade a real property (the reviewed diff is the merged diff) for a presentational
+one, which is the §12.2 mistake in reverse. Ruled by the orchestrator 2026-08-29, on the
+same analysis it applied to its own F1 ruling and to a sibling arc's post-graduation CI
+repair the same afternoon.
+
+**The lesson, which is the stage lesson again.** Every stage of this arc concluded that
+the mechanical check it needed already existed and was run too late. This is the fourth:
+`tests/styles` and `tests/specLint` were never run after the component edits, and both
+would have failed locally in under two minutes at any point before the push.
+
 ### Close-out step (NOT a numbered task, and outside the contract region) — graduation
 
 **Round 5 was right that this could not be Task 5.** The pipeline runs whole-diff cross-model review AFTER the implementation tasks (`AGENTS.md`, the autonomous-ship section), and any finding there produces repair commits. A graduation numbered among the TDD tasks therefore has commits after it by construction, and the ledger claim would already be gone while work continued — which is the precise failure invariant 12 exists to prevent, arrived at from the opposite direction to the usual one.
