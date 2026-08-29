@@ -67,8 +67,7 @@ The repair landed on one file and the class was never swept. This spec sweeps it
 ## 2. Probe
 
 Numbers in this section are measured, never argued. Per the probe-before-argue rule, no design
-decision below rests on a predicted measurement. §2.1 is complete; §2.2 is pending the fleet's DB
-quiet period.
+decision below rests on a predicted measurement. §2.1, §2.2 and §2.3 are all complete.
 
 ### 2.1 Which cap mechanism actually preserves the page (complete)
 
@@ -242,48 +241,44 @@ carries matches nothing and passes vacuously, which is a worse failure than the 
 **Part one, the bleed.** `help-bleed` on both grids, which buys 23.6px at 1024 and 151.6px at 1280.
 
 **Part two, a minimum card width instead of a fixed column count.** Each grid's
-`grid-cols-1 md:grid-cols-N` becomes `grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]`. The column
+`grid-cols-1 md:grid-cols-N` becomes `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]`. The column
 count then falls out of the space available rather than being asserted against it, and no
 breakpoint has to be kept in sync with a sidebar width. Arbitrary `minmax()` track utilities are
 already this codebase's idiom for exactly this (`app/admin/dev/telemetry/page.tsx`,
 `components/admin/Dashboard.tsx`).
 
-**Why 20rem.** Derived from the measured box model, not chosen for roundness: gap 16px, card chrome
-42px, `ch` 10.063px. Columns are `max(1, floor((W + 16) / (MIN + 16)))` over the bled width.
+**Why 22rem, and why the first derivation of this number was wrong.** `auto-fit` has NO
+breakpoint: the column count is continuous in container width, so a matrix of sampled viewports
+cannot see the worst case. The first draft picked 20rem by comparing five sampled widths and
+reported a worst of 31.2ch. That number was an artefact of where the samples fell.
 
-| candidate MIN | 390 | 768 | 900 | 1024 | 1280 | worst |
-| --- | --- | --- | --- | --- | --- | --- |
-| 16rem | 1 col, 31ch | 1 col, 43ch | 2 col, 25ch | 2 col, 31ch | 3 col, 23ch | 23.1ch |
-| 18rem | 1 col, 31ch | 1 col, 43ch | 2 col, 25ch | 2 col, 31ch | 2 col, 38ch | 25.0ch |
-| **20rem** | 1 col, 31ch | 1 col, 43ch | 1 col, 56ch | 2 col, 31ch | 2 col, 38ch | **31.2ch** |
-| 24rem | **overflows by 26px** | 1 col, 43ch | 1 col, 56ch | 1 col, 68ch | 2 col, 38ch | n/a |
+The worst measure is not at any sampled viewport. It is at the **switch**, the container width
+where a second column first fits, because that is where each track is exactly the minimum. Its
+value therefore depends only on the minimum: `(MIN - 42) / 10.063`, using the measured card chrome
+and the `ch` measured on the real card body (§2.2). Swept at 1px over container widths 288 to 900
+and confirmed in a real browser:
 
-20rem takes the worst case from 10.4ch to 31.2ch, threefold. 22rem produces column counts identical
-to 20rem, so it is the same layout with a less round number.
+| candidate | 2-col switch at | measure AT the switch | 728px container (1024) | 856px container (1280) |
+| --- | --- | --- | --- | --- |
+| 20rem | 656px | **27.6ch** | 2 col, 31.2ch | 2 col, 37.6ch |
+| 21rem | 688px | 29.2ch | 2 col, 31.2ch | 2 col, 37.6ch |
+| **22rem** | 720px | **30.8ch** | 2 col, 31.2ch | 2 col, 37.6ch |
+| 23rem | 752px | 32.4ch | **1 col**, 68.2ch | 2 col, 37.6ch |
+| 24rem | 784px | 34.0ch | **1 col**, 68.2ch | 2 col, 37.6ch |
 
-**24rem does not merely buy less; it breaks.** A `minmax()` minimum cannot shrink below itself, so
-where the minimum exceeds the container the track overflows it. At 390px the prose column is 358px
-and 24rem is 384px, giving a 384px track and 26px of horizontal overflow. An earlier draft of this
-table reported "1 col, 31ch" there and claimed 24rem bought 0.2ch, both of which came from a column
-formula that assumed a track always fits. Measured, per track width against container width:
+**22rem is the largest minimum that still gives two columns at a 728px container**, which is the
+1024px viewport. Above it the grid collapses to a single card per row there and stops reading as a
+grid at all. Below it the switch measure falls, and at 20rem it falls to 27.6ch — under AC-1's
+floor, at a viewport no acceptance criterion sampled. So 22rem maximises the worst case subject to
+keeping the grid a grid, and both ends of that statement are checks rather than judgements.
 
-| container | 20rem | 24rem | `min(20rem,100%)` |
-| --- | --- | --- | --- |
-| 256 | 320, **over by 64** | 384, over by 128 | 256 |
-| 288 | 320, **over by 32** | 384, over by 96 | 288 |
-| 320 | 320 | 384, over by 64 | 320 |
-| 358 | 358 | 384, **over by 26** | 358 |
-| 472 | 472 | 472 | 472 |
-| 728 | 2 col, 356 | 1 col, 728 | 2 col, 356 |
-| 856 | 2 col, 420 | 2 col, 420 | 2 col, 420 |
+An earlier draft of this section dismissed 22rem as "the same layout with a less round number".
+That was wrong in both halves: 20rem switches at a 656px container and 22rem at 720px, so they are
+not the same layout, and the difference is exactly the 3.2ch that decides whether AC-1 holds.
 
-**So the minimum ships as `min(20rem, 100%)`, not as a bare `20rem`.** The bold rows are why: a
-320px phone gives this layout a 288px container once `px-4` is taken off, and a bare 20rem
-minimum overflows it by 32px. That is below the AC-1 matrix, which starts at 390, so no acceptance
-criterion would have caught it — the review finding was about 24rem at 390, and sweeping its shape
-rather than its instance is what surfaced the same defect in the value actually being shipped.
-`min(20rem, 100%)` is identical to a bare 20rem at every container from 320px up, and can never
-exceed the container by construction.
+Narrow phones sit below all of this and are unaffected by the choice: a 288px container is one
+column at 24.4ch whatever the minimum is, because a 288px screen cannot be made wider. That is the
+same class as the 31.4ch at 390px which §7.1 declares unchanged rather than improved.
 
 **The parse-warnings card's span changes with it.** That card carries `md:col-span-2`
 (`app/help/tour/page.mdx`), which assumes exactly two columns. Under `auto-fit` the count varies,
@@ -295,7 +290,7 @@ the kind of interaction that makes `auto-fit` worth stating carefully rather tha
 
 Confirmed by probe as the same defect, not a suspected peer: 5 of its 7 items wrap at 768px
 (§2.2). Same repair shape, one part rather than two —
-`sm:grid-cols-2` becomes `grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]`, and it takes **no**
+`sm:grid-cols-2` becomes `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]`, and it takes **no**
 `help-bleed`. Its `gap-x-8` is 32px, so the same arithmetic gives one column at 472px and 604px,
 and two at 728px and above with each item at 348px or wider, comfortably past the 336.2px that
 already fits the longest label without wrapping.
@@ -309,9 +304,9 @@ it off also avoids the one place this repair is easy to misapply.
 
 The "Once per environment" section is currently a bare `<div className="my-6">` holding one card
 (the onboarding wizard). It becomes a grid carrying the same
-`grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]` and `help-bleed` as the other two, with a second
+`grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` and `help-bleed` as the other two, with a second
 card for `/help/admin/settings`. Two cards under `auto-fit` sit side by side wherever there is room
-for two 20rem columns and stack below that, so the group needs no column count of its own.
+for two 22rem columns and stack below that, so the group needs no column count of its own.
 
 The new card copies the structural shape of the seven existing cards exactly: the same
 `className` run on the anchor, the same eyebrow / duration / `h3` / body / call-to-action
@@ -425,7 +420,7 @@ project, so nothing here relies on an implicit stretch.
 | `.help-prose` | `.help-bleed` grid | child width == the `main` column's content width, not 70ch | `.help-prose > .help-bleed { max-width: none }` plus the grid's own default `width: auto` as a block child |
 | `main` | `.help-prose` | wrapper width == `main` content width | wrapper carries no `max-width` after §3.1 |
 | `main` | `.help-bleed` grid | grid width == `main` content width: 728 at 1024, 856 at 1280 and 1440 | `max-width: none` (§3.1); `max-w-6xl` on the page shell is what stops 1440 exceeding 1280 |
-| grid | each card | card width >= 20rem OR == the container, whichever is smaller; never wider than the container | `grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))]` (§3.2). `auto-fit` collapses to one track rather than shrinking below the minimum, and the `min(...,100%)` is what stops that one track exceeding a container narrower than 20rem |
+| grid | each card | card width >= 22rem OR == the container, whichever is smaller; never wider than the container | `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` (§3.2). `auto-fit` collapses to one track rather than shrinking below the minimum, and the `min(...,100%)` is what stops that one track exceeding a container narrower than 22rem |
 | grid | parse-warnings card | spans every column, whatever the live count | `col-span-full` (`grid-column: 1 / -1`), NOT `md:col-span-2`, which assumes exactly two tracks and creates an implicit one when there is a single track |
 | grid | each card | equal column widths; cards in a row share a height | `grid-template-columns` from the `grid-cols-*` utilities; grid's default `align-items: stretch` (a grid default this project does not override, unlike the flex case) |
 
@@ -541,11 +536,17 @@ widths rather than a column-count formula.
 
 ## 7.1 Mode boundaries and growth
 
-**Which elements belong to which mode.** Every grid is `grid-cols-1` below the `md` breakpoint,
-so on mobile all three groups are single-column stacks and the bleed buys nothing: at that width
-the prose column is already narrower than 70ch, so the cap is not what binds and no card changes
-size. `help-bleed` therefore has a visible effect only at `md` and above. Nothing is hidden or
-shown per mode; the same cards render at every width, in a different number of columns.
+**There are no modes, and that is the point.** This sentence previously said every grid is
+`grid-cols-1` below the `md` breakpoint. That was true of the design this spec replaced, and it is
+false of the one it ships: `auto-fit` has no breakpoint at all. The column count is a continuous
+function of container width, changing at whatever width a further track fits rather than at a
+named viewport. Carrying the old sentence forward was the defect, not a wording slip — a reader
+would have looked for behaviour at `md` that no longer exists there.
+
+What is true: the grid is single-column below a 720px container and two-column at or above it
+(§3.2), the same cards render at every width with nothing hidden or shown per mode, and the bleed
+has a visible effect only above a 704.4px container, since below that the cap is not what binds
+(§2.2). Those three thresholds are different numbers and none of them is `md`.
 
 **Growth.** The card list is bounded by the `admin-surface` group, which has eight entries today
 and grows only when someone adds an admin help page. There is no truncation and no cap: a ninth
@@ -558,10 +559,13 @@ N and showing a link to the rest is explicitly rejected.
 
 ## 8. Acceptance criteria
 
-**The matrix is 390, 768, 900, 1024 and 1280**, stated here rather than by reference to §2.2's
-output, so these criteria are defined by this document.
+**The matrix is 390, 768, 900, 1024 and 1280, plus 752** — the last of these because it is the
+viewport at which the 720px switch container is first reached, and §3.2 shows the worst desktop
+measure lives at the switch rather than at any round viewport. A matrix of round numbers is exactly
+what hid a 27.6ch measure behind a 20rem minimum in the previous draft, so the threshold is sampled
+explicitly rather than hoped past.
 
-- **AC-1** Every tour card's rendered body measure is **at least 28ch** at 768, 1024 and 1280,
+- **AC-1** Every tour card's rendered body measure is **at least 28ch** at 752, 768, 1024 and 1280,
   measured in a real browser with `getBoundingClientRect`. The floor is 28 and not 31.2, which is
   what §3.2's arithmetic predicts, so that cross-engine glyph-metric variance cannot fail a correct
   layout — the same headroom `tests/e2e/help-typography.spec.ts` already leaves on its own measure
@@ -575,8 +579,10 @@ output, so these criteria are defined by this document.
 - **AC-1b** Zero items in the errors-page jump list wrap, at every viewport in the matrix. The
   baseline is 5 of 7 wrapping at 768.
 - **AC-1c** No grid on either page overflows its container horizontally, asserted at **320px** as
-  well as across the matrix. 320 is deliberately below the AC-1 matrix: it is where a bare `20rem`
-  minimum would have overflowed by 32px, and no other criterion looks there.
+  well as across the matrix. 320 is deliberately below it: a 320px phone gives this layout a 288px
+  container, the narrowest real one, and a BARE minimum of either candidate value overflows it —
+  20rem by 32px, 22rem by 64px. `min(...,100%)` is what makes the assertion pass, so the criterion
+  is what proves the `min()` is doing work rather than decorating the declaration.
 - **AC-2** Every `/help/*` page other than the tour and the errors page renders at the same widths
   as before the change: the cap moved, it was not lifted. The errors page is deliberately in scope
   (§3.2a); its prose, headings, lists and tables are still asserted unchanged, and only its
