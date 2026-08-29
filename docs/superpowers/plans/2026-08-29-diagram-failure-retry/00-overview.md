@@ -86,3 +86,31 @@ already has (`Gallery.tsx:382`, `Gallery.tsx:430`). No new atom, no new tokens.
 
 Every Playwright task (P1 through P4, and Task 9) runs under `pnpm heavy`. Scoped vitest runs
 stay unwrapped. No DB suite is touched by any task in this plan.
+
+## Red-command validation (run at plan time, output pasted)
+
+The task region was reordered after plan round 1, so this was re-derived against the current
+files rather than carried forward. Fourteen `red=` commands across both task files.
+
+**`sh -nc` parse check: 14 of 14 PARSE_OK.** A command the executing shell cannot parse
+expresses no verdict in either direction, and the classifier would read its non-zero exit as
+red observed.
+
+**Collection probe**, for the vitest-shaped reds whose target files exist today:
+
+| target | result |
+|---|---|
+| `tests/components/diagrams/gallery.failureRecovery.test.tsx` | collects |
+| `tests/components/diagrams/gallery.failedItem.test.tsx` | collects |
+| `tests/components/diagrams/GalleryLightbox.test.tsx` | collects |
+| `tests/components/diagrams/perItemStateLifetime.probe.test.ts` | collects |
+| the availability-sweep suite under `tests/components/diagrams/` | absent — Task 7 creates it |
+| the transition-audit suite under `tests/components/diagrams/` | absent — Task 9 creates it |
+
+The two absences are the ordinary `red-state=authored` shape, not defects: a task that writes
+its own failing case cannot collect it beforehand. No `red=` uses a `-t` name filter, so none
+can silently exit 0 by matching nothing.
+
+The four probe commands carry `--config tests/e2e/standalone.config.ts`; the two feature
+Playwright commands deliberately do not, because they drive the real crew page under the
+default config and its `desktop-chromium` project.
