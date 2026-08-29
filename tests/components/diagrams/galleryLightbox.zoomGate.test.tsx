@@ -1571,6 +1571,45 @@ describe("GalleryLightbox — only the ACTIVE slide offers a retry (Task 6)", ()
     expect(dialog!.contains(document.activeElement), "still inside the dialog").toBe(true);
   });
 
+  test("a retry resolving for a SWIPED-AWAY slide does not announce", () => {
+    // Found by the invariant-8 audit. `available` includes `isRetrying` without
+    // `isActive`, so swiping away leaves the retried image mounted and its
+    // handlers live. The outcome then announces by name for a diagram that is no
+    // longer on screen, competing with the page-indicator announcement the swipe
+    // itself produces. The user hears about something they are not looking at.
+    const view = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.error(activeImage(view.container));
+    });
+    const control = view.container.querySelector('[data-testid="lightbox-retry"]') as HTMLElement;
+    premiseHolds("the slide offered a retry", control !== null);
+    act(() => {
+      fireEvent.click(control);
+    });
+
+    act(() => emblaApis.at(-1)!.scrollTo(1));
+    const spokenBefore = view.spoken.length;
+
+    // The abandoned image is still in the DOM; resolve it.
+    const stale = [...view.container.querySelectorAll("img")].find((img) =>
+      (img.getAttribute("src") ?? "").includes("embedded-obj-1"),
+    );
+    // PREMISE, not a convenience guard. If the abandoned image is not mounted
+    // there is nothing that could announce, and the assertion below would pass
+    // without exercising anything -- which is exactly how a vacuous test looks.
+    premiseHolds(
+      "the swiped-away slide's retried image is still mounted, so an announcement is POSSIBLE",
+      stale !== undefined,
+    );
+    act(() => {
+      fireEvent.error(stale as HTMLImageElement);
+    });
+
+    expect(view.spoken.length, "an outcome for an off-screen slide is not announced").toBe(
+      spokenBefore,
+    );
+  });
+
   test("AC-16: swiping away mid-retry strands no `Retrying…`, and focus reaches Close", () => {
     const { container } = open([item(1), item(2)]);
     act(() => {

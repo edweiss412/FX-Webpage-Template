@@ -664,6 +664,12 @@ export function GalleryLightbox({
   // predicate, which is where it closes for every render rather than for a
   // settled one. `zoomed` itself is NOT narrowed: it also drives the focus
   // effect above, which must still run when a zoomed slide goes away.
+  //
+  // It reads `available` ONLY, not `failedKeys`. A runtime-failed slide is
+  // already covered, by a different mechanism: its `onError` forces the lifted
+  // scale back to 1, so `zoomed` is false and the chip cannot render. Saying so
+  // here rather than adding a redundant conjunct -- a second gate nothing could
+  // observe is the shape this arc has removed three times already.
   const activeAvailable = items[activeIndex]?.available ?? false;
 
   // The Reset chip unmounts the instant scale returns to 1, and it is

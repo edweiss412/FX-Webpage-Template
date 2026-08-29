@@ -569,3 +569,35 @@ every diagram in the product reads, on both the admin grid and — by the consis
 makes — the crew gallery, which uses `object-cover` too (`components/diagrams/Gallery.tsx:412`). Taking it
 unilaterally inside a PR whose stated scope is which ELEMENT carries the border would be exactly the
 "spending a ratified design claim on a preference" that `BL-DIAGRAM-TILE-CHROME-CONSISTENCY` was filed to avoid.
+
+## Diagram failure retry — impeccable dual-gate deferrals (2026-08-29)
+
+From the invariant-8 dual gate on `feat/diagram-failure-retry`. The gate's three critique P0s and its
+audit P0 were all FIXED in-branch; dispositions and the refuted findings are recorded in
+`docs/superpowers/plans/2026-08-29-diagram-failure-retry/closeout.md`. One finding is deferred, under
+class-sweep exception (a): it needs a product decision this PR cannot settle.
+
+### DIAGRETRY-NO-RETRY-DEADLINE-1 — impeccable P2: a hung request leaves `Retrying…` up forever (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a crew member stuck on
+`Retrying…`, or any work that gives the asset route a client-visible status channel (which would also
+close documented limit 1 in the design spec).
+
+There is no `setTimeout` anywhere in either diagram component, so a retry whose request never resolves
+leaves the in-flight state permanent: `Retrying…` on screen, `aria-busy="true"` announced, and the
+control inert because its `onClick` is a bare `preventDefault`. Venue wifi is precisely where a request
+hangs rather than fails, and the gallery's state outlives the lightbox, so closing the dialog does not
+reset it either. The user's only exit is a page reload — which is the dead end this whole row exists to
+remove, reached by a different road.
+
+**Why it is a product decision and not a fix.** Every repair needs a number and a sentence nobody has
+chosen: how long before a retry is declared hung (10s? 30s? long enough for 50MB on bad wifi?), what the
+control says when it gives up, and whether a timeout should offer a second retry or fall back to the
+failed state. Guessing a deadline is worse than the current behaviour: too short and a slow-but-working
+50MB fetch is killed on the venue floor, which is the exact failure the originals-only path was ratified
+to allow. §3.1 ratified "no dead ends" with the 50MB ceiling stated, and a wrong deadline reintroduces
+one.
+
+**What holds the line meanwhile.** The state is per item, so a hung retry strands one diagram rather than
+the page; every other tile stays live and openable. The announcement on entry says what is happening, so
+nothing is silent.

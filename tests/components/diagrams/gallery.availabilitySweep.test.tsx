@@ -143,6 +143,74 @@ describe("Task 7 — the gallery's availability sweep (AC-11)", () => {
     expect(imageIn(0)).not.toBeNull();
   });
 
+  test("`retrying` does not survive the cell UNMOUNTING via Show fewer", () => {
+    // Found by the invariant-8 audit. The sweep keys on `items`, but collapsing
+    // the grid unmounts a cell without removing its item, so a retry in flight
+    // when the user collapses comes back on re-expand still claiming `Retrying…`
+    // with `aria-busy="true"` -- for a request the unmount abandoned. The cell
+    // lies about work that is not happening.
+    //
+    // `retrying` is tied to a MOUNTED ELEMENT; `failedKeys` is tied to the ITEM.
+    // That is the distinction the fix rests on, and the next case pins the other
+    // half of it.
+    // The retried item must be one that COLLAPSING actually unmounts, i.e. past
+    // INITIAL_VISIBLE (12). An item inside the first twelve is on screen either
+    // way, so collapsing would not exercise the unmount at all -- the first
+    // version of this case retried slot 0 and proved nothing.
+    const many = Array.from({ length: 14 }, (_v, i) => item(i + 1));
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={many} />);
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /show all/i }));
+    });
+    failThumb(13);
+    act(() => {
+      fireEvent.click(within(slot(13)).getByTestId("diagram-retry-13"));
+    });
+    premiseHolds(
+      "the item is really in flight before the collapse",
+      within(slot(13)).queryByTestId("diagram-retrying-13") !== null,
+    );
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /show fewer/i }));
+    });
+    premiseHolds(
+      "the collapse really unmounted that cell, or there is no abandonment to test",
+      screen.queryByTestId("diagram-slot-13") === null,
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /show all/i }));
+    });
+
+    expect(
+      within(slot(13)).queryByTestId("diagram-retrying-13"),
+      "no stale in-flight claim for a request the unmount abandoned",
+    ).toBeNull();
+  });
+
+  test("`failedKeys` DOES survive Show fewer, because it is about the item", () => {
+    // The other half. Without this the fix above could clear both sets on any
+    // collapse, losing a real failure the user should still see offered.
+    const many = Array.from({ length: 14 }, (_v, i) => item(i + 1));
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={many} />);
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /show all/i }));
+    });
+    failThumb(13);
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /show fewer/i }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /show all/i }));
+    });
+
+    expect(
+      within(slot(13)).queryByTestId("diagram-retry-13"),
+      "the failure is a fact about the diagram, not about whether it was on screen",
+    ).not.toBeNull();
+  });
+
   test("POSITIVE CONTROL: an item that never leaves KEEPS its failure", () => {
     // Without this the sweep could clear on every render and all three cases
     // above would still pass, while the retry control vanished under the user

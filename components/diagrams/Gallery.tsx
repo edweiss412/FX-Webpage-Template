@@ -249,9 +249,6 @@ export function Gallery({
   // conditionally: a gallery rendering zero items would skip it and shift every
   // later hook's slot. No test caught this, because none renders the empty case
   // while a retry is in flight.
-  // The focus hand-off itself. It runs after the commit that mounts the overlay,
-  // which is the earliest point the target exists -- doing it inside `handleRetry`
-  // would call `.focus()` on an element React has not created yet.
   useEffect(() => {
     const id = focusRetryingRef.current;
     if (id === null) return;
@@ -285,7 +282,27 @@ export function Gallery({
     return changed ? next : prev;
   };
   const sweptFailed = sweep(failedKeys);
-  const sweptRetrying = sweep(retrying);
+  // `retrying` is swept against what is RENDERED, not merely what is available.
+  // The two sets answer different questions: `failedKeys` is a fact about the
+  // DIAGRAM and rightly survives the cell scrolling out of the collapsed grid,
+  // while `retrying` describes a request belonging to a MOUNTED element -- and
+  // unmounting that element abandons the request. Keyed on `items` alone, a
+  // retry in flight when the user hits "Show fewer" came back on re-expand still
+  // claiming `Retrying…` with `aria-busy`, for work that had stopped.
+  const renderedIds = new Set(
+    (expanded || items.length <= INITIAL_VISIBLE ? items : items.slice(0, INITIAL_VISIBLE))
+      .filter((entry) => entry.available)
+      .map((entry) => entry.id),
+  );
+  const sweptRetrying = (() => {
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of retrying) {
+      if (renderedIds.has(id)) next.add(id);
+      else changed = true;
+    }
+    return changed ? next : retrying;
+  })();
   if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
   if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
   if (items.length === 0) return null;
