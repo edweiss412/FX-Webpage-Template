@@ -68,6 +68,10 @@ async function readTour(page: Page) {
           }
         }
         const tracks = getComputedStyle(g).gridTemplateColumns.trim();
+        // The resolved width of the FIRST track. A minimum that cannot shrink
+        // overflows the TRACK while the grid element stays at container width, so
+        // an element-vs-container comparison can never see it.
+        const firstTrack = /repeat\(|minmax\(|none/.test(tracks) ? -1 : parseFloat(tracks);
         return {
           // Refuse a count we cannot resolve rather than reporting one that is not a
           // number: on a non-grid element this string is the unresolved repeat(...).
@@ -76,6 +80,7 @@ async function readTour(page: Page) {
               ? -1
               : tracks.split(/\s+/).length,
           gridWidth: w(g),
+          firstTrack,
           cardCount: g.querySelectorAll("a[data-tour-card]").length,
           measureCh: body && ch ? +(w(body) / ch).toFixed(1) : -1,
         };
@@ -158,9 +163,16 @@ test.describe("/help/tour card grids — real-browser layout", () => {
       const m = await readTour(page);
       premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
       for (const [i, g] of m.grids.entries()) {
-        expect(g.gridWidth, `grid ${i + 1} within its container at ${vw}px`).toBeLessThanOrEqual(
-          m.mainWidth + 0.5,
-        );
+        // The TRACK, not the grid element. A grid element is a block child and sits
+        // at container width whatever its tracks do, so comparing it to the container
+        // is a tautology — it can never fail. The violation inventory caught exactly
+        // that: staging a bare 22rem minimum produced NO red here until this line
+        // read the track instead.
+        premiseHolds(`grid ${i + 1} resolves a track width at ${vw}px`, g.firstTrack > 0);
+        expect(
+          g.firstTrack,
+          `grid ${i + 1} track within its container at ${vw}px`,
+        ).toBeLessThanOrEqual(m.mainWidth + 0.5);
       }
     }
   });
