@@ -24,7 +24,7 @@ closed criterion.
 | `tests/help/help-prose-layer.test.ts` | measure pattern follows the declaration that now carries it |
 | a new `tests/e2e/` layout-dimensions spec (named in task 5) | real-browser column sequences and measure floor |
 | `playwright.config.ts` | new spec joins `help-docs-desktop`'s `testMatch` |
-| `tests/help/playwright-config.test.ts` | pins that `testMatch` regex VERBATIM (`:167`); the edit above breaks it unless updated in the same task |
+| `tests/help/playwright-config.test.ts` | pins that `testMatch` regex VERBATIM; the edit above breaks it unless updated in the same task |
 | `.github/workflows/help-affordances.yml` | `app/globals.css` joins `paths:` |
 
 ## 2. Meta-test inventory
