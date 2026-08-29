@@ -18,7 +18,7 @@
 This arc modifies `components/`, so the invariant-8 UI quality gate applies and Task 3 runs it. **No marker line appears in this plan, deliberately.** The guard treats the template form as MALFORMED in a real plan (`tests/docs/_invariant8Closeout.ts`, the `opts.template` branch), and the RAN form cannot be written honestly before the gate has run, since its p0 and p1 must be the real counts. So the declaration and its marker land together in Task 3's commit, which is the only point at which both can be true.
 
 
-**Meta-test inventory (writing-plans rule):** this plan CREATES no meta-test and EXTENDS none. No Supabase call boundary (invariant 9), no mutation surface, no admin alert, no advisory lock, no tile. `tests/components/**/*.test.tsx` is already in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:104-105`), so the new suite is wired by the existing glob and needs no `testMatch` task. Declared explicitly per the rule rather than left silent.
+**Meta-test inventory (writing-plans rule):** this plan CREATES no meta-test and EXTENDS exactly one: `tests/docs/_metaDeferralLedgerGraduation.test.ts`, by one `BACKLOG_GRADUATED` enrollment row in Task 4. An earlier draft declared it extended none, which round 3 caught: adding a row to a structural registry is an extension under this rule, and the declaration exists precisely so a registry change cannot arrive unannounced. No Supabase call boundary (invariant 9), no mutation surface, no admin alert, no advisory lock, no tile. `tests/components/**/*.test.tsx` is already in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:104-105`), so the new suite is wired by the existing glob and needs no `testMatch` task. Declared explicitly per the rule rather than left silent.
 
 **Mutation-family closure:** N/A. This plan ships no recognizer, detector or structural guard, and enrols no surface in `tests/mutation/source/registry.ts`. The suite it adds is a behavioral contract over a React component, which the registry cannot express (the step3-a11y precedent, `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md` §1.1.4).
 
@@ -117,10 +117,18 @@ This arc modifies `components/`, so the invariant-8 UI quality gate applies and 
 
 **Files:** `BACKLOG.md` (remove the row), `BACKLOG-archive.md` (add the archived entry), `tests/docs/_metaDeferralLedgerGraduation.test.ts` (add the `BACKLOG_GRADUATED` row with its provenance).
 
-**Steps:**
+**This task HAS a real red-to-green cycle, and it is stated here rather than in a marker.** The marker grammar rejects a bare root-level filename as a `red-target`, and this cycle's production surface is `BACKLOG-archive.md`, which lives at the repository root. The cycle is nonetheless genuine and the step order below IS that cycle, so it is written out instead of being asserted mechanically.
 
-- [ ] Move the row to `BACKLOG-archive.md` with spec §8's documented limits recorded, F and G each named by the disjoint trace signature that re-files it.
-- [ ] Register the id in `BACKLOG_GRADUATED` with its branch provenance, so the archive assertion actually ranges over this row.
+`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` is the command on both sides. Registering the id FIRST makes the guard range over it while the row is still in `BACKLOG.md` and absent from the archive, so it fails on both halves: `archived.has(id)` is false and `active.has(id)` is true, and the provenance assertion fails too since the archived section does not exist yet. Moving the entry turns the same command green.
+
+Round 3 found the original order, which registered and moved together and therefore never observed a red: the guard does not range over an unregistered id at all, which is the same property that let a bare deletion pass in round 1. The guard can only catch this graduation once the graduation has told it to look.
+
+**Steps, in this order, because the order IS the cycle:**
+
+- [ ] Register the id in `BACKLOG_GRADUATED` with its branch provenance FIRST. The guard now ranges over it.
+- [ ] RED: `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` fails on both halves, `archived.has(id)` false and `active.has(id)` true, plus the provenance assertion, since the archived section does not exist yet.
+- [ ] Move the row to `BACKLOG-archive.md` with spec §8's documented limits recorded, F and G each named by the disjoint trace signature that re-files it, and the branch name inside the entry's OWN section: the provenance assertion anchors from the entry heading to the next one, so a branch name above the heading satisfies nothing.
+- [ ] GREEN: the same command passes.
 - [ ] Remove the `IN PROGRESS` marker in this commit, which is the PR's last, per invariant 12.
 - [ ] `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts tests/docs/_metaInvariant8Closeout.test.ts`, gated on its EXIT STATUS and not on a grep of its output.
 - [ ] Full suite under `pnpm heavy`; `pnpm typecheck`; `pnpm exec eslint .`; `pnpm format:check`.
