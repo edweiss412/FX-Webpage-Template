@@ -83,9 +83,9 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Named by:** 3 arcs — feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (diff), feat/private-image-pipeline/d2a31e4aa021.md (diff, the `alertProducerScope.registry.ts` instance: one hoisted emit invalidated 19 rows across three files), feat/wizard-review-attention-menu/66c9857f56a5.md (spec: eight line-keyed rows across `tests/styles/*` and `pageTransitions`/`step3JudgmentChrome` counts moved by a header button; the re-file trigger below has now fired)
 
-**Owning record:** the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc), plus this index
+**Owning record:** `docs/superpowers/specs/2026-08-28-line-keyed-registry-durable-keys-design.md` §7 (the refutation record; supersedes this index as the primary), plus the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc)
 
-**Re-file trigger:** a third arc hitting it or a product arc blocked by it (stated in the ac-unclaimed filing)
+**Re-file trigger:** SUPERSEDED 2026-08-28. The original trigger (a third arc, or a product arc blocked) fired, `BL-LINE-KEYED-REGISTRY-ROWS` was raised, and `feat/line-keyed-registry-durable-keys` measured the class repair and refuted it: 41.5% of attributed re-keys land on rows whose anchor is site-derivable, against a 42.6% registry share, so churn is proportional and there is no pocket of value. **A further arc merely HITTING this limit is therefore no longer sufficient to re-file** — that question is settled and re-asking it costs an arc. The two arms that would change the answer are in the spec's §8: an anchor design that derives the 27 hand-authored rows, or churn concentration rising above half, re-measured. Correction carried from that arc: the class repair named above (`operator + from-text + to-text`) leaves only 28% of ledger rows uniquely resolvable, not the 45% first measured — 121 is the count of distinct scoped keys, and only 76 of 268 rows sit in a cardinality-one group. Printed by `npx tsx scripts/ledger-key-census.mts`, which IMPORTS `GUARD_SURFACES` rather than parsing it; the regex parse used first undercounted every figure (57 surfaces read as 58, 268 rows as 265).
 
 **Fired 2026-08-27:** filed as `BL-LINE-KEYED-REGISTRY-ROWS` (BACKLOG.md, `Mint-exception: recurrence`) on the third naming, `feat/wizard-review-attention-menu`.
 
@@ -203,7 +203,7 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Shape:** An assertion whose extraction is narrower than the property in its own test name, so it passes for a reason unrelated to the behaviour: eight instances across two rounds, three proven by mutant. The general repair is to give the assertion a contest it can lose, a negative control, a premise on the fixture, or a bound derived from the same quantity the implementation uses; the sketched guard fails any case whose fixture cannot discriminate.
 
-**Named by:** 1 arc — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff)
+**Named by:** 2 arcs — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff), fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks)
 
 **Owning record:** none — this index is the record (the filing notes the done condition ranges over an open space of test shapes, so it is refutable once per round forever)
 
@@ -305,11 +305,11 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Shape:** A measurement whose conclusion quantifies over "every X" while the X-set is hand-listed rather than derived from an authority the tree can be asked for (`information_schema`, a registry, a filesystem walk), so each review round adds one more member and the conclusion is re-falsified rather than converging. Distinct from `LIM-SWEEP-POSITIVE-CONTROL`, which is about an instrument's sensitivity to a known member; this is about the completeness of the set the instrument is pointed at. The arc that named it had a probe over "every table holding a warning array" miss `sync_log` in one round and `pending_ingestions` in the next, and each miss looked like a fresh finding rather than one class.
 
-**Named by:** 1 arc — fix/severityless-warning-filters/b608e71b32b5.md (diff)
+**Named by:** 2 arcs — fix/severityless-warning-filters/b608e71b32b5.md (diff), fix/local-e2e-validation-pooler/60dece4d5722.md (spec AND plan, one arc: six instances across two stages, from a guard's config-FILE set and its `@next/env` load-MODE set through four successive miscounts of the CI workflow population. Counted ONCE, per the recurrence exception's rule that one arc hitting its own limit repeatedly is that arc failing to route around a known hazard rather than evidence the hazard is general. Its repair is the one to copy: stop asserting the count, print the population with a command and assert a conclusion that holds whatever the totals are)
 
-**Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1
+**Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1. The second naming's repair is the same move in a different medium: discover config files from disk and read the mode set off the artifact, rather than listing either.
 
-**Re-file trigger:** named by a 3rd distinct arc
+**Re-file trigger:** named by a 3rd distinct arc. Note the second naming produced TWO instances inside one review stage, which is evidence about the class's rate rather than about its reach; the trigger stays at distinct arcs deliberately, since two axes in one arc is one author's blind spot, not a general hazard.
 
 
 ## LIM-PROD-POSTURE-INVISIBLE-LOCALLY
@@ -321,3 +321,13 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 **Owning record:** none — this index is the record. The mechanizable form would relate a workflow's server-start posture to the env-gated paths its named specs can reach, which needs a reachability model no lint here has.
 
 **Re-file trigger:** a second arc charged a review finding, or a red CI run, for a test that passes locally and fails in CI on an `NODE_ENV`-gated branch
+
+## LIM-PROBE-PERTURBS-SUBJECT
+
+**Shape:** A probe or guard whose own CONSTRUCTION changes the property it is measuring, so it decides against a subject the rule would classify differently from the one it computed its expectation against. Distinct from `LIM-NONDISCRIMINATING-FIXTURE`, where the assertion's extraction is too narrow: here the assertion is right and the subject moved under it, and the repair is an invariance assertion rather than a negative control. Measured instance: a binding probe appended a one-value-cell row to every corpus block to establish "does this block emit", which dropped each block's minimum value-cell count below the rule's threshold — 151 of 514 blocks perturbed, 18 across the decision boundary, making the criterion unsatisfiable without violating the rule it tested. The repair pads the injected row to the block's own minimum and re-derives the classification inputs FROM the constructed input, asserting they match the originals.
+
+**Named by:** 1 arc — fix/nearmiss-non-field-blocks/31beee5de40e.md (spec)
+
+**Owning record:** the filing is the documented limit; the shipped invariance assertion lives in docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-candidacy-probe.ts (TABLE-L's third control) for reuse
+
+**Re-file trigger:** a 3rd distinct arc naming it, or a product-facing arc blocked by a probe that moved its own subject

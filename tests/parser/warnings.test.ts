@@ -269,15 +269,21 @@ describe("UNKNOWN_FIELD warning + raw_unrecognized capture", () => {
 
   it("the full parse emits exactly one UNKNOWN_FIELD for a genuine near-miss row", () => {
     // `Address:` is the corpus's own colon-contact shape and nearly matches VENUE ADDRESS.
-    // It sits in an UNRECOGNIZED block (`Timestamp`), which the retired positional window
-    // could only have reached by accident of position. That the emission carries a
-    // `candidate` is what proves it came from the detector: the removed emitters never
-    // supplied one.
+    // It sits in an UNRECOGNIZED block, which the retired positional window could only
+    // have reached by accident of position. That the emission carries a `candidate` is
+    // what proves it came from the detector: the removed emitters never supplied one.
+    //
+    // The carrier was a `Timestamp` block until the block-candidacy narrowing (spec
+    // docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md),
+    // which makes form dumps non-candidate homes. The SUBJECT of this case is the
+    // emission carrying a `candidate` through the full parse, which is unchanged, so the
+    // carrier is re-pointed to an unrecognized block the rule admits rather than the case
+    // being retired.
     const md = [
       "| VENUE NAME | Acme Hall |",
       "| VENUE ADDRESS | 456 Oak Ave |",
       "",
-      "| Timestamp | 1/7/2025 0:00 |",
+      "| INTAKE NOTES | 1/7/2025 0:00 |",
       "| Address: | 123 Main St |",
     ].join("\n");
 
@@ -285,10 +291,10 @@ describe("UNKNOWN_FIELD warning + raw_unrecognized capture", () => {
     const uf = parsed.warnings.filter((w) => w.code === "UNKNOWN_FIELD");
     expect(uf).toHaveLength(1);
     expect(uf[0]!.blockRef?.name).toBe("Address:");
-    expect(uf[0]!.blockRef?.kind).toBe("timestamp");
+    expect(uf[0]!.blockRef?.kind).toBe("intake notes");
     expect(uf[0]!.candidate).toBe("VENUE ADDRESS");
     expect(parsed.raw_unrecognized).toEqual([
-      { block: "timestamp", key: "Address:", value: "123 Main St" },
+      { block: "intake notes", key: "Address:", value: "123 Main St" },
     ]);
   });
 });

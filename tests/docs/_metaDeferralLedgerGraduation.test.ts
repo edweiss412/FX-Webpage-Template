@@ -105,6 +105,11 @@ const BACKLOG_GRADUATED = [
   // binding, so a marked table can satisfy the check and be exactly as drifted.
   // A graduation is leaving the open queue, not necessarily an implementation.
   { id: "BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE", provenance: "feat/speclint-table-provenance" },
+  // fix/nearmiss-non-field-blocks (2026-08-28): the near-miss detector now fires only in
+  // blocks shaped like field lists. Owner-ratified scope; the row's second candidate repair
+  // (family matching) was declined for this arc and fenced in the spec rather than left
+  // implicit, so a later reader does not re-derive it as an oversight.
+  { id: "BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS", provenance: "fix/nearmiss-non-field-blocks" },
   // perf/anchoredportal-measure-convergence (2026-08-27, PR #923): the portal's
   // three measures per open converge to two. The row deliberately did not assert
   // what the number should be; deciding it was the work.
