@@ -15,13 +15,20 @@ Both are pre-existing on `origin/main` and neither has moved since.
 
 `app/help/layout.tsx` wraps every `/help/*` page's children in a single `help-prose` div, and
 `app/globals.css` caps that wrapper at `max-width: 70ch`. The tour page then puts two card grids
-inside it: a `md:grid-cols-2` grid and a `md:grid-cols-3` grid. A three-column grid inside a
-70ch column gives each card roughly a third of a reading measure, so the card body text renders
-at a measure far below the 65-75ch floor `DESIGN.md` §2.5 sets, and the cards grow very tall to
-compensate.
+inside it: a `md:grid-cols-2` grid and a `md:grid-cols-3` grid. The three-column grid divides that
+column three ways, and the card body text renders at 10.4ch at 768px, rising only to 18.1ch on any
+wider screen. The cards grow very tall to compensate: 824.8px at 768px, for 45 words.
 
-The cap binds before the viewport does, so the problem does not improve on a wider screen.
-Mobile is a single column and is unaffected.
+**The `DEFERRED.md` entry's mechanism claim is half right, and §2.2 corrects it.** The 70ch cap
+binds only at 1024px and above, where the prose column reaches 704.4px. At 900px the column is
+604px, and at 768px it is 472px — narrower than the cap, which is therefore not what constrains
+it. What hurts most at 768px is the column COUNT: three columns of a 472px space. The entry's
+proposed repair, lifting the grids out of the cap, cannot reach the viewport with the worst
+measure, because at that viewport there is no cap to lift them out of. This spec ships that repair
+AND the one the numbers actually call for.
+
+Mobile is a single column. Its 31.4ch is a consequence of a 390px screen rather than of this
+layout, and it is the best measure the page currently achieves anywhere.
 
 ### 1.2 The page claims to cover every admin screen and covers seven of eight
 
@@ -51,6 +58,8 @@ The repair landed on one file and the class was never swept. This spec sweeps it
 | **`@property` is not a new primitive here.** Tailwind 4.2.4 emits `@property` itself, so the generated stylesheet already carries these registrations and the project already assumes browsers that honour them. | Verified against the installed `tailwindcss` build, §2.1. |
 | **Two existing guards are retargeted, not weakened** — `tests/e2e/help-typography.spec.ts`'s measure assertion moves from the wrapper to a paragraph, and `tests/help/help-prose-layer.test.ts`'s `max-width: <n>ch` pattern moves to whatever declaration then carries the measure. Neither is weakened to accommodate the change: the wrapper stops being the element that carries the measure, and a paragraph is what the contract was always about, so the retargeted assertion is the stronger of the two because it measures rendered text rather than a container. Both still fail if the measure disappears. | §3.4. Flagged explicitly because "the diff changed a test" is a predictable finding and the reasoning belongs in the record, not in a review round. |
 | **Uncapping tables, screenshots and the custom prose components is out of scope.** The only elements that take `help-bleed` are the tour's three card grids: the two that exist (§3.2) and the one §3.3 creates. | §6 Documented limits. |
+| **The repair goes beyond the `DEFERRED.md` entry's named mechanism, deliberately.** The entry proposed lifting the grids out of the 70ch cap; §2.2 measures that cap binding only at 1024px and above, so the named repair cannot reach 768px, where the measure is worst. The bleed still ships, joined by a derived column count. | bl-orch ruling, 2026-08-29: the owner ratified the OUTCOME (cards readable at full width), and a better mechanism for the same outcome is the arc's call. Conditions attached and met: the probe and the refutation are in this document (§1.1, §2.2), the floor carries real-browser assertions at 768/1024/1280 (AC-1), and the sweep covers the errors peer (§3.2a, §7). |
+| **AC-1's floor is 28ch, not `DESIGN.md` §2.5's 65-75ch.** §2.5 caps long-form prose; no multi-column card grid on an 856px column can reach it. | §8, AC-1. Stated because "the spec ignores the documented measure floor" is the obvious finding, and the answer is that the floor is a cap on a different thing. |
 | Both findings are pre-existing on `origin/main`, not regressions introduced by any recent arc. | `DEFERRED.md`, both entries, "Why deferred rather than repaired in-branch". |
 
 ---
@@ -108,40 +117,69 @@ into the content column. A keyboard affordance is not worth a shorter diff.
 `@property` needs no support argument: `tailwindcss` 4.2.4 emits it, so every build of this app
 already ships registrations of this kind.
 
-### 2.2 The live measure — **Status: PENDING.**
+### 2.2 The live measure (complete)
 
-What this section is now for, after §2.1 reshaped the design: it is the pre-implementation
-BASELINE the layout assertions are written against, and a fresh confirmation that the defect
-still reproduces. It is no longer load-bearing for the mechanism, which §2.1 settled on its own.
-The defect itself is entailed by two facts verified statically on today's tree — the wrapper caps
-at 70ch, and the second grid divides it three ways — so the probe is expected to confirm rather
-than to decide. The probe spec is written as a throwaway under `tests/e2e/` (deleted before
-the first commit, so it is deliberately not a tracked path this spec can cite) and is parked: it needs `signInAs`, which writes an `auth.users` row, and the help layout runs
-`requireAdmin()` per request, so it is DB-backed and a fleet-wide DB quiet period is in effect.
-**This section is filled before any review dispatch; a review must not be dispatched against a
-spec with an empty probe table.**
+Measured 2026-08-29, admin-signed-in, real render, on the branch head. Command and the port hazard
+are below. Body measure is the card's `<p>` width over the `ch` advance of its own computed font
+(10.063px); `cardChrome` (padding plus border) is a measured 42px, and the grid gap is 16px.
+
+| viewport | prose column | grid | cols | card | body | measure | card height |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 390 | 358 | both | 1 | 358 | 316 | 31.4ch | 324.6 / 298.6 |
+| 768 | 472 | 2-col | 2 | 228 | 186 | 18.5ch | 626.2 |
+| 768 | 472 | **3-col** | 3 | **146.7** | **104.7** | **10.4ch** | **824.8** |
+| 900 | 604 | 2-col | 2 | 294 | 252 | 25.0ch | 454.6 |
+| 900 | 604 | 3-col | 3 | 190.7 | 148.7 | 14.8ch | 626.2 |
+| 1024 | 704.4 | 2-col | 2 | 344.2 | 302.2 | 30.0ch | 402.6 |
+| 1024 | 704.4 | 3-col | 3 | 224.1 | 182.1 | 18.1ch | 522.2 |
+| 1280 | 704.4 | 2-col | 2 | 344.2 | 302.2 | 30.0ch | 402.6 |
+| 1280 | 704.4 | 3-col | 3 | 224.1 | 182.1 | 18.1ch | 522.2 |
+
+The 2026-08-11 readings reproduce almost exactly (10.5 / 14.9 / 18.2 against today's 10.4 / 14.8 /
+18.1), so the defect is unchanged and both grids are affected, not only the three-column one: the
+two-column grid never exceeds 30ch either.
+
+**Where the cap actually binds, which is the finding that reshaped §3.** `main`'s content width
+and the prose column diverge only above 1024px:
+
+| viewport | `main` content | prose column | does the 70ch cap bind? |
+| --- | --- | --- | --- |
+| 390 | 358 | 358 | no |
+| 768 | 472 | 472 | no |
+| 900 | 604 | 604 | no |
+| 1024 | 728 | 704.4 | yes, by 23.6px |
+| 1280 | 856 | 704.4 | yes, by 151.6px |
+| 1440 | 856 | 704.4 | yes; `max-w-6xl` caps `main`, so nothing widens past 1280 |
+
+So a bleed buys 23.6px at 1024 and 151.6px at 1280, and **nothing at all at 768**, which is where
+the measure is worst. That is why §3.2 does not stop at the bleed.
+
+**The errors-page peer is a confirmed instance, not a hypothetical.** At 768px, 5 of its 7 jump-list
+items wrap. It does not wrap at 390 (one column), nor at 900 and above. Same shape, same viewport,
+same cause: a fixed column count applied to a column too narrow to hold it.
+
+| viewport | cols | item width | measure | wrapped items |
+| --- | --- | --- | --- | --- |
+| 390 | 1 | 358 | 35.6ch | 0 of 7 |
+| **768** | 2 | 220 | 21.9ch | **5 of 7** |
+| 900 | 2 | 286 | 28.4ch | 0 of 7 |
+| 1024 | 2 | 336.2 | 33.4ch | 0 of 7 |
+| 1280 | 2 | 336.2 | 33.4ch | 0 of 7 |
 
 Probe command, recorded so it is reproducible and so the port hazard is not rediscovered:
 
 ```
 BASELINE_SERVER_ONLY=1 E2E_PORT=3417 \
   TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
-  pnpm heavy pnpm exec playwright test --project desktop-chromium help-grid-probe
+  pnpm heavy pnpm exec playwright test help-grid-probe --project=desktop-chromium
 ```
 
 `E2E_PORT` is not optional, and port 3004 is not usable: the `help-docs` project family hardcodes
 its base URL on port 3004 with `reuseExistingServer: !CI`, and a sibling arc held that port while
 this spec was drafted. A run there would have measured another branch's build and reported it as
-this one — the exact failure `tests/e2e/help-pages.spec.ts` records for port 3000.
-
-| viewport | grid | card width | body width | measure (ch) | card height |
-| --- | --- | --- | --- | --- | --- |
-| _pending_ | | | | | |
-
-The 2026-08-11 measurements in the `DEFERRED.md` entry (10.5ch at 768px, 14.9ch at 900px, 18.2ch
-at 1024px and above, on the three-column grid) are the prior reading. They are quoted as history,
-not as this spec's evidence, and the fresh probe either confirms them or this spec is redrafted
-around what it actually finds.
+this one, which is the failure `tests/e2e/help-pages.spec.ts` records for port 3000. Note also that
+`--project` is variadic: `--project desktop-chromium help-grid-probe` reads BOTH words as project
+names and exits before running anything.
 
 ---
 
@@ -190,16 +228,62 @@ is a layout change to surfaces this branch has no reason to touch and no probe f
 makes the escape explicit and per-element, so the blast radius is exactly the elements that ask
 for it.
 
-### 3.2 Both tour grids opt in
+### 3.2 Both tour grids: bleed, and stop pinning the column count
 
-`app/help/tour/page.mdx`: add `help-bleed` to the `className` of the `md:grid-cols-2` grid and
-the `md:grid-cols-3` grid. No other class on either grid changes, and no card markup changes.
+The bleed alone does not fix this. §2.2 measures the 70ch cap binding only at 1024px and above,
+so at 768px — where the measure is worst, 10.4ch — there is no cap to escape and a bleed changes
+nothing. The column count is what divides a 472px space three ways. Both parts ship:
+
+**Part one, the bleed.** `help-bleed` on both grids, which buys 23.6px at 1024 and 151.6px at 1280.
+
+**Part two, a minimum card width instead of a fixed column count.** Each grid's
+`grid-cols-1 md:grid-cols-N` becomes `grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]`. The column
+count then falls out of the space available rather than being asserted against it, and no
+breakpoint has to be kept in sync with a sidebar width. Arbitrary `minmax()` track utilities are
+already this codebase's idiom for exactly this (`app/admin/dev/telemetry/page.tsx`,
+`components/admin/Dashboard.tsx`).
+
+**Why 20rem.** Derived from the measured box model, not chosen for roundness: gap 16px, card chrome
+42px, `ch` 10.063px. Columns are `max(1, floor((W + 16) / (MIN + 16)))` over the bled width.
+
+| candidate MIN | 390 | 768 | 900 | 1024 | 1280 | worst |
+| --- | --- | --- | --- | --- | --- | --- |
+| 16rem | 1 col, 31ch | 1 col, 43ch | 2 col, 25ch | 2 col, 31ch | 3 col, 23ch | 23.1ch |
+| 18rem | 1 col, 31ch | 1 col, 43ch | 2 col, 25ch | 2 col, 31ch | 2 col, 38ch | 25.0ch |
+| **20rem** | 1 col, 31ch | 1 col, 43ch | 1 col, 56ch | 2 col, 31ch | 2 col, 38ch | **31.2ch** |
+| 24rem | 1 col, 31ch | 1 col, 43ch | 1 col, 56ch | 1 col, 68ch | 2 col, 38ch | 31.4ch |
+
+20rem takes the worst case from 10.4ch to 31.2ch, threefold. 24rem buys 0.2ch more and costs the
+grid its second column at 1024px, where a one-card-per-row "grid" stops reading as one. 22rem
+produces column counts identical to 20rem, so it is the same layout with a less round number.
+
+**The parse-warnings card's span changes with it.** That card carries `md:col-span-2`
+(`app/help/tour/page.mdx`), which assumes exactly two columns. Under `auto-fit` the count varies,
+and a two-track span in a one-track grid creates an implicit second column and breaks the row. It
+becomes `col-span-full`, which is `grid-column: 1 / -1` and spans whatever count is live. This is
+the kind of interaction that makes `auto-fit` worth stating carefully rather than dropping in.
+
+### 3.2a The errors-page jump list
+
+Confirmed by probe as the same defect, not a suspected peer: 5 of its 7 items wrap at 768px
+(§2.2). Same repair shape, one part rather than two —
+`sm:grid-cols-2` becomes `grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]`, and it takes **no**
+`help-bleed`. Its `gap-x-8` is 32px, so the same arithmetic gives one column at 472px and 604px,
+and two at 728px and above with each item at 348px or wider, comfortably past the 336.2px that
+already fits the longest label without wrapping.
+
+The bleed is omitted deliberately. The defect here is the wrap, and the wrap is gone once the
+column count stops being asserted; widening the list as well would be a change with no defect
+behind it. Recall from §7 that the class would have to go on the `nav`, not the `ul`, so leaving
+it off also avoids the one place this repair is easy to misapply.
 
 ### 3.3 The Settings card
 
 The "Once per environment" section is currently a bare `<div className="my-6">` holding one card
-(the onboarding wizard). It becomes a two-column grid matching the "Daily" group's shape, also
-carrying `help-bleed`, with a second card for `/help/admin/settings`.
+(the onboarding wizard). It becomes a grid carrying the same
+`grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]` and `help-bleed` as the other two, with a second
+card for `/help/admin/settings`. Two cards under `auto-fit` sit side by side wherever there is room
+for two 20rem columns and stack below that, so the group needs no column count of its own.
 
 The new card copies the structural shape of the seven existing cards exactly: the same
 `className` run on the anchor, the same eyebrow / duration / `h3` / body / call-to-action
@@ -294,6 +378,9 @@ project, so nothing here relies on an implicit stretch.
 | `.help-prose` | every direct child that is not `.help-bleed` | child width ≤ the measure, and identical to today's width for every child that exists | `.help-prose > * { max-width: var(--help-measure) }` over an `@property`-registered length (§3.1); the registration is what makes this hold for the headings as well as the body (§2.1) |
 | `.help-prose` | `.help-bleed` grid | child width == the `main` column's content width, not 70ch | `.help-prose > .help-bleed { max-width: none }` plus the grid's own default `width: auto` as a block child |
 | `main` | `.help-prose` | wrapper width == `main` content width | wrapper carries no `max-width` after §3.1 |
+| `main` | `.help-bleed` grid | grid width == `main` content width: 728 at 1024, 856 at 1280 and 1440 | `max-width: none` (§3.1); `max-w-6xl` on the page shell is what stops 1440 exceeding 1280 |
+| grid | each card | card width >= 20rem, or one column | `grid-cols-[repeat(auto-fit,minmax(20rem,1fr))]` (§3.2); `auto-fit` collapses to one track rather than shrinking below the minimum |
+| grid | parse-warnings card | spans every column, whatever the live count | `col-span-full` (`grid-column: 1 / -1`), NOT `md:col-span-2`, which assumes exactly two tracks and creates an implicit one when there is a single track |
 | grid | each card | equal column widths; cards in a row share a height | `grid-template-columns` from the `grid-cols-*` utilities; grid's default `align-items: stretch` (a grid default this project does not override, unlike the flex case) |
 
 Every row is asserted in a real browser (§3.5), each `data-testid`-addressed element measured
@@ -332,11 +419,12 @@ Recorded here rather than filed as ledger rows, per the process mint freeze.
   once in the whole stylesheet, but the isolation is looser than the comment above it claims, and a
   future unrelated rule could make it vacuous without anyone noticing. Process-facing, so the freeze
   applies; recorded here rather than filed. Process-facing, and the freeze applies.
-- **The peer grid at `app/help/errors/page.tsx`** is dispositioned in §7 once the probe runs.
+- ~~The peer grid at `app/help/errors/page.tsx`~~ — **resolved, not a limit.** The probe confirmed
+  it as an instance of the class (5 of 7 items wrap at 768px) and §3.2a repairs it in this PR.
 
 ---
 
-## 7. Class sweep — every grid inside the prose column
+## 7. Class sweep — every grid whose column count is asserted rather than derived
 
 The change touches `.help-prose`, which all fourteen `/help/*` pages render through, so the sweep
 is owed. It is a derived cover, not a list: walk `app/help/**` for grid containers rather than
@@ -347,17 +435,17 @@ grep -rn 'grid-cols\|className="grid\|grid ' app/help --include='*.mdx' --includ
 ```
 
 Three hits across the tree AS IT STANDS: the two tour grids, and `app/help/errors/page.tsx`, a
-`sm:grid-cols-2` list of error-code links. (Do not read this three as the three that take
-`help-bleed` — that set is the tour's grids, and the errors grid is the one this sweep is about.
-After §3.3 the tree holds four grids, three of them on the tour page.) The errors grid is a different shape — short link
-labels on a tight `gap-y-1`, not paragraphs of body copy — so whether it is an instance of this
-finding at all depends on whether its items wrap. The probe measures it. Disposition:
+`sm:grid-cols-2` list of error-code links. (Do not read this three as the three that take `help-bleed` — that set is the tour's grids, and
+the errors grid takes the derived column count without the bleed, per §3.2a. After §3.3 the tree
+holds four grids, three of them on the tour page.) The errors grid is a different SHAPE — short
+link labels on a tight `gap-y-1`, not paragraphs of body copy — so whether it belonged to this
+class was a real question rather than a formality, and the probe answered it. Disposition:
 
-- **If items wrap at any viewport**, it is the same defect and it is repaired in this PR. The
-  class-sweep default is that every instance of one shape is fixed together, and the marginal cost
-  while already holding this context is near zero.
-- **If no item wraps at any viewport**, it is not an instance: a one-line label in a narrow column
-  is not a degraded measure. That is recorded here with the probe output, not filed.
+**Resolved by probe: it IS an instance, and it is repaired in this PR.** 5 of its 7 items wrap at
+768px (§2.2), at the same viewport and from the same cause as the tour grids — a column count
+asserted against a space too narrow to hold it. The class-sweep default applies: every instance of
+one shape is repaired together, and the marginal cost while already holding this context is near
+zero. Nothing is deferred, so no exception (a), (b) or (c) is owed. The repair is §3.2a.
 
 **One structural difference that changes how the repair would be applied, if it is needed.** The
 errors grid is a `ul` inside `<nav className="my-6">`, so the direct child of `.help-prose` is the
@@ -368,10 +456,13 @@ to change it. Second, a bleed here would put `help-bleed` on the `nav`, because
 `.help-prose > .help-bleed` matches direct children only. Worth stating because adding the class to the grid
 itself is the obvious move, and it would silently do nothing.
 
-The wrap question is genuinely open rather than rhetorical, and 768px is where to look: at that
-width the sidebar has appeared but the column is at its narrowest, so the two columns are much
-tighter than the 70ch cap alone suggests. The longest label is `Crew, schedule & travel data` plus its count. The live probe counts wrapped items at every viewport in the AC-1 matrix, which is why
-this disposition waits for it instead of being argued from character counts.
+768px was where to look, and it is where the defect was: the sidebar has appeared while the column
+is at its narrowest, so the two columns are far tighter than the 70ch cap alone suggests. Every one
+of the three grids in this tree fails at that one viewport and nowhere else, which is the clearest
+statement of what the class actually is. It is not the framing the `DEFERRED.md` entry used, grids
+trapped under the 70ch cap: that is true only above 1024px, and it would have left the worst
+instance of all three unrepaired. The class is a column count asserted as a constant against a
+space whose width is not one.
 
 A separate sweep covers the guard defect of §1.2 — a completeness claim over the admin surface
 that restates the list instead of deriving it. Derived cover: every file under `tests/` mentioning
@@ -409,13 +500,26 @@ N and showing a link to the rest is explicitly rejected.
 
 ## 8. Acceptance criteria
 
-- **AC-1** Each tour card's rendered body measure clears the `DESIGN.md` §2.5 floor at every
-  desktop viewport in the matrix, measured in a real browser. **The matrix is 390, 768, 900, 1024
-  and 1280** — stated here rather than left as a reference to §2.2's output, so the criterion is
-  defined by this document and not by whatever the probe happened to sample. 390 is the mobile
-  single-column case and is asserted to be UNCHANGED, not improved (§7.1).
-- **AC-2** Every other `/help/*` page renders at the same widths as before the change — the cap
-  moved, it was not lifted.
+**The matrix is 390, 768, 900, 1024 and 1280**, stated here rather than by reference to §2.2's
+output, so these criteria are defined by this document.
+
+- **AC-1** Every tour card's rendered body measure is **at least 28ch** at 768, 1024 and 1280,
+  measured in a real browser with `getBoundingClientRect`. The floor is 28 and not 31.2, which is
+  what §3.2's arithmetic predicts, so that cross-engine glyph-metric variance cannot fail a correct
+  layout — the same headroom `tests/e2e/help-typography.spec.ts` already leaves on its own measure
+  bound. **This is deliberately NOT `DESIGN.md` §2.5's 65-75ch.** That is a CAP on long-form prose,
+  and a card in any multi-column grid on an 856px column cannot reach it: three columns cannot
+  exceed 24ch and two cannot exceed 38ch, at any minimum width. Writing 65ch here would have made
+  AC-1 unsatisfiable by the change it is supposed to accept, which is how it read before §2.2 was
+  measured.
+- **AC-1a** No viewport in the matrix regresses against the §2.2 baseline. 390 is single-column at
+  31.4ch and is asserted UNCHANGED rather than improved (§7.1).
+- **AC-1b** Zero items in the errors-page jump list wrap, at every viewport in the matrix. The
+  baseline is 5 of 7 wrapping at 768.
+- **AC-2** Every `/help/*` page other than the tour and the errors page renders at the same widths
+  as before the change: the cap moved, it was not lifted. The errors page is deliberately in scope
+  (§3.2a); its prose, headings, lists and tables are still asserted unchanged, and only its
+  jump-list column count moves.
 - **AC-3** The tour page links to every `admin-surface` slug in `NAV`, and links to no
   `/help/*` route absent from that group. Both directions fail by name.
 - **AC-4** Adding a ninth `admin-surface` entry to `NAV` with no card fails AC-3's test with no
