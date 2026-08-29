@@ -12,8 +12,9 @@ wins.
 
 ## 1. Baseline — every task command run at the unmodified head
 
-Run at `b74345848` on 2026-08-28, before any code. bl-orch's directive, and the
-"validated executably at plan time" rule. **All seven product suites pass**,
+Run at `b74345848` on 2026-08-28 and re-confirmed at `a85ac23f6`, before any
+code. bl-orch's directive, and the "validated executably at plan time" rule.
+**Every command in the verification set passes**, including `pnpm typecheck`,
 which is the expected result: the tree is currently self-consistent, so every
 geometry red in §4 is `red-state=authored` and is created by a task.
 
@@ -33,11 +34,17 @@ tests/components/admin/showpage/attentionMenu.test.tsx                  PASS (17
 tests/components/admin/useFitWithinClip.test.tsx                        PASS (48)
 tests/e2e/wizard-attention-menu.spec.ts                                 PASS (9)
 tests/e2e/popover-clip-fit.spec.ts                                      PASS (34, §1.1)
+tests/components/admin/showpage/publishedAttentionBaseline.test.tsx     PASS (2)
+pnpm typecheck                                                          exit 0
 
 tests/docs/_metaInvariant8Closeout.test.ts                              FAIL (1 of 14) — LIVE RED, Task 2
   "declares the invariant-8 dual gate but carries no valid impeccable-gate
    marker line"
 ```
+
+`git diff --name-only b74345848..HEAD -- components lib app tests` is EMPTY, so
+the intervening commits are docs-only and the earlier rows hold unchanged at the
+current head. The last two rows were never baselined before and are run here.
 
 **A plan defect this baseline rules out.** Had any of these exited non-zero
 today, a `red-state=live` marker citing it would be claiming a red the tree
