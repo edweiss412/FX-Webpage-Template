@@ -259,8 +259,39 @@ and does not change.
   exactly `pnpm lint`, `pnpm typecheck`, `pnpm format:check`): lint **0 errors**, 76
   warnings, all pre-existing and none in this diff; typecheck clean; format check clean.
 
+- **`tests/specLint/**` in full** — `pnpm heavy pnpm vitest run tests/specLint`: **58 files,
+  1587 tests passed**. Added to the local gate late, and the reason is worth recording.
+
 No DB slot was taken: nothing in this arc's verification needs one, and the live check in
 §5 opens no client either.
+
+### The DB-free half is not the local gate, and CI proved it
+
+`unit-suite-db (3)` failed on `9f6fd5c8d` with a genuine leg failure, not a cancellation:
+`tests/specLint/acUnclaimedCorpus.test.ts` AC-11, `expected 'enrolled: false' to be
+'enrolled: true'`. That suite lives in the SERIAL project, so
+`vitest run --project parallel` never executed it however green it ran, and it needs no
+database despite riding a `unit-suite-db` shard.
+
+The defect was this arc's and had been latent since the plan file landed: `spec:lint`'s
+convention paragraph in `docs/agents/writing-plans.md` quotes live corpus counts, and
+adding a plan moves them. Refreshed against the walk: `56 of the 124 enrolled plans` →
+`57 of the 125`, and `1293 rows across 111 plans` → `1303 rows across 112`. The residue (12)
+and ambiguous (17) figures were already correct. The guard exists precisely to force this
+refresh on whoever changes the corpus, and it worked — it just could not reach me locally.
+
+Two things follow. The local gate for a doc-touching arc is the DB-free half PLUS the
+serial-project suites that read the corpus from disk. And a shard name is not a dependency
+claim: `unit-suite-db (3)` carries suites that touch no database.
+
+### A self-inflicted red, recorded so it is not mistaken for a real one
+
+One DB-free run on the merged tree reported three failures — `_metaRenderFaultMarking`,
+`_metaControlOutlineResidue`, `_metaScratchRootCleanup`. All three are artifacts: while that
+suite was walking the tree, this session edited `docs/agents/writing-plans.md` and patched
+and restored a test file. A suite that reads the working tree as it goes cannot be edited
+underneath it. Re-run on a stable tree, all three pass (134 tests). The clean run is the one
+quoted above.
 
 ### The census tax, recorded because it cost two commits
 
