@@ -319,7 +319,16 @@ test.describe("/help/tour card grids — real-browser layout", () => {
 
     // Both column counts, so `col-span-full` is proved to track the live count rather
     // than to coincide with it. `md:col-span-2` would pass at 1016 and fail at 768.
-    for (const vw of [768, 1016]) {
+    //
+    // 1280 IS LOAD-BEARING and was missing: the body-versus-measure assertion below
+    // cannot bind at either of the other two. The card carries `p-5`, so its body is
+    // the grid width less 40px — 432px at 768 and 680px at 1016, both under the
+    // 704.4px measure. Staging the violation (cap removed) PASSED at those two
+    // viewports, which made the assertion a tautology sampled where it could never
+    // fail. At 1280 the body is 816px and the cap is what holds it. Same
+    // sample-coverage class as the 22rem finding, found by probing rather than by
+    // reasoning about it.
+    for (const vw of [768, 1016, 1280]) {
       await page.setViewportSize({ width: vw, height: 900 });
       const m = await readTour(page);
       // Pinned to the AUTHORED count, not to "at least one". A filter plus a

@@ -55,20 +55,30 @@ string came to read `track 1` rather than `track` — the assertion moved from t
 track to every track, and a transcript that quotes a label the code no longer emits is
 the same stale-citation defect the reviews kept finding, one artifact over.
 
-**One post-review assertion has been staged and observed. The rest have not, and saying
-so is the point of this section.**
+**All five post-review assertions are now staged and observed.** One of them PASSED with
+its violation in place, which is why this section exists.
 
 | assertion | staged violation | observed | result |
 | --- | --- | --- | --- |
 | §4 rows 2/4, the bleed | `help-bleed` stripped from all three grids | grid 1 width at 1024px: expected 728, received **704.4** | RED OBSERVED |
+| §4 + AC-3, the guard bridge | last card group loses `grid`, so its anchors leave every measured grid | marked anchors inside a measured grid at 688px: expected 8, received **6** | RED OBSERVED |
+| §4 row 8, shared height | `items-start` on the first grid, defeating grid's default stretch | grid 1 row 1 card 2 height at 752px: expected 324.6, received **402.6** | RED OBSERVED |
+| §4 row 4, the 1440 cap | `max-w-6xl` dropped from `app/help/layout.tsx` | main content width at 1280px: expected 856, received **984** | RED OBSERVED |
+| §4 row 7, body vs the measure | `max-w-[var(--help-measure)]` removed from the span card's `<p>` | full-span card 1 body within the measure at 1280px: expected <= 704.876, received **814** | RED OBSERVED, **on the second attempt** |
 
-704.4px is the capped width — the exact scenario round 1's first finding described, where
-a grid that never escapes the measure satisfies every column count and every measure
-bound. The assertion discriminates, and that is measured rather than asserted.
+704.4px in the first row is the capped width — the exact scenario round 1's first finding
+described, where a grid that never escapes the measure satisfies every column count and
+every measure bound. The assertion discriminates, and that is measured rather than
+asserted.
 
-**Not yet staged:** the guard bridge (marked anchors inside measured grids), §4 row 7's
-shared-height half, §4 row 4's 1440 sample, and §4 row 7's body-versus-`--help-measure`
-arm. Each is scheduled for the next window in which this arc holds the DB slot, since
-every one of them needs a signed-in real-browser run. Until then they are assertions
-believed correct rather than assertions proven discriminating, and that distinction is
-exactly what this document exists to keep visible.
+**The last row is the one worth reading.** As first written it sampled only 768 and 1016,
+and the violation PASSED at both. The card carries `p-5`, so its body is the grid width
+less 40px: 432px at 768 and 680px at 1016, both comfortably under the 704.4px measure. The
+assertion could not fail at either viewport for any layout — a tautology, in an assertion
+written to close a round-2 finding, sampled where it could never bind. Adding 1280, where
+the body is 814px, produced the red above.
+
+That is the SAME class as round 2's `22rem` finding: sample coverage, not assertion form.
+It recurred here in the repair for a different finding, which is the honest measure of how
+easily this class hides — and it was caught by staging the violation rather than by
+reasoning about the assertion, exactly as the AC-1c row above was.
