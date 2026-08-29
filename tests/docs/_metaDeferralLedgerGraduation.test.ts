@@ -98,6 +98,13 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/speclint-table-provenance (2026-08-28): the row asked for a
+  // `<!-- table: cmd=`…` -->` marker binding a stated table to a producing
+  // command, and scheduled the measurement first. The measurement said not to
+  // build it: the corpus had already ratified that a producing command is not a
+  // binding, so a marked table can satisfy the check and be exactly as drifted.
+  // A graduation is leaving the open queue, not necessarily an implementation.
+  { id: "BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE", provenance: "feat/speclint-table-provenance" },
   // perf/anchoredportal-measure-convergence (2026-08-27, PR #923): the portal's
   // three measures per open converge to two. The row deliberately did not assert
   // what the number should be; deciding it was the work.

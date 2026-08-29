@@ -69,25 +69,6 @@ The card then tells Doug to "rename this row in your sheet so it matches the row
 
 **Done condition (outside the process):** on the RIA sheet, the wizard's Sheet warnings panel lists no near-miss row for `Room Diagram`, `Backdrop`, or `Speaker`, and the baseline suite's corpus multiset is re-measured and re-ratified.
 
-## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it, named by four arcs and still unmechanized
-
-**Status:** IN PROGRESS · **Branch:** feat/speclint-table-provenance · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
-
-**Incident** (four independent arcs, each naming the shape in its own filing before a slug existed):
-
-- `docs/review-rounds/fix/mutation-shard-budget-six/9a621a5792ea.md:32-35` (spec) — round 2's highest-value finding was §1.3's table carrying no command producing it.
-- `docs/review-rounds/feat/review-modal-strip-dock/ae8e9544b55a.md:38-39` (spec) — a hand-maintained blast-radius transcript, three rounds finding three defects in three different directions.
-- `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md:32-33` (plan) — the plan claimed 106 enrolled plans where the quoted command returns 108.
-- `docs/review-rounds/fix/severityless-warning-filters/b608e71b32b5.md` (diff, R3 finding 2) — the published SQL could not produce the published table, and a bare `group by` silently dropped an empty population rather than showing it as zero.
-
-Indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in `docs/review-rounds/LIMITS.md`, whose stated re-file trigger is "a spec whose stated table cannot be reproduced from its own commands reaching a review round again". That fired on the fourth arc.
-
-**Why this is admissible under the 2026-08-25 process freeze.** Not on an incident alone, which the freeze stopped admitting. On recurrence: four independent arcs paid for the same shape, which is retrospective and countable and could not be manufactured by this arc. The freeze's admission test is also met, because the done condition names a number outside the tooling: rounds burned per arc on table-versus-tree drift, which is 1 here, 3 on review-modal-strip-dock, and 1 each on the other two.
-
-**Shape.** `spec:lint` parses numerics and parses fenced commands, and relates them to nothing. A table stated with no command producing it cannot be compared to the tree; a table stated WITH one drifts silently the moment the tree moves. The narrowing that would close it is a `<!-- table: cmd=`…` -->` marker binding a table to a command, checked the way `gate:` markers already are.
-
-**Not in scope for the arc that filed it.** `fix/severityless-warning-filters` is a docs-only demotion under an explicit no-code-change ruling; it repaired its own instance by publishing one query that produces every number in its table from a single transaction, and files the class here rather than widening.
-
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
 **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS

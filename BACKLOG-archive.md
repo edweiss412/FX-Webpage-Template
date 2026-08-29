@@ -1,3 +1,32 @@
+## BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE — a stated numeric table with no command that produces it — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
+
+**Status:** CLOSED 2026-08-28 (`feat/speclint-table-provenance`), demoted to a documented limit rather than built · **Filed:** 2026-08-28 (`fix/severityless-warning-filters`, diff R3 finding 2) · **Facing:** process · **Mint-exception:** recurrence · **Severity:** LOW-MEDIUM (a spec table drifts from the tree with nothing able to compare them) · **Class:** evidence provenance · **Effort:** M
+
+**Incident** (four independent arcs, each naming the shape in its own filing before a slug existed):
+
+- `docs/review-rounds/fix/mutation-shard-budget-six/9a621a5792ea.md:32-35` (spec) — round 2's highest-value finding was §1.3's table carrying no command producing it.
+- `docs/review-rounds/feat/review-modal-strip-dock/ae8e9544b55a.md:38-39` (spec) — a hand-maintained blast-radius transcript, three rounds finding three defects in three different directions.
+- `docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md:32-33` (plan) — the plan claimed 106 enrolled plans where the quoted command returns 108.
+- `docs/review-rounds/fix/severityless-warning-filters/b608e71b32b5.md` (diff, R3 finding 2) — the published SQL could not produce the published table, and a bare `group by` silently dropped an empty population rather than showing it as zero.
+
+Indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in `docs/review-rounds/LIMITS.md`, whose stated re-file trigger is "a spec whose stated table cannot be reproduced from its own commands reaching a review round again". That fired on the fourth arc.
+
+**Why this is admissible under the 2026-08-25 process freeze.** Not on an incident alone, which the freeze stopped admitting. On recurrence: four independent arcs paid for the same shape, which is retrospective and countable and could not be manufactured by this arc. The freeze's admission test is also met, because the done condition names a number outside the tooling: rounds burned per arc on table-versus-tree drift, which is 1 here, 3 on review-modal-strip-dock, and 1 each on the other two.
+
+**Shape.** `spec:lint` parses numerics and parses fenced commands, and relates them to nothing. A table stated with no command producing it cannot be compared to the tree; a table stated WITH one drifts silently the moment the tree moves. The narrowing that would close it is a `<!-- table: cmd=`…` -->` marker binding a table to a command, checked the way `gate:` markers already are.
+
+**Not in scope for the arc that filed it.** `fix/severityless-warning-filters` is a docs-only demotion under an explicit no-code-change ruling; it repaired its own instance by publishing one query that produces every number in its table from a single transaction, and files the class here rather than widening.
+
+### Closed on measurement, and the count in this row's own title was wrong
+
+`feat/speclint-table-provenance` probed the done condition before building, as the row scheduled. **Neither arm ships.** Full record: `docs/superpowers/specs/ci/2026-08-28-table-provenance.md`; disposition and re-file triggers in `docs/review-rounds/LIMITS.md` under `LIM-NUMERIC-TABLE-PROVENANCE`; round economy in `docs/review-rounds/feat/speclint-table-provenance/60dece4d5722.md`.
+
+**The title says four arcs. It is eleven.** The original count came from grepping citations of the slug, which counts arcs that knew the slug existed rather than arcs that paid. Deriving by SHAPE, and taking the union with the slug derivation because each misses arcs the other finds, gives eleven arcs and about twenty rounds. The census produces the candidate population and the spec classifies every candidate with a reason. That correction moved the economics AGAINST this closure, and the spec reports it: against ~20 class-rounds and the ~7 transferable rounds of the 14-round precedent, building the marker would have been worth it on cost alone.
+
+**It closes anyway, on a ratified structural fact.** Six days before this arc, `BL-DERIVED-NUMBERS-IN-DOCS-ROT` established in `docs/superpowers/specs/ci/probes/README.md` that naming a producing command is not a binding: a command run against a moving tree answers differently tomorrow. So a table can carry the marker this row asked for, satisfy the check on every line, and be exactly as drifted. Demonstrated live at `docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:394`, which prints its producing command directly above its table and states 53 where that command's own comment says 56 and where it returns 55 today. The practice was followed; the drift happened regardless.
+
+**What the arc proved against itself.** Its own census carried four wrong adjacency figures for four review rounds — 0-based fence indexes compared against 1-based mdast line numbers — inside the probe whose subject is unverifiable numbers. Those figures were PRODUCED, not retyped, and were wrong anyway because the producer was. And the acceptance checker written to bind one document's numbers to a command turned out narrower than its own claims in five ways, and was deleted rather than widened a fourth time. A pointer records where a figure came from; it cannot record that the figure is right, and neither can a producer that is wrong.
+
 ## BL-SPECLINT-RED-TRUTH-PROBE — a declared `red=` that cannot be red for its stated reason, and nothing executes it to find out — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
 
 **Status:** CLOSED 2026-08-28 (`feat/speclint-red-truth-probe`), demoted to a documented limit rather than built · **Filed:** 2026-08-27 (owner-directed, `docs/ledger-lim-mechanization-rows`) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM as filed · **Class:** spec-lint mechanization · **Effort:** M as filed
