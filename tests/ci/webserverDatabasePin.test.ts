@@ -30,7 +30,11 @@ const FILTER_VARS = [
   "STEP3_LIVE_BUNDLE_ONLY",
 ] as const;
 
-const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::|$)/;
+// Case-insensitive because DNS names are: LOCALHOST is a loopback host and a
+// case-sensitive regex rejected it, failing on correct configuration. Both the bracketed
+// and bare IPv6 forms are accepted, since `URL.host` keeps brackets and other readers
+// strip them.
+const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost|\[::1\]|::1)(?::|$)/i;
 const DB_KEYS = ["DATABASE_URL", "TEST_DATABASE_URL"] as const;
 
 const ROOT = process.cwd();

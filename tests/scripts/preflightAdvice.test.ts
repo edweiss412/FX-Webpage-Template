@@ -51,8 +51,9 @@ const EXPECTED_WARNING = [
   "      Test helpers no longer honour it (only the two rows in",
   "      tests/db/_validationEnvAllowlist.ts do), but the APP SERVER does: route handlers",
   "      resolve TEST_DATABASE_URL ?? DATABASE_URL, so a locally booted server reads validation.",
-  "      Playwright pins a loopback value on every webServer, so `pnpm test:e2e` is safe; a",
-  "      hand-started `pnpm dev` is not.",
+  "      Playwright pins a loopback value on every server it STARTS. A server already",
+  "      listening on the port is REUSED as-is and keeps whatever database it was started",
+  "      with, so a hand-started `pnpm dev` stays on validation even under `pnpm test:e2e`.",
   "      To point a local run at local Postgres, override the variable itself:",
   `        TEST_DATABASE_URL=${LOOPBACK} <cmd>`,
   "      Setting DATABASE_URL does not work, because TEST_DATABASE_URL is the left `??` operand.",
@@ -67,17 +68,23 @@ function runPreflight(testDatabaseUrl: string) {
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-/** The TEST_DATABASE_URL warning block, from its first line to the blank line or end. */
-function warningBlock(stderr: string): string {
-  const lines = stderr.split("\n");
-  const start = lines.findIndex((l) => l.startsWith("WARN: TEST_DATABASE_URL is NON-LOOPBACK"));
-  if (start === -1) return "";
-  let end = start + 1;
-  // `lines[end]` is `string | undefined` under noUncheckedIndexedAccess, so bind it first.
-  for (let next = lines[end]; next !== undefined && /^\s{2,}\S/.test(next); next = lines[end]) {
-    end += 1;
-  }
-  return lines.slice(start, end).join("\n");
+/**
+ * Everything from the warning's first line to the END of stderr.
+ *
+ * Deliberately NOT a block extractor with a continuation rule. One was tried, walking while
+ * the next line matched `/^\s{2,}\S/`, and it terminated on a blank line, a whitespace-only
+ * line, a column-zero line, or a line indented by a single space -- so anything appended after
+ * any of those was invisible to the equality assertion, and contradictory copy could sit in
+ * stderr with the guard green. Slicing to the end has no boundary to get wrong: text appended
+ * anywhere after the warning changes the comparand and fails.
+ *
+ * This warning is the LAST thing preflight defers, so the slice is exactly the warning today.
+ * If a later warning is added after it, this test fails and the expected block is updated with
+ * it, which is the correct direction: a new trailing warning is a copy change like any other.
+ */
+function warningOnward(stderr: string): string {
+  const start = stderr.indexOf("WARN: TEST_DATABASE_URL is NON-LOOPBACK");
+  return start === -1 ? "" : stderr.slice(start).trimEnd();
 }
 
 describe("preflight's non-loopback TEST_DATABASE_URL warning", () => {
@@ -96,6 +103,6 @@ describe("preflight's non-loopback TEST_DATABASE_URL warning", () => {
   it("emits exactly the expected warning", () => {
     // Equality, so ANY edit fails: a reworded broken remedy, an inverted polarity, a
     // contradictory appended clause, a corrupted DSN, or a wrong variable name.
-    expect(warningBlock(runPreflight(REMOTE).stderr)).toBe(EXPECTED_WARNING);
+    expect(warningOnward(runPreflight(REMOTE).stderr)).toBe(EXPECTED_WARNING);
   });
 });

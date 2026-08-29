@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { CAPTURE_LAUNCH_ARGS } from "./scripts/capture-launch-args";
+import { localDatabaseUrl } from "./scripts/local-database-url";
 
 // Local sibling-worktree escape hatch: a LIVE sibling session's dev server on
 // :3000 would be silently reused (reuseExistingServer) and serve the WRONG
@@ -277,10 +278,8 @@ export default defineConfig({
         // load `.env.local` INSIDE this server, so an absent key lets the remote value
         // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
         // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
-        DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-        TEST_DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        DATABASE_URL: localDatabaseUrl(),
+        TEST_DATABASE_URL: localDatabaseUrl(),
       },
       url: `http://127.0.0.1:${E2E_PORT}`,
       reuseExistingServer: !process.env.CI,
@@ -314,10 +313,8 @@ export default defineConfig({
         // load `.env.local` INSIDE this server, so an absent key lets the remote value
         // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
         // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
-        DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-        TEST_DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        DATABASE_URL: localDatabaseUrl(),
+        TEST_DATABASE_URL: localDatabaseUrl(),
       },
       url: "http://localhost:3001",
       // false (not !CI): the gallery e2e MUST run against a freshly BUILT
@@ -351,10 +348,8 @@ export default defineConfig({
         // load `.env.local` INSIDE this server, so an absent key lets the remote value
         // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
         // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
-        DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-        TEST_DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        DATABASE_URL: localDatabaseUrl(),
+        TEST_DATABASE_URL: localDatabaseUrl(),
       },
       url: "http://localhost:3002",
       reuseExistingServer: !process.env.CI,
@@ -386,10 +381,8 @@ export default defineConfig({
         // load `.env.local` INSIDE this server, so an absent key lets the remote value
         // straight back in. Both names carry the same LOCAL DSN. Rationale and probes:
         // docs/superpowers/specs/ci/2026-08-28-local-e2e-webserver-validation-pooler.md
-        DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-        TEST_DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        DATABASE_URL: localDatabaseUrl(),
+        TEST_DATABASE_URL: localDatabaseUrl(),
       },
       url: "http://localhost:3003",
       reuseExistingServer: !process.env.CI,
@@ -456,10 +449,8 @@ export default defineConfig({
         // The key is PINNED rather than dropped: `next dev` loads `.env.local` itself and
         // an explicit value in this env wins, where an absent one would let the remote
         // value straight back in. Both names carry the same LOCAL DSN.
-        DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-        TEST_DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        DATABASE_URL: localDatabaseUrl(),
+        TEST_DATABASE_URL: localDatabaseUrl(),
         TEST_AUTH_SECRET: "test-secret-fixture",
       },
       url: "http://localhost:3004",

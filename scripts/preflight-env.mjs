@@ -149,7 +149,8 @@ if (!skipClaims) {
 // local DB ✓` and kept going — which is exactly what happened on 2026-08-26, when db
 // suites honouring TEST_DATABASE_URL seeded and published shows on validation and its
 // notify cron mailed nine alerts between 01:10 and 03:10 CDT.
-const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])$/i;
+// hostOf() strips IPv6 brackets, so the bare `::1` is what reaches this, never `[::1]`.
+const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|::1)$/i;
 function hostOf(url) {
   try {
     return new URL(url).hostname.replace(/^\[|\]$/g, "");
@@ -193,8 +194,9 @@ for (const key of ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"]) {
         `      Test helpers no longer honour it (only the two rows in`,
         `      tests/db/_validationEnvAllowlist.ts do), but the APP SERVER does: route handlers`,
         `      resolve TEST_DATABASE_URL ?? DATABASE_URL, so a locally booted server reads validation.`,
-        "      Playwright pins a loopback value on every webServer, so `pnpm test:e2e` is safe; a",
-        "      hand-started `pnpm dev` is not.",
+        "      Playwright pins a loopback value on every server it STARTS. A server already",
+        "      listening on the port is REUSED as-is and keeps whatever database it was started",
+        "      with, so a hand-started `pnpm dev` stays on validation even under `pnpm test:e2e`.",
         `      To point a local run at local Postgres, override the variable itself:`,
         `        TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres <cmd>`,
         "      Setting DATABASE_URL does not work, because TEST_DATABASE_URL is the left `??` operand.",

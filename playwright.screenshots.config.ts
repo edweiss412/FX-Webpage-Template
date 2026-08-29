@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { CAPTURE_LAUNCH_ARGS } from "./scripts/capture-launch-args";
+import { localDatabaseUrl } from "./scripts/local-database-url";
 
 process.env.ENABLE_TEST_AUTH ??= "true";
 process.env.TEST_AUTH_SECRET ??= "test-secret-fixture";
@@ -174,10 +175,8 @@ export default defineConfig({
         // The key is PINNED rather than dropped: `next dev` loads `.env.local` itself and
         // an explicit value in this env wins, where an absent one would let the remote
         // value straight back in. Both names carry the same LOCAL DSN.
-        DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-        TEST_DATABASE_URL:
-          process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        DATABASE_URL: localDatabaseUrl(),
+        TEST_DATABASE_URL: localDatabaseUrl(),
         TEST_AUTH_SECRET: "test-secret-fixture",
       },
       url: "http://localhost:3004",

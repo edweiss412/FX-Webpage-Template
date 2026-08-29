@@ -392,6 +392,23 @@ one for the same reason. T3 asserts on the child process's real stdout, not on t
   measuring the wrong package. That is the intended direction: the premise is about binding, and a
   changed layout is a fact worth surfacing.
   *Re-file trigger:* the premise failing because the two resolutions converged.
+- **A REUSED server is not pinned, and the pin cannot reach it.** Every local entry except port
+  3001 sets `reuseExistingServer: !process.env.CI`, and Playwright's web-server plugin returns
+  without launching anything when the URL already answers, so `webServer.env` is never applied. A
+  developer with `pnpm dev` already running on :3000 therefore runs the whole suite against a
+  server that kept whatever database it was started with, which for a plain `pnpm dev` is
+  `.env.local`'s validation pooler. The pin fixes the case where Playwright starts the server,
+  which is CI and a clean local run; it cannot fix the case where Playwright starts nothing.
+  Turning reuse off would cost a full boot on every local run and break the sibling-worktree
+  escape hatch `E2E_PORT` exists for, so this is a limit rather than a repair, and the preflight
+  warning now states it in as many words instead of claiming `pnpm test:e2e` is safe.
+  *Re-file trigger:* an incident where a reused server writes to validation, or a cheap way to
+  assert a reused server's database before the suite runs.
+- **An ambient non-loopback `DATABASE_URL` is refused, not forwarded.** The pin resolves through
+  `localDatabaseUrl()` (`scripts/local-database-url.ts`), which honours the ambient value only
+  when it is itself loopback. Reading `process.env.DATABASE_URL` bare, as the first version did
+  and as the pre-existing :3004 entry had always done, moved the hole one variable to the left
+  rather than closing it.
 - **T1 discovers configs by declaration, anywhere in the repo, so the subdirectory case is covered
   rather than deferred.** An earlier draft scoped discovery to `playwright*.config.ts` at the root
   and recorded the subdirectory case as a limit on the ground that no such file existed. That ground
