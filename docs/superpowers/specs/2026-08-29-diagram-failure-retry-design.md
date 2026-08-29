@@ -97,7 +97,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 | U-2 | **RATIFIED 2026-08-29.** A separate element on `retrying → idle` costs a second unconditional GET; the surviving element costs none | §4.0.5 | **Task P2, run.** `tests/e2e/image-remount-request-count.probe.spec.ts`, 2 passed in Chromium: the remount arm issued exactly one further request, the same-node arm zero. Only node reuse varies — same URL, same headers, same interception, `loading="eager"` on every element, explicit load awaits — and the count window opens after the first load is asserted served |
 | U-3 | **REFUTED 2026-08-29, and the design changed.** Covering is NOT what defers a lazy image; being off-screen is. The retry is reached by a TAP, which implies the cell is in the viewport, so no `loading` override is needed | §4.0.5 | **Task P3, run.** `tests/e2e/covered-image-load-eligibility.probe.spec.ts`, 3 passed in Chromium. Lazy+covered+off-screen deferred; eager+covered+off-screen requested; lazy+UNCOVERED+off-screen ALSO deferred — which is the arm that refutes the covering mechanism |
 | U-4 | **RATIFIED 2026-08-29.** The candidate SET is stable; the browser's PICK within it moves with device scale; every pick is a ladder tier and never the original | §3 | **Task P4, run.** `tests/e2e/srcset-candidate-stability.probe.spec.ts`, 2 passed in Chromium. The rendered `srcset` was byte-identical at DPR 1 and DPR 3 while the requested tier changed between them, which both confirms the bound and proves the fixture discriminates rather than being insensitive |
-| U-5 | A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Plan Task P5**, the meta-test itself: it must fail on a planted unclassified declaration, including a `Record` and an object literal, and every `per-item` row must carry a clear path or the exact words `deliberately none`, or it is not a cover |
+| U-5 | **RATIFIED 2026-08-29, and it proved itself on first contact.** A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Task P5, run.** `tests/components/diagrams/perItemStateLifetime.probe.test.ts`, 7 passed. Four planted shapes are each SEEN and each RED while unclassified. Its first run against the live tree found `prefersReducedMotion` (`GalleryLightbox.tsx:257`), a member every hand-derivation had missed |
 | U-6 | Clearing session state when an item goes unavailable, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 8**, not a probe: this is feature behaviour, so it is settled where its implementation lands. Each retained-state shape is planted and the FIRST frame after the flip asserted |
 
 Two things deliberately NOT in this table, because they are settled by reading rather than by
@@ -341,8 +341,15 @@ work creates, under `tests/components/diagrams/`, named for per-item state lifet
 3. The test fails when the scanner finds a declaration the registry does not classify.
 
 That is what makes it fail by default: a member added later is unclassified, so the suite
-reds until someone decides. (UNRATIFIED, U-5 — Task P5 settles it, by planting shapes the
-old grep missed.) AC-17 is that test. The classification is a judgement the
+reds until someone decides.
+
+**RATIFIED, and the evidence is better than the argument.** On its very first run against the
+live tree the scanner found a member no hand-derivation had: `prefersReducedMotion`
+(`GalleryLightbox.tsx:257`). Both greps that preceded it — the one this section rejects, and
+the tightened one used to draft this section — matched only `const [x, setX] = useState`, and
+this declaration is `const [prefersReducedMotion] = useState(...)`, a single-element
+destructure with no setter. Neither could see it. That is not a hypothetical gap in a lexical
+scan; it is the gap, found in this file's own subject, by the replacement, immediately. AC-17 is that test. The classification is a judgement the
 registry records; the ENUMERATION is mechanical, and the enumeration is the half that was
 previously being trusted to a grep.
 
