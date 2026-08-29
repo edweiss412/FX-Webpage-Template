@@ -40,8 +40,19 @@ describe("/help prose typography layer — structural wiring", () => {
     // A reading measure (DESIGN.md §2.5: 65–75ch). Retargeted with the cap move:
     // the literal now lives on the --help-measure declaration rather than on a
     // max-width, because the measure is applied to the children through a
-    // registered length. Not weakened — this still fails if the measure disappears.
-    expect(region, "must cap the reading measure").toMatch(/--help-measure:\s*\d+ch/);
+    // registered length.
+    //
+    // EXACTLY 70ch, not `\d+ch`. The pattern this replaces accepted any integer,
+    // so a one-line 70ch -> 69ch edit passed here, passed the typography spec
+    // (which asserts only a 76ch ceiling), stayed inside the card suite's 28-75ch
+    // band, and still distinguished the bleed — while shrinking every capped
+    // desktop child from 704.4px to about 694.3px, which is precisely what AC-2
+    // forbids. A guard that accepts a family of values cannot enforce a criterion
+    // that names one, and AC-2's staged violation only ever removed the cap, so
+    // it could not settle the wrong-value case.
+    expect(region, "must cap the reading measure at exactly 70ch").toMatch(
+      /--help-measure:\s*70ch\b/,
+    );
     // List markers restored (preflight strips them).
     expect(region, "ul marker restored").toMatch(/list-style:\s*disc/);
     expect(region, "ol marker restored").toMatch(/list-style:\s*decimal/);

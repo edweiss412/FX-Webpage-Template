@@ -56,8 +56,29 @@ const cardHrefs = (container: HTMLElement) =>
  * edit to a pinned constant rather than a silent drift the sampling has to
  * rediscover.
  */
-describe("derived grid minima are pinned to their derivations", () => {
+describe("every layout constant the spec names is pinned to its authored site", () => {
   const errorsSrc = readFileSync(join(process.cwd(), "app/help/errors/page.tsx"), "utf8");
+  const globalsSrc = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+  /**
+   * THE CLASS, not the three instances. Every one of these numbers is chosen by a
+   * derivation in the spec, and a guard that accepts a FAMILY of values cannot
+   * enforce a criterion that names ONE of them. Diff review found that shape twice
+   * from opposite directions: the 22rem minimum had no pin at all, and the measure
+   * had a pin that matched any integer `ch`, so `70ch` to `69ch` passed every guard
+   * in the repo while moving every capped child on every help page.
+   *
+   * A staged violation that DELETES a value cannot catch a value that is merely
+   * WRONG, which is why removal-only violations left both gaps open.
+   */
+  it("the measure is exactly 70ch, the value AC-2 preserves", () => {
+    // AC-2: every /help/* page other than the tour and the errors page renders at
+    // the same widths as before. The cap moved; it was not resized.
+    expect(globalsSrc).toMatch(/--help-measure:\s*70ch\b/);
+    expect(globalsSrc, "the registered length must stay a <length>").toMatch(
+      /@property --help-measure\s*\{[^}]*syntax:\s*"<length>"/,
+    );
+  });
 
   it("the tour card grids carry the 22rem minimum, guarded by min(...,100%)", () => {
     const track = "grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]";

@@ -82,3 +82,27 @@ That is the SAME class as round 2's `22rem` finding: sample coverage, not assert
 It recurred here in the repair for a different finding, which is the honest measure of how
 easily this class hides — and it was caught by staging the violation rather than by
 reasoning about the assertion, exactly as the AC-1c row above was.
+
+---
+
+## Round 3, and the class it closed
+
+Round 3 returned ONE finding, down from four and four. The guard on AC-2's measure matched
+`--help-measure:\s*\d+ch`, so a one-line `70ch` to `69ch` edit passed it, passed the
+typography spec (a 76ch ceiling only), stayed inside the card suite's 28-75ch band and
+still distinguished the bleed — while shrinking every capped desktop child from 704.4px to
+about 694.3px, which is exactly what AC-2 forbids.
+
+**The reason no violation caught it is the general lesson.** Every staged violation in the
+table above REMOVES something: the cap, the bleed, the `grid` class, the `min()`, the card.
+A removal-only violation cannot catch a value that is merely WRONG, and AC-2's row tested a
+removed cap. The two findings that shipped in this class arrived from opposite directions —
+`22rem` had no pin at all, `70ch` had a pin that accepted any integer — and both survived
+because the criterion names one value while the guard admitted a family.
+
+Closed as a class rather than an instance: every layout constant the spec derives is now
+pinned to its authored site at its exact value, in one block that states why.
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| AC-2, the measure's VALUE | `--help-measure: 70ch` changed to `69ch` | must cap the reading measure at exactly 70ch: expected `--help-measure: 69…` to match `/--help-measure:\s*70ch\b/`, in BOTH the prose-layer guard and the constant pin | RED OBSERVED |
