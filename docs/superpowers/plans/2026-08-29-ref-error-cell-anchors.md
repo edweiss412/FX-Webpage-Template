@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Next.js 16, `xlsx` (SheetJS), Vitest + Testing Library, `pnpm spec:lint`, `codex-guard`.
 
-**Status:** DRAFT 2026-08-29.
+**Status:** APPROVED 2026-08-29 by cross-model review at its fifth round (R1 to R4 returned 12, 9, 5 and 1 findings, every one repaired by class sweep in the same round; R5, authorized past the four-round cap by bl-orch at 13:44 CDT, returned none; rows in `docs/review-rounds/feat/ref-error-cell-anchors/`, the plan stage's round-economy record beside them). Implementation and closeout are the Opus pane's (§8).
 
 **Spec:** `docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md` (canonical). Branch `feat/ref-error-cell-anchors`, worktree `/Users/ericweiss/FX-worktrees/reflink`. Closes no ledger row; files none.
 
