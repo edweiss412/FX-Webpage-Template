@@ -488,7 +488,7 @@ an assertion derived from the data source:
   (`app/help/daily-rhythm/page.mdx`, `app/help/getting-started/page.mdx`,
   `app/help/whats-different/page.mdx`, and five pages under `app/help/admin/`). Prose links to
   admin routes are ordinary authoring on this corpus, which puts the failure squarely inside the
-  threat fence rather than outside it. The tour page happens to carry none today — all seven of its
+  threat fence rather than outside it. The tour page happens to carry none today — all eight of its
   admin references are card hrefs — so the bare form would have passed on the day it shipped and
   broken on an ordinary edit later, which is the worst available failure shape.
 
@@ -496,6 +496,14 @@ an assertion derived from the data source:
   keyed on an attribute rather than on nesting depth or a class-name substring, so it survives this
   branch's own regrouping of the cards, and a reviewer can see what counts as a card by reading the
   page.
+
+**Two arms beyond set equality, both added after review.** Set equality alone is blind to a
+DUPLICATED href covering one slug twice while another goes uncarded, so the guard also asserts
+cardinality against the admin-surface count. And set equality says nothing about where a marked
+anchor SITS: a card group that loses its `grid` class, or a bare marked link in prose, satisfies
+this guard while vanishing from every assertion in §3.5. The layout suite therefore asserts that
+marked anchors inside measured grids equal marked anchors on the page, which is the bridge between
+the two guards. Neither implies the other, and the gap between them was silent.
 
 **Why this guard is not enrolled in the source-mutation registry.** The registry mutates a module
 named by `sourcePath` and decides KILLED against a suite. This guard has no such module: after the
@@ -523,9 +531,26 @@ assertions live with the other `/help` real-browser typography work and are deri
 live paragraph metrics on the same page rather than hardcoded pixel values, matching the
 anti-tautology posture `tests/e2e/help-typography.spec.ts` already states in its header.
 
-The contract: at every desktop viewport in the probe matrix, each card's body measure clears a
-floor derived from `DESIGN.md` §2.5, and the assertion cannot pass by measuring a container that
-is not the text.
+**The floor is NOT derived from `DESIGN.md` §2.5, and the sentence this replaces said it was.**
+§2.5's 65-75ch band is a cap on long-form prose; §1.1 and AC-1 both ratify that no multi-column
+card on an 856px column can reach its lower bound, so AC-1's floor is 28ch, derived in §8 from
+this page's own measured content. §2.5 supplies the CEILING, which does bind, on the single-column
+`col-span-full` card. Corrected here because the two statements sat in one document.
+
+The contract, in full, because a partial statement of it is what let assertions be added and
+believed complete:
+
+- every card's body measure sits between the 28ch floor and §2.5's 75ch ceiling, at every viewport
+  in the matrix, measured per element in that element's own font;
+- the column sequences hold as COUNTS, including at the viewport where each REJECTED minimum would
+  have switched (§3.2, §3.2a) — a value the other samples cannot distinguish;
+- the bled grids equal the `main` content width and exceed a capped `.help-prose` sibling;
+- every track sits inside its container, and no grid's content overflows its own box, on both pages;
+- every marked card anchor sits inside a measured grid, which is the bridge to §3.4's guard;
+- §4's rows are asserted, including the shared-height half of its last row.
+
+No assertion may pass by measuring a container that is not the text, and none may pass on an empty
+or filtered collection: every population is pinned to a count derived from the page.
 
 ---
 

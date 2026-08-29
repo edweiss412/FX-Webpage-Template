@@ -80,7 +80,14 @@ const MOBILE_BASELINE = { vw: 390, cols: 1, measureCh: 31.4 } as const;
  *  `max-w-6xl` binds and 856 is independent of it. Asserting a scrollbar's width is
  *  not asserting the layout. 1024 is covered by the two claims below instead, both
  *  scrollbar-independent, and neither satisfied by a grid that never bled. */
-const BLED_GRID_WIDTH: ReadonlyArray<{ vw: number; width: number }> = [{ vw: 1280, width: 856 }];
+const BLED_GRID_WIDTH: ReadonlyArray<{ vw: number; width: number }> = [
+  { vw: 1280, width: 856 },
+  // §4 names 1440 alongside 1280 and nothing sampled it. It is not a duplicate of
+  // 1280: it is the assertion that `max-w-6xl` CAPS the shell. Without that cap a
+  // 1440px viewport gives a 1144px main column, so this is the only sample where
+  // the grid growing without bound is distinguishable from the grid being held.
+  { vw: 1440, width: 856 },
+];
 
 /** The viewports where a bled grid must be measurably wider than a capped sibling.
  *  This is the direct statement of the change: `.help-prose > p` still stops at the
@@ -191,6 +198,19 @@ async function readTour(page: Page) {
           fullSpanCount: fullSpan.length,
           authoredSpanCount: authoredSpan.length,
           fullSpanWidths: fullSpan.map(w),
+          // §4 row 7 has two halves: the CARD stays full-width, and its BODY stops
+          // at the measure. The card half is asserted below against the grid width.
+          // The body half was covered only by AC-1's 75ch ceiling, which is a proxy
+          // measured in the card's font rather than the claim itself. `--help-measure`
+          // is an @property-registered <length>, so it computes to px and the claim
+          // can be asserted in the units it is written in.
+          fullSpanBodies: fullSpan.map((c) => {
+            const b = c.querySelector("p") as HTMLElement | null;
+            const declared = parseFloat(
+              getComputedStyle(c).getPropertyValue("--help-measure") || "NaN",
+            );
+            return { body: b ? w(b) : -1, measurePx: Number.isFinite(declared) ? declared : -1 };
+          }),
           measureCh:
             bodies[0] && chOf(bodies[0]) ? +(w(bodies[0]) / chOf(bodies[0])).toFixed(1) : -1,
           // every card body's measure, each in its OWN font context
@@ -313,6 +333,18 @@ test.describe("/help/tour card grids — real-browser layout", () => {
       for (const g of m.grids.filter((grid) => grid.fullSpanCount > 0)) {
         for (const [k, fw] of g.fullSpanWidths.entries()) {
           expect(fw, `full-span card ${k + 1} at ${vw}px`).toBeCloseTo(g.gridWidth, 1);
+        }
+        // The other half of §4 row 7: the card is full-width, its BODY is not.
+        for (const [k, b] of g.fullSpanBodies.entries()) {
+          premiseHolds(
+            `full-span card ${k + 1} resolves --help-measure at ${vw}px`,
+            b.measurePx > 0,
+          );
+          premise(`full-span card ${k + 1} renders a body at ${vw}px`, b.body, 0);
+          expect(
+            b.body,
+            `full-span card ${k + 1} body within the measure at ${vw}px`,
+          ).toBeLessThanOrEqual(b.measurePx + TOL);
         }
       }
     }
