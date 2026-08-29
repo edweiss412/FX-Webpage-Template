@@ -515,3 +515,57 @@ From the impeccable v3 dual gate on `feat/admin-dashboard-row-actions`. The crit
 **Accepted, not fixed.** Pre-existing and file-wide: this branch introduced none of them, and normalizing them here would put a large unrelated prose diff inside a UI close-out commit. It is also almost certainly not one file — the rule applies across `/help`, so the fix is a sweep with its own guard, not a rider. The branch's own prose is correct and is pinned by `tests/help/dashboard-row-actions.test.ts`.
 
 **Un-defer trigger:** a `/help` copy-conformance sweep, or a mechanical guard extending the straight-apostrophe ban to MDX prose.
+
+## Diagram tile chrome — impeccable dual-gate deferrals (2026-08-28)
+
+Both from the invariant-8 critique on `fix/diagram-tile-chrome-consistency`. Neither is a regression from that
+diff: the change relocates the tile's box chrome and touches neither the image's fit nor the tile's labelling.
+Both are deferred under class-sweep exception (a) — each needs a product decision this PR cannot settle — and
+both are recorded here rather than in `BACKLOG.md` because each has a concrete trigger.
+
+### DIAGRAMTILE-LIVE-TILE-UNLABELLED-1 — impeccable P1: only the FAILED tile says which diagram it is (2026-08-28)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that adds a visible label, caption or tooltip
+to `DiagramTile`, or the first report of Doug opening tiles one by one to identify a diagram.
+
+The failed branch renders the diagram's name as visible text, truncated with a `title`
+(`components/admin/wizard/step3ReviewSections.tsx:3892`). The live branch renders no visible name at all. It is
+not an accessibility defect — the anchor's `aria-label` carries `${strippedAlt} (opens in a new tab)`
+(`components/admin/wizard/step3ReviewSections.tsx:3918`), so a screen-reader user can identify every tile. It is
+a SIGHTED-scanning defect, and it inverts the obvious expectation: the tile that worked is anonymous, the tile
+that broke is named.
+
+**Why it matters where it is.** This grid is where Doug confirms diagrams made it into a show before publishing.
+Twelve unlabelled thumbnails at roughly 80px, several of which are pale line drawings, is a grid he can only
+resolve by opening tabs. The failed branch's own code comment makes exactly this argument for naming — "a grid
+of failures read as N identical grey boxes and the reviewer could not tell which sheet tab was missing" — and
+the live branch never answers it.
+
+**Why deferred rather than fixed here.** Class-sweep exception (a). The cheap version is `title={strippedAlt}` on
+the anchor, but a `title` duplicating an existing `aria-label` is a redundancy this project has deliberately
+removed before: the image's `alt` was emptied precisely so a screen reader would not hear the name twice
+(`components/admin/wizard/step3ReviewSections.tsx:3904-3912`). Whether the answer is a hover `title`, a visible
+caption under each tile, or a name revealed on focus is a product decision about a grid whose density is already
+tuned, and it is not one a chrome-relocation PR should take.
+
+### DIAGRAMTILE-OBJECT-COVER-CROPS-1 — impeccable P1: `object-cover` crops stage plots to their middle third (2026-08-28)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that changes `DiagramTile`'s image fit or the
+tile's aspect box, or the first report of a diagram thumbnail looking blank.
+
+The tile is `aspect-4/3` and the image is `object-cover`, so a wide stage plot or a tall floor plan is cropped to
+its centre. Architectural diagrams are mostly white space in the middle; the visible third is frequently the
+emptiest part of the drawing, which is the worst possible crop for recognition. Products that show attachment
+thumbnails — Notion, Figma, Linear — letterbox rather than crop for this reason.
+
+**What this arc changed about it.** Nothing directly, but it is the reason the fix is now clean.
+`object-contain` needs a plate behind the letterbox, and until this diff the plate (`bg-surface-sunken`) was on
+the image itself, so `object-contain` would have letterboxed against the plate's own edge. The plate now sits on
+the anchor, so `object-contain` would letterbox against a ground that already exists and already meets its
+contrast pin. The chrome move did not fix this; it removed the obstacle.
+
+**Why deferred rather than fixed here.** Class-sweep exception (a). Cropping versus letterboxing changes how
+every diagram in the product reads, on both the admin grid and — by the consistency argument this very spec
+makes — the crew gallery, which uses `object-cover` too (`components/diagrams/Gallery.tsx:412`). Taking it
+unilaterally inside a PR whose stated scope is which ELEMENT carries the border would be exactly the
+"spending a ratified design claim on a preference" that `BL-DIAGRAM-TILE-CHROME-CONSISTENCY` was filed to avoid.

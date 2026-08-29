@@ -603,6 +603,7 @@ for (const { mode, width, height, maxRatio } of MODES) {
         const i = img.getBoundingClientRect();
         return {
           position: cs.position,
+          boxSizing: cs.boxSizing,
           imgBorderLeft: parseFloat(ics.borderLeftWidth),
           borderLeft: parseFloat(cs.borderLeftWidth),
           borderRight: parseFloat(cs.borderRightWidth),
@@ -623,17 +624,31 @@ for (const { mode, width, height, maxRatio } of MODES) {
 
     expect(b.position, `tile anchor is a positioned containing block @ ${mode}`).toBe("relative");
 
-    // The IMAGE carries the tile's border, which is where it has always been.
-    // Pinned on its own merits: removing it is a visible regression on a bordered
-    // grid of thumbnails and nothing else in this suite would notice. It is NOT
-    // here to discriminate WHERE the border lives — measured, an anchor-side
-    // border renders in the same place — but the image is where spec §15's
-    // painted-child family counts it, and a next/image adoption is not the arc
-    // that moves it.
+    // Spec §7 dimensional invariant, row 2: the anchor's OUTER box is unchanged
+    // by the border it gained, because a border-box element spends the border on
+    // its content box. Asserting the MECHANISM is what a single tree can prove;
+    // the consequence follows from it. Without this the row had no check at all
+    // (plan review R2 finding 6) — the padding-box comparison below relates the
+    // image to the anchor's CURRENT padding box and says nothing about whether
+    // the outer box moved.
+    expect(b.boxSizing, `tile anchor is border-box @ ${mode}`).toBe("border-box");
+
+    // The tile's BOX carries the border, and the box is the ANCHOR (spec
+    // docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md §1).
+    //
+    // This pin used to require the border on the IMAGE, and its own comment said
+    // it was not there to discriminate placement: an anchor-side border was
+    // measured to render in the same place, and the image was simply where §15's
+    // painted-child family counted it because "a next/image adoption is not the
+    // arc that moves it". This IS that arc. So the pin INVERTS rather than being
+    // deleted — a pin that stops discriminating is worse than one that
+    // discriminates, because nothing would then stop a later diff putting the
+    // chrome back on the image.
     expect(
-      b.imgBorderLeft,
-      `tile image carries its own border, so the grid stays bordered @ ${mode}`,
+      b.borderLeft,
+      `tile anchor carries the box border, so the grid stays bordered @ ${mode}`,
     ).toBeGreaterThan(0);
+    expect(b.imgBorderLeft, `tile image carries no border of its own @ ${mode}`).toBe(0);
 
     const padW = b.anchorW - b.borderLeft - b.borderRight;
     const padH = b.anchorH - b.borderTop - b.borderBottom;
