@@ -178,15 +178,27 @@ for (const key of ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"]) {
   const v = process.env.TEST_DATABASE_URL;
   const host = v ? hostOf(v) : null;
   if (host && !LOOPBACK_HOST.test(host)) {
+    // The remedy names TEST_DATABASE_URL because that is the LEFT operand of the `??` at
+    // every site resolving a database from it, so setting DATABASE_URL cannot win. An
+    // earlier version advised exactly that, and also told the reader nothing honoured the
+    // variable, which is what made people stop reading: the app server honours it.
+    // tests/scripts/preflightAdvice.test.ts asserts this block by EQUALITY, so a deliberate
+    // copy change updates the expected block there in the same commit.
     deferredWarnings.push(
-      `WARN: TEST_DATABASE_URL is NON-LOOPBACK (${host}) — this is the VALIDATION ` +
-        `deployment, and it is set that way on purpose for the schema-parity gates.\n` +
-        `      Anything that honours this variable writes to validation, where the notify ` +
-        `cron sends REAL email to Doug.\n` +
-        `      Since 2026-08-26 no test helper or suite honours it ` +
-        `except the two rows in tests/db/_validationEnvAllowlist.ts, so this line is\n` +
-        `      informational. Export DATABASE_URL (loopback) to point local DB runs at a ` +
-        `specific local Postgres.`,
+      [
+        `WARN: TEST_DATABASE_URL is NON-LOOPBACK (${host}). This is the VALIDATION deployment, and it`,
+        `      is set that way on purpose for the schema-parity gates.`,
+        `      Anything that honours this variable writes to validation, where the notify cron sends`,
+        `      REAL email to Doug.`,
+        `      Test helpers no longer honour it (only the two rows in`,
+        `      tests/db/_validationEnvAllowlist.ts do), but the APP SERVER does: route handlers`,
+        `      resolve TEST_DATABASE_URL ?? DATABASE_URL, so a locally booted server reads validation.`,
+        "      Playwright pins a loopback value on every webServer, so `pnpm test:e2e` is safe; a",
+        "      hand-started `pnpm dev` is not.",
+        `      To point a local run at local Postgres, override the variable itself:`,
+        `        TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres <cmd>`,
+        "      Setting DATABASE_URL does not work, because TEST_DATABASE_URL is the left `??` operand.",
+      ].join("\n"),
     );
   }
 }
