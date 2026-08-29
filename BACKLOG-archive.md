@@ -1,3 +1,30 @@
+## BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-08-29 (`fix/attention-panel-left-overflow`, PR #941) · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.
+
+**What is wrong.** The attention menu panel is `w-[min(400px,calc(100vw-32px))]` with `right-0`, i.e. sized against the VIEWPORT while anchored to a wrapper that is inset from the viewport's right edge. At phone widths the width it takes exceeds the room available to the LEFT of that anchor, so the panel's left edge lands outside the clipping `ReviewModalShell` panel and the leading edge of every row is cut off. `useFitWithinClip` does not catch it: that hook caps `max-height` only, by design and by its own documented contract.
+
+**Reachability:** PROBED 2026-08-27 at 375x667, in real Chromium, both surfaces:
+
+```
+wizard    menu.left = -18.85   clip.left = 0   (this branch)
+published menu.left = -36.00   clip.left = 0   menu.width 343, wrapper right edge 307
+```
+
+The published number was taken against UNMODIFIED code — a temporary probe added to `popover-clip-fit.spec.ts` and removed after reading — so the defect is pre-existing on main and is WORSE on the shipped surface than on the new one. Nothing had looked before: `popover-clip-fit.spec.ts` asserts `menu.bottom <= panel.bottom` and has never asserted a horizontal edge.
+
+**Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
+
+**Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
+
+**How it was resolved.** Migrated onto the shared `lib/popover` placement stack. The clamp at `lib/popover/position.ts:138-139` is the repair; a width cap is the wrong mechanism at EVERY width, because narrowing a right-anchored panel moves its left edge further left (capped to the clip bounds at 375 the panel would start at -52, worse than the -36 it began at). The attention menu was the LAST `useFitWithinClip` consumer, so that hook and its 1768-line suite retired with it.
+
+**The row's own numbers were corrected in passing.** It recorded -18.85 on the wizard and -36.00 on the published menu and read the difference as the shipped surface being worse. They are ONE defect measured at two animation phases: `343 × 0.95 = 325.85` against a right edge pinned at 307 by `origin-top-right`. At rest both surfaces overhang by 36px. The wizard figure had been measured mid-entrance, and `transform` is a useless settle oracle here because Tailwind v4 compiles `scale-*` to the individual `scale` property.
+
+**Three spec decisions were reversed by implementation evidence**, recorded in `docs/superpowers/specs/admin/2026-08-28-attention-menu-clip-placement.md` §3.1a: no portal (portaling preserves the focus trap but appends the panel late in the modal, breaking sequential focus ORDER from the pill), the placement anchor is the panel's offset parent rather than the pill (the wrapper carries the title block and is taller, so anchoring to the pill lifted the panel over the status strip), and the CSS `top`/`right` fallback is load-bearing rather than vestigial.
+
+**One consequence is filed, not fixed.** Containment necessarily places the open menu over the published toggle at 375 — the old menu sat beside it only because it was overflowing — which is an auto-open product decision for the owner, filed as `BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE`. Review: 12 Codex rounds across three stages, 47 findings, all accepted; filings in `docs/review-rounds/fix/attention-panel-left-overflow/`.
+
 ## BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE — Escape can close the whole published modal instead of just the attention menu, about one time in seven — ✅ RESOLVED
 
 **Status:** RESOLVED 2026-08-28 (`fix/published-attention-escape-race`, PR #940) · **Filed:** 2026-08-28 (`fix/published-attention-resolve-red`, Task 1 attribution) · **Facing:** product · **Severity:** MEDIUM-LOW (an operator who presses Escape to dismiss the auto-opened attention menu occasionally loses the entire review modal, and any scroll position and section they had reached goes with it; nothing is corrupted and reopening restores the state) · **Class:** listener-lifecycle race · **Effort:** S to attribute the losing interleaving, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before the interleaving is known, and that attribution is this row's first task.

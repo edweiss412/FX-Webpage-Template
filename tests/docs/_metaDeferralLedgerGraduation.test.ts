@@ -98,6 +98,34 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/attention-panel-left-overflow (2026-08-29, PR #941): the attention menu
+  // panel was sized against the VIEWPORT while right-anchored inside the review
+  // modal's clip, so its left edge landed 36px outside that clip on BOTH review
+  // modals at phone widths. It migrates onto the shared lib/popover placement
+  // stack, whose x-clamp is the actual repair — a width cap is the wrong
+  // mechanism at every width, since narrowing a right-anchored panel moves its
+  // left edge further left. It was the LAST useFitWithinClip consumer, so that
+  // hook and its suite retire with it.
+  //
+  // The row's own account of the defect was corrected in passing: it recorded
+  // -18.85 on the wizard and -36.00 on the published menu and read the gap as the
+  // shipped surface being worse. They are ONE defect measured at two animation
+  // phases (343 * 0.95 = 325.85 against a right edge pinned by origin-top-right),
+  // and at rest both surfaces overhang by 36px.
+  //
+  // Three spec decisions were reversed by implementation evidence and are
+  // recorded in that spec's §3.1a rather than left for a reader to find by
+  // diffing code against spec: no portal (it preserves the focus trap but breaks
+  // sequential focus ORDER from the pill), the anchor is the panel's offset
+  // parent and not the pill, and the CSS top/right fallback is load-bearing.
+  //
+  // One consequence is filed rather than fixed: containment necessarily places
+  // the open menu over the published toggle at 375, which is an auto-open product
+  // decision (BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE) and not geometry.
+  {
+    id: "BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW",
+    provenance: "fix/attention-panel-left-overflow",
+  },
   // fix/published-attention-escape-race (2026-08-28, PR #940): Escape could close the
   // whole published review modal whenever the attention panel was down for a frame,
   // losing the operator's scroll position and section. Both candidates the row named

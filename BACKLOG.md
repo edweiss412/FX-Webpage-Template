@@ -265,25 +265,6 @@ overlaps: true      pointer events intercepted by an attention monitoring row
 
 **Prerequisite:** an owner decision from Eric on whether auto-open should be suppressed or repositioned at phone widths. The geometry to implement any of the three already exists — `lib/popover/position.ts` selects and flips sides — so this is gated on the call, not on the mechanism.
 
-### BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals
-
-**Status:** IN PROGRESS · **Branch:** fix/attention-panel-left-overflow · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.
-
-**What is wrong.** The attention menu panel is `w-[min(400px,calc(100vw-32px))]` with `right-0`, i.e. sized against the VIEWPORT while anchored to a wrapper that is inset from the viewport's right edge. At phone widths the width it takes exceeds the room available to the LEFT of that anchor, so the panel's left edge lands outside the clipping `ReviewModalShell` panel and the leading edge of every row is cut off. `useFitWithinClip` does not catch it: that hook caps `max-height` only, by design and by its own documented contract.
-
-**Reachability:** PROBED 2026-08-27 at 375x667, in real Chromium, both surfaces:
-
-```
-wizard    menu.left = -18.85   clip.left = 0   (this branch)
-published menu.left = -36.00   clip.left = 0   menu.width 343, wrapper right edge 307
-```
-
-The published number was taken against UNMODIFIED code — a temporary probe added to `popover-clip-fit.spec.ts` and removed after reading — so the defect is pre-existing on main and is WORSE on the shipped surface than on the new one. Nothing had looked before: `popover-clip-fit.spec.ts` asserts `menu.bottom <= panel.bottom` and has never asserted a horizontal edge.
-
-**Where it is pinned today.** `tests/e2e/wizard-attention-menu.spec.ts` keeps the clip assertion at 1280x800 and registers the 375x667 case as `test.fixme` naming this row, so the gap is visible in the report rather than absent from it. Re-enable that case as the fix's own red.
-
-**Direction, not yet decided.** The panel cannot express "no wider than the distance from the clip's left edge to my anchor's right edge" in CSS, because that distance is a runtime measurement. So the candidates are: extend `useFitWithinClip` (or a sibling) to cap width the way it caps height; or re-anchor the panel to the modal panel rather than the pill wrapper. The first keeps the anchoring idiom and is where the existing measurement machinery already lives; the second is a bigger change. Whichever wins, it lands on the SHARED frame and both modals get it at once.
-
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Effort:** L (scope floor — design-gated)
