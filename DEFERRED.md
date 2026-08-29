@@ -8,6 +8,24 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### ATTENTION-PILL-PHONE-LEGIBILITY-1 — impeccable P1: the pill now carries discovery alone at phone widths, at 12px in ~108px (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a missed actionable item on a phone, or any arc that opens the review-modal header's action cluster.
+
+`fix/attention-autoopen-suppress-phone` stops the attention menu auto-opening below `sm`, because the panel covered the published toggle at 375 and, on the wizard, the entire chip rail. That change is right and shipped. What it also does is promote the pill from a redundant summary to the ONLY zero-scroll signal that actionable items exist — and the pill was built for the redundant job.
+
+**The measurement.** The pill is `text-xs` (12px semibold) inside the shared header action cluster, which is capped at `max-sm:max-w-40` (160px) by `HEADER_ACTION_CAP` (`components/admin/review/headerActionCap.ts:21`, applied at `components/admin/showpage/PublishedReviewModal.tsx:1096`). The cluster also holds a 44px Close at `gap-2`, leaving roughly 108px for the pill. With both segments populated, "20 issues · 10 monitoring" wraps to two 12px lines under `max-sm:flex-wrap` (`:1128`). Measured live at 375x667 during the arc: the pill renders **84.4px tall**, because it has wrapped.
+
+**Why it matters for Doug specifically.** PRODUCT.md puts him on the venue floor, one-handed, glancing, in variable lighting. A two-line 12px count 8px from a Close button that discards the modal is the wrong shape for that context, and it is now the first and only thing telling him anything is wrong.
+
+**The recommendation from the critique**, kept because it is concrete: below `sm`, demote the monitoring segment to `sr-only` and let the urgent count own the full width at `text-sm`. Monitoring items are by definition the ones that do not need him now.
+
+**Why deferred rather than fixed in that arc.** Class-sweep exception (a): it is a product decision, not a bug fix. Hiding the monitoring count on phones changes what Doug is told at a glance, and "the monitoring segment is not worth 12px of a 108px budget" is a call about his workflow that the arc that removed an auto-open cannot settle. The arc's own change is strictly subtractive and leaves the pill exactly as it was; this asks to make it louder, which is new design on a surface that arc does not otherwise touch.
+
+**What that arc DID close** rather than leave with this: the sibling P1, that its occlusion assertion filtered pill-band interceptions out as "pre-existing", which would have stayed green while an invisible 12px band ate taps on the publish control. The assertion now covers every interceptor.
+
+---
+
 ### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27)
 
 **Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.

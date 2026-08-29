@@ -282,7 +282,36 @@ The repair was folded in as a task and then **split back out on 2026-08-29 by bl
 
 UI surface: `components/admin/showpage/PublishedReviewModal.tsx`, and `components/admin/wizard/Step3ReviewModal.tsx`, since Task 0's probe came back positive. The dual gate is owed before READY.
 
-The machine-checkable `impeccable-gate:` marker line is written HERE at close-out, with the real counts, per the grammar in `tests/docs/_invariant8Closeout.ts`. It is deliberately absent until then, and this plan deliberately does not spell both gate-half names verbatim before that point: the marker's grammar admits `RAN` and `RAN-DEGRADED` and no placeholder, so writing one now would either be a false claim that the gate ran or a malformed line the guard rejects. Naming both halves is what attaches the obligation, so the obligation attaches in the same edit that discharges it. Task 4 owns both.
+The machine-checkable `impeccable-gate:` marker line is written HERE at close-out, with the real counts, per the grammar in `tests/docs/_invariant8Closeout.ts`. Naming both gate halves is what attaches the obligation, so the obligation attaches in the same edit that discharges it. Task 4 owns both.
+
+### 12.1 The invariant-8 dual gate, run 2026-08-29
+
+**Both halves RAN, neither degraded.** The critique's hard invariant is that its two assessments run as isolated sub-agents; they did, in parallel, neither seeing the other's output, so no `RAN-DEGRADED` banner applies. The audit ran against the same diff with the detector evidence the critique's Assessment B had already gathered.
+
+Setup gates: the impeccable context script loaded PRODUCT.md (the script lives in the plugin cache, not in this worktree's `.claude/skills`), register = **product** (admin tool; design SERVES the product), no critique ignore file.
+
+**Scope, stated because it decides what the gate could usefully say.** The UI diff is 54 inserted lines across two files, of which exactly eight are code — the same four lines twice, symmetrically. No JSX, no `className`, no copy, no tokens. So this is a BEHAVIOURAL change on an existing surface, and the useful output is about the UX of a removed cue, not about composition, typography, or palette.
+
+**Audit health score: 19/20 (Excellent).** Accessibility 4, Performance 4, Theming 4, Responsive 3, Anti-patterns 4. The single point off is Responsive, and it is the deferred P1 below. Detector: the bundled detector returned `[]`, exit 0, zero rules fired — and Assessment B did not trust an empty result, running positive controls that correctly fired `overused-font` and `bounce-easing`, so the engine was verified working on `.tsx` before the clean result was believed. B also recorded the honest limit: the regex engine matches CSS-declaration shapes, not Tailwind arbitrary values or JSX style objects, so its greps rather than the detector are load-bearing for that class. Those greps pass: zero raw hex, zero arbitrary values introduced, zero em-dashes in added lines, `min-h-tap-min` on eleven interactive elements, the pill's `before:-inset-y-3` band intact on both surfaces.
+
+**Critique: AI-slop verdict NOT SLOP.** Nielsen across the ten heuristics, scored as they apply to this change: 3, 4, 4, 3, 4, 2, 3, 4, 3, 2. The two 2s are recognition-over-recall and help, and both are the same finding as the deferred P1.
+
+**Findings and dispositions. P0: none. P1: two, one fixed and one deferred. P2: two. P3: one.**
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| P1 | The occlusion assertion filtered pill-band interceptions out as "pre-existing and not this arc's", so it would have stayed green while an invisible 12px `before:-inset-y-3` band ate taps on the publish control. | **FIXED in-arc.** The assertion now covers EVERY interceptor, not the panel's share: with the menu suppressed, nothing may intercept the toggle. Verified green, so the toggle takes all five of its own sample points. |
+| P1 | The pill is under-built for the sole-affordance duty this change hands it: `text-xs` in a `max-sm:max-w-40` cluster (`components/admin/review/headerActionCap.ts:21`) shared with a 44px Close, leaving ~108px, so both segments wrap to two 12px lines. Measured live at 375x667: the pill renders 84.4px tall because it has wrapped. | **DEFERRED**, `ATTENTION-PILL-PHONE-LEGIBILITY-1` in `DEFERRED.md`. Class-sweep exception (a): demoting the monitoring segment to `sr-only` so the urgent count owns the width is a product decision about what Doug is told at a glance, and this arc is strictly subtractive on a surface it does not otherwise touch. |
+| P2 | No once-ever hint that the pill discloses a list (heuristic 10 = 2). | Deferred with the row above; it is the same compensation question and splitting it would file two rows against one decision. |
+| P2 | Phone and desktop now diverge with no cue to an operator who uses both. | Same row. |
+| P3 | Cap placement differs between the two surfaces — on the button in the wizard (`components/admin/wizard/Step3ReviewModal.tsx:599`), on the wrapper in published (`components/admin/showpage/PublishedReviewModal.tsx:1096`). | Not filed. Pre-existing, cosmetic, invisible to users, and untouched by this diff. |
+
+**Two findings the gate produced that are worth keeping in the record**, because both make the change look better founded than the abstract worry suggested:
+
+- **Auto-open never moved focus and never announced.** The only `focus()` call in `components/admin/showpage/AttentionMenu.tsx` is at line 564, on Escape-close, returning focus to the pill. So for a screen-reader user the auto-opened panel was a purely visual event; suppressing it costs assistive tech nothing.
+- **The menu is an INDEX over items that are already on the page.** The derived list is "the ONE source for the pill, menu, nav badges/dots, and inline banners" (`components/admin/showpage/PublishedReviewModal.tsx:127-129`), and every actionable item renders as an `AttentionBanner` in its own section (the `bannerFor` builder at line 865, wired as `renderCard` at line 896). Suppression removes a shortcut, not the content: the items remain reachable by inline banner, by nav badge, and by tapping the pill.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 
 ### Close-out step (NOT a numbered task, and outside the contract region) — graduation
 

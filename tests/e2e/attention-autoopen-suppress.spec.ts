@@ -139,13 +139,21 @@ test("AC-TOGGLE-OPERABLE: at 375x667 the published toggle takes its own pointer 
   const report = await probeOcclusion(page, CLIP, null, PILL, [TOGGLE_ID]);
   const onToggle = report.interceptions.filter((i) => i.control === TOGGLE_ID);
 
-  // Interceptions by the PILL's own hit band are pre-existing and not this
-  // arc's -- the band is a ::before, and elementFromPoint returns the
-  // originating element. Anything from inside the attention panel is.
-  const fromPanel = onToggle.filter((i) => i.insidePanel);
+  // Assert the WHOLE set, not just the panel's share.
+  //
+  // The first version filtered to `insidePanel` on the reasoning that the pill's
+  // `before:-inset-y-3` band is pre-existing and not this arc's -- true, but it
+  // makes the assertion blind to the case that matters most: an INVISIBLE 12px
+  // pseudo-element eating taps on the primary publish control. If that ever
+  // starts happening, "not this arc's" is no comfort to Doug, and a filtered
+  // assertion would stay green through it. Impeccable critique P1.
+  //
+  // So: with the menu suppressed, NOTHING may intercept the toggle. If a
+  // pre-existing interceptor does appear, this fails and names it, which is the
+  // outcome worth having.
   expect(
-    fromPanel,
-    `the toggle is still covered from inside the panel: ${JSON.stringify(onToggle)}`,
+    onToggle,
+    `the toggle does not take its own pointer events: ${JSON.stringify(onToggle)}`,
   ).toEqual([]);
 });
 
