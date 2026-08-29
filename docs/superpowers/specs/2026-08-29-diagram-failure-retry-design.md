@@ -424,9 +424,24 @@ mounts is intersecting at the moment it mounts and loads without help. No `loadi
 set, which leaves `next/image` emitting its own `loading="lazy"` (`get-img-props`, lines 271
 and 553) — correct here, and one less attribute than the rejected design.
 
+**The in-viewport guarantee is enumerated, not assumed.** Every way the retry image can
+mount today:
+
+| path | in viewport when it mounts? |
+|---|---|
+| the user taps a visible failed cell | yes, by definition of tapping it |
+| the user Tabs to the control and presses it | yes — focusing an element scrolls it into view |
+| `focusOnMount` focuses the retry button after a failure (§7) | yes, same reason |
+| the user scrolls away DURING the in-flight window | irrelevant: the request was issued at mount, which happened in view |
+| the lightbox active slide | yes — only the ACTIVE slide carries a control (§2), and it is the one on screen |
+| "Show more" expands the grid | mounts thumbnails, not retry images; a newly revealed failed cell has not been tapped |
+
+There is no path that mounts a retry image off-screen, which is why no `loading` override is
+needed rather than merely why one seems unnecessary.
+
 **Re-file trigger:** if a retry ever becomes programmatic rather than tap-driven — an
-automatic retry, a retry-all control, a retry fired from a keyboard shortcut while the cell is
-scrolled out — the in-viewport guarantee is gone and this decision is revisited.
+automatic retry, a retry-all control, a retry fired without focus moving to the cell — the
+guarantee above is gone and this decision is revisited.
 
 The overlay's own constraint survives on a different and simpler ground: it must not be
 `display: none` or `visibility: hidden` ON THE IMAGE and must not unmount it, because an image
