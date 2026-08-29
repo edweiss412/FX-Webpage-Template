@@ -962,11 +962,25 @@ checks the transient.
 Stated per the convergence criterion, since the change pins geometry.
 
 **Consequence bound.** Every geometry either places the panel wholly inside its
-clip, or is signaled — `lib/popover/place.ts:75-99` already warns on `hidden` and on a
-sub-floor cap, and that diagnostic is inherited, not rebuilt. A panel that cannot
-be placed is `visibility: hidden` with a dev warning, never a silently
-half-rendered menu. **A conservative outcome plus a surfaced signal is a documented
-limit, not a finding.**
+clip, or degrades to a VISIBLE fallback. It is never silently absent.
+
+**AMENDED at closeout, because the original form was not met by the code that
+shipped under it.** It said an unplaceable panel is `visibility: hidden` "with a
+dev warning", and counted that warning as the signal. `lib/popover/place.ts:75-99`
+does warn — to the developer console. For Doug on a venue floor that is silence:
+the pill reads expanded, the chevron is rotated, and nothing paints. **A bound
+satisfied only by a signal its user cannot receive is not satisfied.**
+
+The `hidden` branch now clears its written offsets and leaves the panel VISIBLE at
+the CSS fallback anchor. `kind: "hidden"` means the core found no room on either
+side, so containment is not among the available outcomes at all; the real choice
+is invisible versus visible-and-overflowing. Visible wins, and the worst case is
+exactly the geometry this surface shipped before the migration rather than a new
+failure mode. The dev diagnostic still fires for whoever is debugging.
+
+**A conservative outcome plus a surfaced signal is a documented limit, not a
+finding** — but "surfaced" means surfaced to the OPERATOR, not to a console they
+will never open.
 
 **PROBE DOMAIN.** Both review modals — wizard (`Step3Review`) and published — at
 the viewports their suites already drive: 375x667, 375x844, 390x560, 1280x800. A
@@ -1002,6 +1016,24 @@ degrade to the signaled outcomes above and file to documented limits.
   **Trigger:** a second instance of this shape reaching main, which would make it a
   recurrence with two independent arcs and admissible under `Mint-exception:
   recurrence`.
+- **L-7. A capped list has no scroll affordance.** The fitted cap now varies with
+  the clip and can shrink, so a twelve-item list may show two rows with no fade,
+  shadow or count telling the operator there is more. Overlay scrollbars are
+  invisible until touched, so the list can look complete when it is not.
+  **NOT introduced by this arc** — the scroller has been capped since
+  `BL-ATTENTION-MENU-PANEL-CLIP` closed on 2026-08-02, and this change alters
+  which number caps it, not whether it is capped. Recorded rather than repaired
+  because an affordance is a design addition, not a geometry fix, and it belongs
+  with the auto-open decision in
+  `BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE`. **Trigger:** that owner
+  decision, or a report of an operator missing rows.
+- **L-8. The two surfaces dismiss differently on a shared frame.** The wizard's
+  auto-opened menu is Escape-transparent until engaged
+  (`escTransparentUntilEngaged`); the published one is not, so the same frame
+  offers two dismiss semantics depending on which modal hosts it. Pre-existing and
+  untouched here; it is `arc-escrace`'s live surface, and editing it from this arc
+  would be two writers on one contract. **Trigger:** that arc landing, after which
+  the pair should be reconciled deliberately rather than by whoever edits second.
 - **L-4. Containment is bought with alignment, not with width.** AC-2 ratifies the
   shift; the alternative that narrows the panel to `trigger.right - bounds.left`
   (299px at 375x667) keeps it flush with the pill and is equally contained. It is
@@ -1070,6 +1102,43 @@ modal with this menu open and needs no app server or database.
 `tests/e2e/wizard-attention-menu.spec.ts` 13/13 at this head, including the
 eight-cell containment matrix, the host-descendancy pin, the dimensional
 invariants and both motion branches of the re-place assertion.
+
+### 12.2a Assessment A (design review), and a SECOND sequencing deviation
+
+**Assessment A returned after the whole-diff adversarial review had closed.**
+Invariant 8 puts the dual gate BEFORE adversarial review; its design half arrived
+five hours after dispatch, with all four diff rounds already complete. That is a
+deviation from the ordering, distinct from the detector one in §12.2, and it is
+recorded for the same reason: a gate whose halves land out of order is a degraded
+gate even when its findings turn out to converge.
+
+**They did converge, and that is the arc's strongest single piece of evidence.**
+A's P0 — the capture-phase scroll listener hearing the scroller's own events while
+`withNaturalSize` preserves the PANEL's offsets rather than the scrolling child's
+— is the same defect the whole-diff review found independently as its round-1 F2.
+Two reviewers, isolated from each other and working from different materials
+(design reading versus diff reading), landed on one mechanism. It was already
+repaired; both halves of the repair were re-verified in place when A's report
+arrived.
+
+**Verdict: AI slop NO.** Product register holds — tokens rather than hex literals,
+one accent, dual-channel tone cues, no decorative chrome.
+
+**Heuristics (0-4):** Status 3 · Real-world 4 · Control 2 · Consistency 2 ·
+Prevention 3 · Recognition 4 · Flexibility 3 · Minimal 4 · Recovery 2 · Help 3.
+The two 2s are auto-open (an unrequested panel) and the split dismiss semantics
+between surfaces — both recorded below, neither introduced here.
+
+**Dispositions**
+
+| Finding | Disposition |
+| --- | --- |
+| P0 — scroll position destroyed by the operator's own scrolling | ALREADY REPAIRED, independently, at `fd8e143a9`. Verified in place. |
+| P1 — auto-open over the publish toggle is the wrong ceremony, not wrong geometry | To the filed product row as its design recommendation: suppress auto-open below `sm` rather than reposition, because moving the panel relocates the interruption. |
+| P2 — `visibility: hidden` is silent to the operator | **REPAIRED IN-BRANCH.** A real gap against §10's own bound, which counted a dev-console warning as the signal. The `hidden` branch now degrades to a visible CSS fallback. §10 is amended to say what the code does. |
+| P2 — a capped list has no scroll affordance | L-7. Pre-existing; an affordance is a design addition, and it belongs with the auto-open decision. |
+| P3 — `origin-top-right` ignores `placement.side` | **REPAIRED IN-BRANCH.** The old CSS could only place below, so the hardcoded origin was always right; this migration made the flip reachable, so the defect is one this arc created. |
+| Minor — `rounded-t-md` group-heading conditionals now dead | Recorded, not removed. The panel's `overflow-hidden` plus its own radius already clips those corners, so the classes are inert rather than wrong, and removing them would move the HTML byte baseline for zero behavioural change. |
 
 ### 12.3 Impeccable audit
 

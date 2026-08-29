@@ -354,6 +354,8 @@ overlaps: true      pointer events intercepted by an attention monitoring row
 
 **Why this is a product decision and not a geometry patch.** The candidate repairs are all product choices, not placement arithmetic: suppress auto-open below some width; flip the menu above its anchor at phone widths so it covers the header rather than the strip; or accept the overlap as ordinary dismissible-overlay behaviour and change nothing. The third is what ships today, ruled by bl-orch 2026-08-28 on the ground that a dismissible overlay covering content until dismissed is standard menu semantics.
 
+**Design review's recommendation, added 2026-08-29** (impeccable Assessment A, this arc's closeout): **suppress auto-open below `sm`; do not move the panel.** Its reasoning is worth carrying because it reframes the row: the geometry is not the defect. A dismissible overlay covering the publish control would be defensible if the operator had asked for it, because dismissal is then a step in a flow they started. Nothing was asked here. The panel is an INDEX — a navigation aid — and the surface auto-opens it on top of the modal's primary action to tell Doug something the pill already tells him: there are N issues. Repositioning just relocates the interruption. The pill is already a legible, accented, tappable count; on a desk the reveal is cheap and probably earns itself, and at 375px it costs the primary control.
+
 **Prerequisite:** an owner decision from Eric on whether auto-open should be suppressed or repositioned at phone widths. The geometry to implement any of the three already exists — `lib/popover/position.ts` selects and flips sides — so this is gated on the call, not on the mechanism.
 
 

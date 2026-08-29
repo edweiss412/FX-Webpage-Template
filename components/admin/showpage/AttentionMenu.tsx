@@ -421,10 +421,29 @@ export function AttentionMenuFrame({
     }
     if (placement === null) return;
     if (placement.kind === "hidden") {
-      panel.style.visibility = "hidden";
+      // UNPLACEABLE, and the operator must not be left with an expanded pill and
+      // nothing painted. `kind: "hidden"` means the core found no room on either
+      // side — the trigger spans the bounds — so NO placement contains the panel
+      // and containment is not among the available outcomes. The choice is
+      // between invisible and visible-but-overflowing.
+      //
+      // Visible wins. Falling back to the CSS anchor is exactly the geometry that
+      // shipped before this migration, so the worst case here is the behaviour
+      // this surface already had rather than a new failure mode; and a menu the
+      // operator can see and scroll beats one that is silently absent while the
+      // pill says it is open. The dev-console diagnostic in `place.ts` still
+      // fires for whoever is debugging.
+      //
+      // Written offsets are CLEARED rather than left stale, so the CSS fallback
+      // actually governs instead of a position computed for different geometry.
+      for (const prop of ["left", "top", "max-width", "max-height"]) {
+        panel.style.removeProperty(prop);
+      }
+      panel.style.removeProperty("visibility");
+      panel.style.removeProperty("transform-origin");
       return;
     }
-    panel.style.visibility = "";
+    panel.style.removeProperty("visibility");
     // The panel stays IN PLACE in the DOM, so its coordinates are relative to its
     // own offset parent — the pill wrapper — not to the host. The host supplies
     // the BOUNDS and nothing else.
@@ -448,6 +467,13 @@ export function AttentionMenuFrame({
     else panel.style.removeProperty("max-width");
     if (placement.maxHeight !== null) panel.style.maxHeight = `${placement.maxHeight}px`;
     else panel.style.removeProperty("max-height");
+    // The entrance scales from the corner nearest the anchor. `origin-top-right`
+    // is the class default and was always right BEFORE this migration, because
+    // the panel could only ever sit below its trigger. The core can now FLIP it
+    // above when the space below runs out, and a panel that grows from its top
+    // edge while sitting above its pill expands AWAY from the control that opened
+    // it. Written from the resolved side rather than assumed.
+    panel.style.transformOrigin = placement.side === "top" ? "bottom right" : "";
   }, [hostRef]);
 
   // `entered` is the ONLY re-place signal, and one is enough. The entrance
