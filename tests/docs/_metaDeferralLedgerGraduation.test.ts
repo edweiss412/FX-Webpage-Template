@@ -105,6 +105,17 @@ const BACKLOG_GRADUATED = [
   // binding, so a marked table can satisfy the check and be exactly as drifted.
   // A graduation is leaving the open queue, not necessarily an implementation.
   { id: "BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE", provenance: "feat/speclint-table-provenance" },
+  // fix/published-attention-escape-race (2026-08-28, PR #940): Escape could close the
+  // whole published review modal whenever the attention panel was down for a frame,
+  // losing the operator's scroll position and section. Both candidates the row named
+  // were retired on measured evidence and its own supporting reading turned out to be
+  // instrument error; the repair is a claim that outlives the panel and classifies a
+  // transient unmount from an intentional dismissal. Two windows stay documented limits
+  // with disjoint re-file signatures.
+  {
+    id: "BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE",
+    provenance: "fix/published-attention-escape-race",
+  },
   // fix/nearmiss-non-field-blocks (2026-08-28): the near-miss detector now fires only in
   // blocks shaped like field lists. Owner-ratified scope; the row's second candidate repair
   // (family matching) was declined for this arc and fenced in the spec rather than left

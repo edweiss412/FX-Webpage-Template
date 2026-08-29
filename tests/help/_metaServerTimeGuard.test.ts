@@ -212,7 +212,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // as well as counted, per the note above: a count alone cannot say WHICH
     // member joined, and it passes just as happily on a swap.
     expect(rel).toContain("lib/admin/warningAttention.ts");
-    expect(rel.length).toBe(215);
+    // 215 -> 216 (2026-08-28): lib/admin/escapeClaim.ts, the published review
+    // modal's consumed-key decision. It lives in lib rather than inline in the
+    // component because the branch it decides is reachable only in a state jsdom
+    // cannot stage, so the decision is tested directly instead of through a proxy.
+    // Named as well as counted, for the reason above.
+    expect(rel).toContain("lib/admin/escapeClaim.ts");
+    expect(rel.length).toBe(216);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
