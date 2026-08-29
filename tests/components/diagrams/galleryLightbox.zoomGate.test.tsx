@@ -1547,3 +1547,91 @@ describe("GalleryLightbox — only the ACTIVE slide offers a retry (Task 6)", ()
     ).not.toBe(document.body);
   });
 });
+
+/**
+ * Task 7 — the lightbox's availability sweep (AC-11, AC-14, AC-18).
+ *
+ * Here rather than in gallery.availabilitySweep.test.tsx because these members
+ * are only observable through the zoom harness: the claim is about the URL a
+ * returning slide REQUESTS, which needs a real gesture driven through the
+ * component's own wiring.
+ */
+describe("GalleryLightbox — session state does not outlive availability (Task 7)", () => {
+  test("AC-18: a zoomed slide that goes unavailable and returns does NOT request the original", () => {
+    // The bug plan review R2 surfaced, and it is a real one rather than a docs
+    // gap. `wantsOriginal` had no availability clear path, so the returning
+    // ACTIVE slide re-requested the whole object immediately -- no gesture, no
+    // tap, up to 50MB on venue wifi for a diagram the user never asked to zoom
+    // again.
+    const fixture = item(1);
+    const view = open([fixture, item(2)]);
+    emitScale(2);
+    premiseHolds(
+      "the zoom really pinned the original, or there is no stale pin to carry",
+      activeLoaderUrls(view.container).has(originalUrlOf(fixture)),
+    );
+
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[item(1, { available: false }), item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={() => {}}
+      />,
+    );
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[fixture, item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={() => {}}
+      />,
+    );
+
+    // The REQUESTED tier, not merely that something rendered: a slide showing an
+    // image is exactly what the bug looked like.
+    const urls = activeLoaderUrls(view.container);
+    expect(urls, "the returning slide opens on the clamped tier, as a fresh open would").toContain(
+      topTierUrlOf(fixture),
+    );
+    expect(urls, "and the pin from its earlier life is gone").not.toContain(originalUrlOf(fixture));
+  });
+
+  test("AC-14: the demote chip never paints over an unavailable slide", () => {
+    // Same selector the demote suite uses; that one is scoped to its own block.
+    const CHIP = '[data-testid="lightbox-demote-chip"]';
+    // Two mechanisms, deliberately: the PREDICATE fixes the frame and the sweep
+    // fixes the timer. Without the predicate the chip survives until its timeout
+    // expires, sitting over a placeholder for a diagram that is gone.
+    const fixture = item(1);
+    const view = open([fixture, item(2)]);
+    emitScale(2);
+    act(() => {
+      fireEvent.error(activeImage(view.container));
+    });
+    premiseHolds(
+      "the demote really happened, or there is no chip to be wrong about",
+      view.container.querySelector(CHIP) !== null,
+    );
+
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[item(1, { available: false }), item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={() => {}}
+      />,
+    );
+
+    expect(
+      view.container.querySelector(CHIP),
+      "no chip over a slide whose diagram is no longer there",
+    ).toBeNull();
+  });
+});

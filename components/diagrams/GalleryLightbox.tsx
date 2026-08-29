@@ -684,6 +684,33 @@ export function GalleryLightbox({
     if (active instanceof HTMLElement && dialog.contains(active)) return;
     closeRef.current?.focus();
   }, [zoomed]);
+  // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
+  //
+  // Keyed on the rendered id SET rather than on `item.available`, because an item
+  // dropped from `items` never flips that prop -- it simply stops being rendered.
+  //
+  // Swept in render, not in an effect: an effect runs after paint, so the
+  // returning slide would commit one frame still holding its earlier life's
+  // state. `wantsOriginal` is the member that makes this urgent -- a stale pin
+  // re-requests the ORIGINAL on the returning active slide with no gesture and
+  // no tap (AC-18).
+  const liveIds = new Set(items.filter((entry) => entry.available).map((entry) => entry.id));
+  const sweepSet = (prev: ReadonlySet<string>): ReadonlySet<string> => {
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of prev) {
+      if (liveIds.has(id)) next.add(id);
+      else changed = true;
+    }
+    return changed ? next : prev;
+  };
+  const sweptFailed = sweepSet(failedKeys);
+  const sweptRetrying = sweepSet(retrying);
+  const sweptWantsOriginal = sweepSet(wantsOriginal);
+  if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
+  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
+  if (sweptWantsOriginal !== wantsOriginal) setWantsOriginal(sweptWantsOriginal);
+
   return (
     <motion.div
       ref={dialogRef}
@@ -828,11 +855,11 @@ export function GalleryLightbox({
         <div ref={emblaRef} className="size-full overflow-hidden">
           <div className="flex size-full">
             {items.map((item, i) => {
-              const isRetrying = retrying.has(item.id);
+              const isRetrying = sweptRetrying.has(item.id);
               const isActive = i === activeIndex;
               // The image renders for BOTH idle and retrying, mounted once in its
               // final position (§4.0.5), with the in-flight control overlaid.
-              const available = item.available && (!failedKeys.has(item.id) || isRetrying);
+              const available = item.available && (!sweptFailed.has(item.id) || isRetrying);
               // `failed` is disjoint from `retrying`: the render picks one branch.
               // ACTIVE ONLY (spec §2, Task 6). Embla renders every slide, so an
               // unscoped control is rendered on each of them: invisible,
@@ -841,7 +868,7 @@ export function GalleryLightbox({
               // cannot see and cannot identify. Task 5 introduced that leak
               // deliberately and visibly; this closes it.
               const showRetry =
-                isActive && item.available && failedKeys.has(item.id) && !isRetrying;
+                isActive && item.available && sweptFailed.has(item.id) && !isRetrying;
               // Computed once per slide: both tiers branch on it, and calling the
               // guard twice per branch invites the two calls to disagree.
               const dims = validDims(item);
@@ -894,7 +921,12 @@ export function GalleryLightbox({
                   ) : null}
                   {demotedNotice?.id === item.id &&
                   demotedNotice.nonce === openNonce &&
-                  !failedKeys.has(item.id) ? (
+                  // Directly, alongside the sweep and deliberately redundant with
+                  // it: the sweep fixes the TIMER, this fixes the FRAME. Without
+                  // it the chip survives over an unavailable slide until its
+                  // timeout expires (AC-14).
+                  item.available &&
+                  !sweptFailed.has(item.id) ? (
                     /*
                       The sighted twin of the `role="log"` announcement, and
                       `aria-hidden` for exactly that reason: the region already
@@ -1089,7 +1121,7 @@ export function GalleryLightbox({
                               // the original lands — the silent sharpen.
                               // Variant-less entries resolve to the original in
                               // both states, so the gate is a no-op there.
-                              pinOriginal: wantsOriginal.has(item.id),
+                              pinOriginal: sweptWantsOriginal.has(item.id),
                             })}
                             src={item.key}
                             alt={item.alt || `Diagram ${i + 1}`}

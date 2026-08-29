@@ -226,6 +226,20 @@ export function Gallery({
     for (const message of buffered) announceInDialog(message);
   }, [lightboxIndex, announceInDialog]);
 
+  // `pendingFailuresRef`'s half of the sweep, in an effect rather than in render
+  // because mutating a ref during render is a React violation and eslint's
+  // `react-hooks/refs` rightly refuses it. An effect is the correct home here for
+  // a second reason: this ref is never rendered, it only de-duplicates
+  // announcements, so a one-frame delay changes nothing anyone can observe --
+  // unlike the two state sets above, which ARE rendered and are therefore swept
+  // in render so no stale frame can paint.
+  useEffect(() => {
+    const live = new Set(items.filter((entry) => entry.available).map((entry) => entry.id));
+    for (const id of [...pendingFailuresRef.current]) {
+      if (!live.has(id)) pendingFailuresRef.current.delete(id);
+    }
+  }, [items]);
+
   // The focus hand-off. It runs after the commit that mounts the overlay, which
   // is the earliest point the target exists -- doing it inside `handleRetry`
   // would call `.focus()` on an element React has not created yet.
@@ -245,6 +259,35 @@ export function Gallery({
     retryingRefs.current.get(id)?.focus();
   }, [retrying]);
 
+  // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
+  //
+  // Per-item session state must not outlive the item's availability. A crew
+  // member whose diagram is removed by one sync and restored by the next should
+  // get the diagram back, not the wreckage of its last life -- a retry control
+  // for a fault that no longer applies, or worse a `Retrying…` claiming a
+  // request that was abandoned when the cell unmounted.
+  //
+  // KEYED ON THE RENDERED ID SET, not on `item.available`: an item dropped from
+  // `items` never flips that prop, it simply stops being rendered, so a sweep
+  // watching only the flag would miss that path entirely.
+  //
+  // Cleared here rather than in a `useEffect`, because it must not survive even
+  // one committed frame: an effect runs AFTER paint, so the returning cell would
+  // render once holding the stale control.
+  const liveIds = new Set(items.filter((entry) => entry.available).map((entry) => entry.id));
+  const sweep = (prev: ReadonlySet<string>): ReadonlySet<string> => {
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of prev) {
+      if (liveIds.has(id)) next.add(id);
+      else changed = true;
+    }
+    return changed ? next : prev;
+  };
+  const sweptFailed = sweep(failedKeys);
+  const sweptRetrying = sweep(retrying);
+  if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
+  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
   if (items.length === 0) return null;
 
   const showAll = expanded || items.length <= INITIAL_VISIBLE;
@@ -452,10 +495,10 @@ export function Gallery({
         aria-label="Diagrams gallery thumbnails"
       >
         {visible.map((item, i) => {
-          const isRetrying = retrying.has(item.id);
+          const isRetrying = sweptRetrying.has(item.id);
           // `failed` excludes `retrying` (spec §4): the states are disjoint, so
           // the render picks exactly one branch.
-          const runtimeFailed = failedKeys.has(item.id) && !isRetrying;
+          const runtimeFailed = sweptFailed.has(item.id) && !isRetrying;
           // The image renders for BOTH idle and retrying, mounted ONCE in its
           // final position (§4.0.5). Were retrying a different element, React
           // would unmount it on load and the second mount would issue a fresh
