@@ -1,219 +1,251 @@
 # Plan — diagram tile chrome consistency
 
-Spec: `docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md`. Closes
-`BL-DIAGRAM-TILE-CHROME-CONSISTENCY`. Effort S: two className strings in one file, one prose count, one
-test literal, one new focused suite.
+Spec: `docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md`. Closes `BL-DIAGRAM-TILE-CHROME-CONSISTENCY`. Effort S.
 
-## Pre-draft code verification (done before this plan body)
+**Rewritten after plan review R1 returned BLOCKING on 8 findings.** The structural one: the first draft
+split the class move and its invalidated consumers across four tasks with four commits, which
+contradicts the spec's own lockstep requirement (`docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md:128`, which requires every one of them to land
+in the same commit as the className move) and made AC-4's same-commit-as-AC-1 requirement impossible to
+satisfy. The whole
+lockstep is now ONE task and ONE commit, with a single RED run before it and a single GREEN run after.
+Task count went 5 to 2 because commit-per-task and same-commit-lockstep together determine it; they are
+not in tension once the tasks are drawn correctly.
+
+## Pre-draft code verification
 
 | Claim | Verified at |
 | --- | --- |
-| `DiagramTile` is exported from `step3ReviewSections` | `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:26` imports it by name |
+| `DiagramTile` is exported | `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:26` imports it by name |
 | the anchor className | `components/admin/wizard/step3ReviewSections.tsx:3938` |
 | the image className | `components/admin/wizard/step3ReviewSections.tsx:3955` |
 | the failed-branch `<span>` className | `components/admin/wizard/step3ReviewSections.tsx:3874` |
 | the false comment to replace | `components/admin/wizard/step3ReviewSections.tsx:3926-3931` |
+| the reconciliation write to `failed` | `components/admin/wizard/step3ReviewSections.tsx:3859-3867`, which never calls `onFailure` |
+| the image-error write to `failed` | `components/admin/wizard/step3ReviewSections.tsx:4021`, which relocates focus only when the tile held it |
 | §15 table 3 prose | `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:816` |
-| the derived count assertion | `tests/styles/controlOutlineTransitions.test.ts:254` |
-| derivation output at base `60dece4d5` | four members: the spans at `components/admin/wizard/step3ReviewSections.tsx:1236`, `components/admin/wizard/step3ReviewSections.tsx:1778` and `components/admin/wizard/step3ReviewSections.tsx:1789`, plus the `<Image>` at `components/admin/wizard/step3ReviewSections.tsx:3940` |
-| `neutralFaintCount: 9` pin | `tests/styles/tintedPlateOutline.test.ts:224` |
+| the derived count assertion | `tests/styles/controlOutlineTransitions.test.ts:254`; its docblock quotes the same count at `tests/styles/controlOutlineTransitions.test.ts:229-230` |
+| derivation output at base `60dece4d5` | four members: the spans at `components/admin/wizard/step3ReviewSections.tsx:1236`, `components/admin/wizard/step3ReviewSections.tsx:1778`, `components/admin/wizard/step3ReviewSections.tsx:1789`, plus the `<Image>` at `components/admin/wizard/step3ReviewSections.tsx:3940` |
+| `neutralFaintCount: 9` pin | `tests/styles/tintedPlateOutline.test.ts:224`; its explanatory comment at `tests/styles/tintedPlateOutline.test.ts:221-223` |
 | real-browser box assertion | `tests/e2e/step3-review-modal.layout.spec.ts:659` |
-| the `premise` helper | `tests/_shared/premise.ts`, used at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:32`. NOTE the two exports differ: `premise(description, actual, mustExceed)` is NUMERIC; the boolean form is `premiseHolds(description, condition)`, description FIRST |
-| the new suite's path is claimed by a vitest project | `PARALLEL_TEST_GLOBS` includes `tests/components/**/*.test.{ts,tsx}` (`vitest.projects.ts:105`), so `pnpm vitest run <path>` finds it rather than reporting no tests |
-| the real-browser spec's owning config | `tests/e2e/standalone.config.ts:85` allow-list names the `step3-review-modal.layout` basename; `playwright.config.ts` does NOT (only `.interactions` and `.agenda`), so the command is `test:e2e:standalone` — see Task 3 |
+| real-browser placement pin | `tests/e2e/step3-review-modal.layout.spec.ts:626-636`; the placement-agnostic padding-box assertion below it at `tests/e2e/step3-review-modal.layout.spec.ts:638-647` |
+| the font readiness gate already exists | `tests/e2e/step3-review-modal.layout.spec.ts:248` awaits `document.fonts.ready`, so this plan adds no readiness step and depends on that one |
+| `premiseHolds(description, condition)` is the boolean form | `tests/_shared/premise.ts:36`; `premise(description, actual, mustExceed)` at `tests/_shared/premise.ts:26` is NUMERIC and is the wrong one here |
+| the new suite's vitest project | `PARALLEL_TEST_GLOBS` includes `tests/components/**/*.test.{ts,tsx}` (`vitest.projects.ts:105`) |
+| the new suite's CI wiring | `.github/workflows/unit-suite.yml` runs `unit-suite-nodb` as `--project=parallel` with no file filter, so a new file under `tests/components/` is collected by that job automatically and needs no workflow edit |
+| the real-browser spec's owning config | `tests/e2e/standalone.config.ts:85` names the `step3-review-modal.layout` basename in its allow-list, under `standalone-chromium`; `playwright.config.ts` does NOT (only `.interactions` and `.agenda`), so the command is `test:e2e:standalone` |
+
+## Structural meta-test inventory
+
+Required declaration, and the disposition is NOT "none applies" — three structural meta-tests own
+surfaces this diff touches, which is why the lockstep matters:
+
+| Meta-test | Relation to this diff | Disposition |
+| --- | --- | --- |
+| `tests/styles/controlOutlineTransitions.test.ts` §15 table 3 block | derives the painted-child count this diff moves 4 to 3 | edited IN the lockstep commit: assertion, its comment, and the docblock quotation |
+| `tests/styles/tintedPlateOutline.test.ts` | pins `neutralFaintCount: 9` for the component | value UNCHANGED (derived below); its explanatory comment is edited in the same commit |
+| `tests/styles/tapTargetCensus.ts` | its row for the anchor states where the chrome lives | prose edited in the same commit; `line`, `tag`, `category` untouched |
+| invariant-9 infra-contract registries (`tests/auth/_metaInfraContract.test.ts` and peers) | no Supabase call boundary is added or moved | none applies |
+| `tests/log/_metaMutationSurfaceObservability.test.ts` | no mutation surface, route handler, or server action is added | none applies |
+| source-mutation registry (`tests/mutation/source/registry.ts`) | the diff adds no guard, proof, or equivalence surface — the new suite is an ordinary component suite, not a recognizer | none applies; enrolment is not owed |
+
+## CI wiring
+
+No workflow file changes. The new suite lands under `tests/components/` and is collected by
+`unit-suite-nodb` (`--project=parallel`, unfiltered). The real-browser spec already runs under its
+existing standalone config. Nothing in this diff adds a job, a matrix leg, or a required check.
+
+## Pre-implementation mechanical UI checklist — runs BEFORE Task 1
+
+The project rule is that this checklist precedes implementing a UI surface, because the invariant-8 gate
+verifies rather than discovers. R1 correctly flagged that the first draft ran it last. It produces no
+diff and therefore no commit; it is a gate on Task 1, listed here rather than as a task.
+
+- em dash ban in user-visible copy: this diff adds NO user-visible copy, only class strings and comments.
+- apostrophe literals: same, none added.
+- 44px tap targets: the anchor's tap area is unchanged; `tests/styles/tapTargetCensus.ts:321` classifies
+  it `full-bleed` on LAYOUT grounds (`relative` plus the aspect box plus a `fill` child), and this diff
+  changes none of those three.
+- canonical type and token classes: the three moved classes are copied verbatim from a string that
+  already passes `better-tailwindcss/enforce-canonical-classes`. No new token is introduced, so no new
+  contrast pin is owed (DESIGN.md's `bg-warning-bg` precedent does not apply).
+- **No-RED declaration:** this checklist has no executable RED. `pnpm exec eslint --no-cache components/admin/wizard/step3ReviewSections.tsx` exits
+  0 on the unrepaired tree, which R1 verified by running it. It is a discovery pass, and its output is
+  the four dispositions above.
 
 ## Anti-tautology design for the new suite
 
-The positive half asserts the CONTRACT literally: the box element carries `rounded-md border
-border-text-faint bg-surface-sunken`. The negative half must NOT assert a literal absence of today's
-token, because that passes the moment someone re-adds chrome under a different token. It scans the
-image's className for ANY chrome shape:
+The positive half asserts exact TOKEN membership, not substring containment, and that was a real defect
+in the suite's first draft rather than a precaution. `expect(className).toContain("border")` is satisfied
+by `border-text-faint` on its own — so a diff dropping the bare `border` utility, the class that actually
+draws the 1px line while `border-text-faint` only colours it, would have passed every positive assertion
+with the border gone from the page. The suite splits the class string and asserts set membership.
+
+The image's assertion is exact string equality, which is what AC-1 actually says: its class string EQUALS
+`object-cover`. R1 flagged that the first draft only rejected chrome-shaped classes, which would let
+through a diff that ADDS something non-chrome-shaped to the image.
+
+The negative half stays a SHAPE scan, because a negative keyed to today's token passes the moment someone
+re-adds chrome under a different one:
 
     /(^|\s)(rounded(-|$)|border(-|$)|bg-)/
 
-Premises, because each negative is vacuous on the wrong branch:
+Premises, each closing a way an assertion could pass while proving nothing:
 
-- the live branch must actually have rendered an `<img>`, or "the image carries no chrome" is true of a
-  branch with no image;
-- the failed branch must NOT have rendered an `<img>`, or the two cases are the same branch;
-- the chrome-shape regex must be shown to MATCH the wrapper's className, or a regex that matches
-  nothing would pass the negative assertion on any input.
+- the live branch must have rendered an `<img>`, or "the image carries no chrome" is true of a branch
+  with no image;
+- the failed branch must NOT have rendered one, or the two cases compare one element to itself;
+- the regex must FIRE on the anchor's real className from the same render — not on a literal typed into
+  the test — or its silence on the image means nothing. A separate case pins the other direction, that
+  the regex does not match a bare fit class, which real data cannot supply.
 
-That third premise is the one that makes the guard honest: it proves the instrument can fire.
+## Dimensional invariants — reproduced verbatim from spec §7
+
+Required by the project's writing-plans rule, and reproduced rather than summarised so the real-browser
+assertions can be checked against it line by line.
+
+| Parent | Child | Invariant | Guaranteed by |
+| --- | --- | --- | --- |
+| anchor `components/admin/wizard/step3ReviewSections.tsx:3938` | `<Image fill>` `components/admin/wizard/step3ReviewSections.tsx:3940` | child fills the anchor's padding box | `fill` emits `position:absolute; inset:0`; the anchor is `relative` |
+| anchor `components/admin/wizard/step3ReviewSections.tsx:3938` | itself | outer box unchanged by the added border | Tailwind preflight sets `box-sizing: border-box`, so a 1px border consumes content box, not outer box |
+| grid cell | anchor | anchor is full width of its cell | `w-full` |
+| live tile | placeholder tile | identical outer box | both `aspect-4/3 w-full`; asserted in a real browser at `tests/e2e/step3-review-modal.layout.spec.ts:659` |
+
+Discharge: rows 1 and 2 by `tests/e2e/step3-review-modal.layout.spec.ts:638-647`, which is expressed as `anchorW - borderLeft - borderRight`
+and therefore holds with the border on either element; row 4 by `tests/e2e/step3-review-modal.layout.spec.ts:659`. Row 3 is a class assertion,
+covered by the new suite's shared-box case. The readiness gate these depend on already exists at
+`tests/e2e/step3-review-modal.layout.spec.ts:248`. Detach safety: every measurement in that spec runs inside one `page.evaluate` against a
+static harness with no navigation between query and read, so no handle can detach mid-measurement.
+
+## Transition inventory — reproduced verbatim from spec §8
+
+| State pair | Transition |
+| --- | --- |
+| live to failed, failed to live | instant, no animation needed; the branches are separate element trees and neither declares a transition |
+| anchor rest to focus | instant. The ring recipe is unchanged by this diff, and the corner radius goes 12px to 6px via the unlayered global rule. The anchor carries no `transition-*`, so the change is not tweened |
+| anchor focus to rest | the same, reversed |
+
+| Compound case | Endpoints | Transition |
+| --- | --- | --- |
+| route A: focused live tile fails on an image error | anchor with `border-text-faint` at 6px, focused, becomes placeholder `<span>` with `border-border` at 12px; focus moves to a sibling tile | instant on both axes; no `transition-*` on either element |
+| route A with no sibling to receive focus | same box endpoints; `components/admin/wizard/step3ReviewSections.tsx:4021` finds no sibling | instant; the focus destination is the handler's concern and is unchanged by this diff |
+| route B: focused live tile reconciles to unavailable | same box endpoints; focus is NOT relocated, so it falls to `<body>` | instant; see spec L4 |
+
+Executable discharge, per row:
+
+- rows 1-3 of the first table: the suite's transition audit asserts neither box element declares
+  `transition-*`, which is the only thing making "instant" true.
+- route A: the suite focuses the anchor, fires the image error, and asserts the placeholder still carries
+  the box. Focus RELOCATION on this route is already discharged by the existing
+  `tests/components/admin/wizard/step3DiagramTile.failureFocus.test.tsx`, which this plan names as that
+  half's owner rather than duplicating.
+- route A with no sibling: discharged by the same existing suite, which covers the focus destination.
+- route B: the suite rerenders with `hasPreviewSource` false while the anchor holds focus and asserts the
+  box survives. R1 correctly flagged that the first draft covered only route A.
 
 ## Acceptance criteria this plan discharges
 
-Full text lives in the spec's §9; the ids are repeated here because each task marker cites one and an
-`ac=` id that appears nowhere else in the plan is a task-contract defect.
-
-| id | claim |
-| --- | --- |
-| AC-1 | the image class string is exactly `object-cover`; the anchor carries the box |
-| AC-2 | `components/diagrams/Gallery.tsx` is unchanged by this diff |
-| AC-3 | the §15 table 3 derivation finds three visuals, the tile `<Image>` not among them |
-| AC-4 | the control-outline spec's prose says three, in the same commit as AC-1 |
-| AC-5 | the real-browser layout spec is green at this head, box-equality among the passes |
-| AC-6 | the `neutralFaintCount` pin does not move |
-| AC-7 | the full styles suite is green, fill and residue censuses included |
-| AC-8 | the real-browser pin asserts the ANCHOR carries the border and the image none |
-| AC-9 | the tap-target census prose no longer states the chrome lives on the image |
+| id | claim | executable discharge |
+| --- | --- | --- |
+| AC-1 | the image class string is exactly `object-cover`; the anchor carries the box | new suite: exact string equality on the image, token membership on the anchor |
+| AC-2 | `components/diagrams/Gallery.tsx` is unchanged by this diff | `git diff --name-only origin/main...HEAD` must not list it — asserted as a Task 2 step, since no unit test can see a file's absence from a diff |
+| AC-3 | the §15 derivation finds three visuals, the tile `<Image>` not among them | `tests/styles/controlOutlineTransitions.test.ts` |
+| AC-4 | the control-outline spec's prose says three, in the same commit as AC-1 | a new assertion in `tests/styles/controlOutlineTransitions.test.ts` reads `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` and requires its §15 table 3 row to state the same count the derivation returns; the same-commit half is structural, satisfied because Task 1 is one commit |
+| AC-5 | the real-browser layout spec is green at this head, box-equality among the passes | `test:e2e:standalone` |
+| AC-6 | the `neutralFaintCount` pin does not move | `tests/styles/tintedPlateOutline.test.ts` |
+| AC-7 | the full styles suite is green, fill and residue censuses included | `pnpm heavy pnpm vitest run tests/styles` |
+| AC-8 | the real-browser pin asserts the ANCHOR carries the border and the image none | `tests/e2e/step3-review-modal.layout.spec.ts:626-636` after inversion |
+| AC-9 | the tap-target census prose no longer states the chrome lives on the image, and that row's `line`, `tag` and `category` are unchanged | a Task 2 grep step plus `pnpm heavy pnpm vitest run tests/styles`, which runs the census; no Playwright command can see prose, which R1 correctly flagged |
 
 <!-- tasks: depth=2 -->
 
-## Task 1 — pin the arrangement, both branches
+## Task 1 — the lockstep: one RED run, one GREEN run, one commit
 
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx` ac=AC-1,AC-2 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/styles/controlOutlineTransitions.test.ts` ac=AC-1,AC-3,AC-4,AC-8 -->
 
-RED: a new suite named step3DiagramTile.chrome.test.tsx (deliberately unbackticked: `spec:lint` reads a backticked path as a citation, and a plan cannot cite a file it has not created yet), landing beside its existing siblings (`tests/components/admin/wizard/step3DiagramTile.staged.test.tsx` and the three others). It renders `DiagramTile` in the
-live branch and in the failed branch. Asserts the box element carries the chrome, the image carries
-none, and every premise named above. No premise COUNT is stated here: the suite grew two more with the
-compound case below, and a count in prose beside a list is the drift this plan's own spec had to repair.
-Fails at base because the image carries the chrome today.
+Everything the spec requires to land together lands here. The RED command above covers the two suites
+that can red before implementation; the real-browser pin is inverted in the same commit and is run in
+Task 2, because its command is a heavy phase and its red is proved by the same edit.
 
-**This task also discharges the transition-audit obligation**, because the spec's Transition Inventory
-(§8) is what creates it. Two of the suite's cases are that audit rather than the arrangement:
+**Step 1, author every expectation FIRST, then run and see it red.** This ordering is the whole
+correction to the first draft, which told the implementer to run an edited expectation at a tree where
+that edit did not exist — a command that passes for the wrong reason.
 
-- the **compound case** §8 names — a FOCUSED live tile failing. The two axes were independent while the
-  chrome sat on the image, since an `<img>` is never focus-visible; on the anchor one event moves both.
-  The case focuses the anchor, fires the image error, and asserts the placeholder still carries the box.
-  Focus RELOCATION is already covered by
-  `tests/components/admin/wizard/step3DiagramTile.failureFocus.test.tsx`, so this asserts only what is
-  new: that the box survives the swap. Both premises are engaged deliberately — without the focus
-  premise the case degenerates into the failed-branch test.
-- a **transition audit**: neither box element may declare `transition-*`. §8 declares every pair
-  instant, which is only true while that holds, so it is asserted rather than assumed. There is no
-  `AnimatePresence` or conditional animation on either branch to enumerate.
+1. New suite, named step3DiagramTile.chrome.test.tsx (deliberately unbackticked: `spec:lint` reads a
+   backticked path as a citation and a plan cannot cite a file it has not created), beside its existing
+   siblings such as `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx`. Cases: live branch,
+   failed branch, compound route A, compound route B, transition audit, shared-box, and the regex
+   negative control.
+2. `tests/styles/controlOutlineTransitions.test.ts:254` `toHaveLength(4)` becomes `toHaveLength(3)`; its comment gains the reason and says a FOURTH
+   reappearing is an inventory change too; the DOCBLOCK at `tests/styles/controlOutlineTransitions.test.ts:229-230` stops quoting "the four". All
+   three, because R3 of the spec stage caught a draft that updated two.
+3. A new assertion in `tests/styles/controlOutlineTransitions.test.ts` for AC-4: read `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md`, find its §15 table 3 row, and require the count word
+   in it to match the derivation's length. This is what makes AC-4 executable rather than a claim about
+   commit topology.
+4. Invert `tests/e2e/step3-review-modal.layout.spec.ts:626-636`: the ANCHOR must carry a border and the image must carry none. Do NOT touch the
+   padding-box assertion at `tests/e2e/step3-review-modal.layout.spec.ts:638-647`.
 
-GREEN: at `components/admin/wizard/step3ReviewSections.tsx:3938` add `rounded-md border
-border-text-faint bg-surface-sunken` to the anchor; at `:3955` reduce the image className to
-`object-cover`. Replace the now-false comment at `components/admin/wizard/step3ReviewSections.tsx:3926-3931` with the ruling and a cross-reference to
-the new spec.
+Run the RED command. Expect: the new suite fails on the anchor's missing box, and the transitions suite
+fails at 4 against 3 and on the new prose assertion.
 
-Commit: `fix(admin): diagram tile chrome moves to the wrapper`.
+**Step 2, implement.** At `components/admin/wizard/step3ReviewSections.tsx:3938` add `rounded-md border border-text-faint bg-surface-sunken` to the
+anchor; at `components/admin/wizard/step3ReviewSections.tsx:3955` reduce the image className to `object-cover`; replace the false comment at
+`components/admin/wizard/step3ReviewSections.tsx:3926-3931` with the ruling.
 
-## Task 2 — re-derive §15 table 3 and update the count in lockstep
+**Step 3, the remaining consumers**, which have no independent RED and are declared as such:
 
-<!-- task: red=`pnpm vitest run tests/styles/controlOutlineTransitions.test.ts` ac=AC-3,AC-4 -->
+- `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:816` — the count phrase becomes three, with a one-line note naming this spec. `§6.2` at
+  `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:320` is NOT edited (spec §5).
+- `tests/styles/tapTargetCensus.ts:321` — the `reason` prose stops saying the chrome lives on the image.
+- `tests/styles/tintedPlateOutline.test.ts:221-223` — the comment's raw/comment split becomes 13 and
+  four, and names the move.
 
-RED: three edits in `tests/styles/controlOutlineTransitions.test.ts`, because the count appears three
-times in that file and spec R3 caught the first draft updating only two of them:
+**No-RED declaration for step 3.** These three are prose inside comments and a `reason` string. The
+count test strips comments before counting, so no assertion can red on their text, and R1 was right that
+the first draft implied otherwise. They are verified two ways instead: the count they describe is derived
+(below), and the same-commit requirement is structural.
 
-1. `tests/styles/controlOutlineTransitions.test.ts:254`'s `toHaveLength(4)` becomes `toHaveLength(3)`;
-2. the comment above it gains the reason, and says a FOURTH reappearing is an inventory change too;
-3. the DOCBLOCK at `tests/styles/controlOutlineTransitions.test.ts:229-230`, which quotes §15's row as "the four `step3ReviewSections` visuals".
+**The derived numbers, computed not asserted.** Run the registry's own `stripCommentsForFile` over the
+component before and after: before raw=11 code=9 inComments=2, after raw=13 code=9 inComments=4. The pin
+counts CODE occurrences and the class string is relocated within one file, so 9 stands.
 
-The docblock's other sentence — that the four were ORIGINALLY cited by line and every one had drifted —
-is historical and stays exactly as written.
+Run the RED command again. Expect green.
 
-On a tree where Task 1 has landed this is already green, so the ordering matters: run it at Task 1's
-parent to see it red at 4, then at Task 1's commit to see it green at 3, and record both numbers.
+Commit, once: `fix(admin): diagram tile chrome moves to the wrapper`.
 
-GREEN: `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:816` — the count
-phrase becomes three, with a one-line note naming this spec as what moved the fourth. §6.2 at `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:320` is NOT edited (spec §5, last
-paragraph).
+## Task 2 — every gate, then closeout
 
-Commit: `docs(spec): control-outline painted-child count 4 to 3, the tile image having left`.
+<!-- task: red=`pnpm heavy pnpm test:e2e:standalone tests/e2e/step3-review-modal.layout.spec.ts` ac=AC-2,AC-5,AC-6,AC-7,AC-9 -->
 
-## Task 3 — invert the real-browser placement pin, and run it
+The real-browser run is the RED for this task in the honest sense: at Task 1's parent the inverted
+assertion fails, and at Task 1's commit it passes. Report the ACTUAL test count from the run; do NOT
+carry the filing arc's 44 forward.
 
-<!-- task: red=`pnpm heavy pnpm test:e2e:standalone tests/e2e/step3-review-modal.layout.spec.ts` ac=AC-5,AC-8,AC-9 -->
+Then, in order:
 
-`tests/e2e/step3-review-modal.layout.spec.ts:626-637` pins the OLD placement: it asserts `imgBorderLeft > 0`. Spec
-§4.1 is why it inverts rather than being deleted — a pin that stops discriminating is worse than one
-that discriminates the wrong way, because nothing then holds the new arrangement.
+1. `pnpm heavy pnpm vitest run tests/styles` — the fill census, the residue census, the tinted-plate
+   registry and the transitions suite, all re-run rather than reasoned about (AC-6, AC-7, AC-9's census
+   half).
+2. `git diff --name-only origin/main...HEAD` must not list `components/diagrams/Gallery.tsx` (AC-2).
+3. `grep -n "lives on the" tests/styles/tapTargetCensus.ts` to confirm the prose reads ANCHOR, and
+   confirm that row's `line`, `tag` and `category` are untouched in the diff (AC-9's prose half).
+4. The full suite, typecheck, lint and format, per the ledger.
+5. The invariant-8 UI quality gate on the affected diff.
 
-RED: rewrite that assertion to require the ANCHOR to carry a border (`b.borderLeft > 0`) and the image
-to carry none (`b.imgBorderLeft === 0`), and replace its comment with this arc's ruling. On a tree where
-Task 1 has NOT landed this reds; run it at Task 1's parent to see that, then at Task 1's commit to see
-it green, and record both.
+**The marker line and both gate-half names land in THIS task's commit and nowhere earlier.** Verified
+against the parser at `tests/docs/_invariant8Closeout.ts:45-48`: the marker is required only once some
+file in the dated plan unit matches BOTH gate-half phrases (`declaresGate`, `tests/docs/_invariant8Closeout.ts:109`),
+and this plan deliberately names neither, so none is owed until then.
 
-Do NOT touch the image-equals-anchor-padding-box assertion below it (`tests/e2e/step3-review-modal.layout.spec.ts:637-647`).
-It is already expressed as `anchorW - borderLeft - borderRight`, so it passes with the border on either
-element; editing it would be the reviewer's "merely relocating the pin" failure.
+The grammar cannot be written out here as a specimen, and that is not a style choice: the parser
+`trimStart()`s every line before classifying it, so an indented example IS classified as a marker, and one
+carrying placeholder digits matches no legal form and reds the whole plans tree. This plan learned that by
+doing it — `tests/docs/_metaInvariant8Closeout.test.ts` failed §4.1.2 immediately. In prose: the line
+begins with the marker prefix, then `critique=` and `audit=`, each `RAN` or `RAN-DEGRADED`; then `p0=` and
+`p1=` with integer counts; then `dispositions=`, `recorded` when `p0 + p1` exceeds zero and `none` when it
+is zero. The parser cross-checks that relation. Read `tests/docs/_invariant8Closeout.ts:45` for the
+authoritative pattern rather than copying a specimen from anywhere.
 
-GREEN: run the spec under `pnpm heavy` (non-interactive playwright, per the semaphore rule).
-
-**The command is `test:e2e:standalone`, NOT `test:e2e`, and this is not a style preference.** This spec
-is absent from every project's `testMatch` in `playwright.config.ts` — only
-`step3-review-modal.interactions` and `.agenda` are listed there. It runs under
-`tests/e2e/standalone.config.ts`, whose explicit allow-list does name
-the `step3-review-modal.layout` basename, in the `standalone-chromium` project. A `pnpm test:e2e <path>` invocation
-would therefore match no project and report no tests, which is the false-green this note exists to
-prevent. Derive the command from the package.json script (`test:e2e:standalone`, line 79), never from
-the argv shape.
-
-The harness is standalone — it renders the real component to static markup and compiles the token CSS
-with the Tailwind CLI rather than booting the app, so no dev server is needed. One consequence worth
-checking rather than assuming: the border can only measure non-zero if Tailwind actually GENERATED
-`border-text-faint`. All three moved classes (`rounded-md`, `border-text-faint`, `bg-surface-sunken`)
-stay present in the same source file, so generation is unchanged — but if the assertion reads a 0-width
-border, check CSS generation before concluding the component is wrong.
-
-Report the ACTUAL test count from the run; do NOT carry the filing's 44 forward. The
-live-tile-box-equals-placeholder-tile-box test at `tests/e2e/step3-review-modal.layout.spec.ts:659` must be among the passes
-and must not have been skipped.
-
-If the box-equality test reds, the box invariant is broken and Task 1 is wrong; that is the whole point
-of running it.
-
-Also in this task, because it is the same finding's other instance:
-`tests/styles/tapTargetCensus.ts:321`'s `reason` prose states that the tile's chrome lives on the image.
-Update that sentence. The row's `line`, `tag` and `category` are unchanged — the row is about layout, not
-chrome, which the prose itself says.
-
-## Task 4 — the populations the change could move without saying so
-
-<!-- task: red=`pnpm heavy pnpm vitest run tests/styles` ac=AC-6,AC-7 -->
-
-The anchor now carries the outline/ground pair the image used to carry, so every derived population over
-`step3ReviewSections.tsx` is re-run rather than reasoned about: the fill census, the residue census, the
-tinted-plate registry, and the transitions suite.
-
-**The `neutralFaintCount` pin does not move, and that is derived rather than argued.** Run the registry's
-own `stripCommentsForFile` over the file before and after: before raw=11 code=9 inComments=2, after
-raw=13 code=9 inComments=4. The pin counts CODE occurrences, and the class string is relocated within one
-file rather than added or removed, so 9 stands (`tests/styles/tintedPlateOutline.test.ts:224`).
-
-**Its explanatory comment DOES move, and it is this task's second edit** (spec §4.1, fourth row). The
-comment at `tests/styles/tintedPlateOutline.test.ts:221-223` states the raw count as 11 with two in
-comments, and breaks the 9 down as the report textarea plus "the four painted children". After this
-change the split is 13 and four, and one of those five now sits on the CONTROL rather than on a painted
-child. Both added comment mentions are in the component's new anchor comment; this file's own comment
-adds none, which is worth stating in it so the next reader can check the arithmetic.
-
-Any population that moves gets a named decision in the spec, not a silent literal edit.
-
-## Task 5 — pre-code mechanical UI checklist and the invariant-8 UI quality gate
-
-<!-- task: red=`pnpm exec eslint components/admin/wizard/step3ReviewSections.tsx` ac=AC-1 -->
-
-Mechanical checklist over the diff before the gate, since the gate verifies rather than discovers: em
-dash ban in user-visible copy, apostrophe literals, 44px tap targets, canonical type and token classes.
-No new colour token is introduced, so no new contrast pin is owed.
-
-Then the invariant-8 UI quality gate on the affected diff, with findings and dispositions recorded at
-closeout.
-
-**The marker line and the gate-half names land in the SAME commit as the gate run, and not before.**
-Verified against the parser at `tests/docs/_invariant8Closeout.ts:45-48`: the marker is required only
-once some file in the dated plan unit matches BOTH gate-half phrases (`declaresGate`, `tests/docs/_invariant8Closeout.ts:109`), and this
-plan deliberately names neither yet, so no marker is owed today. The `<RAN|RAN-DEGRADED>` placeholder
-form is legal ONLY inside a template file (`tests/docs/_invariant8Closeout.ts:160`); in a real plan it classifies as MALFORMED, and one
-malformed marker anywhere reds the whole unit regardless of any valid one.
-
-**The grammar cannot be written out here as an example, and that is not a style choice.** The parser
-`trimStart()`s every line before classifying it, deliberately, so that "indented typos are rejected,
-never invisible" — which means an indented or fenced SPECIMEN of the marker is classified as a real
-marker, and a specimen carrying placeholder digits matches no legal form and reds the entire plans tree.
-This plan learned that by doing it: an earlier draft printed the form in an indented block and
-`tests/docs/_metaInvariant8Closeout.test.ts` failed on §4.1.2, malformed marker line, immediately.
-
-So, in prose only. The line begins with the marker prefix, then `critique=` and `audit=`, each `RAN` or
-`RAN-DEGRADED`; then `p0=` and `p1=` with integer counts; then `dispositions=`, which is `recorded` when
-`p0 + p1` is greater than zero and `none` when it is zero. The parser cross-checks that last relation
-and rejects a mismatch, and the whole line is anchored, so trailing commentary on it is malformed too.
-Read `tests/docs/_invariant8Closeout.ts:45` for the authoritative pattern rather than copying a specimen
-from anywhere.
+Commit, once: the closeout section, its findings and dispositions, and the marker.
 
 <!-- tasks: end -->
 
@@ -226,12 +258,18 @@ from anywhere.
 | styles suite | `pnpm heavy pnpm vitest run tests/styles` |
 | real browser | `pnpm heavy pnpm test:e2e:standalone tests/e2e/step3-review-modal.layout.spec.ts` |
 | full suite | `pnpm heavy pnpm test` |
+| docs meta | `pnpm heavy pnpm vitest run tests/docs --hookTimeout=300000` |
 | types | `pnpm typecheck` |
 | lint | `pnpm exec eslint .` |
 | format | `pnpm format:check` |
-| docs meta | `pnpm vitest run tests/docs --hookTimeout=300000` |
 
-The `--hookTimeout` is not decoration. Measured this arc: `tests/docs/_metaReviewRoundEconomy.test.ts`
-passed all 135 tests and then red anyway on its `afterAll` `rmSync` cleanup timing out at the 30s
-default, under load from the other arcs on this machine. `--testTimeout` does NOT raise hook timeouts,
-so a run that raises only that will keep reporting a red with every test green.
+Two notes on that table, both corrections R1 forced:
+
+**`tests/docs` is WRAPPED.** It names a directory, not an explicit file list, so the semaphore rule
+classifies it as a heavy phase. The first draft left it unwrapped. `tests/styles` was already wrapped for
+the same reason; the two scoped single-file runs at the top are correctly unwrapped.
+
+**`--hookTimeout` is not decoration.** Measured this arc: `tests/docs/_metaReviewRoundEconomy.test.ts`
+passed all 135 of its tests and red anyway, on an `afterAll` `rmSync` cleanup hitting the 30s default
+under load from the other arcs on this machine. `--testTimeout` does NOT raise hook timeouts, so a run
+raising only that keeps reporting a red with every test green.
