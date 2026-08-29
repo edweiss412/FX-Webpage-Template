@@ -46,7 +46,11 @@
 export type OverlayDisposition =
   /** Resolves geometry through `lib/popover/position.ts` (asserted by import). */
   | "placement-module"
-  /** Capped against the clip edge via `useFitWithinClip` (asserted by import). */
+  /** RETIRED 2026-08-28 with the hook that implemented it
+   *  (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW). NO live row may claim this: the
+   *  contract suite has no import pattern for it, and an unmapped disposition now
+   *  fails there rather than being skipped. Kept in the union only so archival
+   *  prose and older records stay typeable. */
   | "fit-within-clip"
   /** Not inside a clipping ancestor, or has no internal scroll range to strand. */
   | "not-clip-constrained"

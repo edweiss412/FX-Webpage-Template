@@ -346,7 +346,8 @@ export function AttentionMenuFrame({
   // listener below reads it at event time rather than closing over a snapshot.
   const engagedRef = useRef(!escTransparentUntilEngaged);
   const [entered, setEntered] = useState(false);
-  // The clipping ReviewModalShell panel, which is also the portal target.
+  // The clipping ReviewModalShell panel. BOUNDS ONLY — this consumer does not
+  // portal into it (see the placement effect for why).
   // `ReviewModalShell` provides its own `panelRef` here, so the host rect IS the
   // clip the e2e suites measure. Null host (no provider) degenerates to the body
   // and to viewport bounds, which is the right answer where nothing clips.
@@ -366,9 +367,11 @@ export function AttentionMenuFrame({
   // VIEWPORT while anchored inside a clip. At phone widths it grew leftwards past
   // the clip's edge (measured -36 on both review modals, at rest). The shared
   // placement core clamps x into the bounds it is given
-  // (`lib/popover/position.ts:138-139`), which is the repair; the width cap it
-  // also returns is inert here and is written for correctness outside the probe
-  // domain rather than because it fires.
+  // (`lib/popover/position.ts:138-139`), which is the repair. The width cap it
+  // also returns DOES fire at phone widths — the declared natural width is 400
+  // and the clip's inset bounds are narrower — but it is not what contains the
+  // panel: capped and still right-anchored, the panel would start further OUTSIDE
+  // the clip, because narrowing a right-anchored box moves its left edge left.
   const measureAndApply = useCallback(() => {
     const panel = panelRef.current;
     if (panel === null) return;

@@ -448,6 +448,36 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       if (m.pill.right - m.menu.width >= m.panel.left) {
         expect(m.menu.right).toBeCloseTo(m.pill.right, 0);
       }
+
+      // AC-5 pins the MEASURED desktop geometry rather than a self-consistent
+      // relation: `menu.right === pill.right` above is satisfied by ANY anchor
+      // position, so a layout shift moving the wrapper keeps it green while the
+      // panel is no longer where it was before this arc.
+      //
+      // The WIDTH is pinned here; the LEFT is not, and the asymmetry is
+      // deliberate. The wizard surface's pre-fix desktop left was measured (684)
+      // and is pinned in its own suite. THIS surface's pre-fix left was never
+      // measured, so a literal here would be a number invented to look rigorous.
+      // Its left is held by the flush-to-pill relation above, which at 1280 IS
+      // the pre-fix behaviour because no clamp fires. DOCUMENTED LIMIT: a desktop
+      // layout shift moving this surface's pill and panel together satisfies
+      // both, and closing it needs a pre-fix measurement that no longer exists
+      // to take.
+      if (vw === 1280) {
+        expect(m.menu.width).toBeCloseTo(400, 0);
+      }
+
+      // NO ANCHOR-REFLOW CASE here, and the absence is deliberate and probed.
+      // Placement is computed against the panel's offset parent, so observing
+      // that anchor is right in principle. A case for it was written and REMOVED
+      // because its premise could not be satisfied on this surface: changing the
+      // attention load from (2,2,2) to (30,30,30) does not move the wrapper's
+      // RIGHT edge — the only edge `align: "right"` placement reads — because the
+      // wrapper is right-pinned inside the modal header. The anchor subscription
+      // therefore ships as DEFENSIVE, with no reachable failing case on either
+      // review modal today. Recorded so the next author reads the missing case as
+      // a probed absence rather than an oversight, and does not delete the
+      // subscription as unused.
     });
   }
 

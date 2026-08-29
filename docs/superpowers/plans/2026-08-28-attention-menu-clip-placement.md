@@ -174,8 +174,12 @@ pass by rendering nothing.
 
 Plus, on top of the grid:
 
-- `menu.width === 343` at 375x667 on BOTH surfaces (**AC-2b** — makes the
-  ratified width-over-alignment choice falsifiable).
+- `menu.width === min(400, bounds.width)` at 375x667 on BOTH surfaces
+  (**AC-2b** — makes the ratified width-over-alignment choice falsifiable).
+  AMENDED at implementation: the literal 343 was the OLD viewport-derived
+  formula's output; the shipped natural width is a plain 400px capped by the
+  clip's inset bounds, so the settled value is 359 and the assertion derives it
+  from the measured clip rather than pinning a number. See spec §2.1.
 - `menu.width === 400` **and** `menu.left === 684` at 1280x800 on BOTH surfaces
   (**AC-5**, exact geometry, both surfaces — a round-2 draft asserted width on one
   and left on the other, leaving each half unchecked on the other surface).
@@ -287,7 +291,7 @@ Run them sequentially, not in parallel, per the machine's standing load guidance
 The registry cycle is green→red→green within this one task: §1 records all of
 them passing at the unmodified head, step 1 falsifies them, step 4 restores them.
 
-### The host-portal assertion (durable, not scaffolding)
+### The host-descendancy assertion (durable, not scaffolding)
 
 `PopoverHostContext` resolving non-null proves the context exists; it does NOT
 prove the implementation portals into it. The panel must be asserted to be a
@@ -350,8 +354,8 @@ pass is a documented requirement of the surface, and dropping it while changing
 the mechanism underneath would silently retire a behavior the code names.
 
 **Why the obvious assertion is invalid, so it is not re-proposed:** asserting the
-settled width is 343 proves nothing — the rect reaches 343 when the scale reaches
-1 whether or not any code ran. And at 375 both a frozen and a re-measured
+settled width proves nothing — the rect reaches its settled width when the scale
+reaches 1 whether or not any code ran. And at 375 both a frozen and a re-measured
 placement clamp `x` to `bounds.left = 8`. The assertion is therefore at
 **1280x800**, where the clamp does not fire: frozen 704, re-measured 684.
 
@@ -479,10 +483,10 @@ Two tasks. Task 1 owns every criterion; Task 2 verifies AC-7 at the gate.
 
 - AC-1 — `menu.left >= clip.left - TOL`, eight cells *(discharged by Task 1)*
 - AC-2 — `menu.right <= clip.right + TOL`, eight cells *(discharged by Task 1)*
-- AC-2b — settled width 343 at 375x667, both surfaces *(discharged by Task 1)*
+- AC-2b — settled width `min(400, bounds.width)` at 375x667, both surfaces, derived from the measured clip *(discharged by Task 1)*
 - AC-3 — `menu.bottom <= clip.bottom + TOL`, eight cells *(discharged by Task 1)*
 - AC-4 — `menu.width > 0` and the 44px row floor, both surfaces *(discharged by Task 1)*
-- AC-5 — 1280x800 exact geometry, width 400 and left 684, both surfaces *(discharged by Task 1)*
+- AC-5 — 1280x800 exact geometry: width 400 on both surfaces, and the measured left 684 pinned on the wizard, whose pre-fix value exists; the published surface's left is held by the flush-to-anchor relation, a limit recorded in its suite *(discharged by Task 1)*
 - AC-6 — placement re-computed when the entrance settles *(discharged by Task 1)*
 - AC-7 — the hook module is gone and this component carries no viewport-derived width *(discharged by Task 1, Task 2)*
 

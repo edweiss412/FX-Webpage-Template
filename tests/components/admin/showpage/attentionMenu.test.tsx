@@ -405,6 +405,91 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     ).toBeGreaterThan(0);
   });
 
+  // ------------------------------------------------------------------------
+  // Regression coverage for the four re-place repairs
+  // (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW, whole-diff review round 1). Each
+  // was a behavioural fix shipped without a test; these pin the mechanism rather
+  // than the geometry, which is what jsdom can actually decide.
+  // ------------------------------------------------------------------------
+
+  // The ANCHOR-observation repair is asserted in a REAL BROWSER, not here.
+  // jsdom never implements `offsetParent` — it returns null unconditionally — so
+  // the placement anchor does not exist in this environment and a unit assertion
+  // on it can only pass vacuously or fail on its own premise. It failed on its
+  // premise when first written, which is the premise doing its job. The live
+  // assertion is in popover-clip-fit.spec.ts: change the attention load, which
+  // reflows the pill wrapper, and the panel must follow the wrapper's new edge.
+  test("the panel is observed, and a host-less mount observes nothing spurious", () => {
+    const clip = installLayoutStubs();
+    renderMenuInto(clip);
+    const panel = screen.getByTestId("published-show-review-attention-menu");
+    expect(observedTargets).toContain(panel);
+    // This harness mounts with NO `PopoverHostContext` provider, so there is no
+    // host to observe and bounds degenerate to the viewport — the documented
+    // no-provider path. The assertion is therefore that the set is exactly the
+    // panel: no null, no duplicate, and nothing observed speculatively. An
+    // earlier draft asserted more than one target and failed here, which was the
+    // assertion being wrong about the fixture rather than the code being wrong.
+    expect(observedTargets).toEqual([panel]);
+  });
+
+  test("visualViewport scroll and resize are subscribed, and torn down", () => {
+    const added: string[] = [];
+    const removed: string[] = [];
+    const vv = {
+      addEventListener: (t: string) => added.push(t),
+      removeEventListener: (t: string) => removed.push(t),
+    };
+    vi.stubGlobal("visualViewport", vv);
+    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+    const clip = installLayoutStubs();
+    const { unmount } = renderMenuInto(clip);
+    // Pinch-zoom and the mobile keyboard move the VISUAL viewport without firing
+    // a window resize. Doug is on a phone; every other consumer of this stack
+    // subscribes to both.
+    expect(added).toContain("scroll");
+    expect(added).toContain("resize");
+    unmount();
+    expect(removed).toContain("scroll");
+    expect(removed).toContain("resize");
+  });
+
+  test("a scroll from INSIDE the panel does not schedule a re-place", () => {
+    const clip = installLayoutStubs();
+    renderMenuInto(clip);
+    const scroller = screen.getByRole("group", { name: "Attention items" });
+    const outside = document.createElement("div");
+    document.body.appendChild(outside);
+
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb: FrameRequestCallback) => {
+        frames.push(cb);
+        return frames.length;
+      });
+    try {
+      // A capture-phase window scroll listener also hears the panel's own
+      // scroller, and every measurement can emit a scroll event from it (clearing
+      // the cap reflows the child). Unfiltered, the pair feeds itself a re-measure
+      // per frame while the operator is scrolling the list.
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+      const afterSelf = frames.length;
+      expect(afterSelf, "a self-originated scroll must not schedule a re-place").toBe(0);
+
+      // PREMISE: the listener is live at all. Without this the case passes on a
+      // component that subscribed to nothing.
+      outside.dispatchEvent(new Event("scroll", { bubbles: true }));
+      expect(
+        frames.length,
+        "premise: an OUTSIDE scroll must still schedule, or the filter proves nothing",
+      ).toBeGreaterThan(afterSelf);
+    } finally {
+      raf.mockRestore();
+      outside.remove();
+    }
+  });
+
   test("transition audit: entrance classes on the panel, instant unmount on close", () => {
     const { rerender, props } = renderMenu();
     const panel = screen.getByTestId("published-show-review-attention-menu");

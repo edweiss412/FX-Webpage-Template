@@ -380,6 +380,19 @@ describe("popover overlay registry", () => {
   it("rows claiming a mechanism actually import it", () => {
     for (const row of POPOVER_OVERLAY_REGISTRY) {
       const required = IMPORT_FOR_DISPOSITION[row.disposition];
+      // A disposition with NO mapping fails LOUDLY rather than being skipped.
+      // `fit-within-clip` lost its mapping when the hook retired (2026-08-28,
+      // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW), and a `continue` here meant a
+      // future row could claim that retired mechanism, import nothing, and pass —
+      // the exact opposite of what this suite's comment promised. An unmapped
+      // disposition is either retired (no row may claim it) or new (someone owes
+      // it a pattern); both are defects, and neither is a skip.
+      expect(
+        required,
+        `${row.file} claims disposition "${row.disposition}", which has no import ` +
+          `pattern. If that mechanism is retired, the row may not claim it; if it ` +
+          `is new, add its pattern to IMPORT_FOR_DISPOSITION.`,
+      ).toBeDefined();
       if (!required) continue;
       const source = readFileSync(row.file, "utf8");
       expect(

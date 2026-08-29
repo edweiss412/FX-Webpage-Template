@@ -292,6 +292,17 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
       if (box.chip.right - box.menu.width >= box.clip.left) {
         expect(box.menu.right).toBeCloseTo(box.chip.right, 0);
       }
+
+      // AC-5 pins the MEASURED desktop geometry, not a self-consistent relation.
+      // `menu.right === pill.right` above is satisfied by ANY anchor position, so
+      // a desktop layout shift moving the wrapper would keep every other assertion
+      // green while the panel is no longer where it was before this arc. These two
+      // literals are the pre-fix measurement, and pinning them is the whole point
+      // of a criterion that says "identical to today".
+      if (w === 1280) {
+        expect(box.menu.left).toBeCloseTo(684, 0);
+        expect(box.menu.width).toBeCloseTo(400, 0);
+      }
     });
   }
 

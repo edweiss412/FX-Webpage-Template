@@ -57,9 +57,12 @@ import { describe, expect, it } from "vitest";
  *                                the hook, so a unit assertion about that cap
  *                                would pin behaviour the component no longer
  *                                has.
- *   - AttentionMenu fit       -> attentionMenu.test.tsx, "the scroller is capped
- *                                against the clip ancestor, not just by the CSS
- *                                cap", plus the settled-fit browser cases in
+ *   - AttentionMenu placement -> attentionMenu.test.tsx, "the cap reaches the
+ *                                scroller by flex, not by an inline cap written
+ *                                on it" (RENAMED 2026-08-28 with the migration —
+ *                                the fitted cap lands on the panel now, so the
+ *                                old title and the inline-cap behaviour it named
+ *                                are both gone), plus the browser cases in
  *                                tests/e2e/popover-clip-fit.spec.ts, which
  *                                compare the scroller's measured height against
  *                                the room actually available.

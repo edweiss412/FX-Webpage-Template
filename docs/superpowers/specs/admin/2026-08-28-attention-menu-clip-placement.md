@@ -481,7 +481,7 @@ Rows are grouped by what the edit is, but the SET is the command's output.
 
 | File | Change |
 | --- | --- |
-| `components/admin/showpage/AttentionMenu.tsx` | The frame portals into the host and is placed by the shared module; the viewport-sized width class, `right-0`, `top-[calc(100%+8px)]` and the `useFitWithinClip` call go. Panel becomes a clipping flex column (§7.1). |
+| `components/admin/showpage/AttentionMenu.tsx` | The frame is placed by the shared module against the host's BOUNDS, rendering in place rather than portaling; the viewport-sized width class and the `useFitWithinClip` call go, while `right-0` and `top-[calc(100%+8px)]` are RETAINED as the CSS fallback. Panel becomes a clipping flex column (§7.1). **Amended from the original row per §3.1a** — that row said portal and remove the fallback, and both were reversed by evidence. |
 | the retired hook module (components/admin/useFitWithinClip.ts) | Deleted (§3.4). |
 | its retired suite (tests/components/admin/useFitWithinClip.test.tsx) | Deleted with its subject. |
 | `tests/components/admin/_metaPopoverViewportSource.test.ts` | Derived registry discovers a sixth placement consumer; consumer/exemption rows updated. |
