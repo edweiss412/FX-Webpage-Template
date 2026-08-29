@@ -149,9 +149,7 @@ const ROWS: readonly AdoptionRow[] = [
  * Names that must never be DECLARED inside a consumer — in any form. Importing
  * them is the point; re-declaring one is the local copy coming back.
  */
-const NEVER_DECLARED_IN_CONSUMERS = [
-  "createRafCoalescer",
-] as const;
+const NEVER_DECLARED_IN_CONSUMERS = ["createRafCoalescer"] as const;
 
 /**
  * Where each shared name is legitimately DECLARED. Rule (iii) has to exempt a

@@ -442,7 +442,10 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       // bounds and by nothing else. Derived from the measured clip and the core's
       // own VIEWPORT_INSET, never a pixel constant. The declined alternative
       // narrows the panel to buy flushness and fails here.
-      expect(m.menu.width).toBeCloseTo(Math.min(400, (m.panel.right - m.panel.left) - 2 * VIEWPORT_INSET), 0);
+      expect(m.menu.width).toBeCloseTo(
+        Math.min(400, m.panel.right - m.panel.left - 2 * VIEWPORT_INSET),
+        0,
+      );
       // Where the clip does not bind, the panel stays flush with its trigger, so
       // the clamp is proved to fire only when it must.
       if (m.pill.right - m.menu.width >= m.panel.left) {
@@ -551,10 +554,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
           scrollerBottom: sr.bottom,
           panelBottom: pr.bottom,
           scrollHeight: scroller.scrollHeight,
-          childSum: [...panel.children].reduce(
-            (n, c) => n + c.getBoundingClientRect().height,
-            0,
-          ),
+          childSum: [...panel.children].reduce((n, c) => n + c.getBoundingClientRect().height, 0),
         };
       },
       [MENU, SCROLLER] as const,

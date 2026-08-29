@@ -458,8 +458,20 @@ invariant-8 machine check while appearing to declare the gate. Verified by
 running the guard: 14 passed with that phrasing, where the obligation should have
 red.
 
-The marker line is written at closeout in the full form the guard requires for a
-UI plan (grammar at `tests/docs/_metaInvariant8Closeout.test.ts:254`). **It is
+The marker line, written at closeout from the gate's own output:
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=1 p1=1 dispositions=recorded
+
+**`critique=RAN-DEGRADED` is the honest value, not a formality.** Two sequencing
+deviations are recorded in spec §12.2 and §12.2a: the parent context ran the
+detector before Assessment A finished, which the command orders the other way, and
+Assessment A's design half returned only after the whole-diff adversarial review
+had closed, which invariant 8 orders the other way. Both are disclosed there. The
+counts are Assessment A's: one P0 (already repaired independently, and verified in
+place) and one P1 (auto-open, carried to the product row). The audit contributed no
+P0 or P1. Every finding from both halves has a stated disposition.
+
+The grammar is at `tests/docs/_metaInvariant8Closeout.test.ts:254`. **It is
 deliberately not reproduced here, even as a fenced placeholder** — the guard
 scans this file for its own prefix and reads a template as a MALFORMED marker,
 which reds for the wrong reason and would make Task 2's `why=` false. Verified:

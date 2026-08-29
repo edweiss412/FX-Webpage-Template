@@ -241,7 +241,7 @@ export const DIVIDERS: readonly CensusRow[] = [
   // :189 until 2026-08-27. The needs-you row moved into the exported
   // AttentionMenuRow (spec §5) so the wizard index renders the same row; the
   // divider recipe itself is byte-identical, pinned by the committed baseline.
-  { file: "components/admin/showpage/AttentionMenu.tsx", line: 290 },
+  { file: "components/admin/showpage/AttentionMenu.tsx", line: 304 },
   // :85 until 2026-08-26. The control-outline-cover sweep gave `FilterTextInput`
   // its own outline recipe and a `cn` import, which moved every element below
   // it. The divider itself is untouched; what moved is where it sits.

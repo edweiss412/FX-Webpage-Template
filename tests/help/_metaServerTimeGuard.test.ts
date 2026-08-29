@@ -212,7 +212,18 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // as well as counted, per the note above: a count alone cannot say WHICH
     // member joined, and it passes just as happily on a swap.
     expect(rel).toContain("lib/admin/warningAttention.ts");
-    expect(rel.length).toBe(215);
+    // 215 -> 214 (2026-08-29): `lib/layout/fitWithinClip.ts` LEFT the population.
+    // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW deleted
+    // `components/admin/useFitWithinClip.ts`, which was its only depth-1 importer
+    // under components/ or app/admin/. The module itself is NOT retired —
+    // `lib/popover/place.ts` still imports `MIN_FITTED_HEIGHT` from it — but that
+    // import is depth 2 from a component, so the derivation no longer reaches it.
+    //
+    // Named as well as counted, in the same spirit as the arrivals above: a count
+    // alone cannot say WHICH member left, and it passes just as happily on a swap
+    // that dropped one module and added another.
+    expect(rel).not.toContain("lib/layout/fitWithinClip.ts");
+    expect(rel.length).toBe(214);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

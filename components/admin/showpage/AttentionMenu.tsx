@@ -631,13 +631,20 @@ export function AttentionMenuFrame({
       // cap, and — on the scroller below — `flex-1 min-h-0`, without which a flex
       // item's default `min-height: auto` refuses to shrink below its content and
       // the cap silently does nothing.
+      //
+      // The heading needs NO `shrink-0`, and must not be WRAPPED to receive one.
+      // `min-h-0` on the scroller alone makes it the PREFERENTIAL shrinker: it is
+      // the only child whose min-content floor is lifted, so it absorbs every
+      // reduction before the heading is asked for any. An earlier draft wrapped
+      // the heading in a `shrink-0` div and broke a structural contract for
+      // nothing — the wizard suite pins the heading as the scroller's immediate
+      // previous SIBLING, so it keeps labelling the panel while a long list
+      // scrolls under it, and a wrapper severs that relation.
       className={`absolute top-[calc(100%+8px)] right-0 z-dropdown flex flex-col overflow-hidden rounded-md border border-border bg-surface-raised shadow-popover origin-top-right transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none w-[400px] ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
-      {heading === undefined || heading === null ? null : (
-        <div className="shrink-0">{heading}</div>
-      )}
+      {heading ?? null}
       {/* The scroller, not the panel, is the SCROLLABLE REGION: it owns the
           scroll range, and it can overflow with zero focusable descendants (a
           monitoring-only list is entirely read-only rows), so engines cannot be
