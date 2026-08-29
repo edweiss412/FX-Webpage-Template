@@ -345,10 +345,6 @@ export function AttentionMenuFrame({
   // listener below reads it at event time rather than closing over a snapshot.
   const engagedRef = useRef(!escTransparentUntilEngaged);
   const [entered, setEntered] = useState(false);
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
   // The clipping ReviewModalShell panel, which is also the portal target.
   // `ReviewModalShell` provides its own `panelRef` here, so the host rect IS the
   // clip the e2e suites measure. Null host (no provider) degenerates to the body
@@ -454,7 +450,6 @@ export function AttentionMenuFrame({
   }, [measureAndApply, entered]);
 
   useEffect(() => {
-    if (!mounted) return;
     const coalescer = createRafCoalescer(measureAndApply);
     const schedule = () => coalescer.schedule();
     window.addEventListener("resize", schedule);
@@ -471,7 +466,7 @@ export function AttentionMenuFrame({
       ro?.disconnect();
       coalescer.cancel();
     };
-  }, [mounted, measureAndApply, hostRef]);
+  }, [measureAndApply, hostRef]);
 
   // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
   // MOUNT-SCOPED, deliberately separate from the listener effect below (whole-diff
@@ -522,8 +517,6 @@ export function AttentionMenuFrame({
       document.removeEventListener("focusin", onFocusIn);
     };
   }, [onClose, pillRef]);
-
-  if (!mounted) return null;
 
   const panel = (
     <div
@@ -587,7 +580,6 @@ export function AttentionMenuFrame({
           panel and reaches this element through `flex-1 min-h-0`; whichever of
           the two binds first wins. */}
       <div
-        ref={scrollerRef}
         role="group"
         aria-label={scrollerLabel}
         tabIndex={0}

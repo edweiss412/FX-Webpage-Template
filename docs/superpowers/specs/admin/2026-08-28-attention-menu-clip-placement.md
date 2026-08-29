@@ -1014,6 +1014,50 @@ modal with this menu open and needs no app server or database.
 eight-cell containment matrix, the host-descendancy pin, the dimensional
 invariants and both motion branches of the re-place assertion.
 
+### 12.3 Impeccable audit
+
+Code-level technical audit of the diff. Scored per the command's five dimensions.
+
+| # | Dimension | Score | Key finding |
+| --- | --- | --- | --- |
+| 1 | Accessibility | 4 | No new debt, and the migration actively DEFENDED an a11y contract: the portal was reverted because it broke sequential focus order from the pill. |
+| 2 | Performance | 3 | One forced sync layout per placement pass, inherent to measure-then-place and the same cost the other five stack consumers pay. Coalesced through the shared rAF throttle with teardown. |
+| 3 | Theming | 4 | Zero hard-coded colors. Semantic tokens throughout, and a semantic `z-dropdown` rather than a numeric z-index. |
+| 4 | Responsive | 3 | Containment now measured at four viewports on both surfaces; 44px floor asserted on both. One residual, P3 below. |
+| 5 | Anti-patterns | 4 | Detector clean, zero tells. |
+| **Total** | | **18/20** | **Excellent (minor polish)** |
+
+**Anti-patterns verdict: PASS.** The deterministic detector returns `[]`. No
+gradient text, no glassmorphism, no side-stripe border, no hero-metric block, no
+eyebrow, no card grid. Motion is opacity-only and honors `prefers-reduced-motion`.
+`role="menu"` appears exactly once in the file, in a comment explaining why the
+component deliberately does NOT use it — the rows are plain buttons with no
+arrow-key contract, which is the honest disclosure pattern.
+
+**Findings**
+
+- **P2 — dead portal scaffolding, FOUND AND FIXED IN THIS AUDIT.** `eslint`
+  reported `react-hooks/set-state-in-effect` on a `mounted` flag that existed only
+  to defer `createPortal` until after hydration. The portal was reverted earlier in
+  this task; the flag survived it. It cost a wasted render cycle on every open (the
+  panel returned `null` on first commit) and tripped the rule. Removed with an
+  unused `scrollerRef`. Lint and typecheck clean afterwards, and all four affected
+  suites re-run green: 13, 42, and 20 across the unit and baseline pair. This is
+  the `subtract-before-you-add` case — scaffolding for a decision that was reversed
+  is the easiest thing in a diff to leave behind, and only the linter noticed.
+- **P3 — the degraded-path width no longer self-limits.** `w-[400px]` is the
+  declared natural width and its only limiter is the runtime cap. The class it
+  replaced, `w-[min(400px,calc(100vw-32px))]`, bounded itself in CSS. So in the
+  early-return paths — null `offsetParent`, zero-area anchor, degenerate natural
+  measurement — a 400px panel could exceed a 375px clip where the old class would
+  have shrunk. **Not repaired, and the reason is that every one of those paths
+  corresponds to a panel that is not laid out or is already `visibility: hidden`**,
+  so the width is unobservable. Recorded rather than fixed because the obvious
+  repair reintroduces a viewport-derived width, which is the defect this arc
+  closed. **Trigger:** any report of the panel exceeding its clip in a state where
+  it is nonetheless visible.
+
+
 
 
 UI surface, so invariant 8 applies in full.
