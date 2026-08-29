@@ -64,7 +64,7 @@ its violation in place, which is why this section exists.
 | §4 + AC-3, the guard bridge | last card group loses `grid`, so its anchors leave every measured grid | marked anchors inside a measured grid at 688px: expected 8, received **6** | RED OBSERVED |
 | §4 row 8, shared height | `items-start` on the first grid, defeating grid's default stretch | grid 1 row 1 card 2 height at 752px: expected 324.6, received **402.6** | RED OBSERVED |
 | §4 row 4, the 1440 cap | `max-w-6xl` dropped from `app/help/layout.tsx` | main content width at 1280px: expected 856, received **984** | RED OBSERVED |
-| §4 row 7, body vs the measure | `max-w-[var(--help-measure)]` removed from the span card's `<p>` | full-span card 1 body within the measure at 1280px: expected <= 704.876, received **814** | RED OBSERVED, **on the second attempt** |
+| §4 row 7, body vs the measure | the span card's `<p>` loses its cap | full-span card 1 body within the measure at 1280px: expected <= 704.876, received **814** | RED OBSERVED, **on the second attempt** |
 
 704.4px in the first row is the capped width — the exact scenario round 1's first finding
 described, where a grid that never escapes the measure satisfies every column count and
@@ -77,6 +77,12 @@ less 40px: 432px at 768 and 680px at 1016, both comfortably under the 704.4px me
 assertion could not fail at either viewport for any layout — a tautology, in an assertion
 written to close a round-2 finding, sampled where it could never bind. Adding 1280, where
 the body is 814px, produced the red above.
+
+**The carrier was renamed after this probe ran, and the assertion did not care.** At the time it was
+`max-w-[var(--help-measure)]` written inline; it is now the named `help-measure-cap` class, because
+the arbitrary-value form puts a literal `--` into MDX and the em-dash copy guard scans MDX lines
+structurally, markup included. The transcript above is preserved as observed. That the row survives
+a change of mechanism is the round-4 repair working: it asserts the effect, not the carrier.
 
 That is the SAME class as round 2's `22rem` finding: sample coverage, not assertion form.
 It recurred here in the repair for a different finding, which is the honest measure of how

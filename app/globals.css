@@ -1238,6 +1238,19 @@ details[open] > summary [data-agenda-day-count] {
   }
 
   /* The escape hatch the card grids take. Without this the bleed class is inert. */
+  /* The measure as an opt-IN, for elements the `> *` rule cannot reach: the
+     full-span card's body sits inside an anchor inside a grid, so it is not a
+     direct child of `.help-prose` and takes no cap from the layer.
+     Named rather than written inline as `max-w-[var(--help-measure)]`, because
+     that arbitrary value puts a literal `--` into MDX and the em-dash copy guard
+     scans MDX lines structurally, markup included. A class attribute is not
+     rendered copy, but the guard cannot know that, and the alternative was a
+     file-level EXEMPT row that would stop catching real em dashes on a page this
+     branch is actively adding copy to. */
+  .help-measure-cap {
+    max-width: var(--help-measure);
+  }
+
   .help-prose > .help-bleed {
     max-width: none;
   }

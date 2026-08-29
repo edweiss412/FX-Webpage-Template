@@ -85,7 +85,7 @@ document to the code should find no difference; where they once did, that was th
    ceiling is `DESIGN.md` §2.5's, unchanged, and it binds on the one card the floor's derivation
    never covered — a full-span card is single-column.
 2. **The parse-warnings card's body caps at the measure** (§3.2, §4). `col-span-full` gives the
-   card the whole grid; its `<p>` takes `max-w-[var(--help-measure)]` so the card keeps its
+   card the whole grid; its `<p>` takes `help-measure-cap` (`max-width: var(--help-measure)`) so the card keeps its
    pre-existing full-width prominence while its text stays in band. This is the repair for 1.
 3. **The Settings card's eyebrow is `Admins, folder, emails`**, not `Set once, revisit rarely`
    (§3.3). The original restated its own group heading — "Once per environment" over "First time
@@ -383,7 +383,7 @@ the kind of interaction that makes `auto-fit` worth stating carefully rather tha
 **Its body caps at the measure** (amendment 2 in §1.1). The card spans the whole grid, so without
 a cap its `<p>` is the one element on the page that the bleed makes WIDER than the reading measure
 rather than better proportioned: the invariant-8 gate measured 80.9ch at 1280. The anchor keeps
-`col-span-full`; the `<p>` inside it takes `max-w-[var(--help-measure)]`, which is the same
+`col-span-full`; the `<p>` inside it takes `help-measure-cap` (`max-width: var(--help-measure)`), which is the same
 registered length §3.1 puts on every other prose child. The card stays prominent; its text does
 not exceed the band `DESIGN.md` §2.5 sets.
 
@@ -568,7 +568,7 @@ project, so nothing here relies on an implicit stretch.
 | `main` | `.help-bleed` grid | grid width == `main` content width: 728 at 1024, 856 at 1280 and 1440 | `max-width: none` (§3.1); `max-w-6xl` on the page shell is what stops 1440 exceeding 1280 |
 | grid | each card | card width >= 22rem OR == the container, whichever is smaller; never wider than the container | `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` (§3.2). `auto-fit` collapses to one track rather than shrinking below the minimum, and the `min(...,100%)` is what stops that one track exceeding a container narrower than 22rem |
 | grid | parse-warnings card | spans every column, whatever the live count | `col-span-full` (`grid-column: 1 / -1`), NOT `md:col-span-2`, which assumes exactly two tracks and creates an implicit one when there is a single track |
-| parse-warnings card | its `<p>` | body width ≤ the measure, while the card itself stays full-width | `max-w-[var(--help-measure)]` on the `<p>` (§3.2, amendment 2 in §1.1). The card is the one element the bleed would otherwise make wider than the reading band rather than better proportioned |
+| parse-warnings card | its `<p>` | body width ≤ the measure, while the card itself stays full-width | `help-measure-cap` (`max-width: var(--help-measure)`) on the `<p>` (§3.2, amendment 2 in §1.1). The card is the one element the bleed would otherwise make wider than the reading band rather than better proportioned |
 | grid | each card | equal column widths; cards in a row share a height | `grid-template-columns` from the `grid-cols-*` utilities; grid's default `align-items: stretch` (a grid default this project does not override, unlike the flex case) |
 
 Every row is asserted in a real browser (§3.5), each `data-testid`-addressed element measured
