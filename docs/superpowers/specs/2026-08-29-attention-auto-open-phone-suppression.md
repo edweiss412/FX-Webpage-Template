@@ -129,9 +129,9 @@ They do NOT share a rationale. The published auto-open is ratified as a user req
 
 **Disposition is decided by probe, not by symmetry.** The class-sweep default is that every instance of one shape is repaired in the same PR, and the wizard is an instance of the shape. What it is not yet known to be is an instance of the DEFECT: the published row's evidence is a measured occlusion of the publish toggle, and no equivalent measurement exists for the wizard modal at 375. So:
 
-- **Probe P-1 (§9) measures the wizard modal at 375x667** with its menu auto-opened, over the control set §9 defines. The question it answers is the published defect's exact shape: is a control that the operator needs now being hit-tested to something inside the panel?
+- **Probe P-1 (§9) measures the wizard modal at 375x667, 375x844 and 390x560** with its menu auto-opened, over the control set §9 defines. The question it answers is the published defect's exact shape: is a control that the operator needs now being hit-tested to something inside the panel?
 - **If it occludes such a control** the wizard IS an instance of this defect, and it is repaired in this same PR with the identical predicate at the identical position in its effect.
-- **If it occludes nothing, nothing is filed.** The wizard then shares the one-shot CODE shape but not the BUG shape, and class-sweep governs peers that share the bug (`AGENTS.md`, the class-sweep-before-patching rule). Exception (a) does not apply either: an exception explains why a real instance is deferred, and there is no instance to defer. Its auto-open stays exactly as ratified on 2026-08-27, and the measured negative is recorded in §10 as a documented limit with the viewport it was measured at, so the next arc reads a number instead of re-deriving the question.
+- **If it occludes nothing at ALL THREE viewports, nothing is filed.** The wizard then shares the one-shot CODE shape but not the BUG shape, and class-sweep governs peers that share the bug (`AGENTS.md`, the class-sweep-before-patching rule). Exception (a) does not apply either: an exception explains why a real instance is deferred, and there is no instance to defer. Its auto-open stays exactly as ratified on 2026-08-27, and the measured negative is recorded in §10 as a documented limit with the viewport it was measured at, so the next arc reads a number instead of re-deriving the question.
 
 This branch was corrected after adversarial review round 1, which was right that the earlier version mandated a `BL-` row in the no-occlusion case and so would have filed a row against a surface with no demonstrated defect. Both outcomes are still fixed here before the implementation lands, so neither is a judgment call made under review pressure.
 
@@ -207,19 +207,63 @@ All of those necessarily intersect the panel. A test that counts them is positiv
 
 So:
 
-**The control set.** Every element matching `a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])` inside the modal dialog, MINUS: any node inside the attention panel subtree; the scrim (`[data-testid$="-backdrop"]`); the pill itself (it owns the panel, and a panel overlapping its own trigger is not an occlusion); and any element whose rect has zero width or height. What remains is the set of controls an operator could want while the panel is up.
+**The control set.** Every element matching `a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])` inside the modal's CLIP (`[data-review-modal-panel]` published, `[data-step3-review-panel]` wizard), MINUS: any node inside the attention panel subtree; the scrim (`[data-testid$="-backdrop"]`, excluded by selector as well as by root, because "the scrim is outside the clip" is a property of today's tree); the pill itself, which owns the panel; and any element whose rect has zero width or height. What remains is the set of controls an operator could want.
 
-**The hit test.** For each control `c`, sample its rect centre plus its four quarter points. `c` is OCCLUDED when `document.elementFromPoint` at any sampled point returns a node that is neither `c` nor a descendant of `c`. Record WHICH node intercepted, not just the boolean, so a positive result is diagnosable and a negative one is auditable.
+**The raw fact: interception.** For each control `c`, sample its rect centre plus its four quarter points. `c` is INTERCEPTED at a point when `document.elementFromPoint` there returns a node that is neither `c` nor a descendant of `c`. Record which node, and whether that node is inside the attention panel. A `null` return means the point is off-viewport, which is a different problem and is not an interception.
 
-**Non-vacuity.** The probe fails loudly if the control set is empty or if the panel is not actually open, so "no occlusion" can never be produced by a harness that rendered nothing.
+**The dispositive subset: panel occlusion.** An interception whose interceptor is INSIDE the attention panel. The two are separated because round 2 was right that an interception is not by itself this arc's business, twice over:
+
+- The pill paints a 44px hit band with `before:-inset-y-3`, and `elementFromPoint` returns the ORIGINATING element for a pseudo-element, so a neighbour whose sample points land in that band reports the pill as interceptor. True, and true with or without suppression.
+- The modal's chip rail is `overflow-x-auto` and its content pane is `overflow-y-auto` (`components/admin/review/ShowReviewSurface.tsx:1013` and `components/admin/review/ShowReviewSurface.tsx:1054`), so a control clipped at a scrollport edge can be hit-tested to ordinary surrounding chrome.
+
+Neither is an anchored-overlay occlusion, and a branch that treated them as one would file against the wrong surface.
+
+**The two probes assert on different subsets, deliberately.** P-1 asks "does the panel occlude anything", which is the panel subset. P-2 asks "is this one named control operable", which is EVERY interception of that control, because an operator whose tap lands anywhere but the toggle does not care what stole it. Stating this is the repair for round 2's finding 3.
+
+**Non-vacuity, per probe rather than inside the helper.** Round 2 found the first version self-contradictory: the helper refused to run unless the panel was open, while P-2's whole claim is that the panel is CLOSED. So the helper guards only what is universal, and each probe guards its own precondition:
+
+- The helper throws when the control set is empty, and when a caller names a control that is not in the set. A result can never come from a harness that rendered nothing, or from a probe that silently lost the control it is about.
+- P-1 asserts the panel is open before measuring, because an absent panel occludes nothing and would answer its question `false` for the wrong reason.
+- P-2 asserts the panel is absent, and takes its discrimination from the RED run instead: the same probe against the pre-fix build must report an interception of the toggle, and the plan records which node it named. Post-fix `insidePanel` is trivially false for everything, so "no panel occlusion" would be vacuous; "no interception at all, on the toggle" is not.
 
 ### 9.2 The probes
 
-**P-1, the wizard sweep (§5).** Real Chromium at 375x667, wizard review modal with needs-look items, menu auto-opened (the existing harness confirms it opens on arrival at that width: `tests/e2e/wizard-attention-menu.spec.ts:136-150` asserts `aria-expanded="true"` and waits for the panel). Run §9.1 and record the full result. Blocks the §5 disposition and nothing else.
+**P-1, the wizard sweep (§5).** Real Chromium, wizard review modal with needs-look items, menu auto-opened, run at **375x667, 375x844 and 390x560**. Three cells, not one: vertical placement depends on `spaceAbove`/`spaceBelow`, side selection and fitted height (`lib/popover/position.ts:113-115` and `lib/popover/position.ts:134`), so a shorter phone changes which controls the panel covers, and the sibling row's own probe domain already treats these as three cells (the viewport loop at `tests/e2e/wizard-attention-menu.spec.ts:202-209`). The negative branch of §5 requires a negative in ALL THREE; one positive anywhere makes the wizard an instance. Measured at rest, after the entrance settles on `scale` (the file's containment cases document why `transform` reads "none" throughout). Records the full result and gates the §5 disposition, nothing else.
 
-**P-2, the fix itself.** Real Chromium at 375x667, published review modal, driven with actionable items: the modal opens, the menu is CLOSED, the pill is visible and carries its count, and the published toggle (`strip-publish-toggle`, `components/admin/showpage/StatusStrip.tsx:281`) is NOT occluded by §9.1's test. Stating it through the same test matters: the pre-fix measurement was an interception by a row, so an assertion that only compared the toggle's rect against the panel's would have passed on a variant that still stole the taps. This is the assertion that the shipped defect is gone, and it is written as a failing test first.
+**P-2, the fix itself.** Real Chromium at 375x667, published review modal, driven with actionable items:
+
+1. the menu is CLOSED one frame past the reveal's rAF, so "closed" is settled rather than measured too early;
+2. the pill is visible and its ACCESSIBLE NAME carries the count (not the text of a container that also renders menu rows);
+3. the pill's resolved hit band clears 44px, per §8 — newly load-bearing, because the pill is now the only way to open the panel at this width;
+4. the published toggle (`strip-publish-toggle`, `components/admin/showpage/StatusStrip.tsx:281`) has ZERO interceptions at all five of its sample points;
+5. tapping the pill opens the menu, which is the consequence bound's other half and the thing that makes suppression acceptable rather than a removal.
+
+Written as failing tests first. Item 4 stated through the shared test matters: the pre-fix measurement was an interception by a ROW, so an assertion comparing the toggle's rect against the panel's would have passed on a variant that still stole the taps.
 
 **P-3, the desktop control.** Same fixture at a desktop width: auto-open still fires. Without it P-2 passes on a component that never auto-opens at all, which is the tautology this repo's anti-tautology rule exists to catch.
+
+### 9.3 Obligations: every claim, and the assertion that settles it
+
+Round 2's finding 4 was that §9 had drifted from what the rest of the document promised: §6 said the arrival-focus identity was asserted, §8 said the pill's band was, and the consequence bound needed the phone-width tap path, and §9 carried none of the three. The repair is this table rather than three added sentences, so the next claim added without an assertion is visible as a missing row.
+
+| Claim | Where | Settled by |
+| --- | --- | --- |
+| Suppressed at <`sm`, with actionable items | §2 | P-2.1; jsdom phone case |
+| Auto-opens at ≥`sm` | §2 | P-3; jsdom desktop control |
+| Width is read at REVEAL time, not effect time | §2.1 | jsdom: answer desktop while the effect runs, phone inside the frame, assert closed. NOT a browser case: `page.setViewportSize` crosses CDP asynchronously and would race the frame it must land inside, giving a case that is flaky or vacuous. |
+| `actionable.length === 0` still does not consume | §2.1, §4 row 3 | jsdom: empty at phone, widen, then items arrive, assert it opens |
+| No width read during render, so no hydration branch | §3 | Structural: the predicate is called only inside the effect's frame. Asserted by the absence of any `window` read in the render path, which the jsdom suite would surface as a hydration warning if introduced. |
+| Auto-opened then shrunk STAYS OPEN | §4 row 1 | P-2 sibling case at desktop then phone |
+| Suppressed then widened stays closed | §4 row 2 | P-2 sibling case, re-running the effect via an item change |
+| Pill accessible name carries the count | §6 | P-2.2 |
+| Arrival focus identical with and without suppression | §6 | jsdom: `document.activeElement` is the close button in both |
+| `aria-expanded` reads false on a suppressed arrival | §6 | jsdom phone case |
+| Panel width/x clamped inside the clip | §8 | Unchanged and already covered by `popover-clip-fit.spec.ts` |
+| Pill tap band ≥44px | §8 | P-2.3 |
+| Menu rows ≥44px | §8 | Unchanged, `popover-clip-fit.spec.ts` |
+| Toggle receives its own pointer events | §8 | P-2.4 |
+| Pill tap opens the menu at <`sm` | consequence bound | P-2.5 |
+| Wizard occlusion status | §5, §10 | P-1, three viewports |
 
 The two published-surface probes are real-browser assertions. jsdom computes no layout, so `getBoundingClientRect` and `elementFromPoint` are meaningless there; the jsdom half of the test plan asserts only the predicate's effect on `menuOpen`, with `window.matchMedia` stubbed per file.
 
