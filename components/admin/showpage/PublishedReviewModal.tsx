@@ -67,7 +67,7 @@ import {
   resolveEffectiveSection,
 } from "@/lib/admin/sectionAttention";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
-import { consumesKey, decideEscape } from "@/lib/admin/escapeClaim";
+import { applyEscapeDecision, decideEscape } from "@/lib/admin/escapeClaim";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import {
@@ -450,25 +450,16 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
    *  textual guard over the branch's body was green against an early return
    *  inserted above it. */
   const handleEscapeCapture = (): boolean => {
-    const decision = decideEscape({
-      panelOpen: menuEffectivelyOpen,
-      claimPending: escapeClaimRef.current,
-    });
-    switch (decision.kind) {
-      case "dismiss-panel":
-        setMenuOpen(false);
-        clearEscapeClaim();
+    return applyEscapeDecision(
+      decideEscape({ panelOpen: menuEffectivelyOpen, claimPending: escapeClaimRef.current }),
+      {
+        dismissPanel: () => setMenuOpen(false),
+        clearClaim: clearEscapeClaim,
         // Focus goes back to the pill, matching what the panel's OWN Escape
         // handler does (AttentionMenu.tsx:361-362). Impeccable critique P1.
-        pillRef.current?.focus();
-        break;
-      case "consume-claim":
-        clearEscapeClaim();
-        break;
-      case "let-dialog-close":
-        break;
-    }
-    return consumesKey(decision);
+        focusPill: () => pillRef.current?.focus(),
+      },
+    );
   };
 
   const menuWasEffectivelyOpenRef = useRef(false);

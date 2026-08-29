@@ -340,6 +340,16 @@ test.describe("published show attention surface (spec §5/§6)", () => {
         // The fifth W4 source. Focus, do not click: a click would exercise the
         // click-outside path this table already covers, and the two dismissals
         // are different listeners on the frame.
+        //
+        // Focus must MOVE, from inside the panel to outside it. An earlier version
+        // focused the close button directly and dismissed nothing, because
+        // `awaitModalHydrated` does not return until the close button already holds
+        // focus (tests/e2e/helpers/awaitModalHydrated.ts:18-23): focusing it again
+        // is a no-op, no `focusin` fires, and the frame's handler never runs. The
+        // row focus below is the half that makes this a focus-out at all.
+        const row = page.locator(`${MENU} [data-testid^="attention-menu-row-alert:"]`).first();
+        await row.focus();
+        await expect(row).toBeFocused();
         await page.locator(`${MODAL} [data-testid="${BASE}-close"]`).focus();
       },
     ],

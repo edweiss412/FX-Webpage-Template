@@ -45,7 +45,7 @@ import { cloneElement } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { premiseHolds } from "@/tests/_shared/premise";
-import { consumesKey, decideEscape } from "@/lib/admin/escapeClaim";
+import { applyEscapeDecision, consumesKey, decideEscape } from "@/lib/admin/escapeClaim";
 
 const routerPush = vi.fn();
 const routerRefresh = vi.fn();
@@ -73,16 +73,19 @@ const WARN_ROW = [{ block: "crew", key: "Grup", value: "one" }];
 const CLOSED_WITH = ["/admin", { scroll: false }] as const;
 
 /** Capture-phase keydown registrations, so a case can PROVE the frame's own
- *  listener is or is not live. The frame registers with capture:true
+ *  listener is live AT DELIVERY, which counting registrations alone did not prove:
+ *  a listener registered and later removed still left the old count positive. Whole-diff
+ *  review round 3 caught that. The frame registers with capture:true
  *  (AttentionMenu.tsx, the listener effect); the shell registers on bubble. */
-let captureKeydownCount = 0;
+let liveCaptureKeydown = 0;
+let realRemove: typeof document.removeEventListener;
 let realAdd: typeof document.addEventListener;
 let realMatchMedia: typeof window.matchMedia | undefined;
 
 beforeEach(() => {
   installModalDomStubs();
   routerPush.mockClear();
-  captureKeydownCount = 0;
+  liveCaptureKeydown = 0;
 
   realAdd = document.addEventListener.bind(document);
   document.addEventListener = ((type: string, fn: EventListener, opts?: unknown) => {
@@ -91,9 +94,19 @@ beforeEach(() => {
       (typeof opts === "object" &&
         opts !== null &&
         (opts as AddEventListenerOptions).capture === true);
-    if (type === "keydown" && capture) captureKeydownCount += 1;
+    if (type === "keydown" && capture) liveCaptureKeydown += 1;
     return realAdd(type as keyof DocumentEventMap, fn, opts as AddEventListenerOptions);
   }) as typeof document.addEventListener;
+  realRemove = document.removeEventListener.bind(document);
+  document.removeEventListener = ((type: string, fn: EventListener, opts?: unknown) => {
+    const capture =
+      opts === true ||
+      (typeof opts === "object" &&
+        opts !== null &&
+        (opts as AddEventListenerOptions).capture === true);
+    if (type === "keydown" && capture) liveCaptureKeydown -= 1;
+    return realRemove(type as keyof DocumentEventMap, fn, opts as EventListenerOptions);
+  }) as typeof document.removeEventListener;
 
   realMatchMedia = window.matchMedia;
   window.matchMedia = ((query: string) =>
@@ -111,6 +124,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.addEventListener = realAdd;
+  document.removeEventListener = realRemove;
   if (realMatchMedia) window.matchMedia = realMatchMedia;
   cleanup();
   document.body.innerHTML = "";
@@ -145,8 +159,8 @@ describe("published modal: an Escape claim that outlives the panel", () => {
     await settle();
     premiseHolds("the auto-open put the panel up on this case's inputs", menuUp());
     premiseHolds(
-      "the frame's own capture listener is live, i.e. state M and not state P",
-      captureKeydownCount > 0,
+      "a capture listener is LIVE at delivery, registrations MINUS removals: state M and state P produce the same visible outcome, so only this separates them",
+      liveCaptureKeydown > 0,
     );
 
     escape();
@@ -270,6 +284,54 @@ describe("published modal: an Escape claim that outlives the panel", () => {
       const d = decideEscape({ panelOpen: false, claimPending: true });
       expect(d.kind).toBe("consume-claim");
       expect(consumesKey(d), "this is the one deliberate defer").toBe(true);
+    });
+
+    it("dismiss-panel applies ALL THREE effects, and says the key was consumed", () => {
+      // The DECISION being right is not the same as the effects being applied.
+      // Whole-diff review round 3 found the switch exercised by nothing, so
+      // dropping any effect stayed invisible: dropping the dismissal swallows the
+      // key with nothing dismissed, dropping the clear costs a third Escape.
+      const calls: string[] = [];
+      const consumed = applyEscapeDecision(
+        { kind: "dismiss-panel" },
+        {
+          dismissPanel: () => calls.push("dismissPanel"),
+          clearClaim: () => calls.push("clearClaim"),
+          focusPill: () => calls.push("focusPill"),
+        },
+      );
+      expect(calls).toEqual(["dismissPanel", "clearClaim", "focusPill"]);
+      expect(consumed, "the shell must not also close the dialog").toBe(true);
+    });
+
+    it("consume-claim spends the claim and touches NOTHING else", () => {
+      const calls: string[] = [];
+      const consumed = applyEscapeDecision(
+        { kind: "consume-claim" },
+        {
+          dismissPanel: () => calls.push("dismissPanel"),
+          clearClaim: () => calls.push("clearClaim"),
+          focusPill: () => calls.push("focusPill"),
+        },
+      );
+      expect(calls, "no panel to dismiss and no focus to move: that key changed nothing").toEqual([
+        "clearClaim",
+      ]);
+      expect(consumed).toBe(true);
+    });
+
+    it("let-dialog-close applies nothing and lets the shell close", () => {
+      const calls: string[] = [];
+      const consumed = applyEscapeDecision(
+        { kind: "let-dialog-close" },
+        {
+          dismissPanel: () => calls.push("dismissPanel"),
+          clearClaim: () => calls.push("clearClaim"),
+          focusPill: () => calls.push("focusPill"),
+        },
+      );
+      expect(calls).toEqual([]);
+      expect(consumed, "nothing claimed the key, so the shell must close").toBe(false);
     });
 
     it("state O, nothing pending: the dialog closes", () => {

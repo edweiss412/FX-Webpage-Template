@@ -44,3 +44,41 @@ export function decideEscape(input: {
 export function consumesKey(decision: EscapeDecision): boolean {
   return decision.kind !== "let-dialog-close";
 }
+
+/** The effects a decision commands. The component supplies real ones; a test
+ *  supplies spies. Separating the DECISION from its APPLICATION is what makes both
+ *  testable: whole-diff review round 3 found the decision covered by a truth table
+ *  while the switch that applies it was exercised by nothing, so dropping an effect
+ *  stayed invisible. */
+export type EscapeActions = {
+  /** Take the panel down. */
+  dismissPanel: () => void;
+  /** Spend the claim, so the next Escape belongs to the dialog. */
+  clearClaim: () => void;
+  /** Return focus to the pill, as the panel's own handler does. */
+  focusPill: () => void;
+};
+
+/** Applies a decision and reports whether the modal consumed the key.
+ *
+ *  Exhaustive by construction: a new `EscapeDecision` kind fails to compile here
+ *  rather than falling through and consuming an operator's Escape while applying
+ *  none of its effects. */
+export function applyEscapeDecision(decision: EscapeDecision, actions: EscapeActions): boolean {
+  switch (decision.kind) {
+    case "dismiss-panel":
+      actions.dismissPanel();
+      actions.clearClaim();
+      actions.focusPill();
+      return true;
+    case "consume-claim":
+      actions.clearClaim();
+      return true;
+    case "let-dialog-close":
+      return false;
+    default: {
+      const unhandled: never = decision;
+      return unhandled;
+    }
+  }
+}
