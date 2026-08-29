@@ -195,4 +195,51 @@ this arc.
 
 impeccable-gate: N/A — no UI surface
 
-Filled at task 2.
+Nothing under `app/`, `components/`, `lib/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is
+touched, so the invariant-8 dual gate does not apply. The one source-tree file this arc changes is
+`tests/docs/_metaDeferralLedgerGraduation.test.ts`, and the change is a registry row.
+
+### Acceptance criteria, decided
+
+| criterion | guard | result |
+| --- | --- | --- |
+| AC-1 archive move, no flight field, provenance section | `_metaDeferralLedgerGraduation`, `_metaLedgerInProgress`, `_metaLedgerReferentialIntegrity` | green (139 / 17 / 27); the graduation suite went 138 to 139 with the new row |
+| AC-2 spec index row | `specsReadmeIndexParity` | green (25) |
+| AC-3 filing declares its per-stage counts | `_metaReviewRoundEconomy` | green (135); spec section declares 5, plan section declares 4 |
+| AC-4 fenced snippets, if any | `_metaPlanSnippetFences` | green (12), vacuously — the analyzer reports zero fences in this plan |
+| AC-5 closeout marker | `_metaInvariant8Closeout` | green (14) |
+
+`_metaLedgerMintBar` green (11); in the inventory because the diff is subject to it, not because a
+criterion rests on it.
+
+`pnpm typecheck` clean, `pnpm format:check` clean, `pnpm spec:lint` 0 hard on both the spec and this
+plan.
+
+### The TDD record for task 1
+
+Baseline first, per the orchestrator's condition: all eight guards and both task commands run at the
+unmodified head `407085958`, all green.
+
+**Red:** the `BACKLOG_GRADUATED` row added while the entry was still in `BACKLOG.md` —
+`AssertionError: BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE missing from BACKLOG-archive.md`. That is
+the archive-presence assertion, which the guard evaluates BEFORE the still-in-open check; plan review
+round 3 finding 6 corrected an earlier draft that predicted the wrong one.
+
+**Green:** after the move, in one commit (`cc9754b79`) touching `BACKLOG.md`, `BACKLOG-archive.md` and
+the registry together.
+
+### What this arc shipped, and what it deliberately did not
+
+Shipped: a spec, a committed census reproducible at its anchor, two index rows, a cross-reference in
+the ratified provenance convention, the `LIMITS.md` disposition with a narrowed forward re-file
+trigger, a two-stage round-economy filing, and the ledger move.
+
+Not shipped: any lint. No file under `lib/` or `scripts/` changes. Nine review rounds across two
+stages argued that, and both stages terminated by subtraction rather than by convergence.
+
+### One correction the arc made to the subtraction doctrine itself
+
+Plan round 3 subtracted an arc-authored checker and, in the same edit, dropped the closeout criterion
+by accident. Round 4 restored it. The refinement is worth stating because it is easy to over-apply:
+**subtraction is for claims nothing decides, not for claims that hold.** A criterion with a shipped
+guard behind it survives; a criterion with only a bespoke checker behind it is the one to cut.
