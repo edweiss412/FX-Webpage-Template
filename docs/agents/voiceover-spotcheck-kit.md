@@ -52,7 +52,20 @@ The original row named one surface. There are now two, and both need the pass.
   `feat/wizard-warning-ignore-controls`), and `ShowReviewSurface` deliberately gives every
   surface mount the real announce channel rather than the published one only
   (`components/admin/review/ShowReviewSurface.tsx:873-880`). A silent state change in the
-  wizard is an a11y defect, so run the ignore and bulk-ignore steps on both.
+  wizard is an a11y defect, so run step A on both.
+
+**Step B is published-only.** The wizard has no bulk chip. `BulkIgnoreControls` has exactly
+one render site, and it sits behind a published gate: `if (!isPublished(d)) return null;`
+(`components/admin/showpage/sectionWarningExtras.tsx:163`, chip at `:279`), and that module's
+factory has exactly one caller, the published modal
+(`components/admin/showpage/PublishedReviewModal.tsx:303`). The wizard's step-3 panel renders
+only the per-card controls (`components/admin/wizard/step3ReviewSections.tsx:3333`, `:3411`).
+On a wizard run, score every B row N/A. An absent control is not a FAIL.
+
+Step C runs on both: `pointerTargets` is derived with no published/wizard gate
+(`ShowReviewSurface.tsx:494`) and spread into the warnings chrome together with
+`onJumpToSection` (`:1148-1151`), which is what makes the overflow clause a button rather
+than plain text.
 
 The panel is titled **Sheet warnings** (`components/admin/wizard/step3ReviewSections.tsx:5004`).
 It was called "Parse warnings" before PR #568; that name survives only in code comments and
@@ -108,7 +121,7 @@ failures **never** announce. The error surfaces as a `role="alert"` paragraph in
 (`DataQualityWarningControls.tsx:257-259`). VoiceOver should interrupt with the alert copy,
 not add a line to the log.
 
-### B. Bulk ignore: a two-tap confirm, so three things to hear
+### B. Bulk ignore (published surface only): a two-tap confirm, so three things to hear
 
 Control: the group chip, `data-testid="dq-bulk-ignore-<code>"`
 (`components/admin/BulkIgnoreControls.tsx:216`). Its accessible name leads with the visible
@@ -119,7 +132,9 @@ text in every state, so Label-in-Name holds across the morph
    or **"Ignore <count> · <group label>"** when the group has a plain-language label
    (`BulkIgnoreControls.tsx:173-177`, `:220`).
 2. **First tap: arms, does not act.** Visible text becomes **"Are you sure?"**; accessible
-   name becomes **"Are you sure? Ignore <count>"**. The sibling `role="status"` says
+   name becomes **"Are you sure? Ignore <count>"**, keeping the **" · <group label>"** suffix
+   if the group had one at B1 (the suffix is applied to the name in every state,
+   `BulkIgnoreControls.tsx:220`). The sibling `role="status"` says
    **"Tap again to confirm."** (`BulkIgnoreControls.tsx:228-229`).
 3. **Let it expire once, deliberately.** Wait out the 4-second arm window
    (`ARM_REVERT_MS = 4_000`, `lib/admin/destructiveConfirm.ts:18`). Expect
@@ -132,10 +147,14 @@ text in every state, so Label-in-Name holds across the morph
 6. `router.refresh()` follows the announce (`BulkIgnoreControls.tsx:136`). Expect no second
    utterance.
 
-Partial and total failures never announce. They render a `role="alert"` paragraph reading
-**"Couldn't ignore those warnings. Refresh and try again."**
-(`BulkIgnoreControls.tsx:110`, `:241-245`), and the surface deliberately does **not**
-auto-refresh so the notice survives.
+Failures never announce. They render a `role="alert"` paragraph instead
+(`BulkIgnoreControls.tsx:241-245`), and the surface deliberately does **not** auto-refresh, so
+the notice survives. The copy differs by failure kind (`BulkIgnoreControls.tsx:146`):
+
+- **Some succeeded:** **"Ignored `<ok>` of `<n>`. Refresh to see the rest."** The ones that
+  landed really are committed, so this is honest rather than pessimistic.
+- **None succeeded, or the request threw:** **"Couldn't ignore those warnings. Refresh and
+  try again."** (`failCopy`, `BulkIgnoreControls.tsx:110`).
 
 ### C. Pointer reveal: the focus move
 
@@ -143,9 +162,13 @@ This one only exists in the "warnings are elsewhere" state: the panel itself is 
 points at other sections. It needs **more than three** warning-carrying sections, all of them
 label-resolved (`ElsewherePointerSentence`, `components/admin/wizard/step3ReviewSections.tsx:805`).
 
-The sentence reads: *"The warnings that need a look are in Crew, Contacts, and 2 more.
-Nothing else to note here."* First three names, then an overflow clause. The cap is 3
-(`POINTER_NAME_CAP`, `step3ReviewSections.tsx:761`).
+The sentence names at most three sections, then collapses the rest. With five
+warning-carrying sections it reads: *"The warnings that need a look are in Crew, Contacts,
+Rooms & scope, and 2 more. Nothing else to note here."* The names are data-driven, so yours
+will differ; what is fixed is that **three** appear before the overflow clause
+(`POINTER_NAME_CAP = 3`, `step3ReviewSections.tsx:761`; `named = targets.slice(0, cap)`,
+`:775-778`). A sentence showing fewer than three names has no overflow clause and no reveal
+button.
 
 1. VO-navigate the sentence. The section names are buttons; the overflow clause is a button
    too, with visible text **"<n> more"** and accessible name **"Show 1 more section"** or
@@ -177,10 +200,13 @@ Three refresh events reach this surface without any action of yours. None may sp
 3. **Close-time reconcile.** Closing the modal fires another `router.refresh()`
    (`PublishedReviewModal.tsx:265`). Expect silence from the warnings log.
 
-While idle with the panel open, leave VoiceOver running for a minute without touching
-anything. The admin nav's bell refreshes its session on its own timer
-(`components/admin/nav/useBellBadge.ts`), which re-renders the layout tree. The warnings log
-must stay silent through it.
+Then leave the panel open and idle for a minute with VoiceOver running, touching nothing.
+Expect silence. Nothing on this surface is timer-driven: the admin bell's four commit sources
+are the initial prop, a `router.refresh()` prop change, a pathname change, and an
+`admin:alerts` realtime broadcast (`components/admin/nav/useBellBadge.ts:6-15`), and none of
+them is a poll. So this row is expected to pass by construction. It is here as a cheap
+regression net, not as a test of a mechanism that exists today; if it ever fails, something
+started polling.
 
 ## Recording form
 
@@ -191,6 +217,7 @@ un-defers it). The completed form **is** the un-defer evidence the row asks for.
 VOICEOVER-ANNOUNCER-SPOTCHECK recorded pass
 
 Date:                        Commit:
+Surface for this sheet:      published / wizard
 Browser + version:           macOS version:
 Show slug:                   Surface(s) run: published / wizard / both
 
@@ -203,14 +230,15 @@ A. Single ignore
   A6  one utterance, "Warning restored."                 PASS / FAIL / N/A   heard: ______
   A7  failure path announced NOTHING (alert only)        PASS / FAIL / N/A
 
-B. Bulk ignore
+B. Bulk ignore  (PUBLISHED SURFACE ONLY - score every row N/A on a wizard run)
   B1  idle name "Ignore <count>" (+ label if present)    PASS / FAIL / N/A   heard: ______
-  B2  armed name "Are you sure? Ignore <count>"          PASS / FAIL / N/A   heard: ______
+  B2  armed name "Are you sure? Ignore <count>" (+ label) PASS / FAIL / N/A  heard: ______
   B3  armed status "Tap again to confirm."               PASS / FAIL / N/A   heard: ______
   B4  expiry "Confirm window closed. Nothing was changed." PASS / FAIL / N/A heard: ______
   B5  one utterance, "<n> ignored." / "1 ignored."       PASS / FAIL / N/A   heard: ______
   B6  post-announce refresh SILENT                       PASS / FAIL / N/A
   B7  failure announced NOTHING (alert only)             PASS / FAIL / N/A
+  B8  failure copy matched the KIND (partial vs none)    PASS / FAIL / N/A   read: ______
 
 C. Pointer reveal
   C1  reveal name "Show <n> more section(s)"             PASS / FAIL / N/A   heard: ______
@@ -221,7 +249,7 @@ C. Pointer reveal
 D. Background-refresh silence
   D1  modal open (revalidate) SILENT                     PASS / FAIL / N/A
   D2  modal close (reconcile) SILENT                     PASS / FAIL / N/A
-  D3  one idle minute SILENT                             PASS / FAIL / N/A
+  D3  one idle minute SILENT (expected by construction)  PASS / FAIL / N/A
 
 Anything heard that is not listed above:
 
