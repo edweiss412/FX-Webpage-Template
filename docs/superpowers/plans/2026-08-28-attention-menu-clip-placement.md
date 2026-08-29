@@ -13,10 +13,17 @@ wins.
 ## 1. Baseline — every task command run at the unmodified head
 
 Run at `b74345848` on 2026-08-28, before any code. bl-orch's directive, and the
-"validated executably at plan time" rule. **Every one passes**, which is the
-expected and necessary result: this migration has no live red, because the tree
-is currently self-consistent. Every red in §4 is `red-state=authored` and is
-created by a task.
+"validated executably at plan time" rule. **All seven product suites pass**,
+which is the expected result: the tree is currently self-consistent, so every
+geometry red in §4 is `red-state=authored` and is created by a task.
+
+**One command is a LIVE red, and it is the only one.**
+`tests/docs/_metaInvariant8Closeout.test.ts` fails on this plan the moment the
+plan exists, because the plan declares the invariant-8 dual gate and carries no
+`impeccable-gate:` marker — the marker's counts are the gate's output and cannot
+be written before it runs. Task 7 carries `red-state=live` for exactly that, and
+this section states it so §1 and §4 cannot disagree about whether a live red
+exists.
 
 ```
 tests/components/admin/_metaPopoverViewportSource.test.ts               PASS (11)
@@ -26,6 +33,10 @@ tests/components/admin/showpage/attentionMenu.test.tsx                  PASS (17
 tests/components/admin/useFitWithinClip.test.tsx                        PASS (48)
 tests/e2e/wizard-attention-menu.spec.ts                                 PASS (9)
 tests/e2e/popover-clip-fit.spec.ts                                      PASS (34, §1.1)
+
+tests/docs/_metaInvariant8Closeout.test.ts                              FAIL (1 of 14) — LIVE RED, Task 7
+  "declares the invariant-8 dual gate but carries no valid impeccable-gate
+   marker line"
 ```
 
 **A plan defect this baseline rules out.** Had any of these exited non-zero
@@ -55,6 +66,7 @@ Run detached (the suite exceeds a 10-minute foreground window): **34 passed**.
 | `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` | EXTENDS | The `fit-within-clip` → hook-import mapping loses its last subject. |
 | `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` | EXTENDS | Four hook rows retire. |
 | `tests/components/admin/useFitWithinClip.test.tsx` | RETIRES | Deleted with its subject. |
+| `tests/docs/_metaInvariant8Closeout.test.ts` | **EXTENDS (new subject)** | This plan declares the invariant-8 dual gate, so the guard discovers it as a subject and reds until the marker lands. Task 7 owns that. Listed because a guard acquiring a new subject is an inventory entry, and an earlier draft omitted it. |
 | Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) | **N/A** | This plan touches no `pg_advisory*` path, no DB, no RPC. Declared explicitly per the rule. |
 | Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) | **N/A** | No Supabase call is added or moved. |
 | Mutation registry (`tests/mutation/source/registry.ts`) | **N/A** | The subject is a React component's geometry, not a lib module or script whose defect class is "reports OK while the output moved". The spec's convergence criterion is the four-viewport probe domain, not a mutation score. |
@@ -112,127 +124,88 @@ is keyed by FILE (5 → 6); the overlay registry is keyed by OVERLAY (6 → 7).
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1 — probe: close every measurement the spec owes
+## Task 1 — the geometry contract: every horizontal assertion, then the migration
 
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-clip-matrix.spec.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the new matrix spec asserts containment and width across all eight cells; six of them fail at the panel's live -36 left edge, produced by the viewport-sized width class at the cited line, and the SAME command passes after Task 4` ac=AC-P1,AC-2b,AC-5 -->
+<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-clip-matrix.spec.ts tests/e2e/popover-clip-fit.spec.ts tests/e2e/wizard-attention-menu.spec.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the authored containment and width assertions fail on the six overhanging cells at the panel's live -36 left edge, produced by the viewport-sized width class at the cited line; the SAME command passes once that line is replaced by the placement call in this task's GREEN step` ac=AC-1,AC-2,AC-2b,AC-4,AC-5 -->
 
-**What is red and why:** a new throwaway probe spec asserts containment on BOTH
-modals at ALL FOUR probe-domain viewports and fails on the six cells that
-currently overhang, because `components/admin/showpage/AttentionMenu.tsx:405`
-sizes the panel against the viewport.
+**Why this is one task and not four.** An earlier draft split it: three tasks
+authored failing assertions and a fourth made them pass. Every one of the three
+was therefore red at its own commit and stayed red — which is not
+failing-test → implementation → passing-test, it is three broken commits followed
+by a fix. The migration is atomic (there is no partial placement that greens one
+suite and not another), so the cycle is atomic too.
 
-Spec §1.3 measured the wizard at two viewports. The declared probe domain is four
-viewports × two modals = eight cells, and §5's peer dispositions are static reads
-the spec now schedules for runtime confirmation. This task closes both gaps
-before any production change.
+### RED — author every horizontal assertion, and observe them fail
 
-Measure and record, at rest (`scale` reads `1`) and mid-entrance:
+1. **New matrix spec** under `tests/e2e/` (named in the marker). The DURABLE home
+   for the full eight-cell matrix: `{wizard, published} × {375x667, 375x844,
+   390x560, 1280x800}`, each asserting `menu.left >= clip.left` and
+   `menu.right <= clip.right` within 0.5px, at rest (`scale` reads `1`). It also
+   asserts `menu.width === 343` at 375x667 (**AC-2b**, which makes the ratified
+   width-over-alignment choice falsifiable) and `menu.width === 400` at 1280x800
+   (**AC-5**).
+2. **`tests/e2e/popover-clip-fit.spec.ts:332`** gains both horizontal edges on the
+   case it already runs at 390x560. It is NOT extended to the other three
+   viewports: the matrix spec owns the full grid, and duplicating it here would
+   double-count the same cells in two suites.
+3. **`tests/e2e/wizard-attention-menu.spec.ts:231`** measures at rest and drops
+   the `w === 375` characterization branch at
+   `tests/e2e/wizard-attention-menu.spec.ts:265`, whose own comment at
+   `tests/e2e/wizard-attention-menu.spec.ts:262` says to delete it when the row is
+   fixed. Its viewport list at
+   `tests/e2e/wizard-attention-menu.spec.ts:201-203` is left at its existing two
+   entries, for the same non-duplication reason.
 
-1. Eight cells: `{wizard, published} × {375x667, 375x844, 390x560, 1280x800}` —
-   `menu.left/right/width`, `clip.left/right/width`, `pill.right`.
-2. `PopoverHostContext` resolves NON-NULL on both surfaces. The spec asserts the
-   host is `ReviewModalShell`'s `panelRef`
-   (`components/admin/review/ReviewModalShell.tsx:643`) and that Step3ReviewModal
-   uses the same shell; assert it rather than assume it.
-3. Every §5 non-defect row, in a browser: for `AvatarMenu`, `FinalizeButton`'s
-   soft confirm, `CleanupAbandonedFinalizeButton` and `ShareHub`, report the
-   panel's rect, its containing block's rect, and the anchor-to-clip-edge
-   distance — so condition 4 is decided by a number, not a reading.
+Six of the eight cells fail. Record the observed numbers.
 
-**GREEN:** the new matrix spec this task creates under tests/e2e/ (named in the marker's red= command) **PERSISTS.** An earlier
-draft deleted it in this task's own GREEN step, which is the explicitly rejected
-marker shape — the SAME command can never pass once its target is gone — and it
-also stranded three acceptance criteria with no durable assertion (see §5). The
-matrix suite is the durable home for:
+### GREEN — migrate the frame
 
-- the eight-cell containment matrix (AC-1, AC-2 on both surfaces),
-- `menu.width === 343` at 375x667 (**AC-2b**, the assertion that makes the
-  ratified width-over-alignment choice falsifiable),
-- `menu.width === 400` and `menu.left === 684` at 1280x800 (**AC-5**).
-
-Item 3 below (the §5 peer dispositions) is a one-shot measurement, not a
-contract: its OUTPUT lands in spec §5 replacing the static caveats, and it is
-NOT retained as an assertion — those components are outside this arc's scope and
-pinning their geometry here would create a test with no owner.
-
-**Anti-tautology:** expected values are derived from the measured clip rect,
-never hardcoded. Each cell asserts `menu.width > 0` first, so a menu that failed
-to open cannot report containment by rendering nothing.
-
-## Task 2 — the horizontal edge popover-clip-fit never asserted
-
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts -g "containment"` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the case at popover-clip-fit.spec.ts:332 reads only panelBottom and menuBottom; adding menu.left >= panel.left fails at -36 on the published surface, produced by the width class at the cited line` ac=AC-1,AC-2 -->
-
-**What is red and why:** `tests/e2e/popover-clip-fit.spec.ts:332` is named "the
-menu never crosses the panel's clip edge" and asserts one dimension of that. It
-gains `menu.left >= panel.left` and `menu.right <= panel.right`, measured at
-rest, and the left assertion fails at -36.
-
-This is the PUBLISHED surface's carrier red. The wizard file provides the
-wizard's.
-
-**Cells, stated because an earlier draft extended only 390x560 and the coverage
-map then claimed more than the tasks retained.** This suite's attention-menu
-containment case runs at 390x560; the published cells at 375x667, 375x844 and
-1280x800 are added here, and the 1280x800 cell asserts the RIGHT edge (AC-2), not
-only the left. Together with Task 1's matrix, all eight cells carry both
-horizontal edges.
-
-**Anti-tautology:** the assertion is scoped to the menu's own rect, not to a
-container that also renders the pill; expected bounds come from the measured
-panel rect.
-
-## Task 3 — the wizard case measures at rest, and stops characterizing
-
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-attention-menu.spec.ts -g "stays inside the modal clip"` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`deleting the w===375 characterization branch at wizard-attention-menu.spec.ts:265 leaves both viewports on the toBeGreaterThanOrEqual form at :270, which fails at -36 until the width class at the cited line is replaced` ac=AC-1,AC-2,AC-4 -->
-
-**What is red and why:** the `w === 375` branch at
-`tests/e2e/wizard-attention-menu.spec.ts:265` currently asserts
-`menu.left < clip.left` — a characterization the file's own comment at `tests/e2e/wizard-attention-menu.spec.ts:262`
-says to delete when the row is fixed. Deleting it puts 375 on the containment
-assertion at `tests/e2e/wizard-attention-menu.spec.ts:270`, which fails at -36.
-
-Two changes in one case, per spec §6.1:
-
-1. Wait for the entrance to settle before measuring. Today it measures
-   mid-entrance and therefore records -18.85, which is `0.95 × 343` against a
-   right edge pinned at 307 — 5% short of the real overhang.
-2. Delete the branch so both viewports share the containment form.
-
-The viewport list at `tests/e2e/wizard-attention-menu.spec.ts:201-203` gains
-`375x844` and `390x560` (spec §6.3).
-
-## Task 4 — migrate the frame onto the placement stack
-
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts tests/e2e/wizard-attention-menu.spec.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:338` why=`Tasks 2 and 3 leave both suites failing on the left edge; they go green only when the hook call at the cited line is replaced by placeWithinVisibleViewport writing left/top/maxWidth/maxHeight` ac=AC-1,AC-2,AC-2b,AC-3,AC-5 -->
-
-**What is red and why:** the assertions from Tasks 2 and 3. This is the task that
-turns them green.
-
-Per spec §3.1-3.3, and following the ShareHub precedent
+Per spec §3.1-3.3, following ShareHub
 (`components/admin/showpage/ShareHub.tsx:876-882`):
 
 - Portal into the `PopoverHostContext` host, falling back to `document.body`.
-- Anchor to `pillRef` (already a prop,
-  `components/admin/showpage/AttentionMenu.tsx:75`).
+- Anchor to `pillRef` (`components/admin/showpage/AttentionMenu.tsx:75`).
 - `placeWithinVisibleViewport(window, { hostRect, trigger, naturalSize,
   wrappedHeightAt, preferredSide: "bottom", align: "right", warnKey })`.
-- Write `left`/`top`/`maxWidth`/`maxHeight` to the PANEL. Host-relative
-  conversion exactly as `components/admin/PublishedToggle.tsx:291-296`.
+- Write `left`/`top`/`maxWidth`/`maxHeight` to the PANEL, host-relative exactly
+  as `components/admin/PublishedToggle.tsx:291-296`.
 - Remove `right-0`, `top-[calc(100%+8px)]`,
   `w-[min(400px,calc(100vw-32px))]`, and the `useFitWithinClip` import and call.
 
-**Do NOT** apply `maxHeight` to the scroller, and do NOT add `scale` to the
-transition list. Both are ratified in the spec (§3.3, §7) and both were
-adversarial findings.
+**Do NOT** put `maxHeight` on the scroller, and do NOT add `scale` to the
+transition list. Both are ratified (spec §3.3, §7) and both were adversarial
+findings.
 
-**Pre-code mechanical checklist** (invariant 8, before the edit, not after):
-em-dash ban in user-visible copy, apostrophe literals, 44px tap targets,
-canonical type/token classes. This change writes geometry and adds no
-user-visible copy, so the copy arms are expected no-ops rather than skipped —
-verified, then recorded as no-ops.
+Run the marker's command again and observe all three suites green. **The matrix
+command is part of that same invocation**, so the plan observes it green
+explicitly rather than by implication.
 
-## Task 5 — the dimensional invariants, in a real browser
+**Pre-code mechanical checklist** (invariant 8, before the edit): em-dash ban in
+user-visible copy, apostrophe literals, 44px tap targets, canonical type/token
+classes. This change writes geometry and adds no user-visible copy, so the copy
+arms are expected no-ops — verified, then recorded as no-ops.
+
+**Anti-tautology:** expected bounds derive from the measured clip rect, never
+hardcoded. Every cell asserts `menu.width > 0` first, so a menu that failed to
+open cannot pass containment by rendering nothing.
+
+### 1.2 The §5 peer measurements — scaffolding inside this task, not a task
+
+Spec §5 schedules every non-defect row for runtime confirmation. Inside Task 1's
+RED step, in a browser, report for `AvatarMenu`, `FinalizeButton`'s soft confirm,
+`CleanupAbandonedFinalizeButton` and `ShareHub`: the panel's rect, its containing
+block's rect, and the anchor-to-clip-edge distance, so §5's condition 4 is decided
+by a number rather than a reading. Also assert `PopoverHostContext` resolves
+NON-NULL on both review surfaces.
+
+**Output only, and deliberately not its own task.** These measurements land in
+spec §5 replacing the static caveats; they are NOT retained as assertions, because
+those components are outside this arc's scope and pinning their geometry here
+would create a test with no owner. Giving them a task of their own would mean a
+marker declaring an acceptance criterion it does not own — the double-count this
+plan has already been corrected for once.
+
+## Task 2 — the dimensional invariants, in a real browser
 
 <!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts -g "dimensional"` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:426` why=`the new assertion scroller.bottom <= panel.bottom fails while the scroller at the cited line keeps min-height auto under a max-height parent, which is the state Task 4 leaves it in` ac=AC-3 -->
 
@@ -270,7 +243,7 @@ the fixture's natural content height exceeds the fitted cap at the tested
 viewport, asserted on the case's own inputs, unconditionally, never inside a
 `.each` callback.
 
-## Task 6 — placement is re-computed when the entrance settles
+## Task 3 — placement is re-computed when the entrance settles
 
 <!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts -g "re-place"` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:338` why=`without an entered-keyed re-place at the cited line, placement is computed once at mount from a scale-95 natural width and menu.left settles at 704 instead of 684 at 1280x800` ac=AC-6 -->
 
@@ -299,7 +272,7 @@ Asserted under both motion settings — the harness default (`reducedMotion` tru
 and `page.emulateMedia({ reducedMotion: "no-preference" })`. Equal results are
 the expected outcome and are the point.
 
-### 6.1 Transition audit (the mandatory task, folded in here)
+### 3.1 Transition audit (the mandatory task, folded in here)
 
 **Why this is not its own task.** An earlier draft made it Task 9, pointing its red at the
 transition-audit suite with a negative assertion that `scale` is absent
@@ -345,7 +318,7 @@ one branch that IS animated, and it is the inventory row above.
 not add `scale` to the transition list (spec §7, L-6). Adding it would make the
 geometry animate and require a settle signal that does not exist.
 
-## Task 7 — registries follow the migration
+## Task 4 — registries follow the migration
 
 <!-- task: red=`pnpm heavy npx vitest run tests/components/admin/_metaPopoverViewportSource.test.ts tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:32` why=`Task 4 removed the import at the cited line and added a placeWithinVisibleViewport consumer, which falsifies the toEqual consumer list at _metaPopoverViewportSource.test.ts:173-193 and the adoption rows at _metaSharedHelperAdoption.test.ts:123-126` ac=AC-7 -->
 
@@ -357,7 +330,7 @@ written before its implementation, and this marker does not pretend otherwise.
 Apply the §2.1 reconciliation exactly. Every row is derived from the command
 output pasted there, not from memory.
 
-## Task 8 — retire the hook
+## Task 5 — retire the hook
 
 <!-- task: red=`pnpm heavy npx vitest run tests/components/admin/showpage/attentionMenu.test.tsx` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:422` why=`the case at attentionMenu.test.tsx:336 asserts the scroller receives the hook's fitted INLINE cap via the ref at the cited line; Task 4 moved the cap to the panel, so the assertion fails until it is rewritten to the new invariant` ac=AC-7 -->
 
@@ -377,7 +350,7 @@ untouched.
 Dated retirement note on
 `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md`.
 
-## Task 9 — baselines
+## Task 6 — baselines
 
 <!-- task: red=`pnpm heavy npx vitest run tests/components/admin/showpage/publishedAttentionBaseline.test.tsx` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the fixture at __fixtures__/published-attention-menu-baseline.html captures the exact class string at the cited line, including w-[min(400px,calc(100vw-32px))] and right-0, both of which Task 4 removes` ac=AC-7 -->
 
@@ -402,13 +375,15 @@ arc that does move a screenshot baseline.
    `PUBLISHED_ATTENTION_CAPTURE=1`, never `-u`. **Review the diff line by line**
    and record in the commit what changed and why each change is expected.
 2. `tests/e2e/standalone-baseline.json` — a Playwright `--list` baseline, so only
-   tasks that change the PLAYWRIGHT case set touch it: Task 1 (new matrix spec),
-   Task 2, Task 3 and Task 5. Tasks 7 and 8 edit Vitest files and cannot affect
-   it; an earlier draft attributed it to them.
+   tasks that change the PLAYWRIGHT case set touch it: **Task 1** (the new matrix
+   spec, plus the wizard branch deletion), **Task 2** (the dimensional case) and
+   **Task 3** (the re-place case under two motion settings). Tasks 4 and 5 edit
+   Vitest files and cannot affect a Playwright list; an earlier draft attributed
+   it to them, and a later one omitted Task 3.
 
-## Task 10 — closeout
+## Task 7 — closeout
 
-<!-- task: red=`pnpm heavy npx vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-28-attention-menu-clip-placement.md:1` why=`the guard walks plan files and reds on THIS file, so the plan is what causes and clears the failure, not a component line; VERIFIED RED at plan time with the message declares the invariant-8 dual gate but carries no valid impeccable-gate marker line, and it goes green only when the gate has run and the marker lands with its real counts` ac=AC-7 -->
+<!-- task: red=`pnpm heavy npx vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=live red-target=`docs/superpowers/plans/2026-08-28-attention-menu-clip-placement.md:1` why=`the guard walks plan files and reds on THIS file, so the plan is what causes and clears the failure, not a component line; RED AT PLAN TIME with the message declares the invariant-8 dual gate but carries no valid impeccable-gate marker line, and it goes green only when the gate has run and the marker lands with its real counts` ac=AC-7 -->
 
 **What is red and why:** this plan declares the invariant-8 dual gate below, and
 carries no `impeccable-gate:` marker line. `tests/docs/_metaInvariant8Closeout.test.ts`
@@ -439,7 +414,7 @@ requires for a UI plan (grammar at
 p1 counts, and the dispositions field. **It is deliberately not reproduced here,
 even as a fenced placeholder** — the guard scans the plan for its own prefix and
 reads a template as a MALFORMED marker, which reds for the wrong reason and would
-make Task 10's `why=` false. Verified: with the placeholder present the guard
+make Task 7's `why=` false. Verified: with the placeholder present the guard
 reported `malformed marker line`, not the absent-marker branch this task claims.
 
 Whole-diff Codex review to APPROVE. Archive the ledger row, marker off in the
@@ -454,28 +429,47 @@ PR's last commit before the merge (invariant 12).
 
 ## 5. Acceptance criteria coverage
 
-Every criterion in spec §9 is claimed by a task marker's `ac=`, and the owner
-named is where the DURABLE ASSERTION lives, not which task turns it green. AC-2b
-and AC-5 sit in Task 1's matrix suite; Task 4 is what makes them pass. An earlier
-draft named Task 4 for both, which described the fix rather than the coverage —
-and that is how three criteria came to have no persistent assertion at all when
-Task 1's suite was still being deleted.
+Every criterion in spec §9 is claimed by exactly one task marker's `ac=`, and the
+owner named is where the DURABLE ASSERTION lives.
 
-- AC-P1 — probe measurements complete over the declared domain *(discharged by Task 1)*
-- AC-1 — `menu.left >= clip.left - TOL` *(discharged by Task 2)*
-- AC-2 — `menu.right <= clip.right + TOL` *(discharged by Task 2)*
+**Two corrections an earlier draft needed.** It declared `AC-P1`, which spec §9
+does not contain — a plan may not mint acceptance criteria — and it double-counted
+the eight cells by having three suites assert them. The matrix spec now owns the
+grid outright; the other two suites keep their existing cells and gain edges, and
+neither is extended across viewports the matrix already covers.
+
+- AC-1 — `menu.left >= clip.left - TOL`, eight cells *(discharged by Task 1)*
+- AC-2 — `menu.right <= clip.right + TOL`, eight cells *(discharged by Task 1)*
 - AC-2b — settled width 343 at 375x667, the choice enforced *(discharged by Task 1)*
-- AC-3 — `menu.bottom <= clip.bottom + TOL` *(discharged by Task 5)*
-- AC-4 — `menu.width > 0`, 44px row floor holds *(discharged by Task 3)*
+- AC-3 — `menu.bottom <= clip.bottom + TOL` *(discharged by Task 2)*
+- AC-4 — `menu.width > 0`, 44px row floor holds *(discharged by Task 1)*
 - AC-5 — 1280x800 geometry identical to today *(discharged by Task 1)*
-- AC-6 — placement re-computed when the entrance settles *(discharged by Task 6)*
-- AC-7 — no `useFitWithinClip` in the tree, no `100vw`-derived width on a clipped non-portaled overlay *(discharged by Task 8)*
+- AC-6 — placement re-computed when the entrance settles *(discharged by Task 3)*
+- AC-7 — the hook module is gone and this component carries no viewport-derived width *(discharged by Task 4, Task 5, Task 6, Task 7)*
+
+**AC-3's owner is Task 2, not Task 1.** Bottom containment survives the hook's
+removal only once the panel is a clipping flex column, which is Task 2's change;
+the eight-cell matrix asserts the two HORIZONTAL edges. An earlier draft assigned
+AC-3 to the dimensional task while also implying the matrix covered it.
+
+**AC-7 is the one criterion with several owners, and that is not a double-count.**
+Its two halves are discharged across the tasks that each remove one dependency on
+the retired module: Task 4 the registries, Task 5 the module and its suite, Task 6
+the baselines that captured its output, Task 7 the closeout verification. No two
+of them assert the same thing — unlike the eight-cell grid, which three suites
+were asserting until this round. The map names all four rather than one, and the
+markers match it.
+
+**AC-7 is now falsifiable**, having been narrowed in spec §9: half one is proven
+by the build resolving with the module deleted, half two by a direct assertion on
+the component's className. The tree-wide CSS claim it used to make is L-3, not an
+AC — nothing scans CSS, so as an AC it was a promise the arc could not keep.
 
 ## 6. Checklist
 
 - [ ] Pre-draft code-verification pass — done, §1, §2.1
 - [ ] Baseline commands at unmodified head — done, §1
-- [ ] Tasks 1-10
+- [ ] Tasks 1-7
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — Codex, cap 4
 - [ ] Execution handoff

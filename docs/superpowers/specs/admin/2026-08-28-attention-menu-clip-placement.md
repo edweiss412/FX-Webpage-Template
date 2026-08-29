@@ -448,15 +448,15 @@ Rows are grouped by what the edit is, but the SET is the command's output.
 | --- | --- | --- |
 | `tests/components/admin/transitionAudit.test.tsx` | Covers the `entered` re-place (§7) — one signal, not a pair; the `transitionend` half was withdrawn once §7 showed the geometry property never transitions. | `rg 'useFitWithinClip\|fit-within-clip'` over it exits 1 — it never named the hook. It is in scope because §7 changes transition-adjacent behavior, which is that audit's subject, not because it referenced the hook. |
 
-### 4.2 Baselines — three move, not one
+### 4.2 Baselines — TWO move
 
-An earlier draft named only the screenshot baseline.
+An earlier draft said three and listed a published screenshot baseline. §8
+records the verification that no such baseline covers this surface.
 
 | Baseline | Why it moves | Regeneration |
 | --- | --- | --- |
 | `tests/components/admin/showpage/__fixtures__/published-attention-menu-baseline.html` | Captures the panel's exact class string, including `w-[min(400px,calc(100vw-32px))]` and `right-0`, both removed. | `PUBLISHED_ATTENTION_CAPTURE=1`, deliberately never a `-u` side effect. Diff reviewed line by line. |
-| `tests/e2e/standalone-baseline.json` | The standalone gate's baseline is `--list`; §6.1/§6.3 add cases and §3.4 deletes a suite. | Per its own documented procedure. |
-| published screenshot byte baseline | Published geometry changes (§8). | Pinned Docker image, `--platform linux/amd64`, never from this host. |
+| `tests/e2e/standalone-baseline.json` | A Playwright `--list` baseline, so only tasks changing the PLAYWRIGHT case set touch it. | Per its own documented procedure. |
 
 ### 4.3 Historical prose that is NOT changed
 
@@ -883,8 +883,20 @@ checks the transient.
   case is obtained with `page.emulateMedia({ reducedMotion: "no-preference" })`.
   Both must read 684. Equal results are the expected outcome and are the point:
   they confirm the geometry does not depend on the setting.
-- **AC-7.** No `useFitWithinClip` import remains in the tree, and no
-  `100vw`-derived width remains on a clipped, non-portaled overlay (§5).
+- **AC-7.** Two assertable halves, narrowed from an earlier draft that stated a
+  tree-wide claim nothing could falsify:
+  1. `components/admin/useFitWithinClip.ts` no longer exists, and no module
+     imports it — proven by the build and typecheck resolving with the file
+     deleted, since a surviving import cannot resolve.
+  2. `components/admin/showpage/AttentionMenu.tsx` carries no viewport-derived
+     width (`100vw`, `100dvw`, `100svw`) in any className — asserted directly on
+     the component source.
+
+  **The tree-wide form is deliberately NOT an acceptance criterion.** No guard
+  scans CSS for it (L-3), so as an AC it would be a claim the arc cannot check
+  and a later reader would take as enforced. §5 establishes the class is empty
+  among clipped overlays by argument and probe; L-3 records that nothing
+  mechanically keeps it so.
 
 ---
 
