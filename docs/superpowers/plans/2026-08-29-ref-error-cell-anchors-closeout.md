@@ -8,7 +8,8 @@ worktree. **bl-orch alone merges.**
 
 ## 1. What shipped
 
-Six commits, one per plan task plus two closeout repairs:
+Six plan tasks, one commit each, plus closeout work. Every task was red-then-green on the
+SAME command, with the red run's decisive line pasted into the commit body (plan invariant 1).
 
 | commit | task |
 | --- | --- |
@@ -17,15 +18,14 @@ Six commits, one per plan task plus two closeout repairs:
 | `d7ce254fd` | Task 3 — `waveCodeAnchors`, the replay and the ordinal pairing |
 | `c0763f1ec` | Task 4 — the router branch, the grain rule, `synthOpts` at both call sites |
 | `ab664186e` | Task 5 — the cell line on both surfaces |
-| `5886d9c9c` | closeout — the impeccable wrap repair |
-| `32cc1ad2f` | closeout — the line-keyed censuses the new lines moved |
-| `70585f0b4` | closeout — this document |
-| `651d2d324` | closeout — conditional quoting on the cell reference (bl-orch ruling) |
-| `f0bf67c47` | closeout — census relocations after the quoting import, one fence waiver |
-| `700f2ab87` | closeout — the outline-residue row the same import moved |
+| `651d2d324` | Task 5 follow-on — conditional quoting on the reference (bl-orch ruling) |
 
-Every task was red-then-green on the SAME command, with the red run's decisive line in
-the commit body (plan invariant 1).
+Closeout commits carry the impeccable repair, two rounds of line-keyed census relocation,
+this document, the AC-2 evidence and its correction, and the review corpus rows. The
+authoritative list is `git log --oneline origin/main..HEAD`; it is deliberately NOT
+transcribed here, because a hand-maintained copy of a list git already keeps is a second
+source of truth that goes stale the moment the next commit lands — which it did, twice,
+while this document was being written.
 
 ## 2. Acceptance criteria
 
@@ -72,9 +72,20 @@ way, and the preceding scheduled run (`33202704320`, 2026-08-28) failed too. The
 **So AC-2 is discharged as equality, not as green**, on bl-orch's ruling: an inherited red
 is not this arc's regression, and what must be shown is that the diff moved nothing the
 harness measures. That is settled by comparison, not by reading. The differential is
-committed beside this plan so it can be re-run and checked:
-`docs/superpowers/specs/probes/2026-08-29-harness-differential.{sh,awk}.txt` with its
-`.report.txt`.
+committed beside this plan and is runnable as it stands, from the repo root:
+
+```
+sh docs/superpowers/specs/probes/2026-08-29-harness-differential.sh.txt \
+   33272516851 33253670579 <outDir>
+```
+
+It resolves its extractor as the committed `.awk.txt` sibling, and it is **fail-closed**:
+each shard asserts that both job logs downloaded non-empty, that both `DONE` summary lines
+were found, that both extracted sets are non-empty, that vitest's own declared
+`driftedAlarms` length was found on both sides, and that each extracted set size EQUALS
+that declared length. Any of those aborts with a non-zero exit rather than continuing. The
+committed `.report.txt` is that script's own output, and the script exits 0 only when every
+premise held AND all eight shards matched.
 
 Per shard, three independent numbers agree — vitest's OWN declared `driftedAlarms` length
 (`expected [ …(74) ] to deeply equal []`), the size of the extracted record set, and set
@@ -112,7 +123,20 @@ control rather than weakening it.** `merged-cell` (116) is the fused-row shape a
 shown that unrelated operators were untouched. Because they are present in the drift AND
 identical between the two runs, the comparison covers exactly the surface this arc edited.
 
-**Correction, recorded because a review caught it.** Diff round 2 found this section's first
+**Two corrections, both recorded because a review caught them.**
+
+Round 3 found the first version of the committed differential unreproducible: its script
+invoked an UNTRACKED `.claude/extract-drift.awk` rather than the committed `.awk.txt`, it
+did not compute the vitest lengths or breakdowns the report displayed, and — the part that
+mattered — it had no fail-closed handling, so a missing extractor or a failed log download
+would have produced two EMPTY sets and reported them as `SAME`. A comparison that cannot
+distinguish "identical" from "I fetched nothing" is a vacuous pass, which is the
+guard-premise-reachability failure this repo has a rule about. The rewrite adds the five
+premises listed above, computes everything the report shows, and was checked against a
+NEGATIVE CONTROL: invoked with two nonexistent run ids it exits 1 on the first premise,
+rather than reporting agreement between two empty sets.
+
+**And the correction that round found before it.** Diff round 2 found this section's first
 draft materially inaccurate: the extractor was a block parse that also swallowed vitest's
 source excerpts (`63|     ).toEqual([]);`), which inflated the totals to 826 and truncated
 the operator list to three, on the strength of which the draft asserted that no drifted
@@ -184,8 +208,10 @@ and does not change.
 ## 6. Suites, local
 
 - **DB-free half** — `pnpm heavy pnpm vitest run --project parallel` (the CI-enforced
-  no-database project, `unit-suite-nodb`), on the final head: **1044 files passed, 16310
-  tests passed**, 2 files / 17 tests skipped, **zero failures, exit 0**.
+  no-database project, `unit-suite-nodb`), on `700f2ab87`, the last commit that touched
+  code or tests: **1044 files passed, 16310 tests passed**, 2 files / 17 tests skipped,
+  **zero failures, exit 0**. Every commit after it is documentation and review corpus rows,
+  which that project does not execute.
 - **The four serial-project files this plan touches**, by explicit list (each client-free,
   none reads `TEST_DATABASE_URL`): `perShowActionableRenderControls`,
   `perShowActionableTransitions`, `sectionWarningModel.autocorrect`,

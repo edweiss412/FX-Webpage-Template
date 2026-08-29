@@ -1,27 +1,118 @@
 #!/bin/sh
-# Compare this branch's mutation-harness run against main's scheduled run on the SAME
-# merge-base commit, shard by shard: the DONE summary line and the full drifted set.
-# AC-2 is "the score is unchanged"; with main itself red, the honest discharge is EQUALITY.
-BRANCH_RUN="$1"; MAIN_RUN="$2"; OUT="$3"
+# Harness differential — feat/ref-error-cell-anchors (spec 2026-08-29 §11 AC-2).
+#
+# Usage, from the repo root:
+#   sh docs/superpowers/specs/probes/2026-08-29-harness-differential.sh.txt \
+#      <branchRunId> <mainRunId> <outDir>
+#
+# AC-2 says the parser mutation harness score is UNCHANGED. The harness is red on main at
+# this branch's merge-base, so "unchanged" is discharged by comparing this branch's run to
+# main's own run on that same commit rather than by expecting green. This script is that
+# comparison, and it is FAIL-CLOSED: every premise below aborts with a non-zero exit rather
+# than letting an absent input read as agreement.
+#
+# The fail-closed part is the whole point, and it is what an earlier draft got wrong: with
+# no premises, a missing extractor or a failed `gh api` download yields two EMPTY sets,
+# and two empty sets compare equal. That is a vacuous pass — the guard-premise-reachability
+# failure this repo has a rule about — so each of these is asserted, loudly, per shard:
+#
+#   P1  both job logs downloaded and are non-empty
+#   P2  both DONE summary lines were found
+#   P3  both extracted record sets are non-empty
+#   P4  vitest's OWN declared driftedAlarms length was found on both sides
+#   P5  each extracted set size EQUALS that declared length  <- the external oracle; this is
+#       what catches an extractor that over- or under-reads, which is how the first draft
+#       reported 826 records and a three-operator list that were both wrong
+set -eu
+
+BRANCH_RUN=${1:?branch run id}
+MAIN_RUN=${2:?main run id}
+OUT=${3:?output dir}
+REPO=edweiss412/FX-Webpage-Template
+HERE=$(dirname "$0")
+AWK="$HERE/2026-08-29-harness-differential.awk.txt"   # the committed sibling, not a scratch copy
+
+[ -f "$AWK" ] || { echo "FAIL: extractor not found at $AWK" >&2; exit 2; }
 mkdir -p "$OUT"
-for shard in ${SHARDS:-0 1 2 3 4 5 6 7}; do
+: > "$OUT/report.txt"
+
+fail() { echo "PREMISE FAILED: $*" >&2; exit 1; }
+
+total=0
+allsame=1
+for shard in 0 1 2 3 4 5 6 7; do
   for side in branch main; do
-    run=$([ "$side" = branch ] && echo "$BRANCH_RUN" || echo "$MAIN_RUN")
-    job=$(gh run view "$run" --json jobs --jq '[.jobs[]|select(.name=="parser-shards ('"$shard"')")|.databaseId][0]' 2>/dev/null)
-    [ -z "$job" ] || [ "$job" = "null" ] && { echo "MISSING $side shard $shard" >> "$OUT/report.txt"; continue; }
-    gh api "repos/edweiss412/FX-Webpage-Template/actions/jobs/$job/logs" 2>/dev/null \
-      | sed 's/^[0-9-]*T[0-9:.]*Z //' \
-      | sed 's/\x1b\[[0-9;]*m//g' > "$OUT/$side-$shard.raw"
-    # Strip the wall-clock duration: it is the one field that legitimately differs between
-    # two runs of identical code, and comparing it would report a false DIFF forever.
-    grep -aE "^\[mutation shard $shard/8\] DONE" "$OUT/$side-$shard.raw" | tail -1 \
+    run=$BRANCH_RUN; [ "$side" = main ] && run=$MAIN_RUN
+    job=$(gh run view "$run" --json jobs \
+      --jq '[.jobs[]|select(.name=="parser-shards ('"$shard"')")|.databaseId][0]')
+    [ -n "$job" ] && [ "$job" != null ] || fail "$side shard $shard: no job id"
+    gh api "repos/$REPO/actions/jobs/$job/logs" \
+      | sed 's/^[0-9-]*T[0-9:.]*Z //; s/\x1b\[[0-9;]*m//g' > "$OUT/$side-$shard.raw"
+    [ -s "$OUT/$side-$shard.raw" ] || fail "P1 $side shard $shard: empty log"
+
+    # The wall-clock duration legitimately differs between two runs of identical code and is
+    # the ONLY field stripped; everything else in the summary is compared verbatim.
+    grep -E "^\[mutation shard $shard/8\] DONE" "$OUT/$side-$shard.raw" | tail -1 \
       | sed -E 's/ [0-9]+(\.[0-9]+)?m / <duration> /' > "$OUT/$side-$shard.done"
-    awk -f .claude/extract-drift.awk "$OUT/$side-$shard.raw" | sort -u > "$OUT/$side-$shard.drift"
+    [ -s "$OUT/$side-$shard.done" ] || fail "P2 $side shard $shard: no DONE summary line"
+
+    awk -f "$AWK" "$OUT/$side-$shard.raw" | sort -u > "$OUT/$side-$shard.drift"
+    [ -s "$OUT/$side-$shard.drift" ] || fail "P3 $side shard $shard: extracted no records"
+
+    grep -oE 'expected \[ …\([0-9]+\) \] to deeply equal \[\]' "$OUT/$side-$shard.raw" \
+      | head -1 | grep -oE '[0-9]+' > "$OUT/$side-$shard.vitest" || true
+    [ -s "$OUT/$side-$shard.vitest" ] || fail "P4 $side shard $shard: no declared length"
+
+    declared=$(cat "$OUT/$side-$shard.vitest")
+    extracted=$(wc -l < "$OUT/$side-$shard.drift" | tr -d ' ')
+    [ "$declared" = "$extracted" ] \
+      || fail "P5 $side shard $shard: extracted $extracted, vitest declares $declared"
   done
-  d=$(diff "$OUT/branch-$shard.done" "$OUT/main-$shard.done" >/dev/null 2>&1 && echo SAME || echo DIFF)
-  f=$(diff "$OUT/branch-$shard.drift" "$OUT/main-$shard.drift" >/dev/null 2>&1 && echo SAME || echo DIFF)
-  n=$(wc -l < "$OUT/branch-$shard.drift" | tr -d ' ')
-  printf 'shard %s: summary=%s drift=%s driftCount=%s\n  branch: %s\n  main  : %s\n' \
-    "$shard" "$d" "$f" "$n" "$(cat "$OUT/branch-$shard.done")" "$(cat "$OUT/main-$shard.done")" >> "$OUT/report.txt"
+
+  d=SAME; cmp -s "$OUT/branch-$shard.done"  "$OUT/main-$shard.done"  || d=DIFF
+  f=SAME; cmp -s "$OUT/branch-$shard.drift" "$OUT/main-$shard.drift" || f=DIFF
+  [ "$d" = SAME ] && [ "$f" = SAME ] || allsame=0
+  n=$(cat "$OUT/branch-$shard.vitest")
+  total=$((total + n))
+  {
+    printf 'shard %s: vitest=%s extracted=%s summary=%s drift=%s\n' \
+      "$shard" "$n" "$(wc -l < "$OUT/branch-$shard.drift" | tr -d ' ')" "$d" "$f"
+    printf '  branch summary: %s\n' "$(cat "$OUT/branch-$shard.done")"
+    printf '  main   summary: %s\n' "$(cat "$OUT/main-$shard.done")"
+  } >> "$OUT/report.txt"
 done
+
+cat "$OUT/branch-"*.drift | sort -u > "$OUT/branch-pooled"
+cat "$OUT/main-"*.drift   | sort -u > "$OUT/main-pooled"
+pooled=$(wc -l < "$OUT/branch-pooled" | tr -d ' ')
+pooledsame=SAME; cmp -s "$OUT/branch-pooled" "$OUT/main-pooled" || { pooledsame=DIFF; allsame=0; }
+[ "$pooled" = "$total" ] || fail "pooled set $pooled != summed declared lengths $total"
+
+tally() { # <pooled-file> <field-extractor> <out>
+  case "$2" in
+    operator) cut -d: -f1 "$1" ;;
+    kind)     awk -F'|' '{print $2}' "$1" ;;
+  esac | sort | uniq -c | awk '{print $2, $1}' | sort > "$3"
+}
+
+for axis in operator kind; do
+  tally "$OUT/branch-pooled" "$axis" "$OUT/branch-$axis.tally"
+  tally "$OUT/main-pooled"   "$axis" "$OUT/main-$axis.tally"
+done
+
+{
+  printf '\npooled: %s records, branch-vs-main %s (equals the summed declared lengths)\n' \
+    "$pooled" "$pooledsame"
+  for axis in operator kind; do
+    printf '\n%s breakdown, branch | main:\n' "$axis"
+    join -a1 -a2 -e MISSING -o 0,1.2,2.2 \
+      "$OUT/branch-$axis.tally" "$OUT/main-$axis.tally" \
+      | awk '{printf "  %-16s %s | %s\n", $1, $2, $3}'
+    cmp -s "$OUT/branch-$axis.tally" "$OUT/main-$axis.tally" \
+      || printf '  (breakdowns DIFFER on this axis)\n'
+  done
+  printf '\nVERDICT: %s\n' "$([ "$allsame" = 1 ] && echo 'IDENTICAL - the diff moved nothing the harness measures' || echo 'DIVERGED')"
+} >> "$OUT/report.txt"
+
 cat "$OUT/report.txt"
+[ "$allsame" = 1 ]
