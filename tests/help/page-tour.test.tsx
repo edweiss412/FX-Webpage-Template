@@ -42,6 +42,45 @@ const cardHrefs = (container: HTMLElement) =>
     (a) => a.getAttribute("href") ?? "",
   );
 
+/**
+ * The two grid minima are DERIVED values, and until this test they were derived
+ * in the spec and unpinned in the suite. Spec §3.2 chooses 22rem over 20rem
+ * because 20rem switches at a 656px container where the measure falls to 27.6ch,
+ * under AC-1's 28ch floor, and over 22.25rem because at exactly 356px the track
+ * equals the minimum and any subpixel difference flips the grid to one column.
+ * Spec §3.2a derives 18rem from the jump list's own measured 286px items, with a
+ * 32px `gap-x-8` rather than the cards' 16px, so it cannot borrow the cards'.
+ *
+ * The browser suite now samples the switch each rejected value would use, which
+ * catches the behaviour. This catches the VALUE, so a change to it is a visible
+ * edit to a pinned constant rather than a silent drift the sampling has to
+ * rediscover.
+ */
+describe("derived grid minima are pinned to their derivations", () => {
+  const errorsSrc = readFileSync(join(process.cwd(), "app/help/errors/page.tsx"), "utf8");
+
+  it("the tour card grids carry the 22rem minimum, guarded by min(...,100%)", () => {
+    const track = "grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]";
+    const count = src.split(track).length - 1;
+    premise("the tour authors auto-fit card grids", count, 0);
+    // All three groups, not just the two that existed before the Settings card.
+    expect(count, `tour grids carrying ${track}`).toBe(3);
+    expect(src, "no bare rem minimum may survive: it overflows a 288px container").not.toMatch(
+      /minmax\(\s*2[0-9](?:\.[0-9]+)?rem\s*,/,
+    );
+  });
+
+  it("the errors jump list carries its own 18rem minimum, not the cards'", () => {
+    expect(errorsSrc).toContain("grid-cols-[repeat(auto-fit,minmax(min(18rem,100%),1fr))]");
+    // Two 22rem tracks need 736px and this nav is NOT bled, so it stays under the
+    // 704.4px cap: borrowing the cards' minimum would have made it permanently
+    // single-column with AC-1b and AC-1c both still passing.
+    expect(errorsSrc, "the jump list must not borrow the cards' minimum").not.toContain(
+      "minmax(min(22rem,100%),1fr)",
+    );
+  });
+});
+
 describe("/help/tour (E.12)", () => {
   it("renders without throwing through the real MDX pipeline (E.5 precedent — MDXProvider load-bearing)", async () => {
     const Mod = await import("@/app/help/tour/page.mdx");
