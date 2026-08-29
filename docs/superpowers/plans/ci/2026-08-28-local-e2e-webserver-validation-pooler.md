@@ -278,25 +278,54 @@ Playwright merges `webServer.env` over `process.env` (`{...DEFAULT_ENVIRONMENT_V
 `VAR=value` prefixes on those command strings, and a job's own `DATABASE_URL` still reaches the
 server.
 
-- **Byte-identical (4 invocations).** `app-e2e.yml:188`, `published-modal-e2e.yml:178`, and
-  `lifecycle-layout-e2e.yml:223` and `lifecycle-layout-e2e.yml:258` supply loopback `DATABASE_URL`, so
-  `process.env.DATABASE_URL ?? <literal>` yields exactly what the resolver reaches today.
-- **Changed, and strictly better (7 invocations).** `admin-layout-e2e.yml` and
-  `phantom-gap-e2e.yml` (`BASELINE_SERVER_ONLY`, so :3000), `crew-e2e.yml` (`CREW_E2E_ONLY`, :3000),
-  `dev-gate-e2e.yml` (`DEV_GATE_ONLY`, :3001-:3003), and `lifecycle-layout-e2e.yml:141`,
-  `lifecycle-layout-e2e.yml:171` and `lifecycle-layout-e2e.yml:195`. None supplies a DB key, so today the resolver THROWS under CI's production posture on any
-  route reaching a raw-`postgres` path. After the pin it resolves the loopback DSN on port 54322 — **which those
-  jobs already run**: every one of them calls `scripts/ci/supabase-local-bootstrap.sh`, whose
-  `supabase start` (`scripts/ci/supabase-local-bootstrap.sh:90`) brings up Postgres on that port. So the pin points at a live database
-  rather than at a closed port, and the change is a throw becoming a working connection.
-- **Boots only an already-pinned server, or none (4 workflows).** `help-affordances.yml`
-  (`HELP_DOCS_WALKER_ONLY`, the already-pinned :3004), `screenshots-drift.yml` and
-  `screenshots-regen.yml` (the screenshots config, already pinned), `step3-live-bundle.yml`
-  (`STEP3_LIVE_BUNDLE_ONLY`, zero servers).
-- **Boots no Playwright `webServer` (6 workflows).** `unit-suite.yml`, `mutation-harness.yml`,
-  `mutation-browser.yml` run vitest; `section-header-visual{,-regen}.yml` use
-  `tests/e2e/visual.config.ts` and `standalone-e2e.yml` uses `tests/e2e/standalone.config.ts`,
-  neither of which declares a `webServer`.
+**The counts are produced, not authored.** Four successive drafts of this section miscounted, each
+by hand-listing at whatever granularity seemed natural. The population is therefore printed by a
+command, and what the plan asserts is the CONCLUSION, which does not depend on the exact totals:
+
+```sh
+for f in .github/workflows/*.yml; do
+  inv=$(grep -cE 'playwright test' "$f"); [ "$inv" -eq 0 ] && continue
+  printf '%-28s invocations=%s db-key-steps=%s bootstrap=%s\n' "$(basename "$f" .yml)" "$inv" \
+    "$(grep -cE '^[[:space:]]+DATABASE_URL:' "$f")" "$(grep -c supabase-local-bootstrap "$f")"
+done
+```
+
+As of this branch:
+
+```
+admin-layout-e2e             invocations=1 db-key-steps=0 bootstrap=2
+app-e2e                      invocations=1 db-key-steps=1 bootstrap=2
+crew-e2e                     invocations=1 db-key-steps=0 bootstrap=2
+dev-gate-e2e                 invocations=1 db-key-steps=0 bootstrap=2
+help-affordances             invocations=2 db-key-steps=0 bootstrap=2
+lifecycle-layout-e2e         invocations=6 db-key-steps=2 bootstrap=2
+phantom-gap-e2e              invocations=5 db-key-steps=0 bootstrap=2
+published-modal-e2e          invocations=1 db-key-steps=1 bootstrap=2
+section-header-visual-regen  invocations=2 db-key-steps=0 bootstrap=0
+section-header-visual        invocations=1 db-key-steps=0 bootstrap=0
+standalone-e2e               invocations=1 db-key-steps=0 bootstrap=0
+step3-live-bundle            invocations=1 db-key-steps=0 bootstrap=0
+```
+
+**The conclusion, which is what this section actually needs.** Read the two columns together:
+
+- **Every workflow that boots a server this change touches also runs
+  `scripts/ci/supabase-local-bootstrap.sh`** (`bootstrap=2` on every row with a live webServer),
+  whose `supabase start` at `scripts/ci/supabase-local-bootstrap.sh:90` brings up Postgres on
+  54322. So wherever the pin changes anything, it resolves a database that is already running.
+- **Where a step supplies `DATABASE_URL`, the pin resolves from it** and the value is unchanged.
+  `app-e2e.yml:188` and `published-modal-e2e.yml:178` are single-invocation jobs whose one
+  invocation carries it.
+- **Where no step supplies it, the pin replaces a production THROW with a working connection.**
+  That is every invocation in `admin-layout-e2e.yml`, `crew-e2e.yml`, `dev-gate-e2e.yml` and
+  `phantom-gap-e2e.yml`, plus the invocations in `lifecycle-layout-e2e.yml` that are not the two
+  carrying step-level `env:` (`lifecycle-layout-e2e.yml:222`, `lifecycle-layout-e2e.yml:257`).
+- **The `bootstrap=0` rows boot no webServer at all.** `section-header-visual{,-regen}.yml` use
+  `tests/e2e/visual.config.ts`, `standalone-e2e.yml` uses `tests/e2e/standalone.config.ts`, neither
+  of which declares one, and `step3-live-bundle.yml` sets `STEP3_LIVE_BUNDLE_ONLY`, which boots
+  zero. `help-affordances.yml` boots only the already-pinned :3004.
+
+No row is worse off, and none depends on counting the invocations correctly.
 
 **An earlier draft of this section reached for a reachability inference, and it is no longer
 needed.** It argued those jobs must not reach a raw-`postgres` route, since CI is green and the
@@ -547,7 +576,10 @@ function warningBlock(stderr: string): string {
   const start = lines.findIndex((l) => l.startsWith("WARN: TEST_DATABASE_URL is NON-LOOPBACK"));
   if (start === -1) return "";
   let end = start + 1;
-  while (end < lines.length && /^\s{2,}\S/.test(lines[end])) end += 1;
+  // `lines[end]` is `string | undefined` under noUncheckedIndexedAccess, so bind it first.
+  for (let next = lines[end]; next !== undefined && /^\s{2,}\S/.test(next); next = lines[end]) {
+    end += 1;
+  }
   return lines.slice(start, end).join("\n");
 }
 
