@@ -6,7 +6,7 @@ A half-typed report message in the wizard review modal dies when the modal close
 
 ## 1. The defect, reproduced
 
-`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4723`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
+`Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4737`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
 
 This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraftEscape.test.tsx` carries two blocks, committed at `b230ccb9d`:
 
@@ -28,7 +28,7 @@ The exposure is narrow by construction: this textarea is the only one in `compon
 | **The `onEscapeCapture` prop stays unused by the wizard.** Its sole consumer remains `PublishedReviewModal.tsx:990`. | `components/admin/review/ReviewModalShell.tsx:100`, `components/admin/showpage/PublishedReviewModal.tsx:990` |
 | **`FinalizeButton`'s capture-phase Escape preempt is unaffected.** It listens in the capture phase and calls `stopImmediatePropagation`, so a finalize overlay above the review modal already swallows Escape before the shell sees it. Nothing here runs on that path. | `components/admin/FinalizeButton.tsx:767` |
 | **Collapse survival is existing, tested behaviour and is not the fix.** A draft already survives collapsing the disclosure, because `draft` lives at component level and only the form subtree unmounts. | `tests/components/admin/wizard/step3ReviewSections.test.tsx:1218` (T-D1) |
-| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4723` (`ReportIssueSection`) |
+| **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4737` (`ReportIssueSection`) |
 
 ## 2. What ships
 
@@ -173,6 +173,7 @@ Belt and braces, and worth stating because it bounds the blast radius if the mou
 - **The draft dies with the tab.** `sessionStorage` is per-tab and per-origin. Closing the tab, or opening the wizard in a second tab, starts empty. Deliberate: an un-sent report message is not a document, and `localStorage` would resurrect stale text days later in a different show.
 - **No cross-device or cross-session recovery.** Same reason.
 - **Keys accumulate for the life of the tab**, one per (wizard session, drive file) with a non-empty draft, each bounded at 2000 characters. A wizard session covering many shows where the operator types into many report fields and sends none is the worst case, and it is bounded by the show count and cleared by closing the tab. No eviction policy ships.
+- **The store-versus-state invariant rests on `maxLength`, not on the storage helpers.** `capDraft(stored) === restored state` holds because `readStoredDraft` caps on read and the clear compares through the same cap, but `writeStoredDraft` does not cap on write. Nothing needs it to, because every value reaching it comes from the textarea's `onChange` and is bounded by `maxLength={REPORT_MESSAGE_MAX_CHARS}`. If a later edit drops that attribute or writes the draft from anywhere else, the invariant breaks silently and a sent report starts returning as a ghost. Recorded as a limit rather than closed by capping on write, because no reachable input exercises the difference today and a guard no test can tell from its absence is worse than a stated limit. The re-file trigger is a second writer of this key, or the loss of that `maxLength`.
 - **A draft written by a build with a different key shape is orphaned, not migrated.** It is unreachable text in a tab-scoped store; it disappears with the tab.
 
 ## 8. Out of scope

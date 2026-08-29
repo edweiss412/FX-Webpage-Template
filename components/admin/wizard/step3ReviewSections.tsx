@@ -4608,7 +4608,21 @@ function readStoredDraft(storageKey: string): string {
 }
 
 /** An empty draft REMOVES the key rather than storing `""`, so a cleared field
- *  leaves nothing behind for the next mount to find. */
+ *  leaves nothing behind for the next mount to find.
+ *
+ *  THE INVARIANT THESE THREE HELPERS SHARE, stated because nothing enforces it
+ *  mechanically: `capDraft(whatever is in the store) === the state it restores
+ *  into`. `readStoredDraft` caps on the way out and `clearStoredDraftIfUnchanged`
+ *  compares through the same cap, so the two agree by construction. This
+ *  function does NOT cap on the way in, and it does not need to only because
+ *  every value reaching it comes from the textarea's `onChange`, bounded by its
+ *  `maxLength={REPORT_MESSAGE_MAX_CHARS}`. That is an attribute three hundred
+ *  lines away, so if a future edit drops it, or writes a draft from anywhere
+ *  other than that handler, the invariant breaks silently and a sent report
+ *  starts coming back as a ghost. Capping here as well would close it by
+ *  construction; it is deliberately NOT done, because no reachable input can
+ *  currently exercise the difference and a guard no test can distinguish from
+ *  its absence is worse than a stated limit (spec §7). */
 function writeStoredDraft(storageKey: string, value: string): void {
   try {
     if (value === "") window.sessionStorage.removeItem(storageKey);

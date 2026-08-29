@@ -155,7 +155,8 @@ export const CENSUS: readonly CensusRow[] = [
   // stale within the hour. Every adversarial round that touches this component
   // moves both rows again, so the re-key belongs after the final source edit of
   // the round, not alongside the fix that prompted it.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4813 },
+  // Then 4813 -> 4827 documenting the store-versus-state invariant. Fifth.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4827 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -192,7 +193,8 @@ export const CENSUS: readonly CensusRow[] = [
   // one row's delta to the other actively wrong rather than merely lazy.
   // Then 4873 -> 4895 at diff review R2, same cause as row 18.
   // Located by the `disabled={draft.trim()...}` opener on the final tree, every time.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4895 },
+  // Then 4895 -> 4909, same cause. Fifth for this row too.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4909 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21
