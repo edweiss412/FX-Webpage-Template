@@ -1,5 +1,17 @@
 # `useFitWithinClip` resubscribes its observed ancestors on every signal
 
+> **RETIRED 2026-08-28.** The subject of this document no longer exists.
+> `components/admin/useFitWithinClip.ts` and its suite were deleted by
+> `fix/attention-panel-left-overflow` (`BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW`)
+> when its LAST consumer, the attention menu, migrated onto the shared
+> `lib/popover` placement stack. This spec is kept as a record of shipped work,
+> not as live documentation: everything below describes a module that is gone,
+> including the consumer count in §1 and the documented limits L-1..L-9, which
+> die with the code rather than transferring. The successor design is
+> `docs/superpowers/specs/admin/2026-08-28-attention-menu-clip-placement.md`.
+> `lib/layout/fitWithinClip.ts` is NOT retired — `lib/popover/place.ts` imports
+> `MIN_FITTED_HEIGHT` from it.
+
 **Date:** 2026-08-27 · **Branch:** `fix/fitwithinclip-stale-clip-subscription` · **Row:** `BL-FITWITHINCLIP-STALE-CLIP-SUBSCRIPTION` (`BACKLOG.md`) · **Surface:** `components/admin/useFitWithinClip.ts`
 
 ## 1. The defect

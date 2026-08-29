@@ -57,9 +57,12 @@ import { describe, expect, it } from "vitest";
  *                                the hook, so a unit assertion about that cap
  *                                would pin behaviour the component no longer
  *                                has.
- *   - AttentionMenu fit       -> attentionMenu.test.tsx, "the scroller is capped
- *                                against the clip ancestor, not just by the CSS
- *                                cap", plus the settled-fit browser cases in
+ *   - AttentionMenu placement -> attentionMenu.test.tsx, "the cap reaches the
+ *                                scroller by flex, not by an inline cap written
+ *                                on it" (RENAMED 2026-08-28 with the migration —
+ *                                the fitted cap lands on the panel now, so the
+ *                                old title and the inline-cap behaviour it named
+ *                                are both gone), plus the browser cases in
  *                                tests/e2e/popover-clip-fit.spec.ts, which
  *                                compare the scroller's measured height against
  *                                the room actually available.
@@ -119,11 +122,17 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/lib/popover/rafCoalescer",
     requiresCancelAdoption: true,
   },
+  // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW: this consumer moved off
+  // useFitWithinClip onto placeWithinVisibleViewport 2026-08-28, and the hook
+  // retired with it as its last consumer. It now coalesces its own placement
+  // re-measures on the shared throttle, exactly as the other stack consumers do,
+  // so the row MOVES rather than being deleted — same reason the PublishedToggle
+  // and Re-sync rows moved.
   {
     consumer: "components/admin/showpage/AttentionMenu.tsx",
-    helper: "useFitWithinClip",
-    module: "@/components/admin/useFitWithinClip",
-    requiresCancelAdoption: false,
+    helper: "createRafCoalescer",
+    module: "@/lib/popover/rafCoalescer",
+    requiresCancelAdoption: true,
   },
   // Migrated 2026-08-25 with PublishedToggle: three overlays, three placement
   // effects, all sharing the frame throttle. Moves rather than being deleted,
@@ -134,40 +143,26 @@ const ROWS: readonly AdoptionRow[] = [
     module: "@/lib/popover/rafCoalescer",
     requiresCancelAdoption: true,
   },
-  // The hook coalesces its own event-driven re-measures, so it consumes the
-  // shared throttle exactly as ShareHub and HoverHelp do. Registered so a future
-  // local `requestAnimationFrame` + frame-id bookkeeping inside the hook fails
-  // here instead of quietly reintroducing the per-event forced reflow.
-  {
-    consumer: "components/admin/useFitWithinClip.ts",
-    helper: "createRafCoalescer",
-    module: "@/lib/popover/rafCoalescer",
-    requiresCancelAdoption: true,
-  },
 ];
 
 /**
  * Names that must never be DECLARED inside a consumer — in any form. Importing
  * them is the point; re-declaring one is the local copy coming back.
  */
-const NEVER_DECLARED_IN_CONSUMERS = [
-  "createRafCoalescer",
-  "useFitWithinClip",
-  "findClippingAncestor",
-] as const;
+const NEVER_DECLARED_IN_CONSUMERS = ["createRafCoalescer"] as const;
 
 /**
- * Where each shared name is legitimately DECLARED. A file can be both a
- * definer and a consumer — `useFitWithinClip.ts` defines the hook and
- * `findClippingAncestor`, and separately consumes `createRafCoalescer` — so
- * rule (iii) has to exempt a name in its own defining module or it reports the
- * definition itself as a local copy. The exemption is per NAME, not per file:
- * `useFitWithinClip.ts` declaring `createRafCoalescer` is still an offence.
+ * Where each shared name is legitimately DECLARED. Rule (iii) has to exempt a
+ * name in its own defining module or it reports the definition itself as a local
+ * copy. The exemption is per NAME, not per file.
+ *
+ * `useFitWithinClip` and `findClippingAncestor` were rows here until 2026-08-28,
+ * when the hook that defined both retired with its last consumer
+ * (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW). A name with no defining module is
+ * not a name this guard can police, so they leave rather than dangle.
  */
 const DEFINING_MODULE: Readonly<Record<string, string>> = {
   createRafCoalescer: "lib/popover/rafCoalescer.ts",
-  useFitWithinClip: "components/admin/useFitWithinClip.ts",
-  findClippingAncestor: "components/admin/useFitWithinClip.ts",
 };
 
 /** The shared coalescer's semantic marker comment. Exactly one source file may carry it. */

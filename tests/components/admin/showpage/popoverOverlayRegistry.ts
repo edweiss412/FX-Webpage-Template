@@ -46,7 +46,11 @@
 export type OverlayDisposition =
   /** Resolves geometry through `lib/popover/position.ts` (asserted by import). */
   | "placement-module"
-  /** Capped against the clip edge via `useFitWithinClip` (asserted by import). */
+  /** RETIRED 2026-08-28 with the hook that implemented it
+   *  (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW). NO live row may claim this: the
+   *  contract suite has no import pattern for it, and an unmapped disposition now
+   *  fails there rather than being skipped. Kept in the union only so archival
+   *  prose and older records stay typeable. */
   | "fit-within-clip"
   /** Not inside a clipping ancestor, or has no internal scroll range to strand. */
   | "not-clip-constrained"
@@ -120,9 +124,9 @@ export const POPOVER_OVERLAY_REGISTRY: readonly OverlayRow[] = [
     // key's readability; there is still exactly ONE overlay row for this file,
     // and the wizard menu adds none because it renders no overlay of its own.
     overlay: "testId",
-    disposition: "fit-within-clip",
+    disposition: "placement-module",
     reason:
-      "Surfaced BY this registry 2026-07-24 as unverified-gap, then MEASURED and closed 2026-08-02 (BL-ATTENTION-MENU-PANEL-CLIP): spec 2026-08-01-admin-popover-overlay-cluster §2.2 probed 390x560 and found a 54px stranded tail. Positioning on the panel wrapper, scroll on the inner list — the anchored-descendant-scroller shape; its scroller takes useFitWithinClip. Two consumers share this one overlay: AttentionMenu (testid published-show-review-attention-menu) and the wizard's WizardAttentionMenu (testid wizard-step3-card-<dfid>-review-attention-menu); the clip disposition is the frame's, so it covers both.",
+      "MIGRATED 2026-08-28 (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW) onto placeWithinVisibleViewport, the same stack as HoverHelp, ShareHub, PublishedToggle and Re-sync. This was the LAST fit-within-clip overlay in the tree and useFitWithinClip retired with it. Placed IN PLACE rather than portaled: the core clamps it into the host bounds so it no longer overhangs, and portaling it appended the panel late in the modal, which preserved the focus trap but broke sequential focus order from the pill. Placement anchors to the panel's offsetParent — the pill WRAPPER, which is what right-0/top-100% anchored to before — not the pill itself, which is shorter and lifted the panel over the status strip. Height is still capped, now by the panel's fitted max-height reaching the scroller through flex-1 min-h-0. ORIGINAL CLIP HISTORY, kept because it is why this row exists: surfaced BY this registry 2026-07-24 as unverified-gap, then MEASURED and closed 2026-08-02 (BL-ATTENTION-MENU-PANEL-CLIP) when spec 2026-08-01-admin-popover-overlay-cluster 2.2 probed 390x560 and found a 54px stranded tail. Two consumers share this one overlay: AttentionMenu (testid published-show-review-attention-menu) and the wizard's WizardAttentionMenu (testid wizard-step3-card-<dfid>-review-attention-menu); the clip disposition is the frame's, so it covers both.",
   },
 ];
 

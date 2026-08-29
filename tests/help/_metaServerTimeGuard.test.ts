@@ -218,7 +218,21 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // cannot stage, so the decision is tested directly instead of through a proxy.
     // Named as well as counted, for the reason above.
     expect(rel).toContain("lib/admin/escapeClaim.ts");
-    expect(rel.length).toBe(216);
+    // 216 -> 215 (2026-08-29, MERGE of two concurrent population changes):
+    // `lib/layout/fitWithinClip.ts` LEFT as `lib/admin/escapeClaim.ts` joined.
+    // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW deleted
+    // `components/admin/useFitWithinClip.ts`, its only depth-1 importer under
+    // components/ or app/admin/. The module is NOT retired — `lib/popover/place.ts`
+    // still imports `MIN_FITTED_HEIGHT` from it — it is simply no longer reachable
+    // at depth 1.
+    //
+    // BOTH branches moved this count from 215, one up and one down, and the union
+    // happens to land back on 215. The number is therefore NOT arithmetic from the
+    // two diffs — it was re-derived against the merged tree, and both the arrival
+    // and the DEPARTURE are named, because a bare count cannot distinguish "one
+    // left and one joined" from "nothing changed".
+    expect(rel).not.toContain("lib/layout/fitWithinClip.ts");
+    expect(rel.length).toBe(215);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

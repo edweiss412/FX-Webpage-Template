@@ -8,13 +8,15 @@
  * click-outside close, listener teardown when closed.
  */
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { stripCommentsForFile } from "../../../_shared/stripComments";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { AttentionMenu } from "@/components/admin/showpage/AttentionMenu";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { autoResolveNote } from "@/lib/adminAlerts/audience";
-import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
 
 function mk(over: Partial<AttentionItem>): AttentionItem {
   return {
@@ -201,7 +203,6 @@ describe("AttentionMenu", () => {
 describe("AttentionMenu clip fit (§4.2)", () => {
   const CAP_PX = 384; // the scroller's declared `max-h-96`
   const CLIP_BOTTOM = 560;
-  const CLIP_BOTTOM_AFTER = 460;
   const SCROLLER_TOP = 230;
 
   let geometry: { scrollerTop: number; clipBottom: number };
@@ -210,12 +211,6 @@ describe("AttentionMenu clip fit (§4.2)", () => {
   let observedTargets: Element[];
   /** Frames held rather than run: the hook coalesces event-driven applies. */
   let pendingFrames: FrameRequestCallback[];
-
-  function flushFrames(): void {
-    const queued = pendingFrames;
-    pendingFrames = [];
-    for (const cb of queued) cb(0);
-  }
 
   function installLayoutStubs() {
     geometry = { scrollerTop: SCROLLER_TOP, clipBottom: CLIP_BOTTOM };
@@ -289,15 +284,6 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     return clip;
   }
 
-  /** Derived from the mocked rects through the exported pure core. */
-  function expectedFitted(): string {
-    return `${computeFittedMaxHeight({
-      elementTop: geometry.scrollerTop,
-      clipBottom: geometry.clipBottom,
-      cap: CAP_PX,
-    })}px`;
-  }
-
   /** Renders the menu INSIDE the clip ancestor so the hook walk lands on it. */
   function renderMenuInto(
     clip: HTMLElement,
@@ -333,38 +319,169 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     expect(scroller).not.toBe(screen.getByTestId("published-show-review-attention-menu"));
   });
 
-  test("the scroller is capped against the clip ancestor, not just by the CSS cap", () => {
+  // REWRITTEN 2026-08-28 (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW). This used to
+  // assert an inline `max-height` on the SCROLLER, written there by
+  // useFitWithinClip. The fitted cap now lands on the PANEL — it has to, because
+  // a cap on a non-scrolling parent whose scrolling child can paint through it is
+  // no cap at all — and it reaches the scroller through flexbox instead.
+  //
+  // What jsdom can prove is the STATIC half of that chain: the classes that make
+  // the cap reach the child. The MEASURED half — that the child actually shrinks
+  // and never paints past the panel — needs real layout and lives in
+  // popover-clip-fit.spec.ts, which asserts childSum against panel.clientHeight
+  // and scroller.bottom against panel.bottom. jsdom computes no layout and would
+  // pass on every failure mode there.
+  test("the cap reaches the scroller by flex, not by an inline cap written on it", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
     const scroller = screen.getByRole("group", { name: "Attention items" });
-    expect(scroller.style.maxHeight).toBe(expectedFitted());
-    expect(scroller.style.maxHeight, "wrote the CSS cap, so nothing was fitted").not.toBe(
-      `${CAP_PX}px`,
-    );
+    const panel = screen.getByTestId("published-show-review-attention-menu");
+    // The panel is the capped, clipping flex column.
+    expect(panel.className).toContain("flex");
+    expect(panel.className).toContain("flex-col");
+    expect(panel.className).toContain("overflow-hidden");
+    // `min-h-0` is the load-bearing one: without it a flex item's default
+    // `min-height: auto` refuses to shrink below its content and the panel's cap
+    // silently does nothing.
+    expect(scroller.className).toContain("min-h-0");
+    expect(scroller.className).toContain("flex-1");
+    // The DECLARED cap stays; the fitted cap composes with it.
+    expect(scroller.className).toContain("max-h-96");
+    // And the cap is no longer written onto the scroller itself.
+    expect(scroller.style.maxHeight).toBe("");
   });
 
-  test("an observer callback re-applies the fit even before the entrance settles", () => {
+  test("the component declares no VIEWPORT-derived width (AC-7)", () => {
+    // The defect this arc closes was `w-[min(400px,calc(100vw-32px))]`: a width
+    // measured against the viewport while the panel was anchored inside a clip
+    // inset from it. Asserted on the SOURCE because no guard scans CSS — the
+    // placement registry reads JS layout-viewport reads only, which is exactly
+    // how a `100vw` in a Tailwind class survived it.
+    // COMMENTS ARE STRIPPED FIRST. The component's own docblock explains what
+    // was removed and names `w-[min(400px,calc(100vw-32px))]` to do it, so a raw
+    // scan matches the explanation of the fix and reports the fix as the defect.
+    // That is the same comment-as-code confusion this arc's spec review caught in
+    // the class sweep; the stripper is the derived answer to it.
+    const rel = "components/admin/showpage/AttentionMenu.tsx";
+    const src = stripCommentsForFile(readFileSync(join(process.cwd(), rel), "utf8"), rel);
+    for (const unit of ["100vw", "100dvw", "100svw"]) {
+      expect(src, `${unit} is a viewport-derived width`).not.toContain(unit);
+    }
+  });
+
+  // REWRITTEN with its sibling above. The claim it made — that the observer path
+  // re-applies the fit independent of entrance progress — was read off an inline
+  // `max-height` on the scroller, which no longer exists. jsdom reports every rect
+  // as zero, so the placement core correctly refuses to place and writes no
+  // geometry at all; asserting numbers here would assert the stub, not the code.
+  //
+  // What survives in jsdom is that the re-place path is WIRED: a ResizeObserver
+  // is constructed and its callback registered. That the observer actually
+  // re-places on a structural flip is proven where it can be — the O2 -> O1
+  // frame-hold compound in popover-clip-fit.spec.ts, against real layout.
+  test("a ResizeObserver is wired so the placement re-runs on ancestor resize", () => {
+    const clip = installLayoutStubs();
+    renderMenuInto(clip);
+    expect(
+      observerCallbacks.length,
+      "no ResizeObserver was constructed, so nothing re-places on resize",
+    ).toBeGreaterThan(0);
+  });
+
+  // ------------------------------------------------------------------------
+  // Regression coverage for the four re-place repairs
+  // (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW, whole-diff review round 1). Each
+  // was a behavioural fix shipped without a test; these pin the mechanism rather
+  // than the geometry, which is what jsdom can actually decide.
+  // ------------------------------------------------------------------------
+
+  // The ANCHOR-observation repair is asserted in a REAL BROWSER, not here.
+  // jsdom never implements `offsetParent` — it returns null unconditionally — so
+  // the placement anchor does not exist in this environment and a unit assertion
+  // on it can only pass vacuously or fail on its own premise. It failed on its
+  // premise when first written, which is the premise doing its job. THERE IS NO
+  // BROWSER CASE EITHER, and that is probed rather than pending: the stimulus
+  // tried (changing the attention load) does not move the wrapper's RIGHT edge,
+  // the only edge `align: "right"` reads, because the wrapper is right-pinned in
+  // the modal header. The subscription ships DEFENSIVE. popover-clip-fit.spec.ts
+  // documents the absence where the case would sit. An earlier draft of this
+  // comment claimed the browser case exists, which it never did.
+  test("the panel is observed, and a host-less mount observes nothing spurious", () => {
+    const clip = installLayoutStubs();
+    renderMenuInto(clip);
+    const panel = screen.getByTestId("published-show-review-attention-menu");
+    expect(observedTargets).toContain(panel);
+    // This harness mounts with NO `PopoverHostContext` provider, so there is no
+    // host to observe and bounds degenerate to the viewport — the documented
+    // no-provider path. The assertion is therefore that the set is exactly the
+    // panel: no null, no duplicate, and nothing observed speculatively. An
+    // earlier draft asserted more than one target and failed here, which was the
+    // assertion being wrong about the fixture rather than the code being wrong.
+    expect(observedTargets).toEqual([panel]);
+  });
+
+  test("visualViewport scroll and resize are subscribed, and torn down BY IDENTITY", () => {
+    const added = new Map<string, EventListener>();
+    const removed = new Map<string, EventListener>();
+    const vv = {
+      addEventListener: (t: string, fn: EventListener) => added.set(t, fn),
+      removeEventListener: (t: string, fn: EventListener) => removed.set(t, fn),
+    };
+    vi.stubGlobal("visualViewport", vv);
+    Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+    const clip = installLayoutStubs();
+    const { unmount } = renderMenuInto(clip);
+    // Pinch-zoom and the mobile keyboard move the VISUAL viewport without firing
+    // a window resize. Doug is on a phone; every other consumer subscribes to both.
+    expect([...added.keys()].sort()).toEqual(["resize", "scroll"]);
+    unmount();
+    // IDENTITY, not just the event name. An earlier draft recorded names only,
+    // which a no-op handler or a teardown passing a DIFFERENT callback would both
+    // have satisfied — leaking a listener per mount while the test stayed green.
+    expect(removed.get("scroll")).toBe(added.get("scroll"));
+    expect(removed.get("resize")).toBe(added.get("resize"));
+  });
+
+  test("a scroll from INSIDE the panel does not schedule a re-place", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
     const scroller = screen.getByRole("group", { name: "Attention items" });
-    const first = scroller.style.maxHeight;
+    const outside = document.createElement("div");
+    document.body.appendChild(outside);
 
-    // A React rerender cannot fire a ResizeObserver in jsdom, so the captured
-    // callback is invoked directly. The claim is bounded to exactly that: the
-    // observer path re-applies independent of entrance progress. That the
-    // O2 -> O1 structural flip actually triggers observation is proven by the
-    // useFitWithinClip offsetParent case and the real-browser frame-hold
-    // compound in popover-clip-fit.spec.ts.
-    geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
-    act(() => {
-      for (const cb of observerCallbacks) cb([], {} as ResizeObserver);
-      // The observer path is coalesced onto one frame, so the re-measure lands
-      // when the frame runs, not when the callback fires.
-      flushFrames();
-    });
+    const frames: FrameRequestCallback[] = [];
+    const raf = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb: FrameRequestCallback) => {
+        frames.push(cb);
+        return frames.length;
+      });
+    try {
+      // A capture-phase window scroll listener also hears the panel's own
+      // scroller, and every measurement can emit a scroll event from it (clearing
+      // the cap reflows the child). Unfiltered, the pair feeds itself a re-measure
+      // per frame while the operator is scrolling the list.
+      // NON-bubbling, which is how the platform actually dispatches element
+      // scroll. An earlier draft used `bubbles: true`, and that masked the whole
+      // mechanism: a bubbling event reaches a listener whether or not it is
+      // registered in the CAPTURE phase, so dropping `capture` from the
+      // production listener would have kept this test green while outside
+      // scrolling silently stopped scheduling placement.
+      scroller.dispatchEvent(new Event("scroll"));
+      const afterSelf = frames.length;
+      expect(afterSelf, "a self-originated scroll must not schedule a re-place").toBe(0);
 
-    expect(scroller.style.maxHeight).toBe(expectedFitted());
-    expect(scroller.style.maxHeight).not.toBe(first);
+      // PREMISE: the listener is live at all. Without this the case passes on a
+      // component that subscribed to nothing.
+      outside.dispatchEvent(new Event("scroll"));
+      expect(
+        frames.length,
+        "premise: an OUTSIDE scroll must still schedule, or the filter proves nothing",
+      ).toBeGreaterThan(afterSelf);
+    } finally {
+      raf.mockRestore();
+      outside.remove();
+    }
   });
 
   test("transition audit: entrance classes on the panel, instant unmount on close", () => {

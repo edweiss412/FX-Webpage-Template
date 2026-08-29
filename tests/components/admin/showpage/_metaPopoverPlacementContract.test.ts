@@ -29,12 +29,22 @@ import {
 } from "./popoverOverlayRegistry";
 
 const IMPORT_FOR_DISPOSITION: Partial<Record<OverlayRow["disposition"], RegExp>> = {
-  "placement-module": /from\s+"@\/lib\/popover\/position"/,
-  // Requires the SHARED-MODULE import, not merely the identifier. The old
-  // /useFitWithinClip/ also matched a file that declared its own local copy, so
-  // a consumer could silently fork the hook and stay "registered as fit-within-
-  // clip" (spec §4.1; the escaping mutant is quoted in this task's commit).
-  "fit-within-clip": /from\s+"@\/components\/admin\/useFitWithinClip"/,
+  // The MECHANISM by name, not the module that happens to carry its types.
+  // `/from "@\/lib\/popover\/position"/` was satisfied by every consumer's
+  // `import type { Rect }` — so all seven rows could have stopped placing
+  // anything, kept the type import, and passed. The registry's stated proof
+  // proved nothing. `placeWithinVisibleViewport` cannot arrive through a type
+  // import, so this is the call site or nothing.
+  "placement-module": /\bplaceWithinVisibleViewport\b/,
+  // `fit-within-clip` RETIRED 2026-08-28 (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW).
+  // The attention menu was its last holder and migrated to the placement module;
+  // the hook this row matched no longer exists, so a mapping for it would name a
+  // deleted path. The disposition remains in the union for archival rows to be
+  // typed against, and a live row reintroducing it would find no import pattern
+  // here and fail loudly rather than silently pass.
+  //
+  // Kept as prose rather than an entry, deliberately: `Partial<Record<...>>` means
+  // an absent key is legal, and an entry pointing at a deleted module is not.
 };
 
 type LiveOverlay = { file: string; marker: string; line: number };
@@ -376,6 +386,19 @@ describe("popover overlay registry", () => {
   it("rows claiming a mechanism actually import it", () => {
     for (const row of POPOVER_OVERLAY_REGISTRY) {
       const required = IMPORT_FOR_DISPOSITION[row.disposition];
+      // A disposition with NO mapping fails LOUDLY rather than being skipped.
+      // `fit-within-clip` lost its mapping when the hook retired (2026-08-28,
+      // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW), and a `continue` here meant a
+      // future row could claim that retired mechanism, import nothing, and pass —
+      // the exact opposite of what this suite's comment promised. An unmapped
+      // disposition is either retired (no row may claim it) or new (someone owes
+      // it a pattern); both are defects, and neither is a skip.
+      expect(
+        required,
+        `${row.file} claims disposition "${row.disposition}", which has no import ` +
+          `pattern. If that mechanism is retired, the row may not claim it; if it ` +
+          `is new, add its pattern to IMPORT_FOR_DISPOSITION.`,
+      ).toBeDefined();
       if (!required) continue;
       const source = readFileSync(row.file, "utf8");
       expect(
