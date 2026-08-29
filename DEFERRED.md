@@ -139,7 +139,7 @@ Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
 ### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure (2026-08-11)
 
-**Effort:** M
+**Effort:** M · **Status:** IN PROGRESS · **Branch:** fix/help-tour-grid-and-settings-card
 
 Surfaced by the invariant-8 dual gate on branch `fix/help-tour-hydration` (PR #778), by BOTH halves
 independently (critique P1, audit P1). Findings and dispositions are in §12 of
@@ -176,7 +176,7 @@ a sweep of the other twelve help pages for grids in the same position.
 
 ### HELPTOUR-SETTINGS-CARD-MISSING-1 — impeccable P1: /help/tour claims to cover every admin screen and omits one (2026-08-11)
 
-**Effort:** S, but DESIGN-GATED
+**Effort:** S, but DESIGN-GATED · **Status:** IN PROGRESS · **Branch:** fix/help-tour-grid-and-settings-card
 
 Surfaced by the invariant-8 dual gate on branch `fix/help-tour-hydration` (PR #778), critique P1.
 Findings and dispositions are in §12 of
