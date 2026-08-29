@@ -162,8 +162,9 @@ no post-move criterion can rest on it.
 ### Meta-test inventory
 
 Every structural guard this arc's diff is subject to. `_metaPlanSnippetFences` was missing from an
-earlier draft (plan review round 3 finding 8) even though it walks `docs/superpowers/plans` from disk
-and this plan carries fenced blocks.
+earlier draft (plan review round 3 finding 8) even though it walks `docs/superpowers/plans` from disk.
+This plan carries NO fenced blocks today, so that guard passes vacuously; it stays listed because the
+walk covers this file by construction the moment one is added.
 
 | guard | why this arc is subject to it |
 | --- | --- |
@@ -172,7 +173,7 @@ and this plan carries fenced blocks.
 | `tests/docs/_metaLedgerReferentialIntegrity.test.ts` | citations of the archived row must still resolve |
 | `tests/docs/_metaLedgerMintBar.test.ts` | the row's `Facing` and `Mint-exception` fields |
 | `tests/docs/specsReadmeIndexParity.test.ts` | the arc adds a spec under `docs/superpowers/specs/ci/` |
-| `tests/docs/_metaPlanSnippetFences.test.ts` | this plan lives under `docs/superpowers/plans` and carries fenced blocks |
+| `tests/docs/_metaPlanSnippetFences.test.ts` | this plan lives under `docs/superpowers/plans`, which the guard walks from disk; it carries no fences today, so the pass is vacuous |
 | `tests/docs/_metaInvariant8Closeout.test.ts` | task 2 confirms the closeout marker |
 | `tests/docs/_metaReviewRoundEconomy.test.ts` | both stages passed the round threshold and owe filings |
 

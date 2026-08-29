@@ -258,7 +258,8 @@ the property the row wants protected is that the numbers still match.
 
 **A live instance, from inside the probe domain.**
 `docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:394` states a per-file call-site
-table and prints the command producing it, one of the eleven pure repo-local commands §6 found:
+table and prints the command producing it, one of the eleven pure commands §6 found and one of the
+eight of those a CI checkout could run:
 
 ```
 grep -rn "deriveAlertMessageParams(" tests/ | wc -l          # expect 56
@@ -302,10 +303,28 @@ practice does not repair it when the practice itself does not hold the property.
 conclusion as the ratified ruling above, reached from the arcs' own behaviour rather than from the
 ruling, and it is the only form of this argument that survives four rounds of review.
 
-**How the eleven repairs actually partition, kept because it is checkable and useful, and no longer
-load-bearing.** Seven made the table an OUTPUT, two DELETED it, two kept it and COMMITTED the command's
-raw output beside it. Every row carries a `file:line`, and the exercise is what surfaced the fact above:
-the arcs that repaired by naming a command are the same arcs whose tables had drifted while naming one.
+**How the eleven repairs partition, in prose because the table that held it was subtracted in round
+5 and this document should not claim rows it no longer ships** (whole-diff review round 1 finding 3
+caught the dangling claim). Seven made the table an OUTPUT: `fix/shell-brace-cross-construct`
+(`docs/superpowers/specs/ci/2026-08-22-shell-brace-cross-construct-design.md:288`),
+`fix/severityless-warning-filters` (`BACKLOG-archive.md`, its own entry),
+`fix/mutation-shard-budget-six` (`docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md:4`),
+`fix/mutation-shard-weight-seconds`
+(`docs/review-rounds/fix/mutation-shard-weight-seconds/300a9f937b8a.md:125`),
+`feat/speclint-ac-unclaimed-arm`
+(`docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:38`), `docs/quick-wins-2-specs`
+(`docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md:103`), and
+`fix/supabase-upstream-fault-class`
+(`docs/review-rounds/fix/supabase-upstream-fault-class/d04d6370985f.md:15`). Two DELETED it:
+`feat/review-modal-strip-dock` (`docs/superpowers/specs/2026-08-25-review-modal-strip-dock.md:1210`)
+and `feat/speclint-red-reason-verification`
+(`docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.md:21`). Two kept the table and
+COMMITTED the command's raw output beside it: `fix/sync-log-show-id-duration`
+(`docs/review-rounds/fix/sync-log-show-id-duration/d2a31e4aa021.md:159`) and
+`docs/sync-log-emit-guard-spec` (`docs/superpowers/plans/2026-08-15-sync-log-emit-guard/plan.md:25`).
+
+The exercise is what surfaced the fact above: the arcs that repaired by naming a command are the same
+arcs whose tables had drifted while naming one.
 
 **The narrowing that would fix that is already shipped as prose.** Command plus immutable anchor is
 the convention's own form, adopted by 14 documents at this head (`git grep -l -iE 'every (number|figure|count)[^.]{0,60}(produced|printed) by' 8b4d521cac00 -- 'docs/**/*.md' | wc -l`) today by writing a header line. A
