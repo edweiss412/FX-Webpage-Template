@@ -9,8 +9,9 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 ## 12. UI quality gate
 
 Invariant 8's dual pair, both halves run on this diff at commit `7647976b3`:
-`/impeccable critique` and `/impeccable audit`, each with the v3 setup gates (`context.mjs` loaded
-PRODUCT.md and DESIGN.md; register reference `product.md`, since this is admin app UI serving a task).
+`/impeccable critique` and `/impeccable audit`, each with the v3 setup gates: the skill's context
+script loaded PRODUCT.md and DESIGN.md, and the register reference read was the product one, since this
+is admin app UI serving a task.
 
 **Provenance: NOT degraded.** The critique's Assessment A and Assessment B ran as two isolated
 sub-agents, which the command requires whenever a sub-agent tool is exposed. Running them inline would
@@ -41,7 +42,7 @@ not accessibility, and the deferral says so — which changes what the eventual 
 
 ### Critique — Assessment B (detector evidence)
 
-`detect.mjs` exit 2, two `broken-image` warnings, at
+The bundled detector exited 2 with two `broken-image` warnings, at
 `components/admin/wizard/step3ReviewSections.tsx:3802` and
 `components/admin/wizard/step3ReviewSections.tsx:3904`. **Both are FALSE POSITIVES and neither is
 actioned.** The literal string `<img>` appears at both lines inside code COMMENTS that exist to explain
@@ -89,7 +90,8 @@ invariant-8 disposition threshold.
 
 **The full styles suite earned its place in the plan.** Every scoped run was green while
 `tests/styles/_metaControlOutlineFill.test.ts` had eight failures: two line-keyed registry rows in
-`tests/styles/controlOutlineScan.ts` addressed `step3ReviewSections.tsx:4455` and `:4512`, and the
+`tests/styles/controlOutlineScan.ts` addressed `components/admin/wizard/step3ReviewSections.tsx:4455`
+and `components/admin/wizard/step3ReviewSections.tsx:4512`, and the
 comment this arc rewrote added sixteen lines above both. Repaired by LOCATING the `<button>` openers, at
 4471 and 4528, which is what those rows' own comments instruct and warn about: "not by adding the two
 sides' deltas, which is what put them 5 lines short."

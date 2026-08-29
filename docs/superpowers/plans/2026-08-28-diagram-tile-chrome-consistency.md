@@ -51,7 +51,7 @@ lines longer.
 | invariant-9 infra-contract registries (`tests/auth/_metaInfraContract.test.ts` and peers) | no Supabase call boundary is added or moved | none applies |
 | `tests/log/_metaMutationSurfaceObservability.test.ts` | no mutation surface, route handler, or server action is added | none applies |
 | source-mutation registry (`tests/mutation/source/registry.ts`) | the diff adds no guard, proof, or equivalence surface — the new suite is an ordinary component suite, not a recognizer | none applies; enrolment is not owed |
-| `tests/styles/controlOutlineScan.ts` | two LINE-KEYED registry rows address the component below the replaced comment, which is sixteen lines longer | rows relocated from `:4455`/`:4512` to `:4471`/`:4528` in the lockstep commit, LOCATED by the `<button>` openers rather than by adding a delta |
+| `tests/styles/controlOutlineScan.ts` | two LINE-KEYED registry rows address the component below the replaced comment, which is sixteen lines longer | rows relocated from `components/admin/wizard/step3ReviewSections.tsx:4455` and `components/admin/wizard/step3ReviewSections.tsx:4512` to `components/admin/wizard/step3ReviewSections.tsx:4471` and `components/admin/wizard/step3ReviewSections.tsx:4528` in the lockstep commit, LOCATED by the `<button>` openers rather than by adding a delta |
 
 ## CI wiring
 
@@ -275,8 +275,8 @@ line-keyed row is invalidated by the diff's shape and not by its content:
 - `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:816` — the count phrase becomes three, with a one-line note naming this spec. `§6.2` at
   `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:320` is NOT edited (spec §5).
 - `tests/styles/tapTargetCensus.ts:321` — the `reason` prose stops saying the chrome lives on the image.
-- `tests/styles/controlOutlineScan.ts:126` and `:139` — the two line-keyed rows move to `:4471` and
-  `:4528`. This one is not a prose edit and did not come from the sweep: the full styles suite found it,
+- `tests/styles/controlOutlineScan.ts:126` and `tests/styles/controlOutlineScan.ts:139` — the two line-keyed rows move to
+  `components/admin/wizard/step3ReviewSections.tsx:4471` and `components/admin/wizard/step3ReviewSections.tsx:4528`. This one is not a prose edit and did not come from the sweep: the full styles suite found it,
   eight failures, and it is listed here so the inventory and its repair agree.
 - `tests/styles/tintedPlateOutline.test.ts:221-223` — the comment's raw/comment split becomes 13 and
   four, and names the move.
