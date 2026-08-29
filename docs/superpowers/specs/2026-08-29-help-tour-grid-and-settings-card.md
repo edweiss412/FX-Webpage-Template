@@ -20,9 +20,15 @@ column three ways, and the card body text renders at 10.4ch at 768px, rising onl
 wider screen. The cards grow very tall to compensate: 824.8px at 768px, for 45 words.
 
 **The `DEFERRED.md` entry's mechanism claim is half right, and §2.2 corrects it.** The 70ch cap
-binds only at 1024px and above, where the prose column reaches 704.4px. At 900px the column is
-604px, and at 768px it is 472px — narrower than the cap, which is therefore not what constrains
-it. What hurts most at 768px is the column COUNT: three columns of a 472px space. The entry's
+binds wherever `main` exceeds 704.4px, which is **two intervals, not one**: 752 to 767, and 1016
+upward. It does NOT bind between them, because the shell's sidebar engages at 768 and drops `main`
+to 472px. At 900px the column is 604px and at 768px it is 472px, both narrower than the cap, which
+is therefore not what constrains them.
+
+Earlier drafts said the cap binds "only at 1024px and above". That was read off a table sampling
+390, 768, 900, 1024 and 1280, which steps straight over the 752-767 window — the same
+sampled-viewport error this document has now made in three different places, and the reason §2.3
+sweeps at 4px instead of listing viewpoints. What hurts most at 768px is the column COUNT: three columns of a 472px space. The entry's
 proposed repair, lifting the grids out of the cap, cannot reach the viewport with the worst
 measure, because at that viewport there is no cap to lift them out of. This spec ships that repair
 AND the one the numbers actually call for.
@@ -144,14 +150,17 @@ and the prose column diverge only above 1024px:
 | viewport | `main` content | prose column | does the 70ch cap bind? |
 | --- | --- | --- | --- |
 | 390 | 358 | 358 | no |
-| 768 | 472 | 472 | no |
+| **752** | **720** | **704.4** | **yes, by 15.6px — the pre-`md` window, absent from earlier drafts of this table** |
+| 768 | 472 | 472 | no — the sidebar engages and `main` drops |
 | 900 | 604 | 604 | no |
+| 1016 | 720 | 704.4 | yes, by 15.6px |
 | 1024 | 728 | 704.4 | yes, by 23.6px |
 | 1280 | 856 | 704.4 | yes, by 151.6px |
 | 1440 | 856 | 704.4 | yes; `max-w-6xl` caps `main`, so nothing widens past 1280 |
 
-So a bleed buys 23.6px at 1024 and 151.6px at 1280, and **nothing at all at 768**, which is where
-the measure is worst. That is why §3.2 does not stop at the bleed.
+So a bleed buys 15.6px in the 752-767 window, **nothing at all at 768** where the sidebar drops the
+container below the cap, then 15.6px again from 1016, 23.6px at 1024 and 151.6px at 1280. The
+viewport where the measure is worst is exactly the one where the bleed buys nothing. That is why §3.2 does not stop at the bleed.
 
 **The errors-page peer is a confirmed instance, not a hypothetical.** At 768px, 5 of its 7 jump-list
 items wrap. It does not wrap at 390 (one column), nor at 900 and above. Same shape, same viewport,
@@ -268,8 +277,8 @@ for it.
 
 ### 3.2 Both tour grids: bleed, and stop pinning the column count
 
-The bleed alone does not fix this. §2.2 measures the 70ch cap binding only at 1024px and above,
-so at 768px — where the measure is worst, 10.4ch — there is no cap to escape and a bleed changes
+The bleed alone does not fix this. §2.2 measures the 70ch cap binding in two intervals, 752-767 and
+1016 upward, and NOT at 768 where the sidebar drops the container — so at 768px — where the measure is worst, 10.4ch — there is no cap to escape and a bleed changes
 nothing. The column count is what divides a 472px space three ways. Both parts ship:
 
 **Part zero, the markup the guard depends on.** Every card anchor on the page gains
@@ -277,7 +286,7 @@ nothing. The column count is what divides a 472px space three ways. Both parts s
 here as a concrete edit rather than only in §3.4, because a guard keyed on an attribute no card
 carries matches nothing and passes vacuously, which is a worse failure than the one it replaces.
 
-**Part one, the bleed.** `help-bleed` on both grids, which buys 23.6px at 1024 and 151.6px at 1280.
+**Part one, the bleed.** `help-bleed` on both grids, which buys 15.6px from 1016, 23.6px at 1024 and 151.6px at 1280 (§2.2).
 
 **Part two, a minimum card width instead of a fixed column count.** Each grid's
 `grid-cols-1 md:grid-cols-N` becomes `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]`. The column
@@ -656,8 +665,17 @@ this layout has three.
   exceed 24ch and two cannot exceed 38ch, at any minimum width. Writing 65ch here would have made
   AC-1 unsatisfiable by the change it is supposed to accept, which is how it read before §2.2 was
   measured.
-- **AC-1a** No viewport in the matrix regresses against the §2.2 baseline. 390 is single-column at
-  31.4ch and is asserted UNCHANGED rather than improved (§7.1).
+- **AC-1a** No viewport whose baseline measure was at or above the 28ch floor ends below it. 390 is
+  single-column at 31.4ch and is asserted UNCHANGED rather than improved (§7.1).
+
+  **This is deliberately not "no viewport's measure decreases", which is what an earlier draft
+  said and which this design cannot satisfy.** At 752px the baseline is a single column at 65.8ch:
+  `md` has not engaged, so the old grids are `grid-cols-1`, and the cap binds at 704.4px. The
+  proposed two-column state there is 30.8ch. That is a decrease, and it is the trade the whole
+  change is: a scannable grid of cards instead of one 65.8ch column of them. Writing the criterion
+  as monotonic measure made it contradict the design it was accepting — it would have failed a
+  correct implementation. What actually matters is that nothing crosses the floor, and that is
+  what it now says.
 - **AC-1b** Zero items in the errors-page jump list wrap, at every viewport in the matrix. The
   baseline is 5 of 7 wrapping at 768.
 - **AC-1c** No grid on either page overflows its container horizontally, asserted at **320px** as
