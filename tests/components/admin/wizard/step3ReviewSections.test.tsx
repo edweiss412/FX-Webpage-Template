@@ -2062,6 +2062,9 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
   // The ATTEMPT key, restated here for the same reason DRAFT_KEY is: a format
   // drift should fail in this block rather than silently stop asserting.
   const ATTEMPT_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
+  // Read from the live catalog, never restated: a copy edit must not silently
+  // stop this test from asserting anything.
+  const HORIZON_COPY = MESSAGE_CATALOG.REPORT_HORIZON_EXPIRED.dougFacing as string;
   const TYPED = "the crew list is missing two people";
   const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
 
@@ -2425,13 +2428,23 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     );
     const q = renderBody(sectionData(), "report");
     typeInto(q, TYPED);
+    // Every assertion below has to be FALSE before the submit and TRUE after,
+    // or the test passes on a section that never sent anything. R4 F1 found the
+    // first version satisfiable with the submit click deleted: idle status is
+    // already unequal to "Sending…", the draft is already retained, and the
+    // attempt key is already absent because it had never been minted.
+    expect(window.sessionStorage.getItem(ATTEMPT_KEY)).toBeNull(); // not yet minted
     fireEvent.click(q.getByTestId(SUBMIT));
-    await waitFor(() => expect(q.getByTestId(STATUS).textContent).not.toBe("Sending…"));
+    expect(window.sessionStorage.getItem(ATTEMPT_KEY)).toBeTruthy(); // minted by THIS submit
+
+    // The settled 410 copy, from the catalog, never a "not still pending" proxy.
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(HORIZON_COPY));
 
     // The text survives, in the store and on screen.
     expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
     expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
-    // And the attempt key IS rotated, since a retry is a new report.
+    // And the attempt key was ROTATED by the 410, since a retry is a new report.
+    // Observable only because it was asserted present a moment ago.
     expect(window.sessionStorage.getItem(ATTEMPT_KEY)).toBeNull();
   });
 
@@ -2473,7 +2486,7 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(trimmed);
   });
 
-  test("AC-6b: a sessionStorage ACCESSOR that throws is survived, not just throwing methods", () => {
+  test("AC-6b: a sessionStorage ACCESSOR that throws is survived, through submit as well as typing", async () => {
     // Diff review R3 F4. AC-6 makes Storage.prototype methods throw, which
     // leaves `window.sessionStorage` itself readable. Real browsers throw
     // SecurityError from the PROPERTY ACCESS when site data is blocked, so a
@@ -2494,6 +2507,21 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
       fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
       expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
       expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+
+      // R4 F2: stopping at typing left the SUBMIT path unasserted, and that is
+      // where the remaining accessor sites are — compare-and-clear, attempt-key
+      // minting, and rotation. Hoisting the accessor read out of any one of
+      // those `try` blocks would have survived both AC-6 and AC-6b.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 201,
+          json: async () => ({ ok: true, status: "created" }),
+        }),
+      );
+      fireEvent.click(q.getByTestId(SUBMIT));
+      return waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
     } finally {
       if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
     }

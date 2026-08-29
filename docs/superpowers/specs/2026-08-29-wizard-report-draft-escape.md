@@ -8,7 +8,7 @@ A half-typed report message in the wizard review modal dies when the modal close
 
 `Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`, the `<ReviewModalShell` open site) and passes no `onEscapeCapture`, so the shell's document key handler falls through to `requestClose()` for every Escape (`components/admin/review/ReviewModalShell.tsx:261`, `if (onEscapeCapture?.() === true) return;`). The consumer unmounts on close. `ReportIssueSection` held its draft in mount-local state (`const [draft, setDraft] = useState("")` at `components/admin/wizard/step3ReviewSections.tsx:4737`, which this arc replaced with a restoring initialiser), so the unmount took the text with it. The component says so itself, in the `ReportIssueSection` docblock: "Draft persistence is mount-local only (spec-accepted)".
 
-This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraftEscape.test.tsx` carries two blocks, committed at `b230ccb9d`:
+This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraftEscape.test.tsx` carried two blocks when it was written, committed at `b230ccb9d`. Only the PIN remains in the tree; the PROBE flipped when the repair landed and was deleted then, exactly as its own docblock said it would be:
 
 - **PROBE** characterises today. Type into the report textarea, press Escape, wait out the shell's exit window, remount: `onClose` fired once and the reopened textarea is empty. It passes on `main`.
 - **PIN** states the boundary. After one Escape the draft is either still on screen or recoverable on reopen. It fails today, because both disjuncts are false.
@@ -27,7 +27,7 @@ The exposure is narrow by construction: this textarea is the only one in `compon
 | **Escape layering in this modal is already settled and is NOT reopened here.** The §3.5 scoping amendment (ratified 2026-08-28) says a sub-surface the operator ENGAGED with claims Escape and one that opened itself does not; all three cases are pinned at `tests/components/admin/wizard/Step3ReviewModal.test.tsx:607`, tests `(12a)`, `(12b)` and `(12)`. This spec adds no Escape claimant, so that rule is untouched. | `tests/components/admin/wizard/Step3ReviewModal.test.tsx:607` |
 | **The `onEscapeCapture` prop stays unused by the wizard.** Its sole consumer remains `PublishedReviewModal.tsx:990`. | `components/admin/review/ReviewModalShell.tsx:100`, `components/admin/showpage/PublishedReviewModal.tsx:990` |
 | **`FinalizeButton`'s capture-phase Escape preempt is unaffected.** It listens in the capture phase and calls `stopImmediatePropagation`, so a finalize overlay above the review modal already swallows Escape before the shell sees it. Nothing here runs on that path. | `components/admin/FinalizeButton.tsx:767` |
-| **Collapse survival is existing, tested behaviour and is not the fix.** A draft already survives collapsing the disclosure, because `draft` lives at component level and only the form subtree unmounts. | `tests/components/admin/wizard/step3ReviewSections.test.tsx:1218` (T-D1) |
+| **Collapse survival is existing, tested behaviour and is not the fix.** A draft already survives collapsing the disclosure, because `draft` lives at component level and only the form subtree unmounts. | `tests/components/admin/wizard/step3ReviewSections.test.tsx:1220` (T-D1) |
 | **The spec-accepted "mount-local only" posture is what this row overturns**, deliberately. The `ReportIssueSection` docblock line saying so is updated by this arc, not worked around. | `step3ReviewSections.tsx:4737` (`ReportIssueSection`) |
 
 ## 2. What ships
@@ -117,7 +117,19 @@ The DOM changes are the text content of an existing button and, when the draft i
 - **AC-7b** The cap never splits a character: no unpaired surrogate can reach the textarea.
 - **AC-5b** The 410 terminal branch keeps the draft while rotating the attempt key.
 - **AC-15b** The clear compares the UNTRIMMED draft, so surrounding whitespace cannot make one submit clobber another mount's edit.
-- **AC-6b** A `sessionStorage` ACCESSOR that throws is survived, not only throwing methods.
+- **AC-6b** A `sessionStorage` ACCESSOR that throws is survived, not only throwing methods, through the submit path as well as typing.
+
+## 6.5 Cross-model review, diff round 4
+
+Verdict NEEDS-ATTENTION, three findings, all accepted. This was the last round inside the cap, and the arc's round-economy filing is at `docs/review-rounds/fix/wizard-report-draft-escape/e7751f61de2c.md`.
+
+| # | Finding | Disposition |
+|---|---|---|
+| F1 (P2) | AC-5b was satisfiable with its submit click deleted: idle status is already unequal to "Sending…", the draft is already retained, and the attempt key is already absent because it was never minted. Every assertion passed without a request, a 410, or a rotation. | FIXED. The attempt key is now asserted absent, then present after the submit, then absent again after the 410, so the rotation is observable rather than indistinguishable from never minting; and the status assertion is the catalog's settled 410 copy rather than a "not still pending" proxy. Verified by planting the reviewer's own mutant: with the click deleted the test dies. |
+| F2 (P2) | AC-6b stopped after typing, leaving the submit path's three further accessor sites unasserted — compare-and-clear, attempt-key minting, rotation. Hoisting the accessor read out of any of their `try` blocks would have survived both AC-6 and AC-6b. | FIXED. AC-6b now submits under the throwing accessor and asserts the success settles. |
+| F3 (P3) | Three documentation references had gone stale, including a docblock still describing mount-local state at a line that now holds unrelated prose, and this spec still saying the escape test "carries two blocks" when only the PIN remains. | FIXED, all three, and the two-blocks sentence now states plainly that the PROBE was deleted when it flipped. |
+
+**The finding worth carrying forward.** F1 is the anti-tautology rule applied to a test written, one round earlier, to close the same class. That is the third round in a row whose dominant finding was a test weaker than the prose above it, and the filing records the mechanical check that catches six of the seven instances: delete the action under test and confirm the assertions go red.
 
 ## 6.4 Cross-model review, diff round 3
 

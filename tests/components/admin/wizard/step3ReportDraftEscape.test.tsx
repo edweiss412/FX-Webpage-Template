@@ -7,7 +7,9 @@
  * (Step3ReviewModal.tsx:480) passing no `onEscapeCapture`, so the shell's key
  * handler falls through to `requestClose()` unconditionally
  * (ReviewModalShell.tsx:261-262). `ReportIssueSection` holds its draft in
- * mount-local `useState` (step3ReviewSections.tsx:4621), so the modal unmount
+ * mount-local `useState` — the pre-repair shape of `ReportIssueSection`'s draft
+ * state, which now restores from storage at `step3ReviewSections.tsx:4737` — so the
+ * modal unmount
  * that follows takes a half-typed report message with it.
  *
  * This file carried a PROBE block alongside the PIN while the row was being
