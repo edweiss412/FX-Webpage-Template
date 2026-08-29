@@ -43,17 +43,31 @@ const MEASURE_CEILING_CH = 75;
  *  one column; 320 is the overflow pin; 390 is the mobile case asserted UNCHANGED. */
 const TOUR_SEQUENCE: ReadonlyArray<{ vw: number; cols: number }> = [
   { vw: 390, cols: 1 },
+  // 688 gives a 656px container, which is where the REJECTED 20rem minimum
+  // switches to two columns and spec §3.2 measures 27.6ch — under AC-1's floor.
+  // 22rem is still ONE column here. Without this row a 20rem minimum passes
+  // every other sample: it produces the same counts and the same 30.8ch at the
+  // 720px container the other viewports all resolve to. The spec names this hole
+  // in §3.2 ("at a viewport no acceptance criterion sampled"); this closes it.
+  { vw: 688, cols: 1 },
   { vw: 752, cols: 2 },
   { vw: 768, cols: 1 },
   { vw: 1016, cols: 2 },
 ];
 const ERRORS_SEQUENCE: ReadonlyArray<{ vw: number; cols: number }> = [
   { vw: 320, cols: 1 },
+  // The same hole on the peer, found by sweeping the shape rather than the
+  // instance. 608 gives a 576px container: 18rem is one column, and any
+  // minimum below the list's measured 286px item width switches to two tracks
+  // narrower than the items and wraps them. The sampled 640 cannot see it —
+  // `auto-fit` stretches with `1fr`, so a smaller minimum still resolves to
+  // 288px tracks there and reports zero wrapping.
+  { vw: 608, cols: 1 },
   { vw: 640, cols: 2 },
   { vw: 768, cols: 1 },
   { vw: 904, cols: 2 },
 ];
-const MEASURE_VIEWPORTS = [752, 768, 1016, 1024, 1280] as const;
+const MEASURE_VIEWPORTS = [688, 752, 768, 1016, 1024, 1280] as const;
 const MOBILE_BASELINE = { vw: 390, cols: 1, measureCh: 31.4 } as const;
 
 /** Spec §4, stated with numbers: the shell is `max-w-6xl px-4` (1152 - 32 = 1120)
@@ -108,7 +122,15 @@ async function readTour(page: Page) {
     const grids = Array.from(
       document.querySelectorAll("main .help-prose div.grid"),
     ) as HTMLElement[];
+    // EVERY marked anchor on the page, not only the ones inside a grid. This is
+    // the bridge to the completeness guard, which counts marked anchors and does
+    // not care where they sit: without it, a card group that loses `grid` still
+    // satisfies set equality and cardinality there while vanishing from every
+    // assertion here, and a bare marked link satisfies the completeness claim
+    // with none of the card structure this file measures.
+    const markedOnPage = document.querySelectorAll("main .help-prose a[data-tour-card]").length;
     return {
+      markedOnPage,
       mainWidth: main ? w(main) : -1,
       mainContentWidth: main ? contentWidth(main) : -1,
       proseContentWidth: prose ? contentWidth(prose) : -1,
@@ -155,6 +177,13 @@ async function readTour(page: Page) {
           gridScrollWidth: g.scrollWidth,
           gridClientWidth: g.clientWidth,
           cardCount: cards.length,
+          // Top and height per card, so rows can be grouped and §4's shared-height
+          // claim asserted. Rounded because subpixel grid positions differ within
+          // a row by fractions that are not a layout difference.
+          cardRows: cards.map((c) => {
+            const r = c.getBoundingClientRect();
+            return { top: Math.round(r.top), height: +r.height.toFixed(1) };
+          }),
           // Pinned against cardCount by the caller: `bodies` is a FILTER, and a
           // card that lost its <p> would leave every measure bound satisfied by
           // the cards that remain.
@@ -284,6 +313,64 @@ test.describe("/help/tour card grids — real-browser layout", () => {
       for (const g of m.grids.filter((grid) => grid.fullSpanCount > 0)) {
         for (const [k, fw] of g.fullSpanWidths.entries()) {
           expect(fw, `full-span card ${k + 1} at ${vw}px`).toBeCloseTo(g.gridWidth, 1);
+        }
+      }
+    }
+  });
+
+  test("§4 + AC-3: every marked card sits inside a measured grid", async ({ page }) => {
+    await page.goto("/help/tour", { waitUntil: "networkidle" });
+    await expect(page.locator("main .help-prose div.grid").first()).toBeVisible();
+
+    // The bridge between this file and tests/help/page-tour.test.tsx. That guard
+    // proves every admin surface has a marked anchor; this one proves every marked
+    // anchor is a CARD IN A GRID. Neither implies the other, and the gap between
+    // them is silent: a group that loses `grid`, or a bare marked link in prose,
+    // passes completeness while no layout assertion here ever sees it.
+    for (const vw of [688, 768, 1280]) {
+      await page.setViewportSize({ width: vw, height: 900 });
+      const m = await readTour(page);
+      premise(`the tour marks card anchors at ${vw}px`, m.markedOnPage, 0);
+      const inGrids = m.grids.reduce((n, g) => n + g.cardCount, 0);
+      expect(inGrids, `marked anchors inside a measured grid at ${vw}px`).toBe(m.markedOnPage);
+    }
+  });
+
+  test("§4: cards sharing a row share a height", async ({ page }) => {
+    await page.goto("/help/tour", { waitUntil: "networkidle" });
+    await expect(page.locator("main .help-prose div.grid").first()).toBeVisible();
+
+    // §4's last row claims equal column widths AND a shared height for cards in a
+    // row, guaranteed by grid's default `align-items: stretch`. The width half was
+    // asserted and the height half was not, so `self-start` or any other
+    // non-stretch regression would have passed.
+    for (const vw of [752, 1016, 1280]) {
+      await page.setViewportSize({ width: vw, height: 900 });
+      const m = await readTour(page);
+      premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
+      for (const [i, g] of m.grids.entries()) {
+        const rows = new Map<number, number[]>();
+        for (const c of g.cardRows) rows.set(c.top, [...(rows.get(c.top) ?? []), c.height]);
+        // A shared-height claim is only falsifiable where a row HOLDS more than one
+        // card. At one column every row is a singleton and the claim is vacuous, so
+        // at least one multi-card row must exist for this to be measuring anything.
+        const shared = [...rows.values()].filter((hs) => hs.length > 1);
+        premiseHolds(
+          `grid ${i + 1} has a row with more than one card at ${vw}px`,
+          m.grids.some((grid) => {
+            const byTop = new Map<number, number>();
+            for (const c of grid.cardRows) byTop.set(c.top, (byTop.get(c.top) ?? 0) + 1);
+            return [...byTop.values()].some((n) => n > 1);
+          }),
+        );
+        for (const [r, heights] of shared.entries()) {
+          const [first, ...rest] = heights;
+          for (const [k, h] of rest.entries()) {
+            expect(h, `grid ${i + 1} row ${r + 1} card ${k + 2} height at ${vw}px`).toBeCloseTo(
+              first as number,
+              1,
+            );
+          }
         }
       }
     }
