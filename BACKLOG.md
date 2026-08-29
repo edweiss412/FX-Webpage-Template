@@ -223,18 +223,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation, in a case that turns out not to arise. **Promotion prerequisite (RUN 2026-08-27, returned zero):** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date — see `**Reachability:**` above. Should it ever return non-zero, the direction is a renderer question, because the segments ARE structured: give the date-only segment a labeled treatment of its own, rather than the parser widening an earlier draft implied.
 
-### BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE — Escape closes the wizard review modal and discards a typed report draft
-
-**Status:** IN PROGRESS · **Branch:** fix/wizard-report-draft-escape · **Filed:** 2026-08-29 (`feat/wizard-warning-ignore-controls`, closeout seam check after absorbing #940) · **Facing:** product · **Severity:** LOW (one un-sent report message; the warning itself is untouched and the operator can retype) · **Class:** unsaved-input dismissal · **Effort:** S · **Class-sweep exception:** (a) — whether a dirty field should trap Escape is a product decision, and it now interacts with a consumed-key design that landed on the published side in the same week.
-
-**What is wrong.** `Step3ReviewModal` renders through `ReviewModalShell` (`components/admin/wizard/Step3ReviewModal.tsx:480`) and passes no `onEscapeCapture`, so the shell's key handler falls through to `requestClose()` unconditionally (`components/admin/review/ReviewModalShell.tsx:261-262`). A half-typed report message in the wizard warnings panel textarea (`components/admin/wizard/step3ReviewSections.tsx:4723`) goes with the modal, with no prompt.
-
-**Reachability:** live surface, stated rather than probed. Open the wizard review modal, expand Report on any Sheet warning, type, press Escape. The draft survives collapsing the disclosure — that behaviour is deliberate and tested — but not closing the modal.
-
-**Why it is newly reachable.** This textarea is the only one in `components/admin` (`rg -n '<textarea' components/admin` returns one hit, in the file above). The published surface's Report control is a one-click action with nothing to lose, so the wizard is the first admin modal where Escape can destroy typed text. The exposure arrived with this arc; the Escape behaviour did not.
-
-**Why backlog, not now:** trapping Escape on a dirty field is not obviously right — Escape-closes-modal is the behaviour operators expect, and the alternatives (confirm prompt, silent draft persistence, focus-scoped trap) are a design choice, not a bug fix. `ReviewModalShell` grew an `onEscapeCapture` prop on 2026-08-28 for the published attention panel, so the mechanism now exists; whether the wizard should adopt it, and under what predicate, wants deciding alongside that design rather than bolted on at closeout of an unrelated arc.
-
 ### BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths
 
 **Status:** OPEN · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.
