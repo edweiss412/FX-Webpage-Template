@@ -21,6 +21,8 @@ Six commits, one per plan task plus two closeout repairs:
 | `32cc1ad2f` | closeout — the line-keyed censuses the new lines moved |
 | `70585f0b4` | closeout — this document |
 | `651d2d324` | closeout — conditional quoting on the cell reference (bl-orch ruling) |
+| `f0bf67c47` | closeout — census relocations after the quoting import, one fence waiver |
+| `700f2ab87` | closeout — the outline-residue row the same import moved |
 
 Every task was red-then-green on the SAME command, with the red run's decisive line in
 the commit body (plan invariant 1).
@@ -53,7 +55,20 @@ membership set, no catalog row, no allowlist, no §12.4 prose changed.
 
 ## 4. Parser mutation harness (AC-2)
 
-_Filled at Step 7, on the pushed head._
+The parser jobs do not run on pull requests (`.github/workflows/mutation-harness.yml`: the
+parser and source shard jobs carry `if: github.event_name != 'pull_request'`, and the PR
+path filter names no parser module), so the arc dispatches the workflow explicitly on the
+pushed head.
+
+- Dispatched: `gh workflow run mutation-harness.yml --ref feat/ref-error-cell-anchors`
+- Run id `33272516851`, head sha `70585f0b4ca4de19daed1ef5a0819f1fe907cc10` (confirmed
+  equal to the pushed head at dispatch time).
+
+_Conclusions pending: the run has been QUEUED for over an hour, the fleet's runners being
+saturated by the thirteen required contexts. AC-2 is undischarged until the nine parser
+job conclusions exist — a red, cancelled or absent run is no evidence. The score IS the
+ledger reconciliation each shard suite performs, so nine green jobs on this head is
+"score unchanged"._
 
 ## 5. Live check (AC-1, second half) — AC-1-LOCAL, deploy half DEFERRED-BY-QUOTA
 
@@ -110,22 +125,48 @@ and does not change.
 ## 6. Suites, local
 
 - **DB-free half** — `pnpm heavy pnpm vitest run --project parallel` (the CI-enforced
-  no-database project, `unit-suite-nodb`): **1041 files passed, 16299 tests passed**,
-  2 skipped files / 17 skipped tests. Two files red under load and **green standalone**
-  (`pnpm vitest run tests/mutation/_metaScratchRootCleanup.test.ts
-  tests/styles/_metaControlOutlineResidue.test.ts` → 115 passed), which is the fleet
-  load-flake rule discharged rather than asserted: the residue suite's failure was
-  `Test timed out in 120000ms` and the scratch-root suite's was a premise on its own
-  child suites' exit code, both artifacts of ~9 concurrent arcs.
-- **The four serial-project files this plan touches**, by explicit list (each
-  client-free, none reads `TEST_DATABASE_URL`): `perShowActionableRenderControls`,
+  no-database project, `unit-suite-nodb`), on the final head: **1044 files passed, 16310
+  tests passed**, 2 files / 17 tests skipped, **zero failures, exit 0**.
+- **The four serial-project files this plan touches**, by explicit list (each client-free,
+  none reads `TEST_DATABASE_URL`): `perShowActionableRenderControls`,
   `perShowActionableTransitions`, `sectionWarningModel.autocorrect`,
   `attachWarningAnchors` → **170 passed**.
 - **Pre-push set, derived from `.github/workflows/quality.yml`** (its `quality` job runs
   exactly `pnpm lint`, `pnpm typecheck`, `pnpm format:check`): lint **0 errors**, 76
   warnings, all pre-existing and none in this diff; typecheck clean; format check clean.
 
-No DB slot was taken: nothing in this arc's verification needs one.
+No DB slot was taken: nothing in this arc's verification needs one, and the live check in
+§5 opens no client either.
+
+### The census tax, recorded because it cost two commits
+
+Seven line-keyed structural registries record a `file:line` and are walked from disk, so
+each one moves whenever anything is inserted above its row in the same file. This arc
+inserted twice into `components/admin/wizard/step3ReviewSections.tsx` — the warning row's
+cell line (+43) and later the `sheetCellReference` import (+1) — and once into
+`lib/sync/runScheduledCronSync.ts` (+4), which moved rows in `controlOutlineScan`,
+`subtleInteractiveExemptions`, `tapTargetCensus`, `_metaControlOutlineResidue`,
+`_metaRenderFaultMarking`, `alertProducerScope` and the sheet-link consumer census.
+
+Every relocation was made BY IDENTITY on the live tree — the scanner's own report of the
+live site, or the element's unique testid or opener — never by adding a delta, which is the
+convention each of those files states in its own comment trail. Three of them also carried
+prose that had already drifted from their own row; that is recorded in the commits rather
+than quietly overwritten.
+
+Two adjacent guards fired for reasons that were not line drift: `_metaServerTimeGuard`'s
+derived lib population gained exactly one module (`lib/sheet-links/sheetCellReference.ts`,
+a pure formatter with no clock read), and the sheet-link destination census counted a
+scratch `.claude/live-ac1.ts` as an uncensused consumer, because that census walks the
+filesystem and `.claude/` is inside it. The probe now lives in the corpus with a `.ts.txt`
+extension, which keeps it out of every source scan.
+
+One reading correction worth keeping: `_metaScratchRootCleanup` and
+`_metaControlOutlineResidue` were genuine load flakes on an earlier run (both green
+standalone), and after the quoting fix the residue suite was really red while the
+scratch-root suite was a cascade of it — its premise is that the subject suites it shells
+out to pass. The load-flake rule (a red is a flake only after a standalone rerun passes)
+is what separated the two cases, and it separated them correctly both times.
 
 ## 7. Documented limits carried from the spec
 
