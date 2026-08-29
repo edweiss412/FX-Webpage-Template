@@ -39,6 +39,7 @@ import { remark } from "remark";
 import remarkGfm from "remark-gfm";
 
 import { parseDoc } from "../../../../../lib/specLint/parse";
+import type { AcBlocks } from "../../../../../lib/specLint/types";
 import { blocksFrom } from "../../../../../scripts/lib/acCoverageBlocks";
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
@@ -132,6 +133,7 @@ let tables = 0;
 let numericTables = 0;
 const tableLinesByFile = new Map<string, number[]>();
 const fencesByFile = new Map<string, Fence[]>();
+const blocksByFile = new Map<string, AcBlocks>();
 
 for (const rel of mdFiles) {
   const text = readAt(rel);
@@ -146,6 +148,7 @@ for (const rel of mdFiles) {
   }
   if (lines.length > 0) tableLinesByFile.set(rel, lines);
   fencesByFile.set(rel, fencesOf(text));
+  blocksByFile.set(rel, blocks);
 }
 
 console.log(`base: ${RESOLVED.slice(0, 12)}  (${mdFiles.length} .md under docs/ at that rev)`);
@@ -316,3 +319,43 @@ console.log(`distinct arcs matching the shape: ${byArc.size}  (${cands.length} m
 for (const [arc, locs] of [...byArc].sort()) console.log(`  ${arc}\n      ${locs.join("\n      ")}`);
 console.log(`\nNOT a count of the class. The spec's §2 classifies every arc above as INCLUDED or`);
 console.log(`EXCLUDED with a stated reason, and the class cost is summed from the included rows.`);
+
+// ---------------------------------------------------------------- section 6
+// The row-count-versus-hit-count candidate's population (spec §8). Diff review
+// round 2 finding 2: this figure was measured by a scratch script and then stated
+// in the spec with nothing producing it -- the exact defect this document is about,
+// for the third time in its own paperwork. It is produced here now.
+//
+// A LIST-producing sweep: `git grep` / `rg` / `grep` WITHOUT a counting tail, so its
+// output is a set of hits whose cardinality could be compared to a table's row count.
+const SWEEP = /^(git\s+grep|rg|grep)\b/;
+const COUNTS = /(\s-c\b|--count\b|\|\s*wc\b|\bwc\s+-l\b)/;
+const RC_WINDOW = 20;
+
+const rcRows: string[] = [];
+for (const [rel, lines] of tableLinesByFile) {
+  const fences = (fencesByFile.get(rel) ?? []).filter((f) => CMD_LANG.has(f.lang));
+  const blocks = blocksByFile.get(rel) ?? [];
+  for (const t of lines) {
+    const near = fences.filter((f) => Math.abs(f.end - t) <= RC_WINDOW || Math.abs(f.start - t) <= RC_WINDOW);
+    let hit: string | null = null;
+    for (const f of near) {
+      const cmds = f.body.map((l) => l.trim().replace(/^\$\s*/, "")).filter((l) => l && !l.startsWith("#"));
+      if (cmds.length === 0 || !SWEEP.test(cmds[0]!)) continue;
+      if (COUNTS.test(cmds.join(" "))) continue;
+      hit = cmds[0]!.slice(0, 74);
+      break;
+    }
+    if (hit === null) continue;
+    const tb = blocks.find((b) => b.kind === "table" && b.line === t);
+    const hdr = tb !== undefined && tb.kind === "table" ? tb.header.map((h) => h.text).join(" | ").slice(0, 52) : "?";
+    const rows = tb !== undefined && tb.kind === "table" ? tb.rows.length : 0;
+    rcRows.push(`${rel}:${t}  rows=${rows}  header=[${hdr}]  cmd=${hit}`);
+  }
+}
+console.log(`\n## 6. the row-count-vs-hit-count candidate (spec §8)\n`);
+console.log(`tables within ${RC_WINDOW} lines of a LIST-producing sweep command: ${rcRows.length}`);
+for (const r of rcRows) console.log(`  ${r}`);
+console.log(`\nThe spec classifies each: a row count is comparable to a hit count only when the`);
+console.log(`table's column is the same KIND of quantity as the command's output, which a screen`);
+console.log(`cannot decide. Printed so that classification is checkable by reading.`);

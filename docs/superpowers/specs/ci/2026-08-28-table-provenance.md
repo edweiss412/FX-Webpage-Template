@@ -12,9 +12,9 @@ What ships is a paragraph, two index rows, and a ledger move.
 **Two arguments carry this, and neither is economic.** First, the corpus has already ratified that
 naming a producing command is not a binding, so a marker satisfying the existence check can leave a
 table exactly as drifted as it found it (§5). Second, and found only by deriving the namings properly,
-**eleven arcs have now paid for this shape, six of them shipped a repair, and not one of those repairs
-annotates a table** (§5). They produce the numbers, delete the claim, or commit the command's output
-beside it. The row asks for a pointer to a command.
+**eleven arcs have now paid for this shape, all eleven repaired, and not one repair declared a table's
+provenance** (§5). They made the table an output, deleted it, or committed the command's raw output
+beside it. The row asks for a pointer to a command, and that is the one shape nobody reached for.
 
 **The economic argument does NOT support this disposition, and §3 says so.** An earlier draft leaned on
 it and was wrong: correcting the naming count from four arcs to eleven takes the class cost from 6
@@ -30,7 +30,7 @@ weak three and stops will misjudge how this case is built, so the ledger is stat
 | population (§6) | 8 tables reachable | **an upper bound**, at most 6 |
 | adoption (§4) | a demonstration | **thin** — the marker it leads with is 3 days old |
 | structural (§5) | decisive | **holds**, and gained a live in-domain instance |
-| repair shape (§5) | 3 arcs, none annotating | **6 arcs, none annotating a table** |
+| repair shape (§5) | 3 arcs converging | **11 arcs repaired in 3 shapes; zero declared provenance** |
 
 The disposition rests on the two §5 arguments. Both got stronger during review; the other three did
 not, and none of them is load-bearing.
@@ -117,7 +117,7 @@ execution are adjacent shapes and are EXCLUDED, because the row's shape is a tab
 | --- | --- | ---: | --- |
 | `fix/mutation-shard-budget-six` | include | 1 | §1.3's table came from a scratch instrument while the header claimed every figure was printed by a command |
 | `feat/review-modal-strip-dock` | include | 3 | three rounds, three defects, in one hand-maintained transcript |
-| `feat/speclint-ac-unclaimed-arm` | include | 1 | claimed 106 enrolled plans where the quoted command returns 108 |
+| `feat/speclint-ac-unclaimed-arm` | include | 1 | claimed 106 enrolled plans where the quoted command returns 108 (`docs/review-rounds/feat/speclint-ac-unclaimed-arm/44b0d74b1107.md:32-33`) |
 | `fix/severityless-warning-filters` | include | 1 | the published SQL could not produce the published table |
 | `fix/sync-log-show-id-duration` | include | 3 | "pasted a command that could not have produced it"; R9, R10, R11 |
 | `fix/shell-brace-cross-construct` | include | 4 | "ONE SCRIPT away from being reproducible for four rounds" |
@@ -138,7 +138,9 @@ listed so the boundary is applied to them in public rather than by silence.
 **Round counts come from each filing's own words, never from its arc's total.** Attributing a whole
 arc's rounds to one class would be the inflated figure this document exists to criticise:
 `sync-log-show-id-duration` burned 44 rounds in total and 3 on this shape;
-`shell-brace-cross-construct` burned 14 and 4. Where a filing is ambiguous the smaller reading is
+`shell-brace-cross-construct` burned 14 and 4. Those two totals are derived, not asserted — counting
+distinct `(stage, baseSha, round)` triples with `status: "verdict"` across each arc's
+`docs/review-rounds/<arc>/*.jsonl`, which returns 44 and 14 respectively. Where a filing is ambiguous the smaller reading is
 taken, which biases the total DOWN — and down is the direction that flatters this spec, since a
 larger class cost argues for building. §8 records that.
 
@@ -199,14 +201,22 @@ reported as such.**
 | marker | shipped | age at this head | live uses | when the uses landed |
 | --- | --- | ---: | ---: | --- |
 | `ac-coverage` | 2026-08-25 (`44c8d5510`) | **3 days** | 2 | both on its ship date |
-| `gate:` | 2026-08-15 (`d9e6ef793`) | 13 days | 2 | 2026-08-15, 08-17, 08-25 |
+| `gate:` | 2026-08-15 (`d9e6ef793`) | 13 days | 2 | 2026-08-17 and 2026-08-28 |
 
 **`ac-coverage` cannot carry an adoption claim at all.** Three days old, both uses landed the day it
 shipped: that is not a low adoption rate, it is no measurement of one. An earlier draft led with it,
 which was the same error this document criticises elsewhere — reading a standing count as a rate.
 
+An earlier draft gave three landing dates for two uses (diff review round 2 finding 4). Corrected by
+probing the live declarations rather than the file history: the two are
+`docs/superpowers/plans/2026-08-17-red-verdict-capability.md:129` and
+`docs/superpowers/plans/2026-08-28-speclint-expect-n-exit-status.md:163`, whose files landed 2026-08-17
+and 2026-08-28. The second landed the day this spec was written, which makes `gate:` thinner still: one
+use in its first twelve days.
+
 What survives is thin and worth stating at its true strength: no opt-in doc marker in this corpus has
-yet been adopted outside its own arc's neighbourhood, and the older of the two has 2 uses in 13 days.
+yet been adopted outside its own arc's neighbourhood, and the older of the two has 2 uses in 13 days,
+one of them same-day as this document.
 That is weak evidence for the prediction that a third would fare the same, not a demonstration of it.
 §8 carries the re-file trigger that would settle it.
 
@@ -258,31 +268,33 @@ everything the row's marker would ask for. It is also why the repair is an ancho
 a reader told the figure was measured at a sha six weeks old learns something true and immediately
 useful, and one header line already delivers it.
 
-**And the arcs that paid shipped a different kind of repair.** This is the second load-bearing
-argument, and it is evidence rather than prediction: six of the eleven arcs in §2 shipped a repair for
-this exact shape, and **not one of them annotated a table**.
+**And in eleven arcs, not one repair declared provenance.** This is the second load-bearing argument,
+and it is evidence rather than prediction. Two earlier drafts of this paragraph were wrong about it, so
+the claim is now stated at exactly the strength the corpus supports and no further.
 
-| arc | what it shipped | kind |
-| --- | --- | --- |
-| `fix/shell-brace-cross-construct` | `weaker-walks.mts`, so the table is PRODUCED: "The table is no longer written down; it is produced" (`docs/superpowers/specs/ci/2026-08-22-shell-brace-cross-construct-design.md:288`) | generate |
-| `fix/severityless-warning-filters` | "one query that produces every number in its table from a single transaction" (`BACKLOG.md:89`) | generate |
-| `fix/mutation-shard-budget-six` | its spec now opens "Every figure below is printed by commands, not retyped from a transcript" and names the three producers (`docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md:4`) | generate |
-| `feat/review-modal-strip-dock` | DELETED the transcript; the repair "needed no tooling at all", and "a lint arm would have policed a construct that should not exist" | delete |
-| `feat/speclint-red-reason-verification` | "both movement tables were DELETED instead of annotated" (`docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.md:17`) | delete |
-| `fix/sync-log-show-id-duration` | an authoring rule, "a table of hits is authored by running the command and pasting its output, never the reverse", with the raw sweep output COMMITTED beside the table (`docs/superpowers/plans/2026-08-15-sync-log-emit-guard/sink-sweep-2026-08-15.txt`) | keep the table, commit the evidence |
+**All eleven arcs repaired.** Diff review round 2 finding 1 is right that an earlier "six of eleven"
+was false: every arc with a finding repairs it, that being what review is. What differs is the SHAPE of
+the repair, and the shapes partition cleanly:
 
-**The claim this section used to make was too strong, and diff review round 1 finding 3 was right to
-break it.** It said every paying arc removed the hand-written table. The sixth row does not: the
-sync-log plan still carries a hand-maintained `Hits | Disposition` table at
-`docs/superpowers/plans/2026-08-15-sync-log-emit-guard/plan.md:27`. Preserving the table and reversing
-the authoring order is a third repair, and it is compatible with the construct a marker would annotate.
+| repair shape | arcs |
+| --- | --- |
+| make the table an OUTPUT — generate, derive, or replace the number with the command | `fix/shell-brace-cross-construct` (`weaker-walks.mts`), `fix/severityless-warning-filters` (one query produces every number), `fix/mutation-shard-budget-six` ("Every figure below is printed by commands"), `fix/mutation-shard-weight-seconds` ("Each repair replaced the number with the COMMAND"), `feat/speclint-ac-unclaimed-arm` (prints the producing command beside the corrected 108, `docs/superpowers/plans/ci/2026-08-26-speclint-ac-unclaimed-arm.md:38` and `:43`), `docs/quick-wins-2-specs` (the truncated sweep table corrected), `fix/supabase-upstream-fault-class` (reused a ratified extraction rule instead of an invented one) |
+| DELETE the table | `feat/review-modal-strip-dock`, `feat/speclint-red-reason-verification` ("both movement tables were DELETED instead of annotated") |
+| keep the table, COMMIT the command's raw output beside it | `fix/sync-log-show-id-duration`, `docs/sync-log-emit-guard-spec` |
+| **declare the table's provenance with a pointer to a command** | **none** |
 
-**What survives is narrower and still decides it: every one of the six shipped EVIDENCE, and none
-shipped a POINTER.** They produced the numbers, deleted the claim, or committed the command's raw
-output next to the table. A `<!-- table: cmd=`…`` -->` marker is a pointer — it records which command
-the author had in mind and carries none of that command's output, so it is the one repair shape that
-leaves the reader exactly where the eleven arcs found themselves. The nearest thing to it in the table
-above is sync-log's, and even that arc committed the output rather than naming the command.
+**"Convergence" was the wrong word and it is dropped.** Round 2 is right that three shapes across
+eleven arcs is heterogeneity, not convergence, and right that deleting a claim is not "shipping
+evidence" — an earlier draft used that phrase to unify rows it does not cover. What the table shows is
+not a shared choice. It is a shared ABSENCE: across eleven arcs and about twenty rounds, with the
+defect live in front of them, no author reached for the repair this row proposes.
+
+**What that is worth, stated precisely.** An absence is evidence about what practitioners reach for,
+not proof that the absent option is wrong. §5's first argument is what says the marker cannot work; this
+one says nobody who paid the cost tried it, in a corpus that documents its reasoning at length and would
+have recorded the attempt. Those are different claims and only the first is decisive. Together they are
+why an expensive class (§3) is still not a reason to ship this particular mechanism: the problem being
+worth solving does not make a pointer solve it.
 
 **The narrowing that would fix that is already shipped as prose.** Command plus immutable anchor is
 the convention's own form, adopted by roughly nineteen documents today by writing a header line. A
@@ -346,7 +358,8 @@ file.
 
 **The existing executor's reach is the precedent.** `spec:lint --exec-red` already runs a plan's own
 commands (`scripts/spec-lint.ts:562`, `scripts/spec-lint.ts:781`), and `BL-SPECLINT-RED-TRUTH-PROBE` measured six days ago
-that it reaches 20 of the 329 markers declaring a state, 6.1%. That row was demoted on the measurement
+that it reaches 20 of the 329 markers declaring a state, 6.1% (`BACKLOG-archive.md:18`, that row's
+archived census table; quoted here, not printed by this arc's census). That row was demoted on the measurement
 rather than built. A table-executing arm reaches 8 of 3425, 0.2%.
 
 ## 7. What ships
@@ -376,10 +389,16 @@ No source file under `lib/` or `scripts/` changes. No `Check` is added to `lib/s
   proposes something this spec's two arguments do not reach: "a spec-lint advisory that flags a
   disposition table whose stated command's live hit count differs from the table's ROW COUNT". One
   integer against one integer. It reproduces no values, so §6's execution cost does not apply, and it
-  does compare the table to the tree, so §5's structural objection does not either. Measured at
-  `8b4d521cac00`: four tables sit within 20 lines of a LIST-producing sweep command, and two of the
-  four have a column that is not the same kind of quantity as a hit count (a stale-claim comparison,
-  and a table of tests beside a grep for API calls). **The population is two:**
+  does compare the table to the tree, so §5's structural objection does not either. **Produced** by §6 of the census (an earlier draft measured this with a scratch script and stated the
+  result with nothing producing it — the same defect this document is about, in its own paperwork, for
+  the third time; diff review round 2 finding 2). At `8b4d521cac00` four tables sit within 20 lines of a
+  LIST-producing sweep command, and the census prints all four with their header rows so this
+  classification is checkable by reading. Two are excluded because their column is not the same kind of
+  quantity as a hit count:
+  `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:11`
+  (`Stale claim | Live corrected value`, 7 rows) and
+  `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md:676`
+  (`Test | Failure mode it catches`, 3 rows, beside a grep for API call sites). **That leaves two:**
   `docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md:85` (12 rows,
   `copy | kind | disposition`) and
   `docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:44`

@@ -49,7 +49,7 @@ tree** with nothing immutable saying which tree. Those are the ones that pass th
 the measurement and the page.
 
 **A table is where this keeps landing.** The population above is figures; the shape that recurs is a
-whole table of them, named by four arcs and indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in
+whole table of them, named by eleven arcs and indexed as `LIM-NUMERIC-TABLE-PROVENANCE` in
 [`../../../../review-rounds/LIMITS.md`](../../../../review-rounds/LIMITS.md). A table binds the same
 way a figure does, by naming an immutable anchor once for the section that holds it, and it is the
 same header line that does it. `2026-08-28-table-provenance.md` measured whether a per-table marker
