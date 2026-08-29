@@ -2059,6 +2059,9 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
   // Mirrors reportDraftStorageKey — deliberately restated so a key-format drift
   // fails HERE rather than silently orphaning every operator's saved draft.
   const DRAFT_KEY = `fxav-report-draft-wizard-${WSID}-${DFID}`;
+  // The ATTEMPT key, restated here for the same reason DRAFT_KEY is: a format
+  // drift should fail in this block rather than silently stop asserting.
+  const ATTEMPT_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
   const TYPED = "the crew list is missing two people";
   const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
 
@@ -2404,6 +2407,96 @@ describe("ReportIssueSection — draft persistence across unmount (spec §2)", (
     expect(toggle.textContent).toBe("Write a report");
     // And it is not silent: the live region carries the reason.
     expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
+  });
+
+  test("AC-5b: the 410 terminal branch keeps the draft — a fresh attempt needs the text", async () => {
+    // Diff review R3 F2. The 410 REPORT_HORIZON_EXPIRED branch rotates the
+    // attempt key, because a retry after it is a NEW report, and deliberately
+    // does NOT clear the draft — the operator still has to send that text. AC-5
+    // exercised only a 500, and the existing 410 test checks only the attempt
+    // key, so clearing the draft in this branch would have passed both.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 410,
+        json: async () => ({ ok: false, code: "REPORT_HORIZON_EXPIRED" }),
+      }),
+    );
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, TYPED);
+    fireEvent.click(q.getByTestId(SUBMIT));
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).not.toBe("Sending…"));
+
+    // The text survives, in the store and on screen.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(TYPED);
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+    // And the attempt key IS rotated, since a retry is a new report.
+    expect(window.sessionStorage.getItem(ATTEMPT_KEY)).toBeNull();
+  });
+
+  test("AC-15b: the clear compares the UNTRIMMED draft, so surrounding spaces cannot make it clobber a newer edit", async () => {
+    // Diff review R3 F3. The store holds what onChange wrote, untrimmed, so the
+    // comparison must use the raw draft and not the trimmed `message`. AC-15's
+    // fixture had no surrounding whitespace, so swapping submittedDraft for
+    // message would have passed it — and then submit A of "  spaced  " would
+    // match a newer mount's "spaced" and erase it.
+    let resolveFetch!: (r: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const padded = "  spaced draft  ";
+    const trimmed = padded.trim();
+    const q = renderBody(sectionData(), "report");
+    typeInto(q, padded);
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(padded); // stored raw
+    fireEvent.click(q.getByTestId(SUBMIT));
+
+    // The modal closes mid-flight; a newer mount trims the same text by hand.
+    cleanup();
+    const q2 = renderBody(sectionData(), "report");
+    fireEvent.click(q2.getByTestId(TOGGLE));
+    fireEvent.change(q2.getByTestId(TEXTAREA), { target: { value: trimmed } });
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(trimmed);
+
+    await act(async () => {
+      resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
+    });
+
+    // Compared untrimmed, `padded` !== `trimmed`, so the newer edit stands.
+    expect(window.sessionStorage.getItem(DRAFT_KEY)).toBe(trimmed);
+  });
+
+  test("AC-6b: a sessionStorage ACCESSOR that throws is survived, not just throwing methods", () => {
+    // Diff review R3 F4. AC-6 makes Storage.prototype methods throw, which
+    // leaves `window.sessionStorage` itself readable. Real browsers throw
+    // SecurityError from the PROPERTY ACCESS when site data is blocked, so a
+    // future edit hoisting that read out of its try would pass AC-6 and crash
+    // the section in the one environment AC-6 exists to cover.
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    try {
+      const q = renderBody(sectionData(), "report");
+      // Mounts, restores nothing, and the trigger reads the empty-draft label.
+      expect(q.getByTestId(TOGGLE).textContent).toBe("Write a report");
+      fireEvent.click(q.getByTestId(TOGGLE));
+      fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: TYPED } });
+      expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe(TYPED);
+      expect(q.getByTestId(TOGGLE).textContent).toBe("Continue your report");
+    } finally {
+      if (descriptor) Object.defineProperty(window, "sessionStorage", descriptor);
+    }
   });
 
   test("AC-6: sessionStorage throwing on every access degrades to today's behaviour, never to a crash — including the submit path", async () => {

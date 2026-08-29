@@ -15,7 +15,7 @@ This is reproduced, not asserted. `tests/components/admin/wizard/step3ReportDraf
 
 The PIN was tautological in its first draft. A 50 ms sleep expired inside the exit animation, `onClose` had not fired yet, and the still-painted textarea satisfied the "stayed open" branch on the very tree that was about to be destroyed. It now waits `DURATION_NORMAL_FALLBACK_MS + EXIT_FALLBACK_BUFFER_MS` (`ReviewModalShell.tsx:54` and `ReviewModalShell.tsx:62`) plus margin before reading the spy. That mistake is recorded because the same shape would silently pass any future test of this surface written the obvious way.
 
-The exposure is narrow by construction: this textarea is the only one in `components/admin` (`rg '<textarea' components/admin` returns exactly one hit, `step3ReviewSections.tsx:4852`). The published side's Report control is a one-click action with nothing to lose.
+The exposure is narrow by construction: this textarea is the only one in `components/admin` (`rg '<textarea' components/admin` returns exactly one hit, `step3ReviewSections.tsx:4888`). The published side's Report control is a one-click action with nothing to lose.
 
 ## 1.1 Resolved scope, do not relitigate
 
@@ -68,7 +68,7 @@ Copy rules: no em dash, and no apostrophe is needed in either string.
 
 | Input / state | Behaviour |
 |---|---|
-| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4667`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
+| `sessionStorage` unavailable or throwing (private mode, disabled site data) | Every read and write is wrapped in `try`/`catch`, matching `mintOrReuseAttemptKey` (`step3ReviewSections.tsx:4681`). On a throw the section behaves EXACTLY as it does today: mount-local draft, no persistence, no error surfaced. The repair degrades to the current behaviour and never to a crash. |
 | Stored value absent | `""`. Identical to today's initial state. |
 | Stored value empty string | Treated as absent. The write path never creates this, but a key written by an older build might hold it. |
 | Stored value longer than `REPORT_MESSAGE_MAX_CHARS` (2000, `step3ReviewSections.tsx:4548`) | Truncated to the cap on read, by `capDraft`, which never splits a character: a cap landing between the two code units of an astral code point drops the orphan rather than emitting a lone surrogate. The textarea's own `maxLength` bounds what a user can type; a stale or hand-edited key is the only way an over-length value arrives, and it must not defeat the cap. The clear-on-success comparison runs through the SAME `capDraft` normalisation, so an over-length stored value still matches the capped state it was restored into. |
@@ -115,6 +115,25 @@ The DOM changes are the text content of an existing button and, when the draft i
 - **AC-12b** The third label flip, on submit success while collapsed with focus on the trigger, is accompanied by the live-region success announcement.
 - **AC-4b** An over-length stored draft does not survive a successful send: the clear compares through the same cap the read applies.
 - **AC-7b** The cap never splits a character: no unpaired surrogate can reach the textarea.
+- **AC-5b** The 410 terminal branch keeps the draft while rotating the attempt key.
+- **AC-15b** The clear compares the UNTRIMMED draft, so surrounding whitespace cannot make one submit clobber another mount's edit.
+- **AC-6b** A `sessionStorage` ACCESSOR that throws is survived, not only throwing methods.
+
+## 6.4 Cross-model review, diff round 3
+
+Verdict BLOCKING, five findings, all accepted. The P0 is a plan-wide invariant I got wrong, and three of the remaining four are tests that did not pin what the prose above them claimed.
+
+| # | Finding | Disposition |
+|---|---|---|
+| F1 (P0) | The deferred UI-gate P1 was filed to `BACKLOG.md`. Invariant 8 requires a deferred P0/P1 to be recorded in `DEFERRED.md`, which is the queue for intentional deferrals with an un-defer trigger; BACKLOG is the speculative "might do" queue. | FIXED. The row moved to `DEFERRED.md` as `WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE-1`, renamed to that file's convention (`BACKLOG.md` requires the `BL-` prefix and `DEFERRED.md` uses none), and carries an un-defer trigger. Not a relitigation of the deferral itself, which stands. |
+| F2 (P2) | The 410 `REPORT_HORIZON_EXPIRED` branch keeps the draft deliberately, and nothing pinned it. AC-5 exercised only a 500; the existing 410 test checks only the attempt key. Clearing the draft there would have passed both. | FIXED, AC-5b. |
+| F3 (P2) | AC-15 used fixtures with no surrounding whitespace, so replacing the raw `submittedDraft` with the trimmed `message` would have passed it — and then a padded submit would match a newer mount's trimmed edit and erase it. | FIXED, AC-15b, with a padded fixture that makes trimmed and untrimmed differ. |
+| F4 (P2) | AC-6 makes `Storage.prototype` methods throw, leaving `window.sessionStorage` itself readable. Browsers throw `SecurityError` from the property ACCESS when site data is blocked, so hoisting that read out of its `try` would pass AC-6 and crash the section in the one environment AC-6 exists to cover. | FIXED, AC-6b, which throws from the accessor. |
+| F5 (P3) | Four citations went stale under later repairs, enumerated as a class rather than one at a time. | FIXED, all four re-anchored against the live tree. |
+
+Every fix was verified by planting the mutant it claims to catch: clearing the draft in the 410 branch, comparing `message` instead of `submittedDraft`, and hoisting the accessor read out of its `try`. Each killed its test with the expected failure, the last with a real `SecurityError`.
+
+The reviewer's sandbox ran zero tests again — jsdom could not create its temp directory, typecheck could not write `tsconfig.tsbuildinfo`, and spec lint could not open its IPC socket. All five findings came from reading, and three of them were about tests being weaker than their own claims, which is exactly what a sandbox cannot hide.
 
 ## 6.3 Cross-model review, diff round 2
 
@@ -148,7 +167,7 @@ No P0. The audit scored 19/20 with no P0 and no P1; the critique scored 24/40 an
 
 | Finding | Severity | Disposition |
 |---|---|---|
-| The restored draft is undiscoverable: the report section is always last, the modal reopens at the top, and the section's rail entry is the one with `railCount: null` and `hideDot: true` | P1 | DEFERRED to `BL-WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE`, class-sweep exception (a). The repair has to reopen the ratified §D2 no-status-dot contract, which this arc cannot settle. |
+| The restored draft is undiscoverable: the report section is always last, the modal reopens at the top, and the section's rail entry is the one with `railCount: null` and `hideDot: true` | P1 | DEFERRED to `WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE-1` in `DEFERRED.md`, with an un-defer trigger, class-sweep exception (a). The repair has to reopen the ratified §D2 no-status-dot contract, which this arc cannot settle. It was first filed to `BACKLOG.md`, which invariant 8 does not accept for a deferred gate finding: BACKLOG is speculative "might do" and DEFERRED is intentionally deferred with a trigger (diff review R3 F1, P0). |
 | The guarantee is never stated in copy | P1 | FIXED in branch, §2.3 above, AC-11. |
 | The trigger carries two orthogonal meanings (disclosure state and draft state) | P2 | DECLINED. While collapsed the trigger is the only element on screen, so it is the only thing that can carry the cue; the guarantee line now carries the substance and the label carries the verb. Recorded so it is not re-derived. |
 | Auto-expand on mount when a draft was restored | P2 | DECLINED, and the reason is upgraded from mechanism to principle: it does not solve the real problem (the section is below the fold either way) and it changes mount state and focus for a case the operator may not care about. |
