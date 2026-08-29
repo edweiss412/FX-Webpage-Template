@@ -9,7 +9,7 @@
   multiplicity>1 keys: 1 6x REF_ERROR_LITERAL|section|#ref!
   RAW AGENDA!A3 = "#REF!"
   RAW AGENDA!A4 = "#REF!"
-  per-block==whole-doc: true (perBlock 6, whole 6)
+  per-block==whole-doc (per-code SEQUENCE, unsorted): true (perBlock 6, whole 6)
   BLOCK-CELL AGENDA!A3 opener="BACK TO INFO" rowIdx=2
   BLOCK-CELL AGENDA!B3 opener="BACK TO INFO" rowIdx=2
   BLOCK-CELL AGENDA!C3 opener="BACK TO INFO" rowIdx=2
@@ -19,7 +19,7 @@
 
 === east-coast.xlsx: 0 class warnings (of 4 total)
   multiplicity>1 keys: 0 
-  per-block==whole-doc: true (perBlock 0, whole 0)
+  per-block==whole-doc (per-code SEQUENCE, unsorted): true (perBlock 0, whole 0)
 
 === fintech.xlsx: 5 class warnings (of 8 total)
   REF_ERROR_LITERAL kind=section snippet="\\#REF\\!" sourceCell=null
@@ -33,7 +33,7 @@
   RAW TECH!A1 = "#REF!"
   RAW VEHICLE!A1 = "#REF!"
   RAW ROLE!A1 = "#REF!"
-  per-block==whole-doc: true (perBlock 5, whole 5)
+  per-block==whole-doc (per-code SEQUENCE, unsorted): true (perBlock 5, whole 5)
   BLOCK-CELL VENUE!A1 opener="#REF!" rowIdx=0
   BLOCK-CELL CLIENT!A1 opener="#REF!" rowIdx=0
   BLOCK-CELL TECH!A1 opener="#REF!" rowIdx=0
@@ -52,7 +52,7 @@
   RAW TECH!A1 = "#REF!"
   RAW VEHICLE!A1 = "#REF!"
   RAW ROLE!A1 = "#REF!"
-  per-block==whole-doc: true (perBlock 5, whole 5)
+  per-block==whole-doc (per-code SEQUENCE, unsorted): true (perBlock 5, whole 5)
   BLOCK-CELL VENUE!A1 opener="#REF!" rowIdx=0
   BLOCK-CELL CLIENT!A1 opener="#REF!" rowIdx=0
   BLOCK-CELL TECH!A1 opener="#REF!" rowIdx=0
@@ -61,11 +61,11 @@
 
 === redefining-fi.xlsx: 0 class warnings (of 1 total)
   multiplicity>1 keys: 0 
-  per-block==whole-doc: true (perBlock 0, whole 0)
+  per-block==whole-doc (per-code SEQUENCE, unsorted): true (perBlock 0, whole 0)
 
 === ria.xlsx: 0 class warnings (of 1 total)
   multiplicity>1 keys: 0 
-  per-block==whole-doc: true (perBlock 0, whole 0)
+  per-block==whole-doc (per-code SEQUENCE, unsorted): true (perBlock 0, whole 0)
 
 === rpas.xlsx: 5 class warnings (of 9 total)
   REF_ERROR_LITERAL kind=section snippet="\\#REF\\!" sourceCell=null
@@ -79,7 +79,7 @@
   RAW TECH!A1 = "#REF!"
   RAW VEHICLE!A1 = "#REF!"
   RAW ROLE!A1 = "#REF!"
-  per-block==whole-doc: true (perBlock 5, whole 5)
+  per-block==whole-doc (per-code SEQUENCE, unsorted): true (perBlock 5, whole 5)
   BLOCK-CELL VENUE!A1 opener="#REF!" rowIdx=0
   BLOCK-CELL CLIENT!A1 opener="#REF!" rowIdx=0
   BLOCK-CELL TECH!A1 opener="#REF!" rowIdx=0

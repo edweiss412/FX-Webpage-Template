@@ -58,8 +58,14 @@ for (const f of files) {
     ...detectRefErrorLiterals(markdown).map((w) => `${w.blockRef?.kind}|${w.rawSnippet}`),
     ...detectFusedRows(markdown).map((w) => `F|${w.blockRef?.kind}|${w.rawSnippet}`),
   ];
-  const eq = JSON.stringify([...perBlock].sort()) === JSON.stringify([...whole].sort());
-  console.log(`  per-block==whole-doc: ${eq} (perBlock ${perBlock.length}, whole ${whole.length})`);
+  // SEQUENCE equality per code (round-1 finding 4: a sorted comparison proves only the multiset).
+  // The parser pushes every REF warning, then every FUSED warning (lib/parser/index.ts Step 2.6),
+  // so the per-block stream is compared per code, in emission order, unsorted.
+  const byCode = (xs: string[], fused: boolean) => xs.filter((x) => x.startsWith("F|") === fused);
+  const eq =
+    JSON.stringify(byCode(perBlock, false)) === JSON.stringify(byCode(whole, false)) &&
+    JSON.stringify(byCode(perBlock, true)) === JSON.stringify(byCode(whole, true));
+  console.log(`  per-block==whole-doc (per-code SEQUENCE, unsorted): ${eq} (perBlock ${perBlock.length}, whole ${whole.length})`);
   if (!eq) { console.log("   perBlock-only:", perBlock.filter((x) => !whole.includes(x))); console.log("   whole-only:", whole.filter((x) => !perBlock.includes(x))); }
   for (const h of blockHits) console.log(`  BLOCK-CELL ${h}`);
 }
