@@ -64,22 +64,39 @@ quiet period.
 ### 2.1 Which cap mechanism actually preserves the page (complete)
 
 This is a pure CSS box question, so it needs no app, no server, no auth and no database: a
-headless Chromium over a static document that reproduces the cascade (an `@layer base` block, a
-900px `main`, and one child of every kind that exists under `.help-prose` across the fourteen
-pages). Baseline is today's rule. A candidate passes only if **every** existing child keeps its
-exact x and width and the bleed child reaches the full container.
+headless Chromium over a static document that reproduces the cascade — Tailwind's preflight reset,
+an `@layer base` block, a 900px `main`, and one child of every kind that really occurs. Baseline is
+today's rule. A candidate passes only if **every** existing child keeps its exact x and width and
+the bleed child reaches the full container.
+
+**The child kinds are enumerated, not guessed.** Rendering all fourteen pages through the real MDX
+pipeline under an `MDXProvider` and collecting the top-level nodes gives twelve distinct kinds:
+`h1`, `h2`, `h3`, `p`, `ul`, `table`, `aside` (Callout), `figure` (Screenshot, on four pages),
+`nav`, a `flex` block (Step, on fourteen pages between its two spacings), an inline `span.sr-only`,
+and the `focus:absolute` skip link on the errors page. The probe carries one of each.
 
 | candidate | existing children that moved | grid width | card width | verdict |
 | --- | --- | --- | --- | --- |
 | today (`.help-prose { max-width: 70ch }`) | baseline | 705.47 | 224.48 | baseline |
-| per-child `max-width: 70ch` | **h1 and h2, 705.47 to 900** | 900 | 289.33 | **fails** |
-| per-child cap via an `@property`-registered length | none | 900 | 289.33 | **passes** |
+| per-child `max-width: 70ch` | **h1, h2 and h3, 705.47 to 900** | 900 | 289.33 | **fails** |
+| per-child cap via an `@property`-registered length | **none, across all twelve kinds** | 900 | 289.33 | **passes** |
 | wrapper untouched, bleed at `width: 100cqi` | none | 900 | 289.33 | passes, then rejected |
+
+Two of the twelve are worth naming. The inline `span` is unaffected because `max-width` does not
+apply to a non-replaced inline element. The skip link keeps its exact position and width (16 /
+109.8), because it is an absolutely positioned element whose width is content-driven and far under
+the measure — which is the same element that rules out container units, for a different reason.
+
+**The probe needed its own correction, so it is recorded rather than quietly fixed.** An earlier
+run omitted Tailwind's preflight and reported `figure` moving from 625.47 to 705.47. That was the
+user agent's 40px inline margin on `figure`, not anything the cap did: Tailwind's shipped preflight
+stylesheet zeroes `margin` on the universal selector, so no such margin exists in this app. With the reset in place the figure does not move. A probe whose output feeds a spec is itself
+a spec input, and this one was wrong until its cascade matched the real one.
 
 **The first candidate was this spec's original draft, and the probe refuted it.** `ch` is the
 advance of the "0" glyph in the element's OWN font, so a per-child `70ch` is a different pixel
-width per child: at `--text-2xl` it is far wider than the column, and both headings would have
-run full width on all fourteen help pages. Registering the property with `syntax: "<length>"`
+width per child: at `--text-2xl` it is far wider than the column, so every heading level would
+have run full width on all fourteen help pages. Registering the property with `syntax: "<length>"`
 makes `70ch` compute once, in the wrapper's font context, and inherit as an absolute length.
 
 The fourth candidate passed the geometry test and was still rejected, on a cost the geometry
