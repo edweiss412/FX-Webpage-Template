@@ -25,6 +25,7 @@ closed criterion.
 | a new `tests/e2e/` layout-dimensions spec (named in task 5) | real-browser column sequences and measure floor |
 | `playwright.config.ts` | new spec joins `help-docs-desktop`'s `testMatch` |
 | `tests/help/playwright-config.test.ts` | pins that `testMatch` regex VERBATIM; the edit above breaks it unless updated in the same task |
+| `tests/ci/_metaE2eWorkflowCoverage.test.ts` | needs a `LOCAL_ONLY_ALLOWLIST` row for the new spec: its scanner cannot see project-only workflow invocations, so without one the spec reads as dark |
 | `.github/workflows/help-affordances.yml` | `app/globals.css` joins `paths:` |
 
 ## 2. Meta-test inventory
@@ -161,10 +162,22 @@ where a case asserts a multi-column measure. Add to `help-docs-desktop` `testMat
 **Two companion surfaces, both found by sweeping rather than by remembering.**
 `tests/help/playwright-config.test.ts:167` pins the `help-docs-desktop` `testMatch` regex
 VERBATIM, so the config edit breaks it and it is updated in THIS task — without that, `unit-suite`
-goes red on a change the plan called complete. And `tests/ci/_metaE2eWorkflowCoverage.test.ts`
-fails by default for a NEW spec that no PR workflow invokes; it is what PROVES the
-`help-docs-desktop` choice over `desktop-chromium` rather than merely asserting it, so it must be
-green after this task.
+goes red on a change the plan called complete. And `tests/ci/_metaE2eWorkflowCoverage.test.ts` needs a
+`LOCAL_ONLY_ALLOWLIST` row for the new spec, added in THIS task.
+
+**That guard proves the opposite of what an earlier draft of this paragraph claimed.** I wrote that
+it PROVES the `help-docs-desktop` choice because it "fails by default for NEW dark specs". It does
+fail by default — but its scanner **cannot see project-only workflow invocations at all**, by its
+own stated contract, and `help-affordances.yml` invokes exactly that form
+(`--project=help-docs-setup --project=help-docs --project=help-docs-desktop`). Every existing help
+spec therefore carries an allowlist row saying so: `deep-link-walker`, `help-auth`, `help-mobile`
+and `help-typography` each have one. Without a matching row the new spec reads as DARK to that
+guard and the assertion fails even though the workflow genuinely runs it.
+
+So the guard does not validate the wiring — it has to be TOLD about it, in the same terms its
+siblings use. The wiring choice itself is unaffected and still right: those allowlist rows are the
+evidence that specs in this project family do run in CI. What was wrong was my account of what
+checks it.
 
 **The command pins its auth, its server and its database, and none is optional.**
 `ENABLE_TEST_AUTH=true` and `TEST_AUTH_SECRET=test-secret-fixture` are asserted by
