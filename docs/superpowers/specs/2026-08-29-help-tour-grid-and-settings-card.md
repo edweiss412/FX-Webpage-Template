@@ -234,6 +234,11 @@ The bleed alone does not fix this. §2.2 measures the 70ch cap binding only at 1
 so at 768px — where the measure is worst, 10.4ch — there is no cap to escape and a bleed changes
 nothing. The column count is what divides a 472px space three ways. Both parts ship:
 
+**Part zero, the markup the guard depends on.** Every card anchor on the page gains
+`data-tour-card` — the seven that exist today and the one §3.3 adds, eight in total. This is stated
+here as a concrete edit rather than only in §3.4, because a guard keyed on an attribute no card
+carries matches nothing and passes vacuously, which is a worse failure than the one it replaces.
+
 **Part one, the bleed.** `help-bleed` on both grids, which buys 23.6px at 1024 and 151.6px at 1280.
 
 **Part two, a minimum card width instead of a fixed column count.** Each grid's
@@ -310,7 +315,8 @@ for two 20rem columns and stack below that, so the group needs no column count o
 
 The new card copies the structural shape of the seven existing cards exactly: the same
 `className` run on the anchor, the same eyebrow / duration / `h3` / body / call-to-action
-skeleton, and the same `aria-label` form (`"Settings: read the reference"`).
+skeleton, the same `aria-label` form (`"Settings: read the reference"`), and the `data-tour-card`
+attribute §3.2 puts on all eight.
 
 **It is a standard card, not an accent card.** The wizard card carries `border-accent` and an
 accent eyebrow because it marks the one thing you do once and never again. Giving the Settings
@@ -575,8 +581,11 @@ output, so these criteria are defined by this document.
   as before the change: the cap moved, it was not lifted. The errors page is deliberately in scope
   (§3.2a); its prose, headings, lists and tables are still asserted unchanged, and only its
   jump-list column count moves.
-- **AC-3** The tour page links to every `admin-surface` slug in `NAV`, and links to no
-  `/help/*` route absent from that group. Both directions fail by name.
+- **AC-3** The tour page's CARDS cover every `admin-surface` slug in `NAV`, and point at no
+  `/help/*` route absent from that group. Both directions fail by name. Coverage is read from
+  `a[data-tour-card][href]`, so a prose link to an admin route neither satisfies nor breaks it.
+  The negative case is part of the criterion: a page carrying a prose link to an uncarded admin
+  route still fails.
 - **AC-4** Adding a ninth `admin-surface` entry to `NAV` with no card fails AC-3's test with no
   edit to the test.
 - **AC-5** The existing `/help` prose contracts still hold: heading scale, list markers, inline
