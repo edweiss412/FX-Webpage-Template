@@ -802,6 +802,22 @@ here rather than as a finding.
    It is also cheap to retract: `page.route` is established in this suite (six specs use it,
    e.g. `tests/e2e/published-review-modal.prefetch.spec.ts:115`), so aborting the diagram
    asset request is a few lines rather than a harness. §8's measurement runs against that.
+7. **A `swept: true` row records that a decision EXISTS, not that it is TRUE.** §4.0.3's
+   registry requires a typed `{ swept, why }` on every per-item member, and the meta-test
+   refuses a missing decision, a `false` without a reason, and a field gone decorative. None
+   of that checks the decision against behaviour, because the registry holds prose and has no
+   observation hook: it cannot render the component and see what a member actually does.
+   **Its instance, found by plan review R5 and repaired in this branch:** `activeScale` was
+   marked `swept: true` while the Reset chip's render condition
+   (`components/diagrams/GalleryLightbox.tsx:726`) tested only `zoomed`. The sweep cleared the
+   ref; the predicate was never gated; a zoomed item going unavailable rendered one commit
+   holding an enabled Reset button whose `controlsSlotRef` was already null. An executed React
+   probe observed `{available:false, activeScale:2, resetVisible:true}` before cleanup. That is
+   the same visible-control-whose-action-cannot-fire shape R3 found on this component, so the
+   structural cover closed the enumeration and not the class. What closes the behaviour is the
+   per-member case in Task 7, one per rendered member, not the registry row. Re-file trigger: a
+   third instance of this shape, which would say the per-member cases are not being written and
+   the gap needs a mechanical oracle rather than a documented limit.
 
 ## 11. Acceptance criteria
 

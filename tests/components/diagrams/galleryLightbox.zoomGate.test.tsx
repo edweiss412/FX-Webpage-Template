@@ -802,6 +802,47 @@ describe("GalleryLightbox — transition inventory rows", () => {
     expect(activeLoaderUrls(container)).toEqual(new Set([originalUrlOf(fixture)]));
     expect(container.querySelector('[data-testid="lightbox-reset-chip"]')).not.toBeNull();
   });
+
+  test("the Reset chip does not survive the slide going unavailable", () => {
+    // Plan review R5, repaired here. `activeScale` was marked `swept: true` in
+    // the per-item registry while this chip's render condition tested only
+    // `zoomed`. The sweep cleared the ref; the PREDICATE was never gated. A
+    // zoomed slide going unavailable therefore rendered the enabled Reset
+    // button with `controlsSlotRef` already null -- a visible control whose
+    // action cannot fire, which is the same shape review R3 found on this
+    // component and the defect this arc exists to remove.
+    //
+    // The reviewer's executed probe observed `{available:false, activeScale:2,
+    // resetVisible:true}` before cleanup. This case is that probe, made
+    // permanent.
+    const fixture = item(1);
+    const view = open([fixture, item(2)]);
+    emitScale(2);
+
+    // PREMISE, not decoration: absence below is only evidence if the chip can
+    // be present at all in this harness. Without this the case would pass
+    // against a component that never renders the chip.
+    premiseHolds(
+      "the chip is rendered while zoomed AND available, so its later absence discriminates",
+      view.container.querySelector('[data-testid="lightbox-reset-chip"]') !== null,
+    );
+
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[item(1, { available: false }), item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={() => {}}
+      />,
+    );
+
+    expect(
+      view.container.querySelector('[data-testid="lightbox-reset-chip"]'),
+      "an unavailable slide renders no Reset control, because its action cannot fire",
+    ).toBeNull();
+  });
 });
 
 /**

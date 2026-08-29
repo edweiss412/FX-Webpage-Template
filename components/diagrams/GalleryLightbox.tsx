@@ -592,6 +592,15 @@ export function GalleryLightbox({
   //   exit-animation has a place to play on unmount.
   const motionDuration = prefersReducedMotion ? 0 : 0.22;
   const zoomed = isZoomed(activeScale);
+  // The Reset chip acts through `controlsSlotRef`, which the availability sweep
+  // nulls the instant the active slide goes unavailable. `zoomed` alone left one
+  // commit painting an ENABLED Reset button whose action could no longer fire --
+  // plan review R5, an executed probe observing `{available:false, activeScale:2,
+  // resetVisible:true}`. Gating the chip on availability closes the frame at the
+  // predicate, which is where it closes for every render rather than for a
+  // settled one. `zoomed` itself is NOT narrowed: it also drives the focus
+  // effect above, which must still run when a zoomed slide goes away.
+  const activeAvailable = items[activeIndex]?.available ?? false;
 
   // The Reset chip unmounts the instant scale returns to 1, and it is
   // Tab-reachable. Its own onClick relocates focus first, but `0`, `-`, chevron
@@ -723,7 +732,7 @@ export function GalleryLightbox({
           intent, strengthened rather than overturned: the 2026-08-16 outline swap took the ring
           from 1.59/1.50 to 3.35/3.53 on `surface-raised`. Keyboard-focusable; in the focus trap.
         */}
-        {zoomed ? (
+        {zoomed && activeAvailable ? (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-dropdown flex justify-center px-4">
             <button
               type="button"

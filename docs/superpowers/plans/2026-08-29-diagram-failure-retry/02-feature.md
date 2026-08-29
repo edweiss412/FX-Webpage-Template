@@ -236,11 +236,23 @@ private state. What the registry guarantees is that the LIST is complete and eve
 decision; what this task guarantees is that the behaviour matches, member by member, through
 what the component actually renders and requests.
 
-Every case asserts the FIRST render after the flip rather than a settled state, because the
-defect §9.1 repairs is a single frame. The `retrying` case additionally asserts NO request is
-issued, since the visible symptom of the wrong ordering is an unrequested retry rather than a
-wrong pixel. The removal case uses a stable id that returns, which is the only way retained
-state becomes visible.
+Every case asserts the SETTLED render after the flip, and says so rather than claiming more.
+An earlier draft promised the FIRST render. Plan review R5 refuted that with an executed React
+probe: Testing Library's `rerender` only ever observes the settled state, so a case written
+against it cannot substantiate a first-frame claim no matter what its name says. Substantiating
+one needs a phase-sensitive oracle, which is deliberately NOT in scope here; the narrowing is
+the repair, because a claim a test cannot make is worse than a smaller claim it can.
+
+What closes the single-frame hazard instead is the PREDICATE, not the assertion. Every control
+whose action depends on availability carries `item.available` in its own render condition, so
+no frame can paint it over an unavailable slide and no test has to catch a frame that cannot
+occur. AC-11's Reset-chip case is exactly that: it asserts the control is absent under
+`{available:false, activeScale:2}`, which the predicate makes true of every render rather than
+of a settled one.
+
+The `retrying` case additionally asserts NO request is issued, since the visible symptom of the
+wrong ordering is an unrequested retry rather than a wrong pixel. The removal case uses a stable
+id that returns, which is the only way retained state becomes visible.
 
 ## Task 8 — layout dimensions, real browser
 
