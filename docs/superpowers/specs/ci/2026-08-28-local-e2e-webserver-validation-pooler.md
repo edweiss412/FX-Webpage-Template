@@ -392,6 +392,21 @@ one for the same reason. T3 asserts on the child process's real stdout, not on t
   measuring the wrong package. That is the intended direction: the premise is about binding, and a
   changed layout is a fact worth surfacing.
   *Re-file trigger:* the premise failing because the two resolutions converged.
+- **A config that BUILDS its entries from the environment is outside what this guard can see.**
+  T1 imports each config once, in one environment, and asserts over the entries that resolve
+  there. A conditional spread gated on some variable could add an unpinned entry that appears
+  only in the workflow that sets it, and the bearer-set premise would still pass with the
+  variable absent. No static guard can close this without ranging over every environment, which
+  is not a finite set. Probed: no config in the repo does this today. The only environment
+  conditioning on the `webServer` array is `playwright.config.ts`'s `.filter()`, which SUBTRACTS
+  entries and so can never introduce an unpinned one.
+  *Re-file trigger:* the first config that conditionally ADDS a `webServer` entry, at which point
+  the guard needs to walk that config under each variable the condition reads.
+- **A `VAR=value` prefix on a command string beats `webServer.env`,** because Playwright starts
+  commands with `shell: true` and the shell applies the assignment after the merged environment.
+  This is closed rather than deferred: T1 asserts no entry's `command` assigns `DATABASE_URL` or
+  `TEST_DATABASE_URL`. It is an absence assertion over one short string rather than a recognizer,
+  so there is no grammar to grow as commands change.
 - **A REUSED server is not pinned, and the pin cannot reach it.** Every local entry except port
   3001 sets `reuseExistingServer: !process.env.CI`, and Playwright's web-server plugin returns
   without launching anything when the URL already answers, so `webServer.env` is never applied. A

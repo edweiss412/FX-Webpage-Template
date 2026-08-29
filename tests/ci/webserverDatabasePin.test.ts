@@ -97,7 +97,23 @@ function configFiles(dir: string, out: string[] = []): string[] {
 
 const ALL_CONFIGS = configFiles(ROOT).sort();
 
-type WebServer = { url?: string; env?: Record<string, string | undefined> };
+type WebServer = {
+  url?: string;
+  command?: string;
+  env?: Record<string, string | undefined>;
+};
+
+/**
+ * Playwright starts each command with `shell: true`, so a `VAR=value` prefix on the command
+ * string is applied by the SHELL, after the merged environment is handed over, and therefore
+ * BEATS `webServer.env`. Four entries already carry inline assignments for other variables, so
+ * adding a database one is an ordinary edit -- and it would leave every assertion below green
+ * while the server took the value from the command.
+ *
+ * This is an absence assertion over one short string, not a recognizer: there is no grammar to
+ * grow, only a variable name that must not be assigned there.
+ */
+const DB_ASSIGNMENT_IN_COMMAND = /(?:^|\s)(?:TEST_)?DATABASE_URL=/;
 
 /**
  * Dynamic import, which disk discovery requires, can wrap the default export one level
@@ -162,6 +178,10 @@ describe("every Playwright webServer pins a loopback database", () => {
     // A config declaring no webServer is vacuously fine: it boots no server to pin.
     for (const [i, server] of entries.entries()) {
       const label = `${file} ${server.url ?? `entry ${i}`}`;
+      expect(
+        server.command ?? "",
+        `${label}: the command assigns a database variable, which the shell applies AFTER the merged env and so overrides the pin`,
+      ).not.toMatch(DB_ASSIGNMENT_IN_COMMAND);
       for (const key of DB_KEYS) {
         const value = server.env?.[key];
         expect(

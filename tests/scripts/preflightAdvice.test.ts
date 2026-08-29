@@ -42,7 +42,10 @@ const REQUIRED_ENV: Record<string, string> = {
   GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({ client_email: "x@y.z", private_key: "k" }),
 };
 
-/** The warning, verbatim. Update this WITH any deliberate copy change, never around one. */
+/**
+ * The COMPLETE stderr of a `--no-db` run with a non-loopback TEST_DATABASE_URL, verbatim.
+ * Update this WITH any deliberate copy change, never around one.
+ */
 const EXPECTED_WARNING = [
   `WARN: TEST_DATABASE_URL is NON-LOOPBACK (${REMOTE_HOST}). This is the VALIDATION deployment, and it`,
   "      is set that way on purpose for the schema-parity gates.",
@@ -69,23 +72,22 @@ function runPreflight(testDatabaseUrl: string) {
 }
 
 /**
- * Everything from the warning's first line to the END of stderr.
+ * There is no extractor any more, and that is the point.
  *
- * Deliberately NOT a block extractor with a continuation rule. One was tried, walking while
- * the next line matched `/^\s{2,}\S/`, and it terminated on a blank line, a whitespace-only
- * line, a column-zero line, or a line indented by a single space -- so anything appended after
- * any of those was invisible to the equality assertion, and contradictory copy could sit in
- * stderr with the guard green. Slicing to the end has no boundary to get wrong: text appended
- * anywhere after the warning changes the comparand and fails.
+ * Two earlier versions each anchored somewhere and compared a region: a continuation-rule
+ * block that terminated on blank, column-zero and single-space lines, so anything appended
+ * past one of those was invisible; then a slice from the warning's first line to the end,
+ * which fixed suffixes but ignored anything inserted BEFORE the anchor. Each fix moved the
+ * blind spot rather than removing it, which is what an anchored region does.
  *
- * This warning is the LAST thing preflight defers, so the slice is exactly the warning today.
- * If a later warning is added after it, this test fails and the expected block is updated with
- * it, which is the correct direction: a new trailing warning is a copy change like any other.
+ * Under `--no-db` with REQUIRED_ENV supplied, this script's stderr is exactly this warning and
+ * nothing else -- probed, byte-identical across runs. So the comparand is the whole stream,
+ * and there is no region left for text to hide outside of, at either end.
+ *
+ * If preflight ever emits another warning on stderr in this configuration, this test fails and
+ * the expected value is updated with it. That is the correct direction: new stderr copy is a
+ * copy change like any other, and reviewing it is the point of the guard.
  */
-function warningOnward(stderr: string): string {
-  const start = stderr.indexOf("WARN: TEST_DATABASE_URL is NON-LOOPBACK");
-  return start === -1 ? "" : stderr.slice(start).trimEnd();
-}
 
 describe("preflight's non-loopback TEST_DATABASE_URL warning", () => {
   it("fires at all, on stderr (premise)", () => {
@@ -100,9 +102,10 @@ describe("preflight's non-loopback TEST_DATABASE_URL warning", () => {
     expect(runPreflight(LOOPBACK).stderr).not.toContain("TEST_DATABASE_URL is NON-LOOPBACK");
   });
 
-  it("emits exactly the expected warning", () => {
-    // Equality, so ANY edit fails: a reworded broken remedy, an inverted polarity, a
-    // contradictory appended clause, a corrupted DSN, or a wrong variable name.
-    expect(warningOnward(runPreflight(REMOTE).stderr)).toBe(EXPECTED_WARNING);
+  it("emits exactly the expected stderr, whole", () => {
+    // Equality over the WHOLE stream, so any edit fails wherever it lands: a reworded broken
+    // remedy, an inverted polarity, a clause appended after, a line inserted before, a
+    // corrupted DSN, or a wrong variable name.
+    expect(runPreflight(REMOTE).stderr.trimEnd()).toBe(EXPECTED_WARNING);
   });
 });
