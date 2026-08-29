@@ -68,6 +68,25 @@ function inFlightControl(i: number): HTMLElement {
   return within(slot(i)).getByTestId(`diagram-retrying-${i}`);
 }
 
+/**
+ * Drive a successful load THROUGH next/image's own path.
+ *
+ * next/image does not use the img's `onLoad` attribute -- it installs a ref
+ * handler and routes through `handleLoading`, which calls `img.decode()` and
+ * resolves the caller's `onLoad` in a `.then()` (next/dist/client/image-component.js:30,
+ * :51). That is a microtask, so a synchronous `act()` returns before the
+ * component has seen the load at all. Awaiting is not tidiness here: without it
+ * every assertion about the settled state reads the in-flight state instead.
+ */
+async function loadImage(i: number): Promise<void> {
+  const img = imageIn(i);
+  premiseHolds(`slot ${i} has an image to load`, img !== null);
+  await act(async () => {
+    fireEvent.load(img as HTMLImageElement);
+    await Promise.resolve();
+  });
+}
+
 function tapRetry(i: number): void {
   const btn = within(slot(i)).getByTestId(`diagram-retry-${i}`);
   act(() => {
@@ -121,7 +140,7 @@ describe("Task 2 — the gallery retry mechanism", () => {
     expect(slot(0).contains(focused), "and it is still the failed cell's own control").toBe(true);
   });
 
-  test("§4.0.5: the image that loads is the SAME node the idle cell then shows", () => {
+  test("§4.0.5: the image that loads is the SAME node the idle cell then shows", async () => {
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
     failThumb(0);
     tapRetry(0);
@@ -132,9 +151,15 @@ describe("Task 2 — the gallery retry mechanism", () => {
     // present" cannot stand in for "the same image survived".
     inFlight!.dataset.identityProbe = "same-node";
 
-    act(() => {
-      fireEvent.load(inFlight as HTMLImageElement);
-    });
+    await loadImage(0);
+
+    // The cell REALLY reached idle. Without this the identity assertion below is
+    // a tautology: the image is present in `retrying` too, so a load that never
+    // registered would satisfy it just as well.
+    expect(
+      within(slot(0)).queryByTestId("diagram-retrying-0"),
+      "the overlay cleared, so this is the settled state and not the in-flight one",
+    ).toBeNull();
 
     const settled = imageIn(0);
     expect(settled, "the cell still shows an image once loaded").not.toBeNull();
@@ -166,7 +191,53 @@ describe("Task 2 — the gallery retry mechanism", () => {
     ).toBeNull();
   });
 
-  test("AC-10: a SECOND failure after a successful retry still announces", () => {
+  test("AC-3: a successful retry announces by name", async () => {
+    // Task 2's onLoad clears the retrying set and says nothing, so the cell goes
+    // from "Retrying…" to a picture in silence. A screen-reader user who tapped
+    // and heard nothing has no way to know whether it worked.
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
+    const region = screen.getByTestId("gallery-announce-log");
+    const messages = () =>
+      [...region.querySelectorAll("[data-announce-id]")].map((n) => n.textContent ?? "");
+
+    failThumb(0);
+    const afterFailure = messages().length;
+
+    tapRetry(0);
+    await loadImage(0);
+
+    const after = messages();
+    expect(after.length, "the success is announced, not just rendered").toBe(afterFailure + 1);
+    // Derived from the fixture, never typed out: a constant would pass against a
+    // component that announces the same string for every item.
+    expect(after[after.length - 1]).toBe(`${item(1).alt} loaded.`);
+  });
+
+  test("AC-3: a retry that fails again announces the SECOND outcome, distinctly", () => {
+    // The two outcomes must be distinguishable. An implementation that reused
+    // the first-failure copy would leave the user unable to tell a retry that
+    // failed from the original failure.
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
+    const region = screen.getByTestId("gallery-announce-log");
+    const messages = () =>
+      [...region.querySelectorAll("[data-announce-id]")].map((n) => n.textContent ?? "");
+
+    failThumb(0);
+    const firstFailure = messages()[messages().length - 1];
+
+    tapRetry(0);
+    const inFlight = imageIn(0);
+    premiseHolds("the retry mounted an image to fail", inFlight !== null);
+    act(() => {
+      fireEvent.error(inFlight as HTMLImageElement);
+    });
+
+    const last = messages()[messages().length - 1];
+    expect(last).toBe(`${item(1).alt} still could not be loaded.`);
+    expect(last, "the retry failure reads differently from the first one").not.toBe(firstFailure);
+  });
+
+  test("AC-10: a SECOND failure after a successful retry still announces", async () => {
     // The defect this pins is `pendingFailuresRef` surviving the round trip: the
     // id stays pending, so the next failure is discarded at the de-duplication
     // guard and the diagram breaks again in silence.
@@ -179,16 +250,17 @@ describe("Task 2 — the gallery retry mechanism", () => {
     premiseHolds("the first failure announced, so a silent second is a change", afterFirst > 0);
 
     tapRetry(0);
-    const inFlight = imageIn(0);
-    premiseHolds("the retry mounted an image", inFlight !== null);
-    act(() => {
-      fireEvent.load(inFlight as HTMLImageElement);
-    });
+    await loadImage(0);
+    // Measured AFTER the success, not after the first failure: Task 3 gave the
+    // successful retry its own announcement, so anchoring on the earlier count
+    // would fold two events into one expectation and pass for the wrong reason.
+    const afterSuccess = count();
+    expect(afterSuccess, "the success announced, so the baseline moved").toBe(afterFirst + 1);
 
     failThumb(0);
 
     expect(count(), "the second failure of a recovered item is announced, not swallowed").toBe(
-      afterFirst + 1,
+      afterSuccess + 1,
     );
   });
 });

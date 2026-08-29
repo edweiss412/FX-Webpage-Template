@@ -350,11 +350,22 @@ export function Gallery({
       next.delete(item.id);
       return next;
     });
-    handleThumbnailFailure(item, visibleIndex);
+    // NOT `handleThumbnailFailure`: that speaks the first-failure copy, and the
+    // two outcomes must be distinguishable -- a user who cannot tell a failed
+    // retry from the original failure learns nothing from tapping. The rest of
+    // that handler's work (focus relocation, the pending guard, re-adding to
+    // `failedKeys`) is still needed, so it runs with the announcement suppressed.
+    handleThumbnailFailure(item, visibleIndex, {
+      announce: `${nameOf(item, visibleIndex)} still could not be loaded.`,
+    });
   };
 
   /** `retrying` → `idle`. The image node itself does not change (§4.0.5). */
-  const handleRetrySuccess = (item: GalleryItem): void => {
+  const handleRetrySuccess = (item: GalleryItem, visibleIndex: number): void => {
+    // Routed through `routeAnnouncement`, not spoken directly, so the
+    // dialog-open and exit-window cases follow the same path every other
+    // announcement here takes (AC-3).
+    routeAnnouncement(`${nameOf(item, visibleIndex)} loaded.`);
     setRetrying((prev) => {
       if (!prev.has(item.id)) return prev;
       const next = new Set(prev);
@@ -363,7 +374,11 @@ export function Gallery({
     });
   };
 
-  const handleThumbnailFailure = (item: GalleryItem, visibleIndex: number): void => {
+  const handleThumbnailFailure = (
+    item: GalleryItem,
+    visibleIndex: number,
+    opts?: { announce?: string },
+  ): void => {
     const button = thumbRefs.current.get(item.id) ?? null;
     // STALE HANDLER GUARD: `onError` can fire after its item stopped rendering
     // (collapsed by "Show fewer", or replaced). `failedKeys` is idempotent
@@ -382,7 +397,7 @@ export function Gallery({
     // target, so A → B → C works rather than only the first hop.
     if (restoreTargetRef.current === button) restoreTargetRef.current = successor;
 
-    routeAnnouncement(`${nameOf(item, visibleIndex)} could not be loaded.`);
+    routeAnnouncement(opts?.announce ?? `${nameOf(item, visibleIndex)} could not be loaded.`);
 
     setFailedKeys((prev) => {
       if (prev.has(item.id)) return prev;
@@ -515,7 +530,7 @@ export function Gallery({
                       onLoad={() => {
                         // Only meaningful while retrying; on an ordinary load the
                         // set does not hold the id and the setter no-ops.
-                        if (isRetrying) handleRetrySuccess(item);
+                        if (isRetrying) handleRetrySuccess(item, i);
                       }}
                       className="object-cover"
                     />
