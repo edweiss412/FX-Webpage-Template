@@ -249,7 +249,15 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // NOT retired — lib/popover/place.ts still imports MIN_FITTED_HEIGHT from it —
     // it is simply no longer reachable at depth 1.
     expect(rel).not.toContain("lib/layout/fitWithinClip.ts");
-    expect(rel.length).toBe(219);
+    // Joined, from wizard-report-draft-escape: lib/admin/reportDraftStore.ts, the
+    // wizard report draft's sessionStorage persistence. Same shape as
+    // escapeClaim.ts above and for a kindred reason — it lives in lib rather
+    // than inline in the component because the source-mutation runner overlays
+    // only modules a Vitest suite imports, and five module-private helpers
+    // inside a 5000-line component are reachable by neither an import nor a
+    // mutant. Depth-1 from components/admin/wizard/step3ReviewSections.tsx.
+    expect(rel).toContain("lib/admin/reportDraftStore.ts");
+    expect(rel.length).toBe(220);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

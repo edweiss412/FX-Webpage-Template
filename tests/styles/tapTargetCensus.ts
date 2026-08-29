@@ -203,9 +203,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/Step3ReviewModal.tsx",
-    // :783 until 2026-08-27 — the attention pill's state block and its effects
-    // (spec §3.2/§3.5) sit above the resolution radios.
-    line: 979,
+    // :783 until 2026-08-27, :979 until 2026-08-29 — the attention pill's state
+    // block and its effects (spec §3.2/§3.5) sit above the resolution radios, so
+    // every edit to them moves this row. LIM-LINE-KEYED-SITEID: the census keys a
+    // site by line number, and a line number is not an identity.
+    line: 1003,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -325,7 +327,12 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // is that same `<a>`.
     // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
     // 4134 -> 4140 on the R2 repair; same `<a>`, located by the scanner.
-    line: 4140,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    line: 4147,
     tag: "a",
     category: "full-bleed",
     reason:

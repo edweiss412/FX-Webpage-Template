@@ -138,6 +138,13 @@ ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture \
   pnpm screenshot:help < /dev/null
 
 # Pinned-image capture (CI parity; arm64 hosts must add --platform linux/amd64)
+#
+# INCOMPLETE ON AN ARM64 HOST, and silently so: this bind-mounts the host's
+# darwin-arm64 node_modules into a linux-x64 container, and in a worktree it also
+# bind-mounts a .env.local symlink whose target is not mounted. Both kill the build
+# before any page renders. Use the corrected block in the G-affordance handoff's §7
+# (./G-affordance-retrofit.md, a sibling of this file), which adds an in-container
+# `pnpm install`, holds .env.local aside, and wraps the run in `pnpm heavy`.
 docker run --rm --network host \
   --platform linux/amd64 \
   -v "$PWD:/work" -w /work -e CI=true \

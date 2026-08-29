@@ -32,6 +32,15 @@
     "tests/e2e/attention-anchor-placement.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"f3eabb4cec93fc131553-21f0f11f2a53ebcecab6\",[\"attention-anchor-placement.spec.ts\",\"diagram card mounts inside the Diagrams sub-block; reel card inside the opening_reel field\"]]"
     ],
+    "tests/e2e/attention-autoopen-suppress.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-05be8747a6010d20d131\",[\"attention-autoopen-suppress.spec.ts\",\"AC-OPERATOR-OPENED-SURVIVES: a tapped-open menu survives a resize in both directions\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-1e96f44ee7a2291effef\",[\"attention-autoopen-suppress.spec.ts\",\"AC-TOGGLE-OPERABLE: at 375x667 the published toggle takes its own pointer events\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-3755f01bb586f591c7ed\",[\"attention-autoopen-suppress.spec.ts\",\"AC-RESIZE-SHRINK-STAYS-OPEN: auto-opened at desktop, then shrunk below sm, stays open\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-509b6363ce6815544620\",[\"attention-autoopen-suppress.spec.ts\",\"AC-ANCHOR-PANEL-HANGS-BELOW: the open panel hangs at or below the pill's bottom edge\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-a8f3b544a762faf4c871\",[\"attention-autoopen-suppress.spec.ts\",\"AC-PILL-TAP: the pill takes a tap at 375 and opens the menu\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-e00d6368b07d9674f776\",[\"attention-autoopen-suppress.spec.ts\",\"AC-RESIZE-WIDEN-STAYS-CLOSED: suppressed at 375, then widened, stays closed\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"5eeb258eccda113566ef-ee7571fe859120e73add\",[\"attention-autoopen-suppress.spec.ts\",\"AC-TOGGLE-OPERABLE, positive control: with the menu OPEN at 375 the toggle IS covered\"]]"
+    ],
     "tests/e2e/attention-pill-focus.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"dea620f090533237e052-06d9f88da966c2adb6f9\",[\"attention-pill-focus.spec.ts\",\"open [a=1,n=1] -> D: menu closed, focus on dialog root, never body\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"dea620f090533237e052-1449977cb138f79a82f8\",[\"attention-pill-focus.spec.ts\",\"open [a=0,n=0] -> D: menu closed, focus on dialog root, never body\"]]",
@@ -193,6 +202,13 @@
     "tests/e2e/image-remount-request-count.probe.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"64545b0a6b3858efc154-14378e2fd6e3532604c1\",[\"image-remount-request-count.probe.spec.ts\",\"SAME NODE: toggling only a sibling overlay costs NO further request\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"64545b0a6b3858efc154-6c81fb3936ed7145bbf7\",[\"image-remount-request-count.probe.spec.ts\",\"REMOUNT: replacing the element with a new one at the same src costs a SECOND request\"]]"
+    ],
+    "tests/e2e/occlusion-probe.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-00602c5b6cda6ee27c02\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-DISCRIMINATES: insidePanel separates this arc's defect from pre-existing overlap\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-4dcc539e6aae974dc5db\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-PARTIAL: a top-left-quadrant cover is caught at tl and clean at centre\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-70c5a14b20c72fb825c4\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-DISCRIMINATES: reports a covering node, and reports none when absent\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-9cbce37fe5bd25c8c09b\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-NONVACUOUS: throws when a named control is missing from the set\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"f0a0831b978b54fdc8a1-d77fa6c43fdb0ad940e0\",[\"occlusion-probe.spec.ts\",\"AC-OCCLUSION-NONVACUOUS: throws on an empty control set\"]]"
     ],
     "tests/e2e/packlist-rescan-recovery.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"361cd724423d9c5e8dae-7a718e022182f3604829\",[\"packlist-rescan-recovery.spec.ts\",\"PackListBreakdown S5 re-scan recovery (real browser)\",\"renders the recovery note + a focusable Re-scan button, no raw code, no em dash\"]]"
@@ -725,6 +741,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-28bf4e8c8fb46cbbefcd\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"every menu row clears the 44px floor at 375x844\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-4cb3c85bb149f1ba72e6\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-7530ebac4c5a7a9d8f43\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the pill's hit band clears the 44px floor at 1280x800\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-8df424e194fae616f67d\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"tap-opened at a phone width, then widened past sm: the menu stays open\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-99319e126bc72e2b69cc\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 390x560\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-99eccaa54127bc6841a4\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 375x844\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-a76f1f18cf606bfe4778\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 375x667\"]]",
@@ -732,7 +749,10 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-b4a6e96988d949d43531\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the composite pill leaves the show title legible at 375 (spec §9, PRODUCT.md persona)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-bdc9e358e50392e7c50b\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"every menu row clears the 44px floor at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-c75bb0922793ca5570a8\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"every menu row clears the 44px floor at 390x560\"]]",
-      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-d473292bda15643dd44e\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the compiled CSS actually carries the rules these assertions depend on\"]]"
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-cc29697e016e8d4eb42f\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"a tap-opened menu keeps its Escape after WIDENING past the boundary\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-d473292bda15643dd44e\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the compiled CSS actually carries the rules these assertions depend on\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-ecd32f5c1a9694338402\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"a tap-opened menu keeps its Escape after SHRINKING past the boundary\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-ef10a84fb7d98f2d2b65\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"AUTO-opened at desktop, then shrunk below sm: the menu stays open\"]]"
     ],
     "tests/e2e/wizard-blocker-modal.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-66131e70b73208914383\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"opening the modal does NOT change the sticky footer height (no layout shift)\"]]",
@@ -740,5 +760,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 643
+  "totalTests": 659
 }

@@ -102,10 +102,13 @@ export const CENSUS: readonly CensusRow[] = [
   // Line moved 256 -> 257 on 2026-08-27 by feat/telemetry-fallback-retry, which added one
   // import to this file. The ELEMENT is untouched: same `<Link>`, same `border-text-faint`.
   { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 257 },
-  // spec §4.2 row 16
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 797 },
-  // spec §4.2 row 17
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 883 },
+  // spec §4.2 row 16 — the `review-resolution-ignore` button. 797 until
+  // fix/attention-autoopen-suppress-phone added the auto-open suppression
+  // predicate and its comment above it; the button itself is untouched.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 821 },
+  // spec §4.2 row 17 — the `review-publish` button. 883 until the same arc,
+  // same cause.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 907 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
@@ -143,7 +146,28 @@ export const CENSUS: readonly CensusRow[] = [
   // testid on the merged tree, located by running the scanner.
   // Then 4697 -> 4703 on the R2 repair (the reportShowId prop and its comment).
   // Same report-toggle testid, located by the scanner.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4703 },
+  // Then 4703 -> 4747 -> 4791 on fix/wizard-report-draft-escape, which added the
+  // draft storage helpers above ReportIssueSection and then, at diff review R1,
+  // a detached-submit guard above them again. Located each time by the unique
+  // `wizard-step3-card-${dfid}-report-toggle` testid and its `<button>` opener,
+  // per the method the notes above prescribe — never by adding the delta.
+  //
+  // Then 4791 -> 4813 at diff review R2, which added the surrogate-safe cap.
+  // FOUR re-keys in one branch, which is the real lesson: re-key LAST. The first
+  // three were each done while the branch still had edits coming, and each was
+  // stale within the hour. Every adversarial round that touches this component
+  // moves both rows again, so the re-key belongs after the final source edit of
+  // the round, not alongside the fix that prompted it.
+  // Then 4813 -> 4827 documenting the store-versus-state invariant. Fifth.
+  // Then 4827 -> 4778 when the draft-storage helpers were EXTRACTED to
+  // lib/admin/reportDraftStore.ts, which is the first move of this arc that went
+  // UP. Sixth re-key on one branch.
+  // Then 4778 -> 4729, removing the docblocks the extraction orphaned. SEVENTH
+  // re-key on one branch, and the count is the point: this row moves on almost
+  // every commit that touches the component, so the ONLY safe time to re-key is
+  // after the final source edit of a change, immediately before the run that
+  // reads it.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4729 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -167,7 +191,23 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4741 -> 4754 on the R1 repair commit, located by its own
   // `disabled={draft.trim()...}` opener.
   // Then 4754 -> 4760 on the R2 repair, same `disabled={draft.trim()...}` opener.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4760 },
+  // Then 4760 -> 4807 on fix/wizard-report-draft-escape. Same
+  // `disabled={draft.trim()...}` opener, located on the branch tree. Note the two
+  // rows did NOT move by the same amount (row 18 moved 44, this one 47): the draft
+  // write in the textarea's onChange sits BETWEEN them, which is exactly why the
+  // notes above forbid resolving either row by applying the other's delta.
+  // Then 4807 -> 4823 -> 4873 on the same branch: first the impeccable P1 repair
+  // added the persistence-guarantee line under the trigger (which moved this row
+  // and NOT row 18, since the new element sits below that row's `<button>`), then
+  // the R1 detached-submit guard moved both. So the two rows diverged, converged
+  // and diverged again inside one branch, which is the case that makes applying
+  // one row's delta to the other actively wrong rather than merely lazy.
+  // Then 4873 -> 4895 at diff review R2, same cause as row 18.
+  // Located by the `disabled={draft.trim()...}` opener on the final tree, every time.
+  // Then 4895 -> 4909, same cause. Fifth for this row too.
+  // Then 4909 -> 4860, same extraction.
+  // Then 4860 -> 4811, same removal.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4811 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip. The ELEMENT
@@ -239,7 +279,9 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/review/ShowReviewSurface.tsx", line: 1019 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1083 },
+  // :1083 until fix/attention-autoopen-suppress-phone, whose suppression
+  // predicate and comment sit above the pill button.
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1113 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
