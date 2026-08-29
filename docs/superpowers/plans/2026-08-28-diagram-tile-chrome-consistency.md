@@ -110,8 +110,18 @@ assertions can be checked against it line by line.
 | grid cell | anchor | anchor is full width of its cell | `w-full` |
 | live tile | placeholder tile | identical outer box | both `aspect-4/3 w-full`; asserted in a real browser at `tests/e2e/step3-review-modal.layout.spec.ts:659` |
 
-Discharge: rows 1 and 2 by `tests/e2e/step3-review-modal.layout.spec.ts:638-647`, which is expressed as `anchorW - borderLeft - borderRight`
-and therefore holds with the border on either element; row 4 by `tests/e2e/step3-review-modal.layout.spec.ts:659`. Row 3 is a class assertion,
+Discharge, per row. Row 1 by `tests/e2e/step3-review-modal.layout.spec.ts:638-647`, which is expressed as
+`anchorW - borderLeft - borderRight` and therefore holds with the border on either element.
+
+**Row 2 needs its own assertion, and R2 was right that the padding-box comparison cannot supply it.**
+That comparison relates the image to the anchor's CURRENT padding box; it says nothing about whether the
+anchor's OUTER box moved when the border arrived, and it never touches the `border-box` mechanism the row
+names. A before/after claim is also not observable from one tree. So Task 1 adds two lines to the same
+`page.evaluate` block: read `getComputedStyle(el).boxSizing` and assert it is `border-box`. That asserts
+the stated MECHANISM directly, which is the part a single tree can prove; the consequence follows from
+it arithmetically rather than being re-measured.
+
+Row 4 by `tests/e2e/step3-review-modal.layout.spec.ts:659`. Row 3 is a class assertion,
 covered by the new suite's shared-box case. The readiness gate these depend on already exists at
 `tests/e2e/step3-review-modal.layout.spec.ts:248`. Detach safety: every measurement in that spec runs inside one `page.evaluate` against a
 static harness with no navigation between query and read, so no handle can detach mid-measurement.
@@ -128,7 +138,7 @@ static harness with no navigation between query and read, so no handle can detac
 | --- | --- | --- |
 | route A: focused live tile fails on an image error | anchor with `border-text-faint` at 6px, focused, becomes placeholder `<span>` with `border-border` at 12px; focus moves to a sibling tile | instant on both axes; no `transition-*` on either element |
 | route A with no sibling to receive focus | same box endpoints; `components/admin/wizard/step3ReviewSections.tsx:4021` finds no sibling | instant; the focus destination is the handler's concern and is unchanged by this diff |
-| route B: focused live tile reconciles to unavailable | same box endpoints; focus is NOT relocated, so it falls to `<body>` | instant; see spec L4 |
+| route B: focused live tile reconciles to unavailable | same box endpoints; focus is NOT relocated, so it falls to `<body>` | instant; see L4 |
 
 Executable discharge, per row:
 
@@ -149,7 +159,7 @@ Executable discharge, per row:
 | AC-1 | the image class string is exactly `object-cover`; the anchor carries the box | new suite: exact string equality on the image, token membership on the anchor |
 | AC-2 | `components/diagrams/Gallery.tsx` is unchanged by this diff | `git diff --name-only origin/main...HEAD` must not list it — asserted as a Task 2 step, since no unit test can see a file's absence from a diff |
 | AC-3 | the §15 derivation finds three visuals, the tile `<Image>` not among them | `tests/styles/controlOutlineTransitions.test.ts` |
-| AC-4 | the control-outline spec's prose says three, in the same commit as AC-1 | a new assertion in `tests/styles/controlOutlineTransitions.test.ts` reads `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` and requires its §15 table 3 row to state the same count the derivation returns; the same-commit half is structural, satisfied because Task 1 is one commit |
+| AC-4 | the control-outline spec's prose says three, in the same commit as AC-1 | TWO checks, because it is two claims. Count parity: a new assertion in `tests/styles/controlOutlineTransitions.test.ts` reads `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` and requires its §15 row to state the count the derivation returns. Same-commit: a Task 2 history check, below — a passing parity test says nothing about WHEN each side landed, which R2 correctly flagged |
 | AC-5 | the real-browser layout spec is green at this head, box-equality among the passes | `test:e2e:standalone` |
 | AC-6 | the `neutralFaintCount` pin does not move | `tests/styles/tintedPlateOutline.test.ts` |
 | AC-7 | the full styles suite is green, fill and residue censuses included | `pnpm heavy pnpm vitest run tests/styles` |
@@ -160,11 +170,14 @@ Executable discharge, per row:
 
 ## Task 1 — the lockstep: one RED run, one GREEN run, one commit
 
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/styles/controlOutlineTransitions.test.ts` ac=AC-1,AC-3,AC-4,AC-8 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/styles/controlOutlineTransitions.test.ts && pnpm heavy pnpm test:e2e:standalone tests/e2e/step3-review-modal.layout.spec.ts` ac=AC-1,AC-3,AC-4,AC-8 -->
 
-Everything the spec requires to land together lands here. The RED command above covers the two suites
-that can red before implementation; the real-browser pin is inverted in the same commit and is run in
-Task 2, because its command is a heavy phase and its red is proved by the same edit.
+Everything the spec requires to land together lands here.
+
+**The browser run is part of THIS task's RED, not Task 2's.** An earlier draft authored the inverted
+assertion here and first ran it in Task 2, after the implementation had already landed — so the
+inversion was never observed failing, and "it would have failed at the parent" is an argument, not a
+red. It is a heavy phase and it queues; that is a cost, not a reason to skip observing it.
 
 **Step 1, author every expectation FIRST, then run and see it red.** This ordering is the whole
 correction to the first draft, which told the implementer to run an edited expectation at a tree where
@@ -175,6 +188,12 @@ that edit did not exist — a command that passes for the wrong reason.
    siblings such as `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx`. Cases: live branch,
    failed branch, compound route A, compound route B, transition audit, shared-box, and the regex
    negative control.
+
+   **Its first line MUST be the `// @vitest-environment jsdom` pragma.** the repo-root vitest config sets the default environment to `node` at its line 70 (named
+   unbackticked because a `fixtures/specLint/redVerdict/` copy shares the basename, so a bare
+   citation is ambiguous and a `./`-prefixed one is an illegal path), so without it the suite fails on a missing `document` rather than on
+   the chrome assertion — a red for the wrong reason that cannot go green after the production change.
+   All four sibling `step3DiagramTile.*` suites declare it; this one is not special.
 2. `tests/styles/controlOutlineTransitions.test.ts:254` `toHaveLength(4)` becomes `toHaveLength(3)`; its comment gains the reason and says a FOURTH
    reappearing is an inventory change too; the DOCBLOCK at `tests/styles/controlOutlineTransitions.test.ts:229-230` stops quoting "the four". All
    three, because R3 of the spec stage caught a draft that updated two.
@@ -184,8 +203,21 @@ that edit did not exist — a command that passes for the wrong reason.
 4. Invert `tests/e2e/step3-review-modal.layout.spec.ts:626-636`: the ANCHOR must carry a border and the image must carry none. Do NOT touch the
    padding-box assertion at `tests/e2e/step3-review-modal.layout.spec.ts:638-647`.
 
-Run the RED command. Expect: the new suite fails on the anchor's missing box, and the transitions suite
-fails at 4 against 3 and on the new prose assertion.
+Run the RED command and check WHICH assertions fail, because R2 caught the first draft asserting the
+wrong ones. At this point the class has not moved, so the derivation still returns four and the 08-26
+prose still says "four":
+
+| assertion | state at this RED | why |
+| --- | --- | --- |
+| new suite, anchor carries the box | FAILS | the box is still on the image |
+| new suite, image is exactly `object-cover` | FAILS | the image still carries the chrome |
+| `tests/styles/controlOutlineTransitions.test.ts` `toHaveLength(3)` | FAILS | the derivation still returns four |
+| `tests/styles/controlOutlineTransitions.test.ts` §15 prose parity | **PASSES** | derivation four, prose still "four". They agree, wrongly but consistently |
+| `tests/e2e/step3-review-modal.layout.spec.ts` inverted pin | FAILS | the anchor has no border yet |
+| `tests/e2e/step3-review-modal.layout.spec.ts` `boxSizing` is `border-box` | PASSES | Tailwind preflight already sets it; this row asserts a mechanism, not a change |
+
+The parity assertion passing here is not a defect. It goes red at the NEXT step and stays red until the
+prose is updated, which is exactly what makes it a real check rather than a restatement.
 
 **Step 2, implement.** At `components/admin/wizard/step3ReviewSections.tsx:3938` add `rounded-md border border-text-faint bg-surface-sunken` to the
 anchor; at `components/admin/wizard/step3ReviewSections.tsx:3955` reduce the image className to `object-cover`; replace the false comment at
@@ -199,10 +231,17 @@ anchor; at `components/admin/wizard/step3ReviewSections.tsx:3955` reduce the ima
 - `tests/styles/tintedPlateOutline.test.ts:221-223` — the comment's raw/comment split becomes 13 and
   four, and names the move.
 
-**No-RED declaration for step 3.** These three are prose inside comments and a `reason` string. The
-count test strips comments before counting, so no assertion can red on their text, and R1 was right that
-the first draft implied otherwise. They are verified two ways instead: the count they describe is derived
-(below), and the same-commit requirement is structural.
+**After step 2, re-run the RED command before touching step 3.** The derivation now returns three while
+the prose still says "four", so the §15 parity assertion is RED — and it is the only thing that makes
+step 3's first bullet an executable requirement rather than a hope. R2 caught the first draft calling all
+three of step 3's edits no-RED; that was wrong for the prose and right for the other two.
+
+**No-RED declaration, scoped to the two that genuinely have none.**
+`tests/styles/tapTargetCensus.ts:321`'s `reason` string and
+`tests/styles/tintedPlateOutline.test.ts:221-223`'s comment are prose no assertion reads — the count test
+strips comments before counting. They are verified instead by the derived numbers below and by landing in
+this one commit. The `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md:816` edit is NOT in this declaration: the parity assertion reds until it
+lands.
 
 **The derived numbers, computed not asserted.** Run the registry's own `stripCommentsForFile` over the
 component before and after: before raw=11 code=9 inComments=2, after raw=13 code=9 inComments=4. The pin
@@ -214,11 +253,24 @@ Commit, once: `fix(admin): diagram tile chrome moves to the wrapper`.
 
 ## Task 2 — every gate, then closeout
 
-<!-- task: red=`pnpm heavy pnpm test:e2e:standalone tests/e2e/step3-review-modal.layout.spec.ts` ac=AC-2,AC-5,AC-6,AC-7,AC-9 -->
+<!-- task: red=`pnpm heavy pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts --hookTimeout=300000` ac=AC-2,AC-4,AC-6,AC-7,AC-9 -->
 
-The real-browser run is the RED for this task in the honest sense: at Task 1's parent the inverted
-assertion fails, and at Task 1's commit it passes. Report the ACTUAL test count from the run; do NOT
-carry the filing arc's 44 forward.
+**This task has a genuine task-local RED, and finding it took R2 pointing out that the first draft had
+none.** The invariant-8 closeout guard is that red, and the mechanism is the guard's own trigger rule:
+
+- Write the closeout file first, naming BOTH gate halves and recording the gate's findings and
+  dispositions. Naming both halves flips `declaresGate` true for this plan unit, and there is no marker
+  yet, so `tests/docs/_metaInvariant8Closeout.test.ts` goes RED.
+- Add the marker line with the run's real `p0`/`p1`. The guard goes GREEN.
+
+That is a true red-then-green on this task's own deliverable, rather than re-running a command Task 1
+already made pass. It also forces the correct ORDER: the gate runs, its results are written down, and
+only then is the marker allowed to exist — R2 was right that the first draft ran every verification
+before writing the file it was supposed to be verifying.
+
+The real-browser suite is NOT this task's red; it is Task 1's, where the inverted assertion is observed
+failing. It is re-run here as a regression check, and the ACTUAL test count is reported from the run — do
+NOT carry the filing arc's 44 forward.
 
 Then, in order:
 
@@ -226,6 +278,14 @@ Then, in order:
    registry and the transitions suite, all re-run rather than reasoned about (AC-6, AC-7, AC-9's census
    half).
 2. `git diff --name-only origin/main...HEAD` must not list `components/diagrams/Gallery.tsx` (AC-2).
+3. **AC-4's same-commit half, as a history check rather than a claim:** the commit that last touched
+   `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` must be the same commit that last touched `components/admin/wizard/step3ReviewSections.tsx`.
+
+       test "$(git log -1 --format=%H -- docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md)" \
+          = "$(git log -1 --format=%H -- components/admin/wizard/step3ReviewSections.tsx)"
+
+   A count-parity test compares two sides of the FINAL tree and passes just as happily on a history that
+   landed them in separate commits, which is exactly the gap R2 named. This reads the history.
 3. `grep -n "lives on the" tests/styles/tapTargetCensus.ts` to confirm the prose reads ANCHOR, and
    confirm that row's `line`, `tag` and `category` are untouched in the diff (AC-9's prose half).
 4. The full suite, typecheck, lint and format, per the ledger.
