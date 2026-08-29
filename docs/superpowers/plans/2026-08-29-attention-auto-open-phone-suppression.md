@@ -123,13 +123,13 @@ node_modules/.bin/vitest run tests/components/admin/showpage/publishedReviewModa
 
 The second command is §1.2's "every jsdom suite passes unchanged" claim, enumerated rather than gestured at. The pre-fix RED of AC-TOGGLE-OPERABLE is captured before this task's implementation commit and its interceptor recorded in that commit's message.
 
-### Task 4 — the wizard repair, only if Task 0 came back positive
+### Task 4 — the wizard repair (Task 0 came back POSITIVE, so this runs)
 
 <!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/wizard-attention-menu.spec.ts` ac=AC-WIZARD-MIRROR -->
 
-Conditional. On a positive Task 0 the wizard gets the identical predicate at the identical position and inherits the WHOLE obligation set, and `openModal` becomes width-aware. The red is real in that branch: the mirrored suppression cases are authored first and fail against the wizard's unguarded effect.
+Task 0 measured POSITIVE at 375x667, 375x844 and 390x560 (spec §5.1), so this task runs. The wizard gets the identical predicate at the identical position and inherits the WHOLE obligation set, not a subset. `openModal` becomes width-aware, expecting auto-open at ≥`sm` and opening by tapping the chip below it, which is the tolerant shape `popover-clip-fit.spec.ts`'s `openMenu` already uses.
 
-On a negative Task 0 this task does not run, nothing is filed, and the measurement lands in spec §10. The task is skipped rather than passed, and the close-out says which branch was taken.
+The red is real: the mirrored suppression cases are authored first and fail against the wizard's unguarded effect (`components/admin/wizard/Step3ReviewModal.tsx:364-383`).
 
 ### Task 5 — invariant 8, the UI gate
 
