@@ -53,22 +53,63 @@ $ git diff origin/main...HEAD --stat -- lib/parser/dataGaps.ts \
 The one hunk is the `scope` doc comment naming the second raw-workbook scanner. No
 membership set, no catalog row, no allowlist, no §12.4 prose changed.
 
-## 4. Parser mutation harness (AC-2)
+## 4. Parser mutation harness (AC-2) — discharged as EQUALITY against main
 
 The parser jobs do not run on pull requests (`.github/workflows/mutation-harness.yml`: the
 parser and source shard jobs carry `if: github.event_name != 'pull_request'`, and the PR
-path filter names no parser module), so the arc dispatches the workflow explicitly on the
-pushed head.
+path filter names no parser module), so the arc dispatches the workflow explicitly.
 
-- Dispatched: `gh workflow run mutation-harness.yml --ref feat/ref-error-cell-anchors`
-- Run id `33272516851`, head sha `70585f0b4ca4de19daed1ef5a0819f1fe907cc10` (confirmed
-  equal to the pushed head at dispatch time).
+| | run | head | outcome |
+| --- | --- | --- | --- |
+| this branch | `33272516851` (`workflow_dispatch`) | `70585f0b4` | parser shards fail |
+| main, control | `33253670579` (`schedule`) | `e7751f61d` | parser shards fail |
 
-_Conclusions pending: the run has been QUEUED for over an hour, the fleet's runners being
-saturated by the thirteen required contexts. AC-2 is undischarged until the nine parser
-job conclusions exist — a red, cancelled or absent run is no evidence. The score IS the
-ledger reconciliation each shard suite performs, so nine green jobs on this head is
-"score unchanged"._
+**The harness is already red on main, at this branch's exact merge-base.** `e7751f61d` is
+`git merge-base origin/main HEAD`, and main's own scheduled run on that commit fails the
+same way; the preceding scheduled run (`33202704320`, 2026-08-28) failed too. The failure is
+`AssertionError: DRIFTED fingerprints`, whose drifted operators are `section-reorder`,
+`header-typo` and `blank-row:remove` — none of which touches `#REF!`, fused rows or a
+leading column.
+
+**So AC-2 is discharged as equality, not as green**, on bl-orch's ruling: an inherited red
+is not this arc's regression, and what has to be shown is that the diff moved nothing the
+harness measures. That is settled mechanically rather than by reading. `.claude/`-local
+script `harness-compare.sh` pulls both runs' logs and compares, per shard, (a) the `DONE`
+summary line with the wall-clock duration stripped — the one field that legitimately
+differs between two runs of identical code — and (b) the FULL drifted-fingerprint set,
+sorted, as sets rather than as a sample:
+
+<!-- prettier-ignore -->
+```
+shard 0: summary=SAME drift=SAME driftCount=79
+shard 1: summary=SAME drift=SAME driftCount=82
+shard 2: summary=SAME drift=SAME driftCount=167
+shard 3: summary=SAME drift=SAME driftCount=84
+shard 4: summary=SAME drift=SAME driftCount=109
+shard 5: summary=SAME drift=SAME driftCount=74
+shard 6: summary=SAME drift=SAME driftCount=84
+shard 7: summary=SAME drift=SAME driftCount=147
+```
+
+**All eight shards are identical on both axes**: same mutant count, same
+`alarms=… cosmeticViolations=0 noOps=0`, and drifted fingerprint sets that match entry for
+entry including the hashes — 826 drifted entries across the eight, every one of them
+present on main with the same hash. Shard 0, for instance, reads
+`DONE 12712 mutants — alarms=177 cosmeticViolations=0 noOps=0` on both sides.
+
+`cosmeticViolations=0` and `noOps=0` on every shard are the load-bearing numbers beside the
+equality: no mutant became a no-op and none drifted cosmetically, so the scanner/emitter
+split of Task 2 changed neither what the detectors emit nor how the harness classifies it.
+
+All eight parser shards on this branch's run concluded `failure`, exactly as all eight did
+on main's control run, and the eight comparisons above are the complete set — AC-2 is
+discharged on the whole population, not on a sample. `parser-gates` and `source-gates`
+concluded `success` on this branch's run.
+
+If PR #945 merges before this branch does, its branch regenerated the ledger and has a
+green harness run (`33274539375`); the ledger-seam merge of main would inherit that ledger,
+and a re-dispatch on the merged head should then be GREEN, which supersedes this equality
+evidence. Whichever actually fires is recorded here with its run id.
 
 ## 5. Live check (AC-1, second half) — AC-1-LOCAL, deploy half DEFERRED-BY-QUOTA
 
