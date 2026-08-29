@@ -241,3 +241,60 @@ describe("enrichStep3WarningModels — the §2.0 predicate boundary", () => {
     expect(out?.warningModel).toBeDefined();
   });
 });
+
+// ── Whole-diff R1: the staged→linked transition ────────────────────────────────
+//
+// Linkage is not fixed for the life of a wizard session. A FIRST-SEEN row gains a
+// show the moment any ordinary concurrent finalize creates it — a case spec §2.7
+// documents explicitly — and `assembleStep3Row` resolves it as LINKED on the next
+// read. Reading only durable ignores at that point made the operator's staged
+// dismissal vanish and the warning come back ACTIVE mid-session, with nothing said.
+describe("enrichStep3WarningModels — the staged-to-linked transition (R1)", () => {
+  it("a LINKED row still honours its OWN staged dismissals", async () => {
+    // The row is linked (a concurrent finalize created the show), the durable table is
+    // still empty because the carry has not run, and the dismissal lives only in the
+    // column. It must stay hidden.
+    const loader = okLoader([]);
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: [{ fingerprint: FP_A, code: warnA.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      loader,
+    );
+    expect(loader).toHaveBeenCalledWith("show-1");
+    expect(row?.warningModel?.ignored.map((i) => i.index)).toEqual([0]);
+    expect(row?.warningModel?.active.map((i) => i.index)).toEqual([1]);
+  });
+
+  it("unions the two sources rather than preferring either", async () => {
+    // Durable holds one, the column holds the other; both stay hidden.
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: [{ fingerprint: FP_B, code: warnB.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      okLoader([FP_A]),
+    );
+    expect(row?.warningModel?.ignored.map((i) => i.index)).toEqual([0, 1]);
+    expect(row?.warningModel?.active).toEqual([]);
+  });
+
+  it("a LINKED row with a malformed staged column still honours the durable set", async () => {
+    // The column coerces to empty; the durable read is unaffected.
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: "not-an-array",
+        }),
+      ],
+      okLoader([FP_A]),
+    );
+    expect(row?.warningModel?.ignored.map((i) => i.index)).toEqual([0]);
+  });
+});

@@ -58,11 +58,27 @@ export async function enrichStep3WarningModels(
     if (!hasReviewablePreview(row)) return row;
     const ref = row.linkedShowRef;
     const linked = ref != null;
+    // The row's OWN staged dismissals. Non-empty only when someone staged an ignore
+    // against this exact pending row, and the finalize carry will make every one of
+    // them durable (§2.7).
+    const staged = new Set(
+      normalizeStagedIgnoredWarnings(row.stagedIgnoredWarnings).map((e) => e.fingerprint),
+    );
+    // Whole-diff R1: a LINKED row reads the durable table UNION its own staged column,
+    // not the durable table alone.
+    //
+    // Linkage is not fixed for the life of a wizard session. A FIRST-SEEN row gains a
+    // show the moment any ordinary concurrent finalize creates it — a case §2.7 already
+    // documents — and `assembleStep3Row` then resolves it as LINKED on the next read.
+    // Reading only durable ignores at that point made the operator's staged dismissal
+    // vanish from the panel and the warning come back ACTIVE, mid-session, with nothing
+    // said. The dismissal was never lost (the column still holds it and the carry still
+    // lands it at finalize), which is exactly what made the reappearance a lie rather
+    // than an error. The union closes the window, and it cannot over-hide: every
+    // fingerprint it adds is one this row is already committed to carrying.
     const ignoredFingerprints = linked
-      ? (linkedFingerprints.get(i) ?? new Set<string>())
-      : new Set(
-          normalizeStagedIgnoredWarnings(row.stagedIgnoredWarnings).map((e) => e.fingerprint),
-        );
+      ? new Set([...(linkedFingerprints.get(i) ?? new Set<string>()), ...staged])
+      : staged;
     return {
       ...row,
       warningModel: buildWizardWarningModel({
