@@ -210,9 +210,12 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4811 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
-  // the in-flight overlay and the availability sweep above this chip. The ELEMENT
-  // is unchanged: same `<button data-testid="lightbox-reset-chip">`, same ground.
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 821 },
+  // the in-flight overlay and the availability sweep above this chip; then
+  // 821 -> 834 when that branch folded origin/main, which moved the file again.
+  // Twice in one arc, which is what a line-keyed row costs on a file under
+  // concurrent edit. The ELEMENT is unchanged throughout: same
+  // `<button data-testid="lightbox-reset-chip">`, same `bg-surface-raised` ground.
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 834 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.
