@@ -189,9 +189,23 @@ also discharges AC-17.
 
 <!-- tasks: end -->
 
-## After the probes
+## Outcomes — all five RUN, 2026-08-29
 
-Five outcome commits, one per task, each amending its own §1.4 row — **not one batched
-commit**, which round 1 correctly called a violation of invariant 6. Each marks its row
-RATIFIED with the probe cited, or CORRECTED with what actually happens. The feature tasks are
-re-read against the amended spec before Task 1 starts.
+Five outcome commits, one per task, each amending its own §1.4 row — not one batched commit,
+which round 1 correctly called a violation of invariant 6.
+
+| task | result | what it changed |
+|---|---|---|
+| P1 | **U-1 RATIFIED** | nothing. Native `disabled` ejects focus to `<body>` and `aria-disabled` does not, both measured, so §7.1's rejection of the obvious implementation stands on a measurement rather than on a note about another component |
+| P2 | **U-2 RATIFIED** | nothing. A remount issues one further request, the surviving node zero, so §4.0.5's same-node requirement stands |
+| P3 | **U-3 REFUTED** | **the design lost an attribute.** Covering is not what defers a lazy image; being off-screen is, and a tap implies the cell is in the viewport. `loading="eager"` is deleted from Task 2 |
+| P4 | **U-4 RATIFIED** | nothing. The `srcset` is byte-identical across device-scale factors while the selected tier moves, which confirms §3's bound and proves the fixture discriminates |
+| P5 | **U-5 RATIFIED** | the registry gained a row it would otherwise never have had. On its first run the scanner found `prefersReducedMotion` (`GalleryLightbox.tsx:257`), missed by every hand-derivation because it is a single-element destructure with no setter |
+
+**One in five changed the answer, and it was the cheapest one to run.** That is the phase
+paying for itself: had P3 run against the shipped control after the fact, `loading="eager"`
+would have shipped and nobody would have learned it was unnecessary. P5's find is the same
+lesson from the other direction — the cover caught a member in its own subject, immediately,
+that three careful hand passes had missed.
+
+The feature tasks are re-read against the amended spec before Task 1 starts.
