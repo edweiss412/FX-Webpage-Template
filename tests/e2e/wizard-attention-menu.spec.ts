@@ -385,6 +385,60 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(m.docScrollW).toBe(m.docClientW);
   });
 
+  // ── Resize contracts (BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE) ──────
+  //
+  // The wizard inherits the published surface's whole resize obligation, and
+  // whole-diff review round 3 was right that none of it was covered here: the
+  // unit suite only changes width before the reveal or while the menu stays
+  // suppressed, and every case in this file set the viewport before navigating
+  // and never again. A width-change handler that closed the menu, or that made a
+  // tap-opened menu Escape-transparent, would have passed the entire wizard
+  // suite. There is no such handler today; the point is that nothing said so.
+  //
+  // The rule the whole design rests on: this change never CLOSES a menu.
+
+  test("auto-opened at desktop, then shrunk below sm: the menu stays open", async ({ page }) => {
+    await openModal(page, 1280, 800);
+    await page.locator(CHIP).click(); // openModal dismisses; reopen to measure
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.waitForTimeout(250);
+    await expect(page.locator(MENU), "shrinking closed an open menu").toBeVisible();
+  });
+
+  test("tap-opened at a phone width, then widened past sm: the menu stays open", async ({
+    page,
+  }) => {
+    await openModal(page, 375, 667);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(250);
+    await expect(page.locator(MENU), "widening closed an operator-opened menu").toBeVisible();
+  });
+
+  test("a tap-opened menu keeps its Escape after a resize in either direction", async ({
+    page,
+  }) => {
+    // Escape OWNERSHIP is the wizard-only half. `menuAutoOpened` drives
+    // `escTransparentUntilEngaged`, so a menu the operator opened must swallow
+    // Escape and close ITSELF, leaving the modal up -- before and after a
+    // resize. If a width change ever set that flag, Escape would start closing
+    // the whole modal instead, and only this asserts otherwise.
+    await openModal(page, 375, 667);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(250);
+    await page.locator(CHIP).press("Escape");
+
+    await expect(page.locator(MENU), "Escape did not close the menu").toHaveCount(0);
+    await expect(page.locator(PANEL), "Escape closed the MODAL, not the menu").toBeVisible();
+  });
+
   test("the menu's scroller is a nameable, focusable region", async ({ page }) => {
     // The contract most easily lost when a menu is rebuilt: a bare div maps to
     // `generic`, which is naming-prohibited, so the name would be dropped
