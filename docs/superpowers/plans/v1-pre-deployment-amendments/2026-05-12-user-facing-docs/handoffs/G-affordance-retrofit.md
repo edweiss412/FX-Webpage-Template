@@ -140,7 +140,12 @@ ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture \
   pnpm exec playwright test --config=playwright.screenshots.config.ts \
   --project=help-docs tests/e2e/deep-link-walker.spec.ts < /dev/null
 
-# Local pinned-image capture (for baseline regen; MUST be followed by git restore)
+# Local pinned-image capture. This OVERWRITES public/help/screenshots/ in place.
+# If you are regenerating baselines, that is the point and you KEEP the result.
+# If you ran it for any other reason (a CI-parity smoke check, a diagnosis), the
+# `git restore` at the end of this block puts the committed bytes back. Decide
+# which case you are in before you run it, because the two differ only in whether
+# you keep the output.
 #
 # The in-container `pnpm install` is REQUIRED on an arm64 host, not tidying. This
 # command bind-mounts the checkout, and on a CI runner that checkout's node_modules
@@ -184,14 +189,22 @@ ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture \
 # each holding its own heap, against a runner's 3. Pin `-e CIRCLE_NODE_TOTAL=4` on
 # the docker run: it makes the pool CI-shaped with no next.config edit and no
 # further VM change. This is the fix that actually landed the capture.
+# `pnpm heavy` is REQUIRED, not decoration. AGENTS.md's heavy-phase rule classifies
+# a command by what it TRANSITIVELY launches, and this one launches `pnpm build`
+# plus a non-interactive Playwright run inside the container. Unwrapped, it takes
+# no slot, so N arcs can start N captures at once; that is the shape that exhausted
+# this machine's memory on 2026-08-10 and cost every live arc a hard reset. Wrap at
+# this outermost entry -- the semaphore is host-side and cannot see into the container.
 [ -L .env.local ] && ENV_TARGET="$(readlink .env.local)" && rm .env.local
-docker run --rm --platform linux/amd64 --network host \
+pnpm heavy docker run --rm --platform linux/amd64 --network host \
   -v "$PWD:/work" -v "/tmp/pnpm-store-linux:/pnpm-store" -w /work \
   -e CI=true -e CIRCLE_NODE_TOTAL=4 \
   mcr.microsoft.com/playwright:v1.59.1-jammy \
   bash -lc "apt-get update -qq && apt-get install -y -qq postgresql-client && corepack enable && pnpm install --frozen-lockfile --store-dir /pnpm-store && pnpm screenshot:help"
 [ -n "${ENV_TARGET:-}" ] && ln -s "$ENV_TARGET" .env.local
-git restore public/help/screenshots/  # if not actually regenerating baseline
+# ONLY if this was not a baseline regen -- see the header above. Regenerating and
+# then restoring throws away the bytes you just spent a build producing.
+git restore public/help/screenshots/
 pnpm install                          # restore the host's arm64 binaries
 
 # CI drift gate (manual trigger; --platform pinned via workflow per ce7cfa0)
@@ -250,6 +263,14 @@ Validates retroactively: `--platform linux/amd64` on arm64 macOS produces byte-i
    When restoring local Supabase after that restart, use `docker start` on the exited containers. Do not reach for `supabase stop --no-backup` first, which the CLI will suggest: it deletes the local volume, and with it the `supabase db reset --no-seed` state the capture depends on.
 
 The §7 command block carries all three fixes. None of them qualifies the byte-determinism claim. The first two are what make the container's tree match the runner's, and the third only decides whether the build finishes at all, never what it emits, so together they strengthen the platform-pin result rather than weakening it.
+
+**Measured, with the corrected block.** Two consecutive captures were byte-identical to each other, and all fourteen images were byte-identical to CI's capture in run `33249405988`.
+
+The direct evidence is the two regenerated identities matching CI's own bytes. The other twelve are worth comparing too, and worth stating carefully: they widen the sample from two identities to fourteen, so a defect with broad reach (a font, a theme token, an encoder change) would show up in them. They do NOT prove that every possible defect must. The `screenshots-drift.yml` header records the counter-case directly: on 2026-08-18 `dashboard-overview/light` drifted while other identities held a single hash. Single-identity faults happen here, and against one of those the twelve would sit unchanged and prove nothing.
+
+So compare the whole set, because it costs one extra comparison and catches the broad class. Do not read a clean twelve as a guarantee about the two.
+
+This is the second independent confirmation of §8.3's original finding, on the same two identities, three months later, with three procedural gaps closed in between.
 
 ### §8.4 Structural defenses landed during Phase G
 

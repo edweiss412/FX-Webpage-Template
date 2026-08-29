@@ -13,7 +13,7 @@ docs/review-rounds/<branch>/<baseSha12>.md      the filing — written by hand, 
 
 ## Who writes what
 
-- **The `.jsonl` rows are written by `scripts/codex-guard.mjs`** (via `scripts/reviewRoundEmit.mjs`) at dispatch time, from the `--stage` and `--round` flags that every dispatch is now required to pass. Nothing appends rows by hand, and nothing backfills them. The corpus root resolves against the git toplevel of `--cwd`, so a dispatch launched from a subdirectory still lands in the one gated corpus.
+- **The `.jsonl` rows are written by `scripts/codex-guard.mjs`** (via `scripts/reviewRoundEmit.mjs`) at dispatch COMPLETION, not when a dispatch starts, from the `--stage` and `--round` flags that every dispatch is now required to pass. `emitReviewRoundRow` fires immediately after the wrapper writes `result.json` (`scripts/codex-guard.mjs:1614`; and again at `:2152`, where it sits deliberately outside the `try` that writes `result.json` so a round is still recorded when that write throws). No row exists while a dispatch is in flight, which is the contract rather than a broken wrapper, so a session counting its own rounds mid-arc counts committed rows PLUS anything in flight. Nothing appends rows by hand, and nothing backfills them. The corpus root resolves against the git toplevel of `--cwd`, so a dispatch launched from a subdirectory still lands in the one gated corpus.
 - **The `.md` filing is written by a human or the arc's driving session**, in the format in spec §6, once a stage crosses the threshold.
 - **Both are committed with the arc**, like any other tracked file. A row that is never committed is invisible to CI, which is a documented limit (spec §8.3), not a defect the gate tries to close.
 
