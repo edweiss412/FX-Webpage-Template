@@ -137,6 +137,32 @@ This branch was corrected after adversarial review round 1, which was right that
 
 No other surface consumes this shape. `components/admin/showpage/AttentionMenu.tsx` and `components/admin/wizard/WizardAttentionMenu.tsx` are presentational: they take `open` as a prop and mount nothing on their own.
 
+### 5.1 What P-1 measured
+
+Ran 2026-08-29 against the live wizard tree in real Chromium, via the standalone config, over the control set §9.1 defines. **POSITIVE at every viewport.** Plan review round 2 was right that this document asserted the outcome and recorded the number nowhere, so the evidence lived only in a commit message and a temporary probe.
+
+| Viewport | Controls in set | Intercepted | Interceptors |
+| --- | --- | --- | --- |
+| 375x667 | 36 | 5 | as below |
+| 375x844 | 36 | 5 | as below |
+| 390x560 | 36 | 5 | as below |
+
+The same five controls at every viewport, each intercepted by a node INSIDE the panel:
+
+| Control | Intercepted by |
+| --- | --- |
+| `review-sheetlink` | `wizard-attention-needslook-heading` |
+| `review-chip-item-venue` | `wizard-attention-judgment-heading` |
+| `review-chip-item-event` | `wizard-attention-judgment-heading` |
+| `review-chip-item-crew` | `wizard-attention-judgment-heading` |
+| `section-venue-sheetlink` | `attention-row-2` |
+
+Every interceptor is inside the panel, which is what makes this the published surface's shape rather than an artefact of the pill's hit band or a scrollport edge. The published defect covers ONE control, the publish toggle. This covers the modal's first three navigation chips and both routes to the spreadsheet, and the chip rail is `overflow-x-auto`, so the covered chips are exactly the ones scrolled to the start. An operator arriving on a phone cannot navigate at all until they dismiss a menu they never opened.
+
+The disposition was fixed in writing before the probe ran (§5), which is why this is a measurement and not a judgment made after seeing the result.
+
+**One methodological note, kept because the fault is invisible from the assertion alone.** The probe's first version served the static harness page instead of the live one, so no React mounted and the arrival assertion failed in a way indistinguishable from a product finding. That is why the probe PRINTS a measurement rather than asserting a verdict: a harness fault and a real occlusion produce the same red, and only the printed control count separates them. A run reporting zero controls is a broken probe, not a clean surface.
+
 ## 6. Accessibility: the pill carries the count
 
 Suppression makes the pill the only channel for the count at phone widths, so the count has to be in the pill's accessible name. It already is, in visible text nodes rather than an `aria-label`, and no change is required. Verified in `components/admin/showpage/PublishedReviewModal.tsx`:
@@ -257,5 +283,5 @@ The obligations table lives in the PLAN, at `docs/superpowers/plans/2026-08-29-a
 - **A viewport between 639.98 and 640 CSS pixels** is desktop by this predicate and phone by nothing. Fractional viewport widths at exactly this boundary are not reachable on any device the product targets, and the consequence is a menu that opens on a 639.99px-wide window. Not defended.
 - **A browser without `matchMedia`** gets today's behavior, including the occlusion. Every target browser has implemented it for over a decade; the guard exists for jsdom, not for a real client.
 - **"No width is read during render" is not asserted by any test.** It holds by construction, because the predicate is a function called only inside an effect's animation frame and effects do not run on the server. The jsdom harness could not settle it either way: Testing Library's `render` is client-only and produces no server markup to mismatch against. Round 3 caught the earlier version of this spec claiming otherwise. A future change that moved the read into the render path would be a different design and is caught by reviewing that change, not by this suite.
-- **The wizard modal's occlusion status at <`sm`** is no longer a limit: P-1 ran on 2026-08-29 and came back POSITIVE at all three viewports. The measurement is in §5.1 and the wizard is repaired in this arc.
+- **The wizard modal's occlusion status at <`sm`** is no longer a limit: P-1 ran on 2026-08-29 and came back POSITIVE at all three viewports. The measurement is in §5.1, with the viewports, the control counts and every interceptor named, and the wizard is repaired in this arc.
 - **Zoom and text scaling** change the CSS viewport width, so a heavily zoomed desktop window can cross below `sm` and suppress the reveal. That is correct rather than a limit: at that point the layout IS the phone layout, and the toggle IS covered.
