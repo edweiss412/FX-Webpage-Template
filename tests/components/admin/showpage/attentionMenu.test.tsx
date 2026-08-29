@@ -8,6 +8,9 @@
  * click-outside close, listener teardown when closed.
  */
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { stripCommentsForFile } from "../../../_shared/stripComments";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRef } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -333,38 +336,73 @@ describe("AttentionMenu clip fit (§4.2)", () => {
     expect(scroller).not.toBe(screen.getByTestId("published-show-review-attention-menu"));
   });
 
-  test("the scroller is capped against the clip ancestor, not just by the CSS cap", () => {
+  // REWRITTEN 2026-08-28 (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW). This used to
+  // assert an inline `max-height` on the SCROLLER, written there by
+  // useFitWithinClip. The fitted cap now lands on the PANEL — it has to, because
+  // a cap on a non-scrolling parent whose scrolling child can paint through it is
+  // no cap at all — and it reaches the scroller through flexbox instead.
+  //
+  // What jsdom can prove is the STATIC half of that chain: the classes that make
+  // the cap reach the child. The MEASURED half — that the child actually shrinks
+  // and never paints past the panel — needs real layout and lives in
+  // popover-clip-fit.spec.ts, which asserts childSum against panel.clientHeight
+  // and scroller.bottom against panel.bottom. jsdom computes no layout and would
+  // pass on every failure mode there.
+  test("the cap reaches the scroller by flex, not by an inline cap written on it", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
     const scroller = screen.getByRole("group", { name: "Attention items" });
-    expect(scroller.style.maxHeight).toBe(expectedFitted());
-    expect(scroller.style.maxHeight, "wrote the CSS cap, so nothing was fitted").not.toBe(
-      `${CAP_PX}px`,
-    );
+    const panel = screen.getByTestId("published-show-review-attention-menu");
+    // The panel is the capped, clipping flex column.
+    expect(panel.className).toContain("flex");
+    expect(panel.className).toContain("flex-col");
+    expect(panel.className).toContain("overflow-hidden");
+    // `min-h-0` is the load-bearing one: without it a flex item's default
+    // `min-height: auto` refuses to shrink below its content and the panel's cap
+    // silently does nothing.
+    expect(scroller.className).toContain("min-h-0");
+    expect(scroller.className).toContain("flex-1");
+    // The DECLARED cap stays; the fitted cap composes with it.
+    expect(scroller.className).toContain("max-h-96");
+    // And the cap is no longer written onto the scroller itself.
+    expect(scroller.style.maxHeight).toBe("");
   });
 
-  test("an observer callback re-applies the fit even before the entrance settles", () => {
+  test("the component declares no VIEWPORT-derived width (AC-7)", () => {
+    // The defect this arc closes was `w-[min(400px,calc(100vw-32px))]`: a width
+    // measured against the viewport while the panel was anchored inside a clip
+    // inset from it. Asserted on the SOURCE because no guard scans CSS — the
+    // placement registry reads JS layout-viewport reads only, which is exactly
+    // how a `100vw` in a Tailwind class survived it.
+    // COMMENTS ARE STRIPPED FIRST. The component's own docblock explains what
+    // was removed and names `w-[min(400px,calc(100vw-32px))]` to do it, so a raw
+    // scan matches the explanation of the fix and reports the fix as the defect.
+    // That is the same comment-as-code confusion this arc's spec review caught in
+    // the class sweep; the stripper is the derived answer to it.
+    const rel = "components/admin/showpage/AttentionMenu.tsx";
+    const src = stripCommentsForFile(readFileSync(join(process.cwd(), rel), "utf8"), rel);
+    for (const unit of ["100vw", "100dvw", "100svw"]) {
+      expect(src, `${unit} is a viewport-derived width`).not.toContain(unit);
+    }
+  });
+
+  // REWRITTEN with its sibling above. The claim it made — that the observer path
+  // re-applies the fit independent of entrance progress — was read off an inline
+  // `max-height` on the scroller, which no longer exists. jsdom reports every rect
+  // as zero, so the placement core correctly refuses to place and writes no
+  // geometry at all; asserting numbers here would assert the stub, not the code.
+  //
+  // What survives in jsdom is that the re-place path is WIRED: a ResizeObserver
+  // is constructed and its callback registered. That the observer actually
+  // re-places on a structural flip is proven where it can be — the O2 -> O1
+  // frame-hold compound in popover-clip-fit.spec.ts, against real layout.
+  test("a ResizeObserver is wired so the placement re-runs on ancestor resize", () => {
     const clip = installLayoutStubs();
     renderMenuInto(clip);
-    const scroller = screen.getByRole("group", { name: "Attention items" });
-    const first = scroller.style.maxHeight;
-
-    // A React rerender cannot fire a ResizeObserver in jsdom, so the captured
-    // callback is invoked directly. The claim is bounded to exactly that: the
-    // observer path re-applies independent of entrance progress. That the
-    // O2 -> O1 structural flip actually triggers observation is proven by the
-    // useFitWithinClip offsetParent case and the real-browser frame-hold
-    // compound in popover-clip-fit.spec.ts.
-    geometry = { ...geometry, clipBottom: CLIP_BOTTOM_AFTER };
-    act(() => {
-      for (const cb of observerCallbacks) cb([], {} as ResizeObserver);
-      // The observer path is coalesced onto one frame, so the re-measure lands
-      // when the frame runs, not when the callback fires.
-      flushFrames();
-    });
-
-    expect(scroller.style.maxHeight).toBe(expectedFitted());
-    expect(scroller.style.maxHeight).not.toBe(first);
+    expect(
+      observerCallbacks.length,
+      "no ResizeObserver was constructed, so nothing re-places on resize",
+    ).toBeGreaterThan(0);
   });
 
   test("transition audit: entrance classes on the panel, instant unmount on close", () => {

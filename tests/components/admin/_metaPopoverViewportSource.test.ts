@@ -189,6 +189,12 @@ describe("popover placement consumers read the visible viewport, not the layout 
         // Same migration, same commit series: Re-sync's three overlays compose
         // the core too (2026-08-25). Three overlays, ONE consumer file.
         "components/admin/ReSyncButton.tsx",
+        // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW: the attention menu was the
+        // LAST consumer of useFitWithinClip, and the hook is retired with this
+        // migration. It composes the same core and inherits the same contract.
+        // Like the rows above it joined by being DISCOVERED, not by being added
+        // in advance.
+        "components/admin/showpage/AttentionMenu.tsx",
       ].sort(),
     );
   });

@@ -28,8 +28,21 @@
  * mount-frame idiom — pre-frame opacity-0 scale-95, flipped on the next rAF;
  * reduced-motion renders instant. Close is instant (unmount).
  */
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { PopoverHostContext } from "@/components/admin/HoverHelp";
+import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { withNaturalSize } from "@/lib/popover/naturalSize";
+import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
+import type { Rect } from "@/lib/popover/position";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
 import type { WarningAttentionEntry } from "@/lib/admin/warningAttention";
@@ -332,10 +345,133 @@ export function AttentionMenuFrame({
   // listener below reads it at event time rather than closing over a snapshot.
   const engagedRef = useRef(!escTransparentUntilEngaged);
   const [entered, setEntered] = useState(false);
-  // Re-apply key is the entrance flag: the scale-95 entrance distorts the
-  // measured rect, and the mount measurement runs before the entrance rAF, so
-  // the settled cap needs a second pass (spec §4.2).
-  const fitRef = useFitWithinClip(entered);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // The clipping ReviewModalShell panel, which is also the portal target.
+  // `ReviewModalShell` provides its own `panelRef` here, so the host rect IS the
+  // clip the e2e suites measure. Null host (no provider) degenerates to the body
+  // and to viewport bounds, which is the right answer where nothing clips.
+  const hostRef = useContext(PopoverHostContext);
+
+  const toRect = (r: DOMRect): Rect => ({
+    left: r.left,
+    top: r.top,
+    right: r.right,
+    bottom: r.bottom,
+    width: r.width,
+    height: r.height,
+  });
+
+  // BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW. The panel used to size itself with
+  // `w-[min(400px,calc(100vw-32px))]` and anchor with `right-0`, i.e. against the
+  // VIEWPORT while anchored inside a clip. At phone widths it grew leftwards past
+  // the clip's edge (measured -36 on both review modals, at rest). The shared
+  // placement core clamps x into the bounds it is given
+  // (`lib/popover/position.ts:138-139`), which is the repair; the width cap it
+  // also returns is inert here and is written for correctness outside the probe
+  // domain rather than because it fires.
+  const measureAndApply = useCallback(() => {
+    const panel = panelRef.current;
+    if (panel === null) return;
+    // The ANCHOR is the panel's own offset parent — the pill's wrapper — not the
+    // pill. That is what `right-0 top-[calc(100%+8px)]` anchored to before this
+    // migration, and reproducing it is the difference between refining the
+    // existing geometry and moving it.
+    //
+    // Anchoring to `pillRef` was tried and is wrong on the VERTICAL axis: the
+    // wrapper is taller than the pill (it carries the title block), so a panel
+    // hung off the pill's bottom edge sits higher than one hung off the
+    // wrapper's, and it then overlays the status strip beneath. Measured: the
+    // published toggle became unclickable, with a monitoring row intercepting
+    // its pointer events. `pillRef` remains the dismissal inside-set; it is not
+    // the placement anchor.
+    const anchor = panel.offsetParent;
+    if (anchor === null) return;
+    const host = hostRef?.current ?? document.body;
+    const hostRaw = host === document.body ? null : host.getBoundingClientRect();
+    const triggerRect = anchor.getBoundingClientRect();
+    if (triggerRect.width <= 0 || triggerRect.height <= 0) return;
+
+    const placement = withNaturalSize(panel, (probe) => {
+      const natural = panel.getBoundingClientRect();
+      if (natural.width <= 0 || natural.height <= 0) return null;
+      return placeWithinVisibleViewport(window, {
+        hostRect: hostRaw === null ? null : toRect(hostRaw),
+        trigger: toRect(triggerRect),
+        naturalSize: { width: natural.width, height: natural.height },
+        wrappedHeightAt: probe.heightAtWidth,
+        preferredSide: "bottom",
+        align: "right",
+        warnKey: panel,
+      });
+    });
+    if (placement === null) return;
+    if (placement.kind === "hidden") {
+      panel.style.visibility = "hidden";
+      return;
+    }
+    panel.style.visibility = "";
+    // The panel stays IN PLACE in the DOM, so its coordinates are relative to its
+    // own offset parent — the pill wrapper — not to the host. The host supplies
+    // the BOUNDS and nothing else.
+    //
+    // It is deliberately NOT portaled into the host, unlike the other consumers
+    // of this stack. They portal to escape a clip they would otherwise overhang;
+    // this panel no longer overhangs anything, because the placement core clamps
+    // it into the host's bounds. Portaling it anyway was tried and REGRESSES
+    // KEYBOARD ORDER: the panel becomes a late child of the modal, so Tab from
+    // the pill lands on the modal's close button instead of the menu, which the
+    // suite pins as an accessibility contract. Sequential focus order follows DOM
+    // order, and the focus TRAP being preserved (which portaling into the host
+    // does preserve) is a different property from the order within it.
+    // The anchor IS the offset parent, so viewport coordinates convert by
+    // subtracting its rect.
+    const left = placement.viewport.x - triggerRect.left;
+    const top = placement.viewport.y - triggerRect.top;
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    if (placement.maxWidth !== null) panel.style.maxWidth = `${placement.maxWidth}px`;
+    else panel.style.removeProperty("max-width");
+    if (placement.maxHeight !== null) panel.style.maxHeight = `${placement.maxHeight}px`;
+    else panel.style.removeProperty("max-height");
+  }, [hostRef]);
+
+  // `entered` is the ONLY re-place signal, and one is enough. The entrance
+  // distorts the measured rect — the mount measurement runs before the entrance
+  // rAF — so the settled placement needs a second pass. It used to be the
+  // `useFitWithinClip` re-apply key and it does the same job here.
+  //
+  // Deliberately NOT a `transitionend` listener: Tailwind v4 compiles `scale-*`
+  // to the INDIVIDUAL `scale` property, which is absent from this panel's
+  // `transition-property` (`opacity, transform`), so the geometry change is
+  // instant in BOTH motion modes and no transition event for it is ever
+  // dispatched. A listener filtered to `transform` would never fire, and under
+  // `motion-reduce:transition-none` nothing fires at all.
+  useLayoutEffect(() => {
+    measureAndApply();
+  }, [measureAndApply, entered]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const coalescer = createRafCoalescer(measureAndApply);
+    const schedule = () => coalescer.schedule();
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, { capture: true, passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    const host = hostRef?.current ?? null;
+    if (ro !== null) {
+      if (panelRef.current !== null) ro.observe(panelRef.current);
+      if (host !== null) ro.observe(host);
+    }
+    return () => {
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, { capture: true });
+      ro?.disconnect();
+      coalescer.cancel();
+    };
+  }, [mounted, measureAndApply, hostRef]);
 
   // Entrance flip inside the rAF callback (async — the rail-indicator idiom).
   // MOUNT-SCOPED, deliberately separate from the listener effect below (whole-diff
@@ -387,7 +523,9 @@ export function AttentionMenuFrame({
     };
   }, [onClose, pillRef]);
 
-  return (
+  if (!mounted) return null;
+
+  const panel = (
     <div
       ref={panelRef}
       data-testid={testId}
@@ -402,11 +540,40 @@ export function AttentionMenuFrame({
       onFocusCapture={() => {
         engagedRef.current = true;
       }}
-      className={`absolute top-[calc(100%+8px)] right-0 z-dropdown w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-popover transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
+      // Position is REFINED, not declared. `left`/`top` and the fitted
+      // `max-width`/`max-height` are written inline by the placement effect; the
+      // `top-[calc(100%+8px)] right-0` here is the CSS FALLBACK that holds until
+      // the first placement lands, and it is load-bearing rather than vestigial:
+      // a panel whose placement returns early (a zero-area natural measurement
+      // before layout settles) would otherwise be `absolute` with no offsets at
+      // all, sprawl at its static position, and swallow pointer events over the
+      // controls beneath it. Measured: without it, the published toggle became
+      // unclickable because a monitoring row sat on top of it.
+      //
+      // What is GONE is `w-[min(400px,calc(100vw-32px))]`, which sized the panel
+      // against the VIEWPORT while it was anchored inside a clip. That is the
+      // overhang this arc closes.
+      //
+      // The 400px NATURAL width is declared and nothing else is: the placement
+      // core caps it to the clip's inset bounds when they are narrower, which is
+      // the measurement the old `calc(100vw-32px)` was approximating badly. At
+      // 375 that yields 359 (the clip's 375 less the 8px inset per side), not the
+      // 343 the viewport formula produced — 16px MORE usable width, still fully
+      // contained.
+      //
+      // DIMENSIONAL INVARIANTS. The fitted cap lands on this panel, so the panel
+      // must clip and must let its scrolling child shrink: `flex flex-col` to
+      // stack heading and scroller, `overflow-hidden` so nothing paints past the
+      // cap, and — on the scroller below — `flex-1 min-h-0`, without which a flex
+      // item's default `min-height: auto` refuses to shrink below its content and
+      // the cap silently does nothing.
+      className={`absolute top-[calc(100%+8px)] right-0 z-dropdown flex flex-col overflow-hidden rounded-md border border-border bg-surface-raised shadow-popover origin-top-right transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none w-[400px] ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >
-      {heading ?? null}
+      {heading === undefined || heading === null ? null : (
+        <div className="shrink-0">{heading}</div>
+      )}
       {/* The scroller, not the panel, is the SCROLLABLE REGION: it owns the
           scroll range, and it can overflow with zero focusable descendants (a
           monitoring-only list is entirely read-only rows), so engines cannot be
@@ -415,18 +582,23 @@ export function AttentionMenuFrame({
           maps to `generic`, which is naming-prohibited, so aria-label alone
           would be invalid (spec §4.2). The panel above keeps its own group role
           naming the leading section; this is a second, nested region.
-          `useFitWithinClip` caps max-h-96 against the review-modal panel's clip
-          edge; `entered` is the re-apply key so the cap is re-measured once the
-          scale-95 entrance has settled (spec §4.2). */}
+
+          `max-h-96` stays as the DECLARED cap. The FITTED cap now lands on the
+          panel and reaches this element through `flex-1 min-h-0`; whichever of
+          the two binds first wins. */}
       <div
-        ref={fitRef}
+        ref={scrollerRef}
         role="group"
         aria-label={scrollerLabel}
         tabIndex={0}
-        className="max-h-96 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset"
+        className="max-h-96 min-h-0 flex-1 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-inset"
       >
         {children}
       </div>
     </div>
   );
+
+  // Rendered IN PLACE. `PopoverHostContext` is read for the clip BOUNDS only —
+  // see the placement effect for why this consumer does not portal.
+  return panel;
 }

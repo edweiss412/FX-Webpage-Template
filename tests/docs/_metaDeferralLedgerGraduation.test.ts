@@ -411,8 +411,11 @@ const BACKLOG_GRADUATED = [
   { id: "BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS", provenance: "fix/admin-popover-overlay-cluster" },
   // Filed as unverified-gap by the popover-overlay registry, then MEASURED: at
   // 390x560 the menu overhung the clipping panel by 55px with a 54px stranded
-  // tail. The scroller now takes the shared useFitWithinClip and gains a named,
-  // tabbable scrollable-region role.
+  // tail. The scroller took the shared useFitWithinClip and gained a named,
+  // tabbable scrollable-region role. That hook was retired 2026-08-28
+  // (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW) when this same overlay migrated to
+  // placeWithinVisibleViewport; the height cap now reaches the scroller through
+  // the panel's fitted max-height. The role is unchanged.
   { id: "BL-ATTENTION-MENU-PANEL-CLIP", provenance: "fix/admin-popover-overlay-cluster" },
   // Same class on the anchored refusal banner (measured overhang 43.7px past a
   // 220px clip): capped against the clip edge, made a real scroll container,

@@ -378,6 +378,28 @@ The validation exposure is therefore local-only, which makes it exactly the kind
 
 **Direction, not yet decided, and deliberately not taken in the filing arc** (bl-orch ruling 2026-08-28). Three candidates, in ascending blast radius: correct the preflight sentence, which costs one line and removes the misdirection but leaves the trap; scrub or override `TEST_DATABASE_URL` in the Playwright `webServer` env so the app server under e2e is loopback by construction, which fixes every route at once and is the narrowest real repair; or revisit the `??` idiom itself, which is 40 sites and wants its own arc. The first two are compatible and could ship together.
 
+### BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths
+
+**Status:** OPEN · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.
+
+**What is wrong.** The attention menu auto-opens when actionable items exist (published-show-alerts §5.2). Now that it is CONTAINED inside the review-modal clip, it occupies the horizontal band its anchor sits in, and at 375 that band includes the published toggle. An operator arriving at the modal on a phone finds the toggle covered until they dismiss a menu they never opened.
+
+**Reachability:** PROBED 2026-08-28 at 375x667, real Chromium, published review modal, measured in-page:
+
+```
+menu   left 8       right 367     width 359    (contained: clip is 0..375)
+clip   left 0       right 375
+toggle left 307     right 355     top 497      bottom 525
+overlaps: true      pointer events intercepted by an attention monitoring row
+```
+
+**This is a CONSEQUENCE of the containment fix, not a defect in it, and the two are not simultaneously satisfiable at this width.** Before containment the panel overflowed the clip's left edge by 36px, and that overflow is the only reason its right edge stopped at 307 — exactly where the toggle begins. A contained panel must extend right: even at the pre-fix 343px width the clamp lands it at 8..351, still over the toggle. Sitting beside the toggle was never a designed property; it was a side effect of being broken.
+
+**Why this is a product decision and not a geometry patch.** The candidate repairs are all product choices, not placement arithmetic: suppress auto-open below some width; flip the menu above its anchor at phone widths so it covers the header rather than the strip; or accept the overlap as ordinary dismissible-overlay behaviour and change nothing. The third is what ships today, ruled by bl-orch 2026-08-28 on the ground that a dismissible overlay covering content until dismissed is standard menu semantics.
+
+**Prerequisite:** an owner decision from Eric on whether auto-open should be suppressed or repositioned at phone widths. The geometry to implement any of the three already exists — `lib/popover/position.ts` selects and flips sides — so this is gated on the call, not on the mechanism.
+
+
 ### BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals
 
 **Status:** IN PROGRESS · **Branch:** fix/attention-panel-left-overflow · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.

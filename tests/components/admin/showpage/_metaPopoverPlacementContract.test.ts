@@ -30,11 +30,15 @@ import {
 
 const IMPORT_FOR_DISPOSITION: Partial<Record<OverlayRow["disposition"], RegExp>> = {
   "placement-module": /from\s+"@\/lib\/popover\/position"/,
-  // Requires the SHARED-MODULE import, not merely the identifier. The old
-  // /useFitWithinClip/ also matched a file that declared its own local copy, so
-  // a consumer could silently fork the hook and stay "registered as fit-within-
-  // clip" (spec §4.1; the escaping mutant is quoted in this task's commit).
-  "fit-within-clip": /from\s+"@\/components\/admin\/useFitWithinClip"/,
+  // `fit-within-clip` RETIRED 2026-08-28 (BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW).
+  // The attention menu was its last holder and migrated to the placement module;
+  // the hook this row matched no longer exists, so a mapping for it would name a
+  // deleted path. The disposition remains in the union for archival rows to be
+  // typed against, and a live row reintroducing it would find no import pattern
+  // here and fail loudly rather than silently pass.
+  //
+  // Kept as prose rather than an entry, deliberately: `Partial<Record<...>>` means
+  // an absent key is legal, and an entry pointing at a deleted module is not.
 };
 
 type LiveOverlay = { file: string; marker: string; line: number };
