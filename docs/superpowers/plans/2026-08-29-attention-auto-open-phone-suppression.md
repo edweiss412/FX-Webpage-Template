@@ -235,7 +235,8 @@ Every §2 row now carries its AC id as the first token of its "Settled by" cell,
 
 ```
 # every §2 row has an AC id or a stated disposition
-awk '/^## 2\./,/^## 3\./' <plan> | grep '^| ' | grep -v '^| ---' | grep -v 'AC-' \
+awk '/^## 2\./,/^## 3\./' <plan> | grep '^| ' | grep -v '^| ---' | grep -v '^| Claim' \
+  | grep -v 'AC-' \
   | grep -vE 'NOT ASSERTED|Unchanged|No new assertion|NO AC'      # expect: empty
 
 # declared ids and claimed ids agree
@@ -334,6 +335,47 @@ Round 4 of whole-diff review found this table's FIRST version incomplete — it 
 **The fleet lesson bl-orch logged from this**, kept here because the next arc reading this plan is the audience: a mid-task commit split gets squashed BEFORE the first diff dispatch, or not at all. After that, the review lineage is worth more than the boundary.
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
+
+### 12.3 Closing self-check: the acceptance-id reconciliations, run at the final head
+
+Ordered by bl-orch when the diff stage was accepted at its cap. The diff stage's filing names
+one dominant class across all four rounds — an `ac=` id claimed by a task marker with nothing
+behind it — and concludes the reconciliation should have run before the first dispatch. So it
+runs here, at the head that ships, and the output is recorded rather than described.
+
+Head: `6a81573a94a53318cfc2348626e8e929d6e6994a`.
+
+**§2 rows carry an id (repaired form).** Zero lines. The form printed in §4 above was wrong and
+had been since authoring: it strips the separator row but not the table HEADER, and
+`| Claim | Where | Settled by |` contains neither `AC-` nor any disposition string, so it was
+emitted every time and the check could never return empty. The claim a few paragraphs up that
+"the first returns nothing" was therefore false when written. Repaired here by excluding the
+header; 23 data rows, all conforming. Worth naming plainly: this is a check that asserted its
+own cleanliness and was never run against that assertion, which is the same shape as the class
+the whole stage kept finding.
+
+**Declared (§4) vs claimed (task markers).** 21 declared, 21 claimed, `diff` empty in both
+directions.
+
+**Claimed vs present in this arc's own test files.** 21 claimed, 25 ids across the twelve test
+files the branch touches. Two residuals, both dispositioned rather than waved past:
+
+- `AC-IMPECCABLE` is claimed and appears in no test file of this arc. Correct, and the check
+  cannot see why: it is settled by `tests/docs/_metaInvariant8Closeout.test.ts`, a repo-wide
+  guard this branch does not modify, which reads the marker line at §12.1. Proved executably at
+  this head rather than argued — 14 passed — and §3.1's red leg shows the same guard failing
+  without the marker. **A set-diff over test-file contents structurally cannot settle an id whose
+  settling artifact is an unchanged generic guard.** That is the limit of this check, and it is
+  the reason the check is a closing self-check and not a gate.
+- `AC-2`, `AC-5`, `AC-10`, `AC-11`, `AC-13` appear in touched files and are claimed by nothing
+  here. All pre-existing, belonging to earlier arcs, in files this branch touches for unrelated
+  reasons — a line-keyed census, the standalone baseline, and an older wizard spec. Not this
+  arc's obligations.
+
+**One correction to the filing's own phrasing.** It states the check as "extract the ids from
+every `ac=` and from every test file". Run literally against `tests/`, the right-hand set is 114
+ids from every arc in the repo and the output is unreadable. The check is only meaningful scoped
+to the branch's own touched test files, which is how it is run above.
 
 ### Close-out step (NOT a numbered task, and outside the contract region) — graduation
 
