@@ -550,6 +550,12 @@ The two-line cell grows dashboard row height → committed help-screenshot WebPs
 Sanctioned regen — capture FROM the pinned Docker image (same command the workflow uses), which requires the local Supabase stack up (`bash scripts/ci/supabase-local-bootstrap.sh` if not already running):
 
 ```bash
+# INCOMPLETE ON AN ARM64 HOST, and silently so: this bind-mounts the host's
+# darwin-arm64 node_modules into a linux-x64 container, and in a worktree it also
+# bind-mounts a .env.local symlink whose target is not mounted. Both kill the build
+# before any page renders. Use the corrected block in the G-affordance handoff's §7
+# (../../v1-pre-deployment-amendments/2026-05-12-user-facing-docs/handoffs/G-affordance-retrofit.md),
+# which adds an in-container `pnpm install` and holds .env.local aside.
 docker run --rm --platform linux/amd64 --network host \
   -v "$PWD:/work" -w /work -e CI=true \
   mcr.microsoft.com/playwright:v1.59.1-jammy \
