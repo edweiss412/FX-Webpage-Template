@@ -110,10 +110,15 @@ type WebServer = {
  * adding a database one is an ordinary edit -- and it would leave every assertion below green
  * while the server took the value from the command.
  *
- * This is an absence assertion over one short string, not a recognizer: there is no grammar to
- * grow, only a variable name that must not be assigned there.
+ * The check is that the NAME does not appear in the command at all, not that some assignment
+ * grammar matches. A pattern keyed to `\sNAME=` was tried and missed the ordinary quoted forms
+ * `env "TEST_DATABASE_URL=..."` and `env 'TEST_DATABASE_URL=...'`, which are exactly what one
+ * writes for a DSN containing shell-sensitive characters. Widening that pattern to cover quotes
+ * would invite the next quoting form; asking whether the name occurs at all has no grammar to
+ * grow and no next form. These commands are short, none mentions a database variable for any
+ * legitimate reason, and one that needed to would be a deliberate change reviewed here.
  */
-const DB_ASSIGNMENT_IN_COMMAND = /(?:^|\s)(?:TEST_)?DATABASE_URL=/;
+const DB_VARIABLE_NAME = /DATABASE_URL/;
 
 /**
  * Dynamic import, which disk discovery requires, can wrap the default export one level
@@ -180,8 +185,8 @@ describe("every Playwright webServer pins a loopback database", () => {
       const label = `${file} ${server.url ?? `entry ${i}`}`;
       expect(
         server.command ?? "",
-        `${label}: the command assigns a database variable, which the shell applies AFTER the merged env and so overrides the pin`,
-      ).not.toMatch(DB_ASSIGNMENT_IN_COMMAND);
+        `${label}: the command mentions a database variable, and a shell assignment there is applied AFTER the merged env, so it overrides the pin`,
+      ).not.toMatch(DB_VARIABLE_NAME);
       for (const key of DB_KEYS) {
         const value = server.env?.[key];
         expect(

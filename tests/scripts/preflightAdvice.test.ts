@@ -62,6 +62,16 @@ const EXPECTED_WARNING = [
   "      Setting DATABASE_URL does not work, because TEST_DATABASE_URL is the left `??` operand.",
 ].join("\n");
 
+/**
+ * What may legitimately precede the warning on stderr. Empty when `.env.local` exists, and the
+ * untracked-file notice when it does not, which is every clean CI checkout.
+ */
+const ACCEPTED_PREFIXES = [
+  "",
+  `preflight: no .env.local at ${join(ROOT, ".env.local")}\n` +
+    "  Fresh worktree? Run:  pnpm worktree:link-env  (symlinks it from the main checkout)",
+];
+
 function runPreflight(testDatabaseUrl: string) {
   const r = spawnSync(process.execPath, [join(ROOT, "scripts", "preflight-env.mjs"), "--no-db"], {
     cwd: ROOT,
@@ -87,6 +97,13 @@ function runPreflight(testDatabaseUrl: string) {
  * If preflight ever emits another warning on stderr in this configuration, this test fails and
  * the expected value is updated with it. That is the correct direction: new stderr copy is a
  * copy change like any other, and reviewing it is the point of the guard.
+ *
+ * One prefix is legitimate and environment-dependent: `.env.local` is untracked, so a clean CI
+ * checkout does not have it and preflight says so on stderr before anything else. That is
+ * correct behaviour, and an oracle that ignored it would fail this test in CI while passing
+ * locally. It is ACCEPTED rather than skipped over: the prefix must be empty or exactly that
+ * notice, and the remainder must equal the warning, so both halves are asserted and neither is
+ * an unexamined region.
  */
 
 describe("preflight's non-loopback TEST_DATABASE_URL warning", () => {
@@ -106,6 +123,17 @@ describe("preflight's non-loopback TEST_DATABASE_URL warning", () => {
     // Equality over the WHOLE stream, so any edit fails wherever it lands: a reworded broken
     // remedy, an inverted polarity, a clause appended after, a line inserted before, a
     // corrupted DSN, or a wrong variable name.
-    expect(runPreflight(REMOTE).stderr.trimEnd()).toBe(EXPECTED_WARNING);
+    const stderr = runPreflight(REMOTE).stderr.trimEnd();
+    const at = stderr.indexOf("WARN: TEST_DATABASE_URL is NON-LOOPBACK");
+    expect(at, "the warning is absent from stderr entirely").toBeGreaterThanOrEqual(0);
+
+    // BOTH halves are asserted. The prefix is empty locally, and in a clean checkout it is the
+    // untracked-.env.local notice and nothing else.
+    const prefix = stderr.slice(0, at).trimEnd();
+    expect(
+      ACCEPTED_PREFIXES,
+      `unexpected stderr before the warning: ${JSON.stringify(prefix)}`,
+    ).toContain(prefix);
+    expect(stderr.slice(at)).toBe(EXPECTED_WARNING);
   });
 });
