@@ -342,13 +342,23 @@ export function PerShowActionableWarnings({
         // Renders in BOTH modes: a condensed card sits under its crew row, where two #REF!
         // cells in one member's row still need telling apart. Unlike `fieldBand`'s value
         // this is not junk to reproduce, so it carries no quotes.
+        // `min-w-0` + `flex-wrap` + `wrap-break-word` rather than `detailBand`'s plainer
+        // wrapper: `${title}!${a1}` has no break opportunity at its join and a tab title is
+        // unbounded sheet data, so on a 390px condensed card the value would overflow. Same
+        // treatment `fieldBand` and `candidateBand` already carry, and the same
+        // `wrap-break-word` as the wizard twin, so one value does not wrap two ways.
+        // `shrink-0` keeps the eyebrow off a second line. (impeccable critique P2#1,
+        // audit P3#2/#3.)
         const cellBand: ReactNode = cellRef ? (
-          <span className="inline-flex items-center gap-1.5" data-testid="per-show-actionable-cell">
-            <span className="text-[10px] font-semibold tracking-wider text-warning-text uppercase">
+          <span
+            className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
+            data-testid="per-show-actionable-cell"
+          >
+            <span className="shrink-0 text-[10px] font-semibold tracking-wider text-warning-text uppercase">
               Sheet cell
             </span>
             <span
-              className="font-mono text-xs text-text"
+              className="min-w-0 font-mono text-xs wrap-break-word text-text"
               data-testid="per-show-actionable-cell-value"
             >
               {cellRef}
