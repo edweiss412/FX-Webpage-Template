@@ -37,8 +37,11 @@ describe("/help prose typography layer — structural wiring", () => {
     // Headings restored via the canonical size-scale tokens (DESIGN.md §2.2).
     expect(region, "h1 must use --text-2xl").toMatch(/h1\b[\s\S]*?var\(--text-2xl\)/);
     expect(region, "h2 must use --text-xl").toMatch(/h2\b[\s\S]*?var\(--text-xl\)/);
-    // A reading measure (DESIGN.md §2.5: 65–75ch).
-    expect(region, "must cap the reading measure").toMatch(/max-width:\s*\d+ch/);
+    // A reading measure (DESIGN.md §2.5: 65–75ch). Retargeted with the cap move:
+    // the literal now lives on the --help-measure declaration rather than on a
+    // max-width, because the measure is applied to the children through a
+    // registered length. Not weakened — this still fails if the measure disappears.
+    expect(region, "must cap the reading measure").toMatch(/--help-measure:\s*\d+ch/);
     // List markers restored (preflight strips them).
     expect(region, "ul marker restored").toMatch(/list-style:\s*disc/);
     expect(region, "ol marker restored").toMatch(/list-style:\s*decimal/);
@@ -54,6 +57,36 @@ describe("/help prose typography layer — structural wiring", () => {
     // Step / Callout) still win over the prose defaults.
     expect(css, ".help-prose must be authored in @layer base").toMatch(
       /@layer\s+base\s*\{[\s\S]*\.help-prose/,
+    );
+  });
+
+  it("a help-bleed child can escape the measure while its siblings keep it", () => {
+    const css = read("app/globals.css");
+    const start = css.indexOf(".help-prose");
+    const region = css.slice(start);
+
+    // The measure is carried by an @property-REGISTERED length, and the
+    // registration is load-bearing rather than decorative: `ch` resolves against
+    // the element's own font, so an unregistered custom property substitutes the
+    // tokens "70ch" into each child and re-resolves them per font — which sends
+    // every heading level wider than the column it sits in. Registering with
+    // syntax "<length>" computes it once, in the wrapper's font context, and
+    // inherits it as an absolute length.
+    expect(css, "the measure must be an @property-registered <length>").toMatch(
+      /@property\s+--help-measure\s*\{[\s\S]*?syntax:\s*"<length>"/,
+    );
+    expect(region, "the wrapper declares the measure").toMatch(/--help-measure:\s*\d+ch/);
+
+    // Scoped to the CHILDREN, not the wrapper: a cap on the wrapper is one no
+    // child can exceed, so no opt-out is expressible at all.
+    expect(region, "children carry the measure").toMatch(
+      /\.help-prose\s*>\s*\*\s*\{[\s\S]*?max-width:\s*var\(--help-measure\)/,
+    );
+
+    // The escape itself. Without this rule the bleed class is inert and every
+    // grid stays inside the reading column.
+    expect(region, "help-bleed lifts the measure").toMatch(
+      /\.help-prose\s*>\s*\.help-bleed\s*\{[\s\S]*?max-width:\s*none/,
     );
   });
 

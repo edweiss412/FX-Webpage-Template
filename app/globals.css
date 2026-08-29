@@ -1206,9 +1206,40 @@ details[open] > summary [data-agenda-day-count] {
  * Reading measure honors DESIGN.md §2.5 (cap 65–75ch); the desktop column was
  * ~113ch unconstrained.
  */
+/* The reading measure is carried by a REGISTERED length, and the registration is
+   load-bearing rather than tidy. `ch` resolves against the element's OWN font, so an
+   unregistered custom property substitutes the tokens "70ch" into each child and
+   re-resolves them per font — measured: every heading level then renders wider than
+   the column it sits in, on all fourteen /help pages. Registering with
+   syntax "<length>" computes it ONCE, in the wrapper's font context, and inherits it
+   as an absolute length.
+
+   Scoped to the children rather than the wrapper because a cap on the wrapper is one
+   no child can exceed: there is no way to express an opt-out. Every current direct
+   child was already bounded by the parent's 70ch and the wrapper is not centred, so
+   capping each child at the same absolute length renders identically — verified
+   across the twelve child kinds that occur (h1-h3, p, ul, table, aside, figure, nav,
+   a flex Step block, an inline span, and the errors page's focus:absolute skip link).
+
+   Spec: docs/superpowers/specs/2026-08-29-help-tour-grid-and-settings-card.md §2.1. */
+@property --help-measure {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
 @layer base {
   .help-prose {
-    max-width: 70ch;
+    --help-measure: 70ch;
+  }
+
+  .help-prose > * {
+    max-width: var(--help-measure);
+  }
+
+  /* The escape hatch the card grids take. Without this the bleed class is inert. */
+  .help-prose > .help-bleed {
+    max-width: none;
   }
 
   .help-prose > h1 {
