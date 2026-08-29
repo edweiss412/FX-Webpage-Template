@@ -13,6 +13,8 @@ import {
   RESCAN_REVIEW_REQUIRED,
 } from "@/lib/onboarding/rescanReviewCode";
 import { parseShadowPayloadForApply } from "@/lib/onboarding/shadowPayload";
+import type { StagedIgnoreEntry } from "@/lib/admin/wizardWarningModel";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { asParseResult } from "@/lib/db/coerceJsonbObject";
 import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
@@ -78,6 +80,18 @@ type PriorState = {
   priorParse: ParseResult | null;
   priorDataGaps: DataGapsSummary | null;
   priorStagedModifiedTime: unknown;
+  /**
+   * The staged decisions that ride the Flow-B shadow, and ONLY the shadow.
+   *
+   * Flow A never needs these: its `pending_syncs` row survives the heal and the
+   * restage upsert's `do update set` does not touch either column, so they are
+   * preserved in place. Flow B deleted that row in Phase B, which makes the shadow
+   * payload their sole copy — and this core deletes the shadow. Null means "no
+   * shadow copy to restore", never "restore emptiness": the write below is skipped
+   * entirely rather than clobbering a live column with `[]`.
+   */
+  priorIgnoredWarnings: StagedIgnoreEntry[] | null;
+  priorUseRawDecisions: UseRawDecision[] | null;
 };
 
 /**
@@ -123,6 +137,9 @@ async function capturePriorState(
       priorParse,
       priorDataGaps: priorParse ? summarizeDataGaps(priorParse.warnings) : null,
       priorStagedModifiedTime: ps.staged_modified_time,
+      // Flow A: the row is alive and keeps both columns through the restage upsert.
+      priorIgnoredWarnings: null,
+      priorUseRawDecisions: null,
     };
   }
 
@@ -142,6 +159,9 @@ async function capturePriorState(
         priorParse: parsed.parseResult,
         priorDataGaps: summarizeDataGaps(parsed.parseResult.warnings),
         priorStagedModifiedTime: parsed.stagedModifiedTime,
+        // Flow B: the shadow is the only copy, and this core deletes it below.
+        priorIgnoredWarnings: parsed.ignoredWarnings,
+        priorUseRawDecisions: parsed.useRawDecisions,
       };
     }
     // Corrupt shadow: can't diff for cleanliness → prior=null (drives the §6 DIRTY clause).
@@ -151,6 +171,8 @@ async function capturePriorState(
       priorParse: null,
       priorDataGaps: null,
       priorStagedModifiedTime: null,
+      priorIgnoredWarnings: null,
+      priorUseRawDecisions: null,
     };
   }
 
@@ -160,6 +182,8 @@ async function capturePriorState(
     priorParse: null,
     priorDataGaps: null,
     priorStagedModifiedTime: null,
+    priorIgnoredWarnings: null,
+    priorUseRawDecisions: null,
   };
 }
 
@@ -263,6 +287,41 @@ export async function applyRescanDecisionUnderLock(
   }
   const sentinelItems = stagedRow.triggered_review_items ?? [];
   const changed = isoOf(stagedRow.staged_modified_time) !== isoOf(prior.priorStagedModifiedTime);
+
+  // Restore the Flow-B shadow's staged decisions onto the row the restage just created.
+  //
+  // Whole-diff R1 P0. In Flow B the `pending_syncs` row was consumed in Phase B, so the
+  // restage above INSERTS a fresh one and both of these columns take their `'[]'`
+  // defaults. The shadow that held the operator's real decisions is deleted a few lines
+  // below. Without this write the dismissals are gone with nothing said, and the warning
+  // the operator dismissed comes back — the one failure §1.1.7's fail-toward-visible
+  // posture must never produce by accident.
+  //
+  // Placed HERE, after the readback proves the row exists and before the dirty/clean
+  // fork, so BOTH outcomes restore it: a demoted row is re-reviewed and re-finalized
+  // later, and it must carry the same decisions a clean one does.
+  //
+  // Null-guarded, not empty-guarded: null means Flow A (or first-seen), where the live
+  // column is authoritative and must not be clobbered with `[]`. An empty array from a
+  // shadow that genuinely held no decisions is written as `[]`, which is what it means.
+  //
+  // `use_raw_decisions` rides the shadow for the same Flow-B reason and was lost to the
+  // same omission. Repaired together: this is one defect shape, and fixing only the
+  // column this arc introduced would leave the identical hole one line away.
+  if (prior.priorIgnoredWarnings !== null || prior.priorUseRawDecisions !== null) {
+    await tx.unsafe(
+      `update public.pending_syncs
+          set ignored_warnings = coalesce($3::jsonb, ignored_warnings),
+              use_raw_decisions = coalesce($4::jsonb, use_raw_decisions)
+        where wizard_session_id = $1::uuid and drive_file_id = $2`,
+      [
+        wizardSessionId,
+        driveFileId,
+        prior.priorIgnoredWarnings === null ? null : JSON.stringify(prior.priorIgnoredWarnings),
+        prior.priorUseRawDecisions === null ? null : JSON.stringify(prior.priorUseRawDecisions),
+      ],
+    );
+  }
 
   // (b) heal finalize state (idempotent — no-op for a fresh Flow-A row, the blocker fix for Flow B).
   await tx.unsafe(

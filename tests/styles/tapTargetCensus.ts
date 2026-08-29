@@ -323,7 +323,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // Then 4124 -> 4121 on the 2026-08-29 three-way absorb of #940/#941/#942. The scanner
     // on the merged tree reports exactly one unclassified site in this file, 4121, and it
     // is that same `<a>`.
-    line: 4121,
+    // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
+    line: 4134,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -472,7 +473,12 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 149 while the row was 189; fourth and last of the comment-trail drifts the
     // 2026-08-29 sweep found. This one is in a file the merge never touched, which is how
     // we know the class predates the absorb rather than being caused by it.)
-    line: 189,
+    // 189 -> 215 on the R1 repair commit: the both-store clear added the `alsoClear`
+    // prop and its comment above this button, and prettier then reflowed the JSX. Same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>, located on the tree as
+    // it stands AFTER formatting — measuring before the formatter runs is measuring a
+    // file nobody ships.
+    line: 215,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",

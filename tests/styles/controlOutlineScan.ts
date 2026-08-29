@@ -139,7 +139,9 @@ export const CENSUS: readonly CensusRow[] = [
   // `aria-expanded={expanded}` — the agenda `show-all` toggle at 3600 and this one. The anchor text
   // alone would have been ambiguous; the row was resolved by running the scanner and matching
   // `data-testid={`wizard-step3-card-${dfid}-report-toggle`}`, which is unique.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4684 },
+  // Then 4684 -> 4697 on the R1 repair commit. Same `wizard-step3-card-${dfid}-report-toggle`
+  // testid on the merged tree, located by running the scanner.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4697 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -160,7 +162,9 @@ export const CENSUS: readonly CensusRow[] = [
   //
   // Then 4744 -> 4741 on the 2026-08-29 three-way absorb of #940/#941/#942, located by the
   // `disabled={draft.trim()...}` opener on the merged file.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4741 },
+  // Then 4741 -> 4754 on the R1 repair commit, located by its own
+  // `disabled={draft.trim()...}` opener.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4754 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21

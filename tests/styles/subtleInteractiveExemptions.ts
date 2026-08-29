@@ -91,7 +91,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // Then 1642 -> 1639 on the 2026-08-29 three-way absorb of #940/#941/#942. Located by
     // running the scanner on the merged tree, which reports the live hit; 1639 is the
     // `{hidden.length} more` disclosure, this row's own `<summary>`.
-    line: 1639,
+    // 1639 -> 1640 on the R1 repair commit; still the `{hidden.length} more` <summary>.
+    line: 1640,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -103,7 +104,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3359 -> 3356 on the 2026-08-29 three-way absorb of #940/#941/#942. Located on the
     // merged tree by its own `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`,
     // which is unique, never by adding a delta.
-    line: 3356,
+    // 3356 -> 3361 on the R1 repair commit; still the ignored-summary <summary>.
+    line: 3361,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

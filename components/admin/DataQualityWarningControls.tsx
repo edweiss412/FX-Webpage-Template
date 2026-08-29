@@ -23,6 +23,10 @@ export type WizardDqTarget =
 
 type Props = {
   target: WizardDqTarget;
+  /** A SECOND store holding the same dismissal, cleared in the same interaction.
+   *  Set only when the model reports `ignoreOrigin: "both"`; clearing one store while
+   *  the other still hides the row is the false success this exists to prevent. */
+  alsoClear?: WizardDqTarget;
   warning: ParseWarning;
   driveFileId: string | null;
   mode: "active" | "ignored";
@@ -82,6 +86,7 @@ const PLATE: Record<DqControlGround, string> = {
 
 export function DataQualityWarningControls({
   target,
+  alsoClear,
   warning,
   driveFileId,
   mode,
@@ -132,6 +137,27 @@ export function DataQualityWarningControls({
     try {
       const status =
         target.kind === "show" ? await runShowArm(target.slug) : await runStagedArm(target);
+      // Whole-diff R1 P0: a dismissal held in BOTH stores needs BOTH cleared.
+      //
+      // Clearing one and announcing success is a lie the next read exposes: the
+      // enrichment unions the untouched store straight back in and the warning is still
+      // hidden. So the second arm runs before anything is announced, and its failure is
+      // the whole call's failure — a half-cleared dismissal reports an error, never
+      // "Warning restored". The reverse order would be no better; what matters is that
+      // no success is claimed until both stores have answered.
+      //
+      // Only ever set for `mode="ignored"`: there is no "ignore into both stores" —
+      // an Ignore writes exactly one, whichever surface the operator is on.
+      if (status !== null && alsoClear !== undefined) {
+        const second =
+          alsoClear.kind === "show"
+            ? await runShowArm(alsoClear.slug)
+            : await runStagedArm(alsoClear);
+        if (second === null) {
+          setState({ kind: "error", copy: failCopy });
+          return;
+        }
+      }
       if (status !== null) {
         // Announcer spec 2026-07-22 §2.3: completion clause BEFORE the refresh
         // (ordering pinned by the producer tests); failures never announce.

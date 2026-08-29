@@ -9,6 +9,7 @@ import type { PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import type { OnboardingScanResult, PreparedOnboardingFile } from "@/lib/sync/runOnboardingScan";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
+import { shadowPayload } from "@/tests/onboarding/_finalizeCasFake";
 
 // Minimal valid v4 ParseResult fixture (mirrors tests/onboarding/rescanDecision.test.ts).
 // crew + warnings are the only fields the rescan decision diffs against.
@@ -569,5 +570,140 @@ describe("applyRescanDecisionUnderLock — dirty_demoted reviewCodes", () => {
     expect(rc).toContain("MI-11");
     expect(rc).toContain("PULL_SHEET_ON_ARCHIVED_TAB");
     expect(rc).toHaveLength(2); // no duplicates, no sentinel
+  });
+});
+
+/**
+ * Flow-B blocker heal: the shadow is the ONLY copy of the staged decisions.
+ *
+ * Whole-diff R1 P0. Flow B deletes the `pending_syncs` row in Phase B, so after an
+ * ordinary Phase-D refusal the operator's staged dismissals survive nowhere but the
+ * `shows_pending_changes` payload. This core reads that payload, and then deletes it.
+ * If it does not carry the decisions across, the restage inserts a fresh row whose
+ * `ignored_warnings` takes its `'[]'` default and the dismissals are gone with no
+ * signal — the warning silently comes BACK, which is the one outcome §1.1.7's
+ * fail-toward-visible posture is not allowed to produce by accident.
+ *
+ * `use_raw_decisions` rides the same payload for the same Flow-B reason and was
+ * dropped by the same omission. Both are asserted here because the defect is one
+ * shape, not two bugs: a repair that carries only the field this arc happens to own
+ * would leave the identical hole open one line away.
+ */
+describe("Flow-B shadow decisions survive the blocker heal", () => {
+  // The carry writes jsonb, so the bound param is a JSON STRING. Compare on the parsed
+  // value rather than the wire form: asserting the serialization would pin a formatting
+  // detail, and asserting `toContain` on the raw string would pass on a payload that
+  // merely mentioned the fingerprint somewhere.
+  const carriedValue = (calls: Captured[], column: RegExp): unknown[] =>
+    calls
+      .filter((c) => /update\s+public\.pending_syncs/i.test(c.sql) && column.test(c.sql))
+      .flatMap((c) =>
+        c.params.map((raw) => {
+          if (typeof raw !== "string") return raw;
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return raw;
+          }
+        }),
+      );
+
+  const IGNORED = [{ fingerprint: "fp-alpha", code: "W_TBD_ROLE", ignored_by: "ada@x.example" }];
+  // The real UseRawDecision shape (lib/sync/useRawOverlay.ts:32). My first attempt
+  // invented `{ field, useRaw }`, which the shadow parser silently normalized to []
+  // — the test then failed for the wrong reason and briefly looked like a repair bug.
+  const USE_RAW = [
+    {
+      code: "DATE_ORDER_SUGGESTS_DMY",
+      // 64 lowercase hex: normalizeUseRawDecisions validates contentHash as a real
+      // sha256 pin, not merely nonblank, and drops the entry otherwise.
+      contentHash: "a".repeat(64),
+      target: { kind: "field", field: "dates" },
+      preference: "raw",
+      applied: true,
+      decidedAt: "2026-05-08T12:00:00.000Z",
+      decidedBy: "ada@x.example",
+    },
+  ];
+
+  function makeFlowBTx(): { tx: PostgresTransaction; calls: Captured[] } {
+    const calls: Captured[] = [];
+    const tx: PostgresTransaction = {
+      async unsafe(sql: string, params: unknown[] = []) {
+        calls.push({ sql, params });
+        // Flow B: no pending_syncs row survives Phase B, so prior state comes from
+        // the shadow alone. Returning [] here is what makes this Flow B and not A.
+        if (/select\s+wizard_approved/i.test(sql) && /pending_syncs/i.test(sql)) return [];
+        if (/select\s+payload,\s*applied_by_email/i.test(sql)) {
+          return [
+            {
+              payload: {
+                ...shadowPayload({ parse_result: PRIOR_PARSE }),
+                ignored_warnings: IGNORED,
+                use_raw_decisions: USE_RAW,
+              },
+              applied_by_email: "ada@x.example",
+            },
+          ];
+        }
+        if (/select\s+staged_modified_time,\s*triggered_review_items/i.test(sql)) {
+          return [
+            {
+              staged_modified_time: FRESH_MODTIME,
+              triggered_review_items: [{ id: SENTINEL_ID, invariant: "MI-2" }],
+            },
+          ];
+        }
+        if (/select\s+last_error_code/i.test(sql)) return [];
+        return [];
+      },
+    };
+    return { tx, calls };
+  }
+
+  test("carries the shadow's staged ignores into the restaged pending_syncs row", async () => {
+    const { tx, calls } = makeFlowBTx();
+    await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: true,
+      },
+      { scanOnboardingPreparedFiles: stagedScan },
+    );
+    // Scoped to a WRITE against pending_syncs that names the column, so the assertion
+    // cannot pass on the shadow SELECT that merely mentions it in its payload.
+    const carry = calls.filter(
+      (c) => /update\s+public\.pending_syncs/i.test(c.sql) && /ignored_warnings/i.test(c.sql),
+    );
+    expect(carry.length).toBeGreaterThan(0);
+    // Derived from the fixture, never restated: the carried value must be the entry the
+    // shadow actually held, so a write of `[]` or of some other row's decisions fails.
+    expect(carriedValue(calls, /ignored_warnings/i)).toContainEqual(IGNORED);
+  });
+
+  test("carries the shadow's use-raw decisions too (same omission, same line)", async () => {
+    const { tx, calls } = makeFlowBTx();
+    await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: true,
+      },
+      { scanOnboardingPreparedFiles: stagedScan },
+    );
+    const carry = calls.filter(
+      (c) => /update\s+public\.pending_syncs/i.test(c.sql) && /use_raw_decisions/i.test(c.sql),
+    );
+    expect(carry.length).toBeGreaterThan(0);
+    expect(carriedValue(calls, /use_raw_decisions/i)).toContainEqual(USE_RAW);
   });
 });

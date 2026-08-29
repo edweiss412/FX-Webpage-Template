@@ -329,9 +329,12 @@ describe("enrichStep3WarningModels — ignoreOrigin (whole-diff P0)", () => {
     ]);
   });
 
-  it("prefers staged when a fingerprint sits in BOTH stores", async () => {
-    // The durable route would delete its own copy, report success, and leave the staged
-    // copy still hiding the row on the next read. Staged has to win.
+  it("says BOTH when a fingerprint sits in both stores", async () => {
+    // This test previously asserted "staged", on the reasoning that the durable route
+    // would delete its own copy, report success, and leave the staged copy still hiding
+    // the row. That reasoning was sound and one-sided: it is equally true reversed, so
+    // EITHER single answer reports a success the next read contradicts (whole-diff R1
+    // P0). The contract changed, and the test that pinned the old one changed with it.
     const [row] = await enrichStep3WarningModels(
       [
         reviewableRow({
@@ -340,6 +343,22 @@ describe("enrichStep3WarningModels — ignoreOrigin (whole-diff P0)", () => {
         }),
       ],
       okLoader([FP_A]),
+    );
+    expect(row?.warningModel?.ignored[0]?.ignoreOrigin).toBe("both");
+  });
+
+  it("still says staged when the durable table does NOT hold the fingerprint", async () => {
+    // The linked-row companion to the case above, and the reason the three-way split is
+    // a partition rather than "both whenever the row is linked": same linked row, same
+    // staged column, but a durable table that has never seen this fingerprint.
+    const [row] = await enrichStep3WarningModels(
+      [
+        reviewableRow({
+          linkedShowRef: { id: "show-1", slug: SLUG },
+          stagedIgnoredWarnings: [{ fingerprint: FP_A, code: warnA.code, ignored_by: "d@e.co" }],
+        }),
+      ],
+      okLoader([]),
     );
     expect(row?.warningModel?.ignored[0]?.ignoreOrigin).toBe("staged");
   });

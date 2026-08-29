@@ -14,13 +14,15 @@
  * `normalizeStagedIgnoredWarnings` is the read-side coercion for the untrusted
  * `pending_syncs.ignored_warnings` jsonb column (spec §3, fail toward VISIBLE).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { premiseHolds } from "@/tests/_shared/premise";
 import { warningFingerprint, buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 import type { ParseWarning } from "@/lib/parser/types";
 import {
   buildWizardWarningModel,
   normalizeStagedIgnoredWarnings,
+  reconcileWizardWarningItems,
+  type WizardWarningItem,
 } from "@/lib/admin/wizardWarningModel";
 
 const SCOPE = "east-coast-2026";
@@ -191,5 +193,126 @@ describe("normalizeStagedIgnoredWarnings", () => {
         { fingerprint: "fp-1", ignored_by: "  Doug.W@Example.COM " },
       ]),
     ).toEqual([{ fingerprint: "fp-1", code: "", ignored_by: "doug.w@example.com" }]);
+  });
+});
+
+/**
+ * Whole-diff R1 P1: the rail and the panel must count the SAME items.
+ *
+ * `wizardPanelCount` already exists so the heading and the rail share one predicate,
+ * and its own comment says a rail and heading that disagree is the defect it prevents.
+ * The discipline was applied to the function and not to its INPUTS: the panel counts
+ * the items it actually renders (in-range only), while the rail subtracted the RAW
+ * partition length. One stale out-of-range item is enough to make the two disagree,
+ * and the operator sees a rail saying 0 over a panel showing 1.
+ *
+ * The reconciliation belongs to the model, so no caller can spell it differently.
+ */
+describe("reconcileWizardWarningItems", () => {
+  const item = (index: number): WizardWarningItem => ({ index, reportSurfaceId: `s-${index}` });
+
+  test("drops items addressing indices the warnings array does not have", () => {
+    // The exact drift case: one live warning at 0, one stale ignored item at 7.
+    expect(reconcileWizardWarningItems([item(0), item(7)], 1)).toEqual([item(0)]);
+  });
+
+  test("drops negative indices", () => {
+    expect(reconcileWizardWarningItems([item(-1), item(0)], 1)).toEqual([item(0)]);
+  });
+
+  test("is identity when every index is addressable", () => {
+    const partition = [item(0), item(1), item(2)];
+    expect(reconcileWizardWarningItems(partition, 3)).toEqual(partition);
+  });
+
+  test("an empty warnings array reconciles every partition to empty", () => {
+    // Guard case: a model built against a previous parse, paired with a row whose
+    // re-scan removed every warning. Counting the stale partition here would show a
+    // negative-clamped rail over an empty panel.
+    expect(reconcileWizardWarningItems([item(0), item(1)], 0)).toEqual([]);
+  });
+
+  test("the reconciled count is the one that differs from the raw length", () => {
+    // The bug was counting `.length` on the raw partition. This pins the DIFFERENCE:
+    // if the reconciliation ever became identity, raw and reconciled would agree and
+    // this fails — which is what makes it a test of the fix rather than of itself.
+    const ignored = [item(0), item(7)];
+    expect(ignored.length).toBe(2);
+    expect(reconcileWizardWarningItems(ignored, 1).length).toBe(1);
+  });
+});
+
+/**
+ * Whole-diff R1 P0: a fingerprint can live in BOTH stores, and neither single store
+ * is the right answer.
+ *
+ * The first repair chose `staged` on the reasoning that the durable route would delete
+ * its own copy and leave the staged one still hiding the row. True — and exactly as true
+ * the other way round. Picking either horn removes one copy, the enrichment union puts
+ * the other one straight back, and the operator is told "Warning restored" about a
+ * warning that is still hidden. Reported success that the very next read contradicts is
+ * the silently-wrong case the spec's §1.1.7 posture forbids.
+ *
+ * Reachable without a race: dismiss a warning in the wizard (staged), then dismiss the
+ * same warning on the published show page (durable). The published surface reads only
+ * the durable table, so it offers Ignore on a row the wizard is already hiding.
+ */
+describe("dual-store ignore attribution", () => {
+  // `rawSnippet` is what makes a warning fingerprintable — the suite above pins that a
+  // snippet-less twin returns null — so this fixture carries one. Without it the premise
+  // guard fires and every assertion below would have proved nothing.
+  const warn: ParseWarning = {
+    severity: "warn",
+    code: "ROLE_TBD",
+    message: "TBD role",
+    rawSnippet: "A1 — TBD",
+  };
+
+  it("attributes a fingerprint held in both stores to BOTH, not to either one", () => {
+    const fp = warningFingerprint(warn);
+    premiseHolds("the fixture warning must fingerprint", fp !== null);
+    const model = buildWizardWarningModel({
+      reportScope: SCOPE,
+      warnings: [warn],
+      // The union, exactly as a linked row's enrichment builds it...
+      ignoredFingerprints: new Set([fp as string]),
+      // ...plus the two provenance sets it now also passes.
+      stagedFingerprints: new Set([fp as string]),
+      durableFingerprints: new Set([fp as string]),
+    });
+    expect(model.ignored).toHaveLength(1);
+    expect(model.ignored[0]!.ignoreOrigin).toBe("both");
+  });
+
+  it("still attributes a staged-only fingerprint to staged", () => {
+    const fp = warningFingerprint(warn) as string;
+    const model = buildWizardWarningModel({
+      reportScope: SCOPE,
+      warnings: [warn],
+      ignoredFingerprints: new Set([fp]),
+      stagedFingerprints: new Set([fp]),
+      durableFingerprints: new Set([fp]),
+    });
+    // Guard against a repair that simply renames every origin to "both": with the
+    // fingerprint absent from the staged set the answer must go back to "show".
+    const showOnly = buildWizardWarningModel({
+      reportScope: SCOPE,
+      warnings: [warn],
+      ignoredFingerprints: new Set([fp]),
+      stagedFingerprints: new Set<string>(),
+      durableFingerprints: new Set([fp]),
+    });
+    // And a staged-only fingerprint must still say "staged", so the three-way split is
+    // a real partition rather than "both whenever durable data is available".
+    const stagedOnly = buildWizardWarningModel({
+      reportScope: SCOPE,
+      warnings: [warn],
+      ignoredFingerprints: new Set([fp]),
+      stagedFingerprints: new Set([fp]),
+      durableFingerprints: new Set<string>(),
+    });
+    expect(stagedOnly.ignored[0]!.ignoreOrigin).toBe("staged");
+    expect(model.ignored[0]!.ignoreOrigin).toBe("both");
+    expect(showOnly.ignored[0]!.ignoreOrigin).toBe("show");
   });
 });

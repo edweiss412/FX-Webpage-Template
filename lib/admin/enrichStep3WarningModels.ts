@@ -88,6 +88,10 @@ export async function enrichStep3WarningModels(
         // Whole-diff P0: tell the model WHICH of these came from the staged column, so a
         // LINKED row's Un-ignore reaches the store its Ignore actually wrote to.
         stagedFingerprints: staged,
+        // Whole-diff R1 P0: and which came from the DURABLE table, because the union
+        // above cannot answer "is this staged one ALSO durable?" — and a dismissal in
+        // both stores needs both cleared, not whichever one we happened to name.
+        durableFingerprints: linkedFingerprints.get(i) ?? new Set<string>(),
       }),
     };
   });

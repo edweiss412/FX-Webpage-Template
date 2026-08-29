@@ -1552,7 +1552,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // the VALUE and never the sentence beside it, so nothing could have caught these.)
       // Then 2450 -> 2447 on the 2026-08-29 three-way absorb of #940/#941/#942. Located on
       // the merged tree: 2447 is that same `rounded-pill border border-border` <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2447",
+      // 2447 -> 2448 on the R1 repair commit; same rounded-pill border-border <span>.
+      "components/admin/wizard/step3ReviewSections.tsx:2448",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

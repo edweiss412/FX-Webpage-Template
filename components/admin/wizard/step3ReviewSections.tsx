@@ -112,6 +112,7 @@ import {
   DataQualityWarningControls,
   type WizardDqTarget,
 } from "@/components/admin/DataQualityWarningControls";
+import { reconcileWizardWarningItems } from "@/lib/admin/wizardWarningModel";
 import type { WizardWarningItem, WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
@@ -2962,9 +2963,13 @@ export function WarningsBreakdown({
   const pick = (
     partition: readonly WizardWarningItem[],
   ): Array<WizardWarningItem & { w: ParseWarning }> =>
-    partition
-      .filter((item) => item.index >= 0 && item.index < warnings.length)
-      .map((item) => ({ w: warnings[item.index] as ParseWarning, ...item }));
+    // Whole-diff R1 P1: the range filter moved to `reconcileWizardWarningItems` so the
+    // rail counts the same items this renders. It was spelled here and nowhere else,
+    // which is exactly how the rail came to count the raw partition instead.
+    reconcileWizardWarningItems(partition, warnings.length).map((item) => ({
+      w: warnings[item.index] as ParseWarning,
+      ...item,
+    }));
   const activeItems = dq
     ? pick(dq.model.active)
     : allRows.map((w, index) => ({ w, index, reportSurfaceId: "" }));
@@ -3409,7 +3414,7 @@ export function WarningsBreakdown({
                       // gained its show, and the slug route would delete nothing while
                       // still reporting success.
                       target={
-                        ignoreOrigin === "staged" && dq.target.kind !== "staged"
+                        ignoreOrigin !== "show" && dq.target.kind !== "staged"
                           ? {
                               kind: "staged",
                               wizardSessionId: wizardSessionId ?? "",
@@ -3417,6 +3422,14 @@ export function WarningsBreakdown({
                             }
                           : dq.target
                       }
+                      /* Whole-diff R1 P0: `both` means the dismissal is in the staged
+                         column AND the durable table. The staged arm above clears one;
+                         this clears the other in the same interaction, so the operator
+                         is never told "Warning restored" about a row the untouched
+                         store still hides. */
+                      {...(ignoreOrigin === "both" && dq.target.kind === "show"
+                        ? { alsoClear: dq.target }
+                        : {})}
                       warning={w}
                       driveFileId={dfid}
                       mode="ignored"
@@ -4998,7 +5011,14 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
             // the heading shows for the same row.
             wizardPanelCount({
               rows: visibleWarningRows(s.warnings, false).length,
-              ignoredWarnCount: isStaged(s) ? (s.dq?.model.ignored.length ?? 0) : 0,
+              // Whole-diff R1 P1: RECONCILED, not raw. `wizardPanelCount` exists so the
+              // heading and the rail share one predicate, but sharing the function while
+              // feeding it different inputs is the same disagreement wearing a helper.
+              // The panel counts what it renders (in-range); so must this.
+              ignoredWarnCount: isStaged(s)
+                ? reconcileWizardWarningItems(s.dq?.model.ignored ?? [], arr(s.warnings).length)
+                    .length
+                : 0,
             }),
       // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
       // list renders the per-warning controls (complete render site, §4.6).

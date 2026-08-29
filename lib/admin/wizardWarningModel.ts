@@ -26,7 +26,13 @@ export type WizardWarningItem = {
    * the warning stayed hidden. A false success on a control that cannot work is worse
    * than an error; the write has to follow the store the read used.
    */
-  ignoreOrigin?: "show" | "staged";
+  /**
+   * WHICH store this dismissal lives in, and therefore which one an Un-ignore must
+   * clear. `both` is not a degenerate case: the two stores are written by two
+   * different surfaces, so the same fingerprint can legitimately sit in each, and
+   * clearing only one leaves the other still hiding the row (whole-diff R1 P0).
+   */
+  ignoreOrigin?: "show" | "staged" | "both";
 };
 
 export type WizardWarningModel = {
@@ -75,6 +81,28 @@ export function normalizeStagedIgnoredWarnings(raw: unknown): StagedIgnoreEntry[
 }
 
 /**
+ * A partition reconciled against the warnings array a caller is about to render or count.
+ *
+ * `buildWizardWarningModel` guarantees in-range indices BY CONSTRUCTION, so on the server
+ * — where the model and the warnings come from one array in one pass — this is identity.
+ * The client cannot assume that: a model held in React state can outlive the parse it was
+ * built from, and then it addresses rows that are no longer there.
+ *
+ * Whole-diff R1 P1. Every site that COUNTS the partition, or uses an item's index to REACH
+ * INTO the warnings array, must reconcile first. Sites that only MATCH an index against
+ * rendered entries are immune, because an index nothing holds simply never matches — which
+ * is why `ignoredWarningIndices` deliberately does not call this, and says so.
+ *
+ * The rule is the derivation, not the list: count or index, reconcile; match, do not.
+ */
+export function reconcileWizardWarningItems(
+  partition: readonly WizardWarningItem[],
+  warningsLength: number,
+): readonly WizardWarningItem[] {
+  return partition.filter((item) => item.index >= 0 && item.index < warningsLength);
+}
+
+/**
  * Partition a row's warnings into active and ignored, carrying ORIGINAL indices.
  *
  * Same semantics as `partitionByIgnored` (`lib/dataQuality/partitionByIgnored.ts:4-16`) —
@@ -93,8 +121,14 @@ export function buildWizardWarningModel(args: {
    *  to the one the read came from. Omitted or empty means every ignore is durable,
    *  which is every published and LINKED-only row. */
   stagedFingerprints?: ReadonlySet<string>;
+  /** The subset that came from the DURABLE `public.ignored_warnings` table. Needed
+   *  alongside `stagedFingerprints` because `ignoredFingerprints` is their UNION for a
+   *  linked row, and a union cannot say whether a staged fingerprint is ALSO durable —
+   *  which is the whole difference between clearing one store and clearing both. */
+  durableFingerprints?: ReadonlySet<string>;
 }): WizardWarningModel {
-  const { reportScope, warnings, ignoredFingerprints, stagedFingerprints } = args;
+  const { reportScope, warnings, ignoredFingerprints, stagedFingerprints, durableFingerprints } =
+    args;
   const active: WizardWarningItem[] = [];
   const ignored: WizardWarningItem[] = [];
   for (let index = 0; index < warnings.length; index += 1) {
@@ -105,11 +139,26 @@ export function buildWizardWarningModel(args: {
     };
     const fp = warningFingerprint(w);
     if (fp !== null && ignoredFingerprints.has(fp)) {
-      // Staged WINS the attribution when a fingerprint sits in both stores: the staged
-      // copy is the one an Un-ignore must remove, because the durable route would delete
-      // its own copy, answer success, and leave the staged one still hiding the row on
-      // the very next read.
-      ignored.push({ ...item, ignoreOrigin: stagedFingerprints?.has(fp) ? "staged" : "show" });
+      // Whole-diff R1 P0: when a fingerprint sits in BOTH stores, say so.
+      //
+      // This previously picked `staged`, reasoning that the durable route would delete
+      // its own copy and leave the staged one still hiding the row. That reasoning was
+      // right and incomplete — it is equally true reversed. Either single choice removes
+      // one copy while the enrichment union restores the other, and the operator is told
+      // "Warning restored" about a warning that is still hidden. A caller that sees
+      // `both` must clear both, and must not report success on a partial clear.
+      //
+      // `durableFingerprints` is REQUIRED to tell "staged only" from "both", and this is
+      // why: for a linked row `ignoredFingerprints` is the UNION, so union-membership
+      // plus staged-membership cannot distinguish the two. Absent it (published and
+      // standalone mounts, which have no staged store at all) the staged set is the
+      // whole answer and the old two-way split is exactly right.
+      const inStaged = stagedFingerprints?.has(fp) === true;
+      const inDurable = durableFingerprints?.has(fp) === true;
+      ignored.push({
+        ...item,
+        ignoreOrigin: inStaged ? (inDurable ? "both" : "staged") : "show",
+      });
     } else active.push(item);
   }
   return { active, ignored };
