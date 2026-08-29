@@ -458,8 +458,8 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    // 73 -> 74 -> 75 -> 76, by three independent arcs, which is what a declared
-    // population claim looks like when it is doing its job.
+    // 73 -> 74 -> 75 -> 76 -> 78, by four independent arcs, which is what a
+    // declared population claim looks like when it is doing its job.
     //
     // feat/review-modal-strip-dock added two: the §7 anchor-room measurement,
     // which drives a refusal through the real modal at `baseUrl` and is the case
@@ -475,11 +475,20 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // the three AC-13 surfaces that render outside that tree. Both gotos are
     // harness navigations and neither is ever the /admin loader.
     //
+    // fix/attention-autoopen-suppress-phone adds two more, one per new
+    // standalone spec. `tests/e2e/occlusion-probe.spec.ts` serves a STATIC
+    // four-case fixture over node:http to self-test the shared occlusion helper
+    // (absolutely positioned boxes, nothing hydrates, so the geometry is exact).
+    // `tests/e2e/attention-autoopen-suppress.spec.ts` serves the real
+    // <PublishedReviewModal> tree from a mkdtemp workdir to measure what a
+    // finger hits once the menu no longer opens itself below `sm`. Both gotos
+    // are harness navigations; neither is ever the /admin loader.
+    //
     // A declared count is a population claim, so growing the population is an
     // edit here by design — and this rule is a SUBJECT of
     // _metaScratchRootCleanup, so a stale count here fails that suite's premise
     // downstream, which is how the strip-dock bump was found.
-    expectedCount: 76,
+    expectedCount: 78,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {

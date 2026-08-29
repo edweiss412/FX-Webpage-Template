@@ -778,7 +778,37 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     // paint, or a StrictMode setup→cleanup→setup cycle) must leave the
     // one-shot unconsumed so the re-run can reschedule the open.
     const raf = requestAnimationFrame(() => {
+      // BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE. Below `sm` the panel is
+      // contained inside the modal's clip and covers the published toggle, so an
+      // operator arriving on a phone cannot reach the primary publish control
+      // until they dismiss a menu they never opened. The pill still carries the
+      // count and still opens the panel on tap; only the AUTO-open is suppressed.
+      //
+      // Read INSIDE the frame, not at effect time: the width that matters is the
+      // one the panel would have appeared at, and a resize between the effect and
+      // the paint would otherwise decide it wrongly.
+      //
+      // POSITIVE EVIDENCE, and the spelling is load-bearing. The obvious
+      // reuse is the shell's own sheet test, `!matchMedia("(min-width: 640px)")
+      // .matches` (ReviewModalShell.tsx:386, :571), which would also close the
+      // sliver between 639.98 and 640 where two spellings can disagree. It was
+      // tried in-arc and MEASURED WRONG: negating a min-width query inverts the
+      // fallback. Where matchMedia is absent or stubbed to answer false for
+      // everything -- SSR, and every jsdom suite in this repo, whose ambient
+      // stub at tests/setup.ts:84 returns matches:false for every query -- the
+      // negated form reads SUPPRESSED, and 23 assertions across two existing
+      // suites failed because the menu stopped auto-opening where they expect
+      // it to. The max-width form asks for affirmative evidence of a phone, so
+      // an absent or uninformative matchMedia leaves today's behaviour intact.
+      // The sliver stays a documented limit (spec section 10); the polarity is
+      // not negotiable.
+      const suppressedByWidth =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(max-width: 639.98px)").matches;
+      // Consumed either way: suppression is a DECISION about this mount, so a
+      // later widening must not retroactively fire the reveal.
       autoOpenFiredRef.current = true;
+      if (suppressedByWidth) return;
       setMenuOpen(true);
     });
     return () => cancelAnimationFrame(raf);

@@ -140,7 +140,20 @@ async function openModal(page: Page, width: number, height: number) {
   await page.goto(`${baseUrl}?attention=1`);
   const chip = page.locator(CHIP);
   await chip.waitFor();
-  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  // WIDTH-AWARE since BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE. Below
+  // `sm` the auto-open is suppressed, because the panel covers the modal's
+  // navigation chips and both routes to the spreadsheet at phone widths
+  // (measured, spec 2026-08-29-attention-auto-open-phone-suppression §5.1). At
+  // those widths the panel is reached by TAPPING the chip, which is the same
+  // tolerant shape popover-clip-fit.spec.ts's openMenu already uses.
+  //
+  // The assertion is kept in BOTH branches rather than dropped: at ≥`sm` the
+  // arrival must still auto-open, and below it the arrival must NOT, so this
+  // helper pins the boundary behaviour every case downstream depends on instead
+  // of quietly tolerating either.
+  const autoOpens = width >= 640;
+  await expect(chip).toHaveAttribute("aria-expanded", autoOpens ? "true" : "false");
+  if (!autoOpens) await chip.click();
   await page.locator(MENU).waitFor({ state: "visible" });
   // Dismissed by PRESSING the pill, not by Escape. Since the §3.5 scoping
   // amendment an auto-opened panel is Escape-transparent until engaged, so
@@ -149,6 +162,27 @@ async function openModal(page: Page, width: number, height: number) {
   await chip.click();
   await expect(chip).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(MENU)).toHaveCount(0);
+}
+
+/**
+ * Boot at a DESKTOP width and leave the auto-opened panel OPEN.
+ *
+ * `openModal` dismisses it by design, and dismissing is a CLICK, which sets
+ * `menuAutoOpened` false (Step3ReviewModal.tsx:594-597). Re-clicking to reopen
+ * therefore produces a TAP-opened menu, not an auto-opened one — so a defect
+ * conditional on `menuAutoOpened` would survive a case that called itself
+ * "auto-opened". Round 4 of whole-diff review caught exactly that in the first
+ * version of the resize block below.
+ */
+async function bootAutoOpened(page: Page, width: number, height: number) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width, height });
+  await page.goto(`${baseUrl}?attention=1`);
+  const chip = page.locator(CHIP);
+  await chip.waitFor();
+  // Never clicked, so `menuAutoOpened` is still true.
+  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  await page.locator(MENU).waitFor({ state: "visible" });
 }
 
 test.describe("wizard attention pill + menu geometry (spec §9)", () => {
@@ -370,6 +404,77 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(m.titleW).toBeGreaterThanOrEqual(m.headerW * 0.15);
     // And none of this is bought with a horizontal scrollbar.
     expect(m.docScrollW).toBe(m.docClientW);
+  });
+
+  // ── Resize contracts (BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE) ──────
+  //
+  // The wizard inherits the published surface's whole resize obligation, and
+  // whole-diff review round 3 was right that none of it was covered here: the
+  // unit suite only changes width before the reveal or while the menu stays
+  // suppressed, and every case in this file set the viewport before navigating
+  // and never again. A width-change handler that closed the menu, or that made a
+  // tap-opened menu Escape-transparent, would have passed the entire wizard
+  // suite. There is no such handler today; the point is that nothing said so.
+  //
+  // The rule the whole design rests on: this change never CLOSES a menu.
+
+  test("AUTO-opened at desktop, then shrunk below sm: the menu stays open", async ({ page }) => {
+    // Genuinely auto-opened: never clicked, so `menuAutoOpened` is still true
+    // and a defect conditional on it is reachable here.
+    await bootAutoOpened(page, 1280, 800);
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.waitForTimeout(250);
+    await expect(page.locator(MENU), "shrinking closed an auto-opened menu").toBeVisible();
+    // And it is still the AUTO-opened one: shrinking must not quietly convert
+    // it into an operator-opened panel, which would flip Escape ownership.
+    await expect(page.locator(CHIP)).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("tap-opened at a phone width, then widened past sm: the menu stays open", async ({
+    page,
+  }) => {
+    await openModal(page, 375, 667);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(250);
+    await expect(page.locator(MENU), "widening closed an operator-opened menu").toBeVisible();
+  });
+
+  test("a tap-opened menu keeps its Escape after SHRINKING past the boundary", async ({ page }) => {
+    // The other direction. Round 4 was right that "either direction" named two
+    // and exercised one, so a shrink-only corruption of Escape ownership would
+    // have passed.
+    await openModal(page, 1280, 800);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.waitForTimeout(250);
+    await page.locator(CHIP).press("Escape");
+
+    await expect(page.locator(MENU), "Escape did not close the menu").toHaveCount(0);
+    await expect(page.locator(PANEL), "Escape closed the MODAL, not the menu").toBeVisible();
+  });
+
+  test("a tap-opened menu keeps its Escape after WIDENING past the boundary", async ({ page }) => {
+    // Escape OWNERSHIP is the wizard-only half. `menuAutoOpened` drives
+    // `escTransparentUntilEngaged`, so a menu the operator opened must swallow
+    // Escape and close ITSELF, leaving the modal up. If a width change ever set
+    // that flag, Escape would start closing the whole modal instead, and only
+    // these two cases assert otherwise.
+    await openModal(page, 375, 667);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(250);
+    await page.locator(CHIP).press("Escape");
+
+    await expect(page.locator(MENU), "Escape did not close the menu").toHaveCount(0);
+    await expect(page.locator(PANEL), "Escape closed the MODAL, not the menu").toBeVisible();
   });
 
   test("the menu's scroller is a nameable, focusable region", async ({ page }) => {

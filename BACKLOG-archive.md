@@ -1,3 +1,32 @@
+## BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-08-29 (`fix/attention-autoopen-suppress-phone`, PR #947) · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.
+
+**What is wrong.** The attention menu auto-opens when actionable items exist (published-show-alerts §5.2). Now that it is CONTAINED inside the review-modal clip, it occupies the horizontal band its anchor sits in, and at 375 that band includes the published toggle. An operator arriving at the modal on a phone finds the toggle covered until they dismiss a menu they never opened.
+
+**Reachability:** PROBED 2026-08-28 at 375x667, real Chromium, published review modal, measured in-page:
+
+```
+menu   left 8       right 367     width 359    (contained: clip is 0..375)
+clip   left 0       right 375
+toggle left 307     right 355     top 497      bottom 525
+overlaps: true      pointer events intercepted by an attention monitoring row
+```
+
+**This is a CONSEQUENCE of the containment fix, not a defect in it, and the two are not simultaneously satisfiable at this width.** Before containment the panel overflowed the clip's left edge by 36px, and that overflow is the only reason its right edge stopped at 307 — exactly where the toggle begins. A contained panel must extend right: even at the pre-fix 343px width the clamp lands it at 8..351, still over the toggle. Sitting beside the toggle was never a designed property; it was a side effect of being broken.
+
+**Why this is a product decision and not a geometry patch.** The candidate repairs are all product choices, not placement arithmetic: suppress auto-open below some width; flip the menu above its anchor at phone widths so it covers the header rather than the strip; or accept the overlap as ordinary dismissible-overlay behaviour and change nothing. The third is what ships today, ruled by bl-orch 2026-08-28 on the ground that a dismissible overlay covering content until dismissed is standard menu semantics.
+
+**Design review's recommendation, added 2026-08-29** (impeccable Assessment A, this arc's closeout): **suppress auto-open below `sm`; do not move the panel.** Its reasoning is worth carrying because it reframes the row: the geometry is not the defect. A dismissible overlay covering the publish control would be defensible if the operator had asked for it, because dismissal is then a step in a flow they started. Nothing was asked here. The panel is an INDEX — a navigation aid — and the surface auto-opens it on top of the modal's primary action to tell Doug something the pill already tells him: there are N issues. Repositioning just relocates the interruption. The pill is already a legible, accented, tappable count; on a desk the reveal is cheap and probably earns itself, and at 375px it costs the primary control.
+
+**Prerequisite:** an owner decision from Eric on whether auto-open should be suppressed or repositioned at phone widths. The geometry to implement any of the three already exists — `lib/popover/position.ts` selects and flips sides — so this is gated on the call, not on the mechanism.
+
+**How it was resolved.** Eric ruled Option A on 2026-08-29: suppress the auto-open below `sm`, do not move the panel. Four lines in each review modal, read inside the existing reveal `requestAnimationFrame` so the width is sampled at the moment the menu would open rather than at mount, and consuming the one-shot on the suppressed path so a later resize cannot re-fire it. The pill is unchanged and still announces its count; the menu still opens on tap. Nothing force-closes a menu in either direction, which is the fence the design rests on — an operator-opened panel survives a resize, and a desktop auto-open survives being shrunk below the boundary.
+
+The design review's reframing is what made the call clean, and it is worth keeping: the menu is an INDEX. Every item in it also renders as an inline banner on its own card and as a badge in the section nav, and the auto-open never moved focus, so suppressing it removes a redundant interruption rather than a route to anything. Assistive-technology users lose nothing.
+
+Deferred out of the arc: `ATTENTION-PILL-PHONE-LEGIBILITY-1` in `DEFERRED.md`, a P1 from the impeccable critique, under class-sweep exception (a) — it is a visual-weight judgment on the pill itself and belongs to Eric.
+
 ## BL-ATTENTION-PANEL-LEFT-OVERFLOW-NARROW — the attention menu overflows its clipping panel on the LEFT at phone widths, on both review modals — ✅ RESOLVED
 
 **Status:** RESOLVED 2026-08-29 (`fix/attention-panel-left-overflow`, PR #941) · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9's new clip pin) · **Facing:** product · **Severity:** MEDIUM (part of an operator-facing dropdown is cut off at the most common phone width; the published surface is the worse of the two) · **Class:** anchored-overlay sizing · **Effort:** M · **Class-sweep exception:** (c) — the repair is a sizing redesign of a SHARED frame with its own hook spec (`admin/2026-08-27-fitwithinclip-clip-subscription`) and its own e2e suite (`popover-clip-fit.spec.ts`), on a shipped surface the filing branch does not otherwise change. Ruled (B) by bl-orch 2026-08-27, on the further ground that fixing published geometry in-arc would force regenerating the very byte baseline that arc built to prove published bytes UNCHANGED.
