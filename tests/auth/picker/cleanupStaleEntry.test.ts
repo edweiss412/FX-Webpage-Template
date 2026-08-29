@@ -246,3 +246,51 @@ describe("cleanupStaleEntry telemetry — PICKER_STALE_ENTRY_CLEANED", () => {
     );
   });
 });
+
+/**
+ * BL-BARE-TYPEOF-STRING-ID-GUARDS. cleanupStaleEntry reads its four ids off
+ * FormData behind a bare typeof-string (cleanupStaleEntry.ts:43-47), which an
+ * empty string satisfies. What rejects "" is the regex pass in
+ * cleanupStaleEntryCoreImpl (:74-77), which runs BEFORE the cookie is read at :85.
+ *
+ * The pre-existing validation case above uses "not-uuid" and expectedEpoch "x" --
+ * both NON-EMPTY bad values -- so a regex degraded to admit only the empty string
+ * would leave it green.
+ *
+ * PICKER_INVALID_INPUT is the discriminating assertion: if a regex arm stopped
+ * rejecting "", the call would fall through to the cookie path and return
+ * { ok: true, action: "noop" } instead, which is a different result and fails here.
+ */
+describe("cleanupStaleEntryCore refuses empty ids before reading the cookie", () => {
+  const base = {
+    slug: SLUG,
+    shareToken: TOKEN,
+    showId: SHOW_ID,
+    expectedEpoch: 1,
+    expectedCrewMemberId: CREW_ID,
+  };
+  const cases: ReadonlyArray<[string, Partial<typeof base>]> = [
+    ["empty slug", { slug: "" }],
+    ["empty shareToken", { shareToken: "" }],
+    ["empty showId", { showId: "" }],
+    ["empty expectedCrewMemberId", { expectedCrewMemberId: "" }],
+    ["all four empty", { slug: "", shareToken: "", showId: "", expectedCrewMemberId: "" }],
+  ];
+
+  for (const [name, patch] of cases) {
+    test(`${name} is refused without touching the cookie`, async () => {
+      await expect(cleanupStaleEntryCore({ ...base, ...patch })).resolves.toEqual({
+        ok: false,
+        code: "PICKER_INVALID_INPUT",
+      });
+      expect(cookieSet).not.toHaveBeenCalled();
+    });
+  }
+
+  test("control: the same call with all four ids well-formed passes validation and reaches the cookie path", async () => {
+    // No cookie is installed in this case, so the cookie path's own answer is
+    // `noop` -- which is precisely what distinguishes "passed validation" from
+    // "refused at validation" and keeps the five refusals above meaningful.
+    await expect(cleanupStaleEntryCore(base)).resolves.toEqual({ ok: true, action: "noop" });
+  });
+});
