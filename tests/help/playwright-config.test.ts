@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const configPath = join(process.cwd(), "playwright.config.ts");
 const screenshotConfigPath = join(process.cwd(), "playwright.screenshots.config.ts");
 const gitignorePath = join(process.cwd(), ".gitignore");
+const helperPath = join(process.cwd(), "scripts/local-database-url.ts");
 const setupPath = join(process.cwd(), "tests/e2e/screenshots-help-setup.ts");
 const helpDocsSetupPath = join(process.cwd(), "tests/e2e/help-docs-setup.ts");
 
@@ -42,15 +43,27 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     // cron sent real mail. The old assertion here could not tell the two apart: it checked
     // that the ambient read and the loopback literal both appeared SOMEWHERE in the file.
     expect(config).not.toContain("process.env.TEST_DATABASE_URL");
-    // Both keys are set, and both resolve from DATABASE_URL. TEST_DATABASE_URL is pinned
-    // rather than dropped because `next dev` loads `.env.local` itself; an absent key lets
-    // the remote value back in, where an explicit local one wins.
+    // Both keys are set, and both resolve through localDatabaseUrl(). TEST_DATABASE_URL is
+    // pinned rather than dropped because `next dev` loads `.env.local` itself; an absent key
+    // lets the remote value back in, where an explicit local one wins.
+    //
+    // These read `localDatabaseUrl()` rather than `process.env.DATABASE_URL ?? <literal>`,
+    // which is what they used to read. The bare ambient read moved the hole one variable to
+    // the left: an ambient REMOTE DATABASE_URL propagated through every pin. The helper
+    // honours the ambient value only when it is itself loopback, and owns the literal, which
+    // is why the literal is asserted there and no longer here.
     for (const key of ["DATABASE_URL", "TEST_DATABASE_URL"]) {
-      expect(config, key).toMatch(
-        new RegExp(`\\b${key}:\\s*\\n?\\s*process\\.env\\.DATABASE_URL \\?\\?`),
-      );
+      expect(config, key).toMatch(new RegExp(`\\b${key}:\\s*\\n?\\s*localDatabaseUrl\\(\\)`));
     }
-    expect(config).toContain('"postgresql://postgres:postgres@127.0.0.1:54322/postgres"');
+    expect(config, "the helper is imported").toMatch(
+      /import \{ localDatabaseUrl \} from "\.\/scripts\/local-database-url"/,
+    );
+    // The loopback literal lives in the helper now, and the executable check that each
+    // RESOLVED value is a loopback host is tests/ci/webserverDatabasePin.test.ts, which is
+    // strictly stronger than any lexical assertion this file can make.
+    expect(readFileSync(helperPath, "utf8")).toContain(
+      '"postgresql://postgres:postgres@127.0.0.1:54322/postgres"',
+    );
   });
 
   it("allows the screenshot webServer to point Supabase HTTP clients at a container host URL", () => {
