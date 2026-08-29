@@ -94,7 +94,7 @@ it is feature behaviour, so it is settled by the task that implements it.
 | # | UNRATIFIED claim | where | settled by |
 |---|---|---|---|
 | U-1 | **RATIFIED 2026-08-29.** Setting native `disabled` on the focused retry control ejects focus to `<body>`; `aria-disabled` does not | §7.1 | **Task P1, run.** `tests/e2e/focus-disabled-eject.probe.spec.ts`, 2 passed in Chromium: the native arm reported `body`, the `aria-disabled` arm reported the button. Each arm carries a premise asserting focus was ON the button first, or "focus is on body afterwards" would be trivially true. Firefox is not independently probed; one engine ejecting is sufficient to reject the attribute |
-| U-2 | Mounting the retry image as a separate element from the idle one causes a second unconditional GET on `retrying → idle` | §4.0.5 | **Plan Task P2**, a standalone real-browser request count across an unmount-remount versus a same-node transition, everything else held constant |
+| U-2 | **RATIFIED 2026-08-29.** A separate element on `retrying → idle` costs a second unconditional GET; the surviving element costs none | §4.0.5 | **Task P2, run.** `tests/e2e/image-remount-request-count.probe.spec.ts`, 2 passed in Chromium: the remount arm issued exactly one further request, the same-node arm zero. Only node reuse varies — same URL, same headers, same interception, `loading="eager"` on every element, explicit load awaits — and the count window opens after the first load is asserted served |
 | U-3 | A covered retry image left at the `loading` default can be deferred indefinitely, so it needs `loading="eager"` | §4.0.5 | **Plan Task P3**, a standalone real-browser probe, three arms: covered at the default, covered with `eager`, uncovered at the default |
 | U-4 | The `srcSet` candidate set is stable across the failure and the retry, so the retry cannot escape the ladder | §3 | **Plan Task P4**, a standalone real-browser probe comparing two contexts at different `deviceScaleFactor`, asserting BOTH the rendered `srcSet` and the requested URL |
 | U-5 | A parser enumerating every `useState`/`useRef` is a cover where the grep was not | §4.0.3 | **Plan Task P5**, the meta-test itself: it must fail on a planted unclassified declaration, including a `Record` and an object literal, and every `per-item` row must carry a clear path or the exact words `deliberately none`, or it is not a cover |
@@ -396,7 +396,8 @@ originals-only entry that is up to 100 MB to display 50 MB, immediately after be
 retry succeeded.
 
 So: **the `<Image>` is mounted once, in its final position, for both `retrying` and `idle`.**
-(UNRATIFIED, U-2 — Task P2 settles it.)
+(RATIFIED — Task P2 measured +1 request for the remount shape and 0 for the surviving element:
+`tests/e2e/image-remount-request-count.probe.spec.ts`.)
 `retrying` differs only by an overlay above it carrying the in-flight control and
 `Retrying…`. `onLoad` removes the overlay. Nothing about the image element changes, so
 nothing remounts and no second request is issued. AC-1 asserts the node identity across the
