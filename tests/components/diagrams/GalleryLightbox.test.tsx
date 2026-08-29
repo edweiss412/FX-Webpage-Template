@@ -433,8 +433,19 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     expect(pathOf(activeImage(container).getAttribute("src"))).toBe(TOP_TIER(1));
     expect(container.querySelectorAll("img")).toHaveLength(before - 1);
     // Item 2 is inactive again and STILL failed — no retry on the way back.
-    // Still failed on the way back, and still only an OFFER: no automatic retry.
-    expect(screen.getByText(/tap to retry/i)).toBeTruthy();
+    // Item 2 is INACTIVE again and still failed. Task 6 scopes both retry
+    // controls to the active slide, so this slide offers none -- an invisible,
+    // off-screen, Tab-reachable control inside an aria-modal dialog is the
+    // hazard §2 forbids. The invariant this case exists for still holds: nothing
+    // re-requested on the way back.
+    expect(
+      container.querySelector('[data-testid="lightbox-retry"]'),
+      "no control on the inactive failed slide",
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="lightbox-retrying"]'),
+      "and nothing in flight: the swipe issued no request",
+    ).toBeNull();
     expect(inactiveImages(container)).toHaveLength(0);
   });
 

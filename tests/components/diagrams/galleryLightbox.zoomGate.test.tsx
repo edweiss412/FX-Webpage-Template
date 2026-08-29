@@ -1464,3 +1464,86 @@ describe("GalleryLightbox — the active slide can be retried (Task 5)", () => {
     expect(view.spoken.join(" ")).toContain("less detailed view");
   });
 });
+
+/**
+ * Task 6 — the leak Task 5 introduced, closed (AC-12, AC-16).
+ *
+ * Embla renders every slide, so a failed branch shared between the active and
+ * inactive ones puts a retry control on each of them. Spec §2 forbids it: an
+ * inactive slide's control is invisible, off-screen, and still Tab-reachable
+ * inside an `aria-modal` dialog, so a keyboard user tabs into a control for a
+ * diagram they cannot see and cannot identify.
+ */
+describe("GalleryLightbox — only the ACTIVE slide offers a retry (Task 6)", () => {
+  test("AC-12: an inactive failed slide renders NO control, and the trap collects none", () => {
+    const { container } = open([item(1), item(2)]);
+
+    // Fail slide 2 while it is inactive: Embla has already rendered it.
+    const inactive = inactiveImages(container)[0];
+    premiseHolds("the inactive slide rendered an image that can fail", inactive !== undefined);
+    act(() => {
+      fireEvent.error(inactive as HTMLImageElement);
+    });
+
+    const figures = [...container.querySelectorAll("figure")];
+    const inactiveFigure = figures.find((f) => f.getAttribute("aria-hidden") === "true");
+    premiseHolds("an inactive slide is present to inspect", inactiveFigure !== undefined);
+
+    // ABSENCE is the claim, asserted first and on its own terms.
+    expect(
+      inactiveFigure!.querySelector('[data-testid="lightbox-retry"]'),
+      "no retry control on a slide the user cannot see",
+    ).toBeNull();
+
+    // The collector is CORROBORATION at the site where the hazard lives, not the
+    // claim: a rendered control the collector happened to miss would pass this
+    // alone while violating the criterion as written.
+    const collected = [
+      ...inactiveFigure!.querySelectorAll<HTMLElement>(
+        'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])',
+      ),
+    ];
+    expect(collected, "and nothing on it is Tab-reachable inside the dialog").toEqual([]);
+  });
+
+  test("AC-12: the ACTIVE slide still offers one, so absence is not vacuous", () => {
+    // Without this, the case above passes against a component that renders no
+    // control anywhere -- including a Task 5 regression that removed it outright.
+    const { container } = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    expect(container.querySelector('[data-testid="lightbox-retry"]')).not.toBeNull();
+  });
+
+  test("AC-16: swiping away mid-retry strands no `Retrying…`, and focus reaches Close", () => {
+    const { container } = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    const control = container.querySelector('[data-testid="lightbox-retry"]') as HTMLElement;
+    premiseHolds("the active slide offered a retry to start", control !== null);
+    act(() => control.focus());
+    act(() => {
+      fireEvent.click(control);
+    });
+    premiseHolds(
+      "the slide really entered the in-flight state before the swipe",
+      container.querySelector('[data-testid="lightbox-retrying"]') !== null,
+    );
+
+    act(() => emblaApis.at(-1)!.scrollTo(1));
+
+    const figures = [...container.querySelectorAll("figure")];
+    const nowInactive = figures.find((f) => f.getAttribute("aria-hidden") === "true");
+    premiseHolds("the retried slide is the inactive one now", nowInactive !== undefined);
+    expect(
+      nowInactive!.querySelector('[data-testid="lightbox-retrying"]'),
+      "no stranded Retrying… on a slide that swiped away",
+    ).toBeNull();
+    expect(
+      document.activeElement,
+      "focus never falls out of the dialog when the control it held goes away",
+    ).not.toBe(document.body);
+  });
+});

@@ -462,6 +462,19 @@ export function GalleryLightbox({
       // Next under the user's focus with no click anywhere in the story.
       keepFocusInDialog(prevRef.current, index === 0, nextRef.current);
       keepFocusInDialog(nextRef.current, index === items.length - 1, prevRef.current);
+      // A slide's retry controls are ACTIVE-ONLY (Task 6), so swiping away
+      // unmounts whichever one held focus and drops it to `<body>` -- outside an
+      // `aria-modal` dialog that is still on screen and still trapping, where
+      // the non-Escape keymap gate stops responding. Close is the destination
+      // the dialog already uses when a focused element goes away (AC-16).
+      //
+      // Read AFTER the chevron handling above so a focus move they already made
+      // is respected rather than overridden.
+      const active = document.activeElement;
+      const dialog = dialogRef.current;
+      if (dialog && (active === null || active === document.body || !dialog.contains(active))) {
+        closeRef.current?.focus();
+      }
       // Per shape brief: navigation resets per-slide zoom. The
       // previous slide's TransformWrapper unmounts when we re-key on
       // activeIndex, so its scale state is gone — but we also need
@@ -816,12 +829,19 @@ export function GalleryLightbox({
           <div className="flex size-full">
             {items.map((item, i) => {
               const isRetrying = retrying.has(item.id);
+              const isActive = i === activeIndex;
               // The image renders for BOTH idle and retrying, mounted once in its
               // final position (§4.0.5), with the in-flight control overlaid.
               const available = item.available && (!failedKeys.has(item.id) || isRetrying);
               // `failed` is disjoint from `retrying`: the render picks one branch.
-              const showRetry = item.available && failedKeys.has(item.id) && !isRetrying;
-              const isActive = i === activeIndex;
+              // ACTIVE ONLY (spec §2, Task 6). Embla renders every slide, so an
+              // unscoped control is rendered on each of them: invisible,
+              // off-screen, and still Tab-reachable inside an `aria-modal`
+              // dialog, so a keyboard user tabs into a control for a diagram they
+              // cannot see and cannot identify. Task 5 introduced that leak
+              // deliberately and visibly; this closes it.
+              const showRetry =
+                isActive && item.available && failedKeys.has(item.id) && !isRetrying;
               // Computed once per slide: both tiers branch on it, and calling the
               // guard twice per branch invites the two calls to disagree.
               const dims = validDims(item);
@@ -845,7 +865,7 @@ export function GalleryLightbox({
                   // while the slide it describes swipes out from under it.
                   className="relative flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
                 >
-                  {isRetrying ? (
+                  {isRetrying && isActive ? (
                     /*
                       The in-flight overlay (§4.0.5), above the image rather than
                       replacing it: the node that loads is the node the idle slide
