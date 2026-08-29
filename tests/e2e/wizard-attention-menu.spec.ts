@@ -164,6 +164,27 @@ async function openModal(page: Page, width: number, height: number) {
   await expect(page.locator(MENU)).toHaveCount(0);
 }
 
+/**
+ * Boot at a DESKTOP width and leave the auto-opened panel OPEN.
+ *
+ * `openModal` dismisses it by design, and dismissing is a CLICK, which sets
+ * `menuAutoOpened` false (Step3ReviewModal.tsx:594-597). Re-clicking to reopen
+ * therefore produces a TAP-opened menu, not an auto-opened one — so a defect
+ * conditional on `menuAutoOpened` would survive a case that called itself
+ * "auto-opened". Round 4 of whole-diff review caught exactly that in the first
+ * version of the resize block below.
+ */
+async function bootAutoOpened(page: Page, width: number, height: number) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width, height });
+  await page.goto(`${baseUrl}?attention=1`);
+  const chip = page.locator(CHIP);
+  await chip.waitFor();
+  // Never clicked, so `menuAutoOpened` is still true.
+  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  await page.locator(MENU).waitFor({ state: "visible" });
+}
+
 test.describe("wizard attention pill + menu geometry (spec §9)", () => {
   test("the compiled CSS actually carries the rules these assertions depend on", async ({
     page,
@@ -397,14 +418,17 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
   //
   // The rule the whole design rests on: this change never CLOSES a menu.
 
-  test("auto-opened at desktop, then shrunk below sm: the menu stays open", async ({ page }) => {
-    await openModal(page, 1280, 800);
-    await page.locator(CHIP).click(); // openModal dismisses; reopen to measure
-    await expect(page.locator(MENU)).toBeVisible();
+  test("AUTO-opened at desktop, then shrunk below sm: the menu stays open", async ({ page }) => {
+    // Genuinely auto-opened: never clicked, so `menuAutoOpened` is still true
+    // and a defect conditional on it is reachable here.
+    await bootAutoOpened(page, 1280, 800);
 
     await page.setViewportSize({ width: 375, height: 667 });
     await page.waitForTimeout(250);
-    await expect(page.locator(MENU), "shrinking closed an open menu").toBeVisible();
+    await expect(page.locator(MENU), "shrinking closed an auto-opened menu").toBeVisible();
+    // And it is still the AUTO-opened one: shrinking must not quietly convert
+    // it into an operator-opened panel, which would flip Escape ownership.
+    await expect(page.locator(CHIP)).toHaveAttribute("aria-expanded", "true");
   });
 
   test("tap-opened at a phone width, then widened past sm: the menu stays open", async ({
@@ -419,14 +443,28 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     await expect(page.locator(MENU), "widening closed an operator-opened menu").toBeVisible();
   });
 
-  test("a tap-opened menu keeps its Escape after a resize in either direction", async ({
-    page,
-  }) => {
+  test("a tap-opened menu keeps its Escape after SHRINKING past the boundary", async ({ page }) => {
+    // The other direction. Round 4 was right that "either direction" named two
+    // and exercised one, so a shrink-only corruption of Escape ownership would
+    // have passed.
+    await openModal(page, 1280, 800);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.waitForTimeout(250);
+    await page.locator(CHIP).press("Escape");
+
+    await expect(page.locator(MENU), "Escape did not close the menu").toHaveCount(0);
+    await expect(page.locator(PANEL), "Escape closed the MODAL, not the menu").toBeVisible();
+  });
+
+  test("a tap-opened menu keeps its Escape after WIDENING past the boundary", async ({ page }) => {
     // Escape OWNERSHIP is the wizard-only half. `menuAutoOpened` drives
     // `escTransparentUntilEngaged`, so a menu the operator opened must swallow
-    // Escape and close ITSELF, leaving the modal up -- before and after a
-    // resize. If a width change ever set that flag, Escape would start closing
-    // the whole modal instead, and only this asserts otherwise.
+    // Escape and close ITSELF, leaving the modal up. If a width change ever set
+    // that flag, Escape would start closing the whole modal instead, and only
+    // these two cases assert otherwise.
     await openModal(page, 375, 667);
     await page.locator(CHIP).click();
     await expect(page.locator(MENU)).toBeVisible();
