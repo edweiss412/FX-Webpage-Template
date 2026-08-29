@@ -56,15 +56,24 @@ const ERRORS_SEQUENCE: ReadonlyArray<{ vw: number; cols: number }> = [
 const MEASURE_VIEWPORTS = [752, 768, 1016, 1024, 1280] as const;
 const MOBILE_BASELINE = { vw: 390, cols: 1, measureCh: 31.4 } as const;
 
-/** Spec §4, stated with numbers. The shell is `max-w-6xl px-4` (1152 - 32 = 1120)
- *  minus a 240px sidebar and a 24px gap at `md`, so the main column is 728 at 1024
- *  and 856 at 1280. A bled grid takes all of it; a grid still under the measure cap
- *  does not, which is what these absolutes see and the relative assertion alone
- *  would not if every box shrank together. */
-const BLED_GRID_WIDTH: ReadonlyArray<{ vw: number; width: number }> = [
-  { vw: 1024, width: 728 },
-  { vw: 1280, width: 856 },
-];
+/** Spec §4, stated with numbers: the shell is `max-w-6xl px-4` (1152 - 32 = 1120)
+ *  minus a 240px sidebar and a 24px gap at `md`, so the main column is 856 at 1280.
+ *
+ *  ONLY 1280 CARRIES AN ABSOLUTE. §4 also names 728 at 1024, and that number is
+ *  arithmetic on a 1024px viewport with NO scrollbar: below 1184 the container is
+ *  limited by the VIEWPORT rather than by `max-w-6xl`, so a classic scrollbar takes
+ *  its width straight out of the result and a correct layout reports 713. At 1280
+ *  `max-w-6xl` binds and 856 is independent of it. Asserting a scrollbar's width is
+ *  not asserting the layout. 1024 is covered by the two claims below instead, both
+ *  scrollbar-independent, and neither satisfied by a grid that never bled. */
+const BLED_GRID_WIDTH: ReadonlyArray<{ vw: number; width: number }> = [{ vw: 1280, width: 856 }];
+
+/** The viewports where a bled grid must be measurably wider than a capped sibling.
+ *  This is the direct statement of the change: `.help-prose > p` still stops at the
+ *  70ch measure (704.4px measured) and the grid does not. It compares two elements
+ *  on the same page whose widths differ ONLY because of the bleed, so it needs no
+ *  absolute and cannot be satisfied by a grid that never escaped the cap. */
+const BLEED_VIEWPORTS = [1024, 1280] as const;
 
 const TOL = 0.5;
 
@@ -103,6 +112,13 @@ async function readTour(page: Page) {
       mainWidth: main ? w(main) : -1,
       mainContentWidth: main ? contentWidth(main) : -1,
       proseContentWidth: prose ? contentWidth(prose) : -1,
+      // A direct prose child, which the measure still caps. The grid's width is
+      // meaningful only relative to this: it is what the grid looked like before the
+      // bleed, still rendered on the same page at the same viewport.
+      cappedChildWidth: (() => {
+        const el = document.querySelector("main .help-prose > p") as HTMLElement | null;
+        return el ? w(el) : -1;
+      })(),
       grids: grids.map((g) => {
         // EVERY card, not the first. Sampling one card per grid missed the
         // col-span-full card entirely — it is card 3 of grid 1, and it is the
@@ -180,7 +196,7 @@ test.describe("/help/tour card grids — real-browser layout", () => {
     await page.goto("/help/tour", { waitUntil: "networkidle" });
     await expect(page.locator("main .help-prose div.grid").first()).toBeVisible();
 
-    for (const { vw, width } of BLED_GRID_WIDTH) {
+    for (const vw of BLEED_VIEWPORTS) {
       await page.setViewportSize({ width: vw, height: 900 });
       const m = await readTour(page);
       premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
@@ -189,18 +205,33 @@ test.describe("/help/tour card grids — real-browser layout", () => {
         `the prose wrapper resolves a content width at ${vw}px`,
         m.proseContentWidth > 0,
       );
+      premiseHolds(`a capped prose child renders at ${vw}px`, m.cappedChildWidth > 0);
+      // The premise that makes the comparison mean anything: at these viewports the
+      // measure must actually BIND on a capped child. Where the container is narrower
+      // than the measure it does not, every element is container-width, and "wider
+      // than a capped sibling" would be unsatisfiable rather than false.
+      premise(
+        `the measure binds on a prose child at ${vw}px`,
+        m.mainContentWidth,
+        m.cappedChildWidth,
+      );
 
       // §4 row 3: the wrapper carries no max-width after the cap moved to its children.
       expect(m.proseContentWidth, `.help-prose content width at ${vw}px`).toBeCloseTo(
         m.mainContentWidth,
         1,
       );
-      // §4 rows 2 and 4. The ABSOLUTE is what sees a grid still under the cap: the
-      // relative assertion alone passes if every box shrinks together.
-      expect(m.mainContentWidth, `main content width at ${vw}px`).toBeCloseTo(width, 1);
 
       for (const [i, g] of m.grids.entries()) {
-        expect(g.gridWidth, `grid ${i + 1} width at ${vw}px`).toBeCloseTo(width, 1);
+        // §4 rows 2 and 4, relative form.
+        expect(g.gridWidth, `grid ${i + 1} width at ${vw}px`).toBeCloseTo(m.mainContentWidth, 1);
+        // And the form a grid still under the cap fails: WIDER than the sibling the
+        // cap still binds on. Without this, every assertion here is satisfied by a
+        // page where the bleed never happened and both boxes are 704.4px.
+        expect(
+          g.gridWidth,
+          `grid ${i + 1} must exceed the capped prose child at ${vw}px`,
+        ).toBeGreaterThan(m.cappedChildWidth + 1);
         // §4 row 7: equal column widths. `1fr` tracks are equal by construction, so
         // this fails only if the track list stopped being uniform.
         premiseHolds(`grid ${i + 1} resolves its tracks at ${vw}px`, g.trackWidths.length > 0);
@@ -212,6 +243,17 @@ test.describe("/help/tour card grids — real-browser layout", () => {
             1,
           );
         }
+      }
+    }
+
+    // The one absolute §4 states that no scrollbar can move.
+    for (const { vw, width } of BLED_GRID_WIDTH) {
+      await page.setViewportSize({ width: vw, height: 900 });
+      const m = await readTour(page);
+      premise(`the tour renders card grids at ${vw}px`, m.grids.length, 0);
+      expect(m.mainContentWidth, `main content width at ${vw}px`).toBeCloseTo(width, 1);
+      for (const [i, g] of m.grids.entries()) {
+        expect(g.gridWidth, `grid ${i + 1} width at ${vw}px`).toBeCloseTo(width, 1);
       }
     }
   });
