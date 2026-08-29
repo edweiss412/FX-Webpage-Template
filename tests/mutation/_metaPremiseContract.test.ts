@@ -30,6 +30,15 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The per-item state scanner's deciding suite, enrolled 2026-08-29. MEASURED
+  // with classifyTests against this tree: 7 classified, 0 environment-touching,
+  // every verdict `environment-free`. It reads component sources through
+  // `readFileSync` and plants mutations into STRINGS in memory, never touching
+  // `process.env` and never writing the tree, which is the two things the
+  // classifier counts. The planted-declaration cases are generated inside a
+  // `for` loop and so are not among the 7 the scanner names, which is the
+  // classifier's own grain rather than a gap in the suite.
+  "tests/components/diagrams/perItemStateLifetime.probe.test.ts": 0,
   // BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24). Counts MEASURED with classifyTests
   // against this tree, not estimated. The two wrapper suites drive an INJECTED stub
   // transport with injected sleep/random and touch nothing real; every case in them
