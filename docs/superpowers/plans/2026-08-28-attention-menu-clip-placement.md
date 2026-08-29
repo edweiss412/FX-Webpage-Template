@@ -72,7 +72,7 @@ Run detached (the suite exceeds a 10-minute foreground window): **34 passed**.
 | `tests/components/admin/showpage/popoverOverlayRegistry.ts` | EXTENDS | AttentionMenu's row changes disposition. |
 | `tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` | EXTENDS | The `fit-within-clip` → hook-import mapping loses its last subject. |
 | `tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` | EXTENDS | Four hook rows retire. |
-| `tests/components/admin/useFitWithinClip.test.tsx` | RETIRES | Deleted with its subject. |
+| the retired hook suite (tests/components/admin/useFitWithinClip.test.tsx) | RETIRES | Deleted with its subject. |
 | `tests/docs/_metaInvariant8Closeout.test.ts` | **EXTENDS (new subject)** | This plan declares the invariant-8 dual gate, so the guard discovers it as a subject and reds until the marker lands. Task 2 owns that. Listed because a guard acquiring a new subject is an inventory entry, and an earlier draft omitted it. |
 | Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) | **N/A** | This plan touches no `pg_advisory*` path, no DB, no RPC. Declared explicitly per the rule. |
 | Supabase call-boundary (`tests/auth/_metaInfraContract.test.ts`) | **N/A** | No Supabase call is added or moved. |
@@ -189,9 +189,12 @@ Six of the eight cells fail. Record the observed numbers.
 
 ### GREEN — migrate, and repair everything the migration falsifies
 
-1. **Placement.** Portal into the `PopoverHostContext` host (falling back to
-   `document.body`), anchor to `pillRef`
-   (`components/admin/showpage/AttentionMenu.tsx:75`), call
+1. **Placement.** **REVISED AT IMPLEMENTATION — see spec §3.1a for the evidence.**
+   Do NOT portal (it breaks sequential focus order from the pill), anchor to the
+   panel's `offsetParent` rather than to `pillRef` (the wrapper is taller, and
+   anchoring to the pill lifts the panel over the status strip), and RETAIN
+   `top-[calc(100%+8px)] right-0` as a load-bearing CSS fallback. Read the host
+   from `PopoverHostContext` for BOUNDS only, then call
    `placeWithinVisibleViewport(window, { hostRect, trigger, naturalSize,
    wrappedHeightAt, preferredSide: "bottom", align: "right", warnKey })`, and write
    `left`/`top`/`maxWidth`/`maxHeight` to the PANEL, host-relative exactly as
@@ -217,8 +220,8 @@ Six of the eight cells fail. Record the observed numbers.
 transition list. Both are ratified (spec §3.3, §7) and both were adversarial
 findings.
 
-7. **Retire the hook module.** Delete `components/admin/useFitWithinClip.ts` and
-   `tests/components/admin/useFitWithinClip.test.tsx`.
+7. **Retire the hook module.** Delete the retired hook module (components/admin/useFitWithinClip.ts) and
+   the retired hook suite (tests/components/admin/useFitWithinClip.test.tsx).
 
    **This is a GREEN step here and NOT a task of its own**, because it has no red
    to author. An earlier draft made it Task 2 and claimed the deletion would
@@ -243,7 +246,7 @@ findings.
    `100dvw`, `100svw`, since no existing guard scans CSS (L-3).
 
    **The retired suite's three pinned shapes are dispositioned, not dropped.**
-   `tests/components/admin/useFitWithinClip.test.tsx` carries three lifecycle
+   the retired hook suite (tests/components/admin/useFitWithinClip.test.tsx) carries three lifecycle
    cases the hook spec calls out as load-bearing — *"the suite's three lifecycle
    cases (h15, h16, h17) still pin those historical SHAPES"*
    (`docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md:43`).
@@ -251,9 +254,9 @@ findings.
 
    | Case | Pins | Disposition |
    | --- | --- | --- |
-   | h15 (`tests/components/admin/useFitWithinClip.test.tsx:931`) | The ReSyncButton lifecycle | **Dies with the module.** Its real consumer migrated to the placement stack on 2026-08-25; this case pinned the HOOK's behavior under that shape, and the hook is gone. No live subject remains. |
-   | h16 (`tests/components/admin/useFitWithinClip.test.tsx:968`) | The PublishedToggle lifecycle | **Dies with the module**, same reason and same migration. |
-   | h17 (`tests/components/admin/useFitWithinClip.test.tsx:995`) | The AttentionMenuPanel lifecycle — node present at ITS first render, then the entrance flip | **Its property SURVIVES, relocated.** This is the one shape whose consumer is still live, and the property it pins — that the entrance flip drives a second pass — is exactly what the settle assertion above asserts, in a real browser and against the new mechanism. The pin is not lost; it moves from a jsdom lifecycle count to a measured geometry. |
+   | h15 (the retired hook suite (tests/components/admin/useFitWithinClip.test.tsx line 931, deleted in this arc)) | The ReSyncButton lifecycle | **Dies with the module.** Its real consumer migrated to the placement stack on 2026-08-25; this case pinned the HOOK's behavior under that shape, and the hook is gone. No live subject remains. |
+   | h16 (the retired hook suite (tests/components/admin/useFitWithinClip.test.tsx line 968, deleted in this arc)) | The PublishedToggle lifecycle | **Dies with the module**, same reason and same migration. |
+   | h17 (the retired hook suite (tests/components/admin/useFitWithinClip.test.tsx line 995, deleted in this arc)) | The AttentionMenuPanel lifecycle — node present at ITS first render, then the entrance flip | **Its property SURVIVES, relocated.** This is the one shape whose consumer is still live, and the property it pins — that the entrance flip drives a second pass — is exactly what the settle assertion above asserts, in a real browser and against the new mechanism. The pin is not lost; it moves from a jsdom lifecycle count to a measured geometry. |
 
    Update the stale live comment at
    `tests/docs/_metaDeferralLedgerGraduation.test.ts:414`, which says the scroller

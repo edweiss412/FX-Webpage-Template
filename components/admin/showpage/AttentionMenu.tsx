@@ -42,6 +42,7 @@ import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
 import { withNaturalSize } from "@/lib/popover/naturalSize";
 import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
+import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import type { Rect } from "@/lib/popover/position";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
@@ -390,6 +391,15 @@ export function AttentionMenuFrame({
     const triggerRect = anchor.getBoundingClientRect();
     if (triggerRect.width <= 0 || triggerRect.height <= 0) return;
 
+    // `withNaturalSize` is handed the PANEL because the panel is what carries the
+    // fitted caps. It preserves the scroll offsets of the element it is given, and
+    // the element that actually scrolls here is the panel's CHILD — so the child's
+    // offset is captured and restored around the measurement explicitly. Clearing
+    // the panel's cap reflows the child, and a reflow can clamp a scrolled child to
+    // a range that no longer reaches its old position; the helper cannot know that
+    // for a descendant.
+    const scroller = panel.querySelector<HTMLElement>('[role="group"][tabindex="0"]');
+    const heldScrollTop = scroller?.scrollTop ?? 0;
     const placement = withNaturalSize(panel, (probe) => {
       const natural = panel.getBoundingClientRect();
       if (natural.width <= 0 || natural.height <= 0) return null;
@@ -403,6 +413,9 @@ export function AttentionMenuFrame({
         warnKey: panel,
       });
     });
+    if (scroller !== null && heldScrollTop !== 0 && scroller.scrollTop !== heldScrollTop) {
+      scroller.scrollTop = heldScrollTop;
+    }
     if (placement === null) return;
     if (placement.kind === "hidden") {
       panel.style.visibility = "hidden";
@@ -452,17 +465,46 @@ export function AttentionMenuFrame({
   useEffect(() => {
     const coalescer = createRafCoalescer(measureAndApply);
     const schedule = () => coalescer.schedule();
+    // SELF-ORIGIN FILTER. A capture-phase window scroll listener also hears the
+    // panel's own scroller, and every measurement can emit a scroll event from it
+    // (clearing the cap reflows the child). Without this the pair feeds itself a
+    // re-measure per frame while the operator is scrolling the list. The shared
+    // measurement helper documents exactly this hazard and requires the two
+    // scroll-listening surfaces to carry the filter.
+    const onScrollCapture = (e: Event) => {
+      const target = e.target;
+      if (target instanceof Node && panelRef.current?.contains(target)) return;
+      schedule();
+    };
     window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, { capture: true, passive: true });
+    window.addEventListener("scroll", onScrollCapture, { capture: true, passive: true });
+    // The visual viewport is a distinct signal from the layout viewport: pinch-zoom
+    // and the mobile keyboard move it without firing a window resize. Every other
+    // consumer of this stack subscribes to both, and Doug is on a phone.
+    const vv = isVisualViewportEngine(window) ? window.visualViewport : null;
+    vv?.addEventListener("scroll", schedule);
+    vv?.addEventListener("resize", schedule);
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     const host = hostRef?.current ?? null;
     if (ro !== null) {
-      if (panelRef.current !== null) ro.observe(panelRef.current);
+      const panelNow = panelRef.current;
+      if (panelNow !== null) ro.observe(panelNow);
       if (host !== null) ro.observe(host);
+      // THE ANCHOR TOO. Placement is computed against `panel.offsetParent`, so a
+      // wrapper that resizes or reflows — a live attention count changing its own
+      // width, the title block rewrapping — moves the anchor without resizing
+      // either the panel or the host. Observing only those two leaves the written
+      // coordinates stale in exactly the case this surface updates live.
+      const anchorNow = panelNow?.offsetParent ?? null;
+      if (anchorNow !== null && anchorNow !== host && anchorNow !== panelNow) {
+        ro.observe(anchorNow);
+      }
     }
     return () => {
       window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("scroll", onScrollCapture, { capture: true });
+      vv?.removeEventListener("scroll", schedule);
+      vv?.removeEventListener("resize", schedule);
       ro?.disconnect();
       coalescer.cancel();
     };

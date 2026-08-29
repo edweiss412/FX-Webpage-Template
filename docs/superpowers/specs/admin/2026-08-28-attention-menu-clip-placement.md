@@ -189,6 +189,37 @@ width cap can never fire on a full-width modal at any width.** At 1280 the modal
 is not full width (clip `[128, 1152]`), and it is null there as well by the
 numbers above.
 
+**AMENDED 2026-08-28 AT IMPLEMENTATION, and the amendment is the honest half of
+this section.** The proof above is sound for the natural width it assumes,
+`min(400, W - 32)` — the OLD CSS formula. But that formula is exactly what this
+arc removes: it is viewport-derived, and AC-7 forbids a viewport-derived width in
+this component. The shipped natural width is a plain `w-[400px]`, which §3.3
+already called for ("a plain `w-`/`max-w-` on the natural-size measurement"), and
+those two statements were mutually inconsistent from round 1. Neither this spec
+nor four review rounds caught it; the whole-diff review did.
+
+With a 400px natural width the cap DOES fire at phone widths: at 375 the bounds
+are 359 wide, `400 > 359`, so `maxWidth` is written and the panel settles at 359
+rather than 343 — **16px WIDER than before the fix, and still fully contained.**
+
+**The declination of candidate (A) survives this unchanged, and it matters that it
+does.** A cap alone still does not fix the defect at any width: capped to 359 and
+anchored right, the panel would start at `307 - 359 = -52`, further outside the
+clip than the -36 it started at. The clamp remains the only mechanism that
+contains it. What changes is the REASON the cap is not the fix — "inert" was true
+of the old natural width and is not true of the shipped one; "insufficient, and in
+the wrong direction" is true of both. §2.3(A) is corrected to argue the latter.
+
+**AC-2b is amended to match** (§9): the settled width is
+`min(400, bounds.width)`, derived from the measured clip and the core's
+`VIEWPORT_INSET`, not the literal 343. The suites assert the derivation, so the
+number moves with the viewport instead of being pinned to one.
+
+This is recorded as an amendment rather than applied silently because the
+alternative — editing the assertions to match the implementation and saying
+nothing — is weakening a ratified contract, which is what the review correctly
+called it before this paragraph existed.
+
 This is a derivation, so it does not re-open when a viewport is added to the
 domain — which is what the class-sweep rule asks for in place of a per-viewport
 table. §6.3 still allocates every cell, but as confirmation of a proved claim
@@ -240,9 +271,12 @@ migration", and the bug closes as a consequence.
 Recorded here so neither side is relitigated, per the disagreement-loop rule.
 
 - **(A) Extend `useFitWithinClip` (or a sibling) to cap width.** DECLINED on
-  arithmetic, not on style: §2.1 shows the cap is INERT — `maxWidth` evaluates to
-  `null` over the whole probe domain, so a width cap of the shared core's kind
-  writes nothing and the left edge stays at -36. To work at all it would have to
+  arithmetic, not on style: a width cap does not contain this panel at ANY width.
+  Capped to the clip's bounds (359 at 375) and still anchored right, it would
+  start at `307 - 359 = -52` — further outside the clip than the -36 it began at,
+  because narrowing a right-anchored panel moves its LEFT edge left. §2.1 records
+  that the cap is additionally inert under the old natural width and fires under
+  the shipped one; under both, it is the wrong mechanism. To work at all it would have to
   cap by a different quantity, the anchor-to-clip-edge distance, and then clamp —
   which is `lib/popover/position.ts:138-139` re-implemented in a second place,
   against the explicit trajectory of `lib/popover/place.ts:54`. A reviewer
@@ -289,6 +323,24 @@ fix from one change — the shared-frame requirement the row and the arc brief b
 set. The context is defined at `components/admin/HoverHelp.tsx:77` and falls back
 to `document.body` where no provider exists, which is the correct degenerate
 behavior for any future unclipped mount.
+
+### 3.1a AMENDED AT IMPLEMENTATION — three decisions reversed
+
+§3.2 and §3.3 below are kept as written, because the reasoning that produced them
+is worth reading, but **three of their instructions were reversed by evidence
+during implementation and the shipped code does not follow them.** The spec is
+canonical, so the reversals are recorded HERE, ahead of the text they override,
+rather than left for a reader to discover by diffing code against spec.
+
+| §3 says | What shipped | Why |
+| --- | --- | --- |
+| Portal into the `PopoverHostContext` host (§3.2) | **No portal.** The panel renders in place; the host supplies BOUNDS only. | Portaling appends the panel late in the modal. It preserves the focus TRAP — §3.2's argument is correct as far as it goes — but sequential focus ORDER follows DOM order, so Tab from the pill reached the modal's close button instead of the menu. The suite pins that as an accessibility contract. The trap and the order within it are different properties, and §3.2 conflated them. |
+| Anchor to `pillRef` (§3.3) | **Anchor to the panel's `offsetParent`** — the pill's wrapper. | That is what `right-0 top-[calc(100%+8px)]` anchored to before the migration. The wrapper carries the title block and is taller than the pill, so hanging the panel off the pill's bottom edge lifted it over the status strip; measured, the published toggle became unclickable with a monitoring row intercepting its pointer events. `pillRef` remains the dismissal inside-set, which is what it was always for. |
+| Remove `top-[calc(100%+8px)] right-0` (§3.3) | **Both classes RETAINED** as a CSS fallback. | A panel whose placement returns early — null `offsetParent`, zero-area anchor, degenerate natural measurement — would otherwise be `absolute` with no offsets, sprawl at its static position, and swallow pointer events over the controls beneath it. The fallback is load-bearing, not vestigial. |
+
+What is NOT reversed: the direction (§2), the clamp as the mechanism (§2.1), the
+element each placement output lands on (§3.3's table), and the single `entered`
+re-place signal (§7).
 
 ### 3.2 Portal target, and why portaling is safe here
 
@@ -838,9 +890,14 @@ checks the transient.
 
   The alternative is recorded in §11 as L-4 with its trigger, not discarded.
 
-  **AC-2b — the choice is ENFORCED, not merely stated.** At 375x667 the settled
-  `menu.width` is `343` and `menu.right` is `343 + menu.left`, i.e. the natural
-  width is preserved and the panel is NOT narrowed to fit flush.
+  **AC-2b — the choice is ENFORCED, not merely stated.** The settled `menu.width`
+  is `min(400, bounds.width)` — the declared 400px natural width, capped only by
+  the clip's inset bounds — asserted from the measured clip and the core's
+  `VIEWPORT_INSET` rather than a pixel constant. At 375x667 that is 359.
+
+  **Amended from a literal `343` at implementation time** (§2.1): 343 was the old
+  viewport-derived formula's output, and AC-7 forbids that formula. The panel is
+  16px wider than before the fix and still contained.
 
   Without this the acceptance criteria do not discriminate the ratified design
   from the rejected one: a 299px panel at `left = 8, right = 307` satisfies AC-1
