@@ -42,13 +42,14 @@
 - AC-3 The contract suite covers arms A, C, D, E, F and G against the real component through the committed harness, with executable premises and no instrumentation, each asserting the outcome in spec §6.1's table rather than a uniform survival.
 - AC-4 The three regression paths hold end to end: click-outside, menu-Escape, and row-selection, each followed by an Escape that closes the modal.
 - AC-6 The claim is consumed exactly once: from state N the first Escape is deferred and the second closes the modal.
+- AC-7 The claim is ACQUIRED on both entry paths, the auto-open and the pill, and CLEARED on every intentional write including the two that never pass through `onClose` (W2 and W3).
 - AC-5 The row graduates with its documented limits recorded, F and G named by their disjoint trace signatures. (discharged by Task 4)
 
 <!-- tasks: depth=3 red-contract -->
 
 ### Task 1: the contract suite
 
-<!-- task: red=`pnpm vitest run tests/components/admin/showpage/publishedEscapeClaim.test.tsx` red-state=authored red-target=`components/admin/review/ReviewModalShell.tsx:246` why=`arm E asserts the modal SURVIVES an Escape delivered while the panel is down from a transient data change, and the single-consumption case asserts a deferred claim is spent by exactly one key; today the shell closes on any Escape with no test of whether anything consumed it, so both observe requestClose and fail. Arms A, C, D, F and G pass at authoring: A and D pin the shipped contract, C is the positive control, and F and G record documented limits this repair does not close.` ac=AC-3,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/showpage/publishedEscapeClaim.test.tsx` red-state=authored red-target=`components/admin/review/ReviewModalShell.tsx:246` why=`arm E asserts the modal SURVIVES an Escape delivered while the panel is down from a transient data change, and the single-consumption case asserts a deferred claim is spent by exactly one key; today the shell closes on any Escape with no test of whether anything consumed it, so both observe requestClose and fail. Arms A, C, D, F and G pass at authoring: A and D pin the shipped contract, C is the positive control, and F and G record documented limits this repair does not close.` ac=AC-3,AC-6,AC-7 -->
 
 **Files:**
 
@@ -60,7 +61,9 @@
 - [ ] Assert per spec §6.1's table, which is NOT uniform: A, D and E assert the modal survives; C, F and G assert it CLOSES. F and G are executable records of the §8 documented limits, since a modal-held claim cannot survive either window; asserting a survival there would be red forever.
 - [ ] Each arm states its premise with `premiseHolds` immediately above the assertion that rests on it, executing unconditionally and proven on that arm's OWN inputs: arm D asserts `k >= 1` for its fixture, arm A asserts the panel is in the DOM before the key, arm C asserts it is absent.
 - [ ] Derive every fixture from the harness builders. No hardcoded counts.
-- [ ] Add the single-consumption case, spec §6.2 red 7: from state N, the FIRST Escape leaves the modal open and the SECOND closes it. Without it a predicate that returns true forever passes every other assertion here while swallowing every later Escape. The existing two-Escape e2e case cannot substitute: it starts in state M, where the frame consumes and clears the first key, so it never observes N.
+- [ ] Add the single-consumption case, spec §6.2 red 10: from state N, the FIRST Escape leaves the modal open and the SECOND closes it. Without it a predicate that returns true forever passes every other assertion here while swallowing every later Escape. The existing two-Escape e2e case cannot substitute: it starts in state M, where the frame consumes and clears the first key, so it never observes N.
+- [ ] Add the two intentional dismissals that never pass through `onClose`, spec §6.2 reds 6 and 7: resolving the last actionable item (W2) and the pill toggle (W3), each followed by an Escape that CLOSES the modal. No W4 red reaches either, so without these an implementation can leave the claim pending on an ordinary dismissal and swallow the next key.
+- [ ] Add the acquisition case, spec §6.2 red 8: open the panel with the PILL rather than the auto-open, take it down transiently, then Escape leaves the modal open. Arms A, D and E all auto-open, so an implementation that acquires the claim only on that path passes every one of them and fails the first operator who opens the panel by hand. This is an acquisition gap, not a clearing gap.
 - [ ] RED: run the command. Arm E fails because the shell closes on an Escape nothing consumed; the rest pass at authoring. Arm E alone is the red, and the task body says so rather than implying every new arm fails.
 - [ ] Commit.
 

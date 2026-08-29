@@ -134,10 +134,10 @@ The claim is a ref, not state: it is read at event time and must not re-render t
 | panel dismissed by SELECTING a row, alert or sheet warning (W4) | claim cleared, so the next Escape closes the modal |
 | panel dismissed by its own Escape (W4) | shell never sees that key; claim cleared, so the NEXT Escape closes the modal |
 | panel taken down by a data blip (W1, W5) | claim survives; the next Escape is consumed and the modal stays |
-| a THIRD Escape after a consumed one | the claim was consumed by the second, so this closes the modal; the claim is consumed exactly once |
+| a second Escape after a deferred one | the first Escape from state N consumed the claim, so this one closes the modal. Stated N-relative to match §5 and §6.2; an earlier draft counted from state M and said "the third", which contradicted both. |
 | two Escapes in rapid succession | the first is consumed if a claim is pending, the second closes the modal |
 
-The click-outside, menu-Escape and row-selection rows are the ones that can regress shipped behavior, and each gets its own red (§6.2). So does the third-Escape row, which is the only thing standing between this repair and a claim that swallows every later key.
+Every INTENTIONAL row can regress shipped behavior if its clear is missed, so each of W2, W3 and all five sources of W4 gets its own red in §6.2. An earlier draft asserted that coverage while §6.2 listed only the W4 sources, leaving W2 and W3 promised and unproven; round 2 caught the gap. The deferred-then-close row carries the exact-once guarantee and gets its own red too.
 
 ## 5. Transition inventory
 
@@ -174,11 +174,14 @@ Arms A, C, D, E, F and G move from the deleted probe into a committed suite besi
 
 1. Panel up, Escape, modal stays and menu closes. Fails today only if the frame regresses; it pins the existing contract.
 2. Panel torn down by a whole-data blip, then Escape, modal stays. **Red before the repair** (arm E measures the shell running today).
-3. Panel replaced by the skeleton, then Escape, modal stays. **Red before the repair** (arm F).
+3. Panel replaced by the skeleton, then Escape, modal CLOSES. Not a red: this is arm F recording the §8 limit executably, and demanding a survival here is the contradiction rounds 1 and 2 both caught. Round 1 fixed §6.1's table and left this line, which is why the round-2 sweep is derived from a grep over every F and G outcome claim rather than from the words the previous repair touched.
 4. Panel dismissed by click-outside, then Escape, modal CLOSES. Guards the §4 regression.
-5. Panel dismissed by SELECTING a row, then Escape, modal CLOSES. Same guard for the two sources §3.3's first draft missed.
-6. No panel at any point, Escape, modal closes. Guards against a claim that is never cleared.
-7. **The claim is consumed exactly once.** From N, the first Escape leaves the modal open and the SECOND closes it. This is the only assertion standing between the repair and a predicate that returns true forever: an implementation that sets the claim in E and never clears it satisfies reds 1 through 6 while silently swallowing every later Escape, which is precisely the consequence bound this spec is written against. Round 1 found the gap; the existing two-Escape e2e case cannot cover it, because that case starts in M, where the frame handles and clears the first key, so it never observes state N at all.
+5. Panel dismissed by SELECTING a row, alert and sheet warning separately, then Escape, modal CLOSES. Same guard for the two sources §3.3's first draft missed.
+6. Panel dismissed by RESOLVING the last actionable item (W2), then Escape, modal CLOSES. Without it an implementation can leave the claim pending on that dismissal, pass every other red, and swallow the operator's next Escape.
+7. Panel dismissed by the PILL toggle (W3), then Escape, modal CLOSES. Same reasoning as red 6; these two are the intentional writes that do not pass through `onClose` at all, so no W4 red covers them.
+8. **Claim acquisition through the pill.** Open the panel with the PILL rather than the auto-open, take it down transiently (W1), then Escape: the modal STAYS. Arms A, D and E all auto-open, so an implementation that sets the claim only on the auto-open path passes all of them and then fails the first operator who opens the panel by hand. Round 2 found this; it is an acquisition gap, not a clearing gap, and no other red reaches it.
+9. No panel at any point, Escape, modal closes. Guards against a claim that is never cleared.
+10. **The claim is consumed exactly once.** From N, the first Escape leaves the modal open and the SECOND closes it. This is the only assertion standing between the repair and a predicate that returns true forever: an implementation that sets the claim in E and never clears it satisfies reds 1 through 9 while silently swallowing every later Escape, which is precisely the consequence bound this spec is written against. Round 1 found the gap; the existing two-Escape e2e case cannot cover it, because that case starts in M, where the frame handles and clears the first key, so it never observes state N at all.
 
 ### 6.3 Anti-tautology
 
