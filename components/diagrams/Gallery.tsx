@@ -136,6 +136,16 @@ export function Gallery({
   // on a retry the user triggered by pointer, or on one triggered while focus
   // sat elsewhere, would steal it.
   const focusRetryingRef = useRef<string | null>(null);
+  // Set when a failure took focus off the thumbnail, and consumed by the retry
+  // control's ref callback. It CANNOT be a synchronous `.focus()` in the failure
+  // handler: the control has not mounted at the moment the handler runs.
+  const focusFailedRef = useRef<string | null>(null);
+  // Separate from `focusFailedRef` on purpose. The dialog's restore target must
+  // follow the failed cell even when the cell did NOT hold focus -- the common
+  // case is the trigger failing while focus is inside the open dialog, where
+  // taking focus is forbidden but re-pointing the restore target is required, or
+  // closing the dialog lands on `<body>`.
+  const restoreToControlRef = useRef<string | null>(null);
 
   // ── Failed-thumbnail focus + announcements (spec 2026-08-10 §4.2) ────────
   //
@@ -246,30 +256,6 @@ export function Gallery({
   const nameOf = (item: GalleryItem, visibleIndex: number): string =>
     item.alt || `Diagram ${visibleIndex + 1}`;
 
-  /**
-   * Where focus (or the restore target) goes when `failingId`'s button is about
-   * to be removed: the next still-present thumbnail in DOM order, else the
-   * previous one, else the show-more control, else the list itself.
-   */
-  const successorTo = (failingId: string): HTMLElement | null => {
-    const order = visible.map((entry) => entry.id);
-    const at = order.indexOf(failingId);
-    const usable = (id: string | undefined): HTMLButtonElement | null => {
-      if (id === undefined || pendingFailuresRef.current.has(id)) return null;
-      const button = thumbRefs.current.get(id);
-      return button?.isConnected ? button : null;
-    };
-    for (let i = at + 1; i < order.length; i += 1) {
-      const button = usable(order[i]);
-      if (button) return button;
-    }
-    for (let i = at - 1; i >= 0; i -= 1) {
-      const button = usable(order[i]);
-      if (button) return button;
-    }
-    return showMoreRef.current ?? listRef.current;
-  };
-
   /** Route one message to whichever channel is announceable right now. */
   const routeAnnouncement = (message: string): void => {
     if (lightboxOpenRef.current) {
@@ -344,6 +330,19 @@ export function Gallery({
    * fresh element on its own, so no remount token is needed.
    */
   const handleRetryFailure = (item: GalleryItem, visibleIndex: number): void => {
+    // The overlay is a SEPARATE element from the thumbnail, and it is where focus
+    // sits after a tap. When it unmounts there is no node to inherit focus, so
+    // without this hand-off focus falls to `<body>` -- outside the gallery, on a
+    // page whose diagram just failed twice (AC-6).
+    //
+    // The thumbnail path needs no such hand-off, and it is worth saying why: the
+    // failed control replaces the thumbnail button in the same position, so React
+    // REUSES the DOM node and focus never moves. That is reconciliation doing the
+    // work, not this code. Here the elements differ, so the hand-off is real.
+    const overlay = retryingRefs.current.get(item.id) ?? null;
+    if (overlay && document.activeElement === overlay) {
+      focusFailedRef.current = item.id;
+    }
     setRetrying((prev) => {
       if (!prev.has(item.id)) return prev;
       const next = new Set(prev);
@@ -389,13 +388,31 @@ export function Gallery({
     // tick is never chosen as anyone's successor — including its own.
     pendingFailuresRef.current.add(item.id);
 
-    // BEFORE the state update that removes the button, or there is nothing left
-    // to move focus off and no node left to compare the restore target against.
-    const successor = successorTo(item.id);
-    if (document.activeElement === button) successor?.focus();
-    // The closure rule: re-point on EVERY failure that removes the current
-    // target, so A → B → C works rather than only the first hop.
-    if (restoreTargetRef.current === button) restoreTargetRef.current = successor;
+    // The destination is the cell's OWN retry control, not a sibling (§7.1,
+    // Task 4). Relocating away from it would move the user off the one element
+    // that can fix the problem they were just told about.
+    //
+    // NO focus hand-off on this path, deliberately, and the reason is worth
+    // stating because the absence looks like an oversight.
+    //
+    // The failed control replaces the thumbnail button in the SAME position, so
+    // React reuses the DOM node: the element the user is focused on is mutated
+    // into the retry control rather than swapped for it, and focus never moves.
+    // A hand-off was written here and removed -- no mutation could kill it,
+    // because reconciliation had already done the work. The BEHAVIOUR is pinned
+    // by "a focused failing thumbnail keeps focus ON ITS OWN retry control" in
+    // gallery.failedItem.test.tsx, which goes red if React ever stops reusing
+    // the node, so the reliance is caught rather than assumed.
+    //
+    // The retrying overlay is a different story: it is a SEPARATE element, so
+    // when it unmounts there is nothing to inherit focus. That path does need
+    // the hand-off, and has it in `handleRetryFailure`.
+    // The closure rule still applies to the restore target, but the target is
+    // now the cell's own control, handed over by the same ref callback.
+    if (restoreTargetRef.current === button) {
+      restoreTargetRef.current = null;
+      restoreToControlRef.current = item.id;
+    }
 
     routeAnnouncement(opts?.announce ?? `${nameOf(item, visibleIndex)} could not be loaded.`);
 
@@ -588,6 +605,20 @@ export function Gallery({
                   data-testid={`diagram-retry-${i}`}
                   ref={(node) => {
                     retryControlRefs.current.set(item.id, node);
+                    // The hand-off. Consumed on the mount that follows the
+                    // failure, which is the first moment this element exists.
+                    if (node && focusFailedRef.current === item.id) {
+                      focusFailedRef.current = null;
+                      node.focus();
+                      restoreTargetRef.current = node;
+                    }
+                    // Independently of focus: the trigger that failed hands its
+                    // restore duty to its own control, so closing the dialog
+                    // comes back to the cell rather than to `<body>`.
+                    if (node && restoreToControlRef.current === item.id) {
+                      restoreToControlRef.current = null;
+                      restoreTargetRef.current = node;
+                    }
                   }}
                   onClick={() => handleRetry(item)}
                   aria-label={`${nameOf(item, i)} could not be loaded. Tap to retry.`}

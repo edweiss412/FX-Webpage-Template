@@ -191,6 +191,45 @@ describe("Task 2 — the gallery retry mechanism", () => {
     ).toBeNull();
   });
 
+  test("AC-6: a retry that fails while the OVERLAY holds focus does not drop to body", () => {
+    // Found by a surviving mutant, not by reading. Removing the focus hand-off
+    // entirely left every other case green, because React REUSES the thumbnail's
+    // DOM node when the failed control replaces it -- same <button>, new
+    // attributes, so focus never actually moves and the hand-off is dead on that
+    // path.
+    //
+    // This path is different. The in-flight overlay is a SEPARATE element, and it
+    // is where focus sits after a tap. When the retry fails, that element
+    // unmounts and there is no node to inherit focus, so it falls to <body> --
+    // outside the gallery, on a page whose diagram just broke twice.
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
+    failThumb(0);
+
+    const control = within(slot(0)).getByTestId("diagram-retry-0");
+    act(() => control.focus());
+    act(() => {
+      fireEvent.click(control);
+    });
+
+    const overlay = inFlightControl(0);
+    premiseHolds(
+      "the overlay holds focus after the tap, or this case is not exercising the hand-off",
+      document.activeElement === overlay,
+    );
+
+    const inFlight = imageIn(0);
+    premiseHolds("the retry mounted an image to fail", inFlight !== null);
+    act(() => {
+      fireEvent.error(inFlight as HTMLImageElement);
+    });
+
+    expect(document.activeElement, "focus never reaches <body> (AC-6)").not.toBe(document.body);
+    expect(
+      document.activeElement,
+      "it lands on the offer to try again, which is the cell's remaining next step",
+    ).toBe(within(slot(0)).getByTestId("diagram-retry-0"));
+  });
+
   test("AC-3: a successful retry announces by name", async () => {
     // Task 2's onLoad clears the retrying set and says nothing, so the cell goes
     // from "Retrying…" to a picture in silence. A screen-reader user who tapped

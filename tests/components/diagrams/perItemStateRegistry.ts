@@ -48,6 +48,24 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       "`onLoad` (retrying -> idle) and `onError` (retrying -> failed), both per item; and the availability sweep, since a slide that goes unavailable mid-flight must not return holding an overlay (spec §4, §9.1)",
     sweep: { swept: true },
   },
+  "Gallery.tsx:focusFailedRef": {
+    kind: "per-item",
+    clearedBy:
+      "the retry control's own ref callback, which nulls it the moment it takes focus -- so it holds a value for exactly one commit",
+    sweep: {
+      swept: false,
+      why: "single-shot and self-clearing, like focusRetryingRef: it names the item whose control should take focus on mount, and is nulled on read, so no sweep can find a stale id",
+    },
+  },
+  "Gallery.tsx:restoreToControlRef": {
+    kind: "per-item",
+    clearedBy:
+      "the retry control's ref callback, nulled as it assumes the restore duty -- one commit, same as focusFailedRef",
+    sweep: {
+      swept: false,
+      why: "single-shot and self-clearing. Deliberately SEPARATE from focusFailedRef: the dialog's restore target must follow the failed cell even when that cell did not hold focus, which is the common case of a trigger failing while focus is inside the open dialog",
+    },
+  },
   "Gallery.tsx:retryingRefs": {
     kind: "per-item",
     clearedBy: "React, on unmount of each in-flight overlay (the ref callback stores null)",
