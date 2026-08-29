@@ -239,18 +239,15 @@ and does not change.
 ## 6. Suites, local
 
 - **DB-free half** — `pnpm heavy pnpm vitest run --project parallel` (the CI-enforced
-  no-database project, `unit-suite-nodb`), on `700f2ab87`, the last commit that touched
-  `lib/`, `components/` or a test body: **1044 files passed, 16310 tests passed**, 2 files /
+  no-database project, `unit-suite-nodb`), on the merged tree at `29c3f5d67`, after
+  `origin/main` (`6405a0571`) came in: **1046 files passed, 16330 tests passed**, 2 files /
   17 tests skipped, **zero failures, exit 0**.
 
-  The commits after it are documentation and review corpus rows, and that is NOT the same as
-  saying the suite ignores them: `PARALLEL_TEST_GLOBS` includes `tests/docs/**` and
-  `tests/reviewRounds/**` (`vitest.projects.ts`), and `_metaPlanSnippetFences` walks every
-  Markdown file under `docs/superpowers/plans` — this closeout among them. So each later
-  documentation commit was covered by running the guards that actually read it:
-  `_metaInvariant8Closeout`, `_metaPlanSnippetFences` and `_metaReviewRoundEconomy`, green
-  after every edit. An earlier draft of this bullet claimed those commits could not affect
-  the suite at all, which diff round 4 correctly called false.
+  The pre-merge run at `700f2ab87` measured 1044 files / 16310 tests, also clean. Both are
+  quoted because the merge changed the tree — main's `#947` edited test bodies this arc also
+  touches — so the earlier number describes a tree that no longer exists, and only the
+  merged-tree run speaks for what ships.
+
 - **The four serial-project files this plan touches**, by explicit list (each client-free,
   none reads `TEST_DATABASE_URL`): `perShowActionableRenderControls`,
   `perShowActionableTransitions`, `sectionWarningModel.autocorrect`,
