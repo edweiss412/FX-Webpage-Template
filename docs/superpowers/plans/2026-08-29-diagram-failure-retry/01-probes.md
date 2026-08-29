@@ -106,16 +106,24 @@ would leave the rejection unproven, and the rejection is what spec §4.0.5 rests
 
 <!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/covered-image-load-eligibility.probe.spec.ts` red-state=authored red-target=`tests/e2e/standalone.config.ts:86` why=`the spec basename is absent from the standalone-chromium testMatch allowlist, so the run collects zero tests; after the allowlist step the SAME command collects and fails on the unwritten request assertion` ac=AC-P3 -->
 
-**Fixture.** `page.setContent` with an `<img>` carrying a `srcset`, at the browser `loading`
-default, beneath an opaque absolutely-positioned overlay. `next/image` leaves `loading` at the
-browser default unless `priority` is set (`get-img-props`, line 271), and neither diagram
-component sets it, so the plain element reproduces the case exactly.
+**Fixture.** `page.setContent` with an `<img>` carrying a `srcset`, **explicitly
+`loading="lazy"`**, beneath an opaque absolutely-positioned overlay.
 
-**Three arms, because two would not separate the causes.** Default `loading` WITH the
-overlay; `loading="eager"` WITH the overlay; default `loading` with NO overlay. If the third
-issues a request and the first does not, the overlay is the cause and `eager` is the repair.
-If the first issues a request, U-3 is wrong and `eager` is unnecessary — and the plan says so
-rather than keeping it for safety.
+**The explicit attribute is the whole fidelity of this probe, and an earlier draft had it
+backwards.** It said the fixture would sit at "the browser `loading` default", on the belief
+that `next/image` leaves the attribute unset. It does not: with no `loading` prop and no
+`priority` it computes `isLazy` true (`get-img-props`, line 271) and EMITS `loading="lazy"`
+(same file, line 553). A bare `<img>` with no attribute defaults to EAGER — the opposite. A
+fixture at the bare default would have tested eager loading, reported a request, and
+"disproved" U-3 while never reproducing the real case. Caught in self-review, not by a
+reviewer, and recorded here because it is exactly the fidelity failure a standalone fixture
+invites.
+
+**Three arms, because two would not separate the causes.** `loading="lazy"` WITH the overlay;
+`loading="eager"` WITH the overlay; `loading="lazy"` with NO overlay. If the third issues a
+request and the first does not, the overlay is the cause and `eager` is the repair. If the
+first issues a request, U-3 is wrong and `eager` is unnecessary — and the plan says so rather
+than keeping it for safety.
 
 **Outcome commit.** Spec §4.0.5 and the U-3 row amended. Its own commit.
 
@@ -127,6 +135,11 @@ rather than keeping it for safety.
 `DIAGRAM_VARIANT_WIDTHS` (`lib/sync/diagramVariants.ts:13`), plus an original-tier URL that is
 deliberately NOT in the set. A single-tier fixture cannot express a candidate change and would
 report "no difference" while proving nothing.
+
+**The `sizes` string is copied verbatim from `DEFAULT_THUMBNAIL_SIZES`
+(`components/diagrams/Gallery.tsx:106`), not invented.** Candidate selection is a function of
+`srcset`, `sizes` and DPR together, so a fixture with a different `sizes` answers a different
+question than the one U-4 asks.
 
 **DPR is browser-context configuration, not a mid-page mutation** — round 1 was right that the
 earlier draft implied otherwise. The probe opens two contexts with different

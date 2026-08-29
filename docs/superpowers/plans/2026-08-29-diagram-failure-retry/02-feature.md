@@ -12,6 +12,7 @@ at today's head, so the order below is derived from what each task leaves behind
 | after | this exists | so this task's red must not depend on its absence |
 |---|---|---|
 | Task 1 | the control renders | anything asserting "no control exists" |
+| Task 1 | the control renders on BOTH the gallery cell and the lightbox's shared failed branch | Task 6's red is that leak onto inactive slides, introduced HERE |
 | Task 2 | `onLoad`, the `attempt` key, `failedKeys` clearing, the overlay | Task 3's announcement red is a DEFECT in Task 2's handler, not its absence |
 | Task 4 | focus targets the control; `successorTo` is gone | Task 4 must run after Task 2, or the success-removal path it asserts does not exist yet |
 
@@ -68,6 +69,13 @@ browser that did not eject.
 **Four pre-dispatch mutants** for the string-presence assertions, each recorded in the commit:
 the label emptied; the label with a suffix appended; the label present but on a `hidden`
 element; `item.alt` varied, proving the name comes from the item and not a constant.
+
+**This task knowingly leaves one defect for Task 6.** The lightbox's failed branch is shared
+by the active and inactive slides, so rendering the control there puts one on every inactive
+failed slide — which spec §2 forbids. Scoping it to the active slide here would leave Task 6
+with nothing to be red about except a missing test, which is not a valid red. So the leak is
+introduced deliberately and visibly, and Task 6 closes it against the focus trap where the
+hazard actually lives. The order matters and it is not an oversight.
 
 ## Task 2 — the retry mechanism: one tap, one request, one node
 
@@ -138,7 +146,7 @@ never reaches the retry branch.
 
 ## Task 6 — inactive slides render no control
 
-<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failedItem.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:1173` why=`Task 5 landed the control on the active slide via the shared failed-state branch, so an inactive failed slide now renders one too; the red is that defect, not an absence` ac=AC-12,AC-16 -->
+<!-- task: red=`npx vitest run tests/components/diagrams/gallery.failedItem.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:1173` why=`Task 1 rendered the control on the lightbox's failed branch, which Embla shares between the active and inactive slides, so every inactive failed slide renders one too; the red is that leak, and it is a defect introduced by Task 1 rather than an absence` ac=AC-12,AC-16 -->
 
 **AC-12 asserts DOM absence first** — no retry control is rendered on an inactive slide, full
 stop — and then additionally asserts the focus trap's own collector

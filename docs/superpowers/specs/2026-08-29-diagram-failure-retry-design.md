@@ -402,9 +402,12 @@ So: **the `<Image>` is mounted once, in its final position, for both `retrying` 
 nothing remounts and no second request is issued. AC-1 asserts the node identity across the
 transition, and AC-2 counts requests rather than only inspecting the URL.
 
-**The in-flight image must be load-eligible.** `next/image` leaves `loading` at the browser
-default of `lazy` unless `priority` is set (`get-img-props`, line 271), and neither component
-sets it. A lazily-loaded image that is visually covered can be deferred by the browser, which
+**The in-flight image must be load-eligible.** `next/image` does not leave `loading` unset:
+with no `loading` prop and no `priority` it computes `isLazy` true (`get-img-props`, line
+271) and EMITS `loading="lazy"` (same file, line 553). Neither diagram component sets
+`priority`, so both surfaces render an explicitly lazy image. The distinction matters because
+a bare `<img>` with no attribute defaults to EAGER, so "the default" is the opposite of what
+`next/image` produces. A lazily-loaded image that is visually covered can be deferred by the browser, which
 would leave `Retrying…` on screen with no request in flight. The retry image therefore sets
 `loading="eager"` for as long as the id is in `retrying`. (UNRATIFIED, U-3 — Task P3
 settles it.) The overlay is painted OVER it
