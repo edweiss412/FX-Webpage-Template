@@ -114,7 +114,7 @@ is keyed by FILE (5 → 6); the overlay registry is keyed by OVERLAY (6 → 7).
 
 ## Task 1 — probe: close every measurement the spec owes
 
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-clip-probe.spec.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the probe spec does not exist yet; once written, its containment assertion fails at the panel's live -36 left edge, which is produced by the viewport-sized width class at the cited line` ac=AC-P1 -->
+<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/attention-clip-matrix.spec.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the new matrix spec asserts containment and width across all eight cells; six of them fail at the panel's live -36 left edge, produced by the viewport-sized width class at the cited line, and the SAME command passes after Task 4` ac=AC-P1,AC-2b,AC-5 -->
 
 **What is red and why:** a new throwaway probe spec asserts containment on BOTH
 modals at ALL FOUR probe-domain viewports and fails on the six cells that
@@ -139,9 +139,21 @@ Measure and record, at rest (`scale` reads `1`) and mid-entrance:
    panel's rect, its containing block's rect, and the anchor-to-clip-edge
    distance — so condition 4 is decided by a number, not a reading.
 
-**GREEN:** the probe spec is deleted in this task's own commit; its OUTPUT lands
-in the spec as a table replacing §1.3's two-viewport measurement and §5's static
-caveats. A probe that survives as a test is a test nobody designed.
+**GREEN:** the new matrix spec this task creates under tests/e2e/ (named in the marker's red= command) **PERSISTS.** An earlier
+draft deleted it in this task's own GREEN step, which is the explicitly rejected
+marker shape — the SAME command can never pass once its target is gone — and it
+also stranded three acceptance criteria with no durable assertion (see §5). The
+matrix suite is the durable home for:
+
+- the eight-cell containment matrix (AC-1, AC-2 on both surfaces),
+- `menu.width === 343` at 375x667 (**AC-2b**, the assertion that makes the
+  ratified width-over-alignment choice falsifiable),
+- `menu.width === 400` and `menu.left === 684` at 1280x800 (**AC-5**).
+
+Item 3 below (the §5 peer dispositions) is a one-shot measurement, not a
+contract: its OUTPUT lands in spec §5 replacing the static caveats, and it is
+NOT retained as an assertion — those components are outside this arc's scope and
+pinning their geometry here would create a test with no owner.
 
 **Anti-tautology:** expected values are derived from the measured clip rect,
 never hardcoded. Each cell asserts `menu.width > 0` first, so a menu that failed
@@ -158,6 +170,13 @@ rest, and the left assertion fails at -36.
 
 This is the PUBLISHED surface's carrier red. The wizard file provides the
 wizard's.
+
+**Cells, stated because an earlier draft extended only 390x560 and the coverage
+map then claimed more than the tasks retained.** This suite's attention-menu
+containment case runs at 390x560; the published cells at 375x667, 375x844 and
+1280x800 are added here, and the 1280x800 cell asserts the RIGHT edge (AC-2), not
+only the left. Together with Task 1's matrix, all eight cells carry both
+horizontal edges.
 
 **Anti-tautology:** the assertion is scoped to the menu's own rect, not to a
 container that also renders the pill; expected bounds come from the measured
@@ -280,6 +299,52 @@ Asserted under both motion settings — the harness default (`reducedMotion` tru
 and `page.emulateMedia({ reducedMotion: "no-preference" })`. Equal results are
 the expected outcome and are the point.
 
+### 6.1 Transition audit (the mandatory task, folded in here)
+
+**Why this is not its own task.** An earlier draft made it Task 9, pointing its red at the
+transition-audit suite with a negative assertion that `scale` is absent
+from the transition list. That assertion is TRUE today and Task 4 preserves it,
+so the test would pass the moment it was authored — the explicitly rejected
+marker shape. Rather than invent a red for it, the audit rides on the task that
+owns the settle semantics and has a real one. `AttentionMenu.tsx` is already
+registered in that suite's no-motion list
+(`tests/components/admin/transitionAudit.test.tsx:53`), and this change adds no
+motion library, so that pin stays green by construction.
+
+**The spec's Transition Inventory (§7)** — two states, one pair:
+
+| From → To | Behavior |
+| --- | --- |
+| closed → open | `opacity-0 scale-95` → `opacity-100 scale-100`, motion-safe. The opacity half animates (0.12s); the scale half is INSTANT, because Tailwind v4 emits the individual `scale` property and `transition-property` lists only `opacity, transform`. Unchanged by this arc (L-6). |
+| open → closed | Instant (unmount). Unchanged, deliberate. |
+
+**Compound:** placement measured while the entrance is unsettled — the red above.
+
+**Every other conditional render branch, enumerated and dispositioned**, per the
+transition-audit rule. All are content ternaries with no animated property; each
+is *instant — no animation needed*, and none gains one here:
+
+| Branch | Site |
+| --- | --- |
+| nested `ariaLabel` ternary | `components/admin/showpage/AttentionMenu.tsx:140` |
+| optional heading | `components/admin/showpage/AttentionMenu.tsx:152` |
+| sheet-warning group | `components/admin/showpage/AttentionMenu.tsx:189` |
+| judgment dot class | `components/admin/showpage/AttentionMenu.tsx:212` |
+| judgment screen-reader text | `components/admin/showpage/AttentionMenu.tsx:217` |
+| monitoring group | `components/admin/showpage/AttentionMenu.tsx:229` |
+| monitoring border class | `components/admin/showpage/AttentionMenu.tsx:235` |
+| leading-group rounding class | `components/admin/showpage/AttentionMenu.tsx:244` |
+| optional second line | `components/admin/showpage/AttentionMenu.tsx:300` |
+| truncation class | `components/admin/showpage/AttentionMenu.tsx:302` |
+| optional `heading` render | `components/admin/showpage/AttentionMenu.tsx:409` |
+
+The `entered` ternary at `components/admin/showpage/AttentionMenu.tsx:406` is the
+one branch that IS animated, and it is the inventory row above.
+
+**Ratified pin, carried in Task 4's diff rather than a test:** this change does
+not add `scale` to the transition list (spec §7, L-6). Adding it would make the
+geometry animate and require a settle signal that does not exist.
+
 ## Task 7 — registries follow the migration
 
 <!-- task: red=`pnpm heavy npx vitest run tests/components/admin/_metaPopoverViewportSource.test.ts tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:32` why=`Task 4 removed the import at the cited line and added a placeWithinVisibleViewport consumer, which falsifies the toEqual consumer list at _metaPopoverViewportSource.test.ts:173-193 and the adoption rows at _metaSharedHelperAdoption.test.ts:123-126` ac=AC-7 -->
@@ -312,41 +377,38 @@ untouched.
 Dated retirement note on
 `docs/superpowers/specs/admin/2026-08-27-fitwithinclip-clip-subscription.md`.
 
-## Task 9 — transition audit
-
-<!-- task: red=`pnpm heavy npx vitest run tests/components/admin/transitionAudit.test.tsx` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the audit gains a case asserting the panel's transition-property does not include scale; it fails if Task 4's edit adds scale to the class at the cited line, which spec section 7 ratifies it must not` ac=AC-6 -->
-
-Mandatory transition-audit task. **The spec's exact Transition Inventory (§7):**
-
-| From → To | Behavior |
-| --- | --- |
-| closed → open | `opacity-0 scale-95` → `opacity-100 scale-100`, motion-safe, via the mount-frame rAF idiom. Unchanged. |
-| open → closed | Instant (unmount). Unchanged, deliberate. |
-
-Compound case: placement measured while the entrance is unsettled — covered by
-Task 6.
-
-The audit's new case pins the ratified decision that this change does not add
-`scale` to the transition list (spec L-6), so a later "fix" of the inert scale
-entrance cannot land without also landing a settle signal.
-
-## Task 10 — baselines
+## Task 9 — baselines
 
 <!-- task: red=`pnpm heavy npx vitest run tests/components/admin/showpage/publishedAttentionBaseline.test.tsx` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`the fixture at __fixtures__/published-attention-menu-baseline.html captures the exact class string at the cited line, including w-[min(400px,calc(100vw-32px))] and right-0, both of which Task 4 removes` ac=AC-7 -->
 
-Three baselines move (spec §4.2):
+**TWO baselines move, not three.** Spec §4.2 and the arc brief both name a
+"published screenshot byte baseline" requiring regeneration from the pinned
+Playwright Docker image. **No such baseline covers this surface**, verified three
+ways: neither e2e suite calls `screenshot()` or `toHaveScreenshot()`; no tracked
+screenshot artifact names the attention menu; and the only `needs-attention`
+webps (`public/help/screenshots/needs-attention-mobile-{dark,light}.webp`) are
+captures of the `/admin/needs-attention` PAGE via
+`[data-testid=admin-needs-attention-page]`
+(`scripts/help-screenshots.manifest.ts:80-85`), a different surface that does not
+render this component. No entry in that manifest opens a review modal.
+
+The byte baseline that genuinely moves is the HTML fixture in item 1 — which IS
+a byte baseline, just not a screenshot one. The spec is corrected to match, and
+the Docker/`--platform linux/amd64` instruction is dropped as describing work
+that does not exist here. **It is not dropped as a rule**: it still binds any
+arc that does move a screenshot baseline.
 
 1. `published-attention-menu-baseline.html` — regenerate under
    `PUBLISHED_ATTENTION_CAPTURE=1`, never `-u`. **Review the diff line by line**
    and record in the commit what changed and why each change is expected.
-2. `tests/e2e/standalone-baseline.json` — a `--list` baseline; Tasks 3, 6, 8 and
-   9 change the case set.
-3. Published screenshot byte baseline — from the pinned Playwright Docker image
-   with `--platform linux/amd64`, **never from this arm64 host**.
+2. `tests/e2e/standalone-baseline.json` — a Playwright `--list` baseline, so only
+   tasks that change the PLAYWRIGHT case set touch it: Task 1 (new matrix spec),
+   Task 2, Task 3 and Task 5. Tasks 7 and 8 edit Vitest files and cannot affect
+   it; an earlier draft attributed it to them.
 
-## Task 11 — closeout
+## Task 10 — closeout
 
-<!-- task: red=`pnpm heavy npx vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=authored red-target=`components/admin/showpage/AttentionMenu.tsx:405` why=`this arc touches the UI surface at the cited line, which obliges the invariant-8 dual gate; VERIFIED RED at plan time with the message declares the invariant-8 dual gate but carries no valid impeccable-gate marker line, and it goes green only when the gate has run and the marker lands with its real counts` ac=AC-7 -->
+<!-- task: red=`pnpm heavy npx vitest run tests/docs/_metaInvariant8Closeout.test.ts` red-state=authored red-target=`docs/superpowers/plans/2026-08-28-attention-menu-clip-placement.md:1` why=`the guard walks plan files and reds on THIS file, so the plan is what causes and clears the failure, not a component line; VERIFIED RED at plan time with the message declares the invariant-8 dual gate but carries no valid impeccable-gate marker line, and it goes green only when the gate has run and the marker lands with its real counts` ac=AC-7 -->
 
 **What is red and why:** this plan declares the invariant-8 dual gate below, and
 carries no `impeccable-gate:` marker line. `tests/docs/_metaInvariant8Closeout.test.ts`
@@ -377,7 +439,7 @@ requires for a UI plan (grammar at
 p1 counts, and the dispositions field. **It is deliberately not reproduced here,
 even as a fenced placeholder** — the guard scans the plan for its own prefix and
 reads a template as a MALFORMED marker, which reds for the wrong reason and would
-make Task 11's `why=` false. Verified: with the placeholder present the guard
+make Task 10's `why=` false. Verified: with the placeholder present the guard
 reported `malformed marker line`, not the absent-marker branch this task claims.
 
 Whole-diff Codex review to APPROVE. Archive the ledger row, marker off in the
@@ -392,15 +454,20 @@ PR's last commit before the merge (invariant 12).
 
 ## 5. Acceptance criteria coverage
 
-Every criterion in spec §9 is claimed by a task marker's `ac=`.
+Every criterion in spec §9 is claimed by a task marker's `ac=`, and the owner
+named is where the DURABLE ASSERTION lives, not which task turns it green. AC-2b
+and AC-5 sit in Task 1's matrix suite; Task 4 is what makes them pass. An earlier
+draft named Task 4 for both, which described the fix rather than the coverage —
+and that is how three criteria came to have no persistent assertion at all when
+Task 1's suite was still being deleted.
 
 - AC-P1 — probe measurements complete over the declared domain *(discharged by Task 1)*
 - AC-1 — `menu.left >= clip.left - TOL` *(discharged by Task 2)*
 - AC-2 — `menu.right <= clip.right + TOL` *(discharged by Task 2)*
-- AC-2b — settled width 343 at 375x667, the choice enforced *(discharged by Task 4)*
+- AC-2b — settled width 343 at 375x667, the choice enforced *(discharged by Task 1)*
 - AC-3 — `menu.bottom <= clip.bottom + TOL` *(discharged by Task 5)*
 - AC-4 — `menu.width > 0`, 44px row floor holds *(discharged by Task 3)*
-- AC-5 — 1280x800 geometry identical to today *(discharged by Task 4)*
+- AC-5 — 1280x800 geometry identical to today *(discharged by Task 1)*
 - AC-6 — placement re-computed when the entrance settles *(discharged by Task 6)*
 - AC-7 — no `useFitWithinClip` in the tree, no `100vw`-derived width on a clipped non-portaled overlay *(discharged by Task 8)*
 
@@ -408,7 +475,7 @@ Every criterion in spec §9 is claimed by a task marker's `ac=`.
 
 - [ ] Pre-draft code-verification pass — done, §1, §2.1
 - [ ] Baseline commands at unmodified head — done, §1
-- [ ] Tasks 1-11
+- [ ] Tasks 1-10
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — Codex, cap 4
 - [ ] Execution handoff

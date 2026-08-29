@@ -775,16 +775,30 @@ no layout and would pass on every failure mode above.
 
 ## 8. Published byte baseline
 
-The published surface's geometry changes, so its byte baseline **is expected to
-move**. This was the deferral reason at filing and is explicitly in scope here.
+The published surface's geometry changes, so its byte baseline moves. **Which
+baseline that is turned out not to be the one this spec and the arc brief both
+named**, and the correction is recorded rather than quietly applied.
 
-Regeneration follows the byte-comparison discipline without exception: from the
-pinned Playwright Docker image, with `--platform linux/amd64` on this arm64 host,
-**never** from the host directly. A baseline captured on the dev machine differs
-from the CI runner's bytes on font hinting and Skia build alone, which is the
-documented failure this rule exists for.
+**There is no published SCREENSHOT baseline for this surface.** Verified three
+ways: neither e2e suite calls `screenshot()` or `toHaveScreenshot()`; no tracked
+screenshot artifact names the attention menu; and the only `needs-attention`
+captures (`public/help/screenshots/needs-attention-mobile-{dark,light}.webp`) are
+of the `/admin/needs-attention` PAGE via
+`[data-testid=admin-needs-attention-page]`
+(`scripts/help-screenshots.manifest.ts:80-85`), which does not render this
+component. No entry in that manifest opens a review modal at all.
 
----
+The byte baseline that genuinely moves is
+`tests/components/admin/showpage/__fixtures__/published-attention-menu-baseline.html`
+(§4.2) — a byte baseline, just not a screenshot one. It regenerates under
+`PUBLISHED_ATTENTION_CAPTURE=1`, deliberately never a `-u` side effect, with the
+diff reviewed line by line.
+
+**The byte-comparison discipline is not weakened, it simply has no subject
+here.** Any arc that does move a screenshot baseline still regenerates it from
+the pinned Playwright Docker image with `--platform linux/amd64` on an arm64
+host, never from the dev machine. Recorded this way so the rule is not read as
+relaxed by an arc that merely had no screenshot to regenerate.
 
 ## 9. Acceptance criteria
 
