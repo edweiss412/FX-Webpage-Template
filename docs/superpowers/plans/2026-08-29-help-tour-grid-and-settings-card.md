@@ -149,7 +149,7 @@ A cycle that greens because the test changed proves nothing about the implementa
 
 ## Task 4 — the layout-dimensions spec
 
-<!-- task: red=`HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`this task writes the spec AND its help-docs-desktop testMatch entry together, so the command collects and RUNS rather than reporting no tests, and the observed RED is the production defect: today's md:grid-cols-3 gives ONE column at 752 (md has not engaged below 768) and THREE at 1016 (it has), where AC-1d asserts two at both, and that three-column state measures 18.1ch against AC-1's 28ch floor. The SAME command greens when task 5 lands the derived column counts` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
+<!-- task: red=`ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`this task writes the spec AND its help-docs-desktop testMatch entry together, so the command collects and RUNS rather than reporting no tests, and the observed RED is the production defect: today's md:grid-cols-3 gives ONE column at 752 (md has not engaged below 768) and THREE at 1016 (it has), where AC-1d asserts two at both, and that three-column state measures 18.1ch against AC-1's 28ch floor. The SAME command greens when task 5 lands the derived column counts` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
 
 New spec: column sequences (AC-1d), measure floor (AC-1), the 390px measure unchanged (AC-1a), zero
 wraps (AC-1b), no overflow (AC-1c). Viewports 320, 390, 640, 740, 752, 768, 900, 904, 1004, 1016,
@@ -166,7 +166,21 @@ fails by default for a NEW spec that no PR workflow invokes; it is what PROVES t
 `help-docs-desktop` choice over `desktop-chromium` rather than merely asserting it, so it must be
 green after this task.
 
-**The command pins its server and its database, and neither is optional.**
+**The command pins its auth, its server and its database, and none is optional.**
+`ENABLE_TEST_AUTH=true` and `TEST_AUTH_SECRET=test-secret-fixture` are asserted by
+`help-docs-setup.ts` in the TEST-RUNNER process, not the server — `webServer.env` reaches the Next
+process only, and `playwright.config.ts` imports no dotenv, so `.env.local` never reaches the
+workers. Both are ABSENT from `.env.local` besides. Without them the command fails in the setup
+project's assertion before any layout is evaluated, so the red would not be the tour-grid defect and
+task 5 could not green it. `help-affordances.yml` sets the same pair on its Playwright step with a
+comment saying exactly this.
+
+Swept the rest of that class rather than adding only what was named: every `process.env` the
+runner-side setup and helpers read is `ENABLE_TEST_AUTH`, `TEST_AUTH_SECRET`, `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY` and `TEST_AUTH_BASE_URL`. The two Supabase values have local-stack
+defaults in `tests/e2e/helpers/supabaseAdmin.ts`, and `HASH_FOR_LOG_PEPPER` is needed only by the
+non-3004 builds that `HELP_DOCS_WALKER_ONLY` excludes. So exactly two were missing, and the command
+adds exactly two.
 `HELP_DOCS_WALKER_ONLY=1` boots only the :3004 server instead of all five. The loopback
 `TEST_DATABASE_URL` is load-bearing because `help-docs-setup` runs `pnpm db:seed` — against the
 ambient value that seeds the VALIDATION project, whose notify cron sends real mail. **Before
@@ -184,7 +198,7 @@ red and the fix causing green, which is the entire content of invariant 1.
 
 ## Task 5 — derived column counts
 
-<!-- task: red=`HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 4 authors the failing cases and leaves this command red on the production defect; this task lands auto-fit with the min(22rem,100%) floor, help-bleed and col-span-full, and the SAME command greens. The red is the grid's column count and measure, not a missing file` ac=AC-1,AC-1a,AC-1c,AC-1d -->
+<!-- task: red=`ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 4 authors the failing cases and leaves this command red on the production defect; this task lands auto-fit with the min(22rem,100%) floor, help-bleed and col-span-full, and the SAME command greens. The red is the grid's column count and measure, not a missing file` ac=AC-1,AC-1a,AC-1c,AC-1d -->
 
 All three tour grids to `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` plus
 `help-bleed`; `md:col-span-2` becomes `col-span-full`. Errors jump list to its own `18rem` minimum,
