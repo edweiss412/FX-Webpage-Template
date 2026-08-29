@@ -89,7 +89,7 @@ function interactiveWithin(root: HTMLElement): Element[] {
 afterEach(() => cleanup());
 
 describe("DIAGRAM-FAILURE-RECOVERY-1 — a failed thumbnail offers no next step", () => {
-  test("the cell left behind holds NO interactive element of any kind", () => {
+  test("the cell left behind now holds EXACTLY ONE control, where it once held none", () => {
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
 
     premise(
@@ -100,10 +100,20 @@ describe("DIAGRAM-FAILURE-RECOVERY-1 — a failed thumbnail offers no next step"
 
     failThumb(0);
 
+    // TASK 1 MOVED THIS FACT, which is what this file was written to record.
+    // Until Task 1 the assertion here was `toEqual([])` -- the failed cell was a
+    // dead end with nothing to click, nothing to tab to, and no way to ask for
+    // the image again. That was the defect DIAGRAM-FAILURE-RECOVERY-1 exists to
+    // remove, so the characterization is kept and inverted rather than deleted:
+    // the diff between these two lines IS the row's outcome.
+    //
+    // EXACTLY one, not "at least one": a cell offering two next steps would pass
+    // a `length > 0` assertion while presenting an ambiguous target on a 117px
+    // tile.
     expect(
-      interactiveWithin(slot(0)),
-      "the failed cell is a dead end: nothing to click, nothing to tab to, no way to ask for the image again",
-    ).toEqual([]);
+      interactiveWithin(slot(0)).length,
+      "the failed cell offers one next step, and only one",
+    ).toBe(1);
     // The sibling is the control. If the whole grid went inert, the assertion
     // above would be measuring an unmount rather than the placeholder branch.
     expect(interactiveWithin(slot(1)).length).toBeGreaterThan(0);
@@ -185,5 +195,65 @@ describe("DIAGRAM-FAILURE-RECOVERY-1 — the failure outlives everything but a r
     // Indistinguishable from the failed cell in the DOM today. Any repair that
     // adds a control has to split them.
     expect(slot(0).getAttribute("data-unavailable")).toBe("true");
+  });
+});
+
+describe("DIAGRAM-FAILURE-RECOVERY-1 Task 1 — the failed cell offers a retry control (AC-5)", () => {
+  test("a runtime-failed cell renders a retry control; a parse-time-unavailable one does NOT", () => {
+    // The whole point of Task 1 is the SPLIT. Asserting the control's presence
+    // alone would pass against a repair that painted it on the shared branch,
+    // offering to re-fetch an object that was never published. Both halves are
+    // asserted in one case so the split cannot regress on one side only.
+    render(
+      <Gallery
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[item(1), item(2, { available: false })]}
+      />,
+    );
+
+    failThumb(0);
+
+    const retry = within(slot(0)).queryByRole("button");
+    expect(retry, "the runtime-failed cell offers a next step").not.toBeNull();
+    expect(
+      interactiveWithin(slot(1)),
+      "the parse-time-unavailable cell stays inert: there is no asset behind it to re-fetch",
+    ).toEqual([]);
+  });
+
+  test("the visible text and the accessible name differ, and the name carries the item", () => {
+    // Spec §5: the cell is ~117px at 30vw, so the visible string is bare and the
+    // NAME carries the diagram. Mutants this is written against: the label
+    // emptied; a suffix appended; the string present but on a hidden element;
+    // and `alt` varied, which is why the expected name is DERIVED from the
+    // fixture rather than typed out. A constant would pass against a component
+    // that ignores the item entirely.
+    const fixture = item(1, { alt: "Stage left truss" });
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[fixture, item(2)]} />);
+
+    failThumb(0);
+
+    const retry = within(slot(0)).getByRole("button");
+    expect(retry.textContent?.trim(), "the visible string is the bare action").toBe("Tap to retry");
+    expect(
+      retry.getAttribute("aria-label"),
+      "the accessible name names the diagram, in Eric's ratified shape",
+    ).toBe(`${fixture.alt} could not be loaded. Tap to retry.`);
+  });
+
+  test("the control is reachable, not merely present", () => {
+    // `queryByRole("button")` is satisfied by a control that is disabled or
+    // hidden, and Task 1 ships the IDLE state: nothing here is in flight, so
+    // nothing may be disabled yet. AC-4's in-flight semantics land in Task 2
+    // with the state they describe.
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
+
+    failThumb(0);
+
+    const retry = within(slot(0)).getByRole("button");
+    expect(retry.hasAttribute("disabled"), "an idle retry control is not disabled").toBe(false);
+    expect(retry.getAttribute("aria-disabled"), "nor aria-disabled while idle").toBeNull();
+    expect(retry.getAttribute("aria-hidden"), "nor hidden from the accessibility tree").toBeNull();
   });
 });

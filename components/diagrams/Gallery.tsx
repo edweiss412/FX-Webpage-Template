@@ -412,6 +412,32 @@ export function Gallery({
                     className="object-cover"
                   />
                 </button>
+              ) : runtimeFailed ? (
+                /*
+                  The RUNTIME-failed branch, split from the parse-time one by
+                  Task 1. Only this side has an asset behind it: `!item.available`
+                  means the object was never published, so a control there would
+                  offer to re-fetch nothing. The split is asserted from BOTH sides
+                  in gallery.failureRecovery.test.tsx, because a repair painting
+                  the control on the shared branch would satisfy a presence-only
+                  assertion.
+
+                  Copy per spec §5. The cell is ~117px at `30vw` on a 390px phone,
+                  so the VISIBLE string is the bare action and the accessible name
+                  carries the diagram. No `Full size.` line here: that belongs to
+                  the lightbox and only to originals-only entries (§5.1). The
+                  thumbnail cannot know the byte count in advance, and an invented
+                  number is worse than silence.
+                */
+                <button
+                  type="button"
+                  data-testid={`diagram-retry-${i}`}
+                  aria-label={`${nameOf(item, i)} could not be loaded. Tap to retry.`}
+                  className="flex size-full min-h-tap-min flex-col items-center justify-center gap-1 text-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  <ImageOff aria-hidden="true" className="size-5" />
+                  <span className="text-xs/relaxed">Tap to retry</span>
+                </button>
               ) : (
                 <div className="flex size-full flex-col items-center justify-center gap-1 text-text-subtle">
                   <ImageOff aria-hidden="true" className="size-5" />
