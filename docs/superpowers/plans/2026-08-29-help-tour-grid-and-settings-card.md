@@ -150,7 +150,7 @@ A cycle that greens because the test changed proves nothing about the implementa
 
 ## Task 4 — the layout-dimensions spec
 
-<!-- task: red=`ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`this task writes the spec AND its help-docs-desktop testMatch entry together, so the command collects and RUNS rather than reporting no tests, and the observed RED is the production defect: today's md:grid-cols-3 gives ONE column at 752 (md has not engaged below 768) and THREE at 1016 (it has), where AC-1d asserts two at both, and that three-column state measures 18.1ch against AC-1's 28ch floor. The SAME command greens when task 5 lands the derived column counts` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
+<!-- task: red=`ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`this task writes the spec AND its help-docs-desktop testMatch entry together, so the command collects and RUNS rather than reporting no tests, and the observed RED has TWO production causes, both of which task 5 fixes. On app/help/tour/page.mdx:53, md:grid-cols-3 gives ONE column at 752 (md has not engaged below 768) and THREE at 1016 (it has), where AC-1d asserts two at both, and that three-column state measures 18.1ch against AC-1's 28ch floor. On app/help/errors/page.tsx:79, the sm:grid-cols-2 jump list wraps 5 of 7 items at 768, which AC-1b forbids — the committed sweep records it. red-target names the tour page because the field takes one path; the errors page is the second cause and is named here so the red is not misattributed to a single file. The SAME command greens when task 5 lands the derived column counts` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
 
 New spec: column sequences (AC-1d), measure floor (AC-1), the 390px measure unchanged (AC-1a), zero
 wraps (AC-1b), no overflow (AC-1c). Viewports 320, 390, 640, 740, 752, 768, 900, 904, 1004, 1016,
@@ -211,7 +211,7 @@ red and the fix causing green, which is the entire content of invariant 1.
 
 ## Task 5 — derived column counts
 
-<!-- task: red=`ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 4 authors the failing cases and leaves this command red on the production defect; this task lands auto-fit with the min(22rem,100%) floor, help-bleed and col-span-full, and the SAME command greens. The red is the grid's column count and measure, not a missing file` ac=AC-1,AC-1a,AC-1c,AC-1d -->
+<!-- task: red=`ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture HELP_DOCS_WALKER_ONLY=1 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm heavy pnpm exec playwright test help-tour-layout-dimensions --project=help-docs-desktop` red-state=authored red-target=`app/help/tour/page.mdx:53` why=`task 4 authors the failing cases and leaves this command red on BOTH production causes; this task lands auto-fit with the min(22rem,100%) floor, help-bleed and col-span-full on the tour grids AND the 18rem minimum on the errors jump list, and the SAME command greens. The red is the grids' column count, measure and wrapping, not a missing file` ac=AC-1,AC-1a,AC-1b,AC-1c,AC-1d -->
 
 All three tour grids to `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]` plus
 `help-bleed`; `md:col-span-2` becomes `col-span-full`. Errors jump list to its own `18rem` minimum,
@@ -233,11 +233,30 @@ the fix working before the fix existed. That is precisely this task's shape: sta
 restore. The pattern is
 
 ```
-cp <file> /tmp/fx-violation-backup && <apply violation> && <run the named command> && cp /tmp/fx-violation-backup <file>
+BAK=$(mktemp)                      # per-run, per-worktree; never a fixed /tmp path
+cp <file> "$BAK"
+trap 'cp "$BAK" <file>; rm -f "$BAK"' EXIT
+<apply the violation>
+<run the named command>            # EXPECTED to exit non-zero; record the result
 ```
 
+**The restore is on a trap and never behind `&&`.** The command is expected to FAIL — that is the
+entire point of the row — so an `&&` chain short-circuits before the restore and leaves the
+violation staged, contaminating every row after it. An earlier draft of this recipe had exactly
+that bug, in the same commit that introduced the recipe to avoid a different one. It is the
+`&&`-short-circuit trap `docs/agents/writing-plans.md` names for red commands, met in a restore
+rather than in a red.
+
+**The backup path is per-run, not fixed.** `mktemp` rather than a literal `/tmp/fx-violation-backup`:
+a fixed path is shared across worktrees and reintroduces exactly the cross-arc collision this
+recipe exists to avoid, one directory over from the stash.
+
 `git checkout -- <file>` is also safe here, since every violation is staged against a committed
-baseline. Neither the stage nor the restore may touch the stash.
+baseline, and it needs no backup file at all. Neither the stage nor the restore may touch the stash.
+
+**Verify the restore before recording the row.** After each violation, confirm the tree is clean
+(`git status --porcelain` empty) BEFORE staging the next one. A row recorded against a contaminated
+tree is a row that measured something other than what it names.
 
 <!-- tasks: end -->
 
