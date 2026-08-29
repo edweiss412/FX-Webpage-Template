@@ -384,3 +384,47 @@ describe("selectIdentity — the same-origin gate (class-B representative)", () 
     );
   });
 });
+
+/**
+ * BL-BARE-TYPEOF-STRING-ID-GUARDS. selectIdentity reads all three ids off
+ * FormData behind a bare typeof-string (selectIdentity.ts:47-49), which an empty
+ * string satisfies. What rejects "" is the regex pass inside
+ * selectIdentityCoreImpl (SLUG_RE / TOKEN_RE / UUID_RE, :118-125).
+ *
+ * The pre-existing malformed-input case above uses "not-uuid" -- a NON-EMPTY bad
+ * value. A regex degraded to admit only the empty string keeps rejecting
+ * "not-uuid", so that case cannot see this class at all. Hence separate cases.
+ *
+ * Each asserts the RPC was never reached, not merely that the returned code is
+ * PICKER_INVALID_INPUT: an empty id must be refused BEFORE select_identity_atomic
+ * is called, so a rejection that happened downstream of the DB would fail here.
+ */
+describe("selectIdentityCore refuses empty ids before touching the RPC", () => {
+  const cases: ReadonlyArray<[string, { slug: string; shareToken: string; crewMemberId: string }]> =
+    [
+      ["empty slug", { slug: "", shareToken: TOKEN, crewMemberId: CREW_ID }],
+      ["empty shareToken", { slug: SLUG, shareToken: "", crewMemberId: CREW_ID }],
+      ["empty crewMemberId", { slug: SLUG, shareToken: TOKEN, crewMemberId: "" }],
+      ["all three empty", { slug: "", shareToken: "", crewMemberId: "" }],
+    ];
+
+  for (const [name, input] of cases) {
+    test(`${name} is refused with no RPC call`, async () => {
+      const rpc = vi.fn();
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({ rpc } as never);
+      await expect(selectIdentityCore(input)).resolves.toEqual({
+        ok: false,
+        code: "PICKER_INVALID_INPUT",
+      });
+      expect(rpc).toHaveBeenCalledTimes(0);
+    });
+  }
+
+  test("control: the same path with all three ids well-formed DOES reach the RPC", async () => {
+    const single = vi.fn(async () => ({ data: rpcRow, error: null }));
+    const rpc = vi.fn(() => ({ single }));
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({ rpc } as never);
+    await selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID });
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1780,7 +1780,11 @@ describe("the arc-sum grandfather set can only shrink (spec §3.3)", () => {
 });
 
 describe("live corpus", () => {
-  it("is clean", () => {
+  // 120s, not the 30s default. This case walks every arc in the corpus and shells to
+  // `git` per arc (lib/reviewRounds/mergedArcs.ts, constants.ts), and it measured 29.6s
+  // on an idle machine: 96% of the default budget, so any concurrent load tips it into a
+  // timeout that reads as a corpus defect. Headroom only; no assertion is relaxed.
+  it("is clean", { timeout: 120_000 }, () => {
     // Discovered from disk: a new arc's files are covered by default and can
     // never be silently exempt. Empty today (spec §12 - this arc is
     // pre-adoption by construction), which is a legal clean state.

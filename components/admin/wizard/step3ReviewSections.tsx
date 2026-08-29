@@ -3923,19 +3923,36 @@ export function DiagramTile({
          which IS positioned, and one thumbnail covers the whole dialog —
          measured at all three modes.
 
-         The tile's chrome deliberately STAYS on the image. Moving it here would
-         match the crew gallery's arrangement, and mutant (b) measured that the
-         two render identically — which is exactly why this arc does not do it:
-         a next/image adoption has no business moving an element out of the
-         painted-child family that spec §15 table 3 counts. Consistency may be
-         worth having; it is not this row's to take. */
+         The tile's chrome lives on THIS element, the box, and not on the
+         image (spec
+         docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md).
+         The box is declared once per branch either way, since the `failed`
+         branch above returns before this anchor exists. What the placement buys
+         is that both branches paint the box on the element that FORMS the box,
+         rather than on a container in one branch and an image in the other. It
+         also puts the control-outline token on the control (`border-text-faint`
+         is the control-edge token, DESIGN.md 1.2a) and the radius on the
+         element that does the clipping: `overflow-hidden` with no radius clips
+         square. The rendered rectangle does not change AT REST, measured: a
+         `fill` image insets to the padding box, and BEFORE this move the
+         image's own border already inset its content by that same 1px, so the
+         bitmap lands in the same place either way. Under keyboard
+         focus it DOES change: the unlayered `:focus-visible` block in
+         app/globals.css forces border-radius to --radius-sm, so this element's
+         corners go 12px to 6px while focused. That rule already does the same
+         to every focusable rounded-md element in the app (ShowsTable's search
+         input carries this exact rounded-md + border-text-faint pair), and a
+         `focus-visible:rounded-md` utility would NOT beat it, being layered.
+         Spec L3. Pinned in a real browser at
+         tests/e2e/step3-review-modal.layout.spec.ts, which asserts the border
+         is on THIS element and not on the image. */
       /* Focus ring: WCAG 2.4.7. This anchor is a link and had NO visible focus
          indicator beyond the browser default, while every sibling link in this
          file carries the recipe. The arc that rewrote this className is the one
          that owes it. `overflow-hidden` above does not clip it — an element's
          own overflow never clips its own ring — and the offset ground is
          `surface`, the panel-card the grid sits in. */
-      className="relative block aspect-4/3 w-full overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      className="relative block aspect-4/3 w-full overflow-hidden rounded-md border border-text-faint bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       <Image
         loader={loader}
@@ -3952,7 +3969,7 @@ export function DiagramTile({
           onFailure?.(anchorNodeRef.current);
           setFailed(true);
         }}
-        className="rounded-md border border-text-faint bg-surface-sunken object-cover"
+        className="object-cover"
       />
     </a>
   );
