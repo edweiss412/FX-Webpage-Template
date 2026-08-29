@@ -135,7 +135,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // unbounded depth adds sits in a module whose only app/ importers are under
   // app/api/** or a cron path. Those are a dated comparison of three walks, not a
   // claim about today's tree -- the live depth-1 count is the assertion below, and
-  // it has moved since (219 as of the 2026-08-29 three-way merge).
+  // it has moved since (220 as of the ref-error-cell-anchors arc).
   const libFiles = deriveImportedLibFiles(allFiles);
   const libViolations = findViolations(libFiles);
 
@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 219 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 220 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -216,6 +216,9 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // member joined, and it passes just as happily on a swap.
     expect(rel).toContain("lib/admin/warningAttention.ts");
     // 215 -> 219 (2026-08-29, MERGE of three concurrent population changes).
+    // 219 -> 220 (2026-08-29, ref-error-cell-anchors): ONE module joined,
+    // `lib/sheet-links/sheetCellReference.ts`, a pure string formatter with no clock
+    // read of any kind. Nothing left.
     // The number below is RE-DERIVED against the merged tree, never added up from
     // the diffs -- which matters most where the arithmetic looks easy: the other
     // parent's two moves happen to cancel (escapeClaim.ts joined, fitWithinClip.ts
@@ -249,7 +252,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // NOT retired — lib/popover/place.ts still imports MIN_FITTED_HEIGHT from it —
     // it is simply no longer reachable at depth 1.
     expect(rel).not.toContain("lib/layout/fitWithinClip.ts");
-    expect(rel.length).toBe(219);
+    expect(rel.length).toBe(220);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

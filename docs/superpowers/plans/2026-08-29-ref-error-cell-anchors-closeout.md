@@ -19,6 +19,8 @@ Six commits, one per plan task plus two closeout repairs:
 | `ab664186e` | Task 5 — the cell line on both surfaces |
 | `5886d9c9c` | closeout — the impeccable wrap repair |
 | `32cc1ad2f` | closeout — the line-keyed censuses the new lines moved |
+| `70585f0b4` | closeout — this document |
+| `651d2d324` | closeout — conditional quoting on the cell reference (bl-orch ruling) |
 
 Every task was red-then-green on the SAME command, with the red run's decisive line in
 the commit body (plan invariant 1).
@@ -53,9 +55,57 @@ membership set, no catalog row, no allowlist, no §12.4 prose changed.
 
 _Filled at Step 7, on the pushed head._
 
-## 5. Live check (AC-1, second half)
+## 5. Live check (AC-1, second half) — AC-1-LOCAL, deploy half DEFERRED-BY-QUOTA
 
-_Filled at Step 8, on the validation preview of the pushed head._
+**The branch preview never built.** Vercel's status on head `70585f0b4`:
+
+<!-- plan-fences: ignore FENCE_EM_DASH — verbatim Vercel status text; the em dash is inside the description string the API returned, so editing it would falsify a pasted record -->
+
+```
+context     : Vercel
+state       : FAILURE
+description : Deployment rate limited — retry in 24 hours.
+targetUrl   : https://vercel.com/eric-weiss-projects?upgradeToPro=build-rate-limit
+```
+
+Vercel is not a required context and is the known account-quota red the fleet brief says
+not to chase, but the plan's Step 8 rescan needed that preview. **bl-orch ruled** (option
+(a), 2026-08-29): run the check LOCALLY on this branch against the REAL sheet and record
+the coordinates here; the deploy half is **deferred by quota, not waived** — after merge
+the validation deploy rebuilds from main, and the five coordinates are re-verified there
+and reported to bl-orch for the handoff log. That is where the deploy proof actually
+lives; the branch preview was only ever a proxy for it. `blockedOn` resolved on that
+ruling.
+
+**What ran.** `docs/superpowers/specs/probes/2026-08-29-ac1-live-check.probe.ts.txt`,
+saved as `.ts` and run with `pnpm exec tsx`. It drives this branch's real ingestion path
+end to end on live Drive bytes — `listFolder` → `fetchCurrentSheetXlsxBytes` →
+`fetchSheetTitleToGid` → `synthesizeMarkdownFromXlsx` → `parseSheet` →
+`attachWarningAnchors` — then prints each warning's resolved anchor, the `Sheet cell`
+value the row renders, and the deep link its `Open in Sheet` carries. It opens no Supabase
+client and writes nothing: the validation project is untouched, so no DB slot was taken.
+
+**Sheet revision.** `II - FinTech Forum CTO Summit 2026`, driveFileId
+`1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY`, `modifiedTime`
+`2026-06-27T21:58:02.790Z` (Drive reports no `headRevisionId` for a Sheets file).
+
+**The five live coordinates**, each `scope: "cell"`, each on its own tab and gid:
+
+| # | Sheet cell | gid | Open in Sheet |
+| --- | --- | --- | --- |
+| 1 | `VENUE!A1` | 354548247 | `…/edit#gid=354548247&range=A1` |
+| 2 | `CLIENT!A1` | 141155244 | `…/edit#gid=141155244&range=A1` |
+| 3 | `TECH!A1` | 1871609441 | `…/edit#gid=1871609441&range=A1` |
+| 4 | `VEHICLE!A1` | 1789571822 | `…/edit#gid=1789571822&range=A1` |
+| 5 | `ROLE!A1` | 633442094 | `…/edit#gid=633442094&range=A1` |
+
+`unanchored REF warnings: 0`. Five identical rows, five distinct cells, five distinct
+gids, five distinct deep links — the screenshot that dispatched this arc showed five rows
+with none of that. Full output in the sibling `.report.txt`.
+
+Note that none of the five tabs is in `SOURCE_LINK_ALLOWLIST`; the links resolve because a
+`scope: "cell"` anchor bypasses it, which is the 2026-08-27 ratification this arc relies on
+and does not change.
 
 ## 6. Suites, local
 
@@ -89,6 +139,12 @@ call outside this arc):
   during the plan's first review round (`docs/superpowers/specs/probes/2026-08-29-leading-column-reachability.*`,
   seven constructed shapes, zero warnings).
 
+**bl-orch ruled 2026-08-29:** this is a DOCUMENTED LIMIT and no ledger row is minted.
+Spec §8 plus the committed probes IS the record, and the worst case is an inert capability
+— the codes never fire from this exporter, so their anchors never render, and nothing a
+user sees goes wrong. That is exactly the conservative-worst-case class the filing bar
+demotes. bl-orch surfaces it to Eric as a passive product question.
+
 Both codes keep their branch, scanner and pairing for shape parity with
 `REF_ERROR_LITERAL`, at the cost of a branch line each. Neither is exercised by a
 workbook: their scanners are covered by hand-built markdown (Task 2) and their pairing by
@@ -114,14 +170,19 @@ scored Audit Health 18/20 (a11y 4, perf 4, responsive 3, theming 4, anti-pattern
 | # | half | tier | finding | disposition |
 | --- | --- | --- | --- | --- |
 | 1 | critique P2, audit P3 | P2 | The published band copied `detailBand`'s plain wrapper, so its mono value had no wrap affordance. `${title}!${a1}` has no break opportunity at its join and a tab title is unbounded sheet data, so a long coordinate overflowed a 390px condensed card. Both halves found it independently, and both cited the file's own comment saying `fieldBand` and `candidateBand` carry `min-w-0` + a break class for exactly this. | **FIXED** in `5886d9c9c`: `min-w-0 flex-wrap` on the wrapper, `shrink-0` on the eyebrow, `min-w-0 wrap-break-word` on the value. `wrap-break-word` rather than the critique's suggested `break-all`, so the value wraps the same way as its wizard twin. |
-| 2 | audit P2 | P2 | `${title}!${a1}` is unquoted, so a space-bearing tab title renders `PULL SHEET!A1`, which fails if typed into the Sheets name box — the exact use the spec's no-quotes decision cites. Reachable: `PULL SHEET` is allowlisted and a scoped anchor is trusted on any tab. | **NOT FIXED — escalated, not silently changed.** Spec §3 pins the rendered text (`Sheet cell ` then `${title}!${a1}`, "No quotes"), and invariant 7 says the spec wins outside its three ratified amendments: open a question rather than quietly fix. Not a P0/P1, so it does not gate this arc. On the corpus every anchored tab is single-token (`VENUE`, `CLIENT`, `TECH`, `VEHICLE`, `ROLE`, `AGENDA`), so no shipped row is wrong today. Reported to bl-orch as a product question; the repair is one conditional (`/^[A-Za-z0-9_]+$/` → `'PULL SHEET'!A1`) applied in both files behind a shared helper. |
+| 2 | audit P2 | P2 | `${title}!${a1}` is unquoted, so a space-bearing tab title renders `PULL SHEET!A1`, which fails if typed into the Sheets name box — the exact use the spec's no-quotes decision cites. Reachable: `PULL SHEET` is allowlisted and a scoped anchor is trusted on any tab. | **FIXED** in `651d2d324`, on bl-orch's ruling. I escalated rather than silently amending a ratified section (invariant 7); bl-orch ruled that §3's ratified OUTCOME is a paste-able reference, that unquoted defeats it, and that the mechanism serving a ratified outcome is the orchestrator's call. New `lib/sheet-links/sheetCellReference.ts` quotes only when A1 notation needs it, doubling an internal apostrophe; a bare tab stays bare, so no corpus row changes. Spec §3 amended in the same commit and marked bl-orch-ruled. Tests cover `PULL SHEET` and an apostrophe tab on both surfaces; three mutants (always-bare, always-quoted, apostrophe-not-doubled) all killed. |
 | 3 | critique P2, audit P3 | P2 | The eyebrow hardcodes `text-warning-text` while the component takes `tone` and swaps amber → `text-text-subtle` elsewhere, so on the IGNORED list (`tone="muted"`) a dismissed row shows live-warning amber on a sunken plate. Contrast measured fine (8.74:1 light, 14.18:1 dark); the break is hierarchy. | **NOT FIXED — pre-existing, out of scope.** The critique itself notes it is pre-existing on three sibling bands, so the class repair touches four eyebrows including shipped ones. That is class-sweep exception (c): a redesign of a surface this PR does not otherwise touch. Recorded here rather than filed, per the mint freeze. |
-| 4 | critique P3 | P3 | The guard accepts any colon-free string as `a1`, so an unvalidated jsonb value could render as a coordinate. | **NOT FIXED.** Spec §3 ratified this guard exactly; tightening it to `/^\$?[A-Za-z]{1,3}\$?\d{1,7}$/` is a spec amendment, and the critique says so itself. Same escalation as #2. |
+| 4 | critique P3 | P3 | The guard accepts any colon-free string as `a1`, so an unvalidated jsonb value could render as a coordinate. | **NOT FIXED.** Spec §3 ratified this guard exactly and bl-orch's ruling on #2 was scoped to the TAB half of the reference, not the `a1` half. A P3 whose worst case is a malformed coordinate rendered beside a link that already carries the same value; recorded here as a documented limit rather than filed, per the mint freeze. |
 | 5 | audit P3 | P3 | `text-warning-text` on `bg-surface-sunken` has no DESIGN.md §1.2 contrast row; the audit measured it (8.74:1 / 14.18:1, AAA) and calls it the fourth unpinned instance. | **NOT FIXED — pre-existing class.** Same disposition as #3. |
 | 6 | audit P3 | P3 | `items-center` on a 10px eyebrow beside a 12px mono value; `items-baseline` sets better. | **NOT FIXED.** The critique explicitly says "family-wide; don't change this band alone". |
 
 Nothing was deferred to `DEFERRED.md`: no P0 or P1 exists to defer, and the P2/P3
-dispositions above are either fixed in-branch or pre-existing class work the mint freeze
-keeps out of the queue.
+dispositions above are either fixed in-branch (two of them) or pre-existing class work the
+mint freeze keeps out of the queue.
+
+The gate ran on the diff BEFORE the two repairs. Both repairs are inside the elements the
+gate examined and were made ON its findings, so neither opens a surface it did not see;
+the whole-diff cross-model review then covers them, which is why they landed before the
+first dispatch rather than after.
 
 impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=0 dispositions=none

@@ -49,7 +49,8 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // moves for the same reason: edits above it in the same component.
   // 4101 -> 4144 (2026-08-29, ref-error-cell-anchors). Same method, same `if (failed)`:
   // the warning row's new `Sheet cell` line sits 43 lines above it.
-  "components/admin/wizard/step3ReviewSections.tsx:4144":
+  // 4144 -> 4145 on that arc's closeout, which added one import line to the same file.
+  "components/admin/wizard/step3ReviewSections.tsx:4145":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -409,11 +410,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // EXACTLY ONE input changed, a line number, in a file this arc edited:
     //   components/admin/wizard/step3ReviewSections.tsx 4101 -> 4144 (net +43 above it,
     //   the warning row's new `Sheet cell` line)
+    // Regenerated once more on that arc's closeout, same accounting, ONE input again:
+    //   components/admin/wizard/step3ReviewSections.tsx 4144 -> 4145 (the
+    //   `sheetCellReference` import). Membership unchanged, verified on the same run.
     // Nothing joined or left: the membership assertion above is unchanged and passed on
     // the same run that produced this digest. The arc's other new JSX conditional (the
     // published card's `cellBand`) is not a candidate -- it is not a fault branch -- which
     // is why TERNARY_SURVEY.jsxTernaries moved 740 -> 741 while this set did not.
-    expect(digest).toBe("e83ae3d13d3b3644e13a9de2fed544facc399a4aa8a6b5ff0d5913659a24c3cb");
+    expect(digest).toBe("15f8779de720be807a47a8932113328df63780ca5d9e2ab09723d4098a9637f8");
   });
 });
 

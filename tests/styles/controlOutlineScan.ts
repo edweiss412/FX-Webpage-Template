@@ -144,9 +144,10 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4697 -> 4703 on the R2 repair (the reportShowId prop and its comment).
   // Same report-toggle testid, located by the scanner.
   // Then 4703 -> 4746 when the ref-error-cell-anchors arc added the warning row's
-  // `Sheet cell` line 43 lines above. Located by its own unique
+  // `Sheet cell` line 43 lines above, then 4746 -> 4747 when that arc's closeout added the
+  // `sheetCellReference` import. Located both times by its own unique
   // `wizard-step3-card-${dfid}-report-toggle` testid on the live tree, not by a delta.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4746 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4747 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -170,9 +171,9 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4741 -> 4754 on the R1 repair commit, located by its own
   // `disabled={draft.trim()...}` opener.
   // Then 4754 -> 4760 on the R2 repair, same `disabled={draft.trim()...}` opener.
-  // Then 4760 -> 4803 on the ref-error-cell-anchors arc, same `disabled={draft.trim()...}`
-  // opener, located on the live tree.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4803 },
+  // Then 4760 -> 4803 on the ref-error-cell-anchors arc, then 4803 -> 4804 on its closeout
+  // import. Same `disabled={draft.trim()...}` opener, located on the live tree both times.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4804 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21

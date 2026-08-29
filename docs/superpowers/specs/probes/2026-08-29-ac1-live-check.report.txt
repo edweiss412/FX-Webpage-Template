@@ -19,6 +19,7 @@ unanchored REF warnings: 0
 
 --- run metadata ---
 branch      : feat/ref-error-cell-anchors
-head        : 70585f0b4ca4de19daed1ef5a0819f1fe907cc10
-command     : pnpm exec tsx docs/superpowers/specs/probes/2026-08-29-ac1-live-check.probe.ts.txt (as .ts)
-run at      : 2026-08-29T20:13:05Z
+head        : 651d2d3247d9e61757bcff895f8d6093017b607a
+command     : pnpm exec tsx <this probe, saved as .ts>
+run at      : 2026-08-29T20:13:39Z
+writes      : none (no Supabase client, no staged row, no DB of any kind)
