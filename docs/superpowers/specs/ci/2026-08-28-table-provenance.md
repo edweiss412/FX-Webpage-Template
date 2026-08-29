@@ -31,7 +31,7 @@ weak three and stops will misjudge how this case is built, so the ledger is stat
 | argument | drafted as | after measurement |
 | --- | --- | --- |
 | cost (§3) | decisive | **inverted** — the economics favour building |
-| population (§6) | 8 tables reachable | **an upper bound**, at most 6 |
+| population (§6) | 8 tables reachable | **an upper bound**, at most 6 producing — and the screen itself under-reported by two (§6) |
 | adoption (§4) | a demonstration | **thin** — the marker it leads with is 3 days old |
 | structural (§5) | decisive | **holds**, and gained a live in-domain instance |
 | repair shape (§5) | 3 arcs converging on a non-pointer repair | **cut to one instance.** R4 withdrew it as tautological; R5 withdrew the prevalence claim that replaced it. What is left is a single arc that placed its producing command beside its table and drifted anyway, which supports and does not carry |
@@ -327,7 +327,7 @@ The exercise is what surfaced the fact above: the arcs that repaired by naming a
 arcs whose tables had drifted while naming one.
 
 **The narrowing that would fix that is already shipped as prose.** Command plus immutable anchor is
-the convention's own form, adopted by 14 documents at this head (`git grep -l -iE 'every (number|figure|count)[^.]{0,60}(produced|printed) by' 8b4d521cac00 -- 'docs/**/*.md' | wc -l`) today by writing a header line. A
+the convention's own form, adopted by documents today today by writing a header line. A
 marker mechanizing it would be a second spelling of a live convention, and the sibling arc declined
 even the record-level presence check for it: its producer red once, and that one red was wrong.
 
@@ -356,7 +356,7 @@ command that can actually be run.
 | at the most generous 40-line window | tables |
 | --- | ---: |
 | adjacent to a shell fence | 99 |
-| ...whose command is pure, read-only, deterministic | 11 |
+| ...whose command is pure, read-only, deterministic | 11 as the screen reports it, **13 corrected** |
 | ...of those, reading a path outside the repo, so unreproducible in any CI checkout | 3 |
 
 **At most eight tables, corpus-wide, are reachable by an executing arm, and the true figure is
@@ -370,7 +370,25 @@ advice beside a file-map table, and
 where the command sits inside a task instruction beside a stale-claim comparison table. The producing
 population is at most six.
 
-**The screen cannot do better, and that is itself part of the finding.** Whether a command PRODUCES a
+**The screen under-reports by two, and the correction runs against this document's own conclusion.**
+The impurity regex reads a command's SEARCH TEXT as if it were shell, so
+`rg -ln -e "insert into public\.(…)"` at
+`docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:44` and at
+`docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:63` is a pure repo read excluded for carrying `insert into` in its PATTERN. Whole-diff review round 2
+finding 1 found both, and found them excluded SILENTLY, which the stated acceptance posture forbids:
+correctly classified, or excluded and printed. The census now prints all nine exclusions so the
+classification is checkable by reading, and two of the nine are wrong. **Corrected: 13 pure, 3 outside
+the repo, 10 that a CI checkout could run.**
+
+Three things follow, all stated rather than buried. The error ran in the direction that flatters this
+document, because a smaller reachable population argues harder for declining the truth arm; at 10 of
+3425 the figure is still 0.3% and the conclusion does not turn on it, but it would not have been found
+without review. The repair is a PRINT rather than a wider regex, since teaching the screen shell
+quoting is the recognizer growth this arc's own subject argues against. And §8's candidate population
+is computed by a separate screen that already counted the `01-write-site-registry.md:44` table, which is exactly why that
+section and this one disagreed until now.
+
+**The screen cannot do better than that, and it is part of the finding.** Whether a command PRODUCES a
 table is not decidable from adjacency and purity, and neither is whether its output is even the same
 KIND of quantity as the table's column:
 `docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md:137` states "target edits" beside a

@@ -22,7 +22,7 @@
  *      done condition names (review rounds).
  *
  * Tables come from the SHIPPED parser (`remark` + `remark-gfm` +
- * `blocksFrom`, `scripts/spec-lint.ts:163`, `:757`), not from a regex, so the
+ * `blocksFrom`, `scripts/spec-lint.ts:163`, `scripts/spec-lint.ts:757`), not from a regex, so the
  * census and any arm built later cannot disagree about what a table is. An
  * earlier draft of this census used a hand-rolled pipe-table regex and reported
  * 3397 where the real parser reports a different number; that gap is stated in
@@ -229,6 +229,7 @@ for (const w of WINDOWS) {
 // purity, at the widest window so the population is as favourable as it gets
 const W = 40;
 let adjacent = 0, pure = 0, outsideRepo = 0;
+const excluded: string[] = [];
 const pureSites: string[] = [];
 for (const [rel, lines] of tableLinesByFile) {
   const fences = (fencesByFile.get(rel) ?? []).filter((f) => CMD_LANG.has(f.lang));
@@ -243,7 +244,17 @@ for (const [rel, lines] of tableLinesByFile) {
       const joined = cmds.join(" ; ");
       const isGitRead = /^git\s+(\S+)/.test(head) && GIT_READ.has(/^git\s+(\S+)/.exec(head)![1]!);
       if (!PURE_HEAD.test(head) && !isGitRead) continue;
-      if (IMPURE.test(joined)) continue;
+      if (IMPURE.test(joined)) {
+        // PRINTED, never silent. The screen cannot tell a mutating command from a
+        // read-only SEARCH for a mutating pattern: `rg -ln -e "insert into ..."` is a
+        // pure repo read whose PATTERN trips this regex. Teaching the regex shell
+        // quoting is recognizer growth, which this arc's own subject argues against,
+        // so the exclusion is surfaced for reading instead (whole-diff review round 2
+        // finding 1 found these excluded silently, which the stated acceptance posture
+        // forbids: correctly classified OR excluded and PRINTED).
+        excluded.push(`${rel}:${t}  [${(IMPURE.exec(joined) ?? ["?"])[0]}]  ${head.slice(0, 70)}`);
+        continue;
+      }
       pure++;
       if (OUTSIDE_REPO.test(joined)) outsideRepo++;
       pureSites.push(`${rel}:${t}  ${head.slice(0, 88)}`);
@@ -260,6 +271,8 @@ console.log(`| adjacent to a shell fence | ${adjacent} |`);
 console.log(`| ...whose command is pure, read-only, deterministic | ${pure} |`);
 console.log(`| ...of those, reading a path OUTSIDE the repo (unreproducible in CI) | ${outsideRepo} |`);
 console.log(`| ...leaving, as an upper bound, commands a CI checkout could run | ${pure - outsideRepo} |`);
+console.log(`\nexcluded by the impurity screen, printed so no exclusion is silent (${excluded.length}):`);
+for (const e of excluded) console.log(`  ${e}`);
 console.log(`\nthe pure population in full, so the classification can be checked by reading:`);
 for (const s of pureSites) console.log(`  ${s}`);
 
