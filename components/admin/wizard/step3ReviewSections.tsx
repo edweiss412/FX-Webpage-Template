@@ -3430,6 +3430,12 @@ export function WarningsBreakdown({
                       {...(ignoreOrigin === "both" && dq.target.kind === "show"
                         ? { alsoClear: dq.target }
                         : {})}
+                      /* Whole-diff R2 P1: the REPORT's identity is the row's show, not
+                         the ignore backend's. The reroute above can send the ignore to
+                         staging on a row that has a show; without this the report filed
+                         from this disclosure carried show_id null and was labeled a
+                         staged sheet with no show record. */
+                      reportShowId={dq.target.kind === "show" ? dq.target.showId : null}
                       warning={w}
                       driveFileId={dfid}
                       mode="ignored"

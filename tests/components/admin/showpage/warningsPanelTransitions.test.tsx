@@ -165,7 +165,14 @@ describe("transition audit: nothing in the four-state path animates", () => {
     //   +1  `dq ? pick(dq.model.ignored) : []` — the ignored list
     //   +1  `allRows.length > 0 ? clean : empty` — all-ignored vs genuinely no warnings
     //   +1 `&&` in `item.index >= 0 && item.index < allRows.length` — the defensive
-    //      re-join bound, spec §3's out-of-range row
+    //      re-join bound, spec §3's out-of-range row. LEFT AGAIN at whole-diff R2: the
+    //      R1 P1 repair moved that bound out of this region into
+    //      `reconcileWizardWarningItems` on the model, because the rail needed to count
+    //      the same reconciled items the panel renders and a filter spelled inside one
+    //      local closure could not reach it. So guards go 2 -> 1 here. The branch did
+    //      not disappear, it moved to where both callers can share it, which is the
+    //      whole point of that repair — and this audit only ever claimed that nothing
+    //      in THIS region introduces cross-render state.
     //   +1  `dq ? <focus anchor> : null` — the sr-only `tabIndex={-1}` target the
     //       controls hand focus to before a refresh unmounts them (impeccable critique
     //       P0). It renders nothing and has no state of its own.
@@ -175,7 +182,7 @@ describe("transition audit: nothing in the four-state path animates", () => {
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
       ternaries: 10,
       ifs: 0,
-      guards: 2,
+      guards: 1,
     });
 
     // WD2 P2: the extracted `ElsewherePointerSentence` carries the relocated

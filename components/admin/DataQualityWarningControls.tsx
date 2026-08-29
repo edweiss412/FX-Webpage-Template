@@ -27,6 +27,20 @@ type Props = {
    *  Set only when the model reports `ignoreOrigin: "both"`; clearing one store while
    *  the other still hides the row is the false success this exists to prevent. */
   alsoClear?: WizardDqTarget;
+  /**
+   * The show this warning belongs to, for the REPORT — independent of `target`.
+   *
+   * Whole-diff R2 P1. `target` answers "which store does an Ignore write to", and the
+   * Ignored disclosure legitimately reroutes it to the staged backend when that is
+   * where the dismissal lives. Report was deriving its `showId` from that same value,
+   * so rerouting the ignore silently detached the report: a LINKED row filed with
+   * `show_id: null`, labeled a staged sheet with no show record, and nothing said.
+   *
+   * Two decisions, two inputs. Omitted falls back to the target-derived value, which
+   * is correct wherever the two genuinely coincide (every published mount, and a
+   * first-seen wizard row that really has no show).
+   */
+  reportShowId?: string | null;
   warning: ParseWarning;
   driveFileId: string | null;
   mode: "active" | "ignored";
@@ -87,6 +101,7 @@ const PLATE: Record<DqControlGround, string> = {
 export function DataQualityWarningControls({
   target,
   alsoClear,
+  reportShowId,
   warning,
   driveFileId,
   mode,
@@ -189,7 +204,16 @@ export function DataQualityWarningControls({
           surface="admin"
           variant="text"
           label="Report"
-          showId={target.kind === "show" ? target.showId : null}
+          /* R2 P1: the ROW's show, never the ignore backend's. `target` can be
+             rerouted to staging for a linked row, and deriving report identity from
+             it filed the report against nothing. */
+          showId={
+            reportShowId !== undefined
+              ? reportShowId
+              : target.kind === "show"
+                ? target.showId
+                : null
+          }
           surfaceId={reportSurfaceId}
           ringOffset={plate}
           messageOptional

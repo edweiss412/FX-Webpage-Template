@@ -324,7 +324,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // on the merged tree reports exactly one unclassified site in this file, 4121, and it
     // is that same `<a>`.
     // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
-    line: 4134,
+    // 4134 -> 4140 on the R2 repair; same `<a>`, located by the scanner.
+    line: 4140,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -478,7 +479,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>, located on the tree as
     // it stands AFTER formatting — measuring before the formatter runs is measuring a
     // file nobody ships.
-    line: 215,
+    // 215 -> 239 on the R2 repair: the reportShowId prop and its doc comment landed
+    // above this button. Same `data-testid={`dq-${action}-${reportSurfaceId}`}`.
+    line: 239,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",
