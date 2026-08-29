@@ -193,7 +193,7 @@ Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 **Shape:** An assertion whose extraction is narrower than the property in its own test name, so it passes for a reason unrelated to the behaviour: eight instances across two rounds, three proven by mutant. The general repair is to give the assertion a contest it can lose, a negative control, a premise on the fixture, or a bound derived from the same quantity the implementation uses; the sketched guard fails any case whose fixture cannot discriminate.
 
-**Named by:** 2 arcs — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff), fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks)
+**Named by:** 3 arcs — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff); fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks); fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it). The last two arcs each bumped this count from 1 to 2 on the same day without seeing the other, and their edits conflicted on this line; whichever an auto-merge had taken, the number would have read 2 with three arcs listed underneath it. Recorded because this index's counts are hand-maintained and that is the shape in which they go wrong.
 
 **Owning record:** none — this index is the record (the filing notes the done condition ranges over an open space of test shapes, so it is refutable once per round forever)
 
@@ -265,7 +265,7 @@ Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 **Shape:** Advisory index or pointer prose restating a cited artifact (an implementation file, a filing, a note) and misstating it: an overstated coverage claim, a miscounted line count, two source instances fused into one. The convention that owns this index declines any index-vs-artifact comparison lint by design, so the class is repaired by narrowing claims and citing rather than restating.
 
-**Named by:** 1 arc — docs/lim-slug-convention/4cb585b3508a.md (diff)
+**Named by:** 2 arcs — docs/lim-slug-convention/4cb585b3508a.md (diff); fix/published-attention-escape-race/60dece4d5722.md (spec and plan, one arc naming it at two stages)
 
 **Owning record:** the no-gate fence in the README's parked-class-slugs paragraph, plus this index
 

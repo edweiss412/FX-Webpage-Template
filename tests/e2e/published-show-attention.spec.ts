@@ -302,6 +302,85 @@ test.describe("published show attention surface (spec §5/§6)", () => {
   });
 
   // Carried as `test.fixme` from 2026-08-27 to 2026-08-28 while its cause was
+  // ── Escape-claim regression guards (2026-08-28-published-escape-consumed-claim) ──
+  //
+  // These sit BEFORE the resolve-lifecycle case deliberately. That case is titled
+  // LAST because it mutates: it resolves BOTH seeded alerts, so an alert-row guard
+  // appended after it would have no unresolved row left to select and would be
+  // unreachable in a serial describe.
+  //
+  // They are REGRESSION GUARDS, not a red-to-green cycle. The claim's clearing is
+  // already correct once the unit suite is green, so these pass the moment they are
+  // authored; their value is that the real browser proves each INTENTIONAL dismissal
+  // still hands the next Escape to the dialog. Getting the classifier wrong in the
+  // permissive direction breaks Escape after an ordinary dismissal, which is a worse
+  // defect than the race being fixed and is on a path every operator takes.
+  //
+  // DETACH SAFETY: the row-selection handlers unmount the menu synchronously
+  // (components/admin/showpage/AttentionMenu.tsx:182-185), so nothing here samples a
+  // row element after clicking it. Anything a case needs from a row is read BEFORE
+  // the click, and the post-click state is read through the modal and menu locators
+  // only. This block adds no sampler at all.
+  for (const [label, dismiss] of [
+    [
+      "clicking outside it",
+      async (page: Page) => {
+        await page.locator(`${MODAL} [data-testid="${BASE}-title"]`).click();
+      },
+    ],
+    [
+      "pressing Escape",
+      async (page: Page) => {
+        await page.keyboard.press("Escape");
+      },
+    ],
+    [
+      "moving focus outside it",
+      async (page: Page) => {
+        // The fifth W4 source. Focus, do not click: a click would exercise the
+        // click-outside path this table already covers, and the two dismissals
+        // are different listeners on the frame.
+        //
+        // Focus must MOVE, from inside the panel to outside it. An earlier version
+        // focused the close button directly and dismissed nothing, because
+        // `awaitModalHydrated` does not return until the close button already holds
+        // focus (tests/e2e/helpers/awaitModalHydrated.ts:18-23): focusing it again
+        // is a no-op, no `focusin` fires, and the frame's handler never runs. The
+        // row focus below is the half that makes this a focus-out at all.
+        const row = page.locator(`${MENU} [data-testid^="attention-menu-row-alert:"]`).first();
+        await row.focus();
+        await expect(row).toBeFocused();
+        await page.locator(`${MODAL} [data-testid="${BASE}-close"]`).focus();
+      },
+    ],
+    [
+      "selecting an alert row",
+      async (page: Page) => {
+        await page.locator(`${MENU} [data-testid^="attention-menu-row-alert:"]`).first().click();
+      },
+    ],
+    [
+      "selecting a sheet-warning row",
+      async (page: Page) => {
+        await page.locator(`${MENU} [data-testid^="attention-menu-row-warning:"]`).first().click();
+      },
+    ],
+  ] as const) {
+    test(`after dismissing the menu by ${label}, the next Escape closes the modal`, async ({
+      page,
+    }) => {
+      await openModal(page);
+      await expect(page.locator(MENU)).toBeVisible();
+
+      await dismiss(page);
+      await expect(page.locator(MENU)).toHaveCount(0);
+      await expect(page.locator(MODAL)).toBeVisible();
+
+      await page.keyboard.press("Escape");
+      await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 10_000 });
+    });
+  }
+
   // unattributed. ATTRIBUTED and re-enabled: the optimistic decrement was never
   // broken — both resolve POSTs return 200 and the pill was observed stepping
   // "2 issues · 1 sheet warning" → "1 issue · 1 sheet warning" → "1 sheet

@@ -33,7 +33,16 @@
  * the URL up in the background.
  */
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { ChevronDown, History, LayoutDashboard } from "lucide-react";
 
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
@@ -58,6 +67,7 @@ import {
   resolveEffectiveSection,
 } from "@/lib/admin/sectionAttention";
 import { anchorsForData } from "@/lib/admin/attentionAnchorAvailability";
+import { applyEscapeDecision, decideEscape } from "@/lib/admin/escapeClaim";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import {
@@ -228,7 +238,20 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // null despite its non-nullable type — guard rather than crash them. Those
   // harnesses never navigate, so a null read simply means "no close to heal".
   const committedShow = (searchParams as URLSearchParams | null)?.get("show") ?? null;
+  // Declared HERE, above every hook that closes over it, because the React
+  // Compiler's immutability rule rejects modifying a value already captured by
+  // an earlier hook: `handleClose` below voids a pending claim, so the ref has to
+  // exist before it. The acquisition that gives this ref its meaning is the layout
+  // effect further down, where the claim's own documentation lives.
+  const escapeClaimRef = useRef(false);
+
   const handleClose = useCallback(() => {
+    // A close is the operator asking to leave, so any pending Escape deferral is
+    // void. Without this a claim can outlive an ABORTED close: the guarded
+    // self-heal below resets `closing` while this instance and its ref survive,
+    // so the first Escape after the modal comes back would be swallowed by a
+    // claim left over from before. Whole-diff review round 1.
+    escapeClaimRef.current = false;
     setClosing(true);
     startCloseTransition(() => {
       close();
@@ -388,8 +411,57 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     // Sanctioned setState-during-render: strictly narrowing (immediately
     // re-renders with menuOpen=false, making the condition false), not an
     // effect, so the set-state-in-effect lint contract does not apply.
+    //
+    // W1, TRANSIENT: the Escape claim deliberately SURVIVES here, and this is the
+    // only dismissal that leaves it alone. Losing interactivity is not the operator
+    // asking, so their next Escape was still aimed at the panel and is deferred once.
+    // Every other site clears explicitly, which makes the absence here look like an
+    // oversight; it is a decision (spec §4's matrix). Adding a clear would break the
+    // deferral, and cases 2, 8 and 10 fail if you do, which was verified by mutant
+    // rather than assumed.
     setMenuOpen(false);
   }
+  // ── Escape claim (2026-08-28-published-escape-consumed-claim §3) ───────────
+  // The shell closes the dialog on any Escape unless a host handles the key. The
+  // panel's own capture listener can only claim a key while the panel is mounted
+  // AND that listener is live, so every window in which the panel is down, or up
+  // but not yet listening, would otherwise spend the operator's Escape on the
+  // modal. This ref outlives the panel and CLASSIFIES those windows: a transient
+  // unmount keeps the claim and the next key is deferred, an intentional dismissal
+  // clears it and the next key closes the dialog.
+  //
+  // ACQUISITION IS A LAYOUT EFFECT, deliberately. A passive acquisition would leave
+  // an ordinary post-commit window in which the panel is painted and neither the
+  // claim nor the frame's own passive listener is live, which is this repair's own
+  // defect reintroduced by the repair (spec §3.4). Layout runs before paint, so the
+  // panel is never visible without a claim behind it.
+  useLayoutEffect(() => {
+    if (menuEffectivelyOpen) escapeClaimRef.current = true;
+  }, [menuEffectivelyOpen]);
+  /** Intentional dismissal: the operator asked for it, so the next Escape is the
+   *  dialog's (spec §4's matrix, every row classified `intentional`). */
+  const clearEscapeClaim = () => {
+    escapeClaimRef.current = false;
+  };
+  /** The shell's consumed-key handler. The DECISION is a pure function
+   *  (`lib/admin/escapeClaim.ts`) so it can be tested over its whole input space;
+   *  this only applies the action. Whole-diff review round 2 is why: inline, the
+   *  branch is reachable only in state P, jsdom cannot stage state P, and a
+   *  textual guard over the branch's body was green against an early return
+   *  inserted above it. */
+  const handleEscapeCapture = (): boolean => {
+    return applyEscapeDecision(
+      decideEscape({ panelOpen: menuEffectivelyOpen, claimPending: escapeClaimRef.current }),
+      {
+        dismissPanel: () => setMenuOpen(false),
+        clearClaim: clearEscapeClaim,
+        // Focus goes back to the pill, matching what the panel's OWN Escape
+        // handler does (AttentionMenu.tsx:361-362). Impeccable critique P1.
+        focusPill: () => pillRef.current?.focus(),
+      },
+    );
+  };
+
   const menuWasEffectivelyOpenRef = useRef(false);
   useEffect(() => {
     const was = menuWasEffectivelyOpenRef.current;
@@ -672,7 +744,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     doneIdsRef.current = next;
     setDoneIds(next);
     const remaining = attentionItems.filter((i) => i.actionable && !next.has(i.id));
-    if (remaining.length === 0) setMenuOpen(false);
+    if (remaining.length === 0) {
+      clearEscapeClaim(); // W2, intentional
+      setMenuOpen(false);
+    }
   };
 
   // Auto-open once per mount (§5.2); the guard consumes only when it DECIDES
@@ -912,6 +987,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     <ReviewModalShell
       open={!closing}
       onClose={handleClose}
+      onEscapeCapture={handleEscapeCapture}
       // §6.5: this frame always streams in REPLACING the settled Suspense
       // skeleton (which owns the closed→open entrance) — an animated mount
       // here replays the pop-in over an already-opaque modal.
@@ -1010,7 +1086,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   data-testid={`${TESTID_BASE}-alert-pill`}
                   aria-expanded={menuOpen}
                   aria-controls={menuId}
-                  onClick={() => setMenuOpen((v) => !v)}
+                  onClick={() => {
+                    clearEscapeClaim(); // W3, intentional
+                    setMenuOpen((v) => !v);
+                  }}
                   {...(monitoringOnly
                     ? {
                         title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
@@ -1170,7 +1249,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   <AttentionMenu
                     items={live}
                     open={menuEffectivelyOpen}
-                    onClose={() => setMenuOpen(false)}
+                    onClose={() => {
+                      clearEscapeClaim(); // W4, all five sources, intentional
+                      setMenuOpen(false);
+                    }}
                     onNavigate={navigateTo}
                     pillRef={pillRef}
                     {...(k > 0

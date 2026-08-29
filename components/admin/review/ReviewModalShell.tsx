@@ -92,6 +92,12 @@ export type ReviewModalShellProps = {
   /** §6.2 guard: `false` renders nothing (no effects run, no portal). */
   open: boolean;
   onClose: () => void;
+  /** Consumed-key contract (2026-08-28-published-escape-consumed-claim §3.2).
+   *  Called before the dialog would close on Escape. Return true to say the HOST
+   *  handled the key, and the dialog stays open. Absent, every Escape closes the
+   *  dialog exactly as before, so the wizard modal and the streaming skeleton are
+   *  unaffected. */
+  onEscapeCapture?: () => boolean;
   /** id of the consumer-rendered heading inside `header` (aria-labelledby). */
   labelledBy: string;
   /** Interpolated into the CSS entrance hooks `data-<prefix>-scrim/panel`. */
@@ -130,6 +136,7 @@ export function ReviewModalShell(props: ReviewModalShellProps): ReactNode {
 
 function OpenReviewModalShell({
   onClose,
+  onEscapeCapture,
   onDismissStart,
   closeApiRef,
   labelledBy,
@@ -245,6 +252,13 @@ function OpenReviewModalShell({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
+        // Consumed-key contract (2026-08-28-published-escape-consumed-claim §3.2):
+        // the host may HANDLE this key instead of the dialog closing. It is a
+        // handler and not a boolean veto, because a veto consumes the key while
+        // dismissing nothing in the window where a panel is mounted and its own
+        // listener is not yet live, which swallows the operator's key silently.
+        // Absent the prop, behaviour is exactly as before.
+        if (onEscapeCapture?.() === true) return;
         requestClose();
       }
     }
@@ -253,7 +267,7 @@ function OpenReviewModalShell({
     // `requestClose` is redefined every render, so this re-subscribes every
     // render — cheap for one document listener, and it keeps the handler bound
     // to the CURRENT closure (which reads `onClose` and the drag refs).
-  }, [requestClose]);
+  }, [requestClose, onEscapeCapture]);
 
   // ── Sheet drag-to-dismiss (spec §10; §11 T3–T5, C1, C2, C5, C6) ────────────
   // All drag state lives in refs (no re-renders while the pointer moves); the
