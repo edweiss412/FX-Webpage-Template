@@ -149,7 +149,8 @@ if (!skipClaims) {
 // local DB ✓` and kept going — which is exactly what happened on 2026-08-26, when db
 // suites honouring TEST_DATABASE_URL seeded and published shows on validation and its
 // notify cron mailed nine alerts between 01:10 and 03:10 CDT.
-const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])$/i;
+// hostOf() strips IPv6 brackets, so the bare `::1` is what reaches this, never `[::1]`.
+const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|::1)$/i;
 function hostOf(url) {
   try {
     return new URL(url).hostname.replace(/^\[|\]$/g, "");
@@ -178,15 +179,29 @@ for (const key of ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"]) {
   const v = process.env.TEST_DATABASE_URL;
   const host = v ? hostOf(v) : null;
   if (host && !LOOPBACK_HOST.test(host)) {
+    // The remedy names TEST_DATABASE_URL because that is the LEFT operand of the `??` at
+    // every site resolving a database from it, so setting DATABASE_URL cannot win. An
+    // earlier version advised exactly that, and also told the reader nothing honoured the
+    // variable, which is what made people stop reading: the app server honours it.
+    // tests/scripts/preflightAdvice.test.ts asserts this block by EQUALITY, so a deliberate
+    // copy change updates the expected block there in the same commit.
     deferredWarnings.push(
-      `WARN: TEST_DATABASE_URL is NON-LOOPBACK (${host}) — this is the VALIDATION ` +
-        `deployment, and it is set that way on purpose for the schema-parity gates.\n` +
-        `      Anything that honours this variable writes to validation, where the notify ` +
-        `cron sends REAL email to Doug.\n` +
-        `      Since 2026-08-26 no test helper or suite honours it ` +
-        `except the two rows in tests/db/_validationEnvAllowlist.ts, so this line is\n` +
-        `      informational. Export DATABASE_URL (loopback) to point local DB runs at a ` +
-        `specific local Postgres.`,
+      [
+        `WARN: TEST_DATABASE_URL is NON-LOOPBACK (${host}). That is a REMOTE database. In this repo the`,
+        `      variable is set to the validation deployment on purpose, for the schema-parity gates.`,
+        `      Whatever honours it talks to that database, and the app server route handlers WRITE. On`,
+        `      validation those writes reach the notify cron, which sends REAL email to Doug.`,
+        `      Test helpers no longer honour it: the only two that do are listed in`,
+        `      tests/db/_validationEnvAllowlist.ts, and those read or roll back. The APP SERVER does,`,
+        `      because route handlers resolve TEST_DATABASE_URL ?? DATABASE_URL, so a locally booted`,
+        `      server reads and writes there.`,
+        `      Playwright pins a loopback value on every server it STARTS. A server already listening`,
+        `      on the port is REUSED as-is and keeps whatever database it was started with, so a`,
+        "      hand-started `pnpm dev` stays on that database even under `pnpm test:e2e`.",
+        `      To point a local run at local Postgres, override the variable itself:`,
+        `        TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres <cmd>`,
+        "      Setting DATABASE_URL does not work, because TEST_DATABASE_URL is the left `??` operand.",
+      ].join("\n"),
     );
   }
 }
