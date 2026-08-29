@@ -397,6 +397,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
     // Sanctioned setState-during-render: strictly narrowing (immediately
     // re-renders with menuOpen=false, making the condition false), not an
     // effect, so the set-state-in-effect lint contract does not apply.
+    //
+    // W1, TRANSIENT: the Escape claim deliberately SURVIVES here, and this is the
+    // only dismissal that leaves it alone. Losing interactivity is not the operator
+    // asking, so their next Escape was still aimed at the panel and is deferred once.
+    // Every other site clears explicitly, which makes the absence here look like an
+    // oversight; it is a decision (spec §4's matrix). Adding a clear would break the
+    // deferral, and cases 2, 8 and 10 fail if you do, which was verified by mutant
+    // rather than assumed.
     setMenuOpen(false);
   }
   // ── Escape claim (2026-08-28-published-escape-consumed-claim §3) ───────────
@@ -429,7 +437,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   const handleEscapeCapture = (): boolean => {
     if (menuEffectivelyOpen) {
       setMenuOpen(false);
-      escapeClaimRef.current = false;
+      clearEscapeClaim();
       // Focus goes back to the pill, matching what the panel's OWN Escape handler
       // does (AttentionMenu.tsx:361-362). Without this the key strands focus on
       // <body>, outside the dialog's trap: the rescue effect below returns early

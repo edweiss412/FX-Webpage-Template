@@ -137,3 +137,36 @@ Round 3 found the original order, which registered and moved together and theref
 ## Adversarial review (cross-model)
 
 Between self-review and execution handoff, dispatch the plan to Codex through `codex-guard` at `--stage plan`, and the whole diff at `--stage diff`. The brief carries the spec's §1.1 verbatim as its do-not-relitigate list.
+
+## 12. UI quality gate (invariant 8)
+
+Both halves ran on this arc's diff, each as isolated parallel sub-agents, so no degraded
+banner applies. Register: product (admin app UI). Target slug
+`components-admin-showpage-publishedreviewmodal-tsx`. The critique's ignore list did not exist, so nothing was
+silently dropped.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
+
+### Findings and dispositions
+
+| # | half | sev | finding | disposition |
+| --- | --- | --- | --- | --- |
+| 1 | critique A | P1 | The host Escape path dismissed the panel without restoring focus, while the panel's own handler does. The dep-less rescue returns early when interactivity is intact, on the stated assumption that such a close manages its own focus, so focus could strand on the body element outside the dialog's trap. | FIXED, `bf5a3366f`. Focus restored in the dismissing branch only. |
+| 2 | critique A | P2 | No screen-reader announcement on either dismissal path. | Deferred. The audit half scored this P3 and found no WCAG criterion requires feedback for a key that changes nothing; 4.1.3 governs status messages that exist rather than mandating one. The announce channel lives inside the shell and is unreachable from the handler without a refactor. |
+| 3 | critique A | P2 | Drag-to-dismiss has no consumed-gesture equivalent, so the mobile path is unfixed. | REFUTED by the audit half, and worth recording so it is not re-raised: Escape is a global untargeted key, which is why it needs a claim, while the grab strip is a targeted 44px labelled control whose drag is an unambiguous request to close the modal. A phone operator cannot reach the deferred state at all. |
+| 4 | critique A | P3 | `handleEscapeCapture` unmemoised, so the shell listener re-subscribes per render. | Declined. `requestClose` already forced a re-subscribe every render; memoising one of two changes nothing. |
+| 5 | critique B | — | The no-visual-change claim, tested rather than accepted: no line touches `className`, style, a token, or JSX structure. Detector clean, and verified live against a control that returned real rule names. | No action. |
+| 6 | critique B / audit | P2 | The render-phase reconcile was the only dismissal with no claim marking, so a reader could not tell a ratified omission from a missed one. | FIXED. Comment added naming it W1 and stating the claim deliberately survives. A mutant adding a clear there fails cases 2, 8 and 10, so the tests already hold the line; the comment is documentation rather than the guard. |
+| 7 | audit | P3 | One site cleared the ref inline rather than through the named clearer, so grepping it found three of four. | FIXED. All four now call `clearEscapeClaim()`. |
+| 8 | audit | P3 | Pre-existing: pointerdown on the grab strip both dismisses the panel and starts the sheet drag. | Out of scope, unchanged by this diff. |
+
+Scores: accessibility 4, performance 4, theming N/A, responsive 4, code quality 3. Verdict
+PASS, no P0, one P1 fixed in branch.
+
+**A note on the P1's repair, because it produced a second finding.** The first test written
+for it was vacuous and its mutant survived: the host handler only runs when the shell sees
+the Escape, which only happens when the panel's own listener did not stop it, so with the
+panel mounted and listening the frame claims the key and restores focus itself. The
+behavioural case was exercising the frame's pre-existing contract and never reached the new
+path. The branch is reachable only in the state jsdom cannot stage, so the contract is
+pinned structurally in both directions instead, and that version kills the mutant.
