@@ -25,3 +25,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-26-speclint-dispatch-gates.md`](./2026-08-26-speclint-dispatch-gates.md) | 2026-08-26 |
 | [`2026-08-26-speclint-ac-unclaimed-arm.md`](./2026-08-26-speclint-ac-unclaimed-arm.md) | 2026-08-26 |
 | [`2026-08-26-mutation-gate-fidelity.md`](./2026-08-26-mutation-gate-fidelity.md) | 2026-08-26 |
+| [`2026-08-28-table-provenance.md`](./2026-08-28-table-provenance.md) | 2026-08-28 |
