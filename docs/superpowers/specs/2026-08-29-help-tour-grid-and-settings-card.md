@@ -11,7 +11,7 @@ Both are pre-existing on `origin/main` and neither has moved since.
 
 ## 1. What is wrong
 
-### 1.1 The card grids divide a reading measure
+### The card grids divide a reading measure
 
 `app/help/layout.tsx` wraps every `/help/*` page's children in a single `help-prose` div, and
 `app/globals.css` caps that wrapper at `max-width: 70ch`. The tour page then puts two card grids
@@ -30,7 +30,7 @@ AND the one the numbers actually call for.
 Mobile is a single column. Its 31.4ch is a consequence of a 390px screen rather than of this
 layout, and it is the best measure the page currently achieves anywhere.
 
-### 1.2 The page claims to cover every admin screen and covers seven of eight
+### The page claims to cover every admin screen and covers seven of eight
 
 The tour's intro paragraph says the page lists every admin screen. It renders seven cards.
 `app/help/_nav.ts` declares eight entries in the `admin-surface` group; `/help/admin/settings`
@@ -67,7 +67,7 @@ The repair landed on one file and the class was never swept. This spec sweeps it
 ## 2. Probe
 
 Numbers in this section are measured, never argued. Per the probe-before-argue rule, no design
-decision below rests on a predicted measurement. §2.1, §2.2 and §2.3 are all complete.
+decision below rests on a predicted measurement. Both §2.1 and §2.2 are complete.
 
 ### 2.1 Which cap mechanism actually preserves the page (complete)
 
@@ -180,6 +180,45 @@ this one, which is the failure `tests/e2e/help-pages.spec.ts` records for port 3
 `--project` is variadic: `--project desktop-chromium help-grid-probe` reads BOTH words as project
 names and exits before running anything.
 
+### 2.3 The proposed design, swept on the real page (complete)
+
+Three consecutive review rounds found the same class of error: a layout claim computed from a model
+of the container that was missing a term — first the 70ch cap, then the `auto-fit` continuum, then
+the shell's `md` sidebar and the errors nav's own cap. The same-vector rule says stop patching
+instances and re-analyse. This is that re-analysis, and it replaces derivation with measurement:
+the PROPOSED CSS injected into the REAL page, swept at 4px from 320 to 1440, reading actual
+computed column counts and rendered widths.
+
+Two properties of the harness are worth stating because the first version of it was wrong. It
+forces `display: grid` on the "Once per environment" wrapper, which is a plain `div` today and
+which §3.3 turns into a grid — without that, the injected track list applies to a non-grid element.
+And it REFUSES to report a column count it cannot resolve, returning a sentinel instead: v1 parsed
+`grid-template-columns` by splitting on spaces, which on a non-grid element returns the unresolved
+`repeat(...)` text and reported a constant "4 columns" that was not a number at all. Zero
+unresolved reads in the final run.
+
+**The sweep.** 320 to 1440 inclusive at 4px, which is 281 viewports per page:
+
+```
+BASELINE_SERVER_ONLY=1 E2E_PORT=3417 \
+  TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  pnpm heavy pnpm exec playwright test help-grid-probe --project=desktop-chromium
+```
+
+**Results, and this section is the one that owns them** — §3.2, §3.2a and §7.1 reference these
+numbers rather than restating them. Over every sampled viewport: **no grid overflows its container
+at any width**, and **no jump-list item wraps at any width**. The worst measure while multi-column
+is **30.8ch at a 752px viewport**, clearing AC-1's 28ch floor. The tour transitions are tabulated
+in §7.1 and the jump list's in §3.2a.
+
+**One caveat, stated because the sweep measured today's content.** The "Once per environment" group
+holds one card today, and `auto-fit` collapses empty tracks, so that group renders full-width in
+the sweep rather than as two tracks. With the Settings card added (§3.3) it holds two, and its
+cards then behave as the other grids' do. That row of the sweep describes the page as it is, not as
+it ships.
+
+---
+
 ---
 
 ## 3. The change
@@ -266,11 +305,18 @@ and confirmed in a real browser:
 | 23rem | 752px | 32.4ch | **1 col**, 68.2ch | 2 col, 37.6ch |
 | 24rem | 784px | 34.0ch | **1 col**, 68.2ch | 2 col, 37.6ch |
 
-**22rem is the largest minimum that still gives two columns at a 728px container**, which is the
-1024px viewport. Above it the grid collapses to a single card per row there and stops reading as a
-grid at all. Below it the switch measure falls, and at 20rem it falls to 27.6ch — under AC-1's
+**22rem is the largest ROUND minimum that still gives two columns at a 728px container**, which is
+the 1024px viewport. The exact maximum is `(728 - 16) / 2 = 356px`, or 22.25rem — an earlier draft
+of this sentence claimed 22rem was that maximum, which is false by 4px. 22rem is chosen over
+22.25rem deliberately and not for tidiness: at exactly 356px the track equals the minimum, so any
+subpixel difference in the container (a scrollbar, a zoom level, a font-size change moving `rem`)
+flips the grid to one column. 4px of headroom is what stops the two-column state depending on an
+exact tie. Above 22.25rem the grid collapses to a single card per row at 1024 and stops reading as
+a grid at all. Below it the switch measure falls, and at 20rem it falls to 27.6ch — under AC-1's
 floor, at a viewport no acceptance criterion sampled. So 22rem maximises the worst case subject to
 keeping the grid a grid, and both ends of that statement are checks rather than judgements.
+Measured on the real page across the full sweep (§2.3), the worst measure while multi-column is
+30.8ch at a 752px viewport, which is the switch, exactly as the general form predicts.
 
 An earlier draft of this section dismissed 22rem as "the same layout with a less round number".
 That was wrong in both halves: 20rem switches at a 656px container and 22rem at 720px, so they are
@@ -289,16 +335,36 @@ the kind of interaction that makes `auto-fit` worth stating carefully rather tha
 ### 3.2a The errors-page jump list
 
 Confirmed by probe as the same defect, not a suspected peer: 5 of its 7 items wrap at 768px
-(§2.2). Same repair shape, one part rather than two —
-`sm:grid-cols-2` becomes `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]`, and it takes **no**
-`help-bleed`. Its `gap-x-8` is 32px, so the same arithmetic gives one column at 472px and 604px,
-and two at 728px and above with each item at 348px or wider, comfortably past the 336.2px that
-already fits the longest label without wrapping.
+(§2.2). It takes the derived column count and **no** `help-bleed` — the defect is the wrap, and the
+wrap is gone once the column count stops being asserted; widening the list as well would be a
+change with no defect behind it.
 
-The bleed is omitted deliberately. The defect here is the wrap, and the wrap is gone once the
-column count stops being asserted; widening the list as well would be a change with no defect
-behind it. Recall from §7 that the class would have to go on the `nav`, not the `ul`, so leaving
-it off also avoids the one place this repair is easy to misapply.
+**Its minimum is 18rem, not the cards' 22rem, and sharing theirs was a real error.** Two reasons,
+both of which a reviewer found before this section did.
+
+First, arithmetic: this grid's gap is `gap-x-8`, 32px, not the cards' 16px, so it does not inherit
+their column behaviour. Two 22rem tracks need `352 x 2 + 32 = 736px`.
+
+Second, and decisively: this `nav` is NOT bled, so it stays under the 70ch cap at 704.4px. 736 is
+greater than 704.4, so **two 22rem columns are unreachable at every viewport** — the grid would
+have been permanently single-column, and AC-1b and AC-1c would both still have passed, because one
+column neither wraps nor overflows. The acceptance criteria could not have caught it.
+
+18rem is derived from this list's own content rather than borrowed. §2.2 measured its items at
+286px with 0 of 7 wrapping, so 288px is the smallest round minimum that is known to fit every
+label. Two 18rem tracks need `288 x 2 + 32 = 608px`, comfortably inside the 704.4px cap. Swept on
+the real page (§2.3):
+
+| viewport | `nav` | cols | item | wrapped |
+| --- | --- | --- | --- | --- |
+| 320 | 288 | 1 | 288 | 0 of 7 |
+| 640 | 608 | 2 | 288 | 0 of 7 |
+| 768 | 472 | 1 | 472 | 0 of 7 |
+| 904 | 608 | 2 | 288 | 0 of 7 |
+
+The same two-to-one-to-two shape as the tour grids, and for the same reason: the shell's sidebar,
+not the list. Zero wrapping at every sampled viewport of the sweep (§2.3), against a baseline of 5
+of 7 wrapping at 768.
 
 ### 3.3 The Settings card
 
@@ -505,7 +571,7 @@ trapped under the 70ch cap: that is true only above 1024px, and it would have le
 instance of all three unrepaired. The class is a column count asserted as a constant against a
 space whose width is not one.
 
-A separate sweep covers the guard defect of §1.2 — a completeness claim over the admin surface
+A separate sweep covers the guard defect described in §1 — a completeness claim over the admin surface
 that restates the list instead of deriving it. Derived cover: every file under `tests/` mentioning
 two or more literal `/help/admin/*` URLs, checked for whether it imports `NAV`.
 
@@ -536,17 +602,32 @@ widths rather than a column-count formula.
 
 ## 7.1 Mode boundaries and growth
 
-**There are no modes, and that is the point.** This sentence previously said every grid is
-`grid-cols-1` below the `md` breakpoint. That was true of the design this spec replaced, and it is
-false of the one it ships: `auto-fit` has no breakpoint at all. The column count is a continuous
-function of container width, changing at whatever width a further track fits rather than at a
-named viewport. Carrying the old sentence forward was the defect, not a wording slip — a reader
-would have looked for behaviour at `md` that no longer exists there.
+**The grid has no breakpoint. The SHELL does, and the container width is not monotonic in
+viewport width.** Two earlier drafts got this wrong in opposite directions: the first said every
+grid is `grid-cols-1` below `md`, carried over from the design this spec replaced; the second
+overcorrected to "there are no modes", which denied the shell's `md` threshold. Both were prose
+about layout. This section now states what was measured.
 
-What is true: the grid is single-column below a 720px container and two-column at or above it
-(§3.2), the same cards render at every width with nothing hidden or shown per mode, and the bleed
-has a visible effect only above a 704.4px container, since below that the cap is not what binds
-(§2.2). Those three thresholds are different numbers and none of them is `md`.
+`auto-fit` responds to the CONTAINER, and the container is `main`, which loses 240px of sidebar
+plus a 24px gap when the shell's `md:flex` engages at 768px. So `main` grows with the viewport,
+then DROPS at 768, then grows again. Swept at 4px from 320 to 1440 on the real page with the
+proposed CSS applied (§2.3):
+
+| viewport | `main` | tour card grid | card | measure |
+| --- | --- | --- | --- | --- |
+| 320 | 288 | 1 col | 288 | 24.4ch |
+| **752** | **720** | **2 col** | 352 | **30.8ch** |
+| **768** | **472** | **back to 1 col** | 472 | 42.7ch |
+| **1016** | **720** | **2 col again** | 352 | 30.8ch |
+
+The two-to-one-to-two sequence is real, it is caused by the sidebar rather than by the grid, and
+no arithmetic over the grid alone can predict it. It is not a defect: every state in it is
+readable, and the one-column state at 768 is the WIDEST measure of the three at 42.7ch. It is
+recorded because a reader who did not know it would read the 768 row as a regression.
+
+Nothing is hidden or shown per mode; the same cards render at every width. The bleed has a visible
+effect only above a 704.4px container, since below that the cap is not what binds (§2.2). The
+grid's own switch, the shell's `md`, and the bleed's threshold are three different numbers.
 
 **Growth.** The card list is bounded by the `admin-surface` group, which has eight entries today
 and grows only when someone adds an admin help page. There is no truncation and no cap: a ninth
@@ -559,13 +640,14 @@ N and showing a link to the rest is explicitly rejected.
 
 ## 8. Acceptance criteria
 
-**The matrix is 390, 768, 900, 1024 and 1280, plus 752** — the last of these because it is the
-viewport at which the 720px switch container is first reached, and §3.2 shows the worst desktop
-measure lives at the switch rather than at any round viewport. A matrix of round numbers is exactly
-what hid a 27.6ch measure behind a 20rem minimum in the previous draft, so the threshold is sampled
-explicitly rather than hoped past.
+**The matrix is 320, 390, 752, 768, 900, 1016, 1024 and 1280.** The round numbers alone are what
+hid a 27.6ch measure behind a 20rem minimum, so every threshold the sweep found is sampled
+explicitly: **752** is the first switch, **768** is where the shell's sidebar drops the container
+and the grid falls back to one column, and **1016** is where it returns to two (§7.1). **320** is
+AC-1c's overflow pin. A criterion that samples only round viewports cannot see a transition, and
+this layout has three.
 
-- **AC-1** Every tour card's rendered body measure is **at least 28ch** at 752, 768, 1024 and 1280,
+- **AC-1** Every tour card's rendered body measure is **at least 28ch** at 752, 768, 1016, 1024 and 1280,
   measured in a real browser with `getBoundingClientRect`. The floor is 28 and not 31.2, which is
   what §3.2's arithmetic predicts, so that cross-engine glyph-metric variance cannot fail a correct
   layout — the same headroom `tests/e2e/help-typography.spec.ts` already leaves on its own measure
