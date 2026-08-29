@@ -813,7 +813,7 @@ Every other swap target:
 | --- | --- | --- |
 | every Family A field | rest to focus, focus to rest | the focus cue is a `focus-visible:ring-*`, not a border tween; unchanged in both directions |
 | `components/admin/dev/SwitcherControls.tsx:119` | rest to hover, hover to rest | no `transition-colors` on this element today. The hover token moves from `accent` to `accent-on-bg` and the switch stays instant, matching its two neighbours at `components/admin/dev/SwitcherControls.tsx:29` and `components/admin/dev/SwitcherControls.tsx:145`, which are also instant |
-| `components/admin/wizard/VenueMapTile.tsx:121`, `components/admin/ReSyncButton.tsx:213`, `components/admin/telemetry/CronRunSummaryCard.tsx:26`, the four `step3ReviewSections` visuals | single-state | no state pair exists; instant by construction |
+| `components/admin/wizard/VenueMapTile.tsx:121`, `components/admin/ReSyncButton.tsx:213`, `components/admin/telemetry/CronRunSummaryCard.tsx:26`, the three `step3ReviewSections` visuals | single-state | no state pair exists; instant by construction. Four until 2026-08-28, when the diagram tile's chrome moved off its `<Image>` onto the anchor that forms the tile box, taking that image out of this family by design (`docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md` §5). §6.2's row for it is a record of what the swap measured and is deliberately left as written. |
 
 **Compound cases.** A menu trigger's open/closed tween can be interrupted by a re-render that swaps the
 whole className string, because the two arms are a ternary rather than a variant: true today, unchanged

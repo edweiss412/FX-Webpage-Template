@@ -1,3 +1,260 @@
+## BL-DIAGRAM-TILE-CHROME-CONSISTENCY — the admin diagram tile and the crew gallery put the tile border on different elements — ✅ RESOLVED (2026-08-28, `fix/diagram-tile-chrome-consistency`)
+
+**Status:** RESOLVED 2026-08-28 (`fix/diagram-tile-chrome-consistency`) · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`; owner-directed by bl-orch after that arc reverted the change as out of scope, which is the scheduling decision) · **Facing:** product · **Severity:** LOW (cosmetically identical today; it is a consistency and maintenance question, not a rendering defect) · **Class:** design consistency · **Effort:** S · **Reachability:** PROBED — see the mutant below.
+
+The crew gallery puts the tile's box chrome on the grid CELL and leaves `object-cover` on the image (`components/diagrams/Gallery.tsx:351`). The admin wizard tile puts `rounded-md border border-text-faint bg-surface-sunken` on the `<img>` and leaves the anchor carrying only `relative` and its aspect box (`components/admin/wizard/step3ReviewSections.tsx`). Two arrangements for one visual idiom across the two diagram surfaces.
+
+**It is cosmetic, and that is measured rather than assumed.** `perf/admin-diagram-next-image` tried the move and ran it as a mutant: with the border on the anchor instead of the image, the whole real-browser layout suite passed, 44 of 44, including the geometry row. With no border on the anchor its padding box IS its border box, so a `fill` image insets to the same rectangle either way. An earlier justification claiming the move was required by that insetting is disproved and must not be revived.
+
+**Why it is a row and not a rider.** That arc is a `next/image` adoption, and the image change demonstrably does not require the move. Taking it would also move the tile's `<img>` out of the painted-child family counted by `docs/superpowers/specs/2026-08-26-control-outline-cover-widening-design.md` §15 table 3 — spending a ratified design claim on a preference a perf arc picked up in passing. The honest home is the UI polish class sweep, where the same question can be asked of every surface that has a bordered thumbnail rather than of one.
+
+**Done condition:** one arrangement across both diagram surfaces, with §15 table 3's family membership re-derived and the count updated in the same change rather than left to drift.
+
+### What shipped
+
+The chrome moved to the WRAPPER on the admin tile: `rounded-md border border-text-faint
+bg-surface-sunken` now sits on the anchor that forms the tile box, and the image carries only
+`object-cover`. The crew gallery was already this arrangement and was not edited.
+
+The done condition's second half landed in the same commit: `§15 table 3`'s painted-child count is
+re-derived from four to three, in the assertion, its comment, and the docblock that quotes it, plus a
+new assertion that reads the 2026-08-26 spec's own prose and requires it to state the count the
+derivation returns. Three further consumers moved in that one commit — the real-browser placement pin
+inverted, the tap-target census prose, and the tinted-plate comment's raw/comment split.
+
+Spec: `docs/superpowers/specs/2026-08-28-diagram-tile-chrome-consistency.md`. Plan and closeout:
+`docs/superpowers/plans/2026-08-28-diagram-tile-chrome-consistency.md` and its `-closeout.md` sibling.
+Four documented limits are carried forward there with re-file triggers, and two P1 findings from the
+invariant-8 gate are deferred in `DEFERRED.md` under class-sweep exception (a).
+
+## BL-LINE-KEYED-REGISTRY-ROWS — registries keyed by `file:line` are invalidated wholesale by any edit above the row — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
+
+**Status:** CLOSED 2026-08-28 (`feat/line-keyed-registry-durable-keys`), demoted to a documented limit rather than built · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`; owner-directed by bl-orch under the recurrence exception) · **Facing:** process · **Mint-exception:** recurrence (`LIM-LINE-KEYED-SITEID`) · **Severity:** MEDIUM as filed · **Class:** structural-registry keying · **Effort:** M as filed
+
+The row asked for a durable content-anchored key to replace `file:line` in the highest-churn registries. **The arc designed one, built its resolver, measured what it would actually buy, and it does not pay.** No registry migrates and no resolver ships. The full record is `docs/superpowers/specs/2026-08-28-line-keyed-registry-durable-keys-design.md`; the limits it leaves behind are that spec's §7.
+
+### The measurement that decided it
+
+The threshold was set by the orchestrator BEFORE the measurement, so it could not be chosen to fit: migrate only if MORE THAN HALF the measured re-keys land on rows whose anchor a scanner can genuinely derive from the site. Two independent methods agree:
+
+|                                                              | count  | share     |
+| ------------------------------------------------------------ | ------ | --------- |
+| pure re-keys on `alertProducerScope.registry.ts`, 56 commits | 192    | —         |
+| attributed                                                   | 188    | 97.9%     |
+| **on site-derivable rows**                                   | **78** | **41.5%** |
+| on non-derivable rows                                        | 110    | 58.5%     |
+
+**41.5% is under half.** The reason matters more than the number: **churn is proportional, not concentrated.** Site-derivable rows are 20 of 47 (42.6%) of the registry and take 41.5% of its churn, so there is no pocket of value to extract. The top-churning row is non-derivable (`lib/drive/watch.ts` · `WATCH_CHANNEL_ORPHANED`, 20 re-keys) and the two classes alternate down the whole top five.
+
+### Why the candidate registry looked good and was not
+
+27 of its 47 rows carry hand-authored anchor fields: 20 `dynamic: true`, 12 `computedContext: true`, 5 both. Discovery represents a dynamic code as `code == null` (`tests/adminAlerts/_metaAlertProducerScope.test.ts:174`), computed context keys are hand-authored by contract, and `scope` comes from the registry row for every row. The "content anchor" would have compared registry fields against registry fields — self-validating, the exact tautology the row exists to remove. Genuine site-derivable anchorability is **20 of 47 (43%)**, against the 39% JSX side that had already been descoped for being too low.
+
+The arc's own prototype passed 14 of 14 and did not catch this, because it compared registry-parsed anchors against registry-parsed anchors and never extracted from a live site. Cross-model review did catch it. Any future attempt starts with live site extraction, not with a resolver.
+
+### What shipped instead
+
+`scripts/line-key-census.mjs` and `scripts/ledger-key-census.mts`, walker-derived, with the modes the spec's §0.1 maps to each quantity it states.5 marks as a historical measurement and names both of its methods. It is what will settle this question in minutes next time rather than in an arc.
+
+One finding is worth carrying on its own: **today's `file:line` keys can already misbind SILENTLY**, which the row did not claim. `controlOutlineScan.ts:261` resolves whatever element now occupies the keyed line, and 16 keyed-row pairs across six registries sit within 20 lines of each other (`--proximity`). That is a defect, not merely a maintenance cost, and it is recorded in the spec's §2 rather than repaired here.
+
+**Re-file trigger, two arms, both measured rather than felt:** (1) an anchor design that can derive the 27 hand-authored rows — a discovery pass resolving a dynamic `code` to its emitted literal, or a `scope` the site itself carries; (2) churn concentration shifting, the site-derivable share of attributed re-keys rising above half, re-measured by the same two methods. Today it is 41.5% against a 42.6% registry share, and that near-equality is the finding.
+
+## BL-BARE-TYPEOF-STRING-ID-GUARDS — an empty string passes as a usable id at 12 of 27 id-like guards — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
+
+**Status:** CLOSED 2026-08-28 (`fix/bare-typeof-id-guards`), demoted on the probe the row itself scheduled · **Filed:** 2026-08-27 (`perf/admin-diagram-next-image`, class sweep; owner-directed by bl-orch) · **Facing:** product · **Severity:** MEDIUM as filed · **Class:** input validation · **Effort:** M as filed
+
+The row was filed `**Reachability:** INFERRED, NOT PROBED` and named the probe as its own first scheduled step. The probe ran. All 55 id-like typeof-string guards under `lib/` are dispositioned, and **at none of them does an empty string change an outcome: it never selects a wrong row, never grants or widens access, and never reaches a query filter.** It does reach a URL _string_ at one site — `stagedDiagramGuards.ts:14`, whose empty `objectId` is interpolated into a staged-preview href at `components/admin/wizard/step3ReviewSections.tsx:4057` and answers 404. That is the same trailing-slash shape the row cites for the diagrams instance, recurring harmlessly on the staged-preview surface, and by this entry's own rule it is a documented limit rather than a finding. No production code ships. What ships is the coverage the probe found missing underneath the safe sites: four auth surfaces whose non-emptiness rested on a regex that no test asserted.
+
+### The number that reproduced, and the ones that did not
+
+Re-derived at merge base `60dece4d5`, with the command stated so it is reproducible rather than asserted:
+
+```
+python3 - <<'PY'
+import re, pathlib
+pat = re.compile(r'typeof\s+([A-Za-z_$][\w$]*(?:[.?]\[?["\']?[\w$]+["\']?\]?)*)\s*===\s*"string"')
+idlike = re.compile(r'revision|_id|\bid\b|Id\b|id$|token|slug|key', re.I)
+rows=[(f"{p}:{i}", m.group(1))
+      for p in sorted(pathlib.Path('.').glob('lib/**/*.ts'))
+      for i,l in enumerate(p.read_text().splitlines(),1)
+      for m in pat.finditer(l)]
+print(len(rows), len([r for r in rows if idlike.search(r[1])]))
+PY
+```
+
+| the row's figure               | re-derived                   | note                                                                                                                                                                                                                                                                                            |
+| ------------------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 191 total                      | **181**                      | different command, not a changed tree. My subject grammar wants a plain identifier or member expression, so it skips a cast subject such as `typeof (value as {snapshot_revision_id: unknown}).snapshot_revision_id === "string"` (`lib/data/diagrams.ts:50`). Nothing here rests on the total. |
+| 27 id-like                     | **27**                       | exact. 25 match the subject regex; the other two are id-like only to a human reader — `lib/auth/picker/clearIdentity.ts:76` (subject `s`) and `lib/drive/sheetGids.ts:31` (subject `props.title`).                                                                                              |
+| 14 already guard non-emptiness | **14 safe, loose mechanism** | the count is right. The stated mechanism ("a truthiness check, a `.length`, or a shape regex") holds for 8; three more are producer-guaranteed with no check at all, and three are unchecked but benign.                                                                                        |
+| 12 bare                        | **13**                       | `lib/dataQuality/warningIdentity.ts:23` is a fourth `roleToken` site, and the row's item 7 says "three sites, one shape". 14 + 13 = 27.                                                                                                                                                         |
+
+The 27 reproducing exactly is the row's own argument landing: it said "the 27/14 split proves no single heuristic matches the codebase", and the two sites no regex can reach are that proof. It is why no lint arm was proposed then and none is proposed now.
+
+### The derivation covered half the shape
+
+The command matches `=== "string"`. The negated guard-clause form carries the identical defect written inverted — `if (typeof x !== "string") return null` also admits `""` — and the same pass with `!==` finds **103 total, 28 id-like**, six of them in `lib/auth/picker/**`. So the population is **55 id-like guards, not 27**. This was the class sweep the row's own derivation missed, and it was found by widening the shape rather than by lengthening a list.
+
+### Why the row inferred twelve open doors
+
+Because the split was **line-scoped**, and this codebase overwhelmingly validates one conjunct line later, or in the immediate caller. `intentToken.ts:28` looks bare; `SLUG_RE.test(candidate.slug)` is on `:29`. `alertActions.ts:57` looks bare; `if (!slug) return null;` is on `:58`. `assetRecovery.ts:838` looks bare; `.filter((id): id is string => Boolean(id))` is on `:839`.
+
+Worth recording that this arc made the same error mid-probe and had to retract it: reading the supposed 14, it classified the three `alertActions` sites and `assetRecovery:838` as bare, on exactly the one-line window that produced the row. The next-line guard is easy to miss twice.
+
+### Disposition, all 55
+
+`=== "string"`, the 13 bare:
+
+| site                                           | subject                | verdict             | basis                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------- | ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/auth/picker/intentToken.ts:28`            | `candidate.slug`       | ALREADY-GUARDED     | `SLUG_RE.test` on `:29`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `lib/auth/picker/intentToken.ts:30`            | `candidate.shareToken` | ALREADY-GUARDED     | `TOKEN_RE.test` on `:31`                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `lib/auth/picker/rotateShareToken.ts:24`       | `row.new_share_token`  | PRODUCER-GUARANTEED | `encode(extensions.gen_random_bytes(32),'hex')`, 64 hex chars, `20260601000001_b2_def1_lifecycle_guard.sql:52`; the only other reachable value is NULL from a 0-row UPDATE, which this very `typeof` rejects                                                                                                                                                                                                                                              |
+| `lib/auth/picker/clearIdentity.ts:76`          | `s`                    | ALREADY-GUARDED     | consumed only at `:136`; `buildShowReturnUrl.ts:39` appends `s` iff `ALLOWED_SECTION_VALUES.has(s)`                                                                                                                                                                                                                                                                                                                                                       |
+| `lib/visibility/scopeTiles.ts:213`             | `viewerId`             | REACHABLE-BENIGN    | `""` does reach the decision, as `transportationOwnerIds.includes("")`; the set is built only by `owners.add(m.id)` (`transportOwnerResolve.ts:79`), and every producer of those ids emits a non-empty one — `crew_members.id`, a uuid PK, on the live path, and a `staged-crew-<n>` template literal on the staged-preview path (`stagedShowForViewer.ts:535`, reaching the resolver at `:580`) — so `""` can never be a member. Worst case: tile hidden |
+| `lib/notify/detect/emailDeliveryFailed.ts:248` | `row.live_token`       | PRODUCER-GUARANTEED | `s.unpublish_token::text`, uuid (`20260512082710_add_show_unpublish_token.sql:2`); query already requires `is not null` at `:242`                                                                                                                                                                                                                                                                                                                         |
+| `lib/notify/detect/emailDeliveryFailed.ts:249` | `row.mint_id`          | REACHABLE-BENIGN    | `e.context->>'mintId'`, unvalidated jsonb; `mintIdFor(live) === ""` is false, so the row reads non-current and the alert is not held open (`:119`)                                                                                                                                                                                                                                                                                                        |
+| `lib/realtime/subscribeToShow.ts:184`          | `token`                | REACHABLE-BENIGN    | producer floor is `"0:0:false"` — `viewer_version_token` is last replaced at `20260701000000_published_toggle_unpublish_show.sql:60`, appending a publication component to the `20260523000006` body, and the last `create or replace` is the one that runs but the guard reads a broadcast payload, so the value takes a wire hop. Benign because the consumer discards it: `void token;` at `components/realtime/ShowRealtimeBridge.tsx:495` and `:776` |
+| `lib/sync/roleMappingOverlay.ts:74`            | `w.roleToken`          | PRODUCER-GUARANTEED | fresh parse, `personalization.ts:366`, past `.filter(t => t.length > 0)` (`:330`) and `if (!tok) continue` (`:332`)                                                                                                                                                                                                                                                                                                                                       |
+| `lib/sync/roleMappingOverlay.ts:120`           | `w.roleToken`          | REACHABLE-BENIGN    | persisted `parse_warnings` jsonb, no CHECK; `""` becomes a Set key matched only against a normalizer- and CHECK-constrained `a.token` (`length(token) between 1 and 64`, `20260716000000:13`), so unmatchable                                                                                                                                                                                                                                             |
+| `lib/parser/dataGaps.ts:481`                   | `w.roleToken`          | REACHABLE-BENIGN    | same jsonb; `""` yields a dedup key tail distinct from absent and from any real token, collapsing only two same-cell empty-token warnings — the intended cascade collapse                                                                                                                                                                                                                                                                                 |
+| `lib/dataQuality/warningIdentity.ts:23`        | `w.roleToken`          | REACHABLE-BENIGN    | same jsonb, and the one asymmetry worth keeping: `rt = ""` is byte-identical to absent here, where the sibling FIELD_UNREADABLE fold uses a NUL presence delimiter (`:34`). Reaches React keys and the report `surfaceId` (`warningFingerprint.ts:19`), but `stableWarningKeys:49` occurrence-suffixes duplicates and a collision needs every other identity field equal                                                                                  |
+| `lib/drive/sheetGids.ts:31`                    | `props.title`          | REACHABLE-BENIGN    | external Sheets API, `string \| null`; `""` becomes a Map key read only via a literal allowlist (`sourceAnchors.ts:205`), an `=== "INFO"` match (`crewRoleAnchors.ts:138`), or the workbook's own SheetNames (`unknownFieldAnchors.ts:75`, `showDayTimeAnchors.ts:81`). Never queried, or queried with a matching `""` returning that tab's own gid                                                                                                       |
+
+`=== "string"`, the 14 the row counted safe — confirmed safe, mechanism named per site: ALREADY-GUARDED at `loadNeedsAttention.ts:224` (`id.length > 0`), `showCacheTag.ts:84` (`&& showId`), `isPlausibleFolderId.ts:20` (regex), `assetRecovery.ts:838` (`.filter(Boolean)` on `:839`), `alertActions.ts:57`/`:88`/`:142` (`if (!slug) return null;` on `:58`/`:89`/`:143`), `enrichAgenda.ts:382` (`currentRev.length > 0` two lines above, `:380`). PRODUCER-GUARANTEED at `phase1.ts:405` and `:498` (`shows.id`, uuid PK, `returning id`) and `lookupStagedRow.ts:65` (`pending_syncs.staged_id` uuid, echoed from a `UUID_RE`-validated filter). REACHABLE-BENIGN at `lookupStagedRow.ts:72` (`drive_file_id`, `text not null` with no CHECK; reaches `buildSheetDeepLink.ts:20`, whose first line drops null and `""` alike, so the worst case is the "In sheet" link omitted) and `normalizeAgendaExtraction.ts:56`/`:71` (`out.sourceRevision` is read by nothing — `agendaAdminPreview.ts:14`, `sectionFreshness.ts:464`; the only revision comparison uses the raw value and is length-gated, so `""` is a cache miss and one wasted re-extraction).
+
+`!== "string"`, all 28: ALREADY-GUARDED 24 — `selectIdentity.ts:47,48,49` (regex pass in `selectIdentityCoreImpl:118-125`, which also gates the only path to the `:98` redirect), `selectIdentity.ts:118,121,124`, `cleanupStaleEntry.ts:43,44,45,47` (`:74-77`, before the cookie read at `:85`), `clearIdentity.ts:72` (three subjects — `slug`, `shareToken`, `showId` — gated by `isValidClearIdentityInput` at `:128`, whose `isValidShowPathPair("", "")` returns false by execution), `cookieEnvelope.ts:28`, `normalizeDateRestriction.ts:128`, `drive/fetch.ts:128`, `diagramKey.ts:28`, `shadowPayload.ts:192`, `reviewPayloadGuards.ts:37,72`, `roleMappingOverlay.ts:34`, `dev/attentionScenarios/validate.ts:140,317,643` (dev-only catalog validator). PRODUCER-GUARANTEED 2 — `listShowsForCrew.ts:99` and `loadShowShareToken.ts:60`, both over `show_share_tokens.share_token`, whose column CHECK is `share_token ~ '^[0-9a-f]{64}$'` (`20260523000002_show_share_tokens.sql:41`). REACHABLE-BENIGN 2 — `stagedDiagramGuards.ts:14` (`""` cannot match a Next dynamic segment, so a 404 tile) and `resolveOnboardingSheetUnreadable.ts:139` (folder mismatch, resolve-as-stale, the documented disposition at `:137`).
+
+**Totals: ALREADY-GUARDED 35 · PRODUCER-GUARANTEED 8 · REACHABLE-BENIGN 12 · REACHABLE-HARMFUL 0.**
+
+### What shipped, and why it is tests and not code
+
+The probe found the sites safe and the coverage absent. At four auth surfaces the rejection of `""` rested entirely on a regex that no test exercised, so either the regex arm could be deleted, or degraded to admit only the empty string, with the suite green. The pre-existing malformed-input cases all use non-empty bad values (`"not-uuid"`, `expectedEpoch: "x"`), which is why they cannot see this class.
+
+Four commits, each sabotage-verified before landing, because a pin that passes on unmodified code proves nothing until it can fail:
+
+| surface                         | cases                                                | sabotage result                                                                                                                                    |
+| ------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verifyPickerIntent`            | 4 + control                                          | delete SLUG_RE conjunct → 2 fail; delete TOKEN_RE conjunct → 1 fail; degrade SLUG_RE to admit empty → 1 fail                                       |
+| `selectIdentityCore`            | 4 + control, each asserting the RPC was never called | slug arm → 1 fail; shareToken arm → 1 fail; crewMemberId arm → 2 fail (the second being the pre-existing `"not-uuid"` case, which shares that arm) |
+| `cleanupStaleEntryCore`         | 5 + control                                          | each of the four arms → its own case, `expectedCrewMemberId` → 2                                                                                   |
+| `cookieEnvelope` `isValidEntry` | 2 payloads added to the existing malformed list      | neutralize the arm → 1 fail; degrade UUID_RE to admit only empty → 1 fail                                                                          |
+
+No production line changed. `scopeTiles.ts:213` was the one candidate for a one-token defense-in-depth edit (`&& viewerId`, the `showCacheTag.ts:84` idiom) and did not get one: its worst case today is the correct answer, and a visibility surface should not be edited on no evidence.
+
+### Residue, as documented limits rather than new rows
+
+Five observations survive the probe. None is a reachable defect, so under the filing bar each belongs here rather than in the open queue.
+
+1. **`lib/crew/buildShowReturnUrl.ts` does not guard its own `slug` and `shareToken`.** `buildShowReturnUrl("", "", {s: "venue"})` returns `/show//?s=venue` — the same doubled-slash shape the diagrams instance produced. There are SEVEN call sites, not two, and they are safe by two different guarantees: `clearIdentity.ts` gates BOTH its paths — `:89` for `clearIdentity` and `:128` for `clearIdentityAndSkip` — through `isValidClearIdentityInput`, while `selectIdentityCoreImpl` applies the three regexes inline at `:118-125`, which is what gates the `:98` redirect. The other five take `slug` and `shareToken` from the crew route's own dynamic segments — `app/show/[slug]/[shareToken]/page.tsx:229`, `_PickerInterstitial.tsx:123` and `:210`, `_SignInOrSkipGate.tsx:64` and `:66` — where non-emptiness comes from ROUTING rather than from a regex: no route matches an empty path segment, so those two values cannot be `""` at all. The coupling is written down at `validateClearIdentityInput.ts:27-30`: the segments are interpolated WITHOUT encoding, so the redirect's safety is the callers' validation. **Re-file trigger:** a call site whose `slug` or `shareToken` comes from NEITHER a server-action input validated against a pattern that rejects the empty string, NOR a route dynamic segment. Stated as the two guarantee families rather than as "does not call `isValidShowPathPair`", because the seven existing sites satisfy it by two different means and a name-based trigger mis-fires on five of them.
+2. **`warningIdentityKey` folds an empty `roleToken` into the absent case** (`warningIdentity.ts:23`), where its FIELD_UNREADABLE sibling at `:36-39` keeps a NUL presence delimiter. Harmless today because a collision needs every other identity field equal, and because `stableWarningKeys` occurrence-suffixes duplicates (`warningIdentity.ts:46-52`). The consumer that carries the fold into a report `surfaceId` is `buildReportSurfaceId` (`warningFingerprint.ts:18-19`), which hashes `warningIdentityKey`; `warningFingerprint` itself is NOT a consumer — it hashes only `code` and the normalized snippet (`warningFingerprint.ts:9-15`) and never sees `roleToken`. **Re-file trigger:** an `UNKNOWN_ROLE_TOKEN` warning carrying an EMPTY `roleToken` that CO-OCCURS with a legacy token-free warning in the same source cell with every other identity field equal — the collision itself, observed, not the empty token in isolation. Stated that way because the threat model already admits corrupt persisted rows, so "a producer that can emit an empty token" would fire on arrival while the documented risk had not changed. The parser cannot today: `personalization.ts:330` keeps only tokens of `length > 0` and `:332` skips a falsy one, so every empty token in the corpus arrives from the persisted `parse_warnings` jsonb instead. Stated as the collision and NOT as "a consumer that does not occurrence-suffix", because `buildReportSurfaceId` is exactly such a consumer and is CORRECT — sharing one `surfaceId` across same-identity warnings is the intended behaviour recorded at `warningIdentity.ts:24-26`, so that phrasing fired on arrival while the documented risk had not changed. Named against `warningIdentityKey` and not `warningFingerprint`, because the latter does not carry the token at all and a trigger on it would already read as met while the documented risk had not changed.
+3. **`scopeTiles.ts:213`'s correctness is non-local.** It holds because every producer of `transportationOwnerIds` emits a non-empty id, a fact about two other modules that nothing at the guard states. **Re-file trigger:** a producer of that set which can emit an EMPTY id. The narrower "anything other than a uuid column" phrasing this entry first used was already met on the staged-preview path and would have mis-fired; what the guard needs is non-emptiness, not uuid-ness.
+
+4. **An empty `objectId` reaches a staged-preview URL** — `stagedDiagramGuards.ts:14` types the field without checking it, and `step3ReviewSections.tsx:4054-4057` interpolates it into `/api/admin/onboarding/staged-diagram/<session>/<dfid>/<objectId>`, yielding a trailing-slash path that answers 404. This is the limit the headline names, recorded here so it has a trigger like the rest. It is conservative and surfaced: the producer is the untrusted `pending_syncs.parse_result` jsonb, the id is `encodeURIComponent`-escaped, and no route matches an empty dynamic segment, so the worst case is a broken tile rather than a wrong one. Two empty-`objectId` stubs also produce an IDENTICAL `sourceKey` — `staged:${wizardSessionId}:${dfid}:${stub.objectId}` (`step3ReviewSections.tsx:4060-4062`) — which is `next/image`'s `src` identity. Note what that is and is not: every loader here ignores it (`step3ReviewSections.tsx:3807-3811`), and the tile's own use of it is a per-instance reset comparison (`:3860-3867`), so it is NOT a shared cache and two stubs colliding on it do not share an entry. An earlier draft of this residue claimed they did; that was wrong, and it was wrong because the claim was carried over from a summary instead of read at the consumer. **Re-file trigger:** the staged-diagram route serving CONTENT for an empty final segment rather than 404ing, or `sourceKey` acquiring a role as a shared, cross-tile cache key. Stated against those because the identical `src` identity is already present and inert, so a trigger on the collision itself would fire on arrival.
+
+5. **Two PRODUCER-GUARANTEED verdicts rest on a CHECK that nothing asserts.** `listShowsForCrew.ts:99` and `loadShowShareToken.ts:60` are safe because `show_share_tokens.share_token` carries `check (share_token ~ '^[0-9a-f]{64}$')` (`20260523000002_show_share_tokens.sql:41`). No test names that constraint, and the schema-parity manifest cannot notice it going away — `supabase/__generated__/schema-manifest.json` records column names per table and function signatures, and no constraints for ANY table, so this is the manifest's design rather than a gap peculiar to this column. That makes it the same shape as the four auth surfaces this arc pinned: correct today, with the correctness resting on something no executable check states. It is NOT pinned here because the assertion needs a live database and this arc was under an enforcement order not to take the shared DB slot. **Re-file trigger:** a migration that drops or widens `show_share_tokens_share_token_check`, or a NEW column or table holding a share token without the equivalent CHECK. Not "a producer writing outside the constraint", which a column CHECK makes impossible by construction and which therefore could never fire. **What would close it:** one DB-backed case asserting the constraint rejects both `''` and a 63-character token.
+
+### Fenced, in both directions
+
+**No lint arm.** "Every id-like typeof-string guard must also check non-emptiness" is a recognizer over an open grammar, and §1 measured that grammar refusing to close — two of 27 sites are id-like only to a human. The widening to `!==` was not a detector; it was one more shape in a hand-run derivation whose output is a finite list dispositioned by reading producers. A review round proposing a detector is fenced by this entry and by the row.
+
+**And no re-probe.** The 55 sites are dispositioned above with citations. A finding against this disposition needs a named site and a demonstrated consumer, not a constructed input.
+
+## BL-SPECLINT-RED-TRUTH-PROBE — a declared `red=` that cannot be red for its stated reason, and nothing executes it to find out — CLOSED 2026-08-28, DEMOTED ON A MEASURED REFUTATION
+
+**Status:** CLOSED 2026-08-28 (`feat/speclint-red-truth-probe`), demoted to a documented limit rather than built · **Filed:** 2026-08-27 (owner-directed, `docs/ledger-lim-mechanization-rows`) · **Facing:** process · **Mint-exception:** product-blocked · **Severity:** MEDIUM as filed · **Class:** spec-lint mechanization · **Effort:** M as filed
+
+The row asked for `spec:lint --exec-red` to run each declared `red=` against the merge base and report GREEN-AT-BASE when it passes, naming the `fix/mi11-removal-fallback-live-row` plan round-1 pair as the catch that would prove it. The arc probed the done condition before building it. **The mechanism does not detect the pair it names, no narrowing of it detects anything on the live corpus, and exit status cannot carry the signal in the first place.** No lint ships. The content moves to the records that own the shape: `LIM-AUTHORED-RED` in `docs/review-rounds/LIMITS.md`, and item 15 of `docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md` §8.
+
+### What the row actually asked for
+
+`--exec-red` already ships and already reports hard `RED_ALREADY_GREEN` on exit 0, but only for `red-state=live` markers. The 2026-08-15 arms spec fences out "Running `red-state=authored` commands, ever (their failing case does not exist at plan time by declaration)". That fence is the unmechanized half, and it is what `LIM-AUTHORED-RED` is named after. It is also where the mass is. Census over well-formed one-line task markers in the tracked plans corpus:
+
+| `red-state`               | markers |
+| ------------------------- | ------- |
+| `authored`                | 309     |
+| `live`                    | 20      |
+| field absent (v1 markers) | 367     |
+| **total**                 | **696** |
+
+So execution reaches 20 of the 329 markers that declare a state, 6.1%. (Two earlier figures in this arc's own reporting were wrong and are corrected here: a raw `grep -o red-state=` gave 12% by counting occurrences inside fenced examples and spec prose, and the first census script gave 6.4% because its regex was not line-anchored and counted six marker-shaped strings quoted inside test fixtures. Diff review R1 refuted the second independently, at the same six lines.)
+
+### The named catch is a coincidence at those markers, not a detection
+
+The plan carries six `red-state=authored` markers, and all six were run at that arc's own merge base `fb46427406222a1a481ab670a02eb752688e7aef` in a detached worktree. Three exit 0: Task 2 (2 files, 9 tests passed), Task 3 (1 file, 4 passed), and **Task 1, which drew neither of the two findings and whose red the round-1 repair left untouched** (1 file, 4 passed). The other three exit 1 with `No test files found`: Tasks 4, 5 and 6, each naming only a file absent at base, which is the honest new-file shape. So a GREEN-AT-BASE rule fires on three of the six, and flags the healthy marker alongside the two defective ones. Two true positives and one false, on the very plan the row named as the catch that would prove it. It does not discriminate.
+
+It cannot, because the defects are not at the base. That arc's own filing (`docs/review-rounds/fix/mi11-removal-fallback-live-row/4cb585b3508a.md`, plan section) records what the two findings were: "a mismatch between where the test writes state and where the code reads it", and "neither is visible by reading the plan for plausibility; both took a reviewer tracing a data path". Both defects live inside a test the task has not written yet, so no execution at the merge base can observe either. The reason-classifying direction that could is separately retired by ratified scope decision (`BL-SPECLINT-RED-REASON-VERIFICATION`, this file).
+
+### Both populations, measured
+
+**File-level.** Authored markers classified by whether the test files their `red=` names exist at that plan's introducing-commit parent:
+
+| existence at base     | no `-t` | with `-t` |
+| --------------------- | ------- | --------- |
+| all named files exist | **139** | 9         |
+| some exist            | 11      | 0         |
+| none exist            | 124     | 14        |
+| no test-file token    | 12      | 0         |
+
+Total 309. The file-level rule's firing set is the 139: commands selecting only pre-existing files. Two of those 139 were run at their own bases, the holdstale Task 2 red and the one at `e47657bf0`, and both exit 0; the other 137 were not run, though a command selecting only files already on a green main is expected to pass. Two further commands were run at base, holdstale Task 1 and Task 3, but they name a mix of present and absent files and so fall in the 11 rather than the 139. Firing on that population is noise that cannot move rounds per plan stage.
+
+**Case-level.** Scoping the claim to the declared killing case (does the `-t` title exist and pass at base?) covers the 23 authored markers carrying `-t`, in 5 plans. Fourteen name a file absent at their base and cannot match. The 9 whose file exists were each run at that plan's own base in a detached worktree, and **every one matched no case at all**: `premiseScan.test.ts` 139 skipped on each of 5 titles at `72eae6c63`, `psqlStartupFileSuppression.test.ts` 819 skipped on each of 3 at `28ddec6c8`, `guardSurfaceGate.test.ts` 31 skipped at `e1b908060`. **Zero true positives corpus-wide**, which is the condition the arc's ruling set for demotion.
+
+Reproduce both tables from a checkout of this branch:
+
+```
+python3 scripts/probe/red-truth-census.py
+```
+
+### Why exit status can never carry this signal
+
+Three runs at `fb464274`, plus the `-t` row from the case-level runs at `72eae6c63`, `28ddec6c8` and `e1b908060`; exit codes exact:
+
+| shape                             | exit  | observed                                                      |
+| --------------------------------- | ----- | ------------------------------------------------------------- |
+| `red=` names only an absent file  | 1     | `No test files found, exiting with code 1`                    |
+| absent file **and** a present one | **0** | `Test Files 1 passed (1)`, the absent path silently swallowed |
+| present files only                | 0     | `Test Files 2 passed (2)`, 9 tests                            |
+| `-t` filter matching no case      | 0     | every case skipped, none run                                  |
+
+Rows 2 and 4 are the finding, and they are the reason no variant of this rule works. The universal is structural rather than a generalization from four samples: an exit status reports whether anything FAILED, and "nothing failed because nothing ran" is not distinguishable from "nothing failed because everything passed". A red command naming a to-be-created file **alongside** an existing one loses the one signal the collection arm relies on, and a `-t` matching nothing is indistinguishable by exit status from one whose case passed. In both the path form and the case form, honest authoring produces exit 0, the same value the defect produces. Executed-case count is the only observable that separates them, and it is unavailable for the same reason recorded under `BL-SPECLINT-RED-REASON-VERIFICATION`: a module-scope `premise()` failure reports zero cases while an assertion genuinely failed, and a `beforeEach` throw reports failed entries whose bodies never ran.
+
+### Disposition
+
+The 2026-08-15 fence was right, and now carries the measurement behind it. `LIM-AUTHORED-RED` keeps the shape and gains a narrowed re-file trigger, so the next arc that meets it does not re-derive this. Nothing in `lib/specLint/` changed.
+
+## BL-SPECLINT-EXPECT-N-EXIT-STATUS — a plan command's stated expectation is not enforced by its exit status — CLOSED 2026-08-28
+
+**Filed:** 2026-08-27 (owner-directed, `docs/ledger-lim-mechanization-rows`) · **Facing:** process · **Mint-exception:** product-blocked · **Resolved by:** `feat/speclint-expect-n-exit-status` · **Spec:** `docs/superpowers/specs/ci/2026-08-28-speclint-expect-n-exit-status.md` · **Incident:** `fix/fitwithinclip-stale-clip-subscription` plan round 2 P1 (a declared Playwright gate collected `0 tests in 0 files`; nothing at authoring time verified collection — current Playwright exits 1 on zero collection, a nonzero-for-a-collection-reason a red-then-green cycle misreads as red observed, per the diff-r1 probe).
+
+Shipped two `spec:lint` arms in `lib/specLint/expectContract.ts`, both reporting under `taskContract`:
+
+- **`EXPECT_N_UNENFORCED`** (static, advisory, plan-kind, no flag): a `# expect N` comment beside a command whose exit status does not encode N. End-anchored bare-integer grammar with a closed assertion-opener set; measured on the live plans corpus at 10 fire / 0 false (the §4.4 accept-set, re-derived from disk by tests/specLint/expectContractCorpus.test.ts).
+- **`PLAYWRIGHT_COLLECTS_NOTHING`** (fail) / **`PLAYWRIGHT_COLLECTION_UNVERIFIED`** (advisory), under `--exec-red`: candidate extraction by four closed token rules plus the `{--config, -c}` flag set positioned after the `playwright test` match; one `--list --reporter=json` spawn per distinct config; reporter files normalized through each report's own `config.rootDir`; one fail per absent token. Corpus verdict measurement: 27 absent tokens across 26 candidates, zero false.
+
+**Done condition discharged, observed live:** `spec:lint --exec-red` on the clipsub plan names `popover-clip-fit.spec.ts` not collected under `(default)` at the round-2 transcript line; the repaired `--config` form draws nothing.
+
+Mutation enrolment `specLintExpectContract`: score 38/38 at floor 0.94, zero unaccepted survivors, 3 ledgered equivalents, full operator set. Residual limits (non-integer expectations, trailing prose, whole-line comments, `--project` filtering, continuation/multi-invocation declines) live in the spec's §7 with re-file triggers, per the process mint freeze.
+
+## BL-SEVERITYLESS-WARNING-DROPPED-IN-PARSER-FILTERS — two `lib/parser/dataGaps.ts` filters drop a severity-less warning, a third in `lib/sync` writes one out, and what keeps it harmless is which codes happen to exist — CLOSED 2026-08-28, DEMOTED ON A QUALIFIED ZERO
+
+**Status:** CLOSED 2026-08-28 (`fix/severityless-warning-filters`), demoted to a documented limit rather than repaired · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 2 class sweep) · **Facing:** product · **Severity:** LOW-MEDIUM as filed · **Class:** severity-predicate divergence · **Effort:** S
+
+The row was filed `**Reachability:** INFERRED, NOT PROBED` and named its own probe as its first scheduled step. That probe ran, three times, and the first two answers were wrong. The full measurement, the queries that reproduce it and the re-file trigger live in `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1.
+
+**The class is three sites, not the two the row named.** Sweeping `lib/ components/ app/` rather than the row's inherited `lib/admin components/admin` plus `lib/parser` adds `lib/sync/phase1.ts:203`, `warningSummary`, which builds the persisted `pending_syncs.warning_summary`. Its own comment states `isWarnSeverity` intent while the code tests `=== "warn"`.
+
+**Severity-less warnings EXIST: 198 of them.** Measured on validation over an inventory DERIVED from `information_schema` rather than hand-listed, because two earlier drafts each missed a population (`sync_log`, then `pending_ingestions`). Of 43 jsonb columns, three hold warning-shaped elements: `shows_internal` 18 of 18 with 0 severity-less, `pending_syncs.parse_result.warnings` 55 of 55 with 0, and `sync_log.parse_warnings` 381 warning-shaped out of 400 array elements, with **198 severity-less** (179 carrying a `code` key, 19 carrying none). `pending_ingestions.last_warnings` and `shows_pending_changes.payload` are warning-bearing but empty; §10.1's query `left join`s a row-count arm precisely so an empty population appears as zero instead of vanishing from a `group by`.
+
+**The demotion does NOT rest on the code arm, which never executes here.** Both read sites evaluate severity FIRST and short-circuit, so a severity-less element never reaches their code test. A severity-less `FIELD_UNREADABLE`, a member of BOTH gating sets, is dropped today; that is the defect, and it is demonstrable. What makes it harmless is only which codes actually occur: the 198 carry `SYNC_INFRA_ERROR` (178), no `code` key at all (19) and `SYNC_FILE_FAILED` (1), none of which is in `DATA_GAP_CODES` (39) or `OPERATOR_ACTIONABLE_ANCHORED` (24). Repairing the predicate would route them to the code test and they would be rejected there, so the two read sites' output is byte-identical before and after. `warningSummary` has no code arm; what protects it is its own input holding 0 severity-less of 55. The repair would move counts on three pinned suites while changing nothing observable, which is what the filing bar demotes.
+
+**The strength of that basis, named:** empirical absence over an `information_schema`-derived population set, plus a trigger that detects its own condition by code. Absence-with-detection, strictly weaker than a structural guard, since nothing PREVENTS a severity-less element from carrying a gating-set code and both read sites would then drop a row the badge counts, silently. A limit with a live trigger, not a closed defect.
+
+**Re-file trigger, any one, each checkable:** a code returned by §10.1's code-grouped query that the published membership check reports as a gating-set member; any non-zero severity-less count in `pending_syncs.parse_result.warnings`; or an addition to either gating set, which can promote an already-stored code without any row changing. Re-deriving the column list is part of the procedure, so a new warning-bearing column is found rather than assumed absent.
+
+**Line numbers, live at close:** `lib/parser/dataGaps.ts:129` and `:466` (the row said `:465`; it drifted), `lib/sync/phase1.ts:203`. Durable anchors are the function names.
+
 ## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
 
 **Status:** RESOLVED 2026-08-27 (`perf/admin-diagram-next-image`) · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
@@ -3813,6 +4070,26 @@ Order follows the original BACKLOG.md layout, not resolution date — **grep by 
 Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-archive.md): the working queue stays a queue, the changelog lives here.
 
 ---
+
+### BL-PUBLISHED-ATTENTION-RESOLVE-LIFECYCLE-RED — the published attention spec's resolve-lifecycle case fails on unmodified code, cause unattributed
+
+**Status:** RESOLVED 2026-08-28 (`fix/published-attention-resolve-red`, PR #931) · **Filed:** 2026-08-27 (`feat/wizard-review-attention-menu`, Task 9 Step 5) · **Facing:** product · **Severity:** MEDIUM-UNKNOWN (either an operator cannot resolve an alert from the published modal, or a spec has gone stale — the severity depends entirely on which, and that is the open question) · **Class:** unattributed e2e red · **Effort:** S to attribute, unknown to fix · **Class-sweep exception:** (a) — the repair direction cannot be chosen before attribution, and attribution is itself the first task.
+
+**What is red.** `tests/e2e/published-show-attention.spec.ts` "resolve lifecycle: 2 issues → 1 issue → In sync, without reload (LAST — mutates)". After clicking the overview alert's resolve control, the header pill does not decrement: it stays at its arrival count for the full 5s expect window (`Expected substring: "1 issue" / Received string: "2 issues · 1 sheet warning"`). A later run failed earlier and differently, on a `toBeVisible`, so it is not one deterministic assertion.
+
+**Reachability:** PROBED 2026-08-27. Not inferred from a red on a modified tree: both files this branch touches in that spec's dependency set (`published-show-attention.spec.ts`, `tests/e2e/helpers/seedShowWithCrew.ts`) were reverted to HEAD, the spec was rerun against the local stack, and the case failed identically — 5 passed, 1 failed. So the red predates this branch.
+
+**Why nobody knew.** No workflow runs this spec. `rg -n "^\s+run:.*published-show-attention" .github/workflows/*.yml` matches nothing (a `paths:` mention does not count — the structural position is the `run:` step). An unrun spec is a dark surface, and this is what dark looks like: a case that has been red for an unknown length of time with nothing reporting it.
+
+**What shipped alongside this row.** The spec IS now wired into `published-modal-e2e.yml`, so its other six cases begin gating, and this one case carries `test.fixme` naming this row rather than being deleted or left to red CI. That is the ruled disposition (bl-orch 2026-08-27): wiring is what stops the next case drifting unnoticed; the fixme is what keeps an unrelated PR from being blocked on a foreign defect.
+
+**First task is ATTRIBUTION, not repair.** Determine whether the optimistic decrement is genuinely broken on the published modal (a product defect an operator would hit) or whether the fixture, the seeded alert shape, or the resolve control's testid has drifted under the spec. Only then is the repair direction decidable. Remove the `test.fixme` as that work's own red.
+
+**RESOLVED 2026-08-28 — attribution was (b), stale spec, and the severity collapsed.** The optimistic decrement was never broken. Both resolve POSTs return 200 and the pill was observed stepping `2 issues · 1 sheet warning` → `1 issue · 1 sheet warning` → `1 sheet warning`. What was wrong is the terminal expectation of `In sync`, which is unreachable while the fixture seeds a sheet warning: the pill's interactive branch is `needsYou.length > 0 || k > 0 || selfHeal.length > 0` (`components/admin/showpage/PublishedReviewModal.tsx:359`), `k` counts sheet warnings, and no resolve control clears one. The fixture grew that warning in `wizard-review-attention-menu` §4; the sibling auto-open case was updated to compose the new segment and this one was not. So no operator was ever unable to resolve an alert from the published modal.
+
+**What the repair changed.** The terminal and intermediate pill assertions are now exact and derived from `SEEDED_WARNINGS.length`, so adding a warning to the fixture moves every assertion that reads it rather than leaving one stale — the defect's own shape, closed. The case also reads `admin_alerts` back and asserts `resolved_at` on both rows, because every pill assertion is satisfiable by the optimistic paint alone (`expect.poll` resolves on first match; `onResolved` fires before `router.refresh()`), which review round 2 identified and a fulfil-without-server mutant then demonstrated. `published-modal-e2e.yml` gained a `DATABASE_URL`: that job is production posture, where the resolve route throws before its loopback fallback, so the re-enabled case would have been red there — invisible to all 16 local runs, and filed as `LIM-PROD-POSTURE-INVISIBLE-LOCALLY`.
+
+**Two rows filed from the attribution, neither repaired here:** `BL-LOCAL-E2E-APP-SERVER-QUERIES-VALIDATION` (the local e2e app server resolves its DB from the validation pooler) and `BL-PUBLISHED-ATTENTION-ESCAPE-CLOSES-MODAL-RACE` (the second, non-deterministic failure this row recorded, now separated from the first and carrying its own probe evidence). The `test.fixme` is gone; all seven cases gate.
 
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 

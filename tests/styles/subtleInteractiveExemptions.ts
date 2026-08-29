@@ -97,7 +97,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3356,
+    line: 3358,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

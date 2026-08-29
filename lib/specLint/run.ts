@@ -27,6 +27,11 @@ import {
 } from "./fixtureContract";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
+import {
+  checkExpectN,
+  synthesizeCollectionVerdicts,
+  type PlaywrightCandidate,
+} from "./expectContract";
 import { checkUniversals } from "./universals";
 import { checkSections } from "./sections";
 import type {
@@ -123,6 +128,14 @@ export function runLint(
   // parse outcomes, and separate slots would double the collision surface
   // against any sibling arc doing the same thing this week.
   acCoverage?: { blocks: AcBlocks; parse: AcParseResults | null } | null,
+  // APPENDED LAST, after acCoverage, per the slot rule above (expect-N spec §6):
+  // ONE parameter carrying the Arm B observation — the extracted candidate plan
+  // plus the per-config collected sets the adapter normalized. Arm A takes no
+  // parameter; it is static and runs unconditionally on plan-kind documents.
+  expectCollection?: {
+    plan: readonly PlaywrightCandidate[];
+    collected: ReadonlyMap<string, ReadonlySet<string> | { unavailable: string }>;
+  } | null,
 ): LintResult {
   const model = parseDoc(doc.text);
   // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
@@ -212,6 +225,15 @@ export function runLint(
   const acCoverageFindings =
     acCoverage == null ? [] : checkAcCoverage(acCoverage.blocks, doc.kind, acCoverage.parse);
 
+  // Arm A (expect-N spec §4): static, no flag, plan-kind gated in the module.
+  const expectNFindings = checkExpectN(model, doc.kind);
+  // Arm B verdicts (§5.3), outcome-injected like every observed arm: a null
+  // observation is a static invocation and the arm contributes nothing.
+  const expectCollectionFindings =
+    expectCollection == null
+      ? []
+      : synthesizeCollectionVerdicts(expectCollection.plan, expectCollection.collected);
+
   let findings: Finding[] = [
     ...model.documentFindings,
     ...citations.findings,
@@ -229,6 +251,8 @@ export function runLint(
     ...sweepFindings,
     ...declaredLimitPinFindings,
     ...acCoverageFindings,
+    ...expectNFindings,
+    ...expectCollectionFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----

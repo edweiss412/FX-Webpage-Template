@@ -91,6 +91,8 @@ Warn-severity codes outside `DATA_GAP_CODES` exist, and the repo enumerates most
 
 Every change is in the same direction (severity-less counts as warn) and matches the badge, which is the surface the user compares against. Pinned by a unit test that feeds one severity-less `UNKNOWN_FIELD` through `summarizeDataGaps`, `warningsBySection`, `sectionStatus`, `visibleWarningRows` and `deriveWarningAttention` and asserts each counts it as warn, with `premise` that the fixture object has no `severity` key. `tests/parser/dataGapsClassCompleteness.test.ts` is untouched (read 2026-08-27: its `buckets` array holds five distinct sets and is green on the base; §15).
 
+The sweep domain above is `lib/admin components/admin`. Three filters outside it still test the literal `"warn"`. They are recorded and probed in §10.1 rather than changed here: severity-less elements do exist, and what keeps them off every operator surface is which codes those elements happen to carry, not anything about the filters themselves.
+
 ## 3. Part A: wizard modal (`Step3ReviewModal.tsx`)
 
 ### 3.1 Counts
@@ -377,6 +379,112 @@ Published pill states gain no new transition pair beyond the segment's mount/unm
 - The published fix hints (`lib/admin/needsLookHints.ts`) are keyed on alert codes; warning rows show the section label instead. A per-warning hint is a follow-up if wanted (`messageFor(code).helpfulContext` already renders on the card the jump lands on).
 - Focus after a row click lands on `document.body` (menu unmounts). Accepted per the DEFERRED.md entry in §1.1.
 - Identical-content warnings in one section share a `reportSurfaceId` and therefore an anchor; the second row lands on the first card. Both are conservative (a section-top landing, a neighbouring identical card), never silent.
+
+### 10.1 Three filters outside this spec's sweep still test `severity === "warn"`, and what keeps that harmless is which codes happen to exist
+
+`isWarnSeverity` (§2.1) reads a warning with no `severity` key as warn, matching the badge. Three filters outside §2.1's table still test the literal `"warn"`:
+
+| Site | Filter | Operator surface it feeds |
+| --- | --- | --- |
+| `lib/parser/dataGaps.ts:129` | `isDataQualityWarning`, `w.severity === "warn" && DATA_GAP_CODES.has(w.code)` | the staged-show warnings digest (`app/admin/show/staged/[stagedId]/page.tsx:169`), over `parse_result.warnings` |
+| `lib/parser/dataGaps.ts:466` | `operatorActionableWarnings`, `if (w.severity !== "warn") continue` | `PerShowActionableWarnings.tsx` and `StagedReviewCard.tsx` |
+| `lib/sync/phase1.ts:203` | `warningSummary`, `filter((warning) => warning.severity === "warn")` | the persisted `pending_syncs.warning_summary` column |
+
+Line numbers are drafting-time locators and drift. The durable anchors are the three function names.
+
+**Why all three escaped §2.1.** §2.1 ran `rg -n 'severity (===|!==) "warn"' lib/admin components/admin`, and the plan's verification step widened that to `lib/parser` only. `lib/sync` was in neither domain. Sweeping `lib/ components/ app/` returns five hits: these three, plus `lib/observe/query/serializeWarning.ts:40` (a detector, not a dropper) and `lib/dev/attentionScenarios/validate.ts:364` (a dev fixture-authoring assertion).
+
+**The divergence is real, and it bites a gating-set code.** Both read sites evaluate severity FIRST and short-circuit, so a severity-less element never reaches their code test at all:
+
+```ts
+// membership-check.ts. Run: pnpm exec tsx membership-check.ts CODE [CODE...]
+import * as gaps from "@/lib/parser/dataGaps";
+const OA = (gaps as unknown as { OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> })
+  .OPERATOR_ACTIONABLE_ANCHORED;
+for (const code of process.argv.slice(2)) {
+  const w = { code, message: "" } as never; // no `severity` key: the shape under test
+  console.log(
+    `${code} DATA_GAP=${gaps.DATA_GAP_CODES.has(code)}` +
+      ` OPERATOR_ACTIONABLE=${OA.has(code)}` +
+      ` isDataQualityWarning=${gaps.isDataQualityWarning(w)}` +
+      ` operatorActionable=${gaps.operatorActionableWarnings([w]).length}`,
+  );
+}
+```
+
+```
+$ pnpm exec tsx membership-check.ts SYNC_INFRA_ERROR SYNC_FILE_FAILED FIELD_UNREADABLE
+SYNC_INFRA_ERROR  DATA_GAP=false OPERATOR_ACTIONABLE=false isDataQualityWarning=false operatorActionable=0
+SYNC_FILE_FAILED  DATA_GAP=false OPERATOR_ACTIONABLE=false isDataQualityWarning=false operatorActionable=0
+FIELD_UNREADABLE  DATA_GAP=true  OPERATOR_ACTIONABLE=true  isDataQualityWarning=false operatorActionable=0
+```
+
+The third line is the point: `FIELD_UNREADABLE` IS a member of both gating sets, and a severity-less one is still dropped. So this limit does NOT rest on the code arm rejecting these elements. Today the code arm does not execute for them.
+
+**What the limit rests on is which codes exist.** Inventory derived from the schema rather than remembered, because two earlier drafts of this section each missed a population (`sync_log` first, then `pending_ingestions`):
+
+```sql
+-- 1. derive the candidate columns; do not hand-list them
+select table_name||'.'||column_name from information_schema.columns
+where table_schema='public' and data_type in ('jsonb','json') order by 1;   -- 43 columns
+```
+
+Generating one `jsonb_array_elements` arm per column and counting elements carrying a `code` key finds warning-shaped data in exactly three of the 43. The measurement below is ONE query over those three plus the two warning-bearing columns that are currently empty; it `left join`s the element scan onto a row-count arm, because a bare `group by` over the elements would drop an empty population instead of showing it as zero. Every number in the table comes from this single read-only transaction, taken 2026-08-28:
+
+```sql
+with cols as (            -- one arm per warning-bearing column
+  select 'shows_internal.parse_warnings' col, e from public.shows_internal,
+    lateral jsonb_array_elements(case when jsonb_typeof(parse_warnings)='array' then parse_warnings else '[]'::jsonb end) e
+  union all select 'pending_syncs.parse_result.warnings', e from public.pending_syncs,
+    lateral jsonb_array_elements(case when jsonb_typeof(parse_result->'warnings')='array' then parse_result->'warnings' else '[]'::jsonb end) e
+  union all select 'pending_ingestions.last_warnings', e from public.pending_ingestions,
+    lateral jsonb_array_elements(case when jsonb_typeof(last_warnings)='array' then last_warnings else '[]'::jsonb end) e
+  union all select 'shows_pending_changes.payload.parse_result.warnings', e from public.shows_pending_changes,
+    lateral jsonb_array_elements(case when jsonb_typeof(payload->'parse_result'->'warnings')='array' then payload->'parse_result'->'warnings' else '[]'::jsonb end) e
+  union all select 'sync_log.parse_warnings', e from public.sync_log,
+    lateral jsonb_array_elements(case when jsonb_typeof(parse_warnings)='array' then parse_warnings else '[]'::jsonb end) e
+), rowcounts as (         -- so an empty population still appears
+  select 'shows_internal.parse_warnings' col, count(*) n from public.shows_internal
+  union all select 'pending_syncs.parse_result.warnings', count(*) from public.pending_syncs
+  union all select 'pending_ingestions.last_warnings', count(*) from public.pending_ingestions
+  union all select 'shows_pending_changes.payload.parse_result.warnings', count(*) from public.shows_pending_changes
+  union all select 'sync_log.parse_warnings', count(*) from public.sync_log
+)
+select r.col, r.n as rows_total,
+       count(c.e)                                                 as array_elements,
+       count(c.e) filter (where jsonb_exists(c.e,'code'))          as warning_shaped,
+       count(c.e) filter (where not jsonb_exists(c.e,'severity'))  as severity_less
+from rowcounts r left join cols c on c.col = r.col
+group by r.col, r.n order by r.col;
+```
+
+| Population | Rows | Array elements | Warning-shaped (has `code`) | Severity-less |
+| --- | --- | --- | --- | --- |
+| `pending_ingestions.last_warnings` | 0 | 0 | 0 | 0 |
+| `pending_syncs.parse_result.warnings` | 7 | 55 | 55 | 0 |
+| `shows_internal.parse_warnings` | 2 | 18 | 18 | 0 |
+| `shows_pending_changes.payload.parse_result.warnings` | 0 | 0 | 0 | 0 |
+| `sync_log.parse_warnings` | 117,009 | 400 | 381 | **198** |
+
+`sync_log` is written continuously, so its counts move. The 198 severity-less elements split 179 that carry a `code` key and 19 that do not, which is why 198 exceeds the gap between 400 and 381.
+
+**The 198, grouped by code, which is the form the trigger needs.** Same CTE, `where not jsonb_exists(e,'severity')`, `group by col, e->>'code'`:
+
+| Column | Code | Severity-less |
+| --- | --- | --- |
+| `sync_log.parse_warnings` | `SYNC_INFRA_ERROR` | 178 |
+| `sync_log.parse_warnings` | `<no code key>` | 19 |
+| `sync_log.parse_warnings` | `SYNC_FILE_FAILED` | 1 |
+
+These are sync-outcome records from a different writer, shaped `{code, message, outcome}` with `message` holding `"[object Object]"`. Feeding those codes to the membership check gives the first two lines above: neither is in `DATA_GAP_CODES` (39) or `OPERATOR_ACTIONABLE_ANCHORED` (24), and the 19 carry no `code` key at all, so no set can contain them.
+
+**So the repair would change no output for any element that exists.** Repairing the predicate routes a severity-less element past the severity arm and into the code test, where every severity-less element currently in the database is rejected for its code. The two read sites' output is identical before and after. The third site, `warningSummary`, has no code arm at all, so nothing about codes protects it; what protects it is that its own input, `pending_syncs.parse_result.warnings`, holds 0 severity-less of 55.
+
+**Name the strength of that basis honestly, because it is not a guarantee.** What licenses the demotion is empirical absence over a population set derived from `information_schema` rather than remembered, paired with a trigger that can detect its own condition by code. Call it absence-with-detection. It is strictly weaker than a structural guard: nothing in the code PREVENTS a severity-less element from carrying a gating-set code, and if one ever does, both read sites drop a row the badge counts, silently. The limit is a statement about today's data plus a way to notice when that changes, not a statement that the code is correct. That is exactly why this is a documented limit with a live trigger rather than a closed defect.
+
+**Claims earlier drafts made that are withdrawn.** That severity-less elements were absent (they are not; there are 198). That a consumed shadow leaves its warnings unobservable (`finalize-cas` passes them through `applyStagedCore` into `shows_internal.parse_warnings`, which is probed). That the code arm rejects them independently of severity (it does not execute; severity short-circuits first). That `select count(*) from public.shows_pending_changes` could serve as a re-file query (a row count cannot see an element). Each was found by adversarial review, in rounds 1 through 3.
+
+**Re-file trigger, any one, and each is checkable.** Run the code-grouped query above and feed every code it returns to the membership check; any `DATA_GAP=true` or `OPERATOR_ACTIONABLE=true` means a severity-less element now carries a gating-set code, and the two read sites are dropping a row the badge counts. Or any non-zero in the `pending_syncs.parse_result.warnings` severity-less column, which is `warningSummary`'s input. Or an addition to either gating set, which can turn an already-stored code into a member without any row changing. Re-running the column-derivation query is part of the procedure, so a new warning-bearing column is found rather than assumed absent.
 
 ## 11. Out of scope
 

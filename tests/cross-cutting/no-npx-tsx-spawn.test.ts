@@ -42,12 +42,47 @@ describe("tests/scripts spawns tsx via the absolute bin, never `npx`", () => {
 
   // Positive: every file that runs a tsx child must reference the absolute bin
   // (so the convention is asserted, not just the absence of npx). A file
-  // "runs tsx" if it passes --tsconfig or `-e` to a child it spawns AND mentions tsx.
+  // "runs tsx" if it spawns a child AND names the tsx BINARY.
+  //
+  // FIDELITY: `tsx` must be a command token, never the `.tsx` React extension.
+  // A bare /tsx/ matched `src/Real.tsx` in a COMMENT and classified a file that
+  // spawns `node` as a tsx runner (lineKeyCensus.test.ts, 2026-08-28). The
+  // lookbehind rejects a preceding dot or word character, so `Real.tsx` and
+  // `foo_tsx` do not match while `.bin/tsx`, `npx tsx` and `"tsx"` all do.
+  // This NARROWS to the guard's stated intent; it does not weaken it, and
+  // MENTIONS_TSX_BINARY is exercised in both directions below.
+  // `TSX_BIN` is the constant the convention itself prescribes, so a file using
+  // only it still RUNS tsx and must be classified. Caught by the positive
+  // control below, which failed on the first draft of this predicate.
+  const MENTIONS_TSX_BINARY = /(?<![.\w])tsx\b|\bTSX_BIN\b/;
+  const SPAWNS_CHILD = /(?:spawn|spawnSync|exec|execSync|execFile|execFileSync)\s*\(/;
   const tsxRunners = files.filter((f) => {
     const src = readFileSync(f, "utf8");
-    return (
-      /(?:spawn|spawnSync|exec|execSync|execFile|execFileSync)\s*\(/.test(src) && /tsx/.test(src)
-    );
+    return SPAWNS_CHILD.test(src) && MENTIONS_TSX_BINARY.test(src);
+  });
+
+  // Controls on the predicate itself. Without these the narrowing is a claim
+  // about a regex rather than a tested property of it.
+  it("POSITIVE CONTROL: a real bare-tsx spawn is still classified as a runner", () => {
+    const real = [
+      'execFileSync("npx", ["tsx", "x.ts"])',
+      'spawnSync(TSX_BIN, ["x.ts"])',
+      'execFileSync(join(root, "node_modules", ".bin", "tsx"), [])',
+      "// invoke the repo's tsx bin\nexecSync(cmd)",
+    ];
+    for (const src of real)
+      expect(
+        SPAWNS_CHILD.test(src) && MENTIONS_TSX_BINARY.test(src),
+        `should classify as a tsx runner: ${src}`,
+      ).toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: a .tsx path in a comment plus a child spawn is NOT a runner", () => {
+    // The exact misfire this narrowing repairs.
+    const src = 'execFileSync("node", [p]);\n// the row at src/Real.tsx:10 and src/Real.tsx:22';
+    expect(SPAWNS_CHILD.test(src), "the sample must still spawn a child").toBe(true);
+    expect(/tsx/.test(src), "the OLD bare predicate would have matched").toBe(true);
+    expect(MENTIONS_TSX_BINARY.test(src), "the narrowed predicate must not match").toBe(false);
   });
 
   it("finds the known tsx-spawning harnesses (anti-vacuity)", () => {

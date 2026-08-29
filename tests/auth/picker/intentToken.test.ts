@@ -71,3 +71,63 @@ describe("verifyPickerIntent expiry boundary", () => {
     expect(verifyPickerIntent(token, SIGNING_KEY, NOW)).toEqual(payload(NOW + 60));
   });
 });
+
+/**
+ * BL-BARE-TYPEOF-STRING-ID-GUARDS. `isPayload` reads both id fields with a bare
+ * `typeof … === "string"`, which an empty string satisfies. What actually rejects
+ * `""` is the shape regex on the NEXT conjunct line (SLUG_RE at intentToken.ts:29,
+ * TOKEN_RE at :31) — and nothing asserted that, so deleting either conjunct left
+ * the suite green while an empty-id intent verified. The probe that established
+ * this found the top-ranked sites safe; these tests are what keeps them safe.
+ *
+ * Why it would matter: a verified intent's slug and shareToken are interpolated
+ * into a show path WITHOUT encoding (lib/crew/buildShowReturnUrl.ts:45, and the
+ * contract note at lib/auth/picker/validateClearIdentityInput.ts:27-30). An empty
+ * pair renders `/show//`, the same malformed doubled-slash shape the diagrams
+ * instance produced.
+ *
+ * Each case signs a real HMAC over a malformed body via signRaw, so verification
+ * reaches the shape gate rather than failing earlier on the signature.
+ */
+describe("verifyPickerIntent rejects empty id fields (non-emptiness rests on the adjacent regexes)", () => {
+  test("empty slug is rejected", () => {
+    expect(
+      verifyPickerIntent(
+        signRaw({ slug: "", shareToken: SHARE_TOKEN, exp: NOW + 60 }),
+        SIGNING_KEY,
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  test("empty shareToken is rejected", () => {
+    expect(
+      verifyPickerIntent(
+        signRaw({ slug: "sample-show", shareToken: "", exp: NOW + 60 }),
+        SIGNING_KEY,
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  test("both ids empty is rejected", () => {
+    expect(
+      verifyPickerIntent(signRaw({ slug: "", shareToken: "", exp: NOW + 60 }), SIGNING_KEY, NOW),
+    ).toBeNull();
+  });
+
+  test("whitespace-only slug is rejected (SLUG_RE anchors on [a-z0-9], so a blank is not a short id)", () => {
+    expect(
+      verifyPickerIntent(
+        signRaw({ slug: " ", shareToken: SHARE_TOKEN, exp: NOW + 60 }),
+        SIGNING_KEY,
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  test("control: the same signRaw path with BOTH ids well-formed verifies, so the rejections above are about the ids and not about signRaw", () => {
+    const raw = { slug: "sample-show", shareToken: SHARE_TOKEN, exp: NOW + 60 };
+    expect(verifyPickerIntent(signRaw(raw), SIGNING_KEY, NOW)).toEqual(raw);
+  });
+});

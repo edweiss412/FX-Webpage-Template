@@ -12,15 +12,22 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Owning record:** the out-of-scope fence in docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md (mechanizing existence-of-declaration is that arm; truth-of-claim is not), plus this index
 
-**Re-file trigger:** a product-facing arc measurably blocked by a red that could not fire (stated verbatim in the review-modal-strip-dock and nearmiss-surface filings)
+**Re-file trigger (narrowed 2026-08-28):** a product-facing arc measurably blocked by a red that could not fire, **plus an observable that is not the red command's exit status at the merge base** — that one is measured and refuted above, and re-filing it costs another arc for the same answer. A candidate observable must separate honest authoring from the defect on evidence available before the task's test is written; if the proposal is base execution in any form, it is already answered.
 
-**Filed 2026-08-27** as `BL-SPECLINT-RED-TRUTH-PROBE` (owner-directed; incident: `fix/mi11-removal-fallback-live-row` plan round 1).
+**Filed 2026-08-27** as `BL-SPECLINT-RED-TRUTH-PROBE` (owner-directed; incident: `fix/mi11-removal-fallback-live-row` plan round 1). **DEMOTED BACK HERE 2026-08-28** (`feat/speclint-red-truth-probe`) on measurement, before anything was built. The full write-up is the archive entry; the part that matters for anyone meeting this shape again:
+
+- **The incident pair is not a known-positive for base execution.** Three of that plan's six authored reds exit 0 at its merge base `fb464274`, including Task 1, which drew neither finding and whose red the round-1 repair left untouched; the other three exit 1 naming no test files. The rule fires on three markers to catch two, on the very plan the row named as its proof. The two real defects were "a mismatch between where the test writes state and where the code reads it", both living inside a test the task had not written yet, so nothing at the base can see them. The arc's own filing says they "took a reviewer tracing a data path".
+- **Exit status cannot carry the signal.** A `red=` naming only an absent file exits 1; the same command with one existing file added exits 0 and silently swallows the absent path; a `-t` matching no case exits 0 with everything skipped. Honest authoring and the defect produce the same exit code in both the path form and the case form.
+- **Neither scoping has a population worth firing on.** File-level would fire on 139 of 309 authored markers, almost all of them in merged, review-approved plans (the census reports file existence only; it does not inspect authoring quality). Case-level covers the 23 markers carrying `-t`; the 9 whose file exists at base were each run there and every one matched no case. Zero true positives corpus-wide.
+- **Executed-case count, the only observable that separates them, is independently retired** by `BL-SPECLINT-RED-REASON-VERIFICATION`: a module-scope `premise()` failure reports zero cases while an assertion failed, and a `beforeEach` throw reports failed entries whose bodies never ran.
+
+Reproduce the populations with `python3 scripts/probe/red-truth-census.py`.
 
 ## LIM-NUMERIC-TABLE-PROVENANCE
 
 **Shape:** A numeric table or blast-radius transcript stated in a spec with no command producing it, so nothing can compare the table to the tree: `spec:lint` parses numerics and parses fenced commands without relating them, and a hand-maintained transcript of a command's output drifts in every direction. The sibling form is a plan that quotes a command's output without that command being re-run (a claimed 106 enrolled plans where the quoted command returns 108).
 
-**Named by:** 3 arcs — fix/mutation-shard-budget-six/9a621a5792ea.md (spec), feat/review-modal-strip-dock/ae8e9544b55a.md (spec, its second candidate; that arc's repair deleted the transcript outright), feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (plan, its third shape)
+**Named by:** 4 arcs — fix/mutation-shard-budget-six/9a621a5792ea.md (spec), feat/review-modal-strip-dock/ae8e9544b55a.md (spec, its second candidate; that arc's repair deleted the transcript outright), feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (plan, its third shape), fix/severityless-warning-filters/b608e71b32b5.md (diff; the published SQL could not produce the published table, and a bare `group by` dropped an empty population). **Trigger FIRED at the fourth naming; filed as `BL-SPECLINT-NUMERIC-TABLE-UNREPRODUCIBLE` under the process freeze's `recurrence` exception.**
 
 **Owning record:** none — this index is the record
 
@@ -37,6 +44,8 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 **Re-file trigger:** the premisescan filing stated "if a second arc burns review rounds on this class, it has an incident and it should be filed then"; the app-e2e-batch2 filing (2026-08-22) is arguably that second arc, so the trigger may already be met
 
 **Filed 2026-08-27** as `BL-SPECLINT-EXPECT-N-EXIT-STATUS` (owner-directed; incident: `fix/fitwithinclip-stale-clip-subscription` plan round 2).
+
+**MECHANIZED 2026-08-28** by `feat/speclint-expect-n-exit-status` (`docs/superpowers/specs/ci/2026-08-28-speclint-expect-n-exit-status.md`): the `# expect N` and Playwright zero-collection shapes are `EXPECT_N_UNENFORCED` and `PLAYWRIGHT_COLLECTS_NOTHING` in `lib/specLint/expectContract.ts`. The unmechanized residue (non-integer expectations, integer-plus-trailing-prose, whole-line comments, `--project` filtering, continuation and multi-invocation declines) is parked in that spec's §7 documented limits with per-limit re-file triggers; truth-of-claim stays `BL-SPECLINT-RED-TRUTH-PROBE`.
 
 ## LIM-TASK-MENTION-RESOLUTION
 
@@ -64,9 +73,9 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Named by:** 3 arcs — feat/speclint-ac-unclaimed-arm/44b0d74b1107.md (diff), feat/private-image-pipeline/d2a31e4aa021.md (diff, the `alertProducerScope.registry.ts` instance: one hoisted emit invalidated 19 rows across three files), feat/wizard-review-attention-menu/66c9857f56a5.md (spec: eight line-keyed rows across `tests/styles/*` and `pageTransitions`/`step3JudgmentChrome` counts moved by a header button; the re-file trigger below has now fired)
 
-**Owning record:** the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc), plus this index
+**Owning record:** `docs/superpowers/specs/2026-08-28-line-keyed-registry-durable-keys-design.md` §7 (the refutation record; supersedes this index as the primary), plus the documented-limit note at the head of `tests/mutation/source/registry.ts` (placed by the ac-unclaimed arc)
 
-**Re-file trigger:** a third arc hitting it or a product arc blocked by it (stated in the ac-unclaimed filing)
+**Re-file trigger:** SUPERSEDED 2026-08-28. The original trigger (a third arc, or a product arc blocked) fired, `BL-LINE-KEYED-REGISTRY-ROWS` was raised, and `feat/line-keyed-registry-durable-keys` measured the class repair and refuted it: 41.5% of attributed re-keys land on rows whose anchor is site-derivable, against a 42.6% registry share, so churn is proportional and there is no pocket of value. **A further arc merely HITTING this limit is therefore no longer sufficient to re-file** — that question is settled and re-asking it costs an arc. The two arms that would change the answer are in the spec's §8: an anchor design that derives the 27 hand-authored rows, or churn concentration rising above half, re-measured. Correction carried from that arc: the class repair named above (`operator + from-text + to-text`) leaves only 28% of ledger rows uniquely resolvable, not the 45% first measured — 121 is the count of distinct scoped keys, and only 76 of 268 rows sit in a cardinality-one group. Printed by `npx tsx scripts/ledger-key-census.mts`, which IMPORTS `GUARD_SURFACES` rather than parsing it; the regex parse used first undercounted every figure (57 surfaces read as 58, 268 rows as 265).
 
 **Fired 2026-08-27:** filed as `BL-LINE-KEYED-REGISTRY-ROWS` (BACKLOG.md, `Mint-exception: recurrence`) on the third naming, `feat/wizard-review-attention-menu`.
 
@@ -266,7 +275,7 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Shape:** A declared gate command whose predicate tests the SHAPE of its evidence rather than its presence, so an empty or placeholder section passes. Three sub-forms, all decidable from the gate command alone: a `grep` for a heading, which the heading satisfies while the section under it reads "Pending"; a `grep` for a table pipe, which the table HEADER satisfies with no data row; and a check for the ABSENCE of a placeholder word, which an empty section satisfies vacuously. Distinct from LIM-SWEEP-POSITIVE-CONTROL, which is about a sweep's count being unverified: here the gate reports on evidence that is simply not there. The mutant-red rule for declared gate commands already prescribes the repair — probe each against a constructed failing input — so what is parked is the obligation's placement, not the technique.
 
-**Named by:** 1 arc — perf/admin-diagram-next-image/66c9857f56a5.md (plan), where two consecutive rounds landed on one close-out gate: the first version passed with both evidence sections reading "Pending" under real headings, and the repaired version passed on the findings table's header row
+**Named by:** 2 arcs — perf/admin-diagram-next-image/66c9857f56a5.md (plan), where two consecutive rounds landed on one close-out gate: the first version passed with both evidence sections reading "Pending" under real headings, and the repaired version passed on the findings table's header row; and fix/severityless-warning-filters/b608e71b32b5.md (diff), where a documented limit's re-file trigger named a condition its published query could not decide, twice in succession, the first repair still answering a different question than the trigger asked. That second naming extends the shape beyond a plan's gate command to any declared check whose command does not decide the condition its prose states.
 
 **Owning record:** none — this index is the record (the plan closed its own instance by hand: the gate now requires a P-tier data row or an explicit no-findings sentence, and names the four checklist items the pre-code section must carry)
 
@@ -282,3 +291,23 @@ Sections are ordered by how many distinct arcs have named the class, descending.
 
 **Re-file trigger:** a second arc charged a review finding for a drifted foreign citation that produced no lint signal
 
+## LIM-HAND-LISTED-POPULATION-SET
+
+**Shape:** A measurement whose conclusion quantifies over "every X" while the X-set is hand-listed rather than derived from an authority the tree can be asked for (`information_schema`, a registry, a filesystem walk), so each review round adds one more member and the conclusion is re-falsified rather than converging. Distinct from `LIM-SWEEP-POSITIVE-CONTROL`, which is about an instrument's sensitivity to a known member; this is about the completeness of the set the instrument is pointed at. The arc that named it had a probe over "every table holding a warning array" miss `sync_log` in one round and `pending_ingestions` in the next, and each miss looked like a fresh finding rather than one class.
+
+**Named by:** 1 arc — fix/severityless-warning-filters/b608e71b32b5.md (diff)
+
+**Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1
+
+**Re-file trigger:** named by a 3rd distinct arc
+
+
+## LIM-PROD-POSTURE-INVISIBLE-LOCALLY
+
+**Shape:** A code path whose behavior branches on `NODE_ENV` is exercised by a test that runs green in every local run and red in CI, because the two run under different postures and nothing reports the difference. The instance: 40 sites resolve `TEST_DATABASE_URL ?? process.env.DATABASE_URL` and, when neither is set, THROW under production instead of reaching their `127.0.0.1:54322` fallback (e.g. `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:34-40`). A local Playwright run boots `pnpm dev`, where the fallback is live; a CI job boots `pnpm build && pnpm start`, where it is not (`playwright.config.ts:263-267`). So an arc that enables a test reaching such a path for the first time in a workflow that sets no DSN cannot observe the failure locally, at any number of runs. Distinct from an ordinary missing-env defect, which fails everywhere: this one fails only where nobody is looking, and the local greens actively argue against the defect existing.
+
+**Named by:** 1 arc — fix/published-attention-resolve-red/b608e71b32b5.md (diff), where it was round 2's P1. The arc held 6 consecutive green local runs and had written into a ledger row that CI "falls through to the loopback default"; the claim and the shipping defect were one error. `.github/workflows/app-e2e.yml:176-187` already carried the corrective DSN and a comment naming the production throw, and the arc did not find it until the reviewer named the failure.
+
+**Owning record:** none — this index is the record. The mechanizable form would relate a workflow's server-start posture to the env-gated paths its named specs can reach, which needs a reachability model no lint here has.
+
+**Re-file trigger:** a second arc charged a review finding, or a red CI run, for a test that passes locally and fails in CI on an `NODE_ENV`-gated branch

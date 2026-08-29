@@ -2005,6 +2005,56 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   {
+    id: "specLintExpectContract",
+    millisPerBoot: 1170,
+    sourcePath: "lib/specLint/expectContract.ts",
+    suitePaths: [
+      "tests/specLint/expectContract.test.ts",
+      "tests/specLint/expectPlaywright.test.ts",
+      "tests/specLint/expectContractCorpus.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.94,
+    // Negates Arm A's message contract: the §4.5 message-equality case and the
+    // corpus fire-set's payload derivation both notice the flipped sentence.
+    control: {
+      from: "is stated in a comment; the command's exit status does not encode it",
+      to: "is stated in a comment; the command's exit status encodes it",
+    },
+    accepted: [
+      // FAMILY 3 (the specLintUniversals precedent) — one-past-the-end loop
+      // bounds. Arm A's extra iteration reads lines[length] = undefined, exec
+      // coerces it to the string "undefined", which cannot match the
+      // end-anchored pattern; the iteration contributes nothing and cannot
+      // throw.
+      {
+        siteId: "relational-boundary:33:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra iteration reads undefined, coerced to the string 'undefined', which the end-anchored pattern cannot match",
+      },
+      // Line 1 of a document can never be fence CONTENT: parseDoc starts
+      // unfenced, so fencedInfo[0] is a delimiter (null) or prose (undefined),
+      // never a string. Skipping index 0 in the fenced-line scan is therefore
+      // unobservable. The Arm A twin of this mutant IS observable (a line-1
+      // command) and is killed by the first-line fixture, not accepted.
+      {
+        siteId: "integer-literal:92:16:0>1",
+        kind: "equivalent",
+        reason:
+          "fencedInfo[0] can never be a string — line 1 precedes any opening delimiter — so the fenced-line scan skipping index 0 is unobservable",
+      },
+      // FAMILY 3 again, in the fenced-line scan: fencedInfo[length] is
+      // undefined, typeof undefined !== 'string', the iteration pushes nothing.
+      {
+        siteId: "relational-boundary:92:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra iteration reads fencedInfo[length] = undefined, which fails the typeof string guard and pushes nothing",
+      },
+    ],
+  },
+  {
     id: "specLintUniversals",
     millisPerBoot: 1796,
     sourcePath: "lib/specLint/universals.ts",

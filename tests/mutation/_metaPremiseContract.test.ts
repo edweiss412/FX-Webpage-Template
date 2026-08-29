@@ -360,6 +360,9 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // `parseDoc`, so neither imports anything in ENVIRONMENT_SOURCES.modules. The
   // module performs no I/O by construction (spec §4), which is what makes the
   // honest declaration 0 rather than an accident of how the fixtures are built.
+  "tests/specLint/expectContract.test.ts": 0,
+  "tests/specLint/expectPlaywright.test.ts": 0,
+  "tests/specLint/expectContractCorpus.test.ts": 2,
   "tests/specLint/universals.test.ts": 0,
   "tests/specLint/universalsInventory.test.ts": 0,
   "tests/specLint/universalsMutantKills.test.ts": 0,
