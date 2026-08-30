@@ -991,6 +991,23 @@ async function processApprovedRow(
       isBlockerHeal: true,
     });
 
+    // The refreshed parse is bound BEFORE any outcome branch, because the restage runs
+    // inside the core and persists it BEFORE dirtiness is decided — so from here on,
+    // storage carries the new title whatever the outcome. Three early returns below
+    // (dirty/hard-failed, the defensive schema_missing family, and restaged-but-gone)
+    // each build a per-row FAILURE whose display_name reads `row.parse_result`, and each
+    // reported the SELECT-time title against storage that had already moved. Whole-diff
+    // R1 named the first; the sweep found all three, so the bind sits ahead of the
+    // branches instead of being repeated inside them — a fourth branch added later
+    // inherits it rather than re-opening the bug.
+    //
+    // `prepared.parseResult` is what the restage staged, so it equals the stored value on
+    // every path where the restage landed. On the two defensive outcomes where it may not
+    // have (schema_missing / superseded), this names the sheet as Drive has it right now,
+    // which is the title the operator just typed and the one they will recognise on the
+    // review surface. The clean path re-reads the same field from the row below and wins.
+    row.parse_result = prepared.parseResult;
+
     if (outcome.kind === "dirty_demoted" || outcome.kind === "hard_failed") {
       // The core already wrote last_finalize_failure_code = RESCAN_REVIEW_REQUIRED (genuine content
       // change → surfaced for review by Thread 1). Do NOT re-demote; just return the per-row failure.
@@ -1037,7 +1054,14 @@ async function processApprovedRow(
     // normal unchecked-row finalize path (an unchecked-but-finishable row always yields a Held
     // show). clean_restamped keeps wizard_approved=true and stays Live-eligible via the shadow.
     const freshRows = (await rescanTx.unsafe(
-      `select staged_id, staged_modified_time, triggered_review_items
+      // parse_result is APPENDED, never inserted earlier: the fake matches this
+      // query by prefix (tests/onboarding/_finalizeFake.ts), so reordering the select
+      // list stops that match and the fake falls through to its `Unhandled SQL in
+      // finalize fake` throw. Loud, not silent — this comment used to predict a
+      // no-rows demote with STAGED_PARSE_REVISION_RACE_DURING_FINALIZE, which is what
+      // the ROUTE would do if the query genuinely returned nothing, but is not what
+      // the fixture does (whole-diff R1 finding 9).
+      `select staged_id, staged_modified_time, triggered_review_items, parse_result
          from public.pending_syncs
         where wizard_session_id = $1::uuid and drive_file_id = $2`,
       [wizardSessionId, row.drive_file_id],
@@ -1045,6 +1069,7 @@ async function processApprovedRow(
       staged_id: string;
       staged_modified_time: string | Date;
       triggered_review_items: unknown;
+      parse_result: unknown;
     }>;
     const fresh = freshRows[0];
     if (!fresh) {
@@ -1066,6 +1091,12 @@ async function processApprovedRow(
     row.staged_modified_time =
       normalizeTimestamptz(fresh.staged_modified_time) ?? row.staged_modified_time;
     row.triggered_review_items = fresh.triggered_review_items;
+    // The FOURTH field, and the only one an operator reads. Without it the stream
+    // and the failure display_name both report the SELECT-time title while the
+    // refreshed parse is what got applied — a renamed sheet set up as "New Show"
+    // and reported as "Old Show", uncorrected (a successful per_row entry carries
+    // no name). Coerced for shape parity with the inner path's coercedRow.
+    row.parse_result = asParseResult(fresh.parse_result);
     input.autoHealedDriveFileIds.add(row.drive_file_id);
     // Fall through to the generation-scoped freshRead + publish flow with the fresh identifiers.
   }
@@ -1590,11 +1621,11 @@ async function executeFinalizeBatch(
         });
       }
 
-      const approvedRows = await selectFinishableCleanRows(tx, wizardSessionId, runtime.batchCap);
+      const finishableRows = await selectFinishableCleanRows(tx, wizardSessionId, runtime.batchCap);
       const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
       if (
         checkpoint.status === "all_batches_complete" &&
-        approvedRows.length === 0 &&
+        finishableRows.length === 0 &&
         unresolved === 0
       ) {
         // Idempotent re-poll: session was ALREADY all_batches_complete with nothing left.
@@ -1608,7 +1639,7 @@ async function executeFinalizeBatch(
           per_row: [],
         });
       }
-      if (approvedRows.length === 0 && unresolved > 0) {
+      if (finishableRows.length === 0 && unresolved > 0) {
         // Durable breadcrumb for a STUCK finisher: this non-convergent 409 refusal
         // otherwise returned with no server trace of who hit it or why. Fail-open,
         // hashed actor; never changes the 409 (invariant 9). Skips the idempotent
@@ -1625,7 +1656,7 @@ async function executeFinalizeBatch(
         });
       }
 
-      if (approvedRows.length === 0) {
+      if (finishableRows.length === 0) {
         const tail = await finalizeBatchTailResponse({
           tx,
           wizardSessionId,
@@ -1643,7 +1674,7 @@ async function executeFinalizeBatch(
       }
 
       const perRow: PerRowResult[] = [];
-      for (const row of approvedRows) {
+      for (const row of finishableRows) {
         // Source anchors are NOT computed here anymore — processApprovedRow reads them from the
         // locked pending_syncs.source_anchors (persisted at scan), so finalize does NO Drive export.
         let result: PerRowResult;
@@ -1709,7 +1740,7 @@ async function executeFinalizeBatch(
         // result event; a row that fails still surfaces via per_row (client stops on non-OK).
         callbacks?.onRow?.({
           done: perRow.length,
-          total: approvedRows.length,
+          total: finishableRows.length,
           name: parsedShowTitle(row.parse_result) ?? null,
           driveFileId: row.drive_file_id,
         });

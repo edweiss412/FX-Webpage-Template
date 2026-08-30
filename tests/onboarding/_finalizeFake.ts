@@ -188,7 +188,12 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
       const limit = Number(params[1] ?? 100);
       const cleanRows = this.approved.filter(isFinishableClean).slice(0, limit);
       return {
-        rows: cleanRows as T[],
+        // DETACHED DEEPLY, not aliased. postgres.js returns fresh objects; it never hands
+        // back a reference into some in-memory store that a later write mutates.
+        // Returning `cleanRows` directly meant a fake core mutating the stored row
+        // ALSO mutated the route's already-selected row, so a test for "the route
+        // must re-read the refreshed value" passed against code that never re-read.
+        rows: cleanRows.map((row) => structuredClone(row)) as T[],
         rowCount: cleanRows.length,
       };
     }
@@ -296,16 +301,20 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
     if (normalized.startsWith("select staged_id, staged_modified_time, triggered_review_items")) {
       const foundRow = this.approved.find((candidate) => candidate.drive_file_id === params[1]);
       if (!foundRow) return { rows: [], rowCount: 0 };
-      return {
-        rows: [
-          {
-            staged_id: foundRow.staged_id,
-            staged_modified_time: foundRow.staged_modified_time,
-            triggered_review_items: foundRow.triggered_review_items,
-          } as T,
-        ],
-        rowCount: 1,
+      // PROJECT WHAT THE QUERY ASKED FOR, not what the caller happens to want. This
+      // handler used to return `parse_result` unconditionally, so dropping the column
+      // from the production SELECT while leaving the matched prefix intact kept both
+      // rebind tests green — while real Postgres would omit the field and
+      // `asParseResult(undefined)` would throw (whole-diff R2 finding 2). The tests
+      // claimed to protect that column; they could not have noticed it leaving.
+      const selectsParseResult = /\bparse_result\b/.test(normalized.split(" from ")[0] ?? "");
+      const row: Record<string, unknown> = {
+        staged_id: foundRow.staged_id,
+        staged_modified_time: foundRow.staged_modified_time,
+        triggered_review_items: foundRow.triggered_review_items,
       };
+      if (selectsParseResult) row.parse_result = foundRow.parse_result;
+      return { rows: [row as T], rowCount: 1 };
     }
 
     if (normalized.startsWith("delete from public.pending_syncs")) {
@@ -426,7 +435,16 @@ export function withRowTxHoldPortFor(
 }
 
 // A prepared sheet for the injected prepareOnboardingFiles seam (single-file re-export).
-export function preparedSheetFor(driveFileId: string, title = "Show"): PreparedOnboardingFile {
+// The default title MATCHES `pending()`'s default (`Show ${driveFileId}`) on purpose.
+// They used to differ ("Show" vs "Show first-seen-1"), so every test that seeded a row
+// with one helper and prepared the sheet with the other silently modelled a RENAME it
+// never meant to model. That was invisible until the refreshed parse became the title
+// the route reports, at which point a test about demotion CODES started failing on a
+// name. Matching defaults means a rename is now expressed only by asking for one.
+export function preparedSheetFor(
+  driveFileId: string,
+  title = `Show ${driveFileId}`,
+): PreparedOnboardingFile {
   return {
     file: {
       driveFileId,
