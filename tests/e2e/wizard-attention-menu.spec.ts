@@ -375,6 +375,170 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
   // the same 160px HEADER_ACTION_CAP, `max-sm:flex-wrap`, the same hit band --
   // and its nouns are LONGER ("need a look", "judgment calls" against "issues").
   // Same cap, more text: it wraps at 375 where the published pill no longer does.
+  /**
+   * The wizard's marks, grounded by MEASUREMENT rather than by the argument the
+   * call site passes.
+   *
+   * This pill is where the plate parameter actually varies: `judgment` resolves
+   * to `text-subtle` on the attention plate and `text-faint` on the quiet one,
+   * because the same ink is 2.793:1 on one and 3.02:1 on the other. Whole-diff
+   * R5's probe was to pass `sunken` for the composite segment, which paints on
+   * `warning-bg` -- it type-checks, it satisfies the structural contrast arm
+   * (which believes the argument), and it ships an invisible ring.
+   *
+   * Reading the ink and the ground off the rendered element cannot be fooled
+   * that way, because it never reads the argument. The mark COUNT is asserted
+   * in the same pass: the judgment-only state is one of the three R5 found with
+   * no count guard, where a suppression predicate can regress to two marks.
+   */
+  test("T-WIZ-GROUND @375: the wizard's marks clear 3:1 on the surface they really paint on", async ({
+    page,
+  }) => {
+    const read = async () =>
+      page.locator(CHIP).evaluate((pill) => {
+        const parse = (c: string): [number, number, number, number] | null => {
+          const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/.exec(c);
+          return m === null
+            ? null
+            : [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+        };
+        const out: { ink: number[]; ground: number[]; opacity: number }[] = [];
+        for (const el of Array.from(
+          pill.querySelectorAll<HTMLElement>('span[aria-hidden="true"]'),
+        )) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          const cs = getComputedStyle(el);
+          const ink = parse(
+            parseFloat(cs.borderTopWidth) > 0 ? cs.borderTopColor : cs.backgroundColor,
+          );
+          if (ink === null || ink[3] === 0) continue;
+          let ground: number[] | null = null;
+          for (let a: HTMLElement | null = el.parentElement; a !== null; a = a.parentElement) {
+            const c = parse(getComputedStyle(a).backgroundColor);
+            if (c !== null && c[3]! > 0) {
+              ground = c;
+              break;
+            }
+          }
+          if (ground === null) continue;
+          let opacity = 1;
+          for (let a: HTMLElement | null = el; a !== null; a = a.parentElement) {
+            opacity *= parseFloat(getComputedStyle(a).opacity);
+          }
+          out.push({ ink, ground, opacity });
+        }
+        return out;
+      });
+
+    const hex = (c: number[]) =>
+      `#${c
+        .slice(0, 3)
+        .map((v) => v.toString(16).padStart(2, "0"))
+        .join("")}`;
+
+    // Token tables read from the LIVE stylesheet, both dark blocks separately:
+    // this project themes dark twice, once for first paint and once for the
+    // explicit toggle, and a viewer sees one or the other.
+    const css = readFileSync(join(REPO_ROOT, "app/globals.css"), "utf8");
+    const mediaAt = css.indexOf("@media (prefers-color-scheme: dark)");
+    const attrAt = css.indexOf('[data-theme="dark"] {');
+    const readTable = (slice: string) => {
+      const out: Record<string, string> = {};
+      for (const m of slice.matchAll(/--color-([a-z-]+)-runtime:\s*(#[0-9a-fA-F]{6})/g)) {
+        if (out[m[1]!] === undefined) out[m[1]!] = m[2]!.toLowerCase();
+      }
+      return out;
+    };
+    const [lo, hi] = mediaAt < attrAt ? [mediaAt, attrAt] : [attrAt, mediaAt];
+    const TOK = {
+      light: readTable(css.slice(0, lo)),
+      darkA: readTable(css.slice(lo, hi)),
+      darkB: readTable(css.slice(hi)),
+    };
+    expect(Object.keys(TOK.light).length, "premise: the light token table parsed").toBeGreaterThan(
+      5,
+    );
+
+    const invert = (names: readonly string[]) =>
+      Object.fromEntries(names.map((n) => [TOK.light[n]!, n])) as Record<string, string>;
+    const PLATE_BY_LIGHT_HEX = invert(["warning-bg", "surface-sunken"]);
+    const INK_BY_LIGHT_HEX = invert([
+      "status-review",
+      "status-positive",
+      "text-faint",
+      "text-subtle",
+    ]);
+
+    const lum = (h: string) => {
+      const ch = [1, 3, 5].map((i) => {
+        const s = parseInt(h.slice(i, i + 2), 16) / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
+    };
+    /** Worst of the two dark blocks, so neither can hide behind the other. */
+    const tokenContrast = (ink: string, plate: string, mode: "light" | "dark") => {
+      const tables = mode === "light" ? [TOK.light] : [TOK.darkA, TOK.darkB];
+      return Math.min(
+        ...tables.map((tb) => {
+          const [x, y] = [lum(tb[ink]!), lum(tb[plate]!)];
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        }),
+      );
+    };
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    for (const [fixture, expected, what] of [
+      ["attention=1", 2, "composite (needs-look leads, judgment follows)"],
+      ["judgmentOnly=1", 1, "judgment-only"],
+    ] as const) {
+      await page.goto(`${baseUrl}?${fixture}`);
+      await expect(page.locator(CHIP)).toBeVisible();
+      {
+        const marks = await read();
+        expect(marks.length, `${what}: exactly ${expected} mark(s), one per visible segment`).toBe(
+          expected,
+        );
+
+        for (const [i, m] of marks.entries()) {
+          // WHICH PLATE IS THIS, REALLY. The call site declares one; this reads
+          // the rendered ground and names it from the live token values, so a
+          // wrong argument is caught by the colour on screen rather than
+          // believed. That is R5's finding 2 exactly: passing `sunken` for a
+          // mark that paints on `warning-bg` type-checks and satisfies every
+          // check that trusts the argument.
+          const groundHex = hex(m.ground);
+          const plate = PLATE_BY_LIGHT_HEX[groundHex];
+          expect(
+            plate,
+            `${what} mark ${i}: painted on ${groundHex}, which is neither warning-bg nor surface-sunken -- the mark has moved to a surface this guard does not know`,
+          ).toBeDefined();
+
+          const inkHex = hex(m.ink);
+          const ink = INK_BY_LIGHT_HEX[inkHex];
+          expect(
+            ink,
+            `${what} mark ${i}: ink ${inkHex} is not a known token; a mark must be painted with one`,
+          ).toBeDefined();
+
+          expect(m.opacity, `${what} mark ${i} is faded to ${m.opacity}`).toBe(1);
+
+          // ...and now BOTH modes, from the stylesheet rather than the fixture.
+          // The fixtures paint light, so a rendered-only dark check would depend
+          // on the harness expressing dark mode; the token tables do not.
+          for (const mode of ["light", "dark"] as const) {
+            const r = tokenContrast(ink!, plate!, mode);
+            expect(
+              r,
+              `${what} mark ${i}: ${ink} on ${plate} is ${r.toFixed(3)}:1 in ${mode} mode, under the 3:1 non-text floor (WCAG 1.4.11)`,
+            ).toBeGreaterThanOrEqual(3);
+          }
+        }
+      }
+    }
+  });
+
   test("T-WIZ-COUNTS @375: the wizard pill shows counts without nouns, and still ANNOUNCES them", async ({
     page,
   }) => {

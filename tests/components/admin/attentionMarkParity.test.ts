@@ -41,13 +41,57 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /**
- * A mark-shaped className LITERAL: an 8px box painted with a status or text
- * token. Deliberately broader than "a pill mark" -- the point is that anything
- * mark-shaped has to justify itself, and narrowing the recognizer to the files
- * we already know about would rebuild the enumeration this replaces.
+ * Every string REGION in a file -- quoted strings and whole template literals,
+ * interpolations included.
+ *
+ * The first version of this matched only QUOTED regions containing `size-2`,
+ * and whole-diff R5 walked straight through it: writing the mark as
+ * `` className={`size-2 ${cond ? "bg-status-review" : "..."}`} `` splits the box
+ * class and the colour token across an interpolation, so no single quoted region
+ * held both and the recognizer saw nothing. A second mark implementation could
+ * return to the pill with the walk still green. A recognizer shaped around the
+ * strings that happen to exist today is not a cover.
  */
-const MARK_LITERAL = /"[^"]*\bsize-2\b[^"]*"/g;
-const CARRIES_TOKEN = /\bbg-status-|\bborder-status-|\bborder-text-/;
+/* eslint-disable-next-line no-useless-escape -- scanner, not a matcher */
+function stringRegions(src: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < src.length; i += 1) {
+    const q = src[i];
+    if (q !== '"' && q !== "'" && q !== "`") continue;
+    let depth = 0;
+    for (let k = i + 1; k < src.length; k += 1) {
+      const c = src[k];
+      if (c === "\\") {
+        k += 1;
+        continue;
+      }
+      // Inside a template literal, an interpolation can itself contain quotes
+      // and nested templates, so track its depth rather than stopping at the
+      // first backtick after it.
+      if (q === "`" && c === "$" && src[k + 1] === "{") {
+        depth += 1;
+        k += 1;
+        continue;
+      }
+      if (q === "`" && depth > 0) {
+        if (c === "{") depth += 1;
+        else if (c === "}") depth -= 1;
+        continue;
+      }
+      if (c === q) {
+        out.push(src.slice(i, k + 1));
+        i = k;
+        break;
+      }
+      if (q !== "`" && c === "\n") break;
+    }
+  }
+  return out;
+}
+
+/** An 8px box painted with a status or text token, however it is composed. */
+const IS_MARK_SHAPED = (expr: string) =>
+  /\bsize-2\b/.test(expr) && /\bbg-status-|\bborder-status-|\bborder-text-/.test(expr);
 
 /**
  * The marks that are NOT review-pill marks, each with the reason it owns its own
@@ -97,14 +141,16 @@ describe("attention-pill marks have exactly one implementation (whole-diff R4, t
       const rel = abs.slice(ROOT.length + 1);
       if (rel.endsWith("components/admin/review/attentionMark.ts")) continue;
       const src = readFileSync(abs, "utf8");
-      for (const literal of src.match(MARK_LITERAL) ?? []) {
-        if (!CARRIES_TOKEN.test(literal)) continue;
+      for (const expr of stringRegions(src)) {
+        if (!IS_MARK_SHAPED(expr)) continue;
+        // Built by the shared helper: fine, however it is spelled.
+        if (expr.includes("attentionMarkClass(")) continue;
         // Matched on the EXACT literal, never on the file. A per-file registry
         // would exempt every future mark added to a file that already has one
         // registered row -- including `Step3ReviewModal.tsx`, whose pill marks
         // DO go through the builder while its chip does not.
-        if (NON_PILL_MARKS.some((r) => r.file === rel && r.literal === literal)) continue;
-        offenders.push(`${rel}: ${literal}`);
+        if (NON_PILL_MARKS.some((r) => r.file === rel && r.literal === expr)) continue;
+        offenders.push(`${rel}: ${expr.replace(/\s+/g, " ").slice(0, 160)}`);
       }
     }
     expect(
@@ -117,7 +163,7 @@ describe("attention-pill marks have exactly one implementation (whole-diff R4, t
     // The other direction, so the registry cannot outlive the code it excuses.
     for (const { file } of NON_PILL_MARKS) {
       const src = readFileSync(join(ROOT, file), "utf8");
-      const hits = (src.match(MARK_LITERAL) ?? []).filter((l) => CARRIES_TOKEN.test(l));
+      const hits = stringRegions(src).filter(IS_MARK_SHAPED);
       expect(
         hits.length,
         `${file} no longer carries a hand-rolled mark; drop its row`,
@@ -150,67 +196,111 @@ function contrast(a: string, b: string): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
-/** Token values read from the LIVE stylesheet, never transcribed. */
-function tokens(): { light: Record<string, string>; dark: Record<string, string> } {
+/**
+ * Token values read from the LIVE stylesheet, never transcribed, and read as
+ * THREE separate tables.
+ *
+ * The first version collapsed them with last-wins, which whole-diff R5 showed is
+ * a false green in the direction that matters: this project themes dark TWICE,
+ * once under `@media (prefers-color-scheme: dark)` for first paint and once
+ * under `[data-theme="dark"]` for the explicit toggle. Editing only the media
+ * block left the parser reading the later attribute block, so a token that had
+ * become invisible for every system-dark viewer was asserted at its old ratio.
+ * Both dark tables are now asserted, because a viewer sees one or the other.
+ */
+function tokenTables(): {
+  light: Record<string, string>;
+  mediaDark: Record<string, string>;
+  attrDark: Record<string, string>;
+} {
   const css = readFileSync(join(ROOT, "app/globals.css"), "utf8");
-  const light: Record<string, string> = {};
-  const dark: Record<string, string> = {};
-  // The first definition of each `-runtime` token is light; the redefinitions
-  // under the dark blocks come later, so last-wins gives dark.
-  for (const m of css.matchAll(/--color-([a-z-]+)-runtime:\s*(#[0-9a-fA-F]{6})/g)) {
-    const [, name, hex] = m;
-    if (light[name!] === undefined) light[name!] = hex!;
-    else dark[name!] = hex!;
-  }
-  return { light, dark };
+  const mediaAt = css.indexOf("@media (prefers-color-scheme: dark)");
+  const attrAt = css.indexOf('[data-theme="dark"] {');
+  expect(mediaAt, "globals.css must carry a prefers-color-scheme dark block").toBeGreaterThan(0);
+  expect(attrAt, "globals.css must carry a [data-theme=dark] block").toBeGreaterThan(0);
+  const read = (slice: string) => {
+    const out: Record<string, string> = {};
+    for (const m of slice.matchAll(/--color-([a-z-]+)-runtime:\s*(#[0-9a-fA-F]{6})/g)) {
+      if (out[m[1]!] === undefined) out[m[1]!] = m[2]!;
+    }
+    return out;
+  };
+  const [first, second] = mediaAt < attrAt ? [mediaAt, attrAt] : [attrAt, mediaAt];
+  const tables = {
+    light: read(css.slice(0, first)),
+    a: read(css.slice(first, second)),
+    b: read(css.slice(second)),
+  };
+  return mediaAt < attrAt
+    ? { light: tables.light, mediaDark: tables.a, attrDark: tables.b }
+    : { light: tables.light, mediaDark: tables.b, attrDark: tables.a };
+}
+
+/**
+ * The ink a mark puts against its plate, READ BACK from the class the builder
+ * produced -- never assumed. R5: `monitoring` was hard-coded as
+ * `status-positive`, so changing the builder to emit `border-text-faint` left
+ * the test asserting the old token's ratio while the real one was 2.793:1 dark.
+ * A test that names the ink itself is testing its own copy of the answer.
+ */
+function inkOf(cls: string): string {
+  const border = /\bborder-((?:status|text|warning)-[a-z-]+)\b/.exec(cls);
+  if (border !== null) return border[1]!;
+  const bg = /\bbg-((?:status|text|warning)-[a-z-]+)\b/.exec(cls);
+  return bg === null ? "" : bg[1]!;
 }
 
 describe("every mark clears the non-text floor on the plate it actually paints on", () => {
-  const { light, dark } = tokens();
+  const { light, mediaDark, attrDark } = tokenTables();
   const PLATE: Record<AttentionMarkPlate, string> = {
     warning: "warning-bg",
     sunken: "surface-sunken",
   };
-  /** The ink each kind puts against its plate: a ring's border, a fill's bg. */
-  const INK: Record<AttentionMarkKind, string> = {
-    issues: "status-review",
-    warnings: "status-review",
-    monitoring: "status-positive",
-    judgment: "", // resolved per plate below — that IS the finding this pins
-  };
 
-  it("premise: the stylesheet parsed and both modes resolved", () => {
-    for (const t of [
-      "warning-bg",
-      "surface-sunken",
-      "status-review",
-      "status-positive",
-      "text-faint",
-      "text-subtle",
-    ]) {
-      expect(light[t], `light ${t}`).toMatch(/^#[0-9a-fA-F]{6}$/);
-      expect(dark[t], `dark ${t}`).toMatch(/^#[0-9a-fA-F]{6}$/);
+  it("premise: all three token tables parsed and carry the tokens under test", () => {
+    for (const [name, table] of [
+      ["light", light],
+      ["media-dark", mediaDark],
+      ["attr-dark", attrDark],
+    ] as const) {
+      for (const tok of [
+        "warning-bg",
+        "surface-sunken",
+        "status-review",
+        "status-positive",
+        "text-faint",
+        "text-subtle",
+      ]) {
+        expect(table[tok], `${name} ${tok}`).toMatch(/^#[0-9a-fA-F]{6}$/);
+      }
     }
+    // The two dark blocks must actually be distinct slices, or the split above
+    // silently degrades back to the last-wins read it replaced.
+    expect(mediaDark).not.toBe(attrDark);
   });
 
   for (const plate of ["warning", "sunken"] as const) {
     for (const kind of ["issues", "warnings", "monitoring", "judgment"] as const) {
-      it(`${kind} on the ${plate} plate clears 3:1 in both modes`, () => {
+      it(`${kind} on the ${plate} plate clears 3:1 in light and in BOTH dark modes`, () => {
         const cls = attentionMarkClass(kind, plate);
-        // For judgment the ink is chosen BY plate, so read it back out of the
-        // class the builder produced rather than assuming which one it picked.
-        const ink =
-          kind === "judgment" ? (/border-(text-[a-z]+)\b/.exec(cls)?.[1] ?? "") : INK[kind];
+        const ink = inkOf(cls);
         expect(ink, `could not resolve the ink for ${kind}/${plate} from "${cls}"`).not.toBe("");
+        // R5: a mark that composites at partial alpha is invisible at full
+        // token contrast. The builder emits no opacity utility and this is what
+        // keeps it that way.
+        expect(cls, `${kind}/${plate} must not carry an opacity utility`).not.toMatch(
+          /\bopacity-\d/,
+        );
         const bg = PLATE[plate];
         for (const [mode, table] of [
           ["light", light],
-          ["dark", dark],
+          ["dark (prefers-color-scheme)", mediaDark],
+          ["dark ([data-theme])", attrDark],
         ] as const) {
           const ratio = contrast(table[ink]!, table[bg]!);
           expect(
             ratio,
-            `${kind} on ${plate}: ${ink} vs ${bg} is ${ratio.toFixed(3)}:1 in ${mode} mode, under the 3:1 non-text floor (WCAG 1.4.11)`,
+            `${kind} on ${plate}: ${ink} vs ${bg} is ${ratio.toFixed(3)}:1 in ${mode}, under the 3:1 non-text floor (WCAG 1.4.11)`,
           ).toBeGreaterThanOrEqual(3);
         }
       });
@@ -220,17 +310,32 @@ describe("every mark clears the non-text floor on the plate it actually paints o
   it("issues and warnings SHARE a fill, so shape is provably the carrier", () => {
     const i = attentionMarkClass("issues", "warning");
     const w = attentionMarkClass("warnings", "warning");
-    expect(i).toContain("bg-status-review");
-    expect(w).toContain("bg-status-review");
-    // ...and they are still different marks.
+    expect(inkOf(i)).toBe(inkOf(w));
     expect(i).not.toBe(w);
   });
 
-  it("the warnings mark is a THREE-point clip, not the retired four-point square", () => {
+  it("the warnings mark is a triangle with REAL AREA, not three collinear points", () => {
+    // R5: counting points accepts `polygon(50% 100%, 100% 100%, 0% 100%)` --
+    // three points on one line, zero painted area, every other assertion green
+    // and no mark on screen. The area is the property; the count never was.
     const cls = attentionMarkClass("warnings", "warning");
     const poly = /polygon\(([^)]*)\)/.exec(cls);
     expect(poly, "the warnings mark must be clipped to a polygon").not.toBeNull();
-    expect(poly![1]!.split(",").filter((s) => s.trim() !== "")).toHaveLength(3);
+    const pts = poly![1]!
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s !== "")
+      .map((p) => p.split(/[\s_]+/).map((n) => parseFloat(n)));
+    expect(pts, "a triangle has three points").toHaveLength(3);
+    for (const p of pts) expect(p, `unparseable point in "${poly![1]}"`).toHaveLength(2);
+    // Shoelace, in percentage units. Anything degenerate collapses to zero.
+    const [a, b, c] = pts as [number[], number[], number[]];
+    const area =
+      Math.abs(a[0]! * (b[1]! - c[1]!) + b[0]! * (c[1]! - a[1]!) + c[0]! * (a[1]! - b[1]!)) / 2;
+    expect(
+      area,
+      `the clip encloses no area (${poly![1]}), so the mark paints nothing`,
+    ).toBeGreaterThan(100);
   });
 
   it("every kind occupies the same 8px box, so a state flip never reflows", () => {

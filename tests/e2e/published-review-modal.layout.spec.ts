@@ -2214,15 +2214,31 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     // radius, the amber fill and `clipped: true`, so every assertion passed on
     // the exact glyph this arc replaced. Three points is what makes it a
     // triangle, so three points is what gets asserted.
-    const pointsIn = (clip: string) => {
+    // AREA, not a point count. R5: three COLLINEAR points pass a count check
+    // while painting nothing -- `polygon(50% 100%, 100% 100%, 0% 100%)` is a
+    // flat line with an 8px box, a computed fill and zero radius, so every
+    // other assertion here stays green and the mark is invisible.
+    const polyArea = (clip: string) => {
       const m = /polygon\(([^)]*)\)/.exec(clip);
-      return m === null ? 0 : m[1]!.split(",").filter((s) => s.trim() !== "").length;
+      if (m === null) return 0;
+      const pts = m[1]!
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== "")
+        .map((p) => p.split(/[\s_]+/).map((n) => parseFloat(n)));
+      if (pts.length !== 3 || pts.some((p) => p.length !== 2 || p.some(Number.isNaN))) return 0;
+      const [a, b, c] = pts as [number[], number[], number[]];
+      return (
+        Math.abs(a[0]! * (b[1]! - c[1]!) + b[0]! * (c[1]! - a[1]!) + c[0]! * (a[1]! - b[1]!)) / 2
+      );
     };
+
     const shapeOf = (m: NonNullable<typeof issues>) => ({
       // Fully round means a radius at least half the box.
       round: m.radius >= m.w / 2 - 0.5,
-      // A THREE-point clip: a triangle, and not the four-point square.
-      triangle: pointsIn(m.clip) === 3,
+      // A triangle with REAL AREA: not the four-point square, and not three
+      // collinear points either.
+      triangle: polyArea(m.clip) > 100,
       filled: m.bg !== TRANSPARENT,
       // The ring is only a ring if it has a stroke. R4: this value was READ and
       // never asserted, so deleting `border-[1.5px]` from the monitoring mark
@@ -2312,13 +2328,29 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
           if (m === null) return null;
           const cs = getComputedStyle(m);
           const r = m.getBoundingClientRect();
-          const pts = /polygon\(([^)]*)\)/.exec(cs.clipPath);
+          // Area, not a point count -- see T-MARK-GEOMETRY. Computed in the
+          // page because the clip is only available as a computed string here.
+          const pm = /polygon\(([^)]*)\)/.exec(cs.clipPath);
+          let area = 0;
+          if (pm !== null) {
+            const q = pm[1]!
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s !== "")
+              .map((p) => p.split(/[\s_]+/).map((n) => parseFloat(n)));
+            if (q.length === 3 && q.every((p) => p.length === 2 && !p.some(Number.isNaN))) {
+              area =
+                Math.abs(
+                  q[0]![0]! * (q[1]![1]! - q[2]![1]!) +
+                    q[1]![0]! * (q[2]![1]! - q[0]![1]!) +
+                    q[2]![0]! * (q[0]![1]! - q[1]![1]!),
+                ) / 2;
+            }
+          }
           return {
             w: r.width,
             radius: px(cs.borderTopLeftRadius),
-            // Three points, not merely "a polygon" -- see T-MARK-GEOMETRY.
-            triangle:
-              pts !== null && pts[1]!.split(",").filter((s) => s.trim() !== "").length === 3,
+            triangle: area > 100,
             bg: cs.backgroundColor,
           };
         };
@@ -2382,6 +2414,175 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
       `the action cluster must stay within its ${measured.capMax}px ceiling ` +
         `(measured ${measured.capW}px, pill ${measured.pillW}x${measured.pillH})`,
     ).toBeLessThanOrEqual(measured.capMax! + 0.5);
+  });
+
+  /**
+   * The mark's GROUND, measured rather than declared, and the mark COUNT per state.
+   *
+   * `attentionMarkClass(kind, plate)` makes every caller state the surface it
+   * paints on, which is a real improvement over four rounds of choosing an ink
+   * by eye. But whole-diff R5 pointed out what a parameter cannot do: nothing
+   * checked that the stated plate is the ACTUAL plate. Passing `sunken` for a
+   * mark that paints on `warning-bg` type-checks, satisfies the structural
+   * contrast arm (which believes the argument), and ships a ring at 2.793:1.
+   *
+   * So this reads the ink off the rendered element and walks UP to the first
+   * ancestor that actually paints a background, then computes the ratio between
+   * them. It cannot be fooled by a wrong argument, because it never reads one.
+   *
+   * It also counts marks per state. R5 showed the three leader-only states had
+   * no count guard at all: a one-edit change to any suppression predicate takes
+   * them from one mark to two, and the existing oracles either read only the
+   * first mark or exercise the mixed state where both predicates are already
+   * true.
+   */
+  test("T-MARK-GROUND @375: every mark clears 3:1 against the surface it really paints on", async ({
+    page,
+  }) => {
+    const readMarksHere = async () =>
+      page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).evaluate((pill) => {
+        const parse = (c: string): [number, number, number, number] | null => {
+          const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/.exec(c);
+          return m === null
+            ? null
+            : [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+        };
+        const out: {
+          ink: [number, number, number, number];
+          ground: [number, number, number, number];
+          opacity: number;
+        }[] = [];
+        for (const el of Array.from(
+          pill.querySelectorAll<HTMLElement>('span[aria-hidden="true"]'),
+        )) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          const cs = getComputedStyle(el);
+          // A ring's ink is its border; a filled mark's ink is its background.
+          const ringed = parseFloat(cs.borderTopWidth) > 0;
+          const ink = parse(ringed ? cs.borderTopColor : cs.backgroundColor);
+          if (ink === null || ink[3] === 0) continue;
+          // The first ancestor that actually PAINTS. Transparent parents do not
+          // ground anything, which is the whole point of walking rather than
+          // reading the immediate parent.
+          let ground: [number, number, number, number] | null = null;
+          for (let a: HTMLElement | null = el.parentElement; a !== null; a = a.parentElement) {
+            const c = parse(getComputedStyle(a).backgroundColor);
+            if (c !== null && c[3] > 0) {
+              ground = c;
+              break;
+            }
+          }
+          if (ground === null) continue;
+          // Accumulated opacity, so a faded mark cannot pass on token values.
+          let opacity = 1;
+          for (let a: HTMLElement | null = el; a !== null; a = a.parentElement) {
+            opacity *= parseFloat(getComputedStyle(a).opacity);
+          }
+          out.push({ ink, ground, opacity });
+        }
+        return out;
+      });
+
+    const hex = (c: readonly number[]) =>
+      `#${c
+        .slice(0, 3)
+        .map((v) => v.toString(16).padStart(2, "0"))
+        .join("")}`;
+
+    // Token tables from the LIVE stylesheet, with BOTH dark blocks kept apart:
+    // this project themes dark twice (first paint, and the explicit toggle) and
+    // a viewer sees one or the other.
+    //
+    // Read from the stylesheet rather than by re-rendering the fixture in dark,
+    // deliberately. Toggling `data-theme` on these harnesses switches some
+    // surfaces and not the pill's own plate, so a rendered dark check asserts
+    // into a half-switched page -- dark ink measured against a light ground,
+    // which is a state no viewer ever sees. Identify the plate by what it
+    // RENDERS, then do the contrast arithmetic on tokens.
+    const css = readFileSync(join(REPO_ROOT, "app/globals.css"), "utf8");
+    const mediaAt = css.indexOf("@media (prefers-color-scheme: dark)");
+    const attrAt = css.indexOf('[data-theme="dark"] {');
+    const readTable = (slice: string) => {
+      const out: Record<string, string> = {};
+      for (const m of slice.matchAll(/--color-([a-z-]+)-runtime:\s*(#[0-9a-fA-F]{6})/g)) {
+        if (out[m[1]!] === undefined) out[m[1]!] = m[2]!.toLowerCase();
+      }
+      return out;
+    };
+    const [lo, hi] = mediaAt < attrAt ? [mediaAt, attrAt] : [attrAt, mediaAt];
+    const TOK = {
+      light: readTable(css.slice(0, lo)),
+      darkA: readTable(css.slice(lo, hi)),
+      darkB: readTable(css.slice(hi)),
+    };
+    expect(Object.keys(TOK.light).length, "premise: the light token table parsed").toBeGreaterThan(
+      5,
+    );
+    const invert = (names: readonly string[]) =>
+      Object.fromEntries(names.map((n) => [TOK.light[n]!, n])) as Record<string, string>;
+    const PLATE_BY_LIGHT_HEX = invert(["warning-bg", "surface-sunken"]);
+    const INK_BY_LIGHT_HEX = invert([
+      "status-review",
+      "status-positive",
+      "text-faint",
+      "text-subtle",
+    ]);
+    const lum = (h: string) => {
+      const ch = [1, 3, 5].map((i) => {
+        const s = parseInt(h.slice(i, i + 2), 16) / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
+    };
+    /** The worse of the two dark blocks, so neither hides behind the other. */
+    const tokenContrast = (ink: string, plate: string, mode: "light" | "dark") =>
+      Math.min(
+        ...(mode === "light" ? [TOK.light] : [TOK.darkA, TOK.darkB]).map((tb) => {
+          const [x, y] = [lum(tb[ink]!), lum(tb[plate]!)];
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        }),
+      );
+
+    // Every state, with the number of marks each must render. The three
+    // leader-only states are the ones R5 found unguarded: exactly ONE mark, so
+    // a suppression predicate that regresses shows up here as two.
+    const STATES: ReadonlyArray<{ page: string; marks: number; what: string }> = [
+      { page: "harness.html", marks: 1, what: "issues-led" },
+      { page: "markwarnings.html", marks: 1, what: "warnings-only" },
+      { page: "markmonitoring.html", marks: 1, what: "monitoring-only" },
+      { page: "threeseg.html", marks: 3, what: "all three segments" },
+    ];
+
+    for (const state of STATES) {
+      await openHarness(page, { width: 375, height: 812 }, state.page);
+      const marks = await readMarksHere();
+      expect(
+        marks.length,
+        `${state.what}: expected exactly ${state.marks} mark(s), one per visible segment`,
+      ).toBe(state.marks);
+      for (const [i, m] of marks.entries()) {
+        // WHICH PLATE IS THIS, REALLY -- read off the render, never taken from
+        // the argument the call site passed.
+        const groundHex = hex(m.ground);
+        const plate = PLATE_BY_LIGHT_HEX[groundHex];
+        expect(
+          plate,
+          `${state.what} mark ${i}: painted on ${groundHex}, neither warning-bg nor surface-sunken`,
+        ).toBeDefined();
+        const inkHex = hex(m.ink);
+        const ink = INK_BY_LIGHT_HEX[inkHex];
+        expect(ink, `${state.what} mark ${i}: ink ${inkHex} is not a known token`).toBeDefined();
+        expect(m.opacity, `${state.what} mark ${i} is faded to ${m.opacity}`).toBe(1);
+        for (const mode of ["light", "dark"] as const) {
+          const r = tokenContrast(ink!, plate!, mode);
+          expect(
+            r,
+            `${state.what} mark ${i}: ${ink} on ${plate} is ${r.toFixed(3)}:1 in ${mode} mode, under the 3:1 non-text floor (WCAG 1.4.11)`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
   });
 
   test("T-COUNTS-ONLY @375: the pill shows counts without nouns, and still ANNOUNCES them", async ({

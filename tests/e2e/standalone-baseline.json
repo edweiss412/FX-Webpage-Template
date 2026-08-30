@@ -355,6 +355,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-508e5af2b51dda2358d2\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-NOSCROLLPORT @ 375: the corner clip did not make the panel a scroll port\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-55ff2077ff497b80fae8\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [not live] popup/two-pane @ 1280: no zero-extent flex/grid item inside any gapped container\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-597a843af62126a8de87\",[\"published-review-modal.layout.spec.ts\",\"crew warning placement — containment (crew-warning-attachment T5)\",\"T-WARN-INCARD @1280: unmatched warning's fallback group is contained in the crew panel card\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-5f54f5787f6e23838499\",[\"published-review-modal.layout.spec.ts\",\"attention pill phone type size (spec 2026-08-30)\",\"T-MARK-GROUND @375: every mark clears 3:1 against the surface it really paints on\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-5fc6eac9e8c56a59c13c\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [not live] sheet @ 375: no zero-extent flex/grid item inside any gapped container\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-638231662e43ab06e9c5\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-NO-ORANGE [!archived, isLive: true]: the accent-resolving set in the modal chrome is EXACTLY {published-toggle, status-dot-live}\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-646b46d393150bec8dd2\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-HUB-FLUSH @ 375: the share-hub group's right edge sits at the footer's content-box right edge\"]]",
@@ -760,6 +761,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-4cb3c85bb149f1ba72e6\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-7530ebac4c5a7a9d8f43\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the pill's hit band clears the 44px floor at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-8df424e194fae616f67d\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"tap-opened at a phone width, then widened past sm: the menu stays open\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-96294f30e69856ae10c8\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"T-WIZ-GROUND @375: the wizard's marks clear 3:1 on the surface they really paint on\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-99319e126bc72e2b69cc\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 390x560\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-99eccaa54127bc6841a4\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 375x844\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-a76f1f18cf606bfe4778\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 375x667\"]]",
@@ -780,5 +782,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 679
+  "totalTests": 681
 }

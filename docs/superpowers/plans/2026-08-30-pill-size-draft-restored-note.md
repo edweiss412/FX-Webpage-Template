@@ -768,6 +768,52 @@ registry row explaining why. The baseline was right and the tidying was wrong.
 the mark comments left these files, and it moved a published row for the first
 time. Deltas across the arc: +15, +2, +31, +1, -15.
 
+### Whole-diff R5 (terminal): the guard was still a claim
+
+BLOCKING, 5 findings, and the most useful round of the arc because not one of
+them was about the product. The shared mark builder was real; the guard around
+it was not yet.
+
+- **The recognizer read quoted literals only.** Writing the mark as a template
+  literal with an interpolation splits the box class from the colour token
+  across `${...}`, so no single quoted region held both and a second mark
+  implementation could return with the walk green. It now scans whole string
+  REGIONS, template literals included. The first repair of this scanned
+  `className=` attributes instead, which its own staleness arm immediately
+  caught: `ShowReviewSurface` assigns its marks to a variable, so a recognizer
+  shaped around one syntax missed them. That is the same defect twice in ten
+  minutes, and the second time the test found it rather than a reviewer.
+- **The contrast arm had three false-green paths.** It hard-coded `monitoring`'s
+  ink rather than reading what the builder emits; it collapsed this project's
+  TWO dark blocks (`@media (prefers-color-scheme: dark)` for first paint and
+  `[data-theme="dark"]` for the toggle) with last-wins, so editing one left the
+  parser reading the other; and it ignored opacity, where a 50% mark composites
+  to 1.8:1 with every token value unchanged.
+- **Counting polygon points is not a triangle.** Three COLLINEAR points pass a
+  count check and paint nothing. The area is the property; the count never was.
+- **The plate parameter was never checked against the actual plate.** This is
+  the deep one. Making the ground explicit in the signature was the right
+  design, and it still cannot verify itself: passing `sunken` for a mark that
+  paints on `warning-bg` type-checks, satisfies every structural assertion that
+  believes the argument, and ships a 2.793:1 ring.
+
+**The repair that mattered was changing what the guard READS.** Both browser
+guards now identify the plate from the RENDERED colour and do the contrast
+arithmetic on token tables, so a wrong argument is caught by what is on screen
+rather than trusted. Passing the wrong plate now fails with
+`text-faint on warning-bg is 2.793:1 in dark mode` — it names the real ground.
+
+**And a trap worth recording, because the obvious fix was wrong.** The first
+attempt re-rendered the fixtures with `data-theme="dark"`. Toggling that switches
+the surrounding surfaces but NOT the pill's own plate, so the check measured dark
+ink against a light ground — a state no viewer ever sees, and a guard that
+asserts into it is worse than none. Reading tokens from the stylesheet and the
+plate from the render avoids the question entirely. Whether that plate should
+follow the theme is a real question this arc did not open; it is out of scope for
+a terminal round and belongs to whoever next touches the wizard fixture.
+
+All five are pinned by the mutant that broke them.
+
 ### The class-sweep unit is the decision PLUS its consequences
 
 The sharpest lesson of this arc, and it took two rounds to reach because the
