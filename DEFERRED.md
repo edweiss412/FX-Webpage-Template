@@ -167,34 +167,6 @@ disagree while this sits open.
 follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
 Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
-### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session (2026-08-11)
-
-**Effort:** S
-
-Surfaced by the invariant-8 dual gate on branch `feat/diagram-viewing-polish`, by the critique half
-(P1). Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md`.
-
-**The finding.** A runtime image failure is terminal per item: `failedKeys` is never cleared in
-either `components/diagrams/Gallery.tsx` or `components/diagrams/GalleryLightbox.tsx`, so one
-dropped request on ballroom wifi costs that diagram until a full page reload the crew member has no
-reason to attempt. The branch's repair makes the failure legible — focus relocates, and the event is
-announced by name — but the announcement offers no next step, and the replacement cell is a
-non-interactive `<div>`. Heuristic 9 (recover from errors) scored 2/4 on that account.
-
-**Why deferred rather than repaired in-branch — reason (a), it needs a product decision this PR
-cannot settle.** The obvious repair is to make the placeholder a "Retry" control, and the obvious
-copy is "<name> could not be loaded. Tap to retry." Both are product calls this arc's ratified scope
-(spec §1.1: the repair is focus relocation plus announcement) does not cover, and the mechanism has
-a real cost: the asset route sends `private, max-age=0, must-revalidate` with no ETag
-(`app/api/asset/diagram/[show]/[rev]/[key]/route.ts`), so a retry on a 1-5 MB original is a full
-re-download, and a crew member tapping a dead tile twice pays for it twice. Whether the affordance
-should exist at all, whether it should retry the clamped tier rather than the original, and what it
-says while in flight are one decision, not three independent ones.
-
-**Un-defer trigger.** A product decision on failure recovery for diagrams — either taken directly,
-or forced by the first support report of a diagram that "just disappeared" on venue wifi.
-
 ### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
 
 **Effort:** S
@@ -534,3 +506,44 @@ every diagram in the product reads, on both the admin grid and — by the consis
 makes — the crew gallery, which uses `object-cover` too (`components/diagrams/Gallery.tsx:412`). Taking it
 unilaterally inside a PR whose stated scope is which ELEMENT carries the border would be exactly the
 "spending a ratified design claim on a preference" that `BL-DIAGRAM-TILE-CHROME-CONSISTENCY` was filed to avoid.
+
+## Diagram failure retry — impeccable dual-gate deferrals (2026-08-29)
+
+From the invariant-8 dual gate on `feat/diagram-failure-retry`. The gate's three critique P0s and its
+audit P0 were all FIXED in-branch; dispositions and the refuted findings are recorded in
+`docs/superpowers/plans/2026-08-29-diagram-failure-retry/closeout.md`. One finding is deferred, under
+class-sweep exception (a): it needs a product decision this PR cannot settle.
+
+### DIAGRETRY-NO-RETRY-DEADLINE-1 — impeccable P2: a hung request leaves `Retrying…` up forever (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a crew member stuck on
+`Retrying…`, or any work that gives the asset route a client-visible status channel (which would also
+close documented limit 1 in the design spec).
+
+No retry carries a DEADLINE, so a request that never resolves leaves the in-flight state permanent:
+`Retrying…` on screen, `aria-busy="true"` announced, and the control inert because its `onClick` is a
+bare `preventDefault`. Venue wifi is precisely where a request hangs rather than fails.
+
+**The original wording of this paragraph was wrong twice, and diff review R2 caught both.** It said
+there is no `setTimeout` anywhere in either component; the lightbox has several, including the demote
+chip's own visibility timer. The true claim is narrower and is the one that matters: none of them is a
+retry deadline. It also said closing the lightbox cannot reset a hung retry and a page reload is the
+only exit. That is true of the GALLERY, whose state outlives the dialog, and false of the LIGHTBOX,
+whose retry state is local and dies when the dialog unmounts. So the worst case is real but belongs to
+one surface, not both: a crew member with a hung retry in the lightbox can close it, and one hung in
+the gallery cannot get out without reloading.
+
+Recorded rather than quietly narrowed, because the decision below rests on this evidence and a reader
+checking it should find the corrected version and the reason it changed.
+
+**Why it is a product decision and not a fix.** Every repair needs a number and a sentence nobody has
+chosen: how long before a retry is declared hung (10s? 30s? long enough for 50MB on bad wifi?), what the
+control says when it gives up, and whether a timeout should offer a second retry or fall back to the
+failed state. Guessing a deadline is worse than the current behaviour: too short and a slow-but-working
+50MB fetch is killed on the venue floor, which is the exact failure the originals-only path was ratified
+to allow. §3.1 ratified "no dead ends" with the 50MB ceiling stated, and a wrong deadline reintroduces
+one.
+
+**What holds the line meanwhile.** The state is per item, so a hung retry strands one diagram rather than
+the page; every other tile stays live and openable. The announcement on entry says what is happening, so
+nothing is silent.

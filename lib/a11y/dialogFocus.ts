@@ -93,9 +93,24 @@ export function useDialogFocus(
       // Restore focus to the retarget when the owner set one, else to the
       // trigger. If neither is reachable (removed during the dialog's
       // lifetime), the browser falls through to document.body.
-      const target = latestRestoreTarget.current?.current ?? previouslyFocused;
-      if (target && typeof target.focus === "function") {
-        target.focus();
+      // CONNECTED targets only, and the fallback chain is why. Whole-diff
+      // review round 2 measured the failure: an opener removed while the dialog
+      // was open leaves `restoreTargetRef` pointing at a detached node, and
+      // `.focus()` on a detached node is a silent no-op that drops focus to
+      // `<body>`. Clearing the ref alone does not help either -- the chain then
+      // falls through to `previouslyFocused`, which is the SAME detached node.
+      //
+      // So each candidate is tried in turn and skipped unless it is still in
+      // the document. When none is reachable the owner's own last-resort takes
+      // over (the diagrams gallery rescues to its list); the browser's fallback
+      // to `<body>` remains the floor, and is now the case nobody can reach by
+      // accident.
+      const candidates = [latestRestoreTarget.current?.current, previouslyFocused];
+      for (const target of candidates) {
+        if (target && target.isConnected && typeof target.focus === "function") {
+          target.focus();
+          return;
+        }
       }
     };
   }, []);

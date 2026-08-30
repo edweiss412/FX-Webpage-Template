@@ -287,6 +287,67 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * registry change carrying its own numbers.
    */
   {
+    id: "perItemStateScanner",
+    // MEASURED, three consecutive runs of the deciding suite: 1.30s, 1.10s,
+    // 1.10s real. Taken as the median rather than the mean so one cold start
+    // does not price every shard.
+    millisPerBoot: 1100,
+    sourcePath: "tests/components/diagrams/perItemStateScanner.ts",
+    suitePaths: ["tests/components/diagrams/perItemStateLifetime.probe.test.ts"],
+    // The full declared set. This surface is a RECOGNIZER, and plan review R4
+    // showed it failing open on four ordinary edits precisely because nobody had
+    // scored it — so scoping the operator subset here would reintroduce the gap
+    // the enrolment exists to close, on the operators left out.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "regex-quantifier-bound",
+      "statement-removal",
+    ],
+    scoreFloor: 0.9,
+    // Enrolled because it is offered as a CLASS CLOSURE: spec §4.0.3 of the
+    // 2026-08-29 diagram-failure-retry design says every per-item useState and
+    // useRef is enumerated so a member added later fails by default. A guard
+    // making that claim is exactly what AGENTS.md's convergence criterion says
+    // to score BEFORE review, and this arc measured the cost of not doing so —
+    // plan review round 4 ran executed mutants by hand and found parenthesized,
+    // as-cast, non-null-asserted and computed-property declarations all escaping.
+    // Filed as LIM-UNSCORED-GUARD-OFFERED-AS-CLOSURE.
+    //
+    // Control: blinds the hook recognizer entirely, so NOTHING is enumerated and
+    // every planted-declaration case fails at once. Verified unique on the
+    // current source (`grep -c -F` = 1). Chosen over a narrower blind precisely
+    // because a control that only disables one branch could pass on a scanner
+    // that had stopped working altogether.
+    control: {
+      from: 'hookName === "useState" || hookName === "useRef"',
+      to: 'hookName === "NEVERMATCHES"',
+    },
+    accepted: [
+      {
+        // Keyed by the mutated EXPRESSION and its 1-based column, not by the line
+        // alone, per the precedent above: prettier and any later edit move lines.
+        siteId: "integer-literal:33:33:32>33",
+        kind: "equivalent",
+        reason:
+          "The ceiling's exact VALUE has no observable consequence, and that is the contract: " +
+          "the bound exists so a broken advance TERMINATES and is rejected by an assertion " +
+          "instead of by the harness wall clock, and it is specified as sitting far above any " +
+          "nesting a person writes. 32 and 33 differ only for source nested exactly 33 wrappers " +
+          "deep, which no parseable input inside this surface's threat fence -- ordinary " +
+          "authoring mistakes, corpus-shaped input -- reaches. The boundary itself IS pinned from " +
+          "both sides: a call nested exactly MAX_UNWRAP_DEPTH deep still resolves, one layer past " +
+          "it declines, and both cases DERIVE their depth from the exported constant. That " +
+          "derivation is what leaves this mutant alive, and deliberately so -- hardcoding 32 in " +
+          "the fixtures would kill it while breaking both cases the moment anyone legitimately " +
+          "retunes the ceiling, trading a real regression signal for a scoreboard point. The two " +
+          "sites that DO carry behaviour, the comparison and the step, are both killed.",
+      },
+    ],
+  },
+  {
     id: "premiseScan",
     millisPerBoot: 3206,
     sourcePath: "tests/mutation/source/premiseScan.ts",

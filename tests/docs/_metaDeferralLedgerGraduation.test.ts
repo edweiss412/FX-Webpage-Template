@@ -88,6 +88,11 @@ const GRADUATED = [
   // fixed, which is still a graduation — it left the open queue.
   "SHAREHUB-ARM-VIEWPORT-REVEAL-1",
   "SHAREHUB-ARCHIVE-GRAVITY-CUE-1",
+  // feat/diagram-failure-retry (2026-08-29). Graduated by the product decision
+  // it was blocked on being taken: Eric chose the clamped tier, the copy, and an
+  // explicit in-flight state, then overrode the withhold so originals-only cells
+  // get the control too. Class-sweep exception (a) discharged, not waived.
+  "DIAGRAM-FAILURE-RECOVERY-1",
 ] as const;
 
 /**

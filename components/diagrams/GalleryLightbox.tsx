@@ -310,6 +310,109 @@ export function GalleryLightbox({
    * A ref, not state, because the intent marker below must stay identity-stable.
    */
   const demotedRef = useRef<Set<string>>(new Set());
+  // The demote latch is scoped to ONE SNAPSHOT REVISION, and round 2 of the
+  // whole-diff review is why it had to become so.
+  //
+  // Its registry row called it "conservative in every direction". That holds
+  // only while the id keeps pointing at the same bytes. Crew ids are STABLE
+  // ACROSS SYNCS while the snapshot revision, the asset key and the variant
+  // list all change, so after one original-tier failure the latch silently
+  // denied full detail to every LATER asset that inherited the id -- no request
+  // made, no signal emitted, nothing in the documented limits. A user whose
+  // diagram was replaced with a working one still could not zoom into it.
+  //
+  // Cleared on a revision change, which is exactly the event that means "these
+  // are different bytes now". Within a revision the latch is unchanged and
+  // still declines a re-pin, which is the conservative behaviour the row
+  // described and which remains correct there.
+  useEffect(() => {
+    demotedRef.current = new Set();
+  }, [snapshotRevisionId]);
+  // Task 5 (spec §4). The lightbox's own copy of the retry machine; Task 2's is
+  // gallery-only by design, so nothing here inherits from it.
+  const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
+  const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  // A mirror of `retrying`, read by the Embla `select` subscriber. That callback
+  // is registered once and captures the `retrying` of the render that subscribed,
+  // so reading the state directly there would consult an arbitrarily old set --
+  // and the abandon path would silently do nothing for exactly the ids it exists
+  // to clear. Synced in an effect, which is current long before any swipe.
+  const retryingStateRef = useRef<ReadonlySet<string>>(retrying);
+  useEffect(() => {
+    retryingStateRef.current = retrying;
+  }, [retrying]);
+  // `items` needs the same treatment for the same reason, and eslint's
+  // exhaustive-deps caught that I had introduced the very staleness class the
+  // mirror above exists to prevent: the abandon path reads `items` inside the
+  // `select` subscriber, which is registered once. Adding `items` to that
+  // effect's deps would re-subscribe on every roster change instead, which is
+  // worse -- it tears down a live Embla listener mid-gesture.
+  // Which item the lifted scale currently describes.
+  //
+  // STATE, not a ref, and the difference is enforced rather than stylistic: the
+  // render-time half of the sweep has to COMPARE against it, and
+  // `react-hooks/refs` forbids reading a ref during render just as firmly as
+  // writing one. A ref here produced ten lint errors on one comparison. State is
+  // read in render legally, and written from the effect below.
+  const [scaleOwner, setScaleOwner] = useState<string | null>(null);
+  const itemsRef = useRef<readonly GalleryItem[]>(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+  const retryControlRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  const focusRetryTargetRef = useRef<string | null>(null);
+
+  /**
+   * `failed` → `retrying` on the ACTIVE slide (spec §4, §4.0.2).
+   *
+   * Clears `wantsOriginal` so the retry fetches the CLAMPED tier: a tap asking
+   * to see the diagram again must not inherit an earlier gesture's request for
+   * the whole object (AC-9).
+   *
+   * DOES NOT write `demotedRef`. That set is the never-re-pin latch for the
+   * demote path, and writing it here would refuse every later pinch for the rest
+   * of the dialog session -- the user could never reach full detail again, with
+   * nothing on screen saying why (AC-13).
+   */
+  // The swipe-away focus rescue, AFTER the commit that unmounts the departing
+  // slide's controls. A slide's retry controls are active-only (Task 6), so
+  // swiping away removes whichever one held focus; without this, focus lands on
+  // `<body>` -- outside an `aria-modal` dialog that is still on screen and still
+  // trapping, where the non-Escape keymap gate stops responding (AC-16, §7.1).
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body || !dialog.contains(active)) {
+      closeRef.current?.focus();
+    }
+  }, [activeIndex]);
+
+  const handleSlideRetry = (item: GalleryItem): void => {
+    const control = retryControlRefs.current.get(item.id) ?? null;
+    if (control && document.activeElement === control) {
+      focusRetryTargetRef.current = item.id;
+    }
+    setWantsOriginal((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+    setFailedKeys((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+    setRetrying((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+  };
+
   /**
    * The slide whose ORIGINAL just failed, for the sighted half of the signal.
    *
@@ -418,6 +521,12 @@ export function GalleryLightbox({
       // Next under the user's focus with no click anywhere in the story.
       keepFocusInDialog(prevRef.current, index === 0, nextRef.current);
       keepFocusInDialog(nextRef.current, index === items.length - 1, prevRef.current);
+      // The focus rescue for a swipe-away lives in an EFFECT keyed on
+      // `activeIndex`, not here. Reading `document.activeElement` at this point
+      // is too early: the element that is about to be unmounted is still mounted
+      // and still focused, so the check passes and declines to act, and the
+      // unmount then drops focus to `<body>` a commit later. Measured by AC-16
+      // once the retry controls actually took focus.
       // Per shape brief: navigation resets per-slide zoom. The
       // previous slide's TransformWrapper unmounts when we re-key on
       // activeIndex, so its scale state is gone — but we also need
@@ -426,6 +535,34 @@ export function GalleryLightbox({
       // also resets so the next keyboard +/- bases targets on 1.
       setActiveScale(1);
       requestedScaleRef.current = 1;
+      // R1 finding 2: leaving a slide ABANDONS its in-flight retry, so the
+      // state has to end with it. Previously only the RENDERING stopped (the
+      // overlay is gated on `isActive`) while `retrying` kept the id, so
+      // swiping back resurrected `Retrying…` for a request nobody is waiting
+      // on and could remount a second image request. The sweep could not catch
+      // this: it keys on availability, and an inactive slide is still available.
+      //
+      // `failedKeys` regains the id in the same breath. The item did fail, the
+      // retry that would have cleared it was abandoned, so the honest state on
+      // return is the failed cell with its retry control -- not a loaded image
+      // and not a phantom spinner.
+      setRetrying((prev) => {
+        if (prev.size === 0) return prev;
+        const leaving = itemsRef.current.filter((entry, i) => i !== index && prev.has(entry.id));
+        if (leaving.length === 0) return prev;
+        const next = new Set(prev);
+        for (const entry of leaving) next.delete(entry.id);
+        return next;
+      });
+      setFailedKeys((prev) => {
+        const leaving = itemsRef.current.filter(
+          (entry, i) => i !== index && retryingStateRef.current.has(entry.id),
+        );
+        if (leaving.length === 0) return prev;
+        const next = new Set(prev);
+        for (const entry of leaving) next.add(entry.id);
+        return next;
+      });
       // The announcement is owed by THIS handler, not by the chevrons: a swipe
       // changes the slide with no button involved, and since the inactive
       // slides left the accessibility tree the change is otherwise silent.
@@ -592,6 +729,41 @@ export function GalleryLightbox({
   //   exit-animation has a place to play on unmount.
   const motionDuration = prefersReducedMotion ? 0 : 0.22;
   const zoomed = isZoomed(activeScale);
+  // The Reset chip acts through `controlsSlotRef`, which the availability sweep
+  // nulls the instant the active slide goes unavailable. `zoomed` alone left one
+  // commit painting an ENABLED Reset button whose action could no longer fire --
+  // plan review R5, an executed probe observing `{available:false, activeScale:2,
+  // resetVisible:true}`. Gating the chip on availability closes the frame at the
+  // predicate, which is where it closes for every render rather than for a
+  // settled one. `zoomed` itself is NOT narrowed: it also drives the focus
+  // effect above, which must still run when a zoomed slide goes away.
+  //
+  // It reads `available` ONLY, not `failedKeys`. A runtime-failed slide is
+  // already covered, by a different mechanism: its `onError` forces the lifted
+  // scale back to 1, so `zoomed` is false and the chip cannot render. Saying so
+  // here rather than adding a redundant conjunct -- a second gate nothing could
+  // observe is the shape this arc has removed three times already.
+  const activeAvailable = items[activeIndex]?.available ?? false;
+  // R2 finding 4. `activeScale` and `requestedScaleRef` describe ONE ITEM's
+  // zoom, but they were swept on `activeAvailable`, which is a fact about the
+  // SLOT. Replacing the active item with a different available item at the same
+  // index changes the owner without changing the slot, so an availability-keyed
+  // sweep sleeps through it and the arriving item inherits the departed item's
+  // zoom: a stale Reset chip, a false "Zoomed out" announcement, and a first `+`
+  // that jumps from the old scale.
+  //
+  // Keyed on the OWNER now. `onSelect` already covers navigation, where the
+  // index moves; this covers the case it cannot see, where the index is still.
+  const activeId = items[activeIndex]?.id ?? null;
+  // Derived-state-during-render, the pattern React documents for "adjust state
+  // when a prop changes" and the one this file already uses for the sweep. It is
+  // guarded by inequality so it re-renders once and terminates.
+  //
+  // An effect was the obvious alternative and is wrong twice over: it commits a
+  // frame late, so the arriving item paints once wearing the departed item's
+  // Reset chip, and `react-hooks/set-state-in-effect` rejects it outright.
+  const scaleOwnerMismatch = scaleOwner !== null && scaleOwner !== activeId;
+  if (scaleOwner !== activeId) setScaleOwner(activeId);
 
   // The Reset chip unmounts the instant scale returns to 1, and it is
   // Tab-reachable. Its own onClick relocates focus first, but `0`, `-`, chevron
@@ -610,14 +782,102 @@ export function GalleryLightbox({
   //
   // useLayoutEffect, not useEffect: this runs in the commit that unmounts the
   // chip, before paint, so no keystroke can land on `<body>` in between.
+  //
+  // R1 finding 1 GENERALISED this from the chip to every control-removal path.
+  // The chip was never special: a successful retry, a repeated failure, an item
+  // going unavailable and a slide change all unmount a control that may hold
+  // focus, and each dropped it to `<body>` outside a dialog that is still
+  // trapping. The predicate was already the right one -- "is focus inside the
+  // dialog" is order-independent and true whatever removed the node -- so the
+  // repair is to stop narrowing WHEN it runs, not to add four more mechanisms.
+  //
+  // The `zoomed` early return is gone with it: focus escaping WHILE zoomed
+  // wanted rescuing too, and returning early there was the bug in miniature.
+  //
+  // Closing is the one case that must NOT be rescued: `handleClose` hands focus
+  // back to the thumbnail, which is correctly outside this dialog, and yanking
+  // it to Close would fight the close. `closedAtNonce === openNonce` is exactly
+  // "this session is closing" and is already the gate the demote chip uses.
   useLayoutEffect(() => {
-    if (zoomed) return;
+    if (closedAtNonce === openNonce) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
     const active = document.activeElement;
     if (active instanceof HTMLElement && dialog.contains(active)) return;
     closeRef.current?.focus();
-  }, [zoomed]);
+  }, [zoomed, retrying, failedKeys, activeIndex, activeAvailable, closedAtNonce, openNonce]);
+  // The REF half of the availability sweep. Split from the render-time half
+  // above only because `react-hooks/refs` forbids writing a ref during render;
+  // neither of these renders, so committing a frame later costs nothing.
+  // `requestedScaleRef` decides what the NEXT keyboard +/- bases its target on,
+  // and left stale it makes the next zoom jump from the departed item's scale.
+  // TWO different owners, deliberately separated. Collapsing them regressed the
+  // demote chip's "swipe away and back keeps its remaining lifetime" case, which
+  // is the correct behaviour: the chip belongs to the DEMOTED item and is not
+  // the active slot's business, so merely changing which slide is active must
+  // not cancel it.
+  //
+  // The SCALE refs follow the active item's identity.
+  // The REF half only. Refs may be written in an effect and not in render, and
+  // `requestedScaleRef` does not render, so a frame's delay costs nothing here.
+  useEffect(() => {
+    if (scaleOwnerMismatch || !activeAvailable) requestedScaleRef.current = 1;
+  }, [activeAvailable, scaleOwnerMismatch]);
+
+  // The demote TIMER follows its own item's existence, not the active slot's.
+  // Cleared when the notice it belongs to has been swept away above -- which the
+  // render half does on `liveIds`, i.e. the item genuinely leaving.
+  useEffect(() => {
+    if (demotedNotice !== null) return;
+    if (demoteTimerRef.current === null) return;
+    clearTimeout(demoteTimerRef.current);
+    demoteTimerRef.current = null;
+  }, [demotedNotice]);
+
+  // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
+  //
+  // Keyed on the rendered id SET rather than on `item.available`, because an item
+  // dropped from `items` never flips that prop -- it simply stops being rendered.
+  //
+  // Swept in render, not in an effect: an effect runs after paint, so the
+  // returning slide would commit one frame still holding its earlier life's
+  // state. `wantsOriginal` is the member that makes this urgent -- a stale pin
+  // re-requests the ORIGINAL on the returning active slide with no gesture and
+  // no tap (AC-18).
+  const liveIds = new Set(items.filter((entry) => entry.available).map((entry) => entry.id));
+  const sweepSet = (prev: ReadonlySet<string>): ReadonlySet<string> => {
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of prev) {
+      if (liveIds.has(id)) next.add(id);
+      else changed = true;
+    }
+    return changed ? next : prev;
+  };
+  const sweptFailed = sweepSet(failedKeys);
+  const sweptRetrying = sweepSet(retrying);
+  const sweptWantsOriginal = sweepSet(wantsOriginal);
+  if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
+  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
+  if (sweptWantsOriginal !== wantsOriginal) setWantsOriginal(sweptWantsOriginal);
+
+  // R1 finding 3. Four more members carry `swept: true` rows and none of them
+  // were being swept. The registry's stated reason -- "the active-slide ERROR
+  // path already resets it" -- is true and beside the point: going UNAVAILABLE
+  // is a different path, and it is the one this sweep exists for.
+  //
+  // `activeScale` is lifted state and renders, so it is swept HERE, in render,
+  // for the same reason `wantsOriginal` is: an effect commits one frame late and
+  // that frame paints an enabled Reset chip on an item that is gone. Its two
+  // REFS are swept in the effect below instead -- `react-hooks/refs` forbids
+  // writing a ref during render, and neither ref renders, so a frame costs
+  // nothing there.
+  if ((!activeAvailable || scaleOwnerMismatch) && activeScale !== 1) setActiveScale(1);
+  // The chip is per-item and keyed by id, so an item that leaves takes its
+  // notice with it. Without this a demote could outlive its item and reappear
+  // on the returning slide inside the six-second window.
+  if (demotedNotice !== null && !liveIds.has(demotedNotice.id)) setDemotedNotice(null);
+
   return (
     <motion.div
       ref={dialogRef}
@@ -723,7 +983,7 @@ export function GalleryLightbox({
           intent, strengthened rather than overturned: the 2026-08-16 outline swap took the ring
           from 1.59/1.50 to 3.35/3.53 on `surface-raised`. Keyboard-focusable; in the focus trap.
         */}
-        {zoomed ? (
+        {zoomed && activeAvailable ? (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-dropdown flex justify-center px-4">
             <button
               type="button"
@@ -762,8 +1022,20 @@ export function GalleryLightbox({
         <div ref={emblaRef} className="size-full overflow-hidden">
           <div className="flex size-full">
             {items.map((item, i) => {
-              const available = item.available && !failedKeys.has(item.id);
+              const isRetrying = sweptRetrying.has(item.id);
               const isActive = i === activeIndex;
+              // The image renders for BOTH idle and retrying, mounted once in its
+              // final position (§4.0.5), with the in-flight control overlaid.
+              const available = item.available && (!sweptFailed.has(item.id) || isRetrying);
+              // `failed` is disjoint from `retrying`: the render picks one branch.
+              // ACTIVE ONLY (spec §2, Task 6). Embla renders every slide, so an
+              // unscoped control is rendered on each of them: invisible,
+              // off-screen, and still Tab-reachable inside an `aria-modal`
+              // dialog, so a keyboard user tabs into a control for a diagram they
+              // cannot see and cannot identify. Task 5 introduced that leak
+              // deliberately and visibly; this closes it.
+              const showRetry =
+                isActive && item.available && sweptFailed.has(item.id) && !isRetrying;
               // Computed once per slide: both tiers branch on it, and calling the
               // guard twice per branch invites the two calls to disagree.
               const dims = validDims(item);
@@ -787,9 +1059,56 @@ export function GalleryLightbox({
                   // while the slide it describes swipes out from under it.
                   className="relative flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
                 >
+                  {isRetrying && isActive ? (
+                    /*
+                      The in-flight overlay (§4.0.5), above the image rather than
+                      replacing it: the node that loads is the node the idle slide
+                      then shows, so one tap stays one request.
+
+                      `aria-disabled` and never the native `disabled`. A natively
+                      disabled control leaves the tab order and the browser drops
+                      focus to `<body>` -- OUTSIDE this `aria-modal` dialog, where
+                      the non-Escape keymap gate stops responding. That is the
+                      §7.1 defect, and it is worse here than in the gallery.
+                    */
+                    <button
+                      type="button"
+                      data-testid="lightbox-retrying"
+                      ref={(node) => {
+                        retryingRefs.current.set(item.id, node);
+                        // THE READER. `focusRetryTargetRef` was written on both
+                        // transitions and consumed by nothing -- a flag that read
+                        // as a focus hand-off while doing nothing at all, found by
+                        // the invariant-8 audit. The gallery's twin survives its
+                        // equivalent gap because React reuses the thumbnail node;
+                        // here the controls are different elements, so focus is
+                        // genuinely lost -- to `<body>`, outside an aria-modal
+                        // dialog that is still trapping (§7.1, AC-6).
+                        if (node && focusRetryTargetRef.current === item.id) {
+                          focusRetryTargetRef.current = null;
+                          node.focus();
+                        }
+                      }}
+                      aria-busy="true"
+                      aria-disabled="true"
+                      onClick={(event) => event.preventDefault()}
+                      aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Retrying…`}
+                      // `text-text` for DESIGN.md §1.1a: in-flight is not an
+                      // action, but it is a button, and the rule's default for
+                      // anything interactive is text or stronger.
+                      className="absolute inset-x-0 top-2 z-dropdown mx-auto inline-flex min-h-tap-min w-fit items-center gap-1 rounded-sm bg-surface-raised px-3 py-2 text-sm font-medium text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      Retrying…
+                    </button>
+                  ) : null}
                   {demotedNotice?.id === item.id &&
                   demotedNotice.nonce === openNonce &&
-                  !failedKeys.has(item.id) ? (
+                  // Directly, alongside the sweep and deliberately redundant with
+                  // it: the sweep fixes the TIMER, this fixes the FRAME. Without
+                  // it the chip survives over an unavailable slide until its
+                  // timeout expires (AC-14).
+                  item.available &&
+                  !sweptFailed.has(item.id) ? (
                     /*
                       The sighted twin of the `role="log"` announcement, and
                       `aria-hidden` for exactly that reason: the region already
@@ -984,7 +1303,7 @@ export function GalleryLightbox({
                               // the original lands — the silent sharpen.
                               // Variant-less entries resolve to the original in
                               // both states, so the gate is a no-op there.
-                              pinOriginal: wantsOriginal.has(item.id),
+                              pinOriginal: sweptWantsOriginal.has(item.id),
                             })}
                             src={item.key}
                             alt={item.alt || `Diagram ${i + 1}`}
@@ -997,7 +1316,49 @@ export function GalleryLightbox({
                             // to the letterboxed image.
                             style={{ objectFit: "contain" }}
                             {...(dims ?? { fill: true as const, sizes: "100vw" })}
+                            onLoad={() => {
+                              // `retrying` → `idle` (§4.0.5): the overlay clears
+                              // and the image node itself does not change.
+                              if (!retrying.has(item.id)) return;
+                              setRetrying((prev) => {
+                                if (!prev.has(item.id)) return prev;
+                                const next = new Set(prev);
+                                next.delete(item.id);
+                                return next;
+                              });
+                              onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} loaded.`);
+                            }}
                             onError={() => {
+                              // A retry that failed AGAIN. Handled first and
+                              // returned from, so it never reaches the demote
+                              // branch below: `handleSlideRetry` cleared
+                              // `wantsOriginal`, so this failure is a CLAMPED
+                              // tier failure and there is nothing to demote to.
+                              // The copy is distinct from the first failure's,
+                              // or a user cannot tell a failed retry from the
+                              // original break (AC-3).
+                              if (retrying.has(item.id)) {
+                                const overlay = retryingRefs.current.get(item.id) ?? null;
+                                if (overlay && document.activeElement === overlay) {
+                                  focusRetryTargetRef.current = item.id;
+                                }
+                                setRetrying((prev) => {
+                                  if (!prev.has(item.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.delete(item.id);
+                                  return next;
+                                });
+                                setFailedKeys((prev) => {
+                                  if (prev.has(item.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.add(item.id);
+                                  return next;
+                                });
+                                onAnnounce?.(
+                                  `${item.alt || `Diagram ${i + 1}`} still could not be loaded.`,
+                                );
+                                return;
+                              }
                               // DEMOTE, don't destroy (impeccable critique P0,
                               // 2026-08-11). The zoom gate made the original a
                               // fetch the USER triggers, so on venue wifi a
@@ -1189,6 +1550,44 @@ export function GalleryLightbox({
                         />
                       </div>
                     )
+                  ) : showRetry ? (
+                    /*
+                      The active slide's retry (spec §5). Full width, so unlike the
+                      117px thumbnail it can say what happened above the action.
+
+                      `Full size.` ONLY for an originals-only entry, and the
+                      predicate takes the ORIGINAL KEY because a well-formed row
+                      can name the original itself. It is the one honest thing we
+                      know about cost in advance: there is no smaller tier, so this
+                      fetch is the whole object. A laddered entry gets no such line
+                      -- the clamped tier is what it will fetch, and inventing a
+                      number the route never sends would be worse than silence.
+                    */
+                    <div className="flex flex-col items-center gap-3 text-text-subtle">
+                      <span aria-hidden="true">⊘</span>
+                      <span className="text-xs/relaxed">Could not be loaded.</span>
+                      <button
+                        type="button"
+                        data-testid="lightbox-retry"
+                        ref={(node) => {
+                          retryControlRefs.current.set(item.id, node);
+                          // The other direction: a retry that fails again unmounts
+                          // the overlay, and this control is what replaces it.
+                          if (node && focusRetryTargetRef.current === item.id) {
+                            focusRetryTargetRef.current = null;
+                            node.focus();
+                          }
+                        }}
+                        onClick={() => handleSlideRetry(item)}
+                        aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Tap to retry.`}
+                        className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-3 py-2 text-sm font-medium text-accent-on-bg hover:bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      >
+                        Tap to retry
+                      </button>
+                      {hasVariantTier(item.variants, item.key) ? null : (
+                        <span className="text-xs/relaxed">Full size.</span>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-text-subtle">
                       <span aria-hidden="true">⊘</span>

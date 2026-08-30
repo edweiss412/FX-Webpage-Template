@@ -1,3 +1,50 @@
+### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session — CLOSED 2026-08-29 (`feat/diagram-failure-retry`, SHIPPED)
+
+**Resolution: SHIPPED.** The entry deferred under class-sweep exception (a) — it needed a
+product decision this repo could not settle — and it graduated by that decision being taken,
+not by the requirement being waived. Eric ratified the clamped tier, the copy shape
+`"<name> could not be loaded. Tap to retry."`, and an explicit in-flight state; he then
+overrode the draft's withhold so originals-only cells get the control too, at original cost up
+to the route's 50 MB cap. His reason is the one the entry could not supply for itself: no dead
+ends.
+
+**The defect, as measured.** `failedKeys` was add-only in both gallery surfaces, so one dropped
+request on venue wifi cost that diagram until a page reload the crew member had no reason to
+attempt. The cell left behind was a non-interactive `<div>`. A probe suite pinned the
+terminality before any repair: a DOM-derived interactive-element query returned empty against a
+healthy sibling that returned non-empty, a re-render with identical props left the cell failed,
+and only a fresh mount restored it.
+
+**The cost the entry flagged is the reason the mechanism is what it is.** The entry was right
+that the asset route sends `private, max-age=0, must-revalidate` with no validator, so a retry
+that remounts the image is a second unconditional GET. The design therefore does NOT remount:
+the `<Image>` mounts once, in its final position, and survives `retrying → idle` untouched,
+with an overlay above it carrying the in-flight control. Measured, not assumed — the remount
+shape issued one further request and the surviving element zero
+(`tests/e2e/image-remount-request-count.probe.spec.ts`). An earlier draft's `attempt` counter,
+whose only purpose was to force that remount, was specifying the defect and does not ship.
+
+**A second probe removed a requirement instead of adding one.** A draft specified
+`loading="eager"` while retrying, on the theory that the overlay could defer a covered image
+indefinitely. Task P3 refuted the mechanism in Chromium and WebKit: covering is not what defers,
+being off-screen is, and the retry is reached by a tap, so the cell is in the viewport. The
+attribute was dropped.
+
+**Spec §0 records six mechanisms specified during design that did not survive implementation.**
+The spec is canonical under invariant 7, so the divergence is stated at the top of the file
+rather than in footnotes: an implementer following the superseded normative text literally
+would reintroduce defects this branch removed.
+
+**Review cost, recorded because it is the arc's real lesson.** Six counted diff rounds across
+three merge bases, plus three spec and five plan rounds. The code was clean from round 3 on;
+rounds 3, 4 and 5 were all documentation, and all three were the same defect in my own method —
+I derived over identifier names while the class lived equally in prose, so each repair's term
+list missed the rest. Round 5's narrow bound (does any mention outside §0 state a LIVE
+requirement) plus an exhaustive read over six named files finally closed it, and sweeping the
+shape myself before repairing found three sites the round had not named. Filed in full at
+`docs/review-rounds/feat/diagram-failure-retry/6bfb58e4f66b.md`, including the accepted
+documented limit: prose-form mentions converge by read plus sweep, never by regex.
+
 ### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure — CLOSED 2026-08-29 (`fix/help-tour-grid-and-settings-card`, SHIPPED)
 
 **Resolution: SHIPPED, by the larger of the two repairs the entry named.** The un-defer trigger
