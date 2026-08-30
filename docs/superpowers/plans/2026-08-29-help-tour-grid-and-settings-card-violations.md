@@ -1,0 +1,161 @@
+# Violation inventory — observed transcript
+
+Every acceptance criterion in
+[`2026-08-29-help-tour-grid-and-settings-card.md`](2026-08-29-help-tour-grid-and-settings-card.md)
+§3, staged against the finished tree, the named command observed, then reverted.
+
+Staged by copy-aside under an EXIT trap. Never `git stash`: that stack is repo-global
+across worktrees and `lint-staged` pushes an entry on every commit in every arc.
+
+**The restore is PROVEN, not assumed.** After the first staged violation the four
+touched files are checked byte-identical to HEAD, and a failed restore ABORTS the
+inventory rather than annotating a row — because the failure is silent and
+self-confirming: every later row would measure a tree still carrying AC-1d's violation,
+and a permanently single-column page reds plausibly for almost any criterion.
+
+| AC | staged violation | observed | result |
+| --- | --- | --- | --- |
+| AC-1d | all three tour grids reverted to grid-cols-1, bleed dropped | grid 1 at 752px | RED OBSERVED |
+| AC-1 | minimum lowered to 16rem | measure at | RED OBSERVED |
+| AC-1a | minimum lowered to 10rem, which fits two tracks in the 358px mobile container | at 390px | RED OBSERVED |
+| AC-1b | errors jump list restored to sm:grid-cols-2 | at 768px | RED OBSERVED |
+| AC-1c | min(...,100%) dropped, leaving a bare 22rem | grid 1 track 1 within its container at 320px: expected <= 288.5, received 352 | RED OBSERVED |
+| AC-2 | the > * scoping removed, so the cap lifts entirely | reading measure too wide | RED OBSERVED |
+| AC-3 | Settings card deleted | /help/admin/settings | RED OBSERVED |
+| AC-4 | a ninth admin-surface NAV entry added with no card | expected 8 to be 9 | RED OBSERVED |
+| AC-5 | the --help-measure declaration removed | cap the reading measure | RED OBSERVED |
+| AC-6 | one card duplicated: 9 anchors, 8 distinct | expected 9 to be 8 | RED OBSERVED |
+| AC-7 | an em dash placed in the Settings card body | em-dashes | RED OBSERVED |
+
+Eleven criteria, eleven distinct staged violations, restore proven after each.
+
+**AC-1c did NOT red on the first pass, and that is the most valuable row here.** As
+originally written the criterion compared the grid ELEMENT's width to its container.
+A grid element is a block child: it sits at container width whatever its tracks do, so
+a minimum that cannot shrink overflows the TRACK while the element stays put. The
+assertion could not fail for any layout — it was a tautology, and it had already
+returned a green in task 5's run.
+
+The row above is the re-run after the assertion was changed to read the resolved first
+track. Staging the same violation then produced a 352px track in a 288.5px container.
+
+Worth recording rather than quietly fixing: the identical detector bug was found and
+corrected in this arc's own scratch probe earlier the same day, and then reproduced in
+the shipped assertion. Knowing a lesson did not transfer it between two artifacts — the
+same observation this arc's plan-stage round-economy filing makes about the spec and the
+plan. Staging the violation is what caught it; nothing else would have.
+
+---
+
+## Post-review additions
+
+Diff review rounds 1 and 2 added assertions this table predates. Their labels were
+re-checked against the shipped source afterwards, which is how the AC-1c row's observed
+string came to read `track 1` rather than `track` — the assertion moved from the first
+track to every track, and a transcript that quotes a label the code no longer emits is
+the same stale-citation defect the reviews kept finding, one artifact over.
+
+**All five post-review assertions are now staged and observed.** One of them PASSED with
+its violation in place, which is why this section exists.
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| §4 rows 2/4, the bleed | `help-bleed` stripped from all three grids | grid 1 width at 1024px: expected 728, received **704.4** | RED OBSERVED |
+| §4 + AC-3, the guard bridge | last card group loses `grid`, so its anchors leave every measured grid | marked anchors inside a measured grid at 688px: expected 8, received **6** | RED OBSERVED |
+| §4 row 8, shared height | `items-start` on the first grid, defeating grid's default stretch | grid 1 row 1 card 2 height at 752px: expected 324.6, received **402.6** | RED OBSERVED |
+| §4 row 4, the 1440 cap | `max-w-6xl` dropped from `app/help/layout.tsx` | main content width at 1280px: expected 856, received **984** | RED OBSERVED |
+| §4 row 7, body vs the measure | the span card's `<p>` loses its cap | full-span card 1 body within the measure at 1280px: expected <= 704.876, received **814** | RED OBSERVED, **on the second attempt** |
+
+704.4px in the first row is the capped width — the exact scenario round 1's first finding
+described, where a grid that never escapes the measure satisfies every column count and
+every measure bound. The assertion discriminates, and that is measured rather than
+asserted.
+
+**The last row is the one worth reading.** As first written it sampled only 768 and 1016,
+and the violation PASSED at both. The card carries `p-5`, so its body is the grid width
+less 40px: 432px at 768 and 680px at 1016, both comfortably under the 704.4px measure. The
+assertion could not fail at either viewport for any layout — a tautology, in an assertion
+written to close a round-2 finding, sampled where it could never bind. Adding 1280, where
+the body is 814px, produced the red above.
+
+**The carrier was renamed TWICE, and the second rename shipped a regression CI caught.**
+The first rename, to a `.help-measure-cap` class in `@layer base`, was made to keep a literal `--`
+out of MDX for the em-dash guard. It was never re-verified in a browser, because the vitest suite
+does not cover Playwright — and `@layer base` LOSES to `@layer utilities`, which is where the
+original `max-w-[var(--help-measure)]` utility lived. The cap silently stopped applying and the
+span card measured **81.4ch against the 75ch ceiling** on CI's non-required `deep-link-walker` job.
+Bisected by run history: green at `a80725068`, first red at `84587d8e8`, the rename commit itself.
+
+Repaired with a Tailwind v4 `@utility`, which emits into the utilities layer; confirmed by compiling
+`app/globals.css` and reading which layer the rule landed in, then re-probed:
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| §4 row 7, body vs the measure, under `@utility` | `help-measure-cap` removed from the span card's `<p>` | full-span card 1 body within the measure at 1280px: expected <= 704.876, received **814** | RED OBSERVED |
+
+**The lesson is not about CSS layers.** A mechanism change was made and the test that verifies that
+mechanism was not re-run — the same omission this document exists to prevent, committed by its own
+author, four commits after writing the row above. The assertion was correct throughout; nothing
+executed it.
+
+**What the round-4 repair did buy:** the row survives both renames unedited, because it asserts the
+EFFECT rather than the carrier. A guard keyed to `max-w-[var(--help-measure)]` would have needed
+rewriting twice and would have passed vacuously in between.
+
+ That is the SAME class as round 2's `22rem` finding: sample coverage, not assertion form.
+It recurred here in the repair for a different finding, which is the honest measure of how
+easily this class hides — and it was caught by staging the violation rather than by
+reasoning about the assertion, exactly as the AC-1c row above was.
+
+---
+
+## Round 3, and the class it closed
+
+Round 3 returned ONE finding, down from four and four. The guard on AC-2's measure matched
+`--help-measure:\s*\d+ch`, so a one-line `70ch` to `69ch` edit passed it, passed the
+typography spec (a 76ch ceiling only), stayed inside the card suite's 28-75ch band and
+still distinguished the bleed — while shrinking every capped desktop child from 704.4px to
+about 694.3px, which is exactly what AC-2 forbids.
+
+**The reason no violation caught it is the general lesson.** Every staged violation in the
+table above REMOVES something: the cap, the bleed, the `grid` class, the `min()`, the card.
+A removal-only violation cannot catch a value that is merely WRONG, and AC-2's row tested a
+removed cap. The two findings that shipped in this class arrived from opposite directions —
+`22rem` had no pin at all, `70ch` had a pin that accepted any integer — and both survived
+because the criterion names one value while the guard admitted a family.
+
+Closed as a class rather than an instance: every layout constant the spec derives is now
+pinned to its authored site at its exact value, in one block that states why.
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| AC-2, the measure's VALUE | `--help-measure: 70ch` changed to `69ch` | must cap the reading measure at exactly 70ch: expected `--help-measure: 69…` to match `/--help-measure:\s*70ch\b/`, in BOTH the prose-layer guard and the constant pin | RED OBSERVED |
+
+---
+
+## Round 4, and why two guards were needed rather than one
+
+Round 4 returned one finding, on round 3's own repair. The token pin guards the
+DECLARATION, and CSS is not decided by declarations — it is decided by the cascade. A
+later, more specific `.help-prose > p { max-width: 69ch }` is an ordinary prose-layer edit,
+squarely inside the threat fence, and it shrinks every paragraph on every help page while
+both token pins stay green and the typography ceiling (76ch) is still satisfied.
+
+**The bleed assertion gets EASIER under that edit, not harder.** It asserts the grid
+exceeds a capped sibling, so a shrinking sibling widens the gap it measures. A guard
+written to prove the bleed happened would have quietly certified the regression.
+
+Repaired at the EFFECT: a capped child renders at exactly the resolved measure wherever
+the container exceeds it, which is cascade-proof because it does not care which rule set
+the width.
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| AC-2, the measure's EFFECT | `.help-prose > p { max-width: 69ch }` injected after the generic rule | capped prose child renders at exactly the measure at 1024px: expected 704.4, received **694.3** | RED OBSERVED |
+| AC-2's token pins, under the SAME violation | (unchanged) | 19 passed | **GREEN, as designed** |
+
+That second row is the point. The token pins CANNOT see a cascade override, and the effect
+assertion CANNOT see the declaration itself change, because the resolved custom property
+moves with it. Neither is sufficient; together they close both directions. Running the
+same staged violation against both is what turned that from an argument into a
+measurement.
