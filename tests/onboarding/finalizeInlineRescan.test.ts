@@ -298,4 +298,80 @@ describe("finalize inline re-parse on modtime drift (Thread 3)", () => {
     expect(failed, "the version gate must have failed this row").toBeTruthy();
     expect(failed!.display_name).toBe(NEW);
   });
+
+  // ---------------------------------------------------------------------------
+  // Whole-diff R1 BLOCKING + its class. The restage runs INSIDE
+  // applyRescanDecisionUnderLock and persists the refreshed parse BEFORE dirtiness
+  // is evaluated, but three post-core early returns (route.ts:997 dirty/hard-failed,
+  // :1017 schema_missing/superseded/not_staged, :1063 restaged-but-gone) return
+  // before the rebind at :1079. Each builds a per-row FAILURE whose display_name
+  // reads row.parse_result, so each reported the SELECT-time title against storage
+  // that already held the refreshed one. R1 named only the first; the sweep found
+  // three, so the repair is one rebind ahead of every branch rather than three patches.
+  // ---------------------------------------------------------------------------
+  it("DIRTY after a rename: the failure display_name is the REFRESHED title, not the select-time one", async () => {
+    const db = seededDb();
+    const OLD = "Old Show";
+    const NEW = "New Show";
+    db.approved = [pending(D, { staged_modified_time: T0, parse_result: parseResult(OLD) })];
+
+    // The restage landed (it precedes the dirty decision in the core), so storage
+    // carries NEW while the route's outer row still holds OLD.
+    const fakeCore = vi.fn(async (_tx, input): Promise<RescanDecisionOutcome> => {
+      const r = db.approved.find((x) => x.drive_file_id === input.driveFileId)!;
+      r.parse_result = parseResult(NEW);
+      return { kind: "dirty_demoted", changed: true, reviewCodes: ["MI-12"] };
+    });
+
+    const res = await handleOnboardingFinalize(
+      request(),
+      driftDeps(db, {
+        prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor(D, NEW)]),
+        applyRescanDecisionUnderLock: fakeCore as never,
+      }),
+    );
+    const body = (await json(res)) as {
+      per_row: Array<{ code: string; display_name?: string }>;
+    };
+
+    expect(OLD).not.toBe(NEW);
+    const failed = body.per_row.find((r) => r.code === "RESCAN_REVIEW_REQUIRED");
+    // Premise: the assertion below says nothing unless this row actually took the
+    // dirty branch. A row that never failed carries no display_name at all.
+    expect(failed, "the row must have been demoted for review").toBeTruthy();
+    expect(failed!.display_name).toBe(NEW);
+  });
+
+  it("SCHEMA_MISSING after a rename: the same rebind covers the second post-restage return", async () => {
+    const db = seededDb();
+    const OLD = "Old Show";
+    const NEW = "New Show";
+    db.approved = [pending(D, { staged_modified_time: T0, parse_result: parseResult(OLD) })];
+
+    // A DIFFERENT branch (route.ts:1017) from the one review named, reached through a
+    // different outcome kind. Two branches make this a class assertion: a fix that
+    // patched only the dirty return would pass the test above and fail this one.
+    const fakeCore = vi.fn(
+      async (): Promise<RescanDecisionOutcome> => ({
+        kind: "schema_missing",
+        code: "STAGED_PARSE_FAILED",
+      }),
+    );
+
+    const res = await handleOnboardingFinalize(
+      request(),
+      driftDeps(db, {
+        prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor(D, NEW)]),
+        applyRescanDecisionUnderLock: fakeCore as never,
+      }),
+    );
+    const body = (await json(res)) as {
+      per_row: Array<{ code: string; display_name?: string }>;
+    };
+
+    expect(OLD).not.toBe(NEW);
+    const failed = body.per_row.find((r) => r.code !== "OK");
+    expect(failed, "the defensive outcome must have failed this row").toBeTruthy();
+    expect(failed!.display_name).toBe(NEW);
+  });
 });

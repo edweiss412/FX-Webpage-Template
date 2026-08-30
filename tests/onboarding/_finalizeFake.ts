@@ -188,12 +188,12 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
       const limit = Number(params[1] ?? 100);
       const cleanRows = this.approved.filter(isFinishableClean).slice(0, limit);
       return {
-        // DETACHED, not aliased. postgres.js returns fresh objects; it never hands
+        // DETACHED DEEPLY, not aliased. postgres.js returns fresh objects; it never hands
         // back a reference into some in-memory store that a later write mutates.
         // Returning `cleanRows` directly meant a fake core mutating the stored row
         // ALSO mutated the route's already-selected row, so a test for "the route
         // must re-read the refreshed value" passed against code that never re-read.
-        rows: cleanRows.map((row) => ({ ...row })) as T[],
+        rows: cleanRows.map((row) => structuredClone(row)) as T[],
         rowCount: cleanRows.length,
       };
     }
@@ -432,7 +432,16 @@ export function withRowTxHoldPortFor(
 }
 
 // A prepared sheet for the injected prepareOnboardingFiles seam (single-file re-export).
-export function preparedSheetFor(driveFileId: string, title = "Show"): PreparedOnboardingFile {
+// The default title MATCHES `pending()`'s default (`Show ${driveFileId}`) on purpose.
+// They used to differ ("Show" vs "Show first-seen-1"), so every test that seeded a row
+// with one helper and prepared the sheet with the other silently modelled a RENAME it
+// never meant to model. That was invisible until the refreshed parse became the title
+// the route reports, at which point a test about demotion CODES started failing on a
+// name. Matching defaults means a rename is now expressed only by asking for one.
+export function preparedSheetFor(
+  driveFileId: string,
+  title = `Show ${driveFileId}`,
+): PreparedOnboardingFile {
   return {
     file: {
       driveFileId,

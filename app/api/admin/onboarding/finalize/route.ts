@@ -991,6 +991,23 @@ async function processApprovedRow(
       isBlockerHeal: true,
     });
 
+    // The refreshed parse is bound BEFORE any outcome branch, because the restage runs
+    // inside the core and persists it BEFORE dirtiness is decided — so from here on,
+    // storage carries the new title whatever the outcome. Three early returns below
+    // (dirty/hard-failed, the defensive schema_missing family, and restaged-but-gone)
+    // each build a per-row FAILURE whose display_name reads `row.parse_result`, and each
+    // reported the SELECT-time title against storage that had already moved. Whole-diff
+    // R1 named the first; the sweep found all three, so the bind sits ahead of the
+    // branches instead of being repeated inside them — a fourth branch added later
+    // inherits it rather than re-opening the bug.
+    //
+    // `prepared.parseResult` is what the restage staged, so it equals the stored value on
+    // every path where the restage landed. On the two defensive outcomes where it may not
+    // have (schema_missing / superseded), this names the sheet as Drive has it right now,
+    // which is the title the operator just typed and the one they will recognise on the
+    // review surface. The clean path re-reads the same field from the row below and wins.
+    row.parse_result = prepared.parseResult;
+
     if (outcome.kind === "dirty_demoted" || outcome.kind === "hard_failed") {
       // The core already wrote last_finalize_failure_code = RESCAN_REVIEW_REQUIRED (genuine content
       // change → surfaced for review by Thread 1). Do NOT re-demote; just return the per-row failure.
