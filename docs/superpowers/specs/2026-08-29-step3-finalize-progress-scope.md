@@ -163,6 +163,33 @@ All DB-free. No `TEST_DATABASE_URL` and no DB slot are required. Each row declar
 | Batch header reads `Setting up your shows…`, and `Publishing your shows` appears nowhere in the batch phase | RED | both component suites | Copy reverted on one of two components that independently render the same sentence. |
 | Subline text equals `<name>` EXACTLY, and `Publishing: ` appears nowhere in the batch phase | RED | both component suites | Same, for the subline. Exact equality, so a prefix creeping back in fails it. |
 | The SET of `[aria-label]` values inside the batch phase equals `{"Show setup progress"}` | RED | both component suites | The four instances, AND any fifth a later edit adds. The set form is what makes it a class guard rather than four spot checks. |
+**Documented limits of the transition audit, 2026-08-30 (whole-diff R1 findings 2 and 3).**
+R1 named six ways the oracle could miss an animation. Four were CLOSED sets and are now
+closed: the renderer x phase matrix runs all four cells rather than FinalizeButton's batch
+alone; the stylesheet parse accepts `animation-*` / `transition-*` longhands, not only the
+shorthands; the class check matches Tailwind's BARE `transition` and `animate` utilities,
+not only the hyphenated families; and every widening was proved by a planted mutant that
+the previous form passed.
+
+Two are genuinely open, and are recorded here rather than chased, per the repair-direction
+rule in AGENTS.md: when successive rounds each widen a recognizer, the class-level repair is
+NARROWING plus a documented limit, because each widening is a bigger target for the next
+round.
+
+1. **Selectors jsdom cannot parse are treated as non-matching.** `el.matches(sel)` throws on
+   some pseudo-element selectors, and the audit catches and continues. This is FAIL-OPEN and
+   deliberately so: the alternative is failing the suite on a selector that no jsdom node can
+   match either way. A real-browser assertion is the only thing that would close it, which is
+   a Playwright surface this arc does not open.
+2. **Aliased Framer imports evade the source-text check.** It matches `AnimatePresence` and
+   `motion.`, so `import { motion as m }` then `m.div` passes. Closing it means parsing the
+   import graph, which is the recognizer growth this rule exists to refuse.
+
+**Threat fence for both:** the audit defends against an ordinary contributor adding an
+animation to these subtrees in the normal way. It does not defend against a contributor
+deliberately obscuring one, and a probe constructed to evade it files here rather than
+opening a round.
+
 **Amendment, 2026-08-30 (whole-diff R1 finding 7).** The accessible name is
 `Show setup progress`, and this section said `Setup progress` in the acceptance row
 while its own normative table above and all four implementation sites said the longer

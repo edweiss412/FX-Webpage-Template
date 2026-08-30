@@ -35,6 +35,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
+import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
+import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import type { ParseResult } from "@/lib/parser/types";
 import { controllableNdjson } from "./_finalizeStreamHarness";
 
 const WIZARD_SESSION_ID = "11111111-2222-4333-8444-555555555555";
@@ -55,7 +58,11 @@ function animatingSelectors(): string[] {
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const sel = m[1]!.replace(/\s+/g, " ").trim();
     if (!sel || sel.startsWith("@")) continue;
-    if (/(?<![-\w])(animation|transition)\s*:/.test(m[2]!)) out.push(sel);
+    // Shorthand AND longhand: `animation-name:` / `transition-property:` animate just as
+    // well as `animation:` / `transition:`, and the shorthand-only form let a rule using
+    // only longhands out (whole-diff R1 finding 3). The optional `-<word>` tail is the
+    // whole widening — the property set is closed, so this does not re-open next round.
+    if (/(?<![-\w])(animation|transition)(-[a-z-]+)?\s*:/.test(m[2]!)) out.push(sel);
   }
   return [...new Set(out)];
 }
@@ -70,12 +77,47 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function batchPanel() {
+function step3Row(driveFileId: string, title: string): Step3Row {
+  return {
+    driveFileId,
+    driveFileName: `${title}.gsheet`,
+    status: "applied",
+    parseResult: { show: { title } } as unknown as ParseResult,
+  };
+}
+
+/**
+ * BOTH renderers, because they independently render the same progress and R1 found
+ * the audit driving only one of them: an animation added to the compact tracking in
+ * Step3 passed while AC-5c claimed both were covered.
+ */
+const RENDERERS = [
+  {
+    name: "FinalizeButton",
+    subtree: "wizard-finalize-progress",
+    mount: () => render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />),
+  },
+  {
+    name: "Step3ReviewWithFinalize",
+    subtree: "wizard-step3-tracking",
+    mount: () =>
+      render(
+        <Step3ReviewWithFinalize
+          wizardSessionId={WIZARD_SESSION_ID}
+          rows={[step3Row("dfid-a", "Alpha"), step3Row("dfid-b", "Bravo")]}
+          finishable
+          initialPublishCount={2}
+          initialUncheckedCleanCount={0}
+        />,
+      ),
+  },
+] as const;
+
+async function panel(renderer: (typeof RENDERERS)[number], phase: "batch" | "cas") {
   const batch = controllableNdjson();
-  fetchMock
-    .mockResolvedValueOnce(batch.response)
-    .mockResolvedValueOnce(controllableNdjson().response);
-  const view = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />);
+  const cas = controllableNdjson();
+  fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+  const view = renderer.mount();
   await act(async () => {
     fireEvent.click(view.getByTestId("wizard-finalize-button"));
   });
@@ -83,7 +125,29 @@ async function batchPanel() {
     batch.push({ type: "listed", total: 2 });
     batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
   });
-  return { ...view, batch };
+  if (phase === "cas") {
+    await act(async () => {
+      batch.push({
+        type: "result",
+        body: {
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        },
+      });
+      batch.close();
+    });
+    await act(async () => {
+      cas.push({ type: "phase", phase: "applying" });
+    });
+  }
+  return { ...view, batch, cas };
+}
+
+async function batchPanel() {
+  return panel(RENDERERS[0], "batch");
 }
 
 describe("finalize progress transitions are instant", () => {
@@ -100,13 +164,26 @@ describe("finalize progress transitions are instant", () => {
     }
   });
 
-  test("no node in the progress subtree animates, by class, inline style, or stylesheet rule", async () => {
-    const { getByTestId } = await batchPanel();
-    const group = getByTestId("wizard-finalize-progress");
+  // R1 finding 2: this ran on FinalizeButton's BATCH phase alone, so an animation in
+  // FinalizeButton CAS, Step3 batch, or Step3 CAS passed while AC-5c claimed every
+  // conditional render in both renderers was covered. The matrix is 2x2 and closed —
+  // completing it finishes a set rather than widening a recognizer.
+  test.each(
+    RENDERERS.flatMap((r) =>
+      (["batch", "cas"] as const).map((ph) => ({ r, ph, label: `${r.name} / ${ph}` })),
+    ),
+  )("no node in the progress subtree animates: $label", async ({ r, ph }) => {
+    const { getByTestId } = await panel(r, ph);
+    const group = getByTestId(r.subtree);
     const nodes = [group, ...Array.from(group.querySelectorAll("*"))] as HTMLElement[];
 
     // Premise: a subtree of one node would satisfy every assertion below.
-    premise("the progress subtree has real descendants", nodes.length, 3);
+    // Per-PHASE, because the two phases legitimately render different node counts and a
+    // single threshold has to be wrong for one of them. Lowering the batch bar to fit CAS
+    // would weaken the cell that renders most of the subtree, so each cell states the floor
+    // its own phase clears: batch draws a heading, a <progress>, a count and a name; CAS
+    // draws a heading and a phase label.
+    premise(`the ${ph} subtree has real descendants`, nodes.length, ph === "batch" ? 3 : 2);
 
     const selectors = animatingSelectors();
     // Premise: the derived cover must actually have derived something, and must
@@ -119,7 +196,12 @@ describe("finalize progress transitions are instant", () => {
     );
 
     for (const el of nodes) {
-      expect(el.className, `${el.tagName} class`).not.toMatch(/\b(transition|animate)-/);
+      // The hyphen was mandatory, so Tailwind's BARE `transition` and `animate` utilities
+      // (both real classes, both animating) walked straight through (R1 finding 3).
+      // Matches either the hyphenated family or the bare class as a whole token.
+      expect(el.className, `${el.tagName} class`).not.toMatch(
+        /(?:^|\s)(transition|animate)(-[\w[\]/.-]+)?(?=\s|$)/,
+      );
       expect(el.style.transition ?? "", `${el.tagName} inline transition`).toBe("");
       expect(el.style.animation ?? "", `${el.tagName} inline animation`).toBe("");
       for (const sel of selectors) {
