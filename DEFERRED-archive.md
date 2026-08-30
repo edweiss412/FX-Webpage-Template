@@ -1,3 +1,73 @@
+### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure — CLOSED 2026-08-29 (`fix/help-tour-grid-and-settings-card`, SHIPPED)
+
+**Resolution: SHIPPED, by the larger of the two repairs the entry named.** The un-defer trigger
+fired on its first clause — an arc touching `/help` layout and `.help-prose` — and the entry left
+the choice of repair open: drop the second grid to `md:grid-cols-2`, or lift both grids out of the
+cap. It called the second "the better answer and the larger change", and that is what shipped.
+
+**The named mechanism was not enough, and the measurement is why.** The entry proposed lifting the
+grids out of the 70ch cap. A 4px sweep from 320 to 1440 (spec §2.3) found that cap binding in only
+two narrow intervals, 740-767 and 1004 upward, so the bleed alone cannot reach 768px — where the
+measure is worst, and where the entry's own probe recorded 10.5ch. The column count was the other
+half: `md:grid-cols-3` gives THREE columns at 1016 and ONE at 752, because `md` has not engaged
+below 768. Both grids now carry `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]`, so the
+count is derived from the container rather than asserted against a breakpoint, and `help-bleed`
+lifts them out of the cap. bl-orch ratified going beyond the entry's mechanism on 2026-08-29: the
+owner ratified the outcome, and a better mechanism for the same outcome is the arc's call.
+
+**The cap moved rather than lifted.** `.help-prose` no longer carries `max-width: 70ch`; its direct
+children do, through an `@property`-registered length. The registration is load-bearing and was
+found by probe, not by reasoning: `ch` is font-relative, so a plain per-child `max-width: 70ch`
+resolves in each child's own font and the headings escape the column (measured at 705.47px against
+900px). Container units were the cheaper-looking option and were rejected with their cost recorded
+— `container-type: inline-size` applies `contain: layout`, which would relocate the `focus:absolute`
+skip link in `app/help/errors/page.tsx`, a WCAG 2.4.1 regression traded for a CSS convenience.
+
+**The sweep the entry owed was run, and it found a peer.** The entry noted that touching
+`.help-prose` obliges a sweep of the other help pages. `/help/errors`'s jump list was the one other
+grid whose column count was asserted rather than derived; it wraps 5 of 7 items at 768. It ships
+with its own `min(18rem,100%)` minimum and no bleed, in branch — one class, one repair, nothing
+deferred.
+
+**Guarded in a real browser, because jsdom computes no layout.**
+`tests/e2e/help-tour-layout-dimensions.spec.ts` asserts the measured column sequences as COUNTS
+(2 at 752, 1 at 768, 2 at 1016), every card body against a 28ch floor and DESIGN.md §2.5's 75ch
+ceiling, the bleed against a capped sibling and against §4's 856px absolute at 1280, every track
+against its container, and a direct overflow read on both pages. The counts are the criterion that
+matters most: a permanently single-column page clears the floor at 65.8ch, never crosses it, cannot
+overflow and never wraps, so every other criterion passes on a change that did not happen.
+
+---
+
+### HELPTOUR-SETTINGS-CARD-MISSING-1 — impeccable P1: /help/tour claims to cover every admin screen and omits one — CLOSED 2026-08-29 (`fix/help-tour-grid-and-settings-card`, SHIPPED)
+
+**Resolution: SHIPPED. The product decision the entry was waiting on was made.** The entry deferred
+under reason (a): adding a Settings card means choosing its group, and softening the intro instead
+keeps the layout but gives up the completeness promise. Both were defensible and the page's author
+had to pick. Eric picked the card, relayed by bl-orch on 2026-08-29. `/help/admin/settings` now has
+one, in "Once per environment" beside the onboarding wizard, and the page's claim to cover every
+admin screen is true: eight cards for the eight `admin-surface` entries in `app/help/_nav.ts`.
+
+**It is a standard card, not an accent card.** The wizard carries `border-accent` because it marks
+the one thing you do once and never again; giving the new card the same treatment would spend that
+emphasis on two of two, which is the same as having none. The contrast is the hierarchy.
+
+**The guard is derived, which is what the entry asked for.** The entry's un-defer trigger required
+that whichever repair shipped, it land with a guard on the CLASS rather than the instance — "the
+tour's card hrefs must cover the `admin-surface` slugs". `tests/help/page-tour.test.tsx` previously
+held a hardcoded list of seven URLs, which is the instance: it could only ever have failed by the
+one page it already knew about. It now reads the expectation from `NAV` itself and asserts set
+equality in both directions plus cardinality, over `a[data-tour-card][href]`. A ninth
+`admin-surface` page added without a card fails by name, and so does a card pointing at a route
+absent from that group. The cardinality arm is not redundant with the set: set equality alone is
+blind to a duplicated href covering a slug twice while another goes uncarded.
+
+**Coverage is read from the card anchors, deliberately.** A prose link to an admin route neither
+satisfies the guard nor breaks it, so the criterion stays about what the page's job actually is —
+being an exhaustive index of cards, not of mentions.
+
+---
+
 ### THEMENOTE-BUBBLE-DISMISS-1 — impeccable P1: the persist-failure bubble has no dismiss — CLOSED 2026-08-26 (`fix/theme-note-polish`, SHIPPED BY REMOVAL)
 
 **Resolution: the un-defer trigger fired, and the product decision went the other way.** The stated
