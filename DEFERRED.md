@@ -10,7 +10,7 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### ATTENTION-PILL-PHONE-LEGIBILITY-1 — impeccable P1: the pill now carries discovery alone at phone widths, at 12px in ~108px (2026-08-29)
 
-**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a missed actionable item on a phone, or any arc that opens the review-modal header's action cluster.
+**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a missed actionable item on a phone, or any arc that opens the review-modal header's action cluster. · **Status:** IN PROGRESS · **Branch:** fix/pill-size-draft-restored-note
 
 `fix/attention-autoopen-suppress-phone` stops the attention menu auto-opening below `sm`, because the panel covered the published toggle at 375 and, on the wizard, the entire chip rail. That change is right and shipped. What it also does is promote the pill from a redundant summary to the ONLY zero-scroll signal that actionable items exist — and the pill was built for the redundant job.
 
@@ -28,7 +28,7 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE-1 — impeccable P1: the restored report draft is off-screen, so the operator retypes it (2026-08-29)
 
-**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that reopens the §D2 rail contract for the report section, or the first report of an operator retyping a draft that had in fact been kept.
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that reopens the §D2 rail contract for the report section, or the first report of an operator retyping a draft that had in fact been kept. · **Status:** IN PROGRESS · **Branch:** fix/pill-size-draft-restored-note
 
 `fix/wizard-report-draft-escape` made a half-typed report draft survive the modal close, and the only cue that it survived is the disclosure trigger reading "Continue your report" instead of "Write a report". That cue is nowhere near the operator when they reopen. The report section is ALWAYS last, the modal reopens scrolled to the top, and the section's rail entry is the one entry that shows no status at all: `railCount: null` and `hideDot: true` (`components/admin/wizard/step3ReviewSections.tsx:5211-5212`), commented "spec §D2 — the only section without a status dot". So nothing in the rail changes when a draft is waiting, and the label change sits roughly twelve sections below the fold.
 
