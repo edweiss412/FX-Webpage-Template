@@ -2209,31 +2209,47 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     }
 
     const TRANSPARENT = "rgba(0, 0, 0, 0)";
+    // A polygon's POINT COUNT, not the word "polygon". Whole-diff R4 showed the
+    // weaker predicate accepts the retired square: a four-point clip keeps zero
+    // radius, the amber fill and `clipped: true`, so every assertion passed on
+    // the exact glyph this arc replaced. Three points is what makes it a
+    // triangle, so three points is what gets asserted.
+    const pointsIn = (clip: string) => {
+      const m = /polygon\(([^)]*)\)/.exec(clip);
+      return m === null ? 0 : m[1]!.split(",").filter((s) => s.trim() !== "").length;
+    };
     const shapeOf = (m: NonNullable<typeof issues>) => ({
       // Fully round means a radius at least half the box.
       round: m.radius >= m.w / 2 - 0.5,
-      // Clipped means a polygon is doing the shaping, which is the triangle.
-      clipped: m.clip !== "none" && m.clip.includes("polygon"),
+      // A THREE-point clip: a triangle, and not the four-point square.
+      triangle: pointsIn(m.clip) === 3,
       filled: m.bg !== TRANSPARENT,
+      // The ring is only a ring if it has a stroke. R4: this value was READ and
+      // never asserted, so deleting `border-[1.5px]` from the monitoring mark
+      // left an 8px round transparent box that passed as a "hollow circle".
+      ringed: m.borderWidth > 0,
     });
     const si = shapeOf(issues!);
     const sw = shapeOf(warnings!);
     const sm = shapeOf(monitoring!);
 
-    expect(si, "issues is a FILLED CIRCLE").toEqual({
+    expect(si, "issues is a FILLED CIRCLE with no stroke").toEqual({
       round: true,
-      clipped: false,
+      triangle: false,
       filled: true,
+      ringed: false,
     });
     expect(sw, "warnings is a FILLED TRIANGLE").toEqual({
       round: false,
-      clipped: true,
+      triangle: true,
       filled: true,
+      ringed: false,
     });
-    expect(sm, "monitoring is a HOLLOW CIRCLE").toEqual({
+    expect(sm, "monitoring is a HOLLOW, RINGED CIRCLE").toEqual({
       round: true,
-      clipped: false,
+      triangle: false,
       filled: false,
+      ringed: true,
     });
 
     // LEGIBILITY AT RENDERED SIZE, which is the condition this repair shipped
@@ -2296,10 +2312,13 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
           if (m === null) return null;
           const cs = getComputedStyle(m);
           const r = m.getBoundingClientRect();
+          const pts = /polygon\(([^)]*)\)/.exec(cs.clipPath);
           return {
             w: r.width,
             radius: px(cs.borderTopLeftRadius),
-            clipped: cs.clipPath !== "none" && cs.clipPath.includes("polygon"),
+            // Three points, not merely "a polygon" -- see T-MARK-GEOMETRY.
+            triangle:
+              pts !== null && pts[1]!.split(",").filter((s) => s.trim() !== "").length === 3,
             bg: cs.backgroundColor,
           };
         };
@@ -2343,8 +2362,8 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
 
     // THE FIX. The warnings segment carries its own mark, and that mark is the
     // triangle -- not the circle the leading mark is showing for issues.
-    expect(measured.warnings!.clipped, "the warnings count carries its OWN triangle").toBe(true);
-    expect(measured.leading!.clipped, "the leading mark is the issues circle here").toBe(false);
+    expect(measured.warnings!.triangle, "the warnings count carries its OWN triangle").toBe(true);
+    expect(measured.leading!.triangle, "the leading mark is the issues circle here").toBe(false);
     expect(
       measured.leading!.radius,
       "the leading mark is fully round in the mixed state",
@@ -2423,8 +2442,14 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     // `aria-label` that replaced the name outright, and this test would pass
     // while a screen reader heard "2". `toHaveAccessibleName` runs the actual
     // name computation, which is the thing the ruling promised to preserve.
-    await expect(pill).toHaveAccessibleName(/issue/);
-    await expect(pill).toHaveAccessibleName(/monitoring/);
+    // EVERY segment's noun, not a sample of them. Whole-diff R4 mutated one
+    // noun away and this passed: the name read
+    // "2 issues·2·2 monitoring clearing on their own" -- the sheet-warnings
+    // noun simply gone -- while /issue/ and /monitoring/ both still matched.
+    // A three-segment pill needs three assertions.
+    for (const noun of [/issue/, /sheet warning/, /monitoring/]) {
+      await expect(pill, `the accessible name must keep ${noun}`).toHaveAccessibleName(noun);
+    }
     // textContent is kept as a SECOND, weaker check: if the two ever disagree,
     // the name is being synthesised from somewhere other than the visible tree.
     expect(seen.announced, "the nouns are in the subtree too").toContain("issue");

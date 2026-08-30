@@ -691,13 +691,45 @@ export function Step3ReviewModal({
                           on the line directly above the conditional, because the
                           source-marker audit reads the line above the site. */}
                       {/* §11: instant — deliberate (separator follows segment presence) */}
-                      {n > 0 ? (
-                        <span className="opacity-50 max-sm:opacity-100">{" · "}</span>
-                      ) : null}
-                      <span className="inline-flex items-center max-sm:whitespace-nowrap">
-                        {m > 99 ? "99+" : m}{" "}
-                        <span className="max-sm:sr-only">
-                          {m === 1 ? "judgment call" : "judgment calls"}
+                      {n > 0 ? <span className="opacity-50 max-sm:sr-only">{" · "}</span> : null}
+                      <span className="inline-flex items-center gap-1 max-sm:whitespace-nowrap">
+                        {/* The judgment segment carries its OWN mark, the same
+                            repair the published twin took for its warnings
+                            segment -- and missed here, which whole-diff R4
+                            caught as a P0. The LEADING mark describes whichever
+                            segment leads, so in the composite state it is the
+                            needs-look fill and this segment was a bare integer:
+                            below `sm` the pill read "2 · 1", two numbers
+                            separated by position alone, which is the exact
+                            ambiguity counts-only creates.
+                            Guarded on `n > 0`, the same predicate as the
+                            separator above, so when judgment LEADS its mark
+                            stays the leading one and the pill never shows two.
+
+                            `text-subtle`, NOT the `text-faint` the leading ring
+                            uses, and the difference is the ground rather than an
+                            inconsistency. The leading ring renders only when
+                            `n === 0`, where the plate is `surface-sunken` and
+                            faint clears at 3.02:1 / 4.11:1. THIS ring renders
+                            only when `n > 0`, where the plate is `warning-bg`
+                            and faint measures 2.793:1 in dark -- under the 3:1
+                            non-text floor. `text-subtle` clears that ground at
+                            6.128:1 / 4.717:1. Same defect class as the ring
+                            repair reverted earlier in this branch, caught this
+                            time by asking which plate the element actually
+                            paints on BEFORE choosing the token. */}
+                        {/* §11: instant — deliberate (segment mark follows the derived count) */}
+                        {n > 0 ? (
+                          <span
+                            aria-hidden="true"
+                            className="size-2 shrink-0 rounded-pill border-[1.5px] border-text-subtle bg-transparent"
+                          />
+                        ) : null}
+                        <span className="inline-flex items-center max-sm:whitespace-nowrap">
+                          {m > 99 ? "99+" : m}{" "}
+                          <span className="max-sm:sr-only">
+                            {m === 1 ? "judgment call" : "judgment calls"}
+                          </span>
                         </span>
                       </span>
                       {/* §11: instant — deliberate (sr-only cap expansion follows the count) */}

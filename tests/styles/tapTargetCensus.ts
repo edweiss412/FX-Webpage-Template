@@ -219,8 +219,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // `<input>` two lines above it -- never by adding the delta. The delta
     // happened to be right here and is wrong the moment two edits land at
     // different depths in the same file. NINTH re-key (:1065 -> :1067) when the
-    // impeccable gate reverted the ring change above it.
-    line: 1067,
+    // impeccable gate reverted the ring change above it. TENTH (:1067 -> :1098)
+    // when R4's P0 added the judgment segment's own mark above it, and an
+    // ELEVENTH (:1098 -> :1099) for the one comment line that marked it.
+    line: 1099,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",

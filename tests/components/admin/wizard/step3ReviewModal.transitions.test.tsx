@@ -1212,9 +1212,21 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     // deliberate-instant, and the §8 pair table is exercised by the "attention
     // pill: §8 inventory" describe below. The five-state chip ternary itself
     // REPLACES the previous three-state one rather than adding a site.
+    //
+    // PLUS 1 (fix/pill-size-draft-restored-note, whole-diff R4's P0): the
+    // judgment segment's OWN leading mark, rendered only when the needs-look
+    // segment leads, so the composite pill stops identifying that segment by
+    // position alone. Deliberate-instant, following the derived count exactly
+    // like the five sites above it.
+    //
+    // The test's NAME says 18 and this assertion says 24. That drift predates
+    // this branch -- the name tracks a curated list length, the assertion tracks
+    // the scanner -- and renaming the test would break every citation to it, so
+    // the divergence is recorded here rather than churned.
+    //
     // MEASURED by running the scanner, not predicted.
     const hits = findConditionalLines(MARKER_AUDIT_SRC);
-    expect(hits.length).toBe(23);
+    expect(hits.length).toBe(24);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {

@@ -431,7 +431,41 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(seen.visible, "the counts themselves stay visible").toMatch(/\d/);
     // The nouns survive in the COMPUTED accessible name, not merely in
     // textContent: an aria-label override would satisfy textContent silently.
-    await expect(chip).toHaveAccessibleName(/need a look|judgment call/);
+    // BOTH nouns, never an alternation. Whole-diff R4 hid each in turn and the
+    // alternation stayed green both times: "2·1 judgment call" satisfied it with
+    // the needs-look noun gone, and "2 need a look·1" satisfied it with judgment
+    // gone. One `|` made a two-segment claim into a one-segment claim.
+    for (const noun of [/need a look/, /judgment call/]) {
+      await expect(chip, `the accessible name must keep ${noun}`).toHaveAccessibleName(noun);
+    }
+
+    // The composite pill's LATER segment carries its own mark, which is the
+    // published twin's repair swept here -- R4 found it missing as a P0. The
+    // leading mark describes needs-look; without this the judgment count was a
+    // bare integer separated from it by position alone.
+    const wizMarks = await chip.evaluate((el) => {
+      const px = (v: string) => parseFloat(v) || 0;
+      const marks = Array.from(el.querySelectorAll<HTMLElement>('span[aria-hidden="true"]'))
+        .filter((m) => m.getBoundingClientRect().width > 0)
+        .map((m) => {
+          const cs = getComputedStyle(m);
+          return {
+            filled: cs.backgroundColor !== "rgba(0, 0, 0, 0)",
+            ringed: px(cs.borderTopWidth) > 0,
+          };
+        });
+      return marks;
+    });
+    // Two segments visible, so two marks, and they are DIFFERENT shapes.
+    expect(wizMarks.length, "the composite pill renders one mark per segment").toBe(2);
+    expect(wizMarks[0], "needs-look leads as a filled mark").toEqual({
+      filled: true,
+      ringed: false,
+    });
+    expect(wizMarks[1], "judgment carries its own hollow ring").toEqual({
+      filled: false,
+      ringed: true,
+    });
     // The regex above passes on a GLUED name ("2need a look" still contains
     // "need a look"), which is how this shipped defective. Below `sm` the noun
     // is `position:absolute` and so is not a flex item, and the separating

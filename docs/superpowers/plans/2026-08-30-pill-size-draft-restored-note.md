@@ -662,6 +662,66 @@ promotion is its own change); the `opacity-50` middot's 2.516:1 at `sm`+
 (pre-existing, desktop-only, and the middot's text stays in the accessible name —
 changing shipped desktop appearance this late needs a ruling, not a gate fix).
 
+### Whole-diff R4: the twin again, and three guards I had just written
+
+BLOCKING, 4 findings, every one probe-backed and every one real.
+
+**P0 — the wizard twin never got the gate's own repair.** The invariant-8 P0 gave
+the published pill a per-segment mark; the wizard's composite pill still
+identified its judgment segment by position alone, rendering `2 · 1` below `sm`,
+and its middot was still visually present against the counts-only recipe. This is
+the fourth time in this arc that a fix landed on one pill and not its twin.
+
+The lesson is narrower than "sweep the class", and it is the one that finally
+stuck: **the twin is not a copy, it is a second instance with its own ground.**
+Its segment ring needed `text-subtle`, not the `text-faint` the published side
+uses and not the `text-faint` its own LEADING ring uses, because the leading ring
+paints on `surface-sunken` (where faint clears at 3.02/4.11) while a SEGMENT ring
+renders only when `n > 0`, where the plate is `warning-bg` and faint measures
+2.793:1 in dark. A sweep that copies the fix rather than re-deriving it on the
+new ground manufactures the next round's finding — which is exactly what the
+reverted ring repair did earlier in this branch. Checking the ground BEFORE
+choosing the token is the habit that replaced it.
+
+**Three findings were guards I had written in the previous round, each accepting
+the defect it names.** All three were demonstrated with a mutant, not argued:
+
+- `clip-path.includes("polygon")` accepted the four-point SQUARE this arc had
+  just retired — zero radius, amber fill, `clipped: true`, every assertion green.
+  Now the polygon's POINT COUNT is asserted: three points, or it is not a
+  triangle.
+- `borderWidth` was READ and never asserted. Deleting `border-[1.5px]` from the
+  monitoring mark left an 8px round transparent box that still passed as a
+  "hollow circle". A dead read in my own oracle.
+- The accessible-name proofs SAMPLED nouns instead of requiring each one. The
+  published case asserted `/issue/` and `/monitoring/` while "sheet warning"
+  could vanish; the wizard used one alternation, so either of its two nouns could
+  disappear with the other satisfying it. Every segment's noun is now its own
+  assertion.
+
+Each fix is pinned by the mutation that broke it: the square mutant fails both
+published guards, the borderless ring fails one, and removing the wizard's
+segment mark fails its case.
+
+**The through-line for the whole arc, stated once.** Every oracle defect here was
+a predicate ADJACENT to the claim rather than equal to it — a class string next
+to a colour, `innerText` next to an accessible name, "a polygon" next to a
+triangle, a read value next to an assertion, one noun next to three. The cheap
+question that catches all of them is the same one: *what would this report if the
+defect were present?*
+
+**CI caught what my local runs did not.** `unit-suite-nodb` went red on a
+repo-wide JSX-ternary count that a hand-picked tier list never walked. The fix is
+one re-derived number, but the cause is that I ran six tiers by name instead of
+the project. Every run since is `vitest --project parallel`, the derived DB-free
+cover, which is 1057 files against the ~618 those six tiers reached.
+
+**`LIM-LINE-KEYED-SITEID` reached ELEVEN re-keys in this one arc.** The deltas
+were +15, +2, +31 and +1. The eleventh was a single `§11` marker COMMENT line
+added above a mark those rows have nothing to do with — the cheapest possible
+edit, and it still invalidated both rows. That is the whole argument for
+content-keyed ids in one observation.
+
 ### The class-sweep unit is the decision PLUS its consequences
 
 The sharpest lesson of this arc, and it took two rounds to reach because the
