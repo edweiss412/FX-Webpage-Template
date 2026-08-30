@@ -57,6 +57,7 @@ Two earlier drafts of this spec tried to state, per row, where that show was hea
 | Round | Finding |
 | --- | --- |
 | Spec R1 | Destiny is not `wizard_approved`. The CAS flip also requires `created_show_id is not null`, so it never reaches a pre-existing show. |
+| Spec R3 | The subline said `Setting up: <name>` about a row the event marks as COMPLETED, and said it for failed rows too. See §2.2. |
 | Spec R2 | It also requires `status = 'applied'`, and `recordCreatedShowProvenance` never restores that status (`app/api/admin/onboarding/finalize/route.ts:641-650`), so a checked first-seen row can commit as `staged` and be excluded. Separately, a single `unchanged` label conflated "content updated" with "nothing happens to this show at all". |
 
 The full predicate is three columns (`app/api/admin/onboarding/finalize-cas/route.ts:680-687`). But copying all three would still not close the class: the batch and the flip are SEPARATE HTTP calls, and R2's own reachability argument is that manifest state changes between them. Any per-row destiny computed during the batch is a PREDICTION that a later route will still agree, over state that is still mutable.
@@ -64,6 +65,14 @@ The full predicate is three columns (`app/api/admin/onboarding/finalize-cas/rout
 Per AGENTS.md's repair direction under same-axis recurrence — "the class-level repair is NARROWING: decline to fire on what the recognizer cannot classify and file the documented limit... Never parser growth" — this spec declines to make the claim.
 
 **Documented limit.** The batch-phase subline names the show being set up and does not say whether it will end up published. The operator gets that, for every row, from the two surfaces immediately preceding this one: the soft confirm names each sheet that will not be published (`components/admin/FinalizeButton.tsx:1096-1129`) and the idle button carries the count (`components/admin/FinalizeButton.tsx:463`). Both are computed from the checkbox state the operator just set, not predicted about a downstream route. **Fenced in both directions:** a later round must not add a per-row publish claim to this stream without a mechanism that observes the flip rather than predicting it, and must not remove the header/label repairs below on the grounds that the subline says less than it could.
+
+## 2.2 The row event marks a COMPLETED row, so the subline is past tense
+
+`onRow` fires after `await runtime.withRowTx(...)` has resolved for that row and after its result is pushed, and it carries `done: perRow.length` — rows finished so far (`app/api/admin/onboarding/finalize/route.ts:1701-1715`). The named row is therefore done, not in progress: across a seven-row batch, events 1 through 6 each name a row that has just completed while the server works on the next one, and event 7 names a completed row until the terminal result replaces the panel.
+
+The same event fires for a row that FAILED. The route's own comment says so: "a row that fails still surfaces via per_row (client stops on non-OK)" (`app/api/admin/onboarding/finalize/route.ts:1707-1709`). A failure is not reported to the client until the terminal `result` at the END of the batch, so a failed row's name can sit in the subline for the remainder of the batch.
+
+Both facts constrain the label. It cannot be present tense ("Setting up: X" names a row that is finished), and it cannot imply success ("Done: X", "Finished: X" would be false for the failed row sitting there until the batch ends). `Processed: ` is the one form that is true in both branches, which means it needs no correction from the terminal result rather than merely getting one.
 
 ## 3. What ships
 
@@ -82,7 +91,7 @@ Both surfaces render the same batch-phase text and both change identically.
 | Batch header (`components/admin/FinalizeButton.tsx:974`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:257`) | `Publishing your shows…` | `Setting up your shows…` |
 | Batch SR live message (`components/admin/FinalizeButton.tsx:485`) | `Publishing your shows` | `Setting up your shows` |
 | Batch button label (`components/admin/FinalizeButton.tsx:493`) | `Publishing…` | `Setting up…` |
-| Row subline (`components/admin/FinalizeButton.tsx:1002`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publishing: <name>` | `Setting up: <name>` |
+| Row subline (`components/admin/FinalizeButton.tsx:1002`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publishing: <name>` | `Processed: <name>` |
 | Group accessible name, BOTH phases (`components/admin/FinalizeButton.tsx:967`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249`) | `Publish progress` | `Setup progress` |
 | Progress bar accessible name (`components/admin/FinalizeButton.tsx:983`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:270`) | `Publish progress` | `Setup progress` |
 
@@ -102,13 +111,13 @@ The batch tracking sits in the sticky footer, whose height is load-bearing: the 
 | --- | --- | --- |
 | `wizard-step3-tracking` (flex column, `gap-1`) → subline | Subline occupies exactly ONE line regardless of name length, so footer height is independent of show-name length | `truncate` on the subline (`components/admin/wizard/Step3ReviewWithFinalize.tsx:273`), unchanged by this spec |
 | `ProgressPanel` subline `<p>` → its two spans | Same one-line guarantee on the other surface | `truncate text-text` on the `<p>` (`components/admin/FinalizeButton.tsx:997`), unchanged |
-| Footer height, before vs after | Identical | No element is added or removed; only the text content of existing nodes changes, and `Setting up: ` is one character shorter than `Publishing: ` |
+| Footer height, before vs after | Identical | No element is added or removed; only the text content of existing nodes changes, and the node is `truncate`d to one line at any length |
 
 This project's Tailwind v4 does not default `.flex` to `align-items: stretch`; no new flex parent is introduced and the existing containers are untouched.
 
 ### 3.4 Transition inventory
 
-Batch-phase subline states: **A** none (`lastName === null`), **B** `Setting up: <name>`. Phase states: **batch**, **cas**.
+Batch-phase subline states: **A** none (`lastName === null`), **B** `Processed: <name>`. Phase states: **batch**, **cas**.
 
 | Pair | Treatment |
 | --- | --- |
@@ -123,7 +132,7 @@ Compound: a name change arriving in the same `setState` as `done`/`total` is ONE
 | Input | Rendered |
 | --- | --- |
 | `lastName: null` (no row event yet) | No subline. Unchanged from today. |
-| `name: null` on the wire (no parsed title) | Existing fallback stands: `msg.name \|\| msg.driveFileId` (`components/admin/FinalizeButton.tsx:232`), behind the `Setting up: ` label. |
+| `name: null` on the wire (no parsed title) | Existing fallback stands: `msg.name \|\| msg.driveFileId` (`components/admin/FinalizeButton.tsx:232`), behind the `Processed: ` label. |
 | `total: 0` | No count, no bar value — existing `state.total > 0` guards (`components/admin/FinalizeButton.tsx:981-985`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:259-269`). Unchanged. |
 | `done > total` | Existing `Math.min(state.done, state.total)` clamp. Unchanged. |
 | Zero-row finish | `listed(0)`, no row events, no subline. Covered today by `tests/onboarding/finalizeStream.test.ts:63`. |
@@ -137,13 +146,13 @@ All DB-free. No `TEST_DATABASE_URL` and no DB slot are required. Each row declar
 | Test | Kind | File | Failure it catches |
 | --- | --- | --- | --- |
 | Batch header reads `Setting up your shows…`, and `Publishing your shows` appears nowhere in the batch phase | RED | both component suites | Copy reverted on one of two components that independently render the same sentence. |
-| Subline reads `Setting up: <name>`, and `Publishing: ` appears nowhere in the batch phase | RED | both component suites | Same, for the subline. |
+| Subline reads `Processed: <name>`, and `Publishing: ` appears nowhere in the batch phase | RED | both component suites | Same, for the subline. |
 | The SET of `[aria-label]` values inside the batch phase equals `{"Setup progress"}` | RED | both component suites | The four instances, AND any fifth a later edit adds. The set form is what makes it a class guard rather than four spot checks. |
 | Running button label reads `Setting up…` | RED | `tests/components/admin/FinalizeButton.test.tsx` | The most prominent control keeping the false verb. |
 | CAS-phase header still reads `Finishing setup…` and its accessible name is still reachable | PRESERVATION | `tests/components/admin/FinalizeButton.test.tsx` | An over-broad copy edit reaching the wrong phase. Green today by construction. |
 | `finishableRows` rename is behavior-neutral: the existing stream suite passes unmodified | PRESERVATION | `tests/onboarding/finalizeStream.test.ts` | A rename that accidentally changes a reader. |
 
-The component suites feed events through the existing `controllableNdjson()` helper (`tests/components/admin/FinalizeButton.test.tsx:1000-1030`); no new harness is needed. Existing suites that must stay green unmodified: the whole of `tests/onboarding/finalizeStream.test.ts` (this spec does not touch the route's emit), plus `tests/log/adminOutcomeBehavior.test.ts` and `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10 — the audit sink is not on the diff).
+Feeding stream events is NOT symmetric across the two suites and the plan must budget for it. `controllableNdjson()` is a module-local function in the FinalizeButton suite (`tests/components/admin/FinalizeButton.test.tsx:961`), not exported and not shared. The Step3 suite holds the running state with a never-resolving fetch (`tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:231`), which produces NO row events, so `state.lastName` stays null and its subline never renders at all. Asserting the compact subline therefore requires extracting that helper to a shared module and importing it in both suites. The extraction is mechanical and is part of the compact-surface task. Existing suites that must stay green unmodified: the whole of `tests/onboarding/finalizeStream.test.ts` (this spec does not touch the route's emit), plus `tests/log/adminOutcomeBehavior.test.ts` and `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10 — the audit sink is not on the diff).
 
 No Playwright task. The earlier draft's geometry test existed to protect a trailing destiny label from truncation; with no destiny label there is nothing for it to protect, and the one-line guarantee is an unchanged `truncate` that no line of this diff touches.
 
