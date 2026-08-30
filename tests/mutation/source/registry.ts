@@ -207,6 +207,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
       "statement-removal",
     ],
     scoreFloor: 0.9,
+    // RUNNING THIS SURFACE ALONE IS NOT POSSIBLE with `-t`. Mutants execute during
+    // COLLECTION, not inside the filtered `it` bodies, so `-t configBranchProbe`
+    // skips the other surfaces' assertions while still running all of their
+    // mutants: measured 2026-08-30 by reading MUTATION_SUITE off the live overlay
+    // child, which named a different surface's suite entirely while the filter was
+    // set. Budget for the WHOLE shard's weight (~40min modelled, ~60min real here),
+    // and if the class-mutation lock is grant-managed, declare that scope when you
+    // ask for it.
     // Enrolled BEFORE the diff review, per AGENTS.md's convergence criterion:
     // this surface is a guard whose defect class is "reports OK while the output
     // moved", which is what the registry expresses, and review is worst at

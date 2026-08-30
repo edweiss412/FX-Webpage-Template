@@ -120,6 +120,12 @@ The parked dark-fixture plate trap (p1pair R5): a dark re-render switches surrou
 
 **Threat fence.** The guard defends against ordinary authoring mistakes: a spec renamed or deleted without updating the config, a spec added to a workflow but not to a project, a config added without being added to the census. Adversarial obfuscation of a config module is out of scope and files to documented limits. The reader is deliberately narrow and throws on anything it does not recognize; widening its grammar to chase constructed inputs is the ratchet this repo has measured and is refused in advance.
 
+### 3.4 Documented limit — a mutation shard cannot be narrowed to one surface
+
+`-t <surfaceId>` does not do it. Mutants execute during collection rather than inside the filtered `it` bodies, so the filter suppresses other surfaces' assertions while still running all of their mutants. Measured 2026-08-30 by reading `MUTATION_SUITE` off the live overlay child, which named a different surface's suite entirely while `-t configBranchProbe` was set. The harness exposes no per-surface env filter.
+
+Consequence for the next enroller: a single surface's score costs the whole shard's wall clock (~40 minutes modelled for shard 3, ~60 measured here), and where the class-mutation slot is grant-managed, the ask has to declare that scope rather than one surface's.
+
 ## 5. Resolved: the duplicate-coverage question
 
 Round 1 recommended deduping all four, and the recommendation is taken. The reasoning that settled it: `step3-review-modal.layout`'s workflow entry cannot justify its project membership, because the entry was itself added on the belief that the spec had never run. Both were added by one arc for one wrong reason, and both are removed together.
