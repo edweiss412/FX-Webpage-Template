@@ -401,3 +401,52 @@ offered as a class closure.
 **Owning record:** this index, plus the plan section of that arc's filing
 
 **Re-file trigger:** named by a 2nd distinct arc, OR a product-facing arc measurably blocked by a defect whose arm existed and was dormant. Note what would NOT settle it: promoting every advisory to a failure trades this shape for a louder one, and the repo has already measured advisory promotion producing noise that authors route around. A candidate repair has to make opting IN the default, or make the arm's region-gating unnecessary, rather than raise its severity.
+
+---
+
+## LIM-E2E-SPEC-DISCOVERY-GAP
+
+**What:** A Playwright spec file whose basename matches no project's `testMatch` regex in `playwright.config.ts` runs nowhere, reports nothing, and looks exactly like a spec that passes. Nothing in the repo compares the set of spec files on disk against the set any project discovers, so a spec can be authored, reviewed, merged, and then silently never execute again.
+
+**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`, by counting both sets rather than by any gate reporting it: **118 spec files exist under `tests/e2e`; 70 are discovered** by `npx playwright test --list`. This arc found four of the undiscovered ones by needing them, not by looking for them:
+
+- `tests/e2e/step3-review-modal.layout.spec.ts` — found while looking for real-browser coverage of a swept pill site.
+- `tests/e2e/attention-autoopen-suppress.spec.ts` — **the sharpest one.** It carries the toggle-occlusion assertion that `fix/attention-autoopen-suppress-phone` deliberately tightened, after that arc found it had been filtering pill-band interceptions out as "pre-existing". That assertion has therefore never executed. It is also the assertion this arc's own RISK-1 depends on.
+- `tests/e2e/attention-pill-focus.spec.ts`
+- `tests/e2e/popover-clip-fit.spec.ts`
+
+All four were wired into `desktop-chromium` and are green: 55 passing in the layout spec, 75 across the three pill specs. Wired in `cf4ffc698` (layout) and `5a1fc2134` (the pill trio).
+
+**Measurement caveat, recorded because it nearly produced a false census:** the first count claimed every spec listed zero tests, including ones known to run. The grep pattern was wrong and returned zero for everything, which is indistinguishable from a real finding of total darkness. The numbers above come from re-measuring against playwright's own `--list` output after the instrument was checked against a spec whose discovery was already known.
+
+**Why this is a limit and not a row (2026-08-25 process mint freeze):** the repair is a guard over a config file, which is process-facing, and its done condition would be a property of the guard rather than a number a product arc or a human notices moving. The freeze's admission test is not met by "118 versus 70" on its own.
+
+**Owning record:** this index, plus the diff section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+
+**First incident:** this arc, 2026-08-30. Four specs wired; one of them held an assertion that had never run and that this arc's own risk analysis depended on.
+
+**Re-file trigger:** a **second independent arc** hitting the same gap. That recurrence, cited against this slug, is the `**Mint-exception:** product-blocked` evidence a row would need — the freeze's own recurrence clause requires hits spanning at least two independent arcs, and one arc hitting its own limit twice does not qualify. What would NOT settle it: wiring more specs by hand as they are discovered, which is what this arc did and which leaves the next 44 exactly as dark. A candidate repair compares the two sets mechanically, so a spec that matches no project fails at authoring time rather than at the moment somebody happens to need it.
+
+---
+
+## LIM-SPEC-QUOTES-UNRECONCILED-MEASUREMENT
+
+**What:** A spec quotes a pixel figure for a surface whose ledger row already carries an independently measured one, and nothing compares them. Both numbers sit in the same repository, about the same element, and disagree.
+
+**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`: the spec's first measurement table reported the two-segment attention pill at **66.39px**, from a probe that rebuilt the pill's markup by hand. `DEFERRED.md` had recorded **84.4px** for the same pill on the same surface. The real render measures **84.39px**. Round 1 of spec review caught the reconstruction; nothing mechanical would have.
+
+**Owning record:** this index, plus the spec section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+
+**Re-file trigger:** a second independent arc shipping a spec figure contradicted by its own ledger row. What would NOT settle it: requiring every spec figure to cite a probe, since the defective probe here DID cite one and was quoted faithfully.
+
+---
+
+## LIM-CITATION-WELLFORMED-BUT-WRONG
+
+**What:** `spec:lint` catches a malformed or out-of-range `file:line` citation and cannot see one that is well-formed and points at the wrong line. The residual risk in a heavily cited document is concentrated entirely in claims that look right.
+
+**Measured 2026-08-30** across five spec rounds on `fix/pill-size-draft-restored-note`, where every other finding class decayed to nothing and this one produced in all five: seven bad anchors in round 1; in round 4, a `T-LAYOUT` equation repeated three times that omitted the sheet-mode grab-strip term, a phantom-gap guard named as protection for a note it cannot render because it drives a different modal, and a clearing-behaviour row attributing a textarea clear to the submit-path helper. `pnpm spec:lint` passed clean on all of them. The `CITATION_SYMBOL_UNMATCHED` advisory fired on four of the seven round-1 anchors, but as an advisory among twenty-plus it does not separate signal from noise.
+
+**Owning record:** this index, plus the spec section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+
+**Re-file trigger:** a second independent arc measuring the same class as its non-decaying one. What would NOT settle it: promoting `CITATION_SYMBOL_UNMATCHED` to a failure, which this corpus has already measured producing noise authors route around. The one mitigation that did work here is procedural and is recorded in the filing: verify from the code side, opening the cited line and asking whether the sentence is true of it, rather than reading the sentence and looking for confirmation.
