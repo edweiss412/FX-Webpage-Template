@@ -191,11 +191,26 @@ describe("finalize progress transitions are instant", () => {
     // duplication needs an identity assertion. Every testid inside the subtree must be
     // unique, so a second conditional mount of the same block fails here rather than
     // passing as "more nodes".
-    const testids = nodes
-      .map((el) => el.getAttribute("data-testid"))
-      .filter((t): t is string => t !== null);
-    const dupes = testids.filter((t, i) => testids.indexOf(t) !== i);
-    expect(dupes, `${ph}: duplicated data-testid inside the progress subtree`).toEqual([]);
+    // Identity is a STRUCTURAL SIGNATURE, not a testid. Keying on `data-testid` alone left
+    // every untagged conditional invisible — the compact count and both compact CAS children
+    // carry none, so duplicating one raised the descendant count, kept the testid set unique,
+    // and passed every motion check (whole-diff R3 finding 2). Tag plus own text identifies a
+    // node whether or not anyone remembered to give it a testid, which is the point: the guard
+    // must not depend on the very annotation a careless duplicate would omit.
+    const ownText = (el: HTMLElement) =>
+      Array.from(el.childNodes)
+        .filter((n) => n.nodeType === 3)
+        .map((n) => n.textContent ?? "")
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim();
+    const sigs = nodes
+      .map((el) => `${el.tagName}|${el.getAttribute("data-testid") ?? ""}|${ownText(el)}`)
+      // A node with no own text and no testid says nothing about identity; two empty
+      // wrappers are not a duplicate mount, so they are excluded rather than counted.
+      .filter((sig) => !sig.endsWith("||"));
+    const dupes = sigs.filter((sig, i) => sigs.indexOf(sig) !== i);
+    expect(dupes, `${ph}: duplicated node inside the progress subtree`).toEqual([]);
 
     const selectors = animatingSelectors();
     // Premise: the derived cover must actually have derived something, and must
@@ -212,7 +227,13 @@ describe("finalize progress transitions are instant", () => {
       // (both real classes, both animating) walked straight through (R1 finding 3).
       // Matches either the hyphenated family or the bare class as a whole token.
       expect(el.className, `${el.tagName} class`).not.toMatch(
-        /(?:^|\s)(transition|animate)(-[\w[\]/.-]+)?(?=\s|$)/,
+        // Variant prefixes included. `motion-safe:animate-pulse`, `hover:transition-colors`
+        // and every compound form escaped a pattern that demanded whitespace immediately
+        // before the utility (whole-diff R3 finding 1), and the stylesheet arm cannot
+        // compensate because Tailwind GENERATES those rules — they are never declared in
+        // globals.css, so the class attribute is the only place they are visible. The
+        // repo uses the form: FinalizeButton.tsx carries three instances today.
+        /(?:^|\s)(?:[\w.-]+:)*(transition|animate)(-[\w[\]/.-]+)?(?=\s|$)/,
       );
       // cssText, NOT the shorthand properties. Probed in jsdom: setting
       // transitionProperty/transitionDuration/animationName/animationDuration leaves

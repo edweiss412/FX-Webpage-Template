@@ -538,11 +538,11 @@ literal. Four arbitrary Tailwind bracket values were checked against the diff an
 this arc; they live in the untouched confirm-sheet and dot code, so they are recorded as
 observed-out-of-scope rather than counted against a marker for work this change did not cause.
 
-Scores: critique 24/40, audit 14/20. **P0: none. P1: five — two fixed here, three deferred.**
+Scores: critique 24/40, audit 14/20. **P0: none. P1: five — one fixed here, four deferred.** (Two were fixed at gate time; whole-diff R3 then showed one of those repairs contradicted the spec and the plan's own ratified rationale, so it was reverted and deferred.)
 
 | P1 | Disposition |
 | --- | --- |
-| The two renderers told different stories: the compact readout said `1 of 2` where the panel said `1 of 2 shows` | FIXED. It is this arc's own class — a count with no noun, beside a heading that had just stopped saying "publishing", is the of-what ambiguity the change exists to remove — and it is the surface Doug actually uses. Pinned by a test and proved by reverting the noun. |
+| The two renderers told different stories: the compact readout said `1 of 2` where the panel said `1 of 2 shows` | FIXED, then REVERTED, and the revert stands — see whole-diff R3 finding 3 in §15. The plan had already settled the bare form deliberately (the sticky bar's height is load-bearing) and the spec's dimensional proof depends on it, so the repair contradicted both and violated invariant 7. Now DEFERRED as `FINALIZE-COMPACT-COUNT-NOUN-1`, which is where it belonged: it needs a real-browser footer measurement this worktree cannot take. |
 | `animate-spin` on the running trigger carried no reduced-motion gate | FIXED. Mechanical, and the repo convention already existed at `components/admin/ReSyncButton.tsx:456` and `components/admin/ShowRowActions.tsx:766`. |
 | The CAS phase has no progress affordance: bar and count vanish at the boundary | DEFERRED, `FINALIZE-CAS-PROGRESS-AFFORDANCE-1`. Exception (a) — whether a settled batch line persists and whether an indeterminate bar reassures or misleads are product calls a copy repair should not make. |
 | The finalize progress bar has no CSS at all and ships raw UA chrome in both themes | DEFERRED, `FINALIZE-PROGRESSBAR-UNTHEMED-1`. Exception (c) — a visual restyle this PR does not otherwise open, and one this worktree cannot verify: no dev server, no build, so no screenshot. Pre-existing; this arc changed the bar's name, never its styling. |
@@ -677,4 +677,34 @@ execute either — Vite `EPERM` in its sandbox), all fixed, none deferred and no
 **The pattern worth keeping.** Round 1's sweep grepped the instance; round 2 found the second
 instance in the same table. Sweeping the column rather than the string is what closed it, and the
 same sweep caught two component citations pointing four and five lines off their constructs.
+
+## 15. Whole-diff review round 3 — findings and dispositions
+
+BLOCKING, 3 findings, down from 9 and 7. All verified against the tree, all fixed, none refuted.
+This reviewer could not collect tests either, so every finding was checked by hand as in the two
+rounds before it.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | BLOCKING: variant-prefixed Tailwind motion evaded the audit's class check | Fixed. The pattern demanded whitespace immediately before the utility, so `motion-safe:animate-pulse`, `hover:transition-colors` and every compound form escaped — and the stylesheet arm cannot compensate, because Tailwind GENERATES those rules and they never appear in `app/globals.css`. `components/admin/FinalizeButton.tsx` carries three instances of the form today, so this was live, not hypothetical. Proved by planting `motion-safe:animate-pulse` on the CAS phase label. |
+| 2 | BLOCKING: the nested-duplicate repair only saw nodes carrying testids | Fixed. Keying identity on `data-testid` left every untagged conditional invisible — the compact count and both compact CAS children have none — so duplicating one raised the descendant count, kept the testid set unique, and passed every motion check. Identity is now a structural signature (tag + testid + own text), which does not depend on the annotation a careless duplicate would omit. Proved by duplicating an untagged CAS span. |
+| 3 | P0: the gate's own repair contradicted the canonical spec | REVERTED, and the revert is the fix. |
+
+**Finding 3 is the one worth writing down properly, because it is a process failure and not a
+coding one.** The invariant-8 critique called the compact count's missing noun a P1, and that
+reasoning was sound on its face. It was repaired without checking whether the question had already
+been settled — and it had: the plan records the bare form as deliberate, because the compact
+readout sits in a sticky bar whose height is load-bearing, and the spec's dimensional proof of
+"footer height, before vs after: identical" rests on the only changed text living inside a
+`truncate`d node. That count is not truncated. So a repair meant to remove an ambiguity instead put
+the code at odds with two ratified documents and broke invariant 7.
+
+The same round earlier refused two other findings for exactly the right reason — the surviving
+"publish" strings were checked against what the code actually does and found correct. The
+discipline was available and was not applied to this one. The check is cheap: before repairing a
+review finding on a surface with a spec, read what the spec already decided about it.
+
+The ambiguity itself is real and is now filed as `FINALIZE-COMPACT-COUNT-NOUN-1`, where it needs
+what it always needed — a real-browser measurement of the footer, and a spec amendment landing in
+the same change as the code.
 

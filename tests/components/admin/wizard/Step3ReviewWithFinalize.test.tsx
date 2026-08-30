@@ -320,16 +320,19 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(tracking.textContent ?? "").not.toContain("Publishing: ");
   });
 
-  test("the compact count names WHAT it counts, like the panel does", async () => {
-    // Impeccable critique P1: the compact readout said "1 of 2" while the panel said
-    // "1 of 2 shows". The compact one is the surface Doug actually uses, and "1 of 2"
-    // of WHAT is precisely the ambiguity this arc set out to remove — a count with no
-    // noun beside a heading that had just stopped saying "publishing" tells him less
-    // than it should at the moment he is watching it.
+  test("the compact count stays bare, as the plan deliberately settled", async () => {
+    // Whole-diff R3 P0. An impeccable critique called the divergence from the panel's
+    // "1 of 2 shows" a defect, and this suite briefly asserted the noun. That was wrong:
+    // the plan RECORDS the bare form as deliberate — the compact readout lives in a
+    // sticky bar whose height is load-bearing — and the spec's dimensional proof assumes
+    // the only text that changes sits inside a truncated node, which this count is not.
+    // A critique finding does not outrank a ratified decision; the check is to read the
+    // plan before repairing, which is what the two surviving "publish" strings got and
+    // this did not.
     const { getByTestId } = await runningCompactTracking();
-    // The fixture streams total: 2, so the plural branch is the one under test; derived
-    // from the fixture rather than hardcoded so a fixture change cannot silently pass.
-    expect(getByTestId("wizard-step3-tracking").textContent ?? "").toContain("1 of 2 shows");
+    const text = getByTestId("wizard-step3-tracking").textContent ?? "";
+    expect(text).toContain("1 of 2");
+    expect(text).not.toContain("1 of 2 shows");
   });
 
   test("compact subline names the completed row and makes no claim about its outcome", async () => {

@@ -262,8 +262,7 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
             </span>
             {state.total > 0 ? (
               <span className="shrink-0 tabular-nums text-text-subtle" aria-hidden="true">
-                {Math.min(state.done, state.total)} of {state.total} show
-                {state.total === 1 ? "" : "s"}
+                {Math.min(state.done, state.total)} of {state.total}
               </span>
             ) : null}
           </div>

@@ -8,6 +8,18 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### FINALIZE-COMPACT-COUNT-NOUN-1 — impeccable P1: the compact count says "1 of 2" without saying of what (2026-08-30)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens the step-3 sticky footer's layout, or a real-browser measurement of the footer at 375px confirming the noun fits on one line.
+
+The panel renders `1 of 2 shows`; the compact readout in the sticky footer renders `1 of 2`. The impeccable critique called the divergence a P1, and the reasoning is good: the compact readout is the surface Doug actually uses, and a count with no noun sitting under a heading that had just stopped saying "publishing" is the of-what ambiguity this arc set out to remove.
+
+**It was fixed, then reverted, and the revert is the correct state.** The plan already settled the bare form DELIBERATELY: the compact readout lives in a sticky bar whose height is load-bearing, and the spec's dimensional proof of "footer height, before vs after: identical" rests on the only changed text sitting inside a `truncate`d node. This count is not truncated. Adding `show`/`shows` therefore changes the width of an untruncated node inside the one element whose height the spec proves invariant, and no measurement was taken because this worktree cannot start a dev server.
+
+**Why deferred rather than carried.** Class-sweep exception (a): it needs a product decision backed by a real-browser measurement, not a copy edit. Whoever takes it should measure the footer at 375px with the longest realistic count before committing, and update the spec's §3.2 unchanged-list and its dimensional table in the same change — the invariant-7 violation that this revert closes is exactly what happens when the code moves and the spec does not.
+
+---
+
 ### FINALIZE-CAS-PROGRESS-AFFORDANCE-1 — impeccable P1: the highest-stakes phase has the weakest feedback (2026-08-30)
 
 **Effort:** M · **Facing:** product · **Un-defer trigger:** the first report of an operator reloading mid-finalize, or any arc that opens the finalize progress panel's structure rather than its copy.
