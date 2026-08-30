@@ -92,8 +92,13 @@ path filter names no parser module), so the arc dispatches the workflow explicit
 
 | | run | head | outcome |
 | --- | --- | --- | --- |
-| this branch | `33272516851` (`workflow_dispatch`) | `70585f0b4` | all 8 parser shards fail |
+| this branch, pre-merge | `33272516851` (`workflow_dispatch`) | `70585f0b4` | all 8 parser shards fail |
+| this branch, merged head | `33281100311` (`workflow_dispatch`) | `60112efed` | all 8 parser shards fail |
 | main, control | `33253670579` (`schedule`) | `e7751f61d` | all 8 parser shards fail |
+
+The committed `.report.txt` is the MERGED-HEAD run's differential, the one that ships. The
+pre-merge run produced the same 791 records and the same breakdowns; both are quoted here
+because the second exists to answer a question the first could not (below).
 
 **The harness is already red on main, at this branch's exact merge-base.** `e7751f61d` is
 `git merge-base origin/main HEAD`; main's own scheduled run on that commit fails the same
@@ -179,10 +184,38 @@ extractor reproduces vitest's own per-shard length on all eight shards, which is
 the first draft never had. The equality conclusion was correct in the first draft and is
 unchanged; the numbers and the operator account behind it were not.
 
-If PR #945 merges before this branch does, its branch regenerated the ledger and has a green
-harness run (`33274539375`); a ledger-seam merge of main would inherit that ledger, and a
-re-dispatch on the merged head should then be GREEN, superseding this equality evidence.
-Whichever actually fires is recorded here with its run id.
+### The supersession branch was attempted, and did not fire
+
+bl-orch pre-recorded a conditional: if #945 merged first, its regenerated ledger would come
+in with the ledger seam and a re-dispatch on the merged head should be GREEN, superseding
+this equality evidence. #945 merged (main `c1ccf4b1d`), this branch merged it, and the
+harness was re-dispatched on the merged head as `33281100311`.
+
+**It is still red, identically.** All eight parser shards fail, and the differential above
+is run against that merged-head run: 791 records, `summary=SAME drift=SAME` on every shard,
+identical operator and kind breakdowns. Shard 4's 105 records were checked three ways and
+are the same set in all three — main's pre-#945 control, this branch's pre-merge run, and
+the merged head — so #945's regeneration did not cover these entries. The equality evidence
+stands rather than being superseded, and it now holds on the head that ships.
+
+Recorded as a fleet fact rather than an arc problem: **main remains red on the parser
+harness after #945**, and the next arc to touch `lib/parser` inherits the same red and the
+same equality argument.
+
+Two traps cleared while establishing this, both worth the next reader's time:
+
+- **Comparing outputs of two different tool versions.** The first merged-head comparison
+  reported a difference against a stored `.drift` file that had been produced by the OLD
+  block-parse extractor, so it still carried vitest source excerpts and an unstripped
+  assertion tail. Re-extracting every side from the retained raw logs with the corrected
+  extractor gave three identical sets. A stale artifact of a tool you have since fixed is a
+  false-alarm generator, and the fix is to re-derive rather than to compare against it.
+- **The tidier claim was the false one.** `git diff --quiet origin/main..HEAD -- lib/parser
+  tests/parser/mutation` returns **1**, not 0: this arc CHANGES `lib/parser` — the Task 2
+  scanner split is the whole feature. So "the diff cannot touch what the harness scores" was
+  never available, and the differential is the only valid AC-2 argument. It is also the
+  stronger one: the harness output is unchanged DESPITE the parser changing, which is
+  exactly what the criterion asks.
 
 ## 5. Live check (AC-1, second half) — AC-1-LOCAL, deploy half DEFERRED-BY-QUOTA
 
@@ -239,14 +272,13 @@ and does not change.
 ## 6. Suites, local
 
 - **DB-free half** — `pnpm heavy pnpm vitest run --project parallel` (the CI-enforced
-  no-database project, `unit-suite-nodb`), on the merged tree at `29c3f5d67`, after
-  `origin/main` (`6405a0571`) came in: **1046 files passed, 16330 tests passed**, 2 files /
+  no-database project, `unit-suite-nodb`), on the shipping tree at `60112efed`, after both
+  ledger-seam merges of `origin/main`: **1047 files passed, 16350 tests passed**, 2 files /
   17 tests skipped, **zero failures, exit 0**.
 
-  The pre-merge run at `700f2ab87` measured 1044 files / 16310 tests, also clean. Both are
-  quoted because the merge changed the tree — main's `#947` edited test bodies this arc also
-  touches — so the earlier number describes a tree that no longer exists, and only the
-  merged-tree run speaks for what ships.
+  Earlier runs on superseded trees measured 1044 / 16310 and 1046 / 16330, also clean. Only
+  the last speaks for what ships; the others are kept because each merge changed the tree
+  under them, which is the reason a suite number is quoted with its commit.
 
 - **The four serial-project files this plan touches**, by explicit list (each client-free,
   none reads `TEST_DATABASE_URL`): `perShowActionableRenderControls`,
