@@ -1423,3 +1423,52 @@ describe("mutation admission class — the production entry point", () => {
     expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
   }, 120_000);
 });
+
+describe("semaphore file mtime refresh — the /tmp periodic-cleaner defense", () => {
+  // macOS's periodic /tmp cleaner deletes files whose mtime is older than ~3
+  // days. It reaped /tmp/fx-heavy-slots/config and class-mutation.lock on
+  // 2026-08-26 and would have again on 2026-08-30 (both observed live by
+  // bl-orch; restored via --recreate each time). A deleted config downgrades
+  // the semaphore to its 1-slot fallback silently; a deleted class lock makes
+  // `pnpm heavy:mutation` unserializable. The defense: every wrapper
+  // invocation refreshes the mtime of every semaphore file it finds, so the
+  // files stay young while the fleet is alive at all.
+  it("acquisition refreshes stale mtimes on config, slots, and class locks", async () => {
+    const dir = slotDir();
+    writeFileSync(join(dir, "config"), '{"slots": 2}\n');
+    writeFileSync(join(dir, "slot-0"), "");
+    writeFileSync(join(dir, "slot-1"), "");
+    writeFileSync(join(dir, "class-mutation.lock"), "");
+    const files = ["config", "slot-0", "slot-1", "class-mutation.lock"] as const;
+
+    // Age everything past the cleaner's 3-day horizon.
+    const fourDaysAgo = (Date.now() - 4 * 24 * 3600 * 1000) / 1000;
+    for (const f of files) utimesSync(join(dir, f), fourDaysAgo, fourDaysAgo);
+
+    // Premise arm: the fixture is genuinely stale, or the assertion below
+    // proves nothing (a fresh fixture passes with no refresh code at all).
+    const staleCutoff = Date.now() / 1000 - 3 * 24 * 3600;
+    for (const f of files) {
+      premiseHolds(
+        `fixture ${f} is older than the cleaner horizon before the run`,
+        statSync(join(dir, f)).mtimeMs / 1000 < staleCutoff,
+      );
+    }
+
+    const before = Date.now() / 1000 - 60; // clock-skew slack
+    const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_POLL_MS: "100" }, [
+      "python3",
+      "-c",
+      "pass",
+    ]);
+    const { code } = await run.exited;
+    expect(code).toBe(0);
+
+    for (const f of files) {
+      expect(
+        statSync(join(dir, f)).mtimeMs / 1000,
+        `${f} mtime was not refreshed — the /tmp cleaner would reap it`,
+      ).toBeGreaterThan(before);
+    }
+  });
+});

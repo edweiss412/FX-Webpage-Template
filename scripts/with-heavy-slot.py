@@ -176,7 +176,39 @@ def env_flag(env: dict[str, str], name: str) -> bool:
 def ensure_slot_dir(env: dict[str, str]) -> str:
     slot_dir = env.get("FX_HEAVY_SLOT_DIR", DEFAULT_SLOT_DIR)
     os.makedirs(slot_dir, mode=0o755, exist_ok=True)
+    refresh_semaphore_mtimes(slot_dir)
     return slot_dir
+
+
+def refresh_semaphore_mtimes(slot_dir: str) -> None:
+    """Touch every semaphore file so the OS /tmp cleaner never reaps a live one.
+
+    macOS's periodic cleaner deletes /tmp entries whose mtime is older than ~3
+    days. It reaped `config` and `class-mutation.lock` twice (2026-08-26 and
+    2026-08-30, both restored by hand via --recreate): a missing `config`
+    silently downgrades capacity to the 1-slot fallback, and a missing class
+    lock leaves score runs unserialized. Refreshing on every invocation keeps
+    the files young while the fleet is active at all; a fleet idle past the
+    horizon still loses them, which --recreate already handles and which no
+    concurrent workload can race. Failures are ignored per file: a concurrent
+    --recreate or the cleaner itself may remove an entry between listdir and
+    utime, and the wrapper must never fail admission over a courtesy touch.
+    """
+    try:
+        names = os.listdir(slot_dir)
+    except OSError:
+        return
+    for name in names:
+        if (
+            name == "config"
+            or name == "recreate.lock"
+            or name.startswith("slot-")
+            or name.endswith(".lock")
+        ):
+            try:
+                os.utime(os.path.join(slot_dir, name), None)
+            except OSError:
+                pass
 
 
 def poll_seconds(poll_ms: int, jitter_pct: int) -> float:
