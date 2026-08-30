@@ -45,6 +45,7 @@ import { useViewerIsDeveloper } from "@/components/admin/dev/DeveloperFlagContex
 import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
 import { buildStagedSnapshot } from "@/components/admin/dev/snapshots";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
+import { DraftRestoredNote } from "@/components/admin/wizard/DraftRestoredNote";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { activeWarningEntries, ignoredWarningIndices } from "@/lib/admin/activeWarningEntries";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
@@ -947,6 +948,14 @@ export function Step3ReviewModal({
         attentionJump={jump}
         layout="modal"
       >
+        {/* Draft-restored note (spec 2026-08-30 §3.2): FIRST in the content
+              pane's top slot, so it is visible without scrolling when the
+              modal reopens with a report draft that survived the close. It
+              lives here rather than beside the draft because the report
+              section is last and the modal opens at scroll 0. A component, so
+              its useContext reaches the shell's AdminAnnounceProvider, which
+              is an ancestor here and NOT of this file's own body. */}
+        <DraftRestoredNote dfid={dfid} wizardSessionId={wizardSessionId} />
         {/* Re-apply resolution body (spec §4.4): rendered ABOVE the section
               panels when this is a blocked re-apply row. Tier-1/2 items are
               context/diagnostic lines; tier-3 items force a radio choice.

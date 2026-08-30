@@ -126,6 +126,25 @@ const WSID = "00000000-1111-4222-8333-444444444444";
 
 afterEach(() => {
   cleanup();
+  // Timers did NOT used to be cleared between cases, so a case that left one
+  // pending handed it to the next one. The §H teardown snapshot below reads
+  // `vi.getTimerCount()` as a baseline, so it silently absorbed whatever the
+  // previous case leaked and still passed. That went unnoticed until the
+  // content pane gained a child (spec 2026-08-30's draft-restored note),
+  // which changed the leak's arithmetic without changing anything about the
+  // behaviour under test: probed separately, that note schedules no timer
+  // when there is no draft and clears its own on unmount. Clearing here means
+  // the baseline measures this case's own tree and nothing else.
+  vi.clearAllTimers();
+  // ...and sessionStorage, for the same reason one level up. Cases in this
+  // file type into the report field, which persists a draft under
+  // `fxav-report-draft-wizard-*`, and nothing cleared it, so a later case
+  // opened a modal carrying a draft it never wrote. That was invisible until
+  // the pane gained a child that READS that key (spec 2026-08-30's
+  // draft-restored note), which then mounted in cases that meant to have no
+  // draft at all. Measured: sessionStorage held 2 entries at the §H snapshot
+  // below, and the note was mounted there.
+  window.sessionStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -1009,13 +1028,24 @@ describe("§H compound (b): unmount during an active highlight + active suppress
       // as a leak. Two acts let React commit in between; neither frame
       // reschedules, so the premise this snapshot is written to hold is
       // restored rather than loosened.
-      act(() => {
-        vi.advanceTimersByTime(0);
-      });
-      act(() => {
-        vi.advanceTimersByTime(0);
-      });
+      // Drain until the count STOPS changing rather than exactly twice. The
+      // two-act form encoded an assumption about how many entrance frames the
+      // tree schedules, so it broke the moment the content pane gained a
+      // child (spec 2026-08-30's draft-restored note) even though that child
+      // schedules nothing here and leaks nothing: probed both ways, it adds no
+      // timer without a draft and clears its own on unmount. Draining to a
+      // fixed point states the premise the snapshot actually needs -- "no
+      // entrance work is still pending" -- instead of a frame count that any
+      // future child invalidates again.
+      let previous = -1;
+      for (let i = 0; i < 10 && previous !== vi.getTimerCount(); i++) {
+        previous = vi.getTimerCount();
+        act(() => {
+          vi.advanceTimersByTime(0);
+        });
+      }
       const ambient = vi.getTimerCount();
+      expect(ambient, "premise: entrance frames settled to a fixed point").toBe(previous);
       const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
       fireEvent.click(
         within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
