@@ -572,3 +572,38 @@ The second is the derived cover earning its place. Four review rounds each found
 ### 12.5 Deliberately not asserted
 
 jsdom cannot prove the name, count and bar change in a single React commit. That rests on the code shape — all three are written by one `setState` (`components/admin/FinalizeButton.tsx:230-234`) — and is recorded here rather than dressed up as a test.
+
+## 13. Whole-diff review round 1 — findings and dispositions
+
+BLOCKING, 9 findings, all fixed in-branch; none deferred, none refuted. The reviewer
+could not execute anything (Vite `EPERM` in its read-only sandbox), so every finding was
+read-derived and every one was verified against the tree before being accepted.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | BLOCKING: the dirty inline-rescan path emits the stale title | Fixed, and swept: the sweep found THREE post-restage early returns, not the one named. The bind moved ahead of all branches. Two tests, two different outcome kinds, both observed RED. |
+| 2 | The audit ran one renderer/phase cell | Fixed: all four cells. Proved by a mutant in Step3's CAS branch that fails only that cell. |
+| 3 | Six oracle escapes | Four closed (matrix, CSS longhands, bare Tailwind utility, each mutant-proved); two documented as limits with the threat fence, per the repair-direction rule. |
+| 4 | The fake's "detached" rows were shallow copies | Fixed: `structuredClone`, and the comment now claims only what it delivers. |
+| 5 | The app-wide guard scanned only `.ts`/`.tsx` | Fixed: the JS family. Proved by planting a temporary .js probe under app/ that binds the identifier, then removing it. |
+| 6 | Two assertions could pass without their behavior | Fixed: exact label equality, and the CAS header got a testid so its preservation test can scope to the element instead of scanning the panel. |
+| 7 | Spec §5 demanded copy the implementation contradicts | Fixed at six sites; amendment recorded with its reason. Invariant 7's acceptance obligation is satisfiable again. |
+| 8 | Task 3b's `red=` named a file its tests are not in | Fixed, and the spec's test table carried the same wrong file. |
+| 9 | Three false failure claims | Fixed. The prefix-reorder claim was settled by PROBE: the fake throws `Unhandled SQL in finalize fake`, and no demote code appears. |
+
+**Also repaired, found while proving the above.** The `preparedSheetFor` and `pending`
+fixtures defaulted to DIFFERENT titles, so any test seeding with one and preparing with
+the other silently modelled a rename it never meant to. Harmless until the refreshed parse
+became the reported title, at which point a test about demotion codes failed on a name.
+Defaults now match.
+
+**Documented limit of the slot-release script** (`scratchpad`, not tracked): limb 1 pinned
+a pid captured when the script was authored, so on every later run it asked about a
+long-dead process and answered yes whatever was alive. Repaired to derive the pid at run
+time by CWD rather than by name, since a name match also hits stale shell wrappers whose
+snapshot text contains "vitest". Proving that repair exposed the mirror defect in limb 3:
+it queried lsof by directory alone, so long-lived MCP servers sharing the worktree read as
+orphans and it returned NOT RELEASED on an idle machine. A limb that always passes and a
+limb that never clears are the same defect in opposite directions; both are fixed and both
+are proved by a positive and a negative control.
+
