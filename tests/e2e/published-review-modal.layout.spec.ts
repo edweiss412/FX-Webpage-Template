@@ -697,7 +697,31 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           const hit = document.elementFromPoint(cx, y);
           return hit !== null && (hit === el || el.contains(hit));
         };
-        return { visibleHeight: box.height, top: hits(topY), bottom: hits(botY) };
+        // Diagnostic for the local-vs-CI divergence (T-TAP @375). Local
+        // measures one line, CI two, and the two heights share the fractional
+        // part .296875 -- identical per-line metrics, so the font is NOT the
+        // variable and the available WIDTH is. Reported in the failure message
+        // so the classification comes from the failing run itself.
+        const parent = el.parentElement;
+        return {
+          visibleHeight: box.height,
+          top: hits(topY),
+          bottom: hits(botY),
+          diag: {
+            font: getComputedStyle(el).fontFamily,
+            fontSize: getComputedStyle(el).fontSize,
+            lineHeight: getComputedStyle(el).lineHeight,
+            pillWidth: box.width,
+            parentWidth: parent ? parent.getBoundingClientRect().width : null,
+            innerWidth: window.innerWidth,
+            clientWidth: document.documentElement.clientWidth,
+            scrollbarPx: window.innerWidth - document.documentElement.clientWidth,
+            interFaces: [...document.fonts]
+              .filter((f) => f.family.replace(/^["']|["']$/g, "") === "Inter")
+              .map((f) => f.status)
+              .join(","),
+          },
+        };
       });
 
       // Non-vacuity: the probe only proves anything if the VISIBLE pill is
@@ -706,7 +730,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       // the design regression this test exists to prevent.
       expect(
         probe.visibleHeight,
-        `visible pill stays slim (${probe.visibleHeight}px) — the ::before, not the box, supplies the 44px floor`,
+        `visible pill stays slim (${probe.visibleHeight}px) — the ::before, not the box, supplies the 44px floor. DIAG ${JSON.stringify(probe.diag)}`,
       ).toBeLessThan(TAP_MIN);
       expect(probe.top, `21px ABOVE the pill's center hits the pill @ ${mode}`).toBe(true);
       expect(probe.bottom, `21px BELOW the pill's center hits the pill @ ${mode}`).toBe(true);

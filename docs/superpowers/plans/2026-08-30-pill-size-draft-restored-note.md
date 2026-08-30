@@ -153,7 +153,7 @@ tests/e2e/attention-autoopen-suppress.spec.ts:37
 
   The first run of the P3 mutant reported a survivor and was wrong: the line index was stale because an earlier comment edit had shifted the file by three lines, so `replace()` matched nothing. Re-run with the edit asserted, it was killed like the rest.
 
-- [x] **Step 10: The three-segment geometry, no longer unmeasured.** Spec §2.2 recorded that no fixture reached three segments. It now does: **123.98px at `text-xs`, 141.48px at `text-sm`**, a +17.5px delta matching the two-segment fixture's.
+- [x] **Step 10: The three-segment geometry, no longer unmeasured, and the first numbers superseded.** Spec §2.2 recorded that no fixture reached three segments. It now does. The first pair taken, 123.98px at `text-xs` and 141.48px at `text-sm`, are **both PRE-repair**: at that point every count phrase was a bare wrap unit breaking mid-phrase under `max-sm:flex-wrap`. The `+17.5px delta matching the two-segment fixture` read off them held only in that broken state and is withdrawn with them. Post-repair the shipped three-segment pill is **82.9px** (see the critique entry below). Both numbers are labelled rather than one being swapped, because replacing only the `text-sm` figure would leave a reader trusting its neighbour.
 
 ### Task 2: The occlusion load, and three specs that ran nowhere
 
@@ -278,7 +278,9 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
 
 **Audit — 8 items, 7 PASS.** Canonical tokens, the em-dash and apostrophe ban, the 44px band on both sides of the breakpoint (52.3px at `text-sm`, 48.8px at `text-xs`), colour tokens unchanged, mobile-first spelling, live-region contract, and the note's explicit `w-full`. One P1 and two P3.
 
-**Audit P1 — FIXED.** `tests/styles/_metaTapTargetFloor.test.ts` was RED: the tap-target census keys the Step-3 selection checkbox by LINE NUMBER, and this branch's added lines moved it from 1003 to 1012. A merge blocker, and mine. The census comment already logged two earlier moves under `LIM-LINE-KEYED-SITEID`; this was its fourth. Re-keyed. It then recurred twice more in the same session, in `tests/styles/controlOutlineScan.ts` (two rows) and in a second hard-coded list inside `_metaControlOutlineFill.test.ts`, so the class touched three registries and five rows for one nine-line insertion.
+**Audit P1 — FIXED.** `tests/styles/_metaTapTargetFloor.test.ts` was RED: the tap-target census keys the Step-3 selection checkbox by LINE NUMBER, and this branch's added lines moved it from 1003 to 1012. A merge blocker, and mine. The census comment already logged two earlier moves under `LIM-LINE-KEYED-SITEID`; this was its fourth. Re-keyed. It then recurred twice more in the same session, in `tests/styles/controlOutlineScan.ts` (two rows) and in a second hard-coded list inside `_metaControlOutlineFill.test.ts`, so the class touched three registries and five rows.
+
+**Not from one insertion**, which this section claimed until diff review round 2 corrected it. The five rows do not share a cause and their deltas prove it: `components/admin/showpage/PublishedReviewModal.tsx:1113` moved to `components/admin/showpage/PublishedReviewModal.tsx:1116`, three lines, while in `Step3ReviewModal.tsx` two rows moved one line (`821` to `822`, `907` to `908`) and the tap-target row moved nine (`1003` to `1012`). Two files and at least three separate insertions. The real lesson is the one already filed as `LIM-LINE-KEYED-SITEID`: a line number is not an identity, so rows must be relocated from the scanner's own report rather than by applying a delta, and a single stated delta across a multi-file diff is exactly the reasoning that produces a wrong re-key.
 
 **Critique — 0 P0, 2 P1, both FIXED.**
 
@@ -322,7 +324,9 @@ Two of my assertions were wrong in the same way, and both passed review before e
 Both are the same shape as the clip oracle that read `scrollHeight` on an `overflow: visible` box and so reported "clipped" identically at the type size that already shipped. Each measured something adjacent to the claim rather than the claim. Executing them is what separated the three; reading them had not, across two review rounds.
  Both halves run with the canonical v3 setup gates: context.mjs context load (PRODUCT.md + DESIGN.md), then the register reference read. Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry.
 
-**UI surfaces in this diff:** `components/admin/showpage/PublishedReviewModal.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`. No `app/globals.css` `@theme` change, no `DESIGN.md` change, no new colour token, so no new contrast ratio needs pinning.
+**UI surfaces in this diff:** `components/admin/showpage/PublishedReviewModal.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`, and `components/admin/wizard/DraftRestoredNote.tsx` (a new component, and an invariant-8 surface in its own right). `DESIGN.md` DOES change: two rows added to the timer register at `DESIGN.md:767-768`, `ANNOUNCE_DELAY_MS` 400 and `DRAFT_RESTORED_NOTE_MS` 5000, both naming `DraftRestoredNote.tsx`, which makes it an invariant-8 surface too. No `app/globals.css` `@theme` change and no new colour token, so no new contrast ratio needs pinning.
+
+This inventory was wrong twice. Round 1 raised it, the correction was recorded as made, and the live tree still carried the original sentence at round 2 — the fix had been written into the narrative rather than into the list. Corrected here in the list itself.
 
 **Pre-code mechanical checklist** (run before the gate, which verifies rather than discovers): 44px tap targets including the pill's resolved hit band at the new size; no em dash and no apostrophe in the note's copy; canonical type and token classes only, no arbitrary values; `text-xs/relaxed` and `text-subtle` for secondary copy.
 
