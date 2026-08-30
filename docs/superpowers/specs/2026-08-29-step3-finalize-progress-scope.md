@@ -120,7 +120,7 @@ At the emit site (`app/api/admin/onboarding/finalize/route.ts:1710-1714`), AFTER
 
   and map: `session_created && publish_intent` → `"publish"`; `session_created && !publish_intent` → `"hold"`; `!session_created` → `"unchanged"`.
 
-This is READ COMMITTED (no isolation level is set anywhere in this route or in `lib/db`), so the outer `tx` observes the per-row commit. That is not an assumption: `countRemainingCleanRows` already runs on the outer `tx` inside the same loop (`app/api/admin/onboarding/finalize/route.ts:482-494`, called at `app/api/admin/onboarding/finalize/route.ts:1717`) and its count only decreases because it sees committed per-row work.
+This is READ COMMITTED (no isolation level is set anywhere in this route or in `lib/db`), so the outer `tx` observes the per-row commit. That is not an assumption: `countRemainingCleanRows` already runs on the outer `tx` inside the same loop (`app/api/admin/onboarding/finalize/route.ts:482-494`, called at `app/api/admin/onboarding/finalize/route.ts:1718`) and its count only decreases because it sees committed per-row work.
 
 The predicate is copied from the flip itself rather than re-derived: `publishAppliedWizardShows` selects `status = 'applied' and created_show_id is not null and publish_intent = true` (`app/api/admin/onboarding/finalize-cas/route.ts:680-687`). Using the same two columns is what makes the label true by construction instead of by argument.
 
@@ -203,7 +203,7 @@ Compound transitions:
 | Input | Rendered |
 | --- | --- |
 | `lastName: null` (no row event yet) | No subline. Unchanged from today. |
-| `destiny: null` (row did not complete) | `Setting up: <name>` — no claim about publishing. The terminal `per_row` carries the failure and the client already renders those (`FinalizeButton.tsx:369`). |
+| `destiny: null` (row did not complete) | `Setting up: <name>` — no claim about publishing. The terminal `per_row` carries the failure and the client already renders those (`FinalizeButton.tsx:374`). |
 | `destiny: "unchanged"` | `Updating: <name>`. Covers all four pre-existing-show rows of §2.1, Live and Unpublished alike, checked or not. |
 | `name: null` on the wire (no parsed title) | Existing fallback stands: `msg.name \|\| msg.driveFileId` (`FinalizeButton.tsx:232`), behind the destiny label. |
 | Manifest read returns 0 rows at the emit site | Emit `destiny: null`. Only reachable if the row was consumed and its manifest resolved away between commit and read; the subline then makes no claim rather than guessing. |
