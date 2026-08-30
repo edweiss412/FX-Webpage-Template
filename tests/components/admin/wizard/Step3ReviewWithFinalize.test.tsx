@@ -22,6 +22,7 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import type { ParseResult } from "@/lib/parser/types";
 import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
+import { controllableNdjson } from "../_finalizeStreamHarness";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -277,5 +278,66 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(last.selectedCount).toBe(1); // only 'a' applied/checked
     expect(last.publishCount).toBe(1); // unchanged (over publishRows)
     expect(last.uncheckedCleanCount).toBe(2); // unchanged: 'b' + demoted 'c'
+  });
+  // ---------------------------------------------------------------------------
+  // Task 2 (spec 2026-08-29-step3-finalize-progress-scope): the SAME batch-phase
+  // claim on the second renderer. Not a duplicate of the FinalizeButton suite —
+  // these are two components that independently render the same sentence, which
+  // is exactly how one surface gets fixed and the other silently keeps the old
+  // copy. Feeding real row events needs the extracted harness: this suite's other
+  // running-state test hangs fetch forever and so receives NO row events, which
+  // would make a subline assertion pass against an element that never renders.
+  // ---------------------------------------------------------------------------
+  async function runningCompactTracking() {
+    const batch = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
+    });
+    return { ...view, batch };
+  }
+
+  test("compact tracking reports setup, and the publish verb is gone from the batch phase", async () => {
+    const { getByTestId } = await runningCompactTracking();
+    const tracking = getByTestId("wizard-step3-tracking");
+    expect(getByTestId("wizard-step3-tracking-heading").textContent).toBe("Setting up your shows…");
+    expect(tracking.textContent ?? "").not.toContain("Publishing your shows");
+    expect(tracking.textContent ?? "").not.toContain("Publishing: ");
+  });
+
+  test("compact subline names the COMPLETED row in past tense", async () => {
+    const { getByTestId } = await runningCompactTracking();
+    // Premise: the row event actually populated lastName. Without it this suite
+    // renders no subline at all and the assertion below would prove nothing.
+    const line = getByTestId("wizard-step3-tracking-current");
+    expect(line.textContent ?? "").toContain("East Coast");
+    expect(line.textContent ?? "").toContain("Processed: ");
+  });
+
+  test("every accessible name in the compact batch phase reads Setup progress", async () => {
+    const { getByTestId } = await runningCompactTracking();
+    const group = getByTestId("wizard-step3-tracking");
+    // querySelectorAll is DESCENDANT-only and the aria-label sits on the SAME
+    // element as the testid, so the group's own label must be added explicitly.
+    const labelled = [group, ...Array.from(group.querySelectorAll("[aria-label]"))].filter((el) =>
+      el.hasAttribute("aria-label"),
+    );
+    expect(labelled.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(labelled.map((el) => el.getAttribute("aria-label")))).toEqual(
+      new Set(["Setup progress"]),
+    );
   });
 });

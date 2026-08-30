@@ -25,6 +25,7 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
+import { controllableNdjson } from "./_finalizeStreamHarness";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -955,34 +956,6 @@ function mockNdjsonResponse(lines: unknown[]): Response {
       throw new Error("stream response has no json()");
     },
   } as unknown as Response;
-}
-
-// A stream the test feeds one event at a time so intermediate progress states can be observed.
-function controllableNdjson() {
-  let controller!: ReadableStreamDefaultController<Uint8Array>;
-  const stream = new ReadableStream<Uint8Array>({
-    start(c) {
-      controller = c;
-    },
-  });
-  const enc = new TextEncoder();
-  const response = {
-    ok: true,
-    status: 200,
-    headers: {
-      get: (k: string) => (k.toLowerCase() === "content-type" ? "application/x-ndjson" : null),
-    },
-    body: stream,
-    json: async () => {
-      throw new Error("stream response has no json()");
-    },
-  } as unknown as Response;
-  return {
-    response,
-    push: (obj: unknown) => controller.enqueue(enc.encode(JSON.stringify(obj) + "\n")),
-    close: () => controller.close(),
-    error: (err: unknown) => controller.error(err),
-  };
 }
 
 const allBatchesDone = () => ({
