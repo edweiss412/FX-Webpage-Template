@@ -2124,9 +2124,17 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     }
     // ...but at least one digit still is, so this cannot pass on an empty pill.
     expect(seen.visible, "the counts themselves stay visible").toMatch(/\d/);
-    // ...and the accessible string still carries them, so nothing is lost to AT.
-    expect(seen.announced, "the nouns survive for assistive tech").toContain("issue");
-    expect(seen.announced, "the nouns survive for assistive tech").toContain("monitoring");
+    // ...and the nouns survive in the COMPUTED ACCESSIBLE NAME, not merely in
+    // `textContent`. The distinction is the whole assertion: `textContent` is a
+    // property of the DOM subtree, so it would still contain "issues" under an
+    // `aria-label` that replaced the name outright, and this test would pass
+    // while a screen reader heard "2". `toHaveAccessibleName` runs the actual
+    // name computation, which is the thing the ruling promised to preserve.
+    await expect(pill).toHaveAccessibleName(/issue/);
+    await expect(pill).toHaveAccessibleName(/monitoring/);
+    // textContent is kept as a SECOND, weaker check: if the two ever disagree,
+    // the name is being synthesised from somewhere other than the visible tree.
+    expect(seen.announced, "the nouns are in the subtree too").toContain("issue");
   });
 
   test("T-COUNTS-ONLY @1280: the full wording is BACK at sm and up", async ({ page }) => {

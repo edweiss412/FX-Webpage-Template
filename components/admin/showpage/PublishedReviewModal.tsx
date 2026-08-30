@@ -1168,16 +1168,29 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         "border border-warning-text bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                   }`}
                 >
-                  {/* Decorative dot — the count text carries the meaning; live
-                      token (--color-status-review), never the mock hex. The
-                      quiet monitoring-only pill leads with the hollow
-                      positive-tone dot instead (spec §3.1). */}
+                  {/* The dot no longer merely decorates. Until Decision 7 the
+                      count text carried the meaning and this dot was a tone cue;
+                      counts-only removed the noun, and with it the only thing
+                      telling "3 issues" apart from "3 sheet warnings" below `sm`
+                      -- both rendered a solid dot and a 3, which spec §2.2 lists
+                      as DISTINCT states (impeccable critique P0, 2026-08-30).
+                      DESIGN.md §1 requires colour to be paired with text or an
+                      icon, and the text carrier is exactly what Decision 7 took
+                      away, leaving position alone.
+                      So the dot is SHAPED by whichever segment leads, reusing
+                      this cluster's own hollow idiom rather than inventing one:
+                      `AttentionMenu.tsx:227` already draws judgment as a hollow
+                      ring for the same colour-blind-floor reason. Costs zero
+                      width, which matters on a pill that is 31.063px from its
+                      cap at the widest single-segment load. */}
                   <span
                     aria-hidden="true"
                     className={`size-2 shrink-0 rounded-pill ${
                       monitoringOnly
                         ? "border-[1.5px] border-status-positive bg-transparent"
-                        : "bg-status-review"
+                        : needsYou.length === 0 && k > 0
+                          ? "border-[1.5px] border-text-faint bg-transparent"
+                          : "bg-status-review"
                     }`}
                   />
                   {needsYou.length > 0 ? (
@@ -1200,8 +1213,10 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                             they remain a single flex item -- as bare siblings
                             the parent's `gap-1` would become live and add 4px
                             between the number and its word above the breakpoint,
-                            changing a size the ruling leaves alone. The space
-                            lives INSIDE the hidden span, so it goes with it.
+                            changing a size the ruling leaves alone. The space is
+                            its own text node OUTSIDE the hidden span: inside it,
+                            the accessible-name computation trims each node and
+                            glued the name into "2issues".
                             `sr-only`, never `hidden`: the noun stays in the
                             accessible name at every width. */}
                         <span>
@@ -1229,13 +1244,17 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   {k > 0 ? (
                     <>
                       <span className="inline-flex items-center gap-1.5">
-                        {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                        {needsYou.length > 0 ? (
+                          <span className="opacity-50 max-sm:opacity-100">{" · "}</span>
+                        ) : null}
                         <span
                           data-testid="attention-pill-warnings-segment"
                           className="inline-flex items-center gap-1 max-sm:whitespace-nowrap"
                         >
                           {/* Decision 7: noun visually dropped below `sm`, one
-                              flex item, space inside the hidden span. */}
+                              flex item, space OUTSIDE the hidden span (see the
+                              issues segment above for why inside breaks the
+                              accessible name). */}
                           <span>
                             {k > 99 ? "99+" : k}{" "}
                             <span className="max-sm:sr-only">
@@ -1277,7 +1296,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           the glyph out of the announced string. */}
                       <span className="inline-flex items-center gap-1.5">
                         {needsYou.length > 0 || k > 0 ? (
-                          <span className="opacity-50">{" · "}</span>
+                          <span className="opacity-50 max-sm:opacity-100">{" · "}</span>
                         ) : null}
                         {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1

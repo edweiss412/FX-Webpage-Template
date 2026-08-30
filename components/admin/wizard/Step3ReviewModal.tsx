@@ -620,7 +620,22 @@ export function Step3ReviewModal({
                       {/* Capped at 99+ for the same reason the published pill is:
                           an unbounded count in a shrink-0 cluster squeezes the
                           title at 375px. The exact count survives for AT. */}
-                      {n > 99 ? "99+" : n} {n === 1 ? "needs a look" : "need a look"}
+                      {/* Decision 7 (Eric, 2026-08-30), applied to this twin after
+                          the impeccable audit caught it had been left behind: the
+                          noun is visually dropped below `sm` and returns at `sm`
+                          and up, staying in the accessible name at both. ONE wrap
+                          unit, which also repairs the mid-phrase break these bare
+                          anonymous flex items allowed ("2 / need a look") under
+                          `max-sm:flex-wrap` -- the same defect the published pill
+                          fixed earlier in this branch. The separating space sits
+                          OUTSIDE the hidden span: inside it, the accessible-name
+                          computation trims each node and glues the name shut. */}
+                      <span className="inline-flex items-center max-sm:whitespace-nowrap">
+                        {n > 99 ? "99+" : n}{" "}
+                        <span className="max-sm:sr-only">
+                          {n === 1 ? "needs a look" : "need a look"}
+                        </span>
+                      </span>
                       {/* §11: instant — deliberate (sr-only cap expansion follows the count) */}
                       {n > 99 ? (
                         <>
@@ -642,8 +657,11 @@ export function Step3ReviewModal({
                           and a REAL " · " text node so it is announced too. */}
                       {/* §11: instant — deliberate (separator follows segment presence) */}
                       {n > 0 ? <span className="opacity-50">{" · "}</span> : null}
-                      <span>
-                        {m > 99 ? "99+" : m} {m === 1 ? "judgment call" : "judgment calls"}
+                      <span className="inline-flex items-center max-sm:whitespace-nowrap">
+                        {m > 99 ? "99+" : m}{" "}
+                        <span className="max-sm:sr-only">
+                          {m === 1 ? "judgment call" : "judgment calls"}
+                        </span>
                       </span>
                       {/* §11: instant — deliberate (sr-only cap expansion follows the count) */}
                       {m > 99 ? (

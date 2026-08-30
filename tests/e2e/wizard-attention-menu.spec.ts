@@ -369,6 +369,65 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(probe.inView).toBe(true);
   });
 
+  // Decision 7 (Eric, ratified 2026-08-30) applies to THIS pill too, and the
+  // impeccable audit is what caught that it had been left behind. The wizard
+  // twin ships the identical recipe as the published pill -- `text-sm sm:text-xs`,
+  // the same 160px HEADER_ACTION_CAP, `max-sm:flex-wrap`, the same hit band --
+  // and its nouns are LONGER ("need a look", "judgment calls" against "issues").
+  // Same cap, more text: it wraps at 375 where the published pill no longer does.
+  test("T-WIZ-COUNTS @375: the wizard pill shows counts without nouns, and still ANNOUNCES them", async ({
+    page,
+  }) => {
+    await openModal(page, 375, 812);
+    const chip = page.locator(CHIP);
+    await expect(chip).toHaveCount(1);
+
+    const seen = await chip.evaluate((el) => {
+      const hiddenAncestor = (n: Node): boolean => {
+        for (
+          let e: HTMLElement | null = n.parentElement;
+          e && e !== el.parentElement;
+          e = e.parentElement
+        ) {
+          const r = e.getBoundingClientRect();
+          if (getComputedStyle(e).position === "absolute" && r.width <= 2) return true;
+        }
+        return false;
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let visible = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!hiddenAncestor(n)) visible += n.textContent ?? "";
+      }
+      return { visible: visible.replace(/\s+/g, " ").trim() };
+    });
+
+    for (const noun of ["need a look", "needs a look", "judgment call", "judgment calls"]) {
+      expect(seen.visible, `"${noun}" must not be visible below sm`).not.toContain(noun);
+    }
+    expect(seen.visible, "the counts themselves stay visible").toMatch(/\d/);
+    // The nouns survive in the COMPUTED accessible name, not merely in
+    // textContent: an aria-label override would satisfy textContent silently.
+    await expect(chip).toHaveAccessibleName(/need a look|judgment call/);
+  });
+
+  test("T-WIZ-COUNTS @1280: the wizard pill's full wording is BACK at sm and up", async ({
+    page,
+  }) => {
+    await openModal(page, 1280, 812);
+    const visible = await page.locator(CHIP).evaluate((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let out = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const e = n.parentElement as HTMLElement | null;
+        const r = e?.getBoundingClientRect();
+        if (r && r.width > 1 && r.height > 1) out += n.textContent ?? "";
+      }
+      return out.replace(/\s+/g, " ").trim();
+    });
+    expect(visible, "the noun returns above the breakpoint").toMatch(/need a look|judgment call/);
+  });
+
   test("the composite pill leaves the show title legible at 375 (spec §9, PRODUCT.md persona)", async ({
     page,
   }) => {
