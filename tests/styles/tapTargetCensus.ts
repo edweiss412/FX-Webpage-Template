@@ -203,11 +203,14 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/Step3ReviewModal.tsx",
-    // :783 until 2026-08-27, :979 until 2026-08-29 — the attention pill's state
-    // block and its effects (spec §3.2/§3.5) sit above the resolution radios, so
-    // every edit to them moves this row. LIM-LINE-KEYED-SITEID: the census keys a
-    // site by line number, and a line number is not an identity.
-    line: 1003,
+    // :783 until 2026-08-27, :979 until 2026-08-29, :1003 until 2026-08-30 — the
+    // attention pill's state block and its effects (spec §3.2/§3.5) sit above the
+    // resolution radios, so every edit to them moves this row. The 2026-08-30 move
+    // was a one-line import plus an eight-line comment and mount for the
+    // draft-restored note, none of which touched this checkbox or its label row.
+    // LIM-LINE-KEYED-SITEID, fourth recurrence: the census keys a site by line
+    // number, and a line number is not an identity.
+    line: 1012,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",

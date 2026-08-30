@@ -352,6 +352,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     outPath,
     JSON.stringify({
       dfid: HARNESS_DFID,
+      wsid: HARNESS_WSID,
       diagramStubCount: HARNESS_DIAGRAM_STUB_COUNT,
       servableDiagramIndex: HARNESS_SERVABLE_DIAGRAM_INDEX,
       crewWarningCount: HARNESS_CREW_WARNING_COUNT,
