@@ -51,7 +51,8 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // moved out to lib/admin/reportDraftStore.ts and the component gained a seven-line
   // import for them near the top, shifting every keyed row below it. Same identity
   // check: 4108 is still the bare `if (failed)`, verified against origin/main's 4101.
-  "components/admin/wizard/step3ReviewSections.tsx:4108":
+  // 4108 -> 4152 on the ref-error-cell-anchors merge of main; still the bare `if (failed)`.
+  "components/admin/wizard/step3ReviewSections.tsx:4152":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -414,7 +415,10 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Nothing joined or left: the count assertion above still reads 35, the file set is
     // unchanged, every `form` and `marked` value is unchanged, and 4108 was verified to
     // be the same bare `if (failed)` that origin/main carries at 4101.
-    expect(digest).toBe("a155e4d1d5126f3391a7460f1e673211acbea5fc2d12200787dce2978777604d");
+    // Regenerated on the ref-error-cell-anchors merge of main. Both parents had moved lines in
+    // step3ReviewSections.tsx, so neither parent digest describes the merged tree; membership
+    // is unchanged and its assertion passed on the same run that produced this hash.
+    expect(digest).toBe("71f14e841ebb8085aa25a60d56438ccb805bdc0bc1b254200989fb690ee1eff3");
   });
 });
 

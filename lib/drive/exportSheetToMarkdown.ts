@@ -272,6 +272,13 @@ function tableMarkdown(block: readonly (readonly string[])[]): string {
   ].join("\n");
 }
 
+/** One block's markdown, exactly as `synthesizeMarkdownFromXlsx` emits it inside the joined
+ *  document. The anchor replay renders through this same function (spec 2026-08-29 §2.2), so
+ *  the text a scanner sees per block is byte for byte the text it sees in the document. */
+export function blockMarkdown(block: SynthesizedBlock): string {
+  return block.kind === "grid" ? tableMarkdown(block.rows.map((r) => r.cells)) : block.markdown;
+}
+
 /** Split a markdown table row into trimmed cells (mirror of parser `splitRow`). */
 function splitMarkdownRow(line: string): string[] {
   const parts = line.split("|");
@@ -396,9 +403,7 @@ export function synthesizeMarkdownFromXlsx(
   // No second guard: synthesizeBlocksFromXlsx already wraps the body, and rendering a
   // block list cannot throw a workbook fault.
   const { blocks, archivedPullSheetTabs } = synthesizeBlocksFromXlsx(buffer, opts);
-  const tables = blocks.map((b) =>
-    b.kind === "grid" ? tableMarkdown(b.rows.map((r) => r.cells)) : b.markdown,
-  );
+  const tables = blocks.map(blockMarkdown);
   return { markdown: tables.join("\n\n"), archivedPullSheetTabs };
 }
 

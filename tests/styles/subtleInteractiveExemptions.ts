@@ -97,7 +97,11 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // them near the top, so EVERY line-keyed row below that import shifted. Located
     // on the live tree by this row's own element, never by applying the delta —
     // rows above the import did not move at all.
-    line: 1647,
+    // Relocated again on feat/ref-error-cell-anchors' merge of main: BOTH sides had moved
+    // this row, so neither number described the merged tree. Located by the scanner on the
+    // merged tree, never by composing the two deltas.
+    // The scanner reports this file's two hits as 1648 and 3412.
+    line: 1648,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -115,7 +119,11 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // them near the top, so EVERY line-keyed row below that import shifted. Located
     // on the live tree by this row's own element, never by applying the delta —
     // rows above the import did not move at all.
-    line: 3368,
+    // Relocated again on feat/ref-error-cell-anchors' merge of main: BOTH sides had moved
+    // this row, so neither number described the merged tree. Located by the scanner on the
+    // merged tree, never by composing the two deltas.
+    // The second of the scanner's two hits, still the ignored-summary <summary>.
+    line: 3412,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

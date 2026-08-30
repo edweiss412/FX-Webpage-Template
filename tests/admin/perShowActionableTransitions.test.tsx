@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 import type { ParseWarning } from "@/lib/parser/types";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -85,12 +86,21 @@ vi.mock("@/lib/messages/lookup", async (importOriginal) => {
 
 afterEach(() => cleanup());
 
-const warn = (code: string, autocorrect?: ParseWarning["autocorrect"]): ParseWarning => ({
+const warn = (
+  code: string,
+  autocorrect?: ParseWarning["autocorrect"],
+  sourceCell?: SourceAnchor,
+): ParseWarning => ({
   severity: "warn",
   code,
   message: "human text",
   ...(autocorrect ? { autocorrect } : {}),
+  ...(sourceCell ? { sourceCell } : {}),
 });
+
+/** Spec 2026-08-29 §10: the cell line's C0/C1 pair, folded into the existing
+ *  every-ordered-pair loop rather than given its own describe. */
+const CELL: SourceAnchor = { title: "VENUE", gid: 5, a1: "A1", scope: "cell" };
 
 /** `subject` is REQUIRED by the Autocorrect type (string | null); FIELD_LABEL_AUTOCORRECTED
  *  is not crew-scoped, so a null subject still composes a sentence. */
@@ -102,16 +112,29 @@ const AUTOCORRECT = {
 // Every member carries the same three flags so a `note` read is well-typed on all of them
 // (strict TS: a field absent from one member is TS2339 on the union).
 const VARIANTS = {
-  A: { code: "SYN_A", guidance: false, trigger: false, note: false }, // unknown code
-  B: { code: "SYN_B", guidance: true, trigger: false, note: false },
-  C: { code: "SYN_C", guidance: false, trigger: true, note: false },
-  D: { code: "SYN_D", guidance: true, trigger: true, note: false },
-  E: { code: "SYN_E", guidance: true, trigger: false, note: true }, // G2
-  F: { code: "SYN_F", guidance: true, trigger: false, note: true }, // G3: the note IS the guidance
-  G: { code: "FIELD_LABEL_AUTOCORRECTED", guidance: true, trigger: false, note: false }, // G4
+  A: { code: "SYN_A", guidance: false, trigger: false, note: false, sourceCell: null }, // unknown code
+  B: { code: "SYN_B", guidance: true, trigger: false, note: false, sourceCell: null },
+  C: { code: "SYN_C", guidance: false, trigger: true, note: false, sourceCell: null },
+  D: { code: "SYN_D", guidance: true, trigger: true, note: false, sourceCell: null },
+  E: { code: "SYN_E", guidance: true, trigger: false, note: true, sourceCell: null }, // G2
+  F: { code: "SYN_F", guidance: true, trigger: false, note: true, sourceCell: null }, // G3: the note IS the guidance
+  G: {
+    code: "FIELD_LABEL_AUTOCORRECTED",
+    guidance: true,
+    trigger: false,
+    note: false,
+    sourceCell: null,
+  }, // G4
+  H: { code: "SYN_H", guidance: false, trigger: false, note: false, sourceCell: CELL }, // 2026-08-29 §10: C1
 } as const satisfies Record<
   string,
-  { code: string; guidance: boolean; trigger: boolean; note: boolean }
+  {
+    code: string;
+    guidance: boolean;
+    trigger: boolean;
+    note: boolean;
+    sourceCell: SourceAnchor | null;
+  }
 >;
 type VariantKey = keyof typeof VARIANTS;
 const NOTE_OF: Partial<Record<VariantKey, string>> = {
@@ -119,7 +142,7 @@ const NOTE_OF: Partial<Record<VariantKey, string>> = {
   F: "F note: use Report",
 };
 const itemsFor = (v: VariantKey): ParseWarning[] => [
-  warn(VARIANTS[v].code, v === "G" ? AUTOCORRECT : undefined),
+  warn(VARIANTS[v].code, v === "G" ? AUTOCORRECT : undefined, VARIANTS[v].sourceCell ?? undefined),
 ];
 
 function expectVariant(v: VariantKey) {
@@ -136,6 +159,11 @@ function expectVariant(v: VariantKey) {
     // G's entry HAS a controlsNote; the instance (autocorrect) line must suppress it.
     expect(/\bReport\b/.test(text), `${v} names no control`).toBe(false);
   }
+  // Spec 2026-08-29 §10: the cell line's presence tracks the anchor exactly, in both
+  // directions, through the same every-ordered-pair loop.
+  expect(!!screen.queryByTestId("per-show-actionable-cell"), `${v} cell line`).toBe(
+    VARIANTS[v].sourceCell !== null,
+  );
   // Spec §11: every G-pair is instant. No motion wrapper anywhere above the guidance node.
   if (el) expect(el.closest('[data-motion], [style*="transition"]')).toBeNull();
 }

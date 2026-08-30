@@ -1,11 +1,23 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
+  blockMarkdown,
   renderRow,
   synthesizeBlocksFromXlsx,
   synthesizeMarkdownFromXlsx,
 } from "@/lib/drive/exportSheetToMarkdown";
+import { premise } from "@/tests/_shared/premise";
 import { buildXlsx } from "../helpers/buildXlsx";
+
+/** Read a committed workbook as a standalone ArrayBuffer. Copied from
+ *  tests/drive/unknownFieldAnchors.test.ts:57-60: `readFileSync(...).buffer` is a POOLED
+ *  allocation for small files and would carry a byteOffset, so slice it. */
+function fixtureBuffer(relative: string): ArrayBuffer {
+  const b = readFileSync(join(process.cwd(), relative));
+  return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+}
 
 // Verbatim copy of `regionA` from tests/drive/exportSheetArchivedPullSheet.test.ts lines
 // 7-13 (module-local there, not exported): five rows, which that suite proves yield
@@ -98,5 +110,37 @@ describe("synthesizeBlocksFromXlsx carries coordinates the markdown loses (spec 
     expect(synthesizeMarkdownFromXlsx(buf).markdown.split("\n")[0]).toBe(
       renderRow(["a#b", "c|d"], 2),
     );
+  });
+});
+
+describe("blockMarkdown is the one renderer synthesizeMarkdownFromXlsx uses (spec 2026-08-29 §2.2)", () => {
+  const DIR = join(process.cwd(), "fixtures/shows/exporter-xlsx");
+  const files = readdirSync(DIR)
+    .filter((f) => f.endsWith(".xlsx"))
+    .sort();
+  it("premise: the corpus holds the seven workbooks the spec measured", () => {
+    premise("corpus workbooks", files.length, 6);
+  });
+  for (const f of files) {
+    it(`${f}: blocks.map(blockMarkdown).join("\n\n") equals the document`, () => {
+      const buffer = fixtureBuffer(join("fixtures/shows/exporter-xlsx", f));
+      const { blocks } = synthesizeBlocksFromXlsx(buffer);
+      const { markdown } = synthesizeMarkdownFromXlsx(buffer);
+      expect(blocks.map(blockMarkdown).join("\n\n")).toBe(markdown);
+    });
+  }
+  it("an opaque block renders as its own markdown, a grid block as a header, one delimiter row, then rows", () => {
+    const opaque = { kind: "opaque" as const, markdown: "| PULL SHEET |\n| :---: |\n| x |" };
+    expect(blockMarkdown(opaque)).toBe(opaque.markdown);
+    const grid = {
+      kind: "grid" as const,
+      sheetName: "INFO",
+      absCol0: 0,
+      rows: [
+        { absRow: 0, cells: ["A", "B"] },
+        { absRow: 1, cells: ["c"] },
+      ],
+    };
+    expect(blockMarkdown(grid).split("\n")).toEqual(["| A | B |", "| :---: | :---: |", "| c |  |"]);
   });
 });

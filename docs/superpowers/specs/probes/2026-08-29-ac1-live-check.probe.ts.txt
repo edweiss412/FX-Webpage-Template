@@ -1,0 +1,79 @@
+/**
+ * AC-1-LOCAL live check for feat/ref-error-cell-anchors (spec 2026-08-29 §11 AC-1,
+ * second half), run under the bl-orch ruling of 2026-08-29 that substitutes a LOCAL run
+ * on this branch against the REAL sheet for the branch preview, which Vercel refused
+ * ("Deployment rate limited - retry in 24 hours").
+ *
+ * Exercises this branch's real ingestion path end to end on live Drive bytes:
+ *   listFolder -> fetchCurrentSheetXlsxBytes -> fetchSheetTitleToGid
+ *   -> synthesizeMarkdownFromXlsx -> parseSheet -> attachWarningAnchors
+ * and prints, for every REF_ERROR_LITERAL warning, the anchor the branch resolved, the
+ * rendered `Sheet cell` value, and the deep link the row's `Open in Sheet` would carry.
+ *
+ * READ-ONLY: no Supabase client, no DB write, no staged row. Nothing here touches the
+ * validation project.
+ */
+import { readFileSync } from "node:fs";
+
+for (const line of readFileSync(".env.local", "utf8").split("\n")) {
+  const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+  if (!m) continue;
+  let v = m[2]!;
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  process.env[m[1]!] ??= v;
+}
+
+async function main(): Promise<void> {
+  const { listFolder } = await import("@/lib/drive/list");
+  const { fetchCurrentSheetXlsxBytes, fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+  const { fetchSheetTitleToGid } = await import("@/lib/drive/sheetGids");
+  const { synthesizeMarkdownFromXlsx } = await import("@/lib/drive/exportSheetToMarkdown");
+  const { parseSheet } = await import("@/lib/parser");
+  const { attachWarningAnchors } = await import("@/lib/sync/attachWarningAnchors");
+  const { buildSheetDeepLink } = await import("@/lib/sheet-links/buildSheetDeepLink");
+  const { sheetCellReference } = await import("@/lib/sheet-links/sheetCellReference");
+
+  const FOLDER = "1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C"; // fxav-test-shows (AGENTS.md)
+  const WANT = "FinTech";
+
+  const files = await listFolder(FOLDER);
+  const hit = files.find((f) => f.name.includes(WANT));
+  if (!hit) {
+    console.log("NO MATCH. Folder contents:");
+    for (const f of files) console.log(`  ${f.driveFileId}  ${f.name}`);
+    process.exit(2);
+  }
+
+  const meta = await fetchDriveFileMetadata(hit.driveFileId);
+  console.log(`show          : ${hit.name}`);
+  console.log(`driveFileId   : ${hit.driveFileId}`);
+  console.log(`modifiedTime  : ${(meta as { modifiedTime?: string }).modifiedTime ?? hit.modifiedTime}`);
+  console.log(`headRevisionId: ${hit.headRevisionId ?? (meta as { headRevisionId?: string }).headRevisionId ?? "(none)"}`);
+
+  const bytes = await fetchCurrentSheetXlsxBytes(hit.driveFileId);
+  const gids = await fetchSheetTitleToGid(hit.driveFileId);
+  const { markdown } = synthesizeMarkdownFromXlsx(bytes);
+  const warnings = parseSheet(markdown, `${hit.name}.xlsx`).warnings;
+  await attachWarningAnchors(warnings, bytes, async () => gids);
+
+  const refs = warnings.filter((w) => w.code === "REF_ERROR_LITERAL");
+  console.log(`\nREF_ERROR_LITERAL warnings: ${refs.length}`);
+  for (const [i, w] of refs.entries()) {
+    const sc = w.sourceCell;
+    const rendered = sc?.title && sc.a1 ? sheetCellReference(sc.title, sc.a1) : "(no cell line)";
+    console.log(
+      `  ${i + 1}. scope=${sc?.scope ?? "(none)"}  Sheet cell ${rendered}\n` +
+        `     Open in Sheet -> ${sc ? buildSheetDeepLink(hit.driveFileId, sc) : "(no link)"}`,
+    );
+  }
+  const unanchored = refs.filter((w) => w.sourceCell?.scope !== "cell").length;
+  console.log(`\nunanchored REF warnings: ${unanchored}`);
+
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

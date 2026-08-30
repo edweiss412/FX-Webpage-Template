@@ -3327,6 +3327,10 @@ export async function prepareProcessOneFile(
     xlsxBytes,
     async () => titleToGid,
     sourceAnchors ?? {},
+    // The wave-code replay must walk the block list the parsed markdown came from (spec
+    // 2026-08-29 §2.4, "Same blocks"): the same override this export was synthesized with.
+    // `{}` when there is no override, which the replay reads as no option.
+    includeOpts,
   );
 
   let currentBinding: Phase1Binding;

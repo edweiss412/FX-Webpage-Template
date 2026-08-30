@@ -307,7 +307,11 @@ export async function applyParseResult(
     // attachWarningAnchors. Re-run the PURE region-only anchoring on the carried
     // sourceAnchors so the appended warning still deep-links to its schedule tab.
     // No fetch, no DB, no lock; idempotent + non-destructive (only sets sourceCell
-    // when a region resolves, never clobbers an already-set anchor).
+    // when a region resolves, never clobbers an already-set anchor). The "never
+    // clobbers" half is the GRAIN RULE at the assignment site (showDayTimeAnchors.ts,
+    // `grainOf`, spec 2026-08-29 §2.1): a region range can no longer replace a cell,
+    // so a per-row crew cell and a replayed wave cell both survive this pass. Before
+    // that rule this comment stated a promise the code did not keep.
     if (emittedIndex > 0) {
       attachSourceCellAnchors(args.parseResult.warnings, {
         showDay: [],

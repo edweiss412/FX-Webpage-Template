@@ -257,7 +257,10 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // inside a 5000-line component are reachable by neither an import nor a
     // mutant. Depth-1 from components/admin/wizard/step3ReviewSections.tsx.
     expect(rel).toContain("lib/admin/reportDraftStore.ts");
-    expect(rel.length).toBe(220);
+    // 220 -> 221 on the ref-error-cell-anchors merge of main: ONE module joined from this
+    // arc, lib/sheet-links/sheetCellReference.ts, a pure string formatter with no clock
+    // read. main's own +1 (lib/admin/reportDraftStore.ts) is already counted above.
+    expect(rel.length).toBe(221);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

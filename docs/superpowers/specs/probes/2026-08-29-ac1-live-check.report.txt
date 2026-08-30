@@ -1,0 +1,25 @@
+show          : II - FinTech Forum CTO Summit 2026
+driveFileId   : 1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY
+modifiedTime  : 2026-06-27T21:58:02.790Z
+headRevisionId: (none)
+
+REF_ERROR_LITERAL warnings: 5
+  1. scope=cell  Sheet cell VENUE!A1
+     Open in Sheet -> https://docs.google.com/spreadsheets/d/1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY/edit#gid=354548247&range=A1
+  2. scope=cell  Sheet cell CLIENT!A1
+     Open in Sheet -> https://docs.google.com/spreadsheets/d/1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY/edit#gid=141155244&range=A1
+  3. scope=cell  Sheet cell TECH!A1
+     Open in Sheet -> https://docs.google.com/spreadsheets/d/1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY/edit#gid=1871609441&range=A1
+  4. scope=cell  Sheet cell VEHICLE!A1
+     Open in Sheet -> https://docs.google.com/spreadsheets/d/1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY/edit#gid=1789571822&range=A1
+  5. scope=cell  Sheet cell ROLE!A1
+     Open in Sheet -> https://docs.google.com/spreadsheets/d/1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY/edit#gid=633442094&range=A1
+
+unanchored REF warnings: 0
+
+--- run metadata ---
+branch      : feat/ref-error-cell-anchors
+head        : 651d2d3247d9e61757bcff895f8d6093017b607a
+command     : pnpm exec tsx <this probe, saved as .ts>
+run at      : 2026-08-29T20:13:39Z
+writes      : none (no Supabase client, no staged row, no DB of any kind)
