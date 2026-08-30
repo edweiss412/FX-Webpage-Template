@@ -18,13 +18,43 @@ Spec review is CLOSED at 4 rounds (3-2-1-1, decaying; R4 repaired at cause in `d
 
 ## Meta-test inventory (mandatory declaration)
 
-**This plan creates NO structural meta-test, and extends none.** Reason: it ships no new call
-boundary, no registry, no lock topology, no admin alert, and no new rendering contract — it changes
-four literal strings on two components, four accessible names, one local identifier, and one SQL
-projection. The candidate registries in `docs/agents/writing-plans.md:21` are each inapplicable for
-that reason: no Supabase call site is added (invariant 9), no advisory lock is acquired or moved
+**This plan CREATES TWO structural guards and extends none.** Plan R2 finding 3 was right and the
+R1 version of this section was false: it declared "creates none" while Tasks 3 and 3c each create one.
+That contradiction is exactly the "the repair's own tidy-up is a defect site" case
+(`docs/agents/writing-plans.md:23`), and it is recorded rather than quietly fixed.
+
+| Guard | Created by | What it pins |
+| --- | --- | --- |
+| the `approvedRows` misnomer guard, under `tests/onboarding/` | Task 3 | no file under `app/` binds the identifier `approvedRows` |
+| the progress-transition audit, under `tests/components/admin/` | Task 3c | every conditional render in both progress subtrees is instant |
+
+**Mutation-family closure (mandatory for guard work, `docs/agents/writing-plans.md:34`).** Each guard
+enumerates its operator families up front; that enumeration IS the closure set review converges
+against, and a reviewer-proposed new family is admissible only with a live escaping mutant.
+
+Misnomer guard, three families: (i) IDENTIFIER REINTRODUCTION — plant `const approvedRows = …` in the
+finalize route, expect fail; (ii) EVASION BY LONGER NAME — plant `approvedRowsCount`, expect PASS
+(the guard is word-matched by design and this mutant documents that boundary, not a gap); (iii) SCOPE
+ESCAPE — plant the identifier in a DIFFERENT file under `app/`, expect fail, which is what makes the
+widened scan of finding 5 load-bearing rather than cosmetic.
+
+Transition guard, three families: (i) ANIMATION PRIMITIVE — plant an `AnimatePresence` wrapper in
+each progress subtree, expect fail; (ii) CSS TRANSITION — plant a `transition-*`/`animate-*` class on
+a node INSIDE a progress subtree, expect fail (this family is the direct answer to R2 finding 2: a
+framer-marker-only oracle is blind to it); (iii) NESTED DUPLICATE — plant a second conditional mount
+one level deeper so two nodes coexist below the outer mount, expect fail, which is the escape R2
+finding 2 named against an outer-child-count check.
+
+No OTHER registry applies, and each candidate in `docs/agents/writing-plans.md:21` is declined for a
+stated reason: no Supabase call site is added (invariant 9), no advisory lock is acquired or moved
 (invariant 2), no `admin_alerts` row is written, no sentinel-in-optional-text is introduced, and no
 email normalization is touched.
+
+**Collection and CI wiring, recorded so nobody adds config that is already implicit:** both new files
+carry the dot-test extension and so are collected by `BASE_INCLUDE` (`vitest.projects.ts:34`) with no
+change; `tests/components/**` is in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:105`) so the transition
+guard runs in the parallel project; the unit-suite workflow is unfiltered, so neither needs a
+`testMatch` or workflow edit.
 
 Two EXISTING structural guards must keep passing and are named so a regression is attributed rather
 than discovered: `tests/docs/_metaInvariant8Closeout.test.ts` (this plan is a UI unit) and
@@ -32,19 +62,26 @@ than discovered: `tests/docs/_metaInvariant8Closeout.test.ts` (this plan is a UI
 
 ## Four-mutant validation for every string-presence assertion (mandatory, `docs/agents/writing-plans.md:16`)
 
-Every task below asserts "this string appears in this output", so every one of them runs all four
-mutants BEFORE the review dispatch and records each result in that task's commit message:
+The rule applies to any test asserting "this string appears in this output". Plan R2 finding 4 was
+right that the R1 version of this section was not executable: it declared one blanket set of
+discriminating parameters that do not exist for three of the tasks. The requirement is therefore
+scoped per task, and the tasks it does NOT apply to say so with a reason.
 
-- (a) the asserted value EMPTIED — the assertion must fail;
-- (b) the expected content plus an APPENDED SUFFIX — a substring assertion passes here and must be
-  tightened until it does not;
-- (c) the content present but NOT LIVE — commented out, escaped, moved into an attribute, or behind
-  a false condition — so it exists in the file but not where the assertion claims;
-- (d) each discriminating parameter varied in turn — for these tasks that means the PHASE
-  (`batch` vs `cas`) and, for the subline, `lastName` null vs set.
+(a) value EMPTIED, (b) expected content plus an APPENDED SUFFIX, (c) content present but NOT LIVE
+(commented out, escaped, in an attribute, or behind a false condition), (d) each DISCRIMINATING
+PARAMETER varied in turn. Every result is recorded in that task's commit message.
 
-Mutant (c) is the one that matters most here: several assertions read text out of a rendered tree,
-and an assertion that would pass against a commented-out string is not testing the render.
+| Task | Applies | Discriminating parameter for (d) |
+| --- | --- | --- |
+| 1 FinalizeButton copy | YES, per asserted string | `state.phase` batch vs cas; `lastName` null vs set; for the announcer, running vs idle |
+| 2 compact tracking copy | YES, per asserted string | same two, on the compact renderer |
+| 3 misnomer guard | NO — it is an ABSENCE guard, not a string-presence assertion. Its discriminating power comes from the three mutation families declared above, which is the stronger instrument for this shape. |  |
+| 3b applied-parse name | YES, on the emitted `name` | old vs REFRESHED title; rescan reached vs not reached; row succeeded vs failed. (a) is the sharpest here: with the fake's projection unwidened the value is empty, which is precisely the silent-null failure this task exists to prevent. |
+| 3c transition guard | NO — an absence guard. Covered by its three mutation families above. |  |
+| 4 close-out | NO — its gate is a marker-grammar check, which gets the MUTANT-RED treatment instead (`docs/agents/writing-plans.md:28`): probe it against a constructed malformed marker and confirm non-zero exit. |  |
+
+Mutant (c) matters most for tasks 1 and 2: those assertions read text out of a rendered tree, and an
+assertion that would pass against a commented-out string is not testing the render.
 
 ## Global constraints
 
@@ -115,9 +152,15 @@ RED: a NEW structural guard this task CREATES under `tests/onboarding/`, named
 _metaNoApprovedRowsMisnomer, with the usual dot-test-dot-ts extension (spelled out, not written as a
 path: it does
 not exist yet and `spec:lint` reads a path-shaped token as a citation to a tracked file). It asserts that
-no file under `app/api/admin/onboarding/` binds the identifier `approvedRows`. It FAILS on the live
+no file under `app/` binds the identifier `approvedRows`. It FAILS on the live
 tree today (the declaration at `app/api/admin/onboarding/finalize/route.ts:1593` plus five readers)
 and PASSES after the rename — same command, observed both ways.
+
+SCOPE, per plan R2 finding 5: the scan covers ALL of `app/`, not just `app/api/admin/onboarding/`,
+because that is what AC-5 claims. The live tree has no second occurrence today, so the narrower scan
+would have passed while the AC it is marked against went unproven — a guard whose coverage is
+smaller than its claim. Mutation family (iii) plants the identifier in a different file under `app/`
+precisely to prove the widened scan discriminates.
 PREMISE GUARD (`tests/_shared/premise.ts`): assert the walk actually SAW the finalize route file
 before asserting anything about its contents, so a mistyped glob cannot report success by scanning
 nothing.
@@ -191,24 +234,41 @@ Required by the writing-plans rule for any component with a Transition Inventory
 finding 4: the existing coverage audits part of `FinalizeButton` only, and covers neither the compact
 Step-3 renderer nor the two compound cases the inventory names.
 
+**Its RED is a CONSTRUCTED failing input, not a pre-existing defect.** Plan R2 finding 1 is right
+that both components already satisfy every assertion here, so no natural red exists, and a
+non-collection failure before the file is written is explicitly not one. This guard therefore takes
+the MUTANT-RED treatment `docs/agents/writing-plans.md:28` prescribes for exactly this shape: the RED
+step PLANTS each mutation family declared in the inventory section, observes the SAME command exit
+non-zero for each, then reverts; the GREEN step is that command passing on the unmutated tree. Both
+states are observed on one command, and every planted mutant and its result goes in the commit.
+
 Inventory BOTH components' conditional renders — every `AnimatePresence`, every ternary render, every
 conditional block in the batch and CAS branches of `components/admin/FinalizeButton.tsx:962-1030` and
-`components/admin/wizard/Step3ReviewWithFinalize.tsx:230-290` — and assert each is either deliberately instant or carries
-appropriate `exit`/`initial`/`animate` props. The spec's inventory says ALL are instant, so the
-assertion is structural: no `AnimatePresence`, no `motion.*`, and no `data-framer-*`/`motion-` marker
-attribute appears in either subtree at any point in the sequence, and the mount's direct child count
-never exceeds one (the duplicate-exiting-node tell). Shape to copy:
-`tests/e2e/blocked-row-resolver-transitions.spec.ts`, which does exactly this two ways, structurally
-and behaviorally.
+`components/admin/wizard/Step3ReviewWithFinalize.tsx:230-290`. The spec's inventory says ALL are
+instant, so the assertion is structural. Plan R2 finding 2 named three holes in the R1 framing, and
+each is closed:
 
-COMPOUND cases from spec §3.4, both required:
-  - the name changing while the count/bar change in the SAME commit (every row event carries all
-    three, so this is the common path, not an edge case);
-  - batch -> CAS while a subline is rendered, asserting the group's accessible name does NOT change
-    across the boundary (that is the property keeping a screen reader from re-announcing the group
-    mid-run, and it is the reason the label is phase-neutral).
-RED: the compact renderer has no transition coverage at all today, so the Step3 half fails on the
-live tree before this task writes the assertions.
+- **Not framer markers alone.** Also scan for CSS animation: any `transition-*` or `animate-*` class
+  on a node INSIDE a progress subtree. A marker-only oracle is blind to a CSS transition.
+  SCOPE IT TO THE PROGRESS SUBTREES — `components/admin/wizard/Step3ReviewWithFinalize.tsx:146`
+  carries a legitimate `transition-colors duration-fast` hover treatment on the footer's Back button,
+  and a file-scoped assertion reds on correct code.
+- **Not the outer child count alone.** A duplicate exiting node can coexist at a NESTED conditional
+  mount while the outer mount still shows one child. Assert the property at EVERY conditional mount
+  in the subtree; mutation family (iii) plants exactly that escape.
+- **The one-commit claim is NOT asserted here.** jsdom cannot prove the name, count and bar changed
+  in a single React commit, and asserting it in a jsdom file would be theatre. The structural
+  property is what this guard pins; the one-commit behavior rests on the code shape — all three are
+  written by one `setState` in the row handler (`components/admin/FinalizeButton.tsx:230-234`) — and
+  is recorded in the close-out audit rather than pretended as a test.
+  `tests/e2e/blocked-row-resolver-transitions.spec.ts` is the real-browser precedent; this task
+  deliberately does not copy its behavioral half, because this arc dropped its Playwright task and
+  re-adding one to assert an absence that already holds is not worth a browser.
+
+COMPOUND cases from spec §3.4: the batch -> CAS boundary is asserted structurally (the group's
+accessible name does NOT change across it, which is what keeps a screen reader from re-announcing the
+group mid-run). The name-with-count case is the code-shape claim above.
+
 COMMIT: `test(admin): audit finalize progress transitions across both renderers`
 
 ## Task 4 — close-out
@@ -226,7 +286,25 @@ paths, so they are named in prose. Findings dispositioned in the close-out.
 **Both halves re-run if the later whole-diff review causes ANY UI repair.** The marker must describe
 the diff that SHIPS, not a pre-repair snapshot of it; a gate run before a UI change is a gate run
 against different bytes. If the whole-diff review changes nothing under `components/`, the first run
-stands. Marker grammar, live example at
+stands.
+
+**The close-out validates the FINAL tree, not the pre-marker one** (plan R2 finding 6). The R1
+ordering ran `pnpm heavy` and the invariant-8 guard BEFORE the marker line existed, so the marker
+bytes that actually ship never met the grammar guard. Sequence, and the order is the point:
+
+1. gate halves run, findings dispositioned;
+2. write the marker line AND the in-plan `## 12` findings-and-dispositions record (required by
+   invariant 8 for a flat plan: "flat plans in an in-plan `## 12` section or a stem-named sibling
+   closeout file"). The R1 version omitted this record entirely;
+3. re-run `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` — the real grammar guard —
+   AFTER the marker lands. This is what validates the shipped bytes;
+4. only then the full suite and the remaining gates.
+
+**The marker grep gets the mutant-red treatment too.** `grep -qE "^impeccable-gate: critique=RAN"`
+accepts any line merely STARTING that way, including a malformed one. Probe it against a constructed
+malformed marker (`impeccable-gate: critique=RAN audit=` with no value) and confirm the meta-test in
+step 3 rejects what the grep accepts. The grep is a task-completion tripwire; the meta-test is the
+grammar authority, and the plan should not confuse the two. Marker grammar, live example at
 `docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md:94`:
 `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>`
 Then whole-diff Codex review to APPROVE, push, PR, 13 required contexts green, READY to bl-orch.
