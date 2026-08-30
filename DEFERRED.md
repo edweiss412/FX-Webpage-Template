@@ -167,34 +167,6 @@ disagree while this sits open.
 follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
 Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
-### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session (2026-08-11)
-
-**Effort:** S · **Status:** IN PROGRESS · **Branch:** feat/diagram-failure-retry
-
-Surfaced by the invariant-8 dual gate on branch `feat/diagram-viewing-polish`, by the critique half
-(P1). Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md`.
-
-**The finding.** A runtime image failure is terminal per item: `failedKeys` is never cleared in
-either `components/diagrams/Gallery.tsx` or `components/diagrams/GalleryLightbox.tsx`, so one
-dropped request on ballroom wifi costs that diagram until a full page reload the crew member has no
-reason to attempt. The branch's repair makes the failure legible — focus relocates, and the event is
-announced by name — but the announcement offers no next step, and the replacement cell is a
-non-interactive `<div>`. Heuristic 9 (recover from errors) scored 2/4 on that account.
-
-**Why deferred rather than repaired in-branch — reason (a), it needs a product decision this PR
-cannot settle.** The obvious repair is to make the placeholder a "Retry" control, and the obvious
-copy is "<name> could not be loaded. Tap to retry." Both are product calls this arc's ratified scope
-(spec §1.1: the repair is focus relocation plus announcement) does not cover, and the mechanism has
-a real cost: the asset route sends `private, max-age=0, must-revalidate` with no ETag
-(`app/api/asset/diagram/[show]/[rev]/[key]/route.ts`), so a retry on a 1-5 MB original is a full
-re-download, and a crew member tapping a dead tile twice pays for it twice. Whether the affordance
-should exist at all, whether it should retry the clamped tier rather than the original, and what it
-says while in flight are one decision, not three independent ones.
-
-**Un-defer trigger.** A product decision on failure recovery for diagrams — either taken directly,
-or forced by the first support report of a diagram that "just disappeared" on venue wifi.
-
 ### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
 
 **Effort:** S
