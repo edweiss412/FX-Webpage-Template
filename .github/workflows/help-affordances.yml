@@ -70,14 +70,27 @@ jobs:
       # walker's own assertions, never a merge-blocking pixel diff. `github.sha`
       # in the key makes each run save a fresh entry (cache entries are
       # immutable per key); restore-keys falls back to the most recent prefix.
+      #
+      # THE CSS HASH IS LOAD-BEARING, and its absence cost three CI cycles on
+      # 2026-08-29. The old key fell back on `-nextcache-help-<lock>-`, which
+      # matches a cache saved BEFORE an `app/globals.css` change, and the Next
+      # compiler cache then served the pre-change compiled stylesheet. Three
+      # different fixes to one rule produced a byte-identical failure (814px
+      # against 700px expected) because none of them ever reached the served
+      # CSS; the assertion's own diagnostic settled it — `computed
+      # max-width=none` with the class present and the custom property
+      # resolving. Hashing `app/globals.css` into BOTH the key and the only
+      # restore prefix means a stylesheet change cannot restore a cache from
+      # before it. The broad `-nextcache-help-` fallback is deliberately gone:
+      # it could match any lockfile AND any stylesheet, which is the same bug
+      # one level up.
       - name: Restore Next build cache (help-docs :3004 build)
         uses: actions/cache@v4
         with:
           path: .next-screenshots-help/cache
-          key: ${{ runner.os }}-nextcache-help-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          key: ${{ runner.os }}-nextcache-help-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('app/globals.css') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-nextcache-help-${{ hashFiles('pnpm-lock.yaml') }}-
-            ${{ runner.os }}-nextcache-help-
+            ${{ runner.os }}-nextcache-help-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('app/globals.css') }}-
       - name: Run walker (mobile + desktop)
         env:
           # help-docs-setup.ts asserts these in the TEST-RUNNER process —
