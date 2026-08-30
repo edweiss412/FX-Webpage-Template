@@ -32,7 +32,7 @@ So the arc twice measured its own brief out of work. What remained is the half o
 
 ## 2. The real class: declared is not resolved
 
-Every defect here is one shape. A **declaration** names a test file; a **resolution** is the set of files Playwright actually runs. The two are compared in one direction only, and each place they are not compared has produced a live defect.
+Every defect here is one shape. A **declaration** names a test file; a **resolution** is the set of files Playwright actually runs. The two are compared in one direction only. Two of the three uncompared pairings below produced a live defect; the third produced a proved mechanism with no instance ever observed, and is a documented limit rather than a finding.
 
 | # | declaration | resolution | compared? | status |
 |---|---|---|---|---|
