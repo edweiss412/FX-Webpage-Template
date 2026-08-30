@@ -239,7 +239,7 @@ describe("Task 7 — the gallery's availability sweep (AC-11)", () => {
 describe("R2: removal paths, swept as classes rather than as instances", () => {
   test("finding 2: an in-flight retry collapsed away returns as FAILED, not idle", () => {
     const many = Array.from({ length: 14 }, (_, i) => item(i + 1));
-    render(<Gallery showId={SHOW_ID} rev={REV} items={many} />);
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={many} />);
 
     // Expand so item 13 is rendered, fail it, and start a retry.
     // The toggle carries no testid; it is found by its accessible name, which
@@ -277,7 +277,7 @@ describe("R2: removal paths, swept as classes rather than as instances", () => {
   });
 
   test("finding 1: a prop-driven removal under focus does not strand it on <body>", () => {
-    const { rerender } = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    const { rerender } = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
     const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
     premiseHolds("slot 1 renders an image to fail", img !== null);
     act(() => fireEvent.error(img as HTMLImageElement));
@@ -289,7 +289,7 @@ describe("R2: removal paths, swept as classes rather than as instances", () => {
     );
 
     // The item leaves `items` entirely — no availability flag involved.
-    rerender(<Gallery showId={SHOW_ID} rev={REV} items={[item(2)]} />);
+    rerender(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(2)]} />);
 
     expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
     expect(document.activeElement?.isConnected, "and lands on a connected node").toBe(true);
@@ -298,10 +298,10 @@ describe("R2: removal paths, swept as classes rather than as instances", () => {
 
 describe("R2 finding 1: the exact variants the reviewer probed", () => {
   const rerenderWith = (view: ReturnType<typeof render>, items: GalleryItem[]) =>
-    view.rerender(<Gallery showId={SHOW_ID} rev={REV} items={items} />);
+    view.rerender(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items} />);
 
   test("a focused RETRYING OVERLAY followed by available:false", () => {
-    const view = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    const view = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
     const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
     premiseHolds("slot 1 renders an image", img !== null);
     act(() => fireEvent.error(img as HTMLImageElement));
@@ -319,7 +319,7 @@ describe("R2 finding 1: the exact variants the reviewer probed", () => {
   });
 
   test("a focused FAILED control followed by available:false", () => {
-    const view = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    const view = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
     const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
     premiseHolds("slot 1 renders an image", img !== null);
     act(() => fireEvent.error(img as HTMLImageElement));

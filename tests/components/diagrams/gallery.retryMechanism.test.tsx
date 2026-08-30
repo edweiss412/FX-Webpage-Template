@@ -372,7 +372,7 @@ describe("Task 2 — the gallery retry mechanism", () => {
  */
 describe("R1 finding 1: a control removed under focus relocates it", () => {
   test("a SUCCESSFUL retry does not strand focus on <body>", async () => {
-    render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
     failThumb(1);
     const control = within(slot(1)).getByTestId("diagram-retry-1");
     act(() => control.focus());
@@ -398,7 +398,7 @@ describe("R1 finding 1: a control removed under focus relocates it", () => {
   });
 
   test("an item going unavailable under focus does not strand it either", () => {
-    const { rerender } = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    const { rerender } = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
     failThumb(1);
     const control = within(slot(1)).getByTestId("diagram-retry-1");
     act(() => control.focus());
@@ -410,7 +410,7 @@ describe("R1 finding 1: a control removed under focus relocates it", () => {
     // Availability is the OTHER removal path, and it removes the control with
     // no user action at all.
     rerender(
-      <Gallery showId={SHOW_ID} rev={REV} items={[item(1, { available: false }), item(2)]} />,
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1, { available: false }), item(2)]} />,
     );
 
     expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
