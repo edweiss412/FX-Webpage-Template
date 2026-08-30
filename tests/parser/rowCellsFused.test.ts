@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseSheet } from "@/lib/parser";
 import { KNOWN_SECTION_HEADERS } from "@/lib/parser/knownSections";
+import { detectFusedRows, scanFusedRows } from "@/lib/parser/rowWidthDiscriminator";
 import { isRoutingKey } from "@/lib/parser/sectionKind";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { FIXTURES, readFixture } from "@/tests/parser/mutation/fixtures";
@@ -441,5 +442,34 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     const twoRowsRagged = "| CREW | Role | Call |\n| --- | --- | --- |\n| Alice | A1 |\n";
     expect(fused(oneRow, "calibration.md")).toEqual([]);
     expect(fused(twoRowsRagged, "calibration.md")).toEqual([]);
+  });
+});
+
+describe("scanFusedRows reports the line of every hit; the emitter maps it (spec 2026-08-29 §2.3)", () => {
+  // Four data rows, three of them three cells wide and one two cells wide: the modal is 3,
+  // so the short row is at modal - 1 and is the only hit. Line indexes are the fixture's own.
+  const md = [
+    "| CREW | A | B |",
+    "| :---: | :---: | :---: |",
+    "| a | b | c |",
+    "| d | e | f |",
+    "| g | h |",
+    "| i | j | k |",
+  ].join("\n");
+
+  it("positions: the short row's line index, and the emitter maps the same hits", () => {
+    expect(scanFusedRows(md).map(({ line, kind }) => [line, kind])).toEqual([[4, "crew"]]);
+    const hits = scanFusedRows(md);
+    const warnings = detectFusedRows(md);
+    expect(warnings.map((w) => [w.blockRef?.kind, w.rawSnippet])).toEqual(
+      hits.map((h) => [h.kind, h.snippet]),
+    );
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("an ambiguous run (two delimiter rows) yields no hits from either", () => {
+    const ambiguous = [md, "| :---: | :---: | :---: |"].join("\n");
+    expect(scanFusedRows(ambiguous)).toEqual([]);
+    expect(detectFusedRows(ambiguous)).toEqual([]);
   });
 });

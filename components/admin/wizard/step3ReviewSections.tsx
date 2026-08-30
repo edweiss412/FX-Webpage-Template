@@ -136,6 +136,7 @@ import { avatarColor } from "@/lib/crew/avatarColor";
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
 import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
@@ -3237,18 +3238,61 @@ export function WarningsBreakdown({
                         // which noticed the first version of this comment under-claimed.
                         const rowLabel =
                           w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
+                        // The SHEET CELL coordinate (spec 2026-08-29 §3). Four identical
+                        // "#REF!" rows are unreadable without it: the panel above says
+                        // "Edit the cell" and, until this line, nothing on any row said
+                        // which cell or which tab. Mutually exclusive with the row label by
+                        // construction — one line, one per-row discriminator, same slot.
+                        // `rowLabel === null` is belt-and-braces here (the early return
+                        // below already short-circuits), and it is kept so the guard reads
+                        // identically to the published card's, where it is load-bearing.
+                        //
+                        // A colon in `a1` is the LEGACY block-range shape (the one
+                        // `stripLegacyUnknownFieldAnchors` neutralizes), so it is a region,
+                        // not a coordinate to type into the name box; `scope: "tab"` names
+                        // a tab and not a cell. Neither renders.
+                        const cellRef =
+                          rowLabel === null &&
+                          w.sourceCell?.scope === "cell" &&
+                          typeof w.sourceCell.a1 === "string" &&
+                          w.sourceCell.a1.trim().length > 0 &&
+                          !w.sourceCell.a1.includes(":") &&
+                          typeof w.sourceCell.title === "string" &&
+                          w.sourceCell.title.trim().length > 0
+                            ? sheetCellReference(w.sourceCell.title.trim(), w.sourceCell.a1.trim())
+                            : null;
                         // The lead-in is not decoration: with the candidate line below
                         // carrying one, this was the only unlabeled line on the row, and it is
                         // the MORE important of the two facts (it is the string Doug searches
                         // his sheet for). Same information grammar as the per-show band, in
                         // this surface's flatter type ramp. The value keeps its own span so a
                         // by-text query still matches the label alone.
-                        return rowLabel ? (
+                        if (rowLabel) {
+                          return (
+                            <span
+                              data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
+                              className="wrap-break-word text-xs text-text-subtle"
+                            >
+                              Sheet row <span className="font-mono text-text">{rowLabel}</span>
+                            </span>
+                          );
+                        }
+                        // Same slot, same type ramp, same information grammar as the row
+                        // label above: unlike the FIELD_UNREADABLE band this is not junk to
+                        // reproduce, it is a coordinate to type into the name box, so it
+                        // carries no quotes.
+                        return cellRef ? (
                           <span
-                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
+                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-cell`}
                             className="wrap-break-word text-xs text-text-subtle"
                           >
-                            Sheet row <span className="font-mono text-text">{rowLabel}</span>
+                            Sheet cell{" "}
+                            <span
+                              data-testid={`wizard-step3-card-${dfid}-warning-${i}-cell-value`}
+                              className="font-mono text-text"
+                            >
+                              {cellRef}
+                            </span>
                           </span>
                         ) : null;
                       })()}

@@ -1,0 +1,413 @@
+# Closeout — the three wave codes get a cell link
+
+Sibling of `docs/superpowers/plans/2026-08-29-ref-error-cell-anchors.md`. Spec:
+`docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md`. Branch
+`feat/ref-error-cell-anchors`, worktree `/Users/ericweiss/FX-worktrees/reflink`.
+Implementer: the Opus pane (arc-reflink), account3, takeover of the spec+plan pane's
+worktree. **bl-orch alone merges.**
+
+## 1. What shipped
+
+Six plan tasks, one commit each, plus closeout work. Every task was red-then-green on the
+SAME command, with the red run's decisive line pasted into the commit body (plan invariant 1).
+
+| commit | task |
+| --- | --- |
+| `62a8f6771` | Task 1 — `blockMarkdown`, the one per-block renderer |
+| `8868ce993` | Task 2 — position-reporting scanners under the three emitters |
+| `d7ce254fd` | Task 3 — `waveCodeAnchors`, the replay and the ordinal pairing |
+| `c0763f1ec` | Task 4 — the router branch, the grain rule, `synthOpts` at both call sites |
+| `ab664186e` | Task 5 — the cell line on both surfaces |
+| `651d2d324` | Task 5 follow-on — conditional quoting on the reference (bl-orch ruling) |
+
+Closeout commits carry the impeccable repair, two rounds of line-keyed census relocation,
+this document, the AC-2 evidence and its correction, and the review corpus rows. The
+authoritative list is `git log --oneline origin/main..HEAD`; it is deliberately NOT
+transcribed here, because a hand-maintained copy of a list git already keeps is a second
+source of truth that goes stale the moment the next commit lands — which it did, twice,
+while this document was being written.
+
+## 2. Acceptance criteria
+
+| AC | Discharged by | State |
+| --- | --- | --- |
+| AC-1 | T3 (fintech five cells, consultants six, east-coast none) + T6 (both surfaces) + the live check in §5 | see §5 |
+| AC-2 | Task 1 byte pin, Task 2 emitter equivalence, the harness run in §4 | see §4 |
+| AC-3 | Task 3: corpus, variants (a)-(f), refusals, positive hand-built arms | green |
+| AC-4 | Task 4: `waveCodesNoSourceCell.test.ts` deleted, `waveCodesSourceCell.test.ts` pins the branch, the fallthrough order, the ratified fallback and the grain rule over all 29 members of `CELL_ANCHORED_CODES` | green |
+| AC-5 | §3 below | green |
+| AC-6 | §12 below | green |
+| AC-7 | §6 below | see §6 |
+
+## 3. Unchanged-set check (AC-5)
+
+```
+$ git diff origin/main...HEAD --stat -- lib/parser/dataGaps.ts \
+    lib/sheet-links/buildSheetDeepLink.ts lib/messages \
+    tests/parser/_warningCodeAnchor.ts \
+    docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
+ lib/sheet-links/buildSheetDeepLink.ts | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+```
+
+The one hunk is the `scope` doc comment naming the second raw-workbook scanner. No
+membership set, no catalog row, no allowlist, no §12.4 prose changed.
+
+### 3.1 The production diff has not moved since review round 1 approved it
+
+Diff round 1 returned APPROVE with zero findings on the tree at `5e121028c`. Rounds 2, 3 and
+4 each returned one finding, and **all three were against this closeout's evidence, none
+against production code**. That claim is the load-bearing one behind shipping on round 4's
+verdict rather than a fifth round, so it is stated the way this arc learned to state things
+— as a command anyone can re-run, with a control proving the command can fail:
+
+<!-- prettier-ignore -->
+```
+$ git diff 5e121028c..HEAD -- lib components tests
+$ echo $?
+0                       # no output, and --quiet agrees:
+$ git diff --quiet 5e121028c..HEAD -- lib components tests ; echo $?
+0
+
+$ git diff --quiet ab664186e..5e121028c -- lib components tests ; echo $?
+1                       # NEGATIVE CONTROL: over a range that does touch those
+                        # paths the same command exits 1, so the 0 above is a
+                        # real result and not a mistyped pathspec
+```
+
+The control is the point. `git diff --quiet` over a wrong pathspec, a bad range or a typo
+also exits 0, and an unchecked 0 would be precisely the vacuous pass that rounds 3 and 4
+caught elsewhere in this document. The second invocation ranges over `ab664186e..5e121028c`,
+which contains the Task 5 UI commit and the census repairs, and it exits 1.
+
+Every commit after `5e121028c` is documentation and review corpus rows — this section
+included, so re-running the command at the shipping head is the check, and it stays 0 for as
+long as that remains true.
+
+## 4. Parser mutation harness (AC-2) — discharged as EQUALITY against main
+
+The parser jobs do not run on pull requests (`.github/workflows/mutation-harness.yml`: the
+parser and source shard jobs carry `if: github.event_name != 'pull_request'`, and the PR
+path filter names no parser module), so the arc dispatches the workflow explicitly.
+
+| | run | head | outcome |
+| --- | --- | --- | --- |
+| this branch, pre-merge | `33272516851` (`workflow_dispatch`) | `70585f0b4` | all 8 parser shards fail |
+| this branch, merged head | `33281100311` (`workflow_dispatch`) | `60112efed` | all 8 parser shards fail |
+| main, control | `33253670579` (`schedule`) | `e7751f61d` | all 8 parser shards fail |
+
+The committed `.report.txt` is the MERGED-HEAD run's differential, the one that ships. The
+pre-merge run produced the same 791 records and the same breakdowns; both are quoted here
+because the second exists to answer a question the first could not (below).
+
+**The harness is already red on main, at this branch's exact merge-base.** `e7751f61d` is
+`git merge-base origin/main HEAD`; main's own scheduled run on that commit fails the same
+way, and the preceding scheduled run (`33202704320`, 2026-08-28) failed too. The failure is
+`AssertionError: DRIFTED fingerprints`.
+
+**So AC-2 is discharged as equality, not as green**, on bl-orch's ruling: an inherited red
+is not this arc's regression, and what must be shown is that the diff moved nothing the
+harness measures. That is settled by comparison, not by reading. The differential is
+committed beside this plan and is runnable as it stands, from the repo root:
+
+```
+sh docs/superpowers/specs/probes/2026-08-29-harness-differential.sh.txt \
+   33272516851 33253670579 <outDir>
+```
+
+It resolves its extractor as the committed `.awk.txt` sibling, and it is **fail-closed**:
+each shard asserts that both job logs downloaded non-empty, that both `DONE` summary lines
+were found, that both extracted sets are non-empty, that vitest's own declared
+`driftedAlarms` length was found on both sides, and that each extracted set size EQUALS
+that declared length. Any of those aborts with a non-zero exit rather than continuing. The
+committed `.report.txt` is that script's own output, and the script exits 0 only when every
+premise held AND all eight shards matched.
+
+Per shard, three independent numbers agree — vitest's OWN declared `driftedAlarms` length
+(`expected [ …(74) ] to deeply equal []`), the size of the extracted record set, and set
+equality against main:
+
+<!-- prettier-ignore -->
+```
+shard 0: vitest=74  extracted=74  drift=SAME
+shard 1: vitest=77  extracted=77  drift=SAME
+shard 2: vitest=162 extracted=162 drift=SAME
+shard 3: vitest=80  extracted=80  drift=SAME
+shard 4: vitest=105 extracted=105 drift=SAME
+shard 5: vitest=70  extracted=70  drift=SAME
+shard 6: vitest=80  extracted=80  drift=SAME
+shard 7: vitest=143 extracted=143 drift=SAME
+```
+
+Pooled across the eight: **791 drifted records, and the branch set and the main set are
+identical** — same records, same hashes, same per-operator breakdown
+(`blank-row` 489, `header-typo` 121, `merged-cell` 116, `section-reorder` 54,
+`column-shift` 11) and same kind breakdown (`wrong` 774, `text_drift` 13, `signal_loss` 4).
+Shard summaries match on every field once the wall-clock duration is stripped, which is the
+one field that legitimately differs between two runs of identical code: shard 0 reads
+`DONE 12712 mutants — alarms=177 cosmeticViolations=0 noOps=0` on both sides.
+
+`cosmeticViolations=0` and `noOps=0` on every shard, both sides, are the load-bearing
+numbers beside the equality: no mutant became a no-op and none drifted cosmetically, so the
+Task 2 scanner/emitter split changed neither what the detectors emit nor how the harness
+classifies it. `parser-gates` and `source-gates` both concluded success on this branch's run.
+
+**The drifted operators include the shapes these codes detect, and that strengthens the
+control rather than weakening it.** `merged-cell` (116) is the fused-row shape and
+`column-shift` (11) is the leading-column shape — the very families `ROW_CELLS_FUSED` and
+`LEADING_COLUMN_AUTOCORRECTED` exist for. Had they been absent, the equality would only have
+shown that unrelated operators were untouched. Because they are present in the drift AND
+identical between the two runs, the comparison covers exactly the surface this arc edited.
+
+**Two corrections, both recorded because a review caught them.**
+
+Round 3 found the first version of the committed differential unreproducible: its script
+invoked an UNTRACKED `.claude/extract-drift.awk` rather than the committed `.awk.txt`, it
+did not compute the vitest lengths or breakdowns the report displayed, and — the part that
+mattered — it had no fail-closed handling, so a missing extractor or a failed log download
+would have produced two EMPTY sets and reported them as `SAME`. A comparison that cannot
+distinguish "identical" from "I fetched nothing" is a vacuous pass, which is the
+guard-premise-reachability failure this repo has a rule about. The rewrite adds the five
+premises listed above, computes everything the report shows, and was checked against a
+NEGATIVE CONTROL: invoked with two nonexistent run ids it exits 1 on the first premise,
+rather than reporting agreement between two empty sets.
+
+**And the correction that round found before it.** Diff round 2 found this section's first
+draft materially inaccurate: the extractor was a block parse that also swallowed vitest's
+source excerpts (`63|     ).toEqual([]);`), which inflated the totals to 826 and truncated
+the operator list to three, on the strength of which the draft asserted that no drifted
+operator concerned fused rows or a leading column. That assertion was false. The repair is
+in the committed `.awk`: match the record SHAPE anywhere in the log rather than parsing a
+block — the log prints the list twice, once plainly and once inside vitest's diff, and the
+runner wrap-truncates a few lines — then require a full-width hash and dedupe. The rebuilt
+extractor reproduces vitest's own per-shard length on all eight shards, which is the check
+the first draft never had. The equality conclusion was correct in the first draft and is
+unchanged; the numbers and the operator account behind it were not.
+
+### The supersession branch was attempted, and did not fire
+
+bl-orch pre-recorded a conditional: if #945 merged first, its regenerated ledger would come
+in with the ledger seam and a re-dispatch on the merged head should be GREEN, superseding
+this equality evidence. #945 merged (main `c1ccf4b1d`), this branch merged it, and the
+harness was re-dispatched on the merged head as `33281100311`.
+
+**It is still red, identically.** All eight parser shards fail, and the differential above
+is run against that merged-head run: 791 records, `summary=SAME drift=SAME` on every shard,
+identical operator and kind breakdowns. Shard 4's 105 records were checked three ways and
+are the same set in all three — main's pre-#945 control, this branch's pre-merge run, and
+the merged head — so #945's regeneration did not cover these entries. The equality evidence
+stands rather than being superseded, and it now holds on the head that ships.
+
+Recorded as a fleet fact rather than an arc problem: **main remains red on the parser
+harness after #945**, and the next arc to touch `lib/parser` inherits the same red and the
+same equality argument.
+
+Two traps cleared while establishing this, both worth the next reader's time:
+
+- **Comparing outputs of two different tool versions.** The first merged-head comparison
+  reported a difference against a stored `.drift` file that had been produced by the OLD
+  block-parse extractor, so it still carried vitest source excerpts and an unstripped
+  assertion tail. Re-extracting every side from the retained raw logs with the corrected
+  extractor gave three identical sets. A stale artifact of a tool you have since fixed is a
+  false-alarm generator, and the fix is to re-derive rather than to compare against it.
+- **The tidier claim was the false one.** `git diff --quiet origin/main..HEAD -- lib/parser
+  tests/parser/mutation` returns **1**, not 0: this arc CHANGES `lib/parser` — the Task 2
+  scanner split is the whole feature. So "the diff cannot touch what the harness scores" was
+  never available, and the differential is the only valid AC-2 argument. It is also the
+  stronger one: the harness output is unchanged DESPITE the parser changing, which is
+  exactly what the criterion asks.
+
+## 5. Live check (AC-1, second half) — AC-1-LOCAL, deploy half DEFERRED-BY-QUOTA
+
+**The branch preview never built.** Vercel's status on head `70585f0b4`:
+
+<!-- plan-fences: ignore FENCE_EM_DASH — verbatim Vercel status text; the em dash is inside the description string the API returned, so editing it would falsify a pasted record -->
+
+```
+context     : Vercel
+state       : FAILURE
+description : Deployment rate limited — retry in 24 hours.
+targetUrl   : https://vercel.com/eric-weiss-projects?upgradeToPro=build-rate-limit
+```
+
+Vercel is not a required context and is the known account-quota red the fleet brief says
+not to chase, but the plan's Step 8 rescan needed that preview. **bl-orch ruled** (option
+(a), 2026-08-29): run the check LOCALLY on this branch against the REAL sheet and record
+the coordinates here; the deploy half is **deferred by quota, not waived** — after merge
+the validation deploy rebuilds from main, and the five coordinates are re-verified there
+and reported to bl-orch for the handoff log. That is where the deploy proof actually
+lives; the branch preview was only ever a proxy for it. `blockedOn` resolved on that
+ruling.
+
+**What ran.** `docs/superpowers/specs/probes/2026-08-29-ac1-live-check.probe.ts.txt`,
+saved as `.ts` and run with `pnpm exec tsx`. It drives this branch's real ingestion path
+end to end on live Drive bytes — `listFolder` → `fetchCurrentSheetXlsxBytes` →
+`fetchSheetTitleToGid` → `synthesizeMarkdownFromXlsx` → `parseSheet` →
+`attachWarningAnchors` — then prints each warning's resolved anchor, the `Sheet cell`
+value the row renders, and the deep link its `Open in Sheet` carries. It opens no Supabase
+client and writes nothing: the validation project is untouched, so no DB slot was taken.
+
+**Sheet revision.** `II - FinTech Forum CTO Summit 2026`, driveFileId
+`1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY`, `modifiedTime`
+`2026-06-27T21:58:02.790Z` (Drive reports no `headRevisionId` for a Sheets file).
+
+**The five live coordinates**, each `scope: "cell"`, each on its own tab and gid:
+
+| # | Sheet cell | gid | Open in Sheet |
+| --- | --- | --- | --- |
+| 1 | `VENUE!A1` | 354548247 | `…/edit#gid=354548247&range=A1` |
+| 2 | `CLIENT!A1` | 141155244 | `…/edit#gid=141155244&range=A1` |
+| 3 | `TECH!A1` | 1871609441 | `…/edit#gid=1871609441&range=A1` |
+| 4 | `VEHICLE!A1` | 1789571822 | `…/edit#gid=1789571822&range=A1` |
+| 5 | `ROLE!A1` | 633442094 | `…/edit#gid=633442094&range=A1` |
+
+`unanchored REF warnings: 0`. Five identical rows, five distinct cells, five distinct
+gids, five distinct deep links — the screenshot that dispatched this arc showed five rows
+with none of that. Full output in the sibling `.report.txt`.
+
+Note that none of the five tabs is in `SOURCE_LINK_ALLOWLIST`; the links resolve because a
+`scope: "cell"` anchor bypasses it, which is the 2026-08-27 ratification this arc relies on
+and does not change.
+
+## 6. Suites, local
+
+- **DB-free half** — `pnpm heavy pnpm vitest run --project parallel` (the CI-enforced
+  no-database project, `unit-suite-nodb`), on the shipping tree at `60112efed`, after both
+  ledger-seam merges of `origin/main`: **1047 files passed, 16350 tests passed**, 2 files /
+  17 tests skipped, **zero failures, exit 0**.
+
+  Earlier runs on superseded trees measured 1044 / 16310 and 1046 / 16330, also clean. Only
+  the last speaks for what ships; the others are kept because each merge changed the tree
+  under them, which is the reason a suite number is quoted with its commit.
+
+- **The four serial-project files this plan touches**, by explicit list (each client-free,
+  none reads `TEST_DATABASE_URL`): `perShowActionableRenderControls`,
+  `perShowActionableTransitions`, `sectionWarningModel.autocorrect`,
+  `attachWarningAnchors` → **170 passed**.
+- **Pre-push set, derived from `.github/workflows/quality.yml`** (its `quality` job runs
+  exactly `pnpm lint`, `pnpm typecheck`, `pnpm format:check`): lint **0 errors**, 76
+  warnings, all pre-existing and none in this diff; typecheck clean; format check clean.
+
+- **`tests/specLint/**` in full** — `pnpm heavy pnpm vitest run tests/specLint`: **58 files,
+  1587 tests passed**. Added to the local gate late, and the reason is worth recording.
+
+No DB slot was taken: nothing in this arc's verification needs one, and the live check in
+§5 opens no client either.
+
+### The DB-free half is not the local gate, and CI proved it
+
+`unit-suite-db (3)` failed on `9f6fd5c8d` with a genuine leg failure, not a cancellation:
+`tests/specLint/acUnclaimedCorpus.test.ts` AC-11, `expected 'enrolled: false' to be
+'enrolled: true'`. That suite lives in the SERIAL project, so
+`vitest run --project parallel` never executed it however green it ran, and it needs no
+database despite riding a `unit-suite-db` shard.
+
+The defect was this arc's and had been latent since the plan file landed: `spec:lint`'s
+convention paragraph in `docs/agents/writing-plans.md` quotes live corpus counts, and
+adding a plan moves them. Refreshed against the walk: `56 of the 124 enrolled plans` →
+`57 of the 125`, and `1293 rows across 111 plans` → `1303 rows across 112`. The residue (12)
+and ambiguous (17) figures were already correct. The guard exists precisely to force this
+refresh on whoever changes the corpus, and it worked — it just could not reach me locally.
+
+Two things follow. The local gate for a doc-touching arc is the DB-free half PLUS the
+serial-project suites that read the corpus from disk. And a shard name is not a dependency
+claim: `unit-suite-db (3)` carries suites that touch no database.
+
+### A self-inflicted red, recorded so it is not mistaken for a real one
+
+One DB-free run on the merged tree reported three failures — `_metaRenderFaultMarking`,
+`_metaControlOutlineResidue`, `_metaScratchRootCleanup`. All three are artifacts: while that
+suite was walking the tree, this session edited `docs/agents/writing-plans.md` and patched
+and restored a test file. A suite that reads the working tree as it goes cannot be edited
+underneath it. Re-run on a stable tree, all three pass (134 tests). The clean run is the one
+quoted above.
+
+### The census tax, recorded because it cost two commits
+
+Seven line-keyed structural registries record a `file:line` and are walked from disk, so
+each one moves whenever anything is inserted above its row in the same file. This arc
+inserted twice into `components/admin/wizard/step3ReviewSections.tsx` — the warning row's
+cell line (+43) and later the `sheetCellReference` import (+1) — and once into
+`lib/sync/runScheduledCronSync.ts` (+4), which moved rows in `controlOutlineScan`,
+`subtleInteractiveExemptions`, `tapTargetCensus`, `_metaControlOutlineResidue`,
+`_metaRenderFaultMarking`, `alertProducerScope` and the sheet-link consumer census.
+
+Every relocation was made BY IDENTITY on the live tree — the scanner's own report of the
+live site, or the element's unique testid or opener — never by adding a delta, which is the
+convention each of those files states in its own comment trail. Three of them also carried
+prose that had already drifted from their own row; that is recorded in the commits rather
+than quietly overwritten.
+
+Two adjacent guards fired for reasons that were not line drift: `_metaServerTimeGuard`'s
+derived lib population gained exactly one module (`lib/sheet-links/sheetCellReference.ts`,
+a pure formatter with no clock read), and the sheet-link destination census counted a
+scratch `.claude/live-ac1.ts` as an uncensused consumer, because that census walks the
+filesystem and `.claude/` is inside it. The probe now lives in the corpus with a `.ts.txt`
+extension, which keeps it out of every source scan.
+
+One reading correction worth keeping: `_metaScratchRootCleanup` and
+`_metaControlOutlineResidue` were genuine load flakes on an earlier run (both green
+standalone), and after the quoting fix the residue suite was really red while the
+scratch-root suite was a cascade of it — its premise is that the subject suites it shells
+out to pass. The load-flake rule (a red is a flake only after a standalone rerun passes)
+is what separated the two cases, and it separated them correctly both times.
+
+## 7. Documented limits carried from the spec
+
+Spec §8 records six. Two are the wave arc's premise defect and are **reported to bl-orch
+in the handoff rather than filed** (process mint freeze; the disposition is a product
+call outside this arc):
+
+- **`ROW_CELLS_FUSED` is unreachable from this exporter.** Rectangular rows, padded to
+  block width, so no rendered row is ever one cell short of its section's modal.
+- **`LEADING_COLUMN_AUTOCORRECTED` is unreachable from this exporter.** Settled by probe
+  during the plan's first review round (`docs/superpowers/specs/probes/2026-08-29-leading-column-reachability.*`,
+  seven constructed shapes, zero warnings).
+
+**bl-orch ruled 2026-08-29:** this is a DOCUMENTED LIMIT and no ledger row is minted.
+Spec §8 plus the committed probes IS the record, and the worst case is an inert capability
+— the codes never fire from this exporter, so their anchors never render, and nothing a
+user sees goes wrong. That is exactly the conservative-worst-case class the filing bar
+demotes. bl-orch surfaces it to Eric as a passive product question.
+
+Both codes keep their branch, scanner and pairing for shape parity with
+`REF_ERROR_LITERAL`, at the cost of a branch line each. Neither is exercised by a
+workbook: their scanners are covered by hand-built markdown (Task 2) and their pairing by
+hand-built sites (Task 3's T4 positive arms). The corpus premise in T1 fails loudly if
+either ever starts firing.
+
+## 12. UI quality gate (invariant 8)
+
+Both halves ran as isolated sub-agents with cwd pinned to the worktree, each with the
+canonical v3 setup gates FIRST: the `impeccable:impeccable` skill, its `context.mjs`
+context load (PRODUCT.md + DESIGN.md), then the register reference read. Both read
+**`reference/product.md`** — this is internal admin tooling (the onboarding wizard's
+step-3 card and the admin show page), not a brand surface. Scope for both:
+`git diff origin/main...HEAD -- components/`, two files, one added element each.
+
+The **impeccable critique** half reported `⚠️ DEGRADED: single-context` (a critic
+subagent runs assessments inline; its `detect.mjs` pass did run), which is why the marker
+below reads `critique=RAN-DEGRADED`. The **impeccable audit** half ran undegraded and
+scored Audit Health 18/20 (a11y 4, perf 4, responsive 3, theming 4, anti-patterns 3).
+
+**P0: none from either half. P1: none from either half.**
+
+| # | half | tier | finding | disposition |
+| --- | --- | --- | --- | --- |
+| 1 | critique P2, audit P3 | P2 | The published band copied `detailBand`'s plain wrapper, so its mono value had no wrap affordance. `${title}!${a1}` has no break opportunity at its join and a tab title is unbounded sheet data, so a long coordinate overflowed a 390px condensed card. Both halves found it independently, and both cited the file's own comment saying `fieldBand` and `candidateBand` carry `min-w-0` + a break class for exactly this. | **FIXED** in `5886d9c9c`: `min-w-0 flex-wrap` on the wrapper, `shrink-0` on the eyebrow, `min-w-0 wrap-break-word` on the value. `wrap-break-word` rather than the critique's suggested `break-all`, so the value wraps the same way as its wizard twin. |
+| 2 | audit P2 | P2 | `${title}!${a1}` is unquoted, so a space-bearing tab title renders `PULL SHEET!A1`, which fails if typed into the Sheets name box — the exact use the spec's no-quotes decision cites. Reachable: `PULL SHEET` is allowlisted and a scoped anchor is trusted on any tab. | **FIXED** in `651d2d324`, on bl-orch's ruling. I escalated rather than silently amending a ratified section (invariant 7); bl-orch ruled that §3's ratified OUTCOME is a paste-able reference, that unquoted defeats it, and that the mechanism serving a ratified outcome is the orchestrator's call. New `lib/sheet-links/sheetCellReference.ts` quotes only when A1 notation needs it, doubling an internal apostrophe; a bare tab stays bare, so no corpus row changes. Spec §3 amended in the same commit and marked bl-orch-ruled. Tests cover `PULL SHEET` and an apostrophe tab on both surfaces; three mutants (always-bare, always-quoted, apostrophe-not-doubled) all killed. |
+| 3 | critique P2, audit P3 | P2 | The eyebrow hardcodes `text-warning-text` while the component takes `tone` and swaps amber → `text-text-subtle` elsewhere, so on the IGNORED list (`tone="muted"`) a dismissed row shows live-warning amber on a sunken plate. Contrast measured fine (8.74:1 light, 14.18:1 dark); the break is hierarchy. | **NOT FIXED — pre-existing, out of scope.** The critique itself notes it is pre-existing on three sibling bands, so the class repair touches four eyebrows including shipped ones. That is class-sweep exception (c): a redesign of a surface this PR does not otherwise touch. Recorded here rather than filed, per the mint freeze. |
+| 4 | critique P3 | P3 | The guard accepts any colon-free string as `a1`, so an unvalidated jsonb value could render as a coordinate. | **NOT FIXED.** Spec §3 ratified this guard exactly and bl-orch's ruling on #2 was scoped to the TAB half of the reference, not the `a1` half. A P3 whose worst case is a malformed coordinate rendered beside a link that already carries the same value; recorded here as a documented limit rather than filed, per the mint freeze. |
+| 5 | audit P3 | P3 | `text-warning-text` on `bg-surface-sunken` has no DESIGN.md §1.2 contrast row; the audit measured it (8.74:1 / 14.18:1, AAA) and calls it the fourth unpinned instance. | **NOT FIXED — pre-existing class.** Same disposition as #3. |
+| 6 | audit P3 | P3 | `items-center` on a 10px eyebrow beside a 12px mono value; `items-baseline` sets better. | **NOT FIXED.** The critique explicitly says "family-wide; don't change this band alone". |
+
+Nothing was deferred to `DEFERRED.md`: no P0 or P1 exists to defer, and the P2/P3
+dispositions above are either fixed in-branch (two of them) or pre-existing class work the
+mint freeze keeps out of the queue.
+
+The gate ran on the diff BEFORE the two repairs. Both repairs are inside the elements the
+gate examined and were made ON its findings, so neither opens a surface it did not see;
+the whole-diff cross-model review then covers them, which is why they landed before the
+first dispatch rather than after.
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=0 dispositions=none

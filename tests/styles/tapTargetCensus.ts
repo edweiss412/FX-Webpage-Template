@@ -332,7 +332,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // them near the top, so EVERY line-keyed row below that import shifted. Located
     // on the live tree by this row's own element, never by applying the delta —
     // rows above the import did not move at all.
-    line: 4147,
+    // Relocated again on feat/ref-error-cell-anchors' merge of main: BOTH sides had moved
+    // this row, so neither number described the merged tree. Located by the scanner on the
+    // merged tree, never by composing the two deltas.
+    // The scanner reports this file's one unclassified site as 4191, that same `<a>`.
+    line: 4191,
     tag: "a",
     category: "full-bleed",
     reason:

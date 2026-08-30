@@ -6,6 +6,12 @@ import {
 import { extractCrewRoleAnchors } from "@/lib/drive/crewRoleAnchors";
 import { extractUnknownFieldAnchors } from "@/lib/drive/unknownFieldAnchors";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import {
+  extractWaveCodeSites,
+  pairAllWaveCodes,
+  type SynthOpts,
+  type WaveCodeSite,
+} from "@/lib/drive/waveCodeAnchors";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
@@ -20,12 +26,20 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
  * lazy thunk: onboarding passes a fetch; cron passes its already-computed
  * titleToGid wrapped in a resolved promise (no extra fetch). Region anchors are
  * self-computed unless the caller supplies them (cron reuses its map).
+ *
+ * The `wave` family is a REPLAY rather than a scan: it re-runs the three wave-code
+ * detectors over the exporter's own blocks and pairs the i-th warning of a code with the
+ * i-th hit (spec 2026-08-29 §2). It must therefore walk the block list the parsed markdown
+ * came from, which is why `synthOpts` is forwarded: both production callers pass the
+ * `includePullSheetFromTab` they parsed with. A missing forward changes the hit count and
+ * REFUSES (a link-less row), never mis-pairs.
  */
 export async function attachWarningAnchors(
   warnings: ParseWarning[] | undefined,
   bytes: ArrayBuffer | undefined,
   resolveGids: () => Promise<Map<string, number>>,
   regionAnchors?: Record<string, SourceAnchor>,
+  synthOpts?: SynthOpts,
 ): Promise<void> {
   if (!bytes || !warnings || !hasCellAnchoredWarning(warnings)) return;
   let gids: Map<string, number>;
@@ -44,10 +58,12 @@ export async function attachWarningAnchors(
       return fallback;
     }
   };
+  const waveSites = safe(() => extractWaveCodeSites(bytes, gids, synthOpts), [] as WaveCodeSite[]);
   attachSourceCellAnchors(warnings, {
     showDay: safe(() => extractShowDayTimeAnchors(bytes, gids), []),
     crewRole: safe(() => extractCrewRoleAnchors(bytes, gids), []),
     unknownField: safe(() => extractUnknownFieldAnchors(bytes, gids), []),
+    wave: safe(() => pairAllWaveCodes(warnings, waveSites), {}),
     region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
   });
 }

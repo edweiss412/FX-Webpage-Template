@@ -6,6 +6,7 @@ import {
   withControlsNote,
 } from "@/components/admin/PerShowActionableWarnings";
 import type { ParseWarning } from "@/lib/parser/types";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { EXPECTED_CONTROLS_NOTE } from "@/tests/messages/warningCardCopyRegistry";
 
 // admin-show-modal Task 11: ShowsTable/StagedReviewCard are client islands that
@@ -276,5 +277,95 @@ describe("withControlsNote: spec §4.3's guard table, without a render", () => {
       kind: "catalog",
       markup: null,
     });
+  });
+});
+
+// Spec docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md §3, §5 T6.
+// The published card's half of the cell line: same guard, the surface's own band idiom.
+describe("PerShowActionableWarnings — the Sheet cell line (spec §3)", () => {
+  const refWarning = (sourceCell: SourceAnchor | null): ParseWarning =>
+    ({
+      severity: "warn",
+      code: "REF_ERROR_LITERAL",
+      message: "m",
+      blockRef: { kind: "section" },
+      rawSnippet: "\\#REF\\!",
+      sourceCell,
+    }) as ParseWarning;
+
+  test("scope cell: the band names the coordinate, with the value in its own mono span", () => {
+    render(
+      <PerShowActionableWarnings
+        items={[refWarning({ title: "VENUE", gid: 5, a1: "A1", scope: "cell" })]}
+        driveFileId="df"
+      />,
+    );
+    const band = screen.getByTestId("per-show-actionable-cell");
+    // Clone and strip the deep link before reading the band: its href also carries the a1.
+    expect(band.querySelector("a")).toBeNull();
+    expect(band.textContent).toContain("Sheet cell");
+    expect(screen.getByTestId("per-show-actionable-cell-value").textContent).toBe("VENUE!A1");
+  });
+
+  test("scope cell renders in condensed mode too (the coordinate IS the row's identity)", () => {
+    render(
+      <PerShowActionableWarnings
+        items={[refWarning({ title: "VENUE", gid: 5, a1: "A1", scope: "cell" })]}
+        driveFileId="df"
+        condensed
+      />,
+    );
+    expect(screen.getByTestId("per-show-actionable-cell-value").textContent).toBe("VENUE!A1");
+  });
+
+  // bl-orch ruling 2026-08-29 (impeccable audit P2): same paste-able-reference rule as the
+  // wizard twin, so one coordinate is never spelled two ways across the two surfaces.
+  test.each([
+    ["a spaced tab is quoted", "PULL SHEET", "'PULL SHEET'!A1"],
+    ["an apostrophe is doubled inside the quotes", "Doug's Tab", "'Doug''s Tab'!A1"],
+    ["an ordinary tab stays bare", "VENUE", "VENUE!A1"],
+  ])("%s", (_label, title, expected) => {
+    render(
+      <PerShowActionableWarnings
+        items={[refWarning({ title, gid: 5, a1: "A1", scope: "cell" })]}
+        driveFileId="df"
+      />,
+    );
+    expect(screen.getByTestId("per-show-actionable-cell-value").textContent).toBe(expected);
+  });
+
+  test.each([
+    ["scope tab", { title: "VENUE", gid: 5, scope: "tab" as const }],
+    ["null", null],
+    ["unscoped region range", { title: "INFO", gid: 0, a1: "A1:C3" }],
+    ["scoped range", { title: "INFO", gid: 0, a1: "A1:C3", scope: "cell" as const }],
+    ["blank a1", { title: "VENUE", gid: 5, a1: "  ", scope: "cell" as const }],
+    ["blank title", { title: " ", gid: 5, a1: "A1", scope: "cell" as const }],
+  ])("no cell band for %s", (_label, sc) => {
+    render(<PerShowActionableWarnings items={[refWarning(sc)]} driveFileId="df" />);
+    // Premise: the card itself is mounted, so the absence below is the BAND's, not the list's.
+    expect(screen.queryAllByText(/#REF!/).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("per-show-actionable-cell")).toBeNull();
+  });
+
+  test("UNKNOWN_FIELD with a Sheet row label renders the label and never the cell band", () => {
+    render(
+      <PerShowActionableWarnings
+        items={[
+          {
+            severity: "warn",
+            code: "UNKNOWN_FIELD",
+            message: "m",
+            blockRef: { kind: "crew", name: "Backdrop" },
+            rawSnippet: "Backdrop | v",
+            sourceCell: { title: "INFO", gid: 0, a1: "C4", scope: "cell" },
+          } as ParseWarning,
+        ]}
+        driveFileId="df"
+      />,
+    );
+    expect(screen.getByTestId("per-show-actionable-row-label-value").textContent).toBe("Backdrop");
+    // rowLabel wins: dropping the `rowLabel === null` conjunct fails here.
+    expect(screen.queryByTestId("per-show-actionable-cell")).toBeNull();
   });
 });

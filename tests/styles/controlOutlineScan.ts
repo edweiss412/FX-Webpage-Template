@@ -167,7 +167,10 @@ export const CENSUS: readonly CensusRow[] = [
   // every commit that touches the component, so the ONLY safe time to re-key is
   // after the final source edit of a change, immediately before the run that
   // reads it.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4729 },
+  // Relocated on feat/ref-error-cell-anchors' merge of main: both sides had moved this row,
+  // so neither number described the merged tree. Located by its own unique
+  // `wizard-step3-card-${dfid}-report-toggle` testid, whose <button> opener is 4773.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4773 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -207,7 +210,8 @@ export const CENSUS: readonly CensusRow[] = [
   // Then 4895 -> 4909, same cause. Fifth for this row too.
   // Then 4909 -> 4860, same extraction.
   // Then 4860 -> 4811, same removal.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4811 },
+  // Same merge, same method: located by its own `disabled={draft.trim()...}` opener at 4855.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4855 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
   // spec §4.2 row 21

@@ -1432,7 +1432,19 @@ async function prepareOnboardingFilesUnclassified(
     // anyway so anchor work can NEVER wedge the scan (plan-wide best-effort invariant), keeping
     // warning-anchor degradation independent of any region-anchor failure.
     try {
-      await attachWarningAnchors(parseResult.warnings, bytes, resolveGids, sourceAnchors);
+      await attachWarningAnchors(
+        parseResult.warnings,
+        bytes,
+        resolveGids,
+        sourceAnchors,
+        // The wave-code replay must walk the block list THIS parseResult came from (spec
+        // 2026-08-29 §2.4, "Same blocks"). The applied snapshot tracks parseResult through
+        // the discard-and-rerun reassignment above, so it names the tab the live parse was
+        // actually synthesized with, or null when the reparse ran without one.
+        pullSheetOverrideApplied
+          ? { includePullSheetFromTab: pullSheetOverrideApplied.tabName }
+          : undefined,
+      );
     } catch {
       /* belt-and-suspenders: best-effort, never wedges the scan */
     }
