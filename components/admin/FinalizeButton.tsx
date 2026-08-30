@@ -482,15 +482,15 @@ export function useFinalizeRun({
     state.kind === "running"
       ? state.phase === "cas"
         ? "Finishing setup"
-        : "Publishing your shows"
+        : "Setting up your shows"
       : "";
 
   // The in-flight button label: while running, the Publish trigger stays put but
-  // steps into a disabled "Publishing…" (or "Finishing setup…" during the CAS
+  // steps into a disabled "Setting up…" (or "Finishing setup…" during the CAS
   // step) intermediary state with a spinner — it no longer vanishes outright
   // (owner decision 2026-07-06). Empty when idle (the button shows `idleLabel`).
   const runningLabel =
-    state.kind === "running" ? (state.phase === "cas" ? "Finishing setup…" : "Publishing…") : "";
+    state.kind === "running" ? (state.phase === "cas" ? "Finishing setup…" : "Setting up…") : "";
 
   // Primary click: if clean rows remain unchecked, open the soft confirm
   // FIRST (pure setState — never self-disables the button mid-submit). With
@@ -554,7 +554,7 @@ export function FinalizeAnnouncer({ run }: { run: FinalizeRun }) {
 
 /**
  * The Publish trigger (the AccentButton). Placement is the caller's. While a
- * run is in flight it stays mounted as a DISABLED "Publishing…" intermediary
+ * run is in flight it stays mounted as a DISABLED "Setting up…" intermediary
  * (spinner + `aria-busy`) rather than unmounting — the button click has a
  * visible destination instead of the control vanishing (owner decision
  * 2026-07-06). The double-fire guard is `run.buttonDisabled` (true while
@@ -964,14 +964,18 @@ const ProgressPanel = forwardRef<
       ref={ref}
       tabIndex={-1}
       role="group"
-      aria-label="Publish progress"
+      aria-label="Setup progress"
       data-testid="wizard-finalize-progress"
       className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {state.phase === "batch" ? (
         <>
-          <p className="text-base font-semibold text-text-strong" aria-hidden="true">
-            Publishing your shows…
+          <p
+            className="text-base font-semibold text-text-strong"
+            data-testid="wizard-finalize-heading"
+            aria-hidden="true"
+          >
+            Setting up your shows…
           </p>
           {/* Native <progress> drives the progressbar role's value/max/valuetext — no explicit
                 aria-value* needed (they duplicate it and misbehave in the indeterminate case). */}
@@ -980,7 +984,7 @@ const ProgressPanel = forwardRef<
             className="h-2 w-full"
             max={state.total > 0 ? state.total : undefined}
             value={state.total > 0 ? Math.min(state.done, state.total) : undefined}
-            aria-label="Publish progress"
+            aria-label="Setup progress"
           />
           {state.total > 0 ? (
             <p
@@ -999,7 +1003,7 @@ const ProgressPanel = forwardRef<
               title={state.lastName}
               aria-hidden="true"
             >
-              <span className="text-text-subtle">Publishing: </span>
+              <span className="text-text-subtle">Processed: </span>
               {state.lastName}
             </p>
           ) : null}

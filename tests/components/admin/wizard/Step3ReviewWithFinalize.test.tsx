@@ -245,11 +245,15 @@ describe("WizardFooter — step-3 publish footer (tracking-in-center redesign 20
       fireEvent.click(btn());
     });
     // Owner decision 2026-07-06: the button does NOT unmount on click — it steps
-    // into a disabled, aria-busy "Publishing…" intermediary (was: removed).
+    // into a disabled, aria-busy intermediary (was: removed). The label reads
+    // "Setting up…" as of 2026-08-29: the batch phase creates every show Held and
+    // the Live flip belongs to /finalize-cas, so the old "Publishing…" was false.
+    // Retargeted, not weakened — this still pins a disabled, aria-busy button
+    // carrying a specific label, and still fails if that label goes missing.
     const b = btn();
     expect(b.disabled).toBe(true);
     expect(b.getAttribute("aria-busy")).toBe("true");
-    expect(b.textContent ?? "").toMatch(/Publishing/i);
+    expect(b.textContent ?? "").toMatch(/Setting up/i);
     // The detailed per-sheet tracking still renders alongside it in the center.
     expect(getByTestId("wizard-step3-tracking")).toBeTruthy();
   });

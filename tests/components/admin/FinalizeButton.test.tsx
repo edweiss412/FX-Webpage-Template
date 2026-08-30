@@ -1423,4 +1423,92 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     expect(queryByTestId("wizard-finalize-button")).toBeNull();
     expect(getByTestId("wizard-finalize-progress")).toBeTruthy();
   });
+  // ---------------------------------------------------------------------------
+  // Task 1 (spec 2026-08-29-step3-finalize-progress-scope): the batch phase
+  // reports SETUP, not a publish that has not happened. It creates every show
+  // Held (route.ts:1407 passes firstSeenPublished:false unconditionally); the
+  // Live flip belongs to /finalize-cas. So "Publishing your shows…" was wrong
+  // for every row, and "Publishing: <name>" wrong for whichever row it named.
+  // The subline is also PAST tense: onRow fires after the row's tx resolved and
+  // carries done = rows finished, and it fires for FAILED rows too, so the label
+  // must be true in both branches.
+  // ---------------------------------------------------------------------------
+  async function runningBatchPanel() {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />);
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
+    });
+    return { ...view, batch, cas };
+  }
+
+  test("batch header reports setup, and the publish verb is gone from the batch phase", async () => {
+    const { getByTestId } = await runningBatchPanel();
+    const panel = getByTestId("wizard-finalize-progress");
+    // EXACT, not toContain: mutant (b) showed a substring assertion passes against
+    // "Setting up your shows… now", so it could not distinguish the shipped copy
+    // from an appended-suffix regression.
+    expect(getByTestId("wizard-finalize-heading").textContent).toBe("Setting up your shows…");
+    // Scoped to the batch subtree on purpose: the CAS branch and the idle button
+    // legitimately carry other copy, so a document-wide assertion would either
+    // pass vacuously or fail on correct code.
+    expect(panel.textContent ?? "").not.toContain("Publishing your shows");
+    expect(panel.textContent ?? "").not.toContain("Publishing: ");
+  });
+
+  test("row subline names the COMPLETED row in past tense, true for a failed row too", async () => {
+    const { getByTestId } = await runningBatchPanel();
+    const line = getByTestId("wizard-finalize-current");
+    expect(line.textContent ?? "").toContain("Processed: ");
+    expect(line.textContent ?? "").toContain("East Coast");
+  });
+
+  // NOTE: runningLabel is deliberately NOT asserted here. In this composition the
+  // trigger UNMOUNTS while running (the panel replaces it), so the label is only
+  // observable through the wizard's FinalizeTrigger. Its coverage is the
+  // pre-existing Step3 assertion this task retargets — which is why Task 1 runs
+  // BOTH suites before committing.
+
+  test("the SR announcer reports setup — it is a SIBLING of the panel, not inside it", async () => {
+    const { container, getByTestId } = await runningBatchPanel();
+    const status = container.querySelector('[role="status"]');
+    expect(status, "the announcer must exist while running").toBeTruthy();
+    // Premise: the announcer is NOT inside the labelled group, which is exactly
+    // why the group-scoped assertions above cannot see it.
+    expect(getByTestId("wizard-finalize-progress").contains(status)).toBe(false);
+    expect(status!.textContent ?? "").toBe("Setting up your shows");
+  });
+
+  test("every accessible name in the batch phase reads Setup progress", async () => {
+    const { getByTestId } = await runningBatchPanel();
+    const group = getByTestId("wizard-finalize-progress");
+    // querySelectorAll is DESCENDANT-only and the aria-label sits on the SAME
+    // element as the testid, so the group's own label must be added explicitly.
+    const labelled = [group, ...Array.from(group.querySelectorAll("[aria-label]"))].filter((el) =>
+      el.hasAttribute("aria-label"),
+    );
+    // An empty set trivially equals an empty set; require the real members first.
+    expect(labelled.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(labelled.map((el) => el.getAttribute("aria-label")))).toEqual(
+      new Set(["Setup progress"]),
+    );
+  });
+
+  test("PRESERVATION: the CAS phase header is untouched by the batch-phase edit", async () => {
+    const { getByTestId, batch, cas } = await runningBatchPanel();
+    await act(async () => {
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    await act(async () => {
+      cas.push({ type: "phase", phase: "applying" });
+    });
+    expect(getByTestId("wizard-finalize-progress").textContent ?? "").toContain("Finishing setup…");
+  });
 });
