@@ -216,13 +216,15 @@ These live in the interactions spec because the layout spec emits only static `h
 - [x] **Step 6: Present-before / absent-after brackets every dismissal case,** so an implementation whose timer is cancelled by scrolling cannot pass by never leaving.
 - [x] **Step 7: `33 passed`** across the whole interactions spec, so the seeding does not leak into cases that never asked for a draft.
 
-### Task 4b: A regression this branch causes, and a repair that was WRONG
+### Task 4b: A red this branch EXPOSED, and two diagnoses that were WRONG
 
-<!-- task: red=`pnpm heavy npx playwright test tests/e2e/popover-clip-fit.spec.ts --project=desktop-chromium -g "MID-ENTRANCE"` red-state=live why=`the taller phone pill moves the menu's anchor and the scroller settles against a stale cap; deterministic 3/3 at this head, green on a control run with both modal components at origin/main` ac=AC-4 -->
+<!-- task: red=`pnpm heavy npx playwright test tests/e2e/popover-clip-fit.spec.ts --project=desktop-chromium -g "MID-ENTRANCE"` red-state=live why=`the fit oracle floors the scroller's true room and then demands 0.5px agreement, so it decides on the fractional remainder alone; deterministic 3/3 at this head, green on a control run with both modal components at origin/main, and the scroller fills its room exactly on BOTH sides` ac=AC-4 -->
 
 **Files:** `components/admin/showpage/AttentionMenu.tsx` — **currently identical to `origin/main`.** The repair committed in `ca8699574` was reverted after whole-diff review refuted its diagnosis.
 
-Not a documented limit. A deterministic red at this head with a green control at `origin/main` is a regression this diff causes, and causing one on `AttentionMenu` makes that surface this arc's to repair.
+**The framing this section carried for most of its life was wrong, and the measurement is what corrected it.** A deterministic red at this head with a green control at `origin/main` looked like a regression this diff causes. It is not one. The scroller fills its available room exactly at this head AND on the control; what this branch changed is the fractional remainder of that room, and the oracle could not survive it. The repair is in the oracle, and it is a strengthening. See Step 6.
+
+Kept in full rather than rewritten into a tidy narrative, because two successive diagnoses were confidently wrong here and the record of how they were caught is worth more than a clean story.
 
 - [x] **Step 1: Establish it is mine, not inherited.** Control run with both modal components restored to `origin/main`: passes. At this head: fails 3/3 under `--repeat-each=3`, so not flake.
 - [x] **Step 2: Bisect.** Not the radius, and not the `whitespace-nowrap` (scoped to `max-sm:` after an unscoped version changed desktop too). It is the ratified type-size change itself.
@@ -232,7 +234,22 @@ Not a documented limit. A deterministic red at this head with a green control at
 
 - [x] **Step 4: Reverted.** `components/admin/showpage/AttentionMenu.tsx` is byte-identical to `origin/main` again. Shipping inert code on a false rationale is worse than shipping nothing: the next reader inherits both.
 - [x] **Step 5: Sweep the shape.** No component consumes pill metrics; only a `components/admin/showpage/StatusStrip.tsx:382` comment names the testid.
-- [ ] **Step 6: Re-diagnose from scratch, with the probe in hand.** The regression is real and unrepaired. Held under the fleet DB rule, since the deciding evidence is a Playwright case. Candidate lines of enquiry, none yet privileged: the flip decision itself (a taller pill leaves less room below, so the panel may now flip where it did not, and `entered` is the only re-place signal), the placement maths given a taller anchor, and whether the single settled re-pass lands before or after the anchor's final height. **Do not** re-apply a fix without observing red-to-green on `-g "MID-ENTRANCE"`.
+- [x] **Step 6: Re-diagnosed from scratch, with the probe in hand, and the second diagnosis was wrong too.** Three candidates were written down BEFORE the run, each mapped to a distinct observable, so the result could not be read to taste: never-stable meant the re-pass ordering, stable-but-unfitted meant the placement maths, and a `side` flip meant the flip decision. The instrumented series settled it in one run. `side` never left `bottom` and the geometry was flat from t=355 to t=1415, refuting the flip and the ordering candidates outright.
+
+  What the numbers actually showed, head and control, four samples each:
+
+  | | anchorH | scH | unfloored room | floored | verdict |
+  |---|---|---|---|---|---|
+  | head | 74.6 | 283.61 | 283.61 | 283 | fitted false |
+  | control | 84.4 | 273.20 | 273.20 | 273 | fitted true |
+
+  `scH` equals the unfloored room to the hundredth on BOTH sides, and `menuBottom` is 552 in both, exactly `panelBottom - gutter`. The fit is perfect either way. The oracle floored that room and then asked for agreement within 0.5px, so it decided on the fractional part alone: .20 passed, .61 failed. It passed on `origin/main` by luck, and would have failed there too for any layout landing past .5.
+
+  **Two facts this branch had backwards.** The pill got SHORTER, 84.4 to 74.6, not taller. Bigger type, fewer lines, because the `max-sm:whitespace-nowrap` repair stopped the count phrases breaking mid-phrase. And there is no stale cap and no production regression; every earlier sentence in this plan asserting either was written from reasoning rather than measurement.
+
+  **The repair strengthens the oracle.** A scroller at 283.0 whose room is 283.61 is a real 0.61px misfit; the floored form compares it against 283, passes it at zero error, and rejects a scroller that fills its room exactly. Unfloored, the misfit fails and the exact fit passes. Swept as a class at all three sites, the file's own comment already calling `tests/e2e/popover-clip-fit.spec.ts:371` the third copy of the arithmetic. Green 42/42 across five consecutive full-file runs (`9e0a9c9e4`).
+
+- [x] **Step 7: The one remaining red is inherited, and measured as such.** The full-file run also surfaced `containment at 1280x800` failing once, at `menu.right` 1068.625 against `pill.right` 1084. That is the geometry the case's own comment documents as correct (`CI measured menu.right 1068.16 against pill.right 1084`), so the guard flipped rather than the layout moving. It reproduces on the CONTROL at the same rate: 1 failure in 5 full-file runs with both components at `origin/main`, against 1 in 7 at this head. Inherited flake, not this diff's. Filed as a documented limit, not repaired here.
 
 ### Task 5: Graduation and closeout
 
@@ -287,9 +304,11 @@ They are still out of class, and the corrected paths make the case stronger rath
 
 ### The regression, and why it was caught at all
 
-The larger phone pill moves the attention menu's anchor, and `popover-clip-fit.spec.ts`'s MID-ENTRANCE case caught it: deterministic at this head, green on a control run with the components at `origin/main`. Repaired in `ca8699574` (Task 4b), not fenced — a documented limit covers guard incompleteness, never a defect the diff introduces.
+`popover-clip-fit.spec.ts`'s MID-ENTRANCE case went red on this branch: deterministic at this head, green on a control run with the components at `origin/main`. That pattern reads as a regression this diff causes, and for most of this arc it was recorded as one. It is not. Instrumenting both sides shows the scroller filling its available room to the hundredth in each (283.61 at head, 273.20 on control), with the menu's bottom landing exactly at `panelBottom - gutter` both times. The red was the spec's own oracle, which floored that room and then demanded agreement within 0.5px, leaving the verdict to the fractional remainder. `origin/main` passed it on .20 by luck. Repaired in `9e0a9c9e4` by unflooring all three copies of the arithmetic, which is a strengthening: the floored form accepts a scroller 0.61px short of its room while rejecting one that fills it exactly. The earlier repair `ca8699574`, on `AttentionMenu`, was reverted; its diagnosis was refuted.
 
-**That spec had never executed.** It matched no project regex until this arc wired it, hours before it failed. Under the discovery gap recorded as `LIM-E2E-SPEC-DISCOVERY-GAP`, this regression ships invisibly: the pill grows, the menu's scroller settles against a stale cap on phones, and no gate anywhere says so. The slug was filed on a count — 118 spec files on disk, 70 discovered — which is the kind of number that reads as housekeeping. This is what it actually buys.
+**That spec had never executed.** It matched no project regex until this arc wired it, hours before it went red. What the discovery gap recorded as `LIM-E2E-SPEC-DISCOVERY-GAP` had been hiding is therefore not a shipping defect, as this paragraph first claimed, but a defective oracle: one that would have gone red for whoever next moved that layout past a .5 remainder, whether or not they broke anything, and that meanwhile accepted a genuinely misfitted scroller. A dark spec does not merely fail to protect, it rots, and the rot is billed to whoever wires it in. The slug was filed on a count, 118 spec files on disk against 70 discovered, which is the kind of number that reads as housekeeping. This is what it actually buys.
+
+**The 1280 containment case that also failed is inherited, and measured as such** (`LIM-E2E-1280-CONTAINMENT-FLAKE`): 1 failure in 7 full-file runs at this head, and 1 in 7 on the control. The first failure looked like this arc's, and only running the control the same number of times showed it was not.
 
 It also sharpens the slug's own re-file trigger. The gap did not merely hide an untested surface; it hid a surface that a *later, unrelated, ratified* change would break. A census of what is dark measures exposure, not risk, and the risk is only visible once something moves.
 

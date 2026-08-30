@@ -425,7 +425,14 @@ All four were wired into `desktop-chromium` and are green: 55 passing in the lay
 
 **First incident:** this arc, 2026-08-30. Four specs wired; one of them held an assertion that had never run and that this arc's own risk analysis depended on.
 
-**What the gap actually cost, measured hours later on the same branch.** `tests/e2e/popover-clip-fit.spec.ts`, wired by this arc, then caught a regression the arc itself introduced: the ratified larger phone pill moves the attention menu's anchor, and the menu's scroller settled against a stale cap. Deterministic at head, green on a control run with the components at `origin/main`, repaired in `ca8699574`. **Under this gap that regression ships invisibly** — the pill grows, the menu mis-sizes on phones, and no gate says so. The slug was filed on a count, 118 files on disk against 70 discovered, which reads as housekeeping; this is the first evidence of what the count means. It also sharpens the trigger below: a census of what is dark measures exposure, and the risk only becomes visible when something unrelated later moves.
+**What the gap actually cost, measured hours later on the same branch, and CORRECTED once it was measured properly.** `tests/e2e/popover-clip-fit.spec.ts`, wired by this arc, then went red on the arc's own change. This entry previously said that red was a production regression, that the phone pill had grown, that the scroller settled against a stale cap, and that it was repaired in `ca8699574`. **Every one of those was wrong**, and the corrections are recorded here rather than quietly deleted because the wrong version is what an unmeasured reading of a red looks like:
+
+- The pill got SHORTER, 84.4px to 74.6px. Bigger type, fewer wrapped lines.
+- There is no stale cap. The scroller filled its available room to the hundredth at head (283.61) and on the control (273.20).
+- `ca8699574` was reverted; its diagnosis was refuted by whole-diff review.
+- The red was the spec's OWN oracle: it floored the scroller's true room and then asked for agreement within 0.5px, so it decided on the fractional remainder. `origin/main` passed it on .20 by luck. Repaired in `9e0a9c9e4`.
+
+**The gap's cost is real but is not the cost this entry first claimed.** What sat undiscovered while the spec was dark was a defective oracle: one that accepts a scroller 0.61px short of its room while rejecting one that fills it exactly, and that would have gone red for whoever next moved the layout past a .5 remainder, regardless of whether they broke anything. A dark spec is not merely unprotective, it also rots, and nobody pays for the rot until it is wired. The slug was filed on a count, 118 files on disk against 70 discovered, which reads as housekeeping; this is the first evidence of what the count means.
 
 **Re-file trigger:** a **second independent arc** hitting the same gap. That recurrence, cited against this slug, is the `**Mint-exception:** product-blocked` evidence a row would need — the freeze's own recurrence clause requires hits spanning at least two independent arcs, and one arc hitting its own limit twice does not qualify. What would NOT settle it: wiring more specs by hand as they are discovered, which is what this arc did and which leaves the next 44 exactly as dark. A candidate repair compares the two sets mechanically, so a spec that matches no project fails at authoring time rather than at the moment somebody happens to need it.
 
@@ -452,3 +459,49 @@ All four were wired into `desktop-chromium` and are green: 55 passing in the lay
 **Owning record:** this index, plus the spec section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
 
 **Re-file trigger:** a second independent arc measuring the same class as its non-decaying one. What would NOT settle it: promoting `CITATION_SYMBOL_UNMATCHED` to a failure, which this corpus has already measured producing noise authors route around. The one mitigation that did work here is procedural and is recorded in the filing: verify from the code side, opening the cited line and asking whether the sentence is true of it, rather than reading the sentence and looking for confirmation.
+
+---
+
+## LIM-E2E-1280-CONTAINMENT-FLAKE
+
+**What:** `tests/e2e/popover-clip-fit.spec.ts`'s `containment at 1280x800: the menu never crosses the panel's clip edge` fails intermittently, at `menu.right` 1068.625 against `pill.right` 1084, whenever the whole file runs. It passes reliably when run alone.
+
+**Why it is not a geometry defect.** 1068.625 IS the correct placement for that viewport, and the case's own comment says so: `CI measured menu.right 1068.16 against pill.right 1084`. At 1280 the pill extends past the inset bounds, so the core correctly pulls the panel left instead of leaving it flush. The assertion is guarded to skip exactly that situation. What varies between runs is therefore the guard, or the moment of measurement relative to a placement re-pass, not where the menu ends up.
+
+**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`, full-file runs under `tests/e2e/standalone.config.ts`:
+
+| tree | full-file runs | failures |
+|---|---|---|
+| this head | 7 | 1 |
+| control, both modal components at `origin/main` | 7 | 1 |
+
+**Inherited, not caused.** The same rate on both sides is the whole point of the measurement: the first failure appeared on a head run and looked like this arc's, and it took running the control the same number of times to show it is not. One observation is not a rate.
+
+**Why a limit and not a row (2026-08-25 process mint freeze):** the repair is test-infrastructure, its done condition is a property of the suite, and no product surface is blocked. It costs arc wall-clock and, worse, costs credibility: an intermittent red trains readers to retry rather than to read.
+
+**Cross-reference:** [[LIM-E2E-SPEC-DISCOVERY-GAP]]. The two are the same story from opposite ends. This flake lives in a spec that the discovery gap kept dark, so it has presumably been flaking undetected for as long as the file has existed, and it became measurable only when this arc wired the spec in. A second independent arc hitting either slug is the `**Mint-exception:** product-blocked` evidence a row would need.
+
+**Owning record:** this index, plus the diff section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+
+**Re-file trigger:** a second independent arc losing time to this case, or the rate rising above roughly 1 in 5. A candidate repair polls for placement settle before measuring, the way `settledGeometry` already does two hundred lines above it in the same file; that helper existing and this case not using it is the most likely actual defect.
+
+---
+
+## LIM-ORACLE-ROUND-BEFORE-SUBPIXEL-TOLERANCE
+
+**STATUS: CLOSED. Zero open instances.** Indexed here so the next arc finds the shape by one grep rather than by re-deriving it, per the class-sweep order that produced it.
+
+**The shape:** a geometry oracle that rounds, floors, or ceils a measured quantity and THEN compares it under a sub-pixel tolerance. `Math.floor` discards up to 1px; a 0.5px tolerance cannot absorb that. The assertion stops deciding on the fit and starts deciding on the fractional part of the measurement, which no implementation controls.
+
+**Why it is worse than a flake:** it fails in both directions. The floored form accepts a scroller sitting 0.61px SHORT of its room, comparing it against the floored value at zero error, while rejecting a scroller that fills its room exactly. It is simultaneously too loose for the defect it exists to catch and too strict for correct code.
+
+**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`: three instances, all in `tests/e2e/popover-clip-fit.spec.ts`, all repaired in `9e0a9c9e4`. The file's own comment already called the third one "Third site of the same arithmetic", so the duplication was known and the defect in it was not.
+
+**What it cost before it was named:** a reverted repair on an unrelated component, a refuted diagnosis, a discriminating probe, and most of a hold window. It presented as a production regression, and it was not one.
+
+**Sweep, derived rather than enumerated.** For every `Math.floor|round|ceil` in `tests/`, bind the name it assigns and require that name to appear in a sub-pixel assertion (`<= 0.5`, `toBeLessThanOrEqual(0.5)`, `toBeCloseTo(x, 0|1)`) within the next 45 lines. Outside `tests/e2e`: zero. Inside: the three repaired sites plus three matches that are NOT the shape, recorded so a later sweep does not re-raise them:
+
+- `tests/e2e/popover-clip-fit.spec.ts:1274` and `tests/e2e/popover-clip-fit.spec.ts:1289` round to CONSTRUCT the fixture (`Math.ceil(h + 44)` sizing a spacer). The compared values are measured and unrounded, and `spaceAbove`/`spaceBelow` are computed unfloored at `tests/e2e/popover-clip-fit.spec.ts:1200`, mirroring `lib/popover/position.ts:113`.
+- `tests/e2e/section-header-layout.layout.spec.ts:849` uses `Math.round(h * 100) / 100`, a two-decimal display round whose 0.005 worst case is two orders below the 0.5 tolerance.
+
+**Re-file trigger:** any new instance. The durable repair is not another sweep but a lint over the shape; that was NOT filed as a row, because the freeze's admission test asks for a number outside the process and a lint's done condition is a property of the lint.
