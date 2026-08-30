@@ -197,17 +197,15 @@ describe("finalize progress transitions are instant", () => {
     // and passed every motion check (whole-diff R3 finding 2). Tag plus own text identifies a
     // node whether or not anyone remembered to give it a testid, which is the point: the guard
     // must not depend on the very annotation a careless duplicate would omit.
-    const ownText = (el: HTMLElement) =>
-      Array.from(el.childNodes)
-        .filter((n) => n.nodeType === 3)
-        .map((n) => n.textContent ?? "")
-        .join("")
-        .replace(/\s+/g, " ")
-        .trim();
+    // Identity is STRUCTURE, never content. Keying on own text meant an old and a new node
+    // mounted together during a B-to-B transition read as `SPAN||1 of 2` and `SPAN||2 of 2`
+    // — different signatures, no duplicate reported, which is exactly the moment the check
+    // exists to cover. Tag plus testid plus className identifies the MOUNT: two copies of one
+    // conditional block are structurally identical however far their text has diverged.
     const sigs = nodes
-      .map((el) => `${el.tagName}|${el.getAttribute("data-testid") ?? ""}|${ownText(el)}`)
-      // A node with no own text and no testid says nothing about identity; two empty
-      // wrappers are not a duplicate mount, so they are excluded rather than counted.
+      .map((el) => `${el.tagName}|${el.getAttribute("data-testid") ?? ""}|${el.className}`)
+      // A bare wrapper with no testid and no classes says nothing about identity; two empty
+      // divs are not a duplicate mount, so they are excluded rather than counted.
       .filter((sig) => !sig.endsWith("||"));
     const dupes = sigs.filter((sig, i) => sigs.indexOf(sig) !== i);
     expect(dupes, `${ph}: duplicated node inside the progress subtree`).toEqual([]);
@@ -223,18 +221,21 @@ describe("finalize progress transitions are instant", () => {
     );
 
     for (const el of nodes) {
-      // The hyphen was mandatory, so Tailwind's BARE `transition` and `animate` utilities
-      // (both real classes, both animating) walked straight through (R1 finding 3).
-      // Matches either the hyphenated family or the bare class as a whole token.
-      expect(el.className, `${el.tagName} class`).not.toMatch(
-        // Variant prefixes included. `motion-safe:animate-pulse`, `hover:transition-colors`
-        // and every compound form escaped a pattern that demanded whitespace immediately
-        // before the utility (whole-diff R3 finding 1), and the stylesheet arm cannot
-        // compensate because Tailwind GENERATES those rules — they are never declared in
-        // globals.css, so the class attribute is the only place they are visible. The
-        // repo uses the form: FinalizeButton.tsx carries three instances today.
-        /(?:^|\s)(?:[\w.-]+:)*(transition|animate)(-[\w[\]/.-]+)?(?=\s|$)/,
-      );
+      // A SUBSTRING TEST, not a grammar. Three consecutive rounds each added one corner to a
+      // pattern that tried to model Tailwind's class syntax — inline longhands, then variant
+      // prefixes, then commas inside arbitrary values (`transition-[opacity,display]`, live in
+      // three components today). Each widening made the recognizer a bigger target for the next
+      // round, which is the ratchet AGENTS.md's repair-direction rule says to refuse: the
+      // class-level repair is NARROWING, not parser growth.
+      //
+      // Every animating Tailwind utility carries the token `transition` or `animate` somewhere
+      // in its class string, whatever the prefixes, variants or bracket contents. Testing for
+      // the token fails CLOSED on syntax nobody has thought of yet, where the pattern failed
+      // OPEN. Accepted cost: a false positive on a class that merely contains the letters —
+      // loud, one line to resolve, and strictly better than silence. DOCUMENTED LIMIT: it
+      // cannot see an animation applied by a class carrying neither token, which is not a form
+      // Tailwind emits.
+      expect(el.className, `${el.tagName} class`).not.toMatch(/transition|animate/);
       // cssText, NOT the shorthand properties. Probed in jsdom: setting
       // transitionProperty/transitionDuration/animationName/animationDuration leaves
       // BOTH `style.transition` and `style.animation` as the empty string while

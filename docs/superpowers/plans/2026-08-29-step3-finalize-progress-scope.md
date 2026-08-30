@@ -337,8 +337,15 @@ required rather than the bare "no lock changes" the R2 version offered (plan R3 
   matches `/select parse_result[\s\S]*?from public\.pending_syncs/i`, which is the later
   generation-scoped re-read, not the rebind query whose select list begins `select staged_id, ...`.
   What it DOES pin, and what invariant 2 actually needs here, is its other arm: it counts every
-  `pg_advisory_xact_lock(hashtext('show:' || $1))` occurrence in the route source, so a second
-  acquisition anywhere fails it. This task adds none — the rebind rides the transaction that already
+  `pg_advisory_xact_lock(hashtext('show:' || $1))` occurrence in the route source — LITERALLY that
+  string, which is the precise and limited claim. Narrowed after whole-diff R4 finding 3: a second
+  acquisition written with different whitespace, a different parameter index, or a pre-prefixed key
+  is NOT counted, so this guard does not enforce single-holder against every future spelling and the
+  plan must not say it does. What it DOES establish is that the exact form the route uses today
+  appears exactly once, which is the claim this task needs, because this task adds no acquisition at
+  all. Widening the regex was declined deliberately: this arc has already spent three rounds on
+  recognizer growth in the transition audit and answered them by narrowing, and the same reasoning
+  governs a guard nothing in this diff modifies. This task adds none — the rebind rides the transaction that already
   holds the lock — and that is the claim the guard settles. Run it in GREEN alongside the stream
   suite, for the acquisition count, not as a shape oracle for the edited query.
 
@@ -707,4 +714,35 @@ review finding on a surface with a spec, read what the spec already decided abou
 The ambiguity itself is real and is now filed as `FINALIZE-COMPACT-COUNT-NOUN-1`, where it needs
 what it always needed — a real-browser measurement of the footer, and a spec amendment landing in
 the same change as the code.
+
+## 16. Whole-diff review round 4 — findings and dispositions
+
+BLOCKING, 5 findings, and the count RISING from 3 is the signal worth reading rather than the
+number. All verified against the tree; this reviewer could not collect tests either.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | BLOCKING: `transition-[opacity,display]` escaped the audit's class pattern, and that syntax is live in three components | Fixed by NARROWING, not widening — see below. |
+| 2 | BLOCKING: the duplicate-mount identity keyed on node text, so an old and a new node mounted together read as different nodes | Fixed by NARROWING — identity is now structural (tag + testid + className) and cannot be defeated by text that legitimately changes. |
+| 3 | BLOCKING: the cited advisory-lock guard counts one literal string, not every acquisition | The CLAIM was narrowed to what the guard actually matches, and the regex deliberately left alone. The route has exactly one holder today and this task adds none, which is the claim the task needs. |
+| 4 | P1: the misnomer guard omitted `.mdx` while `next.config.ts` enables MDX and `app/` holds 13 MDX pages | Fixed. Unlike the Tailwind grammar, the set of extensions Next executes is finite and documented, so completing it closes the question instead of widening a recognizer. |
+| 5 | P2: the deferral ledger still claimed both renderers name what they count | Fixed. The claim went stale when R3's repair was reverted; a ledger may not assert a completion the code contradicts. |
+
+**Findings 1 and 2 are one finding, and it is the third round of the same thing.** R2 found inline
+longhands, R3 found variant prefixes, R4 found commas inside arbitrary values. Each round the audit's
+class pattern was WIDENED by one grammar case, and each widening made a bigger target for the next
+round. That is precisely the ratchet AGENTS.md's repair-direction rule exists to stop, and it ran
+three rounds before the rule was applied.
+
+The repair is narrowing. The class check no longer models Tailwind syntax at all: it tests for the
+tokens `transition` and `animate` as substrings, which fails CLOSED on syntax nobody has anticipated
+where the pattern failed OPEN. Its accepted cost — a false positive on a class merely containing the
+letters — is loud and one line to resolve, which is strictly better than silence. The duplicate check
+was narrowed the same way, from content-dependent identity to structural identity. Both were proved
+by planting the exact mutants that escaped the widened versions, and the documented limit is written
+beside each assertion.
+
+Had this been done at R3, R4's two blocking findings would not exist. That is the cost of answering
+a recognizer finding by feeding the recognizer, and it is recorded here so the next arc reads it
+before the third round rather than after.
 

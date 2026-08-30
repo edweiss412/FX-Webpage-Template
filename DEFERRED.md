@@ -32,7 +32,7 @@ The panel renders `1 of 2 shows`; the compact readout in the sticky footer rende
 
 **Why deferred rather than fixed in this arc.** Class-sweep exception (a): it is a product and design decision, not a bug fix. Whether the batch line persists into CAS, and whether an indeterminate bar reassures or misleads when no percentage is knowable, are calls about what Doug should be told at the moment of the live flip. This arc's mandate was to stop the surface making a false claim; it is strictly subtractive on copy and touches no phase structure. Adding a new progress element and a persisted completion line is new design on a surface this change does not otherwise open.
 
-**What this arc DID close** rather than leave here: the sibling P1, that the two renderers told different stories — the compact tracking Doug actually uses said "3 of 12" with no noun while the panel said "3 of 12 shows", which is exactly the of-what ambiguity the arc set out to remove. Both now name what they count.
+**What this arc DID close** rather than leave here: the compact readout's heading, subline and accessible names, which is the false-claim repair this deferral sits beside. (An earlier draft of this line claimed both renderers now name what they count. That repair was reverted — see `FINALIZE-COMPACT-COUNT-NOUN-1` above — and the claim went stale with it; whole-diff R4 finding 5. The ledger may not assert a completion the code contradicts.)
 
 ---
 

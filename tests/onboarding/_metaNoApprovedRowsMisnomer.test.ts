@@ -18,10 +18,15 @@ import { join } from "node:path";
 import { premise, premiseHolds } from "../_shared/premise";
 
 const APP_DIR = join(__dirname, "..", "..", "app");
-// Every extension Next.js will execute under app/, not just the two this repo happens
-// to use today. The guard's name claims 'no file under app/', and a .js or .jsx route
-// is ordinary Next.js that would have bound the misnomer while the guard stayed green.
-const CODE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
+// Every extension Next.js will execute under app/, not just the ones this repo happens to
+// use most. The guard's name claims 'no file under app/', so an omission is a false claim,
+// not a narrow scope. `.mdx` is included because next.config.ts:54 enables MDX and app/
+// holds 13 MDX pages today — an ESM binding named `approvedRows` in one of them would have
+// violated AC-5 while this passed (whole-diff R4 finding 4). Unlike the Tailwind class
+// grammar this arc stopped modelling, the set of extensions Next executes is genuinely
+// finite and documented, so completing it closes the question rather than widening a
+// recognizer.
+const CODE = /\.(ts|tsx|js|jsx|mjs|cjs|md|mdx)$/;
 
 /** Word-matched, so `approvedRowsCount` neither satisfies nor evades the guard. */
 const MISNOMER = /\bapprovedRows\b/;
