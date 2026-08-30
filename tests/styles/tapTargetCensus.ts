@@ -352,7 +352,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 560 and 615, and its `block size-full cursor-zoom-in` className is 41 lines
     // below the tag, which is why reading the tag line alone looks wrong.
     // 572 -> 633 on the R2 repairs; still the only button in its span.
-    line: 633,
+    line: 655,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
@@ -364,7 +364,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // key: still the `motion.div` carrying `fixed inset-0 z-overlay flex`,
     // confirmed by reading that className at the new key.
     // 822 -> 864 on the R2 repairs; still the `fixed inset-0 z-overlay` surface.
-    line: 864,
+    line: 882,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",

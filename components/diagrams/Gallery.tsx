@@ -278,16 +278,23 @@ export function Gallery({
   // The gallery is NOT a modal, so the rescue is deliberately conditional: it
   // fires only when focus WAS ours and is now on `<body>`. Focus that was never
   // in the list is none of our business, and stealing it would be its own bug.
-  const focusWasInListRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const focusWasOursRef = useRef(false);
   useLayoutEffect(() => {
     const list = listRef.current;
-    if (list !== null && focusWasInListRef.current && document.activeElement === document.body) {
+    const root = rootRef.current;
+    if (list !== null && focusWasOursRef.current && document.activeElement === document.body) {
       list.focus();
+      return;
     }
-    focusWasInListRef.current =
-      list !== null &&
-      document.activeElement instanceof HTMLElement &&
-      list.contains(document.activeElement);
+    // Re-sample only against a CONNECTED element. A detached `activeElement`
+    // means the commit just removed the focused node and the browser has not
+    // settled yet; treating that as "focus is no longer ours" would clear the
+    // flag exactly when the rescue is about to need it.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.isConnected && root !== null) {
+      focusWasOursRef.current = root.contains(active);
+    }
   });
 
   // The success hand-off, consumed in a LAYOUT effect rather than a passive one:
@@ -579,7 +586,22 @@ export function Gallery({
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div
+      className="flex flex-col gap-3"
+      ref={rootRef}
+      // Focus tracking is EVENT-DRIVEN, not commit-sampled, and round 2 of the
+      // whole-diff review is why. The first version recorded "was focus ours"
+      // at the end of every commit, which misses the ordinary case entirely:
+      // focus arriving on a control produces no re-render, so the flag still
+      // held the previous commit's answer and the rescue never fired.
+      //
+      // Scoped to the ROOT rather than the list because the Show all / Show
+      // fewer toggle lives outside the `<ul>`, and it disappears on its own
+      // when the count falls to twelve.
+      onFocus={() => {
+        focusWasOursRef.current = true;
+      }}
+    >
       <ul
         ref={listRef}
         // Programmatically focusable ONLY: the last relocation target when a

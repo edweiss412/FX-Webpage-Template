@@ -21,7 +21,7 @@
  * state. What closes the single-frame hazard is the PREDICATE, not the
  * assertion.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
@@ -277,11 +277,23 @@ describe("R2: removal paths, swept as classes rather than as instances", () => {
   });
 
   test("finding 1: a prop-driven removal under focus does not strand it on <body>", () => {
-    const { rerender } = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
-    const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
-    premiseHolds("slot 1 renders an image to fail", img !== null);
+    // SLOT INDEX, NOT ITEM NUMBER. `diagram-slot-${i}` keys on the VISIBLE
+    // INDEX, so slot 0 is item(1). The first version of this test focused slot
+    // 1 -- item(2) -- and then removed item(1), so the focused control belonged
+    // to the SURVIVING item, never left the document, and the assertion could
+    // not fail. Whole-diff round 2 found all four of these guards vacuous the
+    // same way.
+    //
+    // The premise below is the repair that generalises: assert the focused node
+    // actually LEFT, so a future edit that re-points the test at a surviving
+    // element refuses instead of passing.
+    const { rerender } = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />,
+    );
+    const img = within(screen.getByTestId("diagram-slot-0")).queryByRole("img");
+    premiseHolds("slot 0 renders an image to fail", img !== null);
     act(() => fireEvent.error(img as HTMLImageElement));
-    const control = within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retry-1");
+    const control = within(screen.getByTestId("diagram-slot-0")).getByTestId("diagram-retry-0");
     act(() => control.focus());
     premiseHolds(
       "the retry control held focus before the prop change",
@@ -291,6 +303,10 @@ describe("R2: removal paths, swept as classes rather than as instances", () => {
     // The item leaves `items` entirely — no availability flag involved.
     rerender(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(2)]} />);
 
+    premiseHolds(
+      "the focused control genuinely LEFT the document, or this test proves nothing",
+      !control.isConnected,
+    );
     expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
     expect(document.activeElement?.isConnected, "and lands on a connected node").toBe(true);
   });
@@ -301,34 +317,48 @@ describe("R2 finding 1: the exact variants the reviewer probed", () => {
     view.rerender(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items} />);
 
   test("a focused RETRYING OVERLAY followed by available:false", () => {
-    const view = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
-    const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
+    const view = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />,
+    );
+    const img = within(screen.getByTestId("diagram-slot-0")).queryByRole("img");
     premiseHolds("slot 1 renders an image", img !== null);
     act(() => fireEvent.error(img as HTMLImageElement));
     act(() =>
-      fireEvent.click(within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retry-1")),
+      fireEvent.click(within(screen.getByTestId("diagram-slot-0")).getByTestId("diagram-retry-0")),
     );
-    const overlay = within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retrying-1");
-    act(() => overlay.focus());
+    const overlay = within(screen.getByTestId("diagram-slot-0")).getByTestId("diagram-retrying-0");
+    const focused = overlay;
+    act(() => focused.focus());
     premiseHolds("the overlay held focus", document.activeElement === overlay);
 
     rerenderWith(view, [item(1, { available: false }), item(2)]);
 
+    premiseHolds(
+      "the focused node genuinely left the document, or this proves nothing",
+      !focused.isConnected,
+    );
     expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
     expect(document.activeElement?.isConnected, "and lands on a connected node").toBe(true);
   });
 
   test("a focused FAILED control followed by available:false", () => {
-    const view = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
-    const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
+    const view = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />,
+    );
+    const img = within(screen.getByTestId("diagram-slot-0")).queryByRole("img");
     premiseHolds("slot 1 renders an image", img !== null);
     act(() => fireEvent.error(img as HTMLImageElement));
-    const control = within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retry-1");
-    act(() => control.focus());
+    const control = within(screen.getByTestId("diagram-slot-0")).getByTestId("diagram-retry-0");
+    const focused = control;
+    act(() => focused.focus());
     premiseHolds("the control held focus", document.activeElement === control);
 
     rerenderWith(view, [item(1, { available: false }), item(2)]);
 
+    premiseHolds(
+      "the focused node genuinely left the document, or this proves nothing",
+      !focused.isConnected,
+    );
     expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
     expect(document.activeElement?.isConnected, "and lands on a connected node").toBe(true);
   });

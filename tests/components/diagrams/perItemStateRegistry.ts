@@ -11,7 +11,12 @@
  * `demotedRef` is precisely a row whose correct value is the literal phrase, and
  * an empty string would document nothing while still counting as "classified".
  */
-export const DELIBERATELY_NONE = "deliberately none";
+// REMOVED with its last user (whole-diff review round 2). `demotedRef` was the
+// only row whose clearedBy was this phrase, and the review showed the claim
+// behind it was false: the latch is not conservative across snapshot
+// revisions, because a crew id outlives the asset it points at. Reintroduce
+// this only alongside a member that genuinely has no clear path.
+// export const DELIBERATELY_NONE = "deliberately none";
 
 /**
  * Whether the availability sweep (spec §9.1) clears this member when its item
@@ -48,9 +53,13 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       "`onLoad` (retrying -> idle) and `onError` (retrying -> failed), both per item; and the availability sweep, since a slide that goes unavailable mid-flight must not return holding an overlay (spec §4, §9.1)",
     sweep: { swept: true },
   },
-  "Gallery.tsx:focusWasInListRef": {
+  "Gallery.tsx:focusWasOursRef": {
     kind: "not-per-item",
-    why: "one boolean about the LIST, not about any item: whether focus was inside it at the previous commit. It is the memory the focus rescue needs because a commit that destroys the focused node cannot be asked where focus was before it",
+    why: "one boolean about the WHOLE GALLERY, not about any item: whether focus is currently ours. Set by a focus event rather than sampled at commit, because focus arriving on a control causes no re-render -- the commit-sampled version missed exactly that case and round 2 of the whole-diff review measured it",
+  },
+  "Gallery.tsx:rootRef": {
+    kind: "not-per-item",
+    why: "the gallery root element, scoped wider than `listRef` on purpose: the Show all / Show fewer toggle lives outside the `<ul>` and disappears on its own when the count falls to twelve",
   },
   "Gallery.tsx:focusThumbRef": {
     kind: "per-item",
@@ -207,10 +216,11 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   },
   "GalleryLightbox.tsx:demotedRef": {
     kind: "per-item",
-    clearedBy: DELIBERATELY_NONE,
+    clearedBy:
+      "a change of `snapshotRevisionId`, which is the event meaning the bytes behind these ids are different. NOT cleared by the availability sweep: within one revision the id still points at the same asset, and declining a re-pin there is the conservative behaviour",
     sweep: {
       swept: false,
-      why: "deliberately never cleared at all (spec §4.0.2); its only effect is to decline a re-pin, which is conservative in every direction",
+      why: "not swept on AVAILABILITY, deliberately -- an item going unavailable and returning inside one revision is the same asset, so the latch should survive it. The row previously said the latch was 'conservative in every direction' and that was WRONG across revisions: crew ids are stable across syncs while the asset key and variants change, so the latch silently denied full detail to a healthy replacement. Fixed by scoping it to the revision (R2 round 2 finding 2)",
     },
   },
   "GalleryLightbox.tsx:demotedNotice": {

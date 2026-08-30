@@ -310,6 +310,24 @@ export function GalleryLightbox({
    * A ref, not state, because the intent marker below must stay identity-stable.
    */
   const demotedRef = useRef<Set<string>>(new Set());
+  // The demote latch is scoped to ONE SNAPSHOT REVISION, and round 2 of the
+  // whole-diff review is why it had to become so.
+  //
+  // Its registry row called it "conservative in every direction". That holds
+  // only while the id keeps pointing at the same bytes. Crew ids are STABLE
+  // ACROSS SYNCS while the snapshot revision, the asset key and the variant
+  // list all change, so after one original-tier failure the latch silently
+  // denied full detail to every LATER asset that inherited the id -- no request
+  // made, no signal emitted, nothing in the documented limits. A user whose
+  // diagram was replaced with a working one still could not zoom into it.
+  //
+  // Cleared on a revision change, which is exactly the event that means "these
+  // are different bytes now". Within a revision the latch is unchanged and
+  // still declines a re-pin, which is the conservative behaviour the row
+  // described and which remains correct there.
+  useEffect(() => {
+    demotedRef.current = new Set();
+  }, [snapshotRevisionId]);
   // Task 5 (spec §4). The lightbox's own copy of the retry machine; Task 2's is
   // gallery-only by design, so nothing here inherits from it.
   const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());

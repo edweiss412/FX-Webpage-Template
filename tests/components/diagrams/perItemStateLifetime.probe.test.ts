@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { MAX_UNWRAP_DEPTH, scanStateDeclarations } from "./perItemStateScanner";
-import { DELIBERATELY_NONE, PER_ITEM_STATE_REGISTRY } from "./perItemStateRegistry";
+import { PER_ITEM_STATE_REGISTRY } from "./perItemStateRegistry";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const COMPONENTS = ["Gallery.tsx", "GalleryLightbox.tsx"] as const;
@@ -74,15 +74,25 @@ describe("per-item state lifetime — the live tree", () => {
     // which is the hole round 3 found in the earlier AC-17.
     expect(bad, "per-item rows with an empty clear path").toEqual([]);
 
-    // `demotedRef` is the row whose correct value is the literal phrase, so the
-    // phrase has to be reachable rather than merely allowed.
-    const literal = perItem.filter(
-      ([, c]) => c.kind === "per-item" && c.clearedBy === DELIBERATELY_NONE,
-    );
+    // The `deliberately none` vocabulary is GONE, and this assertion records why
+    // rather than silently dropping.
+    //
+    // It used to require the phrase to be in USE, not merely allowed, and named
+    // `demotedRef` as the row whose correct value it was. Whole-diff review
+    // round 2 refuted exactly that: the latch was described as "conservative in
+    // every direction" and is not, because crew ids outlive the assets behind
+    // them, so a demote taken against one asset silently denied full detail to
+    // its replacement. `demotedRef` now clears on a revision change and no
+    // member is left whose honest answer is "nothing ever clears this".
+    //
+    // The form is removed rather than kept unused, because a permitted phrase
+    // with no legitimate user is an invitation to the misuse review just found.
+    // A future member that genuinely has no clear path should reintroduce it
+    // WITH that member, not inherit it as vocabulary looking for a subject.
     expect(
-      literal.length,
-      "the deliberately-none form is in use, not just permitted",
-    ).toBeGreaterThan(0);
+      perItem.filter(([, c]) => c.kind === "per-item" && /deliberately none/i.test(c.clearedBy)),
+      "no row claims nothing clears it; the form was removed with its last user",
+    ).toEqual([]);
   });
 
   it("every per-item row DECIDES the availability sweep, and a `false` gives a reason", () => {

@@ -225,7 +225,7 @@ export const CENSUS: readonly CensusRow[] = [
   // offset is right only until two edits land in one file.
   // 928 -> 970 on the R2 class-level repairs. FOURTH key this arc; the element
   // has never changed.
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 970 },
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 988 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.

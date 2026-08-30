@@ -398,9 +398,16 @@ describe("R1 finding 1: a control removed under focus relocates it", () => {
   });
 
   test("an item going unavailable under focus does not strand it either", () => {
-    const { rerender } = render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />);
-    failThumb(1);
-    const control = within(slot(1)).getByTestId("diagram-retry-1");
+    const { rerender } = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1), item(2)]} />,
+    );
+    // SLOT 0, because `diagram-slot-${i}` is the VISIBLE INDEX and item(1) sits
+    // there. This test previously focused slot 1 -- item(2) -- and then took
+    // item(1) away, so the focused control belonged to the surviving item and
+    // the assertion could not fail. Round 2 of the whole-diff review found it
+    // and its three siblings vacuous the same way.
+    failThumb(0);
+    const control = within(slot(0)).getByTestId("diagram-retry-0");
     act(() => control.focus());
     premiseHolds(
       "the retry control held focus before the item went away",
@@ -410,9 +417,17 @@ describe("R1 finding 1: a control removed under focus relocates it", () => {
     // Availability is the OTHER removal path, and it removes the control with
     // no user action at all.
     rerender(
-      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item(1, { available: false }), item(2)]} />,
+      <Gallery
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[item(1, { available: false }), item(2)]}
+      />,
     );
 
+    premiseHolds(
+      "the focused control genuinely LEFT the document, or this proves nothing",
+      !control.isConnected,
+    );
     expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
     // Not-body is too weak on its own: focus sitting on a DETACHED node also
     // reads as not-body while being just as broken, and jsdom will happily

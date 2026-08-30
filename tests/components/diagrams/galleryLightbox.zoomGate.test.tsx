@@ -1882,3 +1882,58 @@ describe("R2 finding 4: scale state is swept by ITEM IDENTITY, not slot availabi
     ).toBeNull();
   });
 });
+
+/**
+ * R2 round 2 finding 2: the demote latch outlived the asset behind the id.
+ *
+ * `demotedRef` is keyed on the crew item id and was never cleared. Its registry
+ * row called that "conservative in every direction", which holds only while the
+ * id points at the same bytes. Crew ids are STABLE ACROSS SYNCS while the
+ * snapshot revision, the asset key and the variants all change — so after one
+ * original-tier failure the latch silently denied full detail to every later
+ * asset inheriting the id. No request, no signal, nothing in the documented
+ * limits: a diagram replaced with a working one still could not be zoomed.
+ */
+describe("R2r2 finding 2: the demote latch is scoped to the snapshot revision", () => {
+  test("a new revision clears the latch, so a replacement asset can load full detail", () => {
+    const view = open([item(1), item(2)]);
+
+    // Demote item 1: pin the original, then fail it.
+    emitScale(2);
+    act(() => {
+      fireEvent.error(activeImage(view.container));
+    });
+    premiseHolds(
+      "the item is latched as demoted, or there is no latch to clear",
+      view.container.querySelector('[data-testid="lightbox-demote-chip"]') !== null ||
+        view.container.querySelector('[data-testid="lightbox-retry"]') !== null,
+    );
+
+    // A sync replaces the asset. The crew id is unchanged, which is the whole
+    // point: only the revision tells us these are different bytes.
+    const NEXT_REV = "33333333-3333-4333-8333-333333333333";
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={NEXT_REV}
+        items={[item(1), item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={() => {}}
+      />,
+    );
+
+    // The replacement is healthy: zoom intent must now reach it.
+    act(() => {
+      fireEvent.load(activeImage(view.container));
+    });
+    emitScale(2);
+
+    const urls = activeLoaderUrls(view.container);
+    const askedForOriginal = [...urls].some((u) => !/@\d+\.webp/.test(pathOf(u)));
+    expect(
+      askedForOriginal,
+      "after a revision change the latch is gone, so a pinch requests the original again",
+    ).toBe(true);
+  });
+});
