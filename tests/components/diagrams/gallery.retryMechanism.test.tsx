@@ -252,6 +252,30 @@ describe("Task 2 — the gallery retry mechanism", () => {
       ...slot(0).querySelectorAll<HTMLElement>("a[href],button,input,select,textarea,[tabindex]"),
     ].filter((el) => !el.hasAttribute("disabled") && el.tabIndex >= 0);
 
+    // R2 finding 3: the filter above is necessary and NOT sufficient, and it was
+    // the reason my own suite could not see the defect. `tabIndex >= 0` is a
+    // question about SEQUENTIAL order, so the one element the repair had pushed
+    // to -1 is precisely the one it excludes -- the assertion could not fail on
+    // the thing it was written to catch. A screen reader's button navigator does
+    // not walk the tab order; it walks the accessibility tree, where a merely
+    // untabbable button is still present and still activatable.
+    //
+    // Asserted on the ATTRIBUTE rather than on behaviour because jsdom does not
+    // implement `inert` semantics. That is a real limit of this test: it pins
+    // that the instrument is applied, not that the engine honours it. The
+    // behavioural half belongs in a real browser.
+    // Selected by its aria-label, which is what the button actually carries --
+    // there is no testid on it. Queried through `querySelector` rather than a
+    // role query on purpose: once the element is `inert` a role query cannot
+    // find it, which is the property under test and would make the assertion
+    // unable to run.
+    const covered = slot(0).querySelector<HTMLElement>('[aria-label="Open Diagram 1"]');
+    premiseHolds("the covered Open action is present to be checked", covered !== null);
+    expect(
+      covered!.hasAttribute("inert"),
+      "the covered Open action is removed from the a11y tree and the activation model, not merely from the tab order",
+    ).toBe(true);
+
     expect(
       reachable.map((el) => el.dataset.testid ?? el.getAttribute("aria-label")),
       "exactly one reachable control while retrying: the in-flight one",

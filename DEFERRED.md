@@ -548,12 +548,21 @@ class-sweep exception (a): it needs a product decision this PR cannot settle.
 `Retrying…`, or any work that gives the asset route a client-visible status channel (which would also
 close documented limit 1 in the design spec).
 
-There is no `setTimeout` anywhere in either diagram component, so a retry whose request never resolves
-leaves the in-flight state permanent: `Retrying…` on screen, `aria-busy="true"` announced, and the
-control inert because its `onClick` is a bare `preventDefault`. Venue wifi is precisely where a request
-hangs rather than fails, and the gallery's state outlives the lightbox, so closing the dialog does not
-reset it either. The user's only exit is a page reload — which is the dead end this whole row exists to
-remove, reached by a different road.
+No retry carries a DEADLINE, so a request that never resolves leaves the in-flight state permanent:
+`Retrying…` on screen, `aria-busy="true"` announced, and the control inert because its `onClick` is a
+bare `preventDefault`. Venue wifi is precisely where a request hangs rather than fails.
+
+**The original wording of this paragraph was wrong twice, and diff review R2 caught both.** It said
+there is no `setTimeout` anywhere in either component; the lightbox has several, including the demote
+chip's own visibility timer. The true claim is narrower and is the one that matters: none of them is a
+retry deadline. It also said closing the lightbox cannot reset a hung retry and a page reload is the
+only exit. That is true of the GALLERY, whose state outlives the dialog, and false of the LIGHTBOX,
+whose retry state is local and dies when the dialog unmounts. So the worst case is real but belongs to
+one surface, not both: a crew member with a hung retry in the lightbox can close it, and one hung in
+the gallery cannot get out without reloading.
+
+Recorded rather than quietly narrowed, because the decision below rests on this evidence and a reader
+checking it should find the corrected version and the reason it changed.
 
 **Why it is a product decision and not a fix.** Every repair needs a number and a sentence nobody has
 chosen: how long before a retry is declared hung (10s? 30s? long enough for 50MB on bad wifi?), what the

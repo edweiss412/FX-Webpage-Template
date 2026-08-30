@@ -250,7 +250,17 @@ states; a fourth render state shares the branch and is entered only from props.
 `unavailable`. An earlier draft omitted it from `retrying` and the two could both hold.
 
 `retrying` is a second `ReadonlySet<string>`, mirroring the `failedKeys` idiom already in
-both files, plus a per-item `attempt` counter that keys the `<Image>` so a remount happens.
+both files.
+
+> **AMENDED 2026-08-29, after implementation (diff review R2 finding 5).** This paragraph
+> originally also specified a per-item `attempt` counter keying the `<Image>` so a remount
+> happens. **That counter does not ship and must not be re-added.** It was removed during
+> implementation once mutation probing showed nothing could kill it: the image node is
+> deliberately NOT remounted, because §4.0.5 requires the same node to survive the retry —
+> the asset route sends `private, max-age=0, must-revalidate` with no validator, so a remount
+> is a second unconditional GET and the crew member pays twice for one tap. A counter whose
+> only purpose was to force that remount was specifying the defect. The close-out recorded the
+> removal; the spec did not, which is the gap this amendment closes.
 
 Transitions, exactly:
 
@@ -638,8 +648,9 @@ Every other transition that REMOVES a control names its destination, so no path 
 
 | transition | control removed? | focus goes to |
 |---|---|---|
-| `failed → retrying` (gallery and lightbox) | no, same node re-labelled | stays. This is why the node must not be natively `disabled` |
+| `failed → retrying` (gallery and lightbox) | the failed control is replaced by a separate in-flight overlay | relocated by an explicit hand-off. This is why the overlay must not be natively `disabled` |
 | `retrying → idle` (gallery) | yes, the image returns | the cell's `<button>` wrapper, which is the healthy thumbnail's own control and is focusable |
+| any control removal not listed above | yes | the gallery list (`listRef`), via the single focus rescue. **AMENDED 2026-08-29 (R2 finding 1):** this table originally enumerated destinations per transition, and that enumeration was the defect — each round found a removal path it had not listed. The rescue now asks where focus IS after any commit rather than predicting which transitions can strand it |
 | `retrying → failed` | no, same node | stays |
 | any session state → `unavailable` (gallery) | yes, nothing focusable remains in the cell | the gallery list (`listRef`), the existing last-resort destination (`Gallery.tsx:130`) |
 | active slide's control removed for any reason (retry succeeds, slide goes inactive, item goes unavailable) | yes | the dialog's Close button, matching the existing error path (`GalleryLightbox.tsx:1096-1103`) |

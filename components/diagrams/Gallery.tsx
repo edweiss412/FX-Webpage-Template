@@ -262,6 +262,34 @@ export function Gallery({
     retryingRefs.current.get(id)?.focus();
   }, [retrying]);
 
+  // ── The focus rescue, ONE mechanism for EVERY removal path (R2 finding 1) ──
+  //
+  // R1 named two paths and I repaired those two paths; R2 then found the same
+  // class on the prop-driven ones. That is the drip-feed this repo has a rule
+  // against, so this is deliberately not a third hand-off ref: it is the
+  // predicate the lightbox already uses, which asks WHERE FOCUS IS and is
+  // therefore order-independent and true whatever removed the node.
+  //
+  // It cannot ask "was focus inside the list" during the commit that destroys
+  // the node, so it remembers the answer from the PREVIOUS commit. A ref written
+  // inside an effect is fine; a ref written during render is not
+  // (`react-hooks/refs`), which is what rules out doing this in the sweep.
+  //
+  // The gallery is NOT a modal, so the rescue is deliberately conditional: it
+  // fires only when focus WAS ours and is now on `<body>`. Focus that was never
+  // in the list is none of our business, and stealing it would be its own bug.
+  const focusWasInListRef = useRef(false);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (list !== null && focusWasInListRef.current && document.activeElement === document.body) {
+      list.focus();
+    }
+    focusWasInListRef.current =
+      list !== null &&
+      document.activeElement instanceof HTMLElement &&
+      list.contains(document.activeElement);
+  });
+
   // The success hand-off, consumed in a LAYOUT effect rather than a passive one:
   // this runs in the commit that unmounted the overlay, before paint, so no
   // keystroke can land on `<body>` in between. Same reasoning the lightbox's
@@ -311,16 +339,49 @@ export function Gallery({
       .filter((entry) => entry.available)
       .map((entry) => entry.id),
   );
+  // R2 finding 2. Ending a retry with NO OUTCOME must hand the item back its
+  // failure, and this sweep was the one path that dropped it instead.
+  //
+  // `handleRetry` moves an id OUT of `failedKeys` and INTO `retrying`. When the
+  // cell then unmounts -- Show fewer, or an in-flight item reordered past the
+  // twelve-item cutoff -- the id left `retrying` here and never returned to
+  // `failedKeys`, so the diagram came back IDLE: no retry control, and a fresh
+  // image request for a diagram already known to have failed. The user pays for
+  // the same broken asset twice and is offered no next step.
+  //
+  // Restored only for items that still EXIST and are AVAILABLE. An item that
+  // left `items` or went unavailable has its `failedKeys` entry swept above,
+  // correctly -- there is no cell to offer a retry on.
+  //
+  // Same class as the lightbox's swipe-away abandon, which R1 repaired at that
+  // one site. Stated here rather than left implicit, because repairing this
+  // class per site is exactly what produced this finding.
+  const abandoned: string[] = [];
   const sweptRetrying = (() => {
     let changed = false;
     const next = new Set<string>();
     for (const id of retrying) {
       if (renderedIds.has(id)) next.add(id);
-      else changed = true;
+      else {
+        changed = true;
+        if (liveIds.has(id)) abandoned.push(id);
+      }
     }
     return changed ? next : retrying;
   })();
-  if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
+  // The two writes are ordered and the order matters: `sweptFailed` drops ids
+  // whose items are gone, and the abandoned ids are then added back on top. An
+  // id cannot be in both groups -- `abandoned` is filtered to `liveIds`, which
+  // is exactly what `sweptFailed` keeps -- so this composes rather than fights.
+  const restoredFailed =
+    abandoned.length === 0
+      ? sweptFailed
+      : (() => {
+          const next = new Set(sweptFailed);
+          for (const id of abandoned) next.add(id);
+          return next;
+        })();
+  if (restoredFailed !== failedKeys) setFailedKeys(restoredFailed);
   if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
   if (items.length === 0) return null;
 
@@ -578,12 +639,36 @@ export function Gallery({
                     // tab order and hidden from the accessibility tree for exactly
                     // as long as the overlay is up, rather than disabled -- the
                     // button is fine, it is just not the cell's action right now.
-                    // NOT `aria-hidden`: that also hides the <Image> nested
-                    // inside this button from the accessibility tree, which is
-                    // collateral the defect does not call for. `tabIndex={-1}`
-                    // alone removes the phantom tab stop, and the opaque overlay
-                    // already blocks pointer reach.
-                    {...(isRetrying ? { tabIndex: -1 } : {})}
+                    // `inert`, not `tabIndex={-1}` and not `aria-hidden`.
+                    //
+                    // R2 finding 3 measured what `tabIndex={-1}` actually buys:
+                    // it removes the SEQUENTIAL tab stop and nothing else. The
+                    // button stays in the accessibility tree and stays
+                    // activatable, so a screen reader's button navigator still
+                    // finds "Open Diagram 1" underneath the overlay and can
+                    // still fire it -- a second, hidden action on a cell whose
+                    // only offered action is "retry". My own test could not see
+                    // this: it filtered candidates on `tabIndex >= 0`, so the
+                    // one element the repair had pushed to -1 was the one
+                    // element it excluded.
+                    //
+                    // `aria-hidden` was rejected in R1 for hiding the nested
+                    // <Image>, and that reasoning was half right: it is the
+                    // wrong instrument, but not because hiding the image is
+                    // wrong. While the overlay is up the cell's accessible
+                    // meaning IS the overlay, and a covered mid-retry image has
+                    // no name worth exposing. `aria-hidden` is wrong because it
+                    // hides without disabling -- the button remains clickable by
+                    // script and by any AT that activates through the DOM.
+                    // `inert` removes it from the tree AND from the activation
+                    // model, which is the property the finding actually needs.
+                    // BOTH, not either. `inert` is the stronger claim and the
+                    // one the finding needs, but jsdom does not implement it, so
+                    // it is unverifiable in this suite and unenforced in any
+                    // engine that lags on it. `tabIndex={-1}` costs nothing,
+                    // holds the sequential-order property everywhere, and is
+                    // checkable here. Belt and braces, deliberately.
+                    {...(isRetrying ? { inert: true, tabIndex: -1 } : {})}
                     ref={(node) => {
                       thumbRefs.current.set(item.id, node);
                     }}

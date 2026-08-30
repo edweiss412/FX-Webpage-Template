@@ -329,6 +329,14 @@ export function GalleryLightbox({
   // `select` subscriber, which is registered once. Adding `items` to that
   // effect's deps would re-subscribe on every roster change instead, which is
   // worse -- it tears down a live Embla listener mid-gesture.
+  // Which item the lifted scale currently describes.
+  //
+  // STATE, not a ref, and the difference is enforced rather than stylistic: the
+  // render-time half of the sweep has to COMPARE against it, and
+  // `react-hooks/refs` forbids reading a ref during render just as firmly as
+  // writing one. A ref here produced ten lint errors on one comparison. State is
+  // read in render legally, and written from the effect below.
+  const [scaleOwner, setScaleOwner] = useState<string | null>(null);
   const itemsRef = useRef<readonly GalleryItem[]>(items);
   useEffect(() => {
     itemsRef.current = items;
@@ -718,6 +726,26 @@ export function GalleryLightbox({
   // here rather than adding a redundant conjunct -- a second gate nothing could
   // observe is the shape this arc has removed three times already.
   const activeAvailable = items[activeIndex]?.available ?? false;
+  // R2 finding 4. `activeScale` and `requestedScaleRef` describe ONE ITEM's
+  // zoom, but they were swept on `activeAvailable`, which is a fact about the
+  // SLOT. Replacing the active item with a different available item at the same
+  // index changes the owner without changing the slot, so an availability-keyed
+  // sweep sleeps through it and the arriving item inherits the departed item's
+  // zoom: a stale Reset chip, a false "Zoomed out" announcement, and a first `+`
+  // that jumps from the old scale.
+  //
+  // Keyed on the OWNER now. `onSelect` already covers navigation, where the
+  // index moves; this covers the case it cannot see, where the index is still.
+  const activeId = items[activeIndex]?.id ?? null;
+  // Derived-state-during-render, the pattern React documents for "adjust state
+  // when a prop changes" and the one this file already uses for the sweep. It is
+  // guarded by inequality so it re-renders once and terminates.
+  //
+  // An effect was the obvious alternative and is wrong twice over: it commits a
+  // frame late, so the arriving item paints once wearing the departed item's
+  // Reset chip, and `react-hooks/set-state-in-effect` rejects it outright.
+  const scaleOwnerMismatch = scaleOwner !== null && scaleOwner !== activeId;
+  if (scaleOwner !== activeId) setScaleOwner(activeId);
 
   // The Reset chip unmounts the instant scale returns to 1, and it is
   // Tab-reachable. Its own onClick relocates focus first, but `0`, `-`, chevron
@@ -765,14 +793,28 @@ export function GalleryLightbox({
   // neither of these renders, so committing a frame later costs nothing.
   // `requestedScaleRef` decides what the NEXT keyboard +/- bases its target on,
   // and left stale it makes the next zoom jump from the departed item's scale.
+  // TWO different owners, deliberately separated. Collapsing them regressed the
+  // demote chip's "swipe away and back keeps its remaining lifetime" case, which
+  // is the correct behaviour: the chip belongs to the DEMOTED item and is not
+  // the active slot's business, so merely changing which slide is active must
+  // not cancel it.
+  //
+  // The SCALE refs follow the active item's identity.
+  // The REF half only. Refs may be written in an effect and not in render, and
+  // `requestedScaleRef` does not render, so a frame's delay costs nothing here.
   useEffect(() => {
-    if (activeAvailable) return;
-    requestedScaleRef.current = 1;
-    if (demoteTimerRef.current !== null) {
-      clearTimeout(demoteTimerRef.current);
-      demoteTimerRef.current = null;
-    }
-  }, [activeAvailable]);
+    if (scaleOwnerMismatch || !activeAvailable) requestedScaleRef.current = 1;
+  }, [activeAvailable, scaleOwnerMismatch]);
+
+  // The demote TIMER follows its own item's existence, not the active slot's.
+  // Cleared when the notice it belongs to has been swept away above -- which the
+  // render half does on `liveIds`, i.e. the item genuinely leaving.
+  useEffect(() => {
+    if (demotedNotice !== null) return;
+    if (demoteTimerRef.current === null) return;
+    clearTimeout(demoteTimerRef.current);
+    demoteTimerRef.current = null;
+  }, [demotedNotice]);
 
   // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
   //
@@ -812,7 +854,7 @@ export function GalleryLightbox({
   // REFS are swept in the effect below instead -- `react-hooks/refs` forbids
   // writing a ref during render, and neither ref renders, so a frame costs
   // nothing there.
-  if (!activeAvailable && activeScale !== 1) setActiveScale(1);
+  if ((!activeAvailable || scaleOwnerMismatch) && activeScale !== 1) setActiveScale(1);
   // The chip is per-item and keyed by id, so an item that leaves takes its
   // notice with it. Without this a demote could outlive its item and reappear
   // on the returning slide inside the six-second window.

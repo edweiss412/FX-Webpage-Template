@@ -228,3 +228,108 @@ describe("Task 7 — the gallery's availability sweep (AC-11)", () => {
     ).not.toBeNull();
   });
 });
+
+/**
+ * Whole-diff review R2, findings 1 and 2 — both RECURRENCES of R1 classes at
+ * sites the R1 repair did not reach. Recorded plainly because the lesson is
+ * mine: R1 named two instances, I repaired those two instances, and the next
+ * round found the same two classes elsewhere. The repair below is therefore one
+ * mechanism per class rather than two more per-site patches.
+ */
+describe("R2: removal paths, swept as classes rather than as instances", () => {
+  test("finding 2: an in-flight retry collapsed away returns as FAILED, not idle", () => {
+    const many = Array.from({ length: 14 }, (_, i) => item(i + 1));
+    render(<Gallery showId={SHOW_ID} rev={REV} items={many} />);
+
+    // Expand so item 13 is rendered, fail it, and start a retry.
+    // The toggle carries no testid; it is found by its accessible name, which
+    // is also what a user has.
+    const toggle = () => screen.getByRole("button", { name: /Show all|Show fewer/ });
+    act(() => fireEvent.click(toggle()));
+    const img = within(screen.getByTestId("diagram-slot-13")).queryByRole("img");
+    premiseHolds("item 13 is rendered once expanded, so it can fail", img !== null);
+    act(() => fireEvent.error(img as HTMLImageElement));
+    act(() =>
+      fireEvent.click(
+        within(screen.getByTestId("diagram-slot-13")).getByTestId("diagram-retry-13"),
+      ),
+    );
+    premiseHolds(
+      "the retry is genuinely in flight before we collapse",
+      within(screen.getByTestId("diagram-slot-13")).queryByTestId("diagram-retrying-13") !== null,
+    );
+
+    // "Show fewer" unmounts the cell, abandoning the request; re-expand returns.
+    act(() => fireEvent.click(toggle()));
+    act(() => fireEvent.click(toggle()));
+
+    const slot = screen.getByTestId("diagram-slot-13");
+    expect(
+      within(slot).queryByTestId("diagram-retrying-13"),
+      "the abandoned request does not come back claiming to be in flight",
+    ).toBeNull();
+    // The half that was broken: it came back IDLE, mounting a fresh request for
+    // a diagram known to have failed, instead of offering the retry again.
+    expect(
+      within(slot).queryByTestId("diagram-retry-13"),
+      "and the known failure is restored, so the user still has a next step",
+    ).not.toBeNull();
+  });
+
+  test("finding 1: a prop-driven removal under focus does not strand it on <body>", () => {
+    const { rerender } = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
+    premiseHolds("slot 1 renders an image to fail", img !== null);
+    act(() => fireEvent.error(img as HTMLImageElement));
+    const control = within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retry-1");
+    act(() => control.focus());
+    premiseHolds(
+      "the retry control held focus before the prop change",
+      document.activeElement === control,
+    );
+
+    // The item leaves `items` entirely — no availability flag involved.
+    rerender(<Gallery showId={SHOW_ID} rev={REV} items={[item(2)]} />);
+
+    expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
+    expect(document.activeElement?.isConnected, "and lands on a connected node").toBe(true);
+  });
+});
+
+describe("R2 finding 1: the exact variants the reviewer probed", () => {
+  const rerenderWith = (view: ReturnType<typeof render>, items: GalleryItem[]) =>
+    view.rerender(<Gallery showId={SHOW_ID} rev={REV} items={items} />);
+
+  test("a focused RETRYING OVERLAY followed by available:false", () => {
+    const view = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
+    premiseHolds("slot 1 renders an image", img !== null);
+    act(() => fireEvent.error(img as HTMLImageElement));
+    act(() =>
+      fireEvent.click(within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retry-1")),
+    );
+    const overlay = within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retrying-1");
+    act(() => overlay.focus());
+    premiseHolds("the overlay held focus", document.activeElement === overlay);
+
+    rerenderWith(view, [item(1, { available: false }), item(2)]);
+
+    expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
+    expect(document.activeElement?.isConnected, "and lands on a connected node").toBe(true);
+  });
+
+  test("a focused FAILED control followed by available:false", () => {
+    const view = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    const img = within(screen.getByTestId("diagram-slot-1")).queryByRole("img");
+    premiseHolds("slot 1 renders an image", img !== null);
+    act(() => fireEvent.error(img as HTMLImageElement));
+    const control = within(screen.getByTestId("diagram-slot-1")).getByTestId("diagram-retry-1");
+    act(() => control.focus());
+    premiseHolds("the control held focus", document.activeElement === control);
+
+    rerenderWith(view, [item(1, { available: false }), item(2)]);
+
+    expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
+    expect(document.activeElement?.isConnected, "and lands on a connected node").toBe(true);
+  });
+});

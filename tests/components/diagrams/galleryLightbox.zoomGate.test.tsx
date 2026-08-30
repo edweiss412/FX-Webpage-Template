@@ -1843,3 +1843,42 @@ describe("R1 finding 3: the availability sweep clears what its registry rows cla
     ).toBeNull();
   });
 });
+
+/**
+ * R2 finding 4: the sweep followed slot AVAILABILITY when the state it guards
+ * belongs to an ITEM. Replacing the active item with a different, available item
+ * at the same index leaves the previous item's zoom behind — the slot never
+ * became unavailable, so nothing fired.
+ *
+ * This is R1 finding 3 one level up: there the sweep missed members, here it
+ * misses a whole transition. Both are the same mistake about what the state is
+ * keyed to, which is why the repair keys it to the owning item's id.
+ */
+describe("R2 finding 4: scale state is swept by ITEM IDENTITY, not slot availability", () => {
+  test("replacing the zoomed item with another AVAILABLE item clears the zoom", () => {
+    const view = open([item(1), item(2)]);
+    emitScale(2);
+    premiseHolds(
+      "item 1 is genuinely zoomed before the swap",
+      view.container.querySelector('[data-testid="lightbox-reset-chip"]') !== null,
+    );
+
+    // Item 3 replaces item 1 at index 0. Both available: the slot never goes
+    // unavailable, which is exactly why an availability-keyed sweep sleeps.
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[item(3), item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={() => {}}
+      />,
+    );
+
+    expect(
+      view.container.querySelector('[data-testid="lightbox-reset-chip"]'),
+      "the arriving item does not inherit the departed item's zoom",
+    ).toBeNull();
+  });
+});

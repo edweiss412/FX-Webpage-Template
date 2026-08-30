@@ -223,7 +223,9 @@ export const CENSUS: readonly CensusRow[] = [
   // `bg-surface-raised` ground. Re-keyed each time by locating that testid and
   // stepping to its opening tag, never by adding the diff's line delta -- an
   // offset is right only until two edits land in one file.
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 928 },
+  // 928 -> 970 on the R2 class-level repairs. FOURTH key this arc; the element
+  // has never changed.
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 970 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.

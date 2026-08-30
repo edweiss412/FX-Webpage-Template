@@ -48,6 +48,10 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       "`onLoad` (retrying -> idle) and `onError` (retrying -> failed), both per item; and the availability sweep, since a slide that goes unavailable mid-flight must not return holding an overlay (spec §4, §9.1)",
     sweep: { swept: true },
   },
+  "Gallery.tsx:focusWasInListRef": {
+    kind: "not-per-item",
+    why: "one boolean about the LIST, not about any item: whether focus was inside it at the previous commit. It is the memory the focus rescue needs because a commit that destroys the focused node cannot be asked where focus was before it",
+  },
   "Gallery.tsx:focusThumbRef": {
     kind: "per-item",
     clearedBy:
@@ -230,6 +234,14 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     sweep: {
       swept: false,
       why: "React nulls it when TransformWrapper unmounts, which the unavailable render already does. The chip that would strand is hidden by sweeping activeScale instead",
+    },
+  },
+  "GalleryLightbox.tsx:scaleOwner": {
+    kind: "per-item",
+    clearedBy:
+      "the derived-state update in render, which re-points it the moment the active item's id changes and takes `activeScale` back to 1 with it",
+    sweep: {
+      swept: true,
     },
   },
   "GalleryLightbox.tsx:itemsRef": {
