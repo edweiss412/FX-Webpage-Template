@@ -177,7 +177,14 @@ describe("the child's output is parsed, not trusted", () => {
     // Two separate off-by-one defects, both of which survived scoring: an offset
     // that drops the leading character (so the most diagnostic part of a stack
     // trace goes missing) and a cap that is one too generous.
-    const noisy = "E" + "x".repeat(PROBE_ERROR_QUOTE + 100);
+    // 400 is written as a LITERAL here, deliberately, and PROBE_ERROR_QUOTE is not
+    // referenced. Mutation scoring caught the first version of this case reading
+    // its expectation from the very constant the mutant changes: raise the
+    // constant to 401 and both the code and the assertion moved together, so the
+    // case passed while the cap had shifted. An oracle for a constant cannot be
+    // derived from that constant.
+    const CAP = 400;
+    const noisy = "E" + "x".repeat(CAP + 100);
     let message = "";
     try {
       parseProbeOutput(noisy);
@@ -186,6 +193,9 @@ describe("the child's output is parsed, not trusted", () => {
     }
     const quoted = message.slice(message.indexOf("Got: ") + "Got: ".length);
     expect(quoted.startsWith("E"), "the quote dropped its first character").toBe(true);
-    expect(quoted).toHaveLength(PROBE_ERROR_QUOTE);
+    expect(quoted).toHaveLength(CAP);
+    // Ties the literal above to the exported contract, so the two cannot drift
+    // apart silently — but as a SEPARATE assertion, not as the cap oracle.
+    expect(PROBE_ERROR_QUOTE).toBe(CAP);
   });
 });
