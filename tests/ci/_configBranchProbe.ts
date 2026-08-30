@@ -26,17 +26,61 @@
  * and the cheapest correct oracle for that is to evaluate the module.
  */
 import { execFileSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 const ROOT = process.cwd();
 
-/** Every Playwright config in the repo, the set `_metaSpecRegistration` pins. */
-export const ALL_CONFIGS = [
+/**
+ * The configs this census MUST contain. A floor, never the population.
+ *
+ * Derived discovery below is what actually ranges; this list exists only so that
+ * DELETING a config, or breaking the sniff, fails loudly instead of shrinking the
+ * census in silence.
+ */
+export const PINNED_CONFIGS = [
   "playwright.config.ts",
   "tests/e2e/standalone.config.ts",
   "playwright.screenshots.config.ts",
   "tests/e2e/visual.config.ts",
 ] as const;
+
+const WALK_SKIP = new Set([".git", "node_modules", ".next", "test-results", "playwright-report"]);
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (WALK_SKIP.has(entry.name)) continue;
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) walk(abs, out);
+    else out.push(abs);
+  }
+  return out;
+}
+
+/**
+ * Every Playwright config in the repo, discovered from disk.
+ *
+ * DERIVED, not listed, and that is the whole point. A hand-maintained list is the
+ * defect this arc exists to close: the census that started it enumerated one
+ * config and reported the rest as darkness, and a guard whose population is a
+ * literal can agree with itself while omitting a file. Round 1 of review found
+ * exactly that hole in the first draft of this module.
+ *
+ * Identified by CONTENT, not basename. The pre-existing filesystem belt in
+ * `_metaSpecRegistration.test.ts` matches `playwright*.config.*`, so a config
+ * named anything else — `tests/e2e/accessibility.config.ts`, a copy of
+ * `standalone.config.ts` under a new name — escaped it entirely. Importing
+ * `@playwright/test` is what makes a file a Playwright config, so that is what is
+ * tested. Spec files import it too, which is why the filename filter keeps this
+ * to `*.config.*`.
+ */
+export function discoverConfigs(): string[] {
+  return walk(ROOT)
+    .map((abs) => relative(ROOT, abs).split(sep).join("/"))
+    .filter((rel) => /(^|\/)[^/]*\.config\.[cm]?[jt]s$/.test(rel))
+    .filter((rel) => /["']@playwright\/test["']/.test(readFileSync(join(ROOT, rel), "utf8")))
+    .sort();
+}
 
 export type Matcher = {
   /** Project name, or `<top>` for a config-level `testMatch`. */
@@ -62,9 +106,10 @@ export type ConfigProbe = {
  * probe runs no tests and captures no bytes.
  */
 export function probeAllConfigs(): ConfigProbe[] {
+  const configs = discoverConfigs();
   const script = `
     (async () => {
-      const configs = ${JSON.stringify(ALL_CONFIGS.map((c) => join(ROOT, c)))};
+      const configs = ${JSON.stringify(configs.map((c) => join(ROOT, c)))};
       const out = [];
       for (const abs of configs) {
         const mod = await import(abs);
@@ -123,7 +168,7 @@ export function probeAllConfigs(): ConfigProbe[] {
     matchers: Matcher[];
   }[];
   return raw.map((r, i) => ({
-    config: ALL_CONFIGS[i]!,
+    config: configs[i]!,
     // Playwright resolves testDir against the CONFIG's directory, not the cwd.
     testDirAbs: resolve(dirname(r.abs), r.testDir),
     matchers: r.matchers,

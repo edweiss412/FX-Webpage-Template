@@ -1,3 +1,5 @@
+<!-- spec-lint: not-ui — test-infrastructure, CI config, and docs only; no layout, component, token, or dimensional change (the AttentionMenu citation is evidence about placement timing, not a UI deliverable). impeccable-gate: N/A. -->
+
 # E2E discovery: declared versus resolved
 
 **Status:** draft, 2026-08-30
@@ -36,7 +38,7 @@ Every defect here is one shape. A **declaration** names a test file; a **resolut
 |---|---|---|---|---|
 | 1 | files on disk | union over all configs | yes, `_metaSpecRegistration.test.ts:952` | guarded, allowlist empty |
 | 2 | a `testMatch` branch | the file it names | **no** | **9 dead names, repaired here** |
-| 3 | a workflow's positional path | the project it is run under | **no** | **was live until `57dfd4d5b`, fenced here** |
+| 3 | a workflow's positional path | the project it is run under | **no** | mechanism proved, **never observed live**, fenced as a documented limit |
 | 4 | one config | the population of configs | **no** | the census bug above; this spec's guard ranges over all four |
 
 The census bug is not a separate mistake from the others. It is instance 4 of the same habit: enumerate one side, call it the population, and report the difference as a finding.
@@ -61,9 +63,9 @@ A dead branch is invisible to `--list` by construction: the resolved set is iden
 
 ### 2.2 Instance 3 — a workflow path its project cannot match
 
-`.github/workflows/step3-live-bundle.yml:94` runs four spec paths positionally under `--project=desktop-chromium`. Before `57dfd4d5b`, that project's `testMatch` did not include `step3-review-modal.layout.spec.ts`, so the job named four specs and ran three.
+**This section previously claimed a historical incident. It did not happen, and the claim is retracted here rather than deleted, because how it was made is the point.**
 
-Playwright drops such a path in silence. Probed on this tree, pairing one matched file with one the project cannot match:
+Playwright drops a positional path whose selected project cannot match it, in silence. Probed on this tree, pairing one matched file with one the project cannot match:
 
 ```
 $ npx playwright test --project=desktop-chromium --list \
@@ -73,27 +75,38 @@ $ echo $?
 0
 ```
 
-Two files named, one silently dropped, clean exit, no warning. The run is non-empty, so Playwright's own "no tests found" error never fires.
+Two files named, one silently dropped, clean exit, no warning. The run is non-empty, so Playwright's own "no tests found" error never fires. That mechanism is real.
 
-**Live instances today: zero.** All 62 (path, project-set) pairs across `.github/workflows/*.yml` resolve. The only instance was closed by accident, by an arc wiring specs for an unrelated reason. This arm is therefore a **fence against recurrence**, and its incident is the measured gap that existed on `main` until 2026-08-30.
+**The incident was not.** The first draft asserted that `.github/workflows/step3-live-bundle.yml` named four spec paths while `desktop-chromium` matched only three, until `57dfd4d5b`. Checking both sides instead of one: before that merge the run line named **three** paths, and all three resolved. On the feature branch `0d5a8c93a` added `step3-review-modal.layout` to the project first, and `05d291d80` added the fourth workflow path afterwards. There was never a state with four paths and three resolutions.
+
+**The error was this document's own subject, committed by its author.** I enumerated the config side across the merge, saw the name appear, and inferred the workflow side had been waiting for it. Enumerate one side, infer the other. It is the same move that produced the 118-versus-70 census in §1, one section away from where it is diagnosed.
+
+**Live instances today: zero.** All 62 (path, project-set) pairs across `.github/workflows/*.yml` resolve.
+
+**Disposition: a documented limit, not a guard arm.** Under the 2026-08-25 process mint freeze, a proved mechanism with no incident and no live instance is recorded with its probe in `LIM-E2E-SPEC-DISCOVERY-GAP`, and no arm is built for it. The one thing that would change that is a change which makes the hazard reachable — and §3.2's dedupe is exactly such a change, since removing a spec from a project while a workflow still names it positionally would create the defect. The dedupe therefore removes both halves together, and that pairing is stated in the commit rather than guarded.
+
 
 ## 3. Also in scope
 
 ### 3.1 The settle-race class (`LIM-E2E-1280-CONTAINMENT-FLAKE`)
 
-`docs/review-rounds/LIMITS.md:486` records two cases in `tests/e2e/popover-clip-fit.spec.ts` that sample placement once and can land on the frame before the asynchronous re-apply. The limit is explicit that the repair is a sweep, not a patch of the two known cases.
+`docs/review-rounds/LIMITS.md:486` records two cases in `tests/e2e/popover-clip-fit.spec.ts` that sample placement once and can land on the frame before the asynchronous re-apply, and is explicit that the repair is a sweep rather than a patch of the two known cases.
 
-The population is derived, not listed: a case that waits for the entrance scale to settle (`getComputedStyle(el).scale`, three sites: `tests/e2e/popover-clip-fit.spec.ts:417`, `tests/e2e/popover-clip-fit.spec.ts:567`, `tests/e2e/popover-clip-fit.spec.ts:628`) and then takes exactly one geometry sample it asserts on. The scale wait is necessary and not sufficient, which is precisely why `settledGeometry` (`tests/e2e/popover-clip-fit.spec.ts:239`) exists and why its own comment says a single sample "can land on the frame BEFORE the re-apply". That helper is used at two sites (`tests/e2e/popover-clip-fit.spec.ts:737`, `tests/e2e/popover-clip-fit.spec.ts:808`).
+**The population is six cases, and the first derivation of it was wrong in an instructive way.** That draft derived the population from cases that wait for the entrance `scale` to settle and then sample once — three sites. But the scale wait is a partial mitigation, not the cause. `components/admin/showpage/AttentionMenu.tsx:479` states that `entered` is the ONLY re-place signal and that "the mount measurement runs before the entrance rAF", so the settled placement needs a second pass. Reduced motion does not remove it, and `openMenu` waits only for visibility. So the three `settled fit at 390x<h> (reduced motion)` cases at `tests/e2e/popover-clip-fit.spec.ts:315` are the same class despite never waiting on `scale` — a population derived from a symptom rather than from the mechanism.
 
-Repair: route every placement measurement in the derived population through a two-sample settle poll that compares the numbers, not the verdicts.
+The correct derivation: **every case that opens the menu and asserts on placement-derived geometry from a single sample.** Six cases across four reads. The animated case at `tests/e2e/popover-clip-fit.spec.ts:370` is excluded because it awaits `transitionend` explicitly; the DOM-descendant case at `tests/e2e/popover-clip-fit.spec.ts:540` is excluded because it asserts node containment, not geometry.
+
+Repaired by routing all four reads through `settledSample`, which resamples until two consecutive reads agree on every value and THROWS rather than returning an unsettled sample. It compares the whole sample rather than a verdict derived from it, for the reason `settledGeometry` already documents.
+
+**No reproduction, and none is claimed.** Six full-file runs at the pre-repair head were 6 of 6 green, consistent with the limit's measured ~1 in 7. The repair is justified by the defect shape and by the component's own comment, not by a red this arc observed. Six runs after the repair: green, 42 passing each.
+
 
 ### 3.2 Corrections riding this PR
 
-- **`LIM-E2E-SPEC-DISCOVERY-GAP` rewritten** to record that the gap was the census's, not the specs'. The entry's own "measurement caveat" paragraph warns about a false census produced by a bad instrument; the headline number is a second one, from a different bad instrument.
-- **`docs/superpowers/plans/2026-08-30-pill-size-draft-restored-note.md:394`** carries the now-false claim that the spec "had never executed" and "matched no project regex until this arc wired it". It matched `standalone.config.ts` and ran on every PR.
-- **Duplicate coverage** created by that wiring, evaluated rather than assumed. Eight specs sit in both `playwright.config.ts` and `standalone.config.ts`; four predate the arc. Of the four it added:
-  - `step3-review-modal.layout` — **keep.** `step3-live-bundle.yml:94` needs the membership; this is instance 3 above, accidentally repaired.
-  - `popover-clip-fit`, `attention-autoopen-suppress`, `attention-pill-focus` — named in **no** workflow (`grep -rln <name> .github/workflows/`), so the `desktop-chromium` membership executes nowhere in CI while `standalone-e2e.yml` already runs all three on every PR. Disposition is this spec's one open question, argued in §5.
+- **`LIM-E2E-SPEC-DISCOVERY-GAP` rewritten** to record that the gap was the census's, not the specs'. The entry's own "measurement caveat" paragraph warns about a false census from a bad instrument; the headline number is a second one, from a different bad instrument, and checking an instrument is not the same as checking that it ranges over the population.
+- **`docs/superpowers/plans/2026-08-30-pill-size-draft-restored-note.md:394`** carries the now-false claim that the spec "had never executed" and "matched no project regex until this arc wired it". `popover-clip-fit.spec.ts` had been in `standalone.config.ts` since 2026-08-02 and running on every PR since 2026-07-26.
+- **Duplicate coverage: deduped, all four.** Eight specs sat in both `playwright.config.ts` and `standalone.config.ts`; four predate that arc and are untouched. The four it added are removed from `desktop-chromium`, because all four already run through the whole standalone config on every PR, unfiltered, while the root-config workflows are paths-filtered. Three of them (`popover-clip-fit`, `attention-autoopen-suppress`, `attention-pill-focus`) are named in no workflow at all, so their membership executed nowhere in CI. The fourth, `step3-review-modal.layout`, was added to `step3-live-bundle.yml` by the same arc on the same false belief; keeping it because that workflow now names it is circular, so both halves are removed together and the result is byte-identical to the pre-arc workflow apart from an unrelated trigger that arc added for a valid separate reason. The specs are self-contained — they bundle and serve their own fixtures — so the deduped runs differed only by an incidental viewport default (1280x720 versus 1280x800), not by any declared contract.
+
 
 ### 3.3 Optional probe
 
@@ -107,14 +120,13 @@ The parked dark-fixture plate trap (p1pair R5): a dark re-render switches surrou
 
 **Threat fence.** The guard defends against ordinary authoring mistakes: a spec renamed or deleted without updating the config, a spec added to a workflow but not to a project, a config added without being added to the census. Adversarial obfuscation of a config module is out of scope and files to documented limits. The reader is deliberately narrow and throws on anything it does not recognize; widening its grammar to chase constructed inputs is the ratchet this repo has measured and is refused in advance.
 
-## 5. Open question for review
+## 5. Resolved: the duplicate-coverage question
 
-The three specs in §3.2 whose `desktop-chromium` membership executes nowhere. Two defensible dispositions:
+Round 1 recommended deduping all four, and the recommendation is taken. The reasoning that settled it: `step3-review-modal.layout`'s workflow entry cannot justify its project membership, because the entry was itself added on the belief that the spec had never run. Both were added by one arc for one wrong reason, and both are removed together.
 
-- **Dedupe** — remove them from `desktop-chromium`, leaving `standalone-e2e.yml` as the single PR-blocking home. Cheapest, and removes three names whose only current effect is to run the specs twice for anyone invoking the root config locally.
-- **Justify and keep** — the two projects differ in viewport (`standalone-chromium` takes the `Desktop Chrome` default; `desktop-chromium` pins 1280x800, `playwright.config.ts:101`), and these are geometry specs, so a second viewport is arguably real coverage rather than duplication.
+The viewport argument that the first draft offered for keeping them does not survive contact with the files. `attention-pill-focus.spec.ts` never calls `setViewportSize` or `test.use`, so its two runs differed only by each project's incidental default. An incidental default is not a coverage contract.
 
-The measured facts favour dedupe: no workflow selects them, and the specs set their own viewports per case. Kept open because it is a coverage decision, not a mechanical one.
+What remains after the dedupe is strictly stronger: one unfiltered PR-blocking home per spec, instead of that plus a paths-filtered duplicate that fires only sometimes.
 
 ## 6. Resolved scope — do not relitigate
 
@@ -124,3 +136,14 @@ The measured facts favour dedupe: no workflow selects them, and the specs set th
 - **The nine deletions are behavior-neutral**, proved by the identical 1216 `file::project::case` triples in §2.1. A finding that they removed coverage needs to contradict that resolution, not restate the risk.
 - **Wiring specs into projects is out of scope.** There are none to wire; that premise was refuted at Stage 0.
 - **Process-facing findings file to documented limits or a `LIM-` slug**, per the 2026-08-25 mint freeze, not to ledger rows.
+
+## 7. Review record
+
+**Round 1 (spec): BLOCKING, 4 findings, all admitted.**
+
+1. A fifth config could escape the census, because the config list was hand-maintained in two places that agreed with each other. Repaired by deriving the population from disk by content (`discoverConfigs`), and proved by planting the reviewer's own hypothetical (a throwaway accessibility config beside the existing e2e configs, named so it misses the old belt's basename pattern) and watching the guard red on it.
+2. §2.2's historical incident did not happen. Retracted in place; see §2.2.
+3. §3.2's "keep" disposition was circular. Deduped all four; see §5.
+4. §3.1's population omitted three same-class cases. Re-derived from the mechanism rather than the symptom; see §3.1.
+
+Two of the four (1 and 2) are the same defect this document is about, committed inside it. That is worth recording plainly: the shape is not hard to understand and is still easy to commit, which is the case for a guard rather than a habit.

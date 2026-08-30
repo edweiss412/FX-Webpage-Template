@@ -28,7 +28,13 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { declaredFilesOf, probeAllConfigs, type Matcher } from "./_configBranchProbe";
+import {
+  declaredFilesOf,
+  discoverConfigs,
+  PINNED_CONFIGS,
+  probeAllConfigs,
+  type Matcher,
+} from "./_configBranchProbe";
 
 const ROOT = process.cwd();
 const re = (source: string): Matcher => ({ project: "<test>", isRegExp: true, source });
@@ -104,16 +110,28 @@ describe("no Playwright config names a file that does not exist", () => {
     ).toEqual([]);
   });
 
-  it("the guard ranges over EVERY config, not a subset that happens to be clean", () => {
-    // Without this the assertion above could pass by probing nothing. Ties the
-    // population to the same config set _metaSpecRegistration pins.
+  it("the population is DERIVED from disk and reaches configs the old belt cannot see", () => {
+    // The first draft of this guard listed its four configs by hand, in two
+    // places, so the two agreed with each other while a fifth config could sit
+    // unexamined. That is the same error the spec is about — enumerate one side,
+    // call it the population — and round 1 of review found it here.
+    const discovered = discoverConfigs();
+    for (const pinned of PINNED_CONFIGS) {
+      expect(discovered, `${pinned} vanished from discovery`).toContain(pinned);
+    }
+    // The anti-tautology arm. `_metaSpecRegistration.test.ts`'s filesystem belt
+    // matches `playwright*.config.*` only, so a config named anything else
+    // escapes it. Discovery must reach at least one such file, or it is no
+    // better than the belt it exists to widen.
+    const beyondTheBelt = discovered.filter((c) => !/(^|\/)playwright[^/]*\.config\./.test(c));
+    expect(
+      beyondTheBelt,
+      "discovery found no config outside the `playwright*.config.*` basename pattern, " +
+        "so it cannot be catching anything the existing belt misses",
+    ).not.toEqual([]);
+
     const probes = probeAllConfigs();
-    expect(probes.map((p) => p.config)).toEqual([
-      "playwright.config.ts",
-      "tests/e2e/standalone.config.ts",
-      "playwright.screenshots.config.ts",
-      "tests/e2e/visual.config.ts",
-    ]);
+    expect(probes.map((p) => p.config)).toEqual(discovered);
     for (const p of probes) {
       expect(p.matchers.length, `${p.config} contributed no matcher`).toBeGreaterThan(0);
       expect(existsSync(p.testDirAbs), `${p.config} testDir ${p.testDirAbs}`).toBe(true);
