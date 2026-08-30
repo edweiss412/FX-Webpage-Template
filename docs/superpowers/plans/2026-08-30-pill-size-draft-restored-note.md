@@ -477,6 +477,111 @@ This inventory was wrong twice. Round 1 raised it, the correction was recorded a
 
 **Pre-code mechanical checklist** (run before the gate, which verifies rather than discovers): 44px tap targets including the pill's resolved hit band at the new size; no em dash and no apostrophe in the note's copy; canonical type and token classes only, no arbitrary values; `text-xs/relaxed` and `text-subtle` for secondary copy.
 
+### Ordering deviation: graduation landed before the diff review closed
+
+Both ledger rows were graduated and archived while diff R2 was still open, so
+every commit after that point is a graduation-then-repairs deviation from the
+settled ordering. Recorded here rather than left implicit, following the
+precedent set by `wizdraft`.
+
+What landed after graduation:
+
+- `9e0a9c9e4` — the oracle sweep, which is the actual resolution of the red that
+  Task 4b spent most of its life mis-describing.
+- `4d1b08054` — the corrections to the plan, the closeout and
+  `LIM-E2E-SPEC-DISCOVERY-GAP`, the two new limits, and the `writing-plans.md`
+  count fix.
+- The `141.48px` correction below, plus whatever diff R2 returns.
+
+The marker-off half of invariant 12 is unaffected and stays binding: the
+in-progress markers came off before the merge, and neither ledger file carries
+one now.
+
+### A stale measurement stated as the shipped geometry
+
+`DEFERRED-archive.md:2223` and Step 10 of the plan both quoted the three-segment
+pill as **123.98px at `text-xs`, 141.48px at `text-sm`**, presented as the
+measurement this arc finally supplied for a geometry the row could not measure.
+
+Both numbers are PRE-repair. The impeccable critique measured 110x141.48px at
+375 and found the pill rendering as an ellipse with copy outside its fill,
+because each count phrase was a bare wrap unit breaking mid-phrase under
+`max-sm:flex-wrap`. The `max-sm:whitespace-nowrap` repair took it to **82.9px**.
+Plan line 285 carries both sides, which is how this was settled from the record
+rather than by another run.
+
+Corrected by labelling BOTH numbers as pre-repair rather than swapping one. The
+`text-xs` figure is pre-repair for the same reason, so replacing only the
+`text-sm` number would leave a reader trusting its neighbour. The shipped
+three-segment height is 82.9px, and the direction is confirmed independently by
+the anchor heights measured during the MID-ENTRANCE work: 84.4px on a control
+with both components at `origin/main` against 74.6px at this head. Bigger type,
+shorter pill.
+
+The `+17.5px delta matching the two-segment fixture's` claim in Step 10 held
+only pre-repair and is removed with the numbers it described.
+
+### Local full suite: WAIVED, replaced by CI
+
+bl-orch waived the granted local full-suite run under the standing readiness
+doctrine: a unit-suite rollup green on the SHIPPING head substitutes for the
+local full run. The queue slot was released back to the pool rather than spent
+on a run that duplicates it.
+
+Rollup run: https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33308599952
+
+What the waiver does NOT cover, and what was run locally instead, because CI
+does not reach it: the DB-free tiers this diff disturbs (`tests/docs` +
+`tests/specLint` 2352, `tests/styles` 1442 including the five re-keyed
+line-keyed census rows, `tests/components` + `tests/log` 6199), and the eight
+affected e2e specs on `tests/e2e/standalone.config.ts` (230 passed), which the
+main config's projects do not all discover.
+
+**The waiver binds to the FINAL head.** If diff R2's repairs move it, CI must
+re-green there, and any new DB-touching test those repairs add takes a scoped
+local run on a then-granted slot.
+
+### The class-sweep unit is the decision PLUS its consequences
+
+The sharpest lesson of this arc, and it took two rounds to reach because the
+first version of it sounded complete.
+
+After the impeccable gate, the lesson was recorded as "class-sweep applies to
+decisions, not just defects": Eric ruled the pill's shape, so every pill under
+that cap inherits the ruling. That is true, and acting on it is what fixed the
+wizard twin's counts-only rendering.
+
+It was still too small. Whole-diff round 1 found the twin missing the leading-dot
+repair and the middot contrast floor -- both of which were not the decision, but
+the decision's FOOTPRINT: repairs that existed only because Decision 7 created
+the defects they fix. Applying the ruling to the twin while leaving its
+consequences behind produced the same gap in a smaller shape, one file away from
+its own fix, and it needed a BLOCKING round to see.
+
+So the unit of a sweep is not the edit, and not even the decision. It is the
+decision together with everything the decision made necessary. A practical test:
+after applying a ruling to a second site, list every commit the FIRST site needed
+because of that ruling, and check each one against the second.
+
+### Oracle authorship, measured
+
+Three oracles in this arc failed at write time and were caught before they could
+report anything. Recorded because the pattern is the point, not the count.
+
+- A clip test read `scrollHeight` on an `overflow: visible` box, so it failed
+  identically at the type size that already shipped.
+- A wizard mark test compared `backgroundColor` and PASSED against its own target
+  defect -- the two states DO differ in colour, which is exactly the finding it
+  existed to catch. Rewritten to compare filled/ringed booleans, so it survives
+  colour being removed.
+- A P0 test drove two harness flags that resolved to the SAME state, so it
+  measured one state twice and its own premise passed for the wrong reason.
+
+The shared shape: each measured something adjacent to its claim. The habit that
+catches them is asking, before trusting a green, what the assertion would report
+if the defect were present -- and for the third, whether the two inputs being
+compared are genuinely two.
+
 ### Acceptance-criteria coverage map
 
 Criteria are declared in the spec (section 5) and claimed here, per the coverage-map convention.

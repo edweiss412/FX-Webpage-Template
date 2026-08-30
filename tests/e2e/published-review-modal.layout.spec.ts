@@ -918,8 +918,16 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           e && e !== el.parentElement;
           e = e.parentElement
         ) {
+          // Whole-diff R2 P1: recognising ONLY the sr-only shape left an
+          // ordinary `opacity-0`, `invisible` or `hidden` count wrapper counted
+          // as visible, so the rendered count could vanish while this guard
+          // still saw a digit. Every ordinary way to hide a box, computed.
+          const cs = getComputedStyle(e);
+          if (cs.display === "none" || cs.visibility === "hidden") return true;
+          if (parseFloat(cs.opacity) === 0) return true;
           const r = e.getBoundingClientRect();
-          if (getComputedStyle(e).position === "absolute" && r.width <= 2) return true;
+          if (cs.position === "absolute" && r.width <= 2) return true;
+          if (r.width === 0 || r.height === 0) return true;
           if (e.getAttribute("aria-hidden") === "true") return true;
         }
         return false;
@@ -2133,8 +2141,15 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
       const hidden = (n: Node): boolean => {
         let e: HTMLElement | null = n.parentElement;
         while (e && e !== el.parentElement) {
+          // Same widening as T-ALERT-CAP (whole-diff R2 P1): a hairline box is
+          // only ONE way to be invisible, and the others let a vanished count
+          // satisfy a "the counts stay visible" claim.
+          const cs = getComputedStyle(e);
+          if (cs.display === "none" || cs.visibility === "hidden") return true;
+          if (parseFloat(cs.opacity) === 0) return true;
           const r = e.getBoundingClientRect();
           if (r.width <= 1 && r.height <= 1) return true;
+          if (cs.position === "absolute" && r.width <= 2) return true;
           e = e.parentElement;
         }
         return false;
@@ -2296,8 +2311,14 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
               // an absolutely positioned, ~1px-wide ancestor is not a line.
               let hiddenAncestor = false;
               for (let e = n.parentElement; e && e !== el.parentElement; e = e.parentElement) {
+                const cs = getComputedStyle(e);
                 const r = e.getBoundingClientRect();
-                if (getComputedStyle(e).position === "absolute" && r.width <= 2) {
+                if (
+                  cs.display === "none" ||
+                  cs.visibility === "hidden" ||
+                  parseFloat(cs.opacity) === 0 ||
+                  (cs.position === "absolute" && r.width <= 2)
+                ) {
                   hiddenAncestor = true;
                   break;
                 }

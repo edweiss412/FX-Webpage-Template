@@ -1189,7 +1189,19 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       monitoringOnly
                         ? "border-[1.5px] border-status-positive bg-transparent"
                         : needsYou.length === 0 && k > 0
-                          ? "border-[1.5px] border-text-faint bg-transparent"
+                          ? /* FILLED AND RINGED, which is the third distinct
+                               shape rather than a third colour. The first repair
+                               gave warnings the hollow ring and closed the
+                               issues-vs-warnings collision while opening a new
+                               one, because MONITORING was already a hollow ring
+                               (whole-diff R2 P0). Three states need three shapes,
+                               and (filled, ringed) supplies exactly three from
+                               tokens this component already uses: issues
+                               filled/plain, warnings filled/ringed, monitoring
+                               hollow/ringed. The fill stays the work ink it
+                               shares with issues -- a sheet warning is work, not
+                               monitoring -- and the ring is what separates it. */
+                            "border-[1.5px] border-text-faint bg-status-review"
                           : "bg-status-review"
                     }`}
                   />

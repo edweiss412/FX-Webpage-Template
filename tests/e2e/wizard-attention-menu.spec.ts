@@ -389,8 +389,24 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
           e && e !== el.parentElement;
           e = e.parentElement
         ) {
-          const r = e.getBoundingClientRect();
-          if (getComputedStyle(e).position === "absolute" && r.width <= 2) return true;
+          if (
+            (() => {
+              const cs = getComputedStyle(e);
+              // Whole-diff R2 P1: the old predicate recognised ONLY the sr-only
+              // shape (`position:absolute` + hairline width), so an ordinary
+              // `max-sm:opacity-0`, `invisible`, or `hidden` on a count wrapper
+              // stayed INCLUDED -- the rendered count could vanish while the guard
+              // still observed a digit and passed. Every ordinary way to hide a
+              // box is checked now, computed rather than inferred from classes.
+              if (cs.display === "none" || cs.visibility === "hidden") return true;
+              if (parseFloat(cs.opacity) === 0) return true;
+              const r = e.getBoundingClientRect();
+              if (cs.position === "absolute" && r.width <= 2) return true;
+              if (r.width === 0 || r.height === 0) return true;
+              return false;
+            })()
+          )
+            return true;
         }
         return false;
       };

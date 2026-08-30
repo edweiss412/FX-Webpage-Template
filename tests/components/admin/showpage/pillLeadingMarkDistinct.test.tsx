@@ -36,6 +36,7 @@ import {
   actionableAlertItem,
   installModalDomStubs,
   renderPublishedModal,
+  selfHealAlertItem,
 } from "./__fixtures__/publishedModalHarness";
 
 beforeEach(installModalDomStubs);
@@ -45,18 +46,34 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * The mark reduced to SHAPE, never to its class string.
+ *
+ * The first version of this helper returned `className` and compared strings,
+ * which whole-diff R2 caught: two SOLID marks differing only in a colour class
+ * would have compared unequal and passed, which is the exact defect the file
+ * exists to prevent. Reduced to two booleans a colour-blind reader can also
+ * resolve -- is it filled, is it ringed -- so three states must occupy three
+ * distinct (filled, ringed) tuples.
+ */
 const leadingMark = () => {
   const pill = screen.getByTestId("published-show-review-alert-pill");
   const dot = pill.querySelector<HTMLElement>('span[aria-hidden="true"]');
   expect(dot, "the pill renders a leading mark").not.toBeNull();
-  return { className: dot!.className, pill };
+  const cls = dot!.className;
+  // jsdom applies no stylesheet, so shape is read from the utility classes that
+  // determine it. `bg-transparent` is the explicit no-fill token this component
+  // uses; a border utility with a width is the ring.
+  const filled = !/\bbg-transparent\b/.test(cls) && /\bbg-[a-z-]/.test(cls);
+  const ringed = /\bborder-\[[\d.]+px\]/.test(cls) || /\bborder-[a-z]/.test(cls);
+  return { filled, ringed, className: cls, pill };
 };
 
-describe("attention pill — the leading mark distinguishes issues from sheet warnings (critique P0)", () => {
-  it("an issues-led pill and a warnings-led pill do not render the same mark", () => {
+describe("attention pill — the leading mark distinguishes all three states (critique P0, R2 P0)", () => {
+  it("issues, warnings and monitoring occupy THREE distinct shapes, not three colours", () => {
     renderPublishedModal([], { attentionItems: [actionableAlertItem("a1")] });
-    const issuesLed = leadingMark();
-    const issuesHasWarningsSegment = !!issuesLed.pill.querySelector(
+    const issues = leadingMark();
+    const issuesHasWarnSeg = !!issues.pill.querySelector(
       '[data-testid="attention-pill-warnings-segment"]',
     );
     cleanup();
@@ -64,24 +81,47 @@ describe("attention pill — the leading mark distinguishes issues from sheet wa
     renderPublishedModal([{ block: "Rooms", key: "Unknown Field", value: "x" }], {
       attentionItems: [],
     });
-    const warningsLed = leadingMark();
-    const warningsHasWarningsSegment = !!warningsLed.pill.querySelector(
+    const warnings = leadingMark();
+    const warningsHasWarnSeg = !!warnings.pill.querySelector(
       '[data-testid="attention-pill-warnings-segment"]',
     );
+    cleanup();
 
-    // PREMISE, and the whole reason the earlier e2e attempt was worthless: the
-    // two renders must genuinely BE the two states. Built as a positive pair
-    // rather than one negative check, so a fixture that silently produced the
-    // same state twice fails here instead of satisfying the assertion below.
-    expect(
-      { issues: issuesHasWarningsSegment, warnings: warningsHasWarningsSegment },
-      "PREMISE: one render is issues-led (no warnings segment) and the other is warnings-led (warnings segment present)",
-    ).toEqual({ issues: false, warnings: true });
+    renderPublishedModal([], {
+      attentionItems: [selfHealAlertItem("c1"), selfHealAlertItem("c2")],
+    });
+    const monitoring = leadingMark();
+    const monitoringHasMonSeg = !!monitoring.pill.querySelector(
+      '[data-testid="attention-pill-monitoring-segment"]',
+    );
 
+    // PREMISE: three genuinely different states, asserted positively. Without
+    // this the comparison below is satisfiable by rendering one state 3 times.
     expect(
-      warningsLed.className,
-      `both states paint the same leading mark ("${issuesLed.className}"), so below sm they are one indistinguishable pill`,
-    ).not.toBe(issuesLed.className);
+      {
+        issues: { warn: issuesHasWarnSeg },
+        warnings: { warn: warningsHasWarnSeg },
+        monitoring: { mon: monitoringHasMonSeg },
+      },
+      "PREMISE: the three renders really are the three states",
+    ).toEqual({
+      issues: { warn: false },
+      warnings: { warn: true },
+      monitoring: { mon: true },
+    });
+
+    const shape = (m: { filled: boolean; ringed: boolean }) =>
+      `${m.filled ? "filled" : "hollow"}/${m.ringed ? "ringed" : "plain"}`;
+    const shapes = {
+      issues: shape(issues),
+      warnings: shape(warnings),
+      monitoring: shape(monitoring),
+    };
+    const distinct = new Set(Object.values(shapes));
+    expect(
+      distinct.size,
+      `the three states must occupy three distinct SHAPES; got ${JSON.stringify(shapes)}. Differing only in colour leaves a colour-blind reader one pill.`,
+    ).toBe(3);
   });
 
   it("the issues-led mark stays the solid review dot, so this did not fix one state by breaking the other", () => {
