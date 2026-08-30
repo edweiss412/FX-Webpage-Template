@@ -508,3 +508,66 @@ The underscore-prefixed, non-`.test.` colocated module is exactly the shape of
 `tests/onboarding/_finalizeFake.ts`, the shared fake for the finalize route suites, so vitest will
 not collect it as a test file. (`tests/_shared/` is the other convention, for helpers used across
 unrelated areas; this one is used by two sibling suites in the same directory.)
+
+## 12. Close-out — gate findings and dispositions
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
+
+### 12.1 The dual gate
+
+Both halves ran on the diff, with the v3 setup gates first (`context.mjs` context load, then the product register — this is admin tooling, so design SERVES the product). Critique ran its two assessments as ISOLATED PARALLEL SUB-AGENTS, not inline; an inline run is a degraded run and would have required a banner on the report.
+
+**Critique — 2 P1 findings, both FIXED (commit `081f00570`).**
+
+- **P1 `Processed:` was jargon.** Warehouse vocabulary in a register whose voice is explicitly plain-language, and worse, it READS as success to a non-technical operator even though the code meant it neutrally. So the outcome-neutrality this spec argued for at length was honest in code and invisible to Doug. The critique's argument was better than the spec's: the name sits under a labelled bar and an `N of M` count, so its role is established by position. The prefix is gone. Dropping it removes a word, removes a claim, and returns ~11 characters to a line that truncates on a phone. The assertion is now exact equality, so a prefix creeping back fails it.
+- **P2 `Setup progress` was the vaguest of three sibling labels** and the nearest to the wizard stepper's own name. Its neighbours are `Onboarding progress` (`components/admin/OnboardingWizard.tsx:197`) and `Folder scan progress` (`components/admin/wizard/Step2Verify.tsx:487`), each naming a specific noun. Now `Show setup progress`, following the pattern already set.
+
+**Three findings disposed WITHOUT change, with reasons rather than dismissal:**
+
+- the trigger still reads `Publish N shows & finish setup` while the progress says setup. Different SCOPES: the button describes the whole operation, which does end in published shows; the progress narrates the current phase. The button's claim is true of what pressing it accomplishes.
+- batch `Setting up your shows…` and CAS `Finishing setup…` are lexically close. They are sequential stages of one setup, read coherently in order, and the CAS sub-label (`Making shows live…`) disambiguates. Renaming the batch verb would break coherence with the wizard's own "finish setup" vocabulary.
+- the count reads `N of M shows` in the panel and `N of M` in the compact footer. Deliberate: the compact readout is space-constrained inside a sticky bar whose height is load-bearing.
+
+**Audit — 20/20, 0 P0, 0 P1**, scoped to this diff (not the whole surface).
+
+| # | Dimension | Score | Key finding |
+| --- | --- | --- | --- |
+| 1 | Accessibility | 4 | the diff IMPROVES it: four accessible names that contradicted the visible text are corrected, and the live region now announces the truthful phase. Focus management, tap targets and contrast pins all unchanged and passing. |
+| 2 | Performance | 4 | no effect, state, render or animation surface added. Text and attributes only. |
+| 3 | Theming | 4 | no raw color introduced; token classes throughout. |
+| 4 | Responsive | 4 | no fixed width introduced; the one-line `truncate` guarantee is preserved and now pinned by a test, and the shipped copy is SHORTER than what it replaced. |
+| 5 | Anti-patterns | 4 | none of the absolute bans present; the bundled detector exits 0 on both files. |
+
+Scope honesty: the audit scores the DIFF. The surrounding surface has pre-existing limits this arc does not address, the sharpest being no cancel once a run is in flight (critique scored heuristic 3 at 2/4 for it). Out of scope here, and not counted against the gate.
+
+### 12.2 What implementation changed about the plan
+
+Three plan claims were wrong on contact with the code, each caught by a RED step rather than by review:
+
+- **Task 1's `runningLabel` assertion was in the wrong suite.** In the FinalizeButton composition the trigger UNMOUNTS while running, so that label is only observable through the wizard's `FinalizeTrigger`. Its real coverage is the pre-existing Step3 assertion Task 1 retargets, which is why that task runs both suites.
+- **A `toContain` assertion could not distinguish the shipped copy from an appended suffix.** Mutant (b) escaped it exactly as `docs/agents/writing-plans.md:16` predicts. Tightened to exact equality on a new testid — a testid that exists because a mutant demanded it.
+- **Spec §3.1b predicted a silent failure that is actually loud.** An unwidened fake projection does not yield null; `asParseResult` throws `JsonbCoercionError`. The coercion kept as defence in depth converts a silent nullification into an error.
+
+### 12.3 Two ways the test fake modeled reality wrongly
+
+Both repaired in Task 3b; both are the non-discriminating-fixture class (bl-orch, 2026-08-29).
+
+- `selectFinishableCleanRows` returned ALIASED row objects, so a fake core mutating the stored row also mutated the route's already-selected row — Task 3b's test would have passed against unfixed code. A real driver never hands back a reference into a store that later mutates. Detached; 570 pre-existing tests pass unchanged.
+- Its inline-rescan rebind handler dropped `parse_result`, so the widened rebind assigned undefined.
+
+A fixture that cannot express the difference a test names reports "no difference" and looks like evidence.
+
+### 12.4 The two guards, and how each is proved
+
+Neither has a natural red — both pin an absence — so both take the mutant-red treatment, every mutant planted, observed failing, and reverted.
+
+| Guard | Families | Notable result |
+| --- | --- | --- |
+| `approvedRows` misnomer | 3 | planting the identifier in a DIFFERENT file under `app/` fails the guard, proving the app/-wide scan discriminates rather than being cosmetic |
+| finalize transition audit | 6 | a BRAND-NEW `app/globals.css` rule targeting `wizard-finalize-progressbar` is caught — CSS that did not exist when the guard was written |
+
+The second is the derived cover earning its place. Four review rounds each found the previous closure blind to one more animation mechanism this repository actually uses; the convergent repair was not a seventh pattern but parsing `app/globals.css` for every rule declaring `animation:` or `transition:`.
+
+### 12.5 Deliberately not asserted
+
+jsdom cannot prove the name, count and bar change in a single React commit. That rests on the code shape — all three are written by one `setState` (`components/admin/FinalizeButton.tsx:230-234`) — and is recorded here rather than dressed up as a test.
