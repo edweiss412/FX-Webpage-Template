@@ -46,7 +46,7 @@ critique scored heuristic 9 (recover from errors) 2/4 on exactly this account.
 | decision | ratification |
 |---|---|
 | Retry fetches the **clamped tier**, not the original. Copy shape `"<name> could not be loaded. Tap to retry."` with an explicit in-flight state. | Eric, 2026-08-29, relayed through bl-orch. This is the ledger row's blocking product decision (class-sweep exception (a)) being answered. |
-| **No cache-buster query parameter.** The retry re-renders the same `srcSet` candidate set and the browser picks from it. | §3. A cache-buster would change every URL, defeat HTTP caching, and put the retry outside the ladder the cost bound rests on. It is not needed: a remount re-requests on its own (§1.3). |
+| **No cache-buster query parameter.** The retry re-renders the same `srcSet` candidate set and the browser picks from it. | §3. A cache-buster would change every URL, defeat HTTP caching, and put the retry outside the ladder the cost bound rests on. It is not needed: the `failed` state renders no `<Image>`, so entering `retrying` mounts one and the browser requests it then (§1.3, §4.0.5). |
 | Retry labels are **UI chrome, not catalog rows**. No `lib/messages` entry, no §12.4 code. | Established precedent for exactly this control class: `components/admin/RetryWatchButton.tsx:11-12` ("Labels are UI chrome (uncataloged, like Dismiss/Details)"). Invariant 5 governs raw error CODES surfacing in UI; these strings carry no code. |
 | A runtime-failed cell **keeps focus** rather than relocating to a sibling, and `successorTo` is deleted. | §7, and it is an explicit **amendment** to `2026-08-10` spec §4.2 / AC-3, not a reinterpretation of it. Under the §3.1 override every runtime-failed cell has a control, so no relocation case remains. Parse-time-unavailable cells never held focus. |
 | Parse-time-unavailable items (`available: false`) get **no retry control**. | §4. There is no asset to re-fetch; the manifest never published one. |
@@ -94,8 +94,12 @@ rule in `docs/agents/spec-self-review.md`:
 - **A custom loader receives `{src, width, quality}` with `src` verbatim**
   (`get-img-props`, lines 196-200), which is what makes the URL identity claim in §3 hold.
 
-**Consequence:** the retry is a React `key` bump that remounts the `<Image>`. It needs no
-cache-busting query parameter, and must not use one, per the fence in §1.1.
+**Consequence:** **[SUPERSEDED — §0]** ~~the retry is a React `key` bump that remounts the
+`<Image>`~~ — nothing remounts. The `failed` state renders no `<Image>` at all (§4.0), so
+entering `retrying` MOUNTS one for the first time since the failure and the browser requests
+it then; that node then survives `retrying → idle` untouched (§4.0.5). The facts above still
+carry the conclusion, by a different route. Either way the retry needs no cache-busting query
+parameter, and must not use one, per the fence in §1.1.
 
 ## 1.4 UNRATIFIED claims — what this spec asserts but cannot prove
 
@@ -328,11 +332,13 @@ excludes.
 
 **It must NOT also write `demotedRef`,** which an earlier draft proposed by analogy with the
 demote path. `demotedRef` (`GalleryLightbox.tsx:312`) is written once
-(`GalleryLightbox.tsx:1036`) and has **no delete or clear path anywhere in the component** —
-verified by grep, its only other appearance is the read at `GalleryLightbox.tsx:367`. That
-read is `markZoomIntent`'s early return, so an id in `demotedRef` can never re-acquire
-`wantsOriginal` for the rest of the lightbox session. Writing it on retry would have made
-the re-pinch this spec promises permanently impossible.
+(`GalleryLightbox.tsx:1036`) and **[SUPERSEDED — §0]** ~~has **no delete or clear path anywhere
+in the component**~~ — it is cleared on a `snapshotRevisionId` change, and on nothing else. Its
+only read is `markZoomIntent`'s early return (`GalleryLightbox.tsx:367`), so an id in
+`demotedRef` cannot re-acquire `wantsOriginal` until the next snapshot revision. Writing it on
+retry would have made the re-pinch this spec promises impossible for the rest of that
+revision's session — a shorter latch than the earlier text claimed, and still exactly the
+defect this paragraph exists to forbid.
 
 **And it is not needed here.** `demotedRef` exists for one hazard: the zoom library publishes
 a scale above the commitment bound for as long as a gesture lasts, so a demote mid-pinch
@@ -545,9 +551,11 @@ honest signal is that it stays on screen a long time, which it will. A second va
 add a string without adding information.
 
 The first-failure announcement is unchanged (`<name> could not be loaded.`,
-`Gallery.tsx:293`). `Retrying…` uses the same single-character ellipsis and the same
-label-swap shape as `components/admin/RetryWatchButton.tsx:24-26` and the same file at
-line 48.
+`Gallery.tsx:293`). `Retrying…` uses the same single-character ellipsis as
+`components/admin/RetryWatchButton.tsx:24-26` and the same file at line 48.
+**[SUPERSEDED — §0]** ~~and the same label-swap shape~~ — the SHAPE differs: that button
+re-labels its own node, while here a separate in-flight overlay REPLACES the failed control,
+with an explicit focus hand-off (§4.0.5, §7). Only the string is borrowed.
 
 ## 6. Accessibility
 
@@ -594,13 +602,15 @@ it mounts in the commit that handler's state update causes. Focus is therefore m
 and the callback clears. A synchronous `focus()` in the handler would target a node that has
 not mounted.
 
-Where §3.1 withholds the control, there is no button to hold focus, and the ratified
-successor relocation is still the right and only behavior for those cells. This is the one
-case that keeps the old target, and it is why `successorTo` cannot simply be deleted
-unconditionally — see below.
+**[SUPERSEDED — §0]** ~~Where §3.1 withholds the control, there is no button to hold focus,
+and the ratified successor relocation is still the right and only behavior for those cells.
+This is the one case that keeps the old target, and it is why `successorTo` cannot simply be
+deleted unconditionally~~ — §3.1 withholds the control from NOTHING (the product owner's
+override, §1.1), so no such case survives and there is no conditional deletion to weigh. See
+below.
 
-**`successorTo` is DELETED.** It has exactly one caller (`Gallery.tsx:287`, verified by
-grep), and under the ratified §3.1 every runtime-failed cell with `item.available` carries a
+**`successorTo` is DELETED.** Its one caller (`Gallery.tsx:287`, verified by grep) goes with
+it, and under the ratified §3.1 every runtime-failed cell with `item.available` carries a
 control, so focus always has somewhere to land inside the cell itself. Parse-time-unavailable
 cells are the only ones without a control, and they never had a thumbnail button to hold
 focus, so `handleThumbnailFailure` never runs for them. The caller has no remaining case:
@@ -946,7 +956,7 @@ original through `servingVariants`.
 
 | # | finding | disposition |
 |---|---|---|
-| 1 | writing `demotedRef` on retry makes the promised re-pinch permanently impossible; it has no clear path | CONFIRMED. §4.0.2 now removes a write instead of adding one: retry clears `wantsOriginal` and does NOT touch `demotedRef`. Its guard has no hazard on this path, because a `failed` slide does not mount `TransformWrapper`. AC-13. |
+| 1 | writing `demotedRef` on retry makes the promised re-pinch permanently impossible; it has no clear path | CONFIRMED. §4.0.2 now removes a write instead of adding one: retry clears `wantsOriginal` and does NOT touch `demotedRef`. (The finding's "no clear path" is preserved above as it was written; `demotedRef` has since gained one, on a `snapshotRevisionId` change — §0.) Its guard has no hazard on this path, because a `failed` slide does not mount `TransformWrapper`. AC-13. |
 | 2 | the availability clear runs too late, and `demotedNotice`/`demoteTimerRef` were omitted | CONFIRMED. §9.1 inverted: the clear happens when the item goes UNAVAILABLE, where no render can observe the retained state. The chip predicate also gains `item.available`. AC-11, AC-14. |
 | 3 | clearing `pendingFailuresRef` makes an in-flight retry button eligible in `successorTo` | CONFIRMED, then DISSOLVED. The product owner's override gives every runtime-failed cell a control, so focus never leaves the cell and `successorTo` has zero callers. §7 deletes it, which removes the eligibility question rather than repairing it. The `retryRefs` split is kept for an independent reason stated there. AC-15. |
 | 4 | the active-to-inactive lifetime of the new control is undefined | CONFIRMED. §4.0.4 defines it: `retrying` clears and the id returns to `failedKeys`; focus moves to Close, the destination the existing error path already uses. AC-16. |
