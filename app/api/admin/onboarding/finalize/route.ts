@@ -1590,11 +1590,11 @@ async function executeFinalizeBatch(
         });
       }
 
-      const approvedRows = await selectFinishableCleanRows(tx, wizardSessionId, runtime.batchCap);
+      const finishableRows = await selectFinishableCleanRows(tx, wizardSessionId, runtime.batchCap);
       const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
       if (
         checkpoint.status === "all_batches_complete" &&
-        approvedRows.length === 0 &&
+        finishableRows.length === 0 &&
         unresolved === 0
       ) {
         // Idempotent re-poll: session was ALREADY all_batches_complete with nothing left.
@@ -1608,7 +1608,7 @@ async function executeFinalizeBatch(
           per_row: [],
         });
       }
-      if (approvedRows.length === 0 && unresolved > 0) {
+      if (finishableRows.length === 0 && unresolved > 0) {
         // Durable breadcrumb for a STUCK finisher: this non-convergent 409 refusal
         // otherwise returned with no server trace of who hit it or why. Fail-open,
         // hashed actor; never changes the 409 (invariant 9). Skips the idempotent
@@ -1625,7 +1625,7 @@ async function executeFinalizeBatch(
         });
       }
 
-      if (approvedRows.length === 0) {
+      if (finishableRows.length === 0) {
         const tail = await finalizeBatchTailResponse({
           tx,
           wizardSessionId,
@@ -1643,7 +1643,7 @@ async function executeFinalizeBatch(
       }
 
       const perRow: PerRowResult[] = [];
-      for (const row of approvedRows) {
+      for (const row of finishableRows) {
         // Source anchors are NOT computed here anymore — processApprovedRow reads them from the
         // locked pending_syncs.source_anchors (persisted at scan), so finalize does NO Drive export.
         let result: PerRowResult;
@@ -1709,7 +1709,7 @@ async function executeFinalizeBatch(
         // result event; a row that fails still surfaces via per_row (client stops on non-OK).
         callbacks?.onRow?.({
           done: perRow.length,
-          total: approvedRows.length,
+          total: finishableRows.length,
           name: parsedShowTitle(row.parse_result) ?? null,
           driveFileId: row.drive_file_id,
         });
