@@ -155,13 +155,15 @@ tests/e2e/attention-autoopen-suppress.spec.ts:37
 
 - [x] **Step 10: The three-segment geometry, no longer unmeasured, and the first numbers superseded.** Spec §2.2 recorded that no fixture reached three segments. It now does. The first pair taken, 123.98px at `text-xs` and 141.48px at `text-sm`, are **both PRE-repair**: at that point every count phrase was a bare wrap unit breaking mid-phrase under `max-sm:flex-wrap`. The `+17.5px delta matching the two-segment fixture` read off them held only in that broken state and is withdrawn with them. Post-repair the three-segment pill measured **82.9px** -- still PRE-Decision 7, and superseded the same day: counts-only copy took the SHIPPED three-segment height to **48.297px**, recorded live by `tests/e2e/published-review-modal.layout.spec.ts` at its (e4) assertion. 82.9px is kept here, labelled, for the same reason the two figures above it are: swapping one number and leaving its neighbours makes a reader trust the survivors. Both numbers are labelled rather than one being swapped, because replacing only the `text-sm` figure would leave a reader trusting its neighbour.
 
-### Task 2: The occlusion load, and three specs that ran nowhere
+### Task 2: The occlusion load, and three specs added to a second project
+
+> **CORRECTED 2026-08-30 by `test/e2e-spec-discovery-wiring`.** The heading read "three specs that ran nowhere". All three were already resolved by `tests/e2e/standalone.config.ts` and running on every PR; what this task added was membership in `desktop-chromium`, which no workflow selects. See `LIM-E2E-SPEC-DISCOVERY-GAP`.
 
 <!-- task: red=`pnpm heavy npx playwright test tests/e2e/attention-autoopen-suppress.spec.ts --project=desktop-chromium` red-state=authored red-target=`tests/e2e/_pillFocusLiveEntry.tsx:118` why=`the entry's overrides never set crew warnings, so the sheet-warnings segment cannot render and the new premise fails before the occlusion check` ac=AC-2,AC-2b -->
 
 **Files:** `tests/e2e/attention-autoopen-suppress.spec.ts`, `tests/e2e/_pillFocusLiveEntry.tsx`, `playwright.config.ts`. Shipped in `5a1fc2134`.
 
-- [x] **Step 1: A dead-spec census, because AC-2 rests on a spec running.** `attention-autoopen-suppress`, `attention-pill-focus` and `popover-clip-fit` matched no project regex and ran nowhere, so the occlusion assertion the previous arc deliberately tightened has never executed. 118 spec files exist under `tests/e2e`; 70 were discovered. All three wired into `desktop-chromium` and green.
+- [x] **Step 1: A dead-spec census, because AC-2 rests on a spec running.** ~~`attention-autoopen-suppress`, `attention-pill-focus` and `popover-clip-fit` matched no project regex and ran nowhere, so the occlusion assertion the previous arc deliberately tightened has never executed. 118 spec files exist under `tests/e2e`; 70 were discovered.~~ **CORRECTED 2026-08-30 by `test/e2e-spec-discovery-wiring`: every clause of that is false.** All three were resolved by `tests/e2e/standalone.config.ts` and running on every PR — `attention-pill-focus` from 2026-07-21, `popover-clip-fit` from 2026-08-02, `attention-autoopen-suppress` from the commit that created it. The occlusion assertion had been executing. The 70 counted ONE config of four; all 118 spec files are discovered. All three were wired into `desktop-chromium` and green, and that membership has since been reverted because no workflow selects it.
 
   My first measurement of this claimed every spec listed zero tests, including ones known to run: the grep pattern was wrong and returned zero for everything. Re-measured against playwright's `--list` output before believing it.
 
@@ -395,7 +397,7 @@ They are still out of class, and the corrected paths make the case stronger rath
 
 **The 1280 containment case that also failed is inherited, and measured as such** (`LIM-E2E-1280-CONTAINMENT-FLAKE`): 1 failure in 7 full-file runs at this head, and 1 in 7 on the control. The first failure looked like this arc's, and only running the control the same number of times showed it was not.
 
-It also sharpens the slug's own re-file trigger. The gap did not merely hide an untested surface; it hid a surface that a *later, unrelated, ratified* change would break. A census of what is dark measures exposure, not risk, and the risk is only visible once something moves.
+**CORRECTED 2026-08-30: this paragraph rests on the refuted premise.** The gap hid nothing here — the surface was running on every PR. What the arc actually found was a defective ORACLE in a spec that had been executing all along, which is a different and smaller claim. The general point that a census of what is dark measures exposure rather than risk survives; the instance does not.
 
 ### Lessons this arc's own oracles taught
 

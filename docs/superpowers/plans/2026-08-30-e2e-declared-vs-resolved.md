@@ -28,18 +28,24 @@ TDD order held: the guard was written first and run red, naming eighteen occurre
 
 `LIM-E2E-SPEC-DISCOVERY-GAP` rewritten; the pill-arc plan's "had never executed" paragraph corrected; the four duplicate specs deduped from `desktop-chromium` together with the workflow path that made one of them look load-bearing.
 
-## Task 4 — mutation enrolment of the guard surface. PENDING.
+## Task 4 — mutation enrolment of the guard surface. DONE, `a6110e575` + `e53785900`.
 
 `tests/ci/_configBranchProbe.ts` is a recognizer whose defect class is "reports OK while the output moved", which is what the source-mutation registry exists to express, and AGENTS.md requires enrolment to precede the diff review rather than follow it.
 
 - Add a registry row: full declared operator set (the surface is a recognizer, and scoping the subset would leave exactly the operators nobody scored), `millisPerBoot` MEASURED as the median of three consecutive deciding-suite runs, `scoreFloor` 0.9.
 - Run `pnpm heavy:mutation`, record score and the unaccepted-survivor set.
 - Repair survivors by strengthening the suite, never by widening the recognizer.
-- The round-1 diff brief carries the `GUARD SURFACE:` line with the score, the survivor count, and the operator set.
+- The round-1 diff brief carried the `GUARD SURFACE:` line with the score, the survivor count, and the operator set.
+
+**What it measured.** First run: **0.4167** against a 0.9 floor, seven survivors, all integer literals — on a surface that had already cleared a spec review round. Four were equivalent (resource bounds in the spawn options) and are ledgered with an argument each. Three were real, and all three were the same blind spot: the suite drove only the happy path through a real child process, so the decision about what came BACK was never exercised. A mutant that ACCEPTED A MISSING MARKER survived, which would have fed a dying child's stderr to `JSON.parse` and destroyed the only text saying why it died. `parseProbeOutput` was extracted so that decision could be driven directly.
+
+Second run: **0.8750**, one survivor — the cap oracle, which asserted `toHaveLength(PROBE_ERROR_QUOTE)` and so moved with the constant the mutant changed. An oracle for a constant cannot be derived from that constant. Third run, after the literal-plus-export-tie fix: **8/8, zero unaccepted survivors**, all six declared operators.
+
+**Documented limit found on the way**: `-t <surfaceId>` does not narrow a shard, so each of these runs cost the whole shard (~60 min). Recorded in the registry row and spec §3.4.
 
 **Why before the review and not after:** three arcs in this repo measured the cost of deciding late, and the sharpest found 23 survivors on a surface that had already cleared three adversarial rounds. Review is worst at absence, which is exactly what a mutation score measures.
 
-## Task 5 — diff review, then PR. PENDING.
+## Task 5 — diff review, then PR. IN PROGRESS.
 
 Whole-diff cross-model review to APPROVE, then push and open the PR. THE ARC DOES NOT MERGE: done is a PR with its full head sha and the thirteen required checks green at that head, reported to the orchestrator.
 
