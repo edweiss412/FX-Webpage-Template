@@ -218,8 +218,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the radio's `name={`resolution-${item.id}`}`, unique in the file, and the
     // `<input>` two lines above it -- never by adding the delta. The delta
     // happened to be right here and is wrong the moment two edits land at
-    // different depths in the same file.
-    line: 1065,
+    // different depths in the same file. NINTH re-key (:1065 -> :1067) when the
+    // impeccable gate reverted the ring change above it.
+    line: 1067,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",

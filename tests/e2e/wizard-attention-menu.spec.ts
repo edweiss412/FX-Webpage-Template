@@ -432,6 +432,25 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     // The nouns survive in the COMPUTED accessible name, not merely in
     // textContent: an aria-label override would satisfy textContent silently.
     await expect(chip).toHaveAccessibleName(/need a look|judgment call/);
+    // The regex above passes on a GLUED name ("2need a look" still contains
+    // "need a look"), which is how this shipped defective. Below `sm` the noun
+    // is `position:absolute` and so is not a flex item, and the separating
+    // space is a whitespace-only text run inside an `inline-flex` -- which
+    // generates no box (CSS Flexbox: an anonymous flex item containing only
+    // white space is not rendered). The published twin escapes this by wrapping
+    // the count and the space in a PLAIN span first; this pill did not.
+    // Assert the boundary itself, not the substring.
+    // Playwright's OWN accessible-name computation, not `innerText` and not
+    // `textContent`. The first draft of this read `innerText`, which excludes
+    // the `sr-only` noun entirely and so could never contain a digit-letter
+    // boundary -- it passed against the defect it was written to catch.
+    // `textContent` fails the other way: it concatenates the whitespace text
+    // node whether or not flex rendered it, so it never sees the gluing either.
+    // Only the computed name sees what a screen reader would say.
+    await expect(
+      chip,
+      "a digit is glued to its noun in the accessible name",
+    ).not.toHaveAccessibleName(/\d(?=[A-Za-z])/);
   });
 
   // Whole-diff R1 P0 (2026-08-30). The SAME defect the published twin already

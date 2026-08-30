@@ -277,6 +277,8 @@ export type HarnessStateOverrides = {
    *  lib/parser/dataGaps.ts:409-435) plus the unmatched "Ghost Crew" fallback.
    *  false ≡ omitted; takes precedence over withCrewWarnings when both are set. */
   withCappedCrewWarnings?: boolean;
+  /** Render exactly N crew warnings, for the two-digit cap measurement. */
+  wideCrewWarningCount?: number;
   /** review-modal-strip-dock §7: lets a probe drive a REFUSAL through the REAL
    *  modal. Until this existed the refusal banner was unreachable from the
    *  shared harness at all — `setPublished` was hardcoded to NOOP_OK, so every
@@ -306,6 +308,19 @@ function crewWarningFixtures(): ParseWarning[] {
       blockRef: { kind: "crew", index: 8, name: "Ghost Crew" },
     },
   ];
+}
+
+/** N distinct crew warnings, for the two-digit worst case the per-segment mark
+ *  had to clear against the 160px cap. `cappedCrewWarningFixtures` is a capped
+ *  STACK (4 rows), not a large COUNT, which is a different fixture entirely. */
+function wideCrewWarningFixtures(count: number): ParseWarning[] {
+  return Array.from({ length: count }, (_, i) => ({
+    severity: "warn" as const,
+    code: "FIELD_UNREADABLE" as const,
+    message: `Crew phone for row ${i + 1} couldn't be read ("N/A") - check the sheet.`,
+    rawSnippet: "N/A",
+    blockRef: { kind: "crew" as const, index: i, name: `Crew Member ${i + 1}` },
+  }));
 }
 
 function cappedCrewWarningFixtures(): ParseWarning[] {
@@ -377,9 +392,11 @@ export function modalElement(
     ? buildSectionWarningModel({
         slug: MODAL_SLUG,
         warnings:
-          state.withCappedCrewWarnings === true
-            ? cappedCrewWarningFixtures()
-            : crewWarningFixtures(),
+          state.wideCrewWarningCount !== undefined
+            ? wideCrewWarningFixtures(state.wideCrewWarningCount)
+            : state.withCappedCrewWarnings === true
+              ? cappedCrewWarningFixtures()
+              : crewWarningFixtures(),
         ignoredFingerprints: new Set(),
         renderedSectionIds: new Set(
           renderedSectionIds({ mode: "published", agendaBaseline: [] } as never) as SectionId[],
@@ -542,6 +559,14 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       }),
       markMonitoringOnly: renderModalHtml(0, {
         attentionItems: harnessMonitoringItems(2),
+      }),
+      // The WORST realistic three-segment load, for the cap measurement the
+      // per-segment mark had to clear: two-digit issues, an over-cap warnings
+      // count ("99+", the widest that segment renders), two-digit monitoring.
+      markWorstCase: renderModalHtml(99, {
+        attentionItems: [...harnessAttentionItems(99), ...harnessMonitoringItems(99)],
+        withCrewWarnings: true,
+        wideCrewWarningCount: 99,
       }),
       // spec 2026-08-30 AC-3: the degraded branch. Reachable only with every
       // count at zero, because `interactive` is tested first (§2.8).

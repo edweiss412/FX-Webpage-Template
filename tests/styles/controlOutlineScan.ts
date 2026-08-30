@@ -109,10 +109,14 @@ export const CENSUS: readonly CensusRow[] = [
   // itself is untouched across all three. Relocated by finding its OWN
   // `data-testid` and taking the `<button` it opens, never by applying the
   // delta — `LIM-LINE-KEYED-SITEID`, which this arc has now hit eight times.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 875 },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 877 },
   // spec §4.2 row 17 — the `review-publish` button. 883, then 946, same two
   // arcs and the same cause; located from its own testid the same way.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 961 },
+  // NINTH re-key, same session: the impeccable gate reverted this file's ring
+  // change and its replacement comment is two lines longer, so both rows moved
+  // again (875 -> 877, 961 -> 963). Located from each button's own testid, as
+  // every time before.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 963 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are

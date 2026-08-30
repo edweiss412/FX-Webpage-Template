@@ -555,6 +555,113 @@ this closeout.** Copies at 383-447 and 479-543, the ordering-deviation,
 copy B sits correctly. R3 cited lines 420 and 516 as two separate instances of
 the stale 82.9px without noticing they were the same text twice. Deleted copy A.
 
+### Invariant-8 gate, second run (post-R3 UI change)
+
+impeccable-gate: critique=RAN audit=RAN p0=1 p1=3 dispositions=recorded
+
+Re-run because R3 changed a UI surface after the first gate. Both halves ran as
+isolated sub-agents; the critique's two assessments were isolated from each other
+per that command's contract. Method: dual-agent.
+
+**Critique: 24/40.** Consistency scored 1 and recognition-over-recall scored 1,
+both for the same reason, which is the P0 below.
+
+**P0 — the shape channel was on the CONTAINER, not the items. FIXED.** The
+leading mark describes whichever segment LEADS, so with issues AND warnings
+present it was the issues circle and the warnings segment rendered as a bare
+integer: below `sm` the pill read `● 3 · 2`, two amber numbers separated by
+position alone. The new glyph only ever appeared in the warnings-ONLY pill. So
+the distinction was closed in the rare state and open in the common one, and
+nothing measured the common one. **Both assessments found this independently** —
+the design review from the DOM structure, the detector assessment from the
+rendered three-segment fixture ("only two marks render") — which is the strongest
+signal either produced.
+
+Fixed by giving the warnings segment its own mark, mirroring the monitoring
+segment's existing pattern including its no-double-mark guard. Exactly one mark
+now renders per visible segment. `T-MARK-SEGMENT` is its regression test and the
+diff previously had no mixed-state case at all.
+
+**The fix cost nothing, which took a measurement to establish.** Adding the mark
+alone took the common three-segment load from ONE text row to two (38.297px to
+46.594px) and turned `T-PILL-SIZE` red — a real layout move against the 160px
+cap, which is the constraint counts-only exists to serve. Rather than escalate
+the tradeoff, the separator was re-examined: with every segment carrying its own
+mark, the middot is redundant as a VISUAL separator below `sm`, so it moves to
+`max-sm:sr-only` — zero width, still in the announced string. The common load
+returns to ONE row at **38.296875px, byte-identical to the pre-mark baseline**,
+with every mark rendered. The 99/99/99 worst case was unchanged throughout
+(112x56.59, cluster at its 160 ceiling) because it already wraps.
+
+**P1 — the square carried no meaning. FIXED, to a triangle.** DESIGN.md's
+KINDDOT-1 already settled the rule, verbatim: its minus bar was chosen "because
+the minus glyph carries the 'removed' semantic that a ring would not". A square
+is a difference without a meaning, and at 8px inside a pill that is itself
+`max-sm:rounded-md` it reads first as a radius that failed to apply. A triangle
+is the warning silhouette and its apex breaks the outline, which separates more
+robustly at 8px than corner-versus-curve. Same 8px box, so nothing reflows —
+KINDDOT-1's other requirement.
+
+**P1 — my own wizard ring repair was wrong, on a premise the gate refuted.
+REVERTED.** R3's ring-contrast P0 was class-swept to the wizard's judgment ring
+on the belief that it sits on `warning-bg`, where `text-faint` measures 2.793:1.
+It does not: that branch and the PILL's background share one predicate (`n > 0`),
+so the hollow ring renders only when the plate is `surface-sunken`, a ground
+where DESIGN.md section 1.2 already measures faint at 3.02:1 / 4.11:1 — clearing.
+The sweep was right about the defect's shape and wrong about this being an
+instance. Reverting also protects the D9 contract, since `text-subtle` at ~6.9:1
+makes the QUIET pill's mark heavier.
+
+**The two gate halves disagreed here, and the critique was right.** The audit
+verified the arithmetic ("the swap is correct") without checking which ground the
+element paints on. Recorded because a number can reproduce exactly and still be
+about the wrong pair.
+
+**P1 (audit) — accessible name glues below `sm`. REFUTED by probe.** The claim
+was that `{n}{" "}` is a whitespace-only text run inside an `inline-flex`, which
+CSS does not render, so the name would compute as `2need a look`. It is not
+whitespace-only: the count and the space are CONTIGUOUS runs, so CSS wraps them
+into one anonymous flex item containing `"2 "`, which is rendered. Measured name:
+`"2 need a look · 1 judgment call"`. Recorded so a later reviewer does not
+re-derive it.
+
+The probe that settled it was itself wrong twice first, which is the more useful
+lesson: reading `innerText` excludes the `sr-only` noun entirely so it could
+never show a digit-letter boundary, and `textContent` concatenates the whitespace
+node whether or not flex rendered it. Only Playwright's computed accessible name
+sees what a screen reader would say. The strengthened assertion stayed.
+
+**P2 (audit) — the note's plate is invisible. FIXED, and it is the same mistake
+as the ring.** `bg-surface-raised` on the pane's `bg-bg` measures 1.044:1 light /
+1.131:1 dark. The token was copied from the crew-row banner at
+`components/admin/wizard/step3ReviewSections.tsx:1714-1725`, which sits inside a
+crew ROW where raised lifts. Another token borrowed from a precedent without its
+ground — the second instance in this arc, after the wizard ring. The audit's
+suggested fill swap would not have fixed it either (`surface-sunken` vs `bg` is
+1.062:1); no fill in this system separates from the ground alone. What the
+nearest sibling in the SAME slot uses is a BORDER, so the note now matches it:
+`rounded-md border border-border bg-surface-sunken p-tile-pad`. That closes the
+audit's padding-rhythm P3 in the same edit.
+
+**P2 (audit) — `aria-hidden` on the visible note. DECLINED, fenced.** Reversing
+it would relitigate a ratified decision: the spec states the visible element is
+`aria-hidden` (2026-08-30 design, §3.2 announcement section), two tests pin it
+(`tests/components/admin/wizard/draftRestoredNote.test.tsx:182`,
+`draftRestoredNoteTransitions.test.ts:65`), and it follows the shipped
+CrewBreakdown split — an `sr-only` announcer beside an `aria-hidden` visible
+banner. The audit's substantive worry, that a dropped polite message leaves no
+path to the text, is what the 400ms hold exists to prevent. If that trade is
+wrong it is Eric's call on a ratified design, not a gate fix.
+
+**P3s.** DESIGN.md gained **PILLMARK-1** registering the glyph vocabulary and a
+corollary recording that the hollow ring means different things on the two pills
+— the critique was right that nothing wrote it down. Left alone with reasons: the
+dead `gap-1` on the issues wrapper (harmless, and live on the two segments that
+now carry marks); `border-[1.5px]` as an arbitrary value (four sites, a token
+promotion is its own change); the `opacity-50` middot's 2.516:1 at `sm`+
+(pre-existing, desktop-only, and the middot's text stays in the accessible name —
+changing shipped desktop appearance this late needs a ruling, not a gate fix).
+
 ### The class-sweep unit is the decision PLUS its consequences
 
 The sharpest lesson of this arc, and it took two rounds to reach because the

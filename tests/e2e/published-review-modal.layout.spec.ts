@@ -143,6 +143,7 @@ test.beforeAll(async () => {
     threeSegment: string;
     markWarningsOnly: string;
     markMonitoringOnly: string;
+    markWorstCase: string;
     degraded: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
@@ -168,6 +169,7 @@ test.beforeAll(async () => {
   writeFileSync(join(workDir, "threeseg.html"), pageHtml("out.css", pages.threeSegment));
   writeFileSync(join(workDir, "degraded.html"), pageHtml("out.css", pages.degraded));
   writeFileSync(join(workDir, "markwarnings.html"), pageHtml("out.css", pages.markWarningsOnly));
+  writeFileSync(join(workDir, "markworst.html"), pageHtml("out.css", pages.markWorstCase));
   writeFileSync(
     join(workDir, "markmonitoring.html"),
     pageHtml("out.css", pages.markMonitoringOnly),
@@ -2179,6 +2181,11 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
           radius: px(cs.borderTopLeftRadius),
           bg: cs.backgroundColor,
           borderWidth: px(cs.borderTopWidth),
+          // The triangle is a clip-path, so its border-radius is 0 -- the SAME
+          // as the square this shipped as first. Radius alone therefore no
+          // longer separates the three marks, and reading it alone would have
+          // gone on passing after the glyph changed meaning.
+          clip: cs.clipPath,
         };
       });
     };
@@ -2203,31 +2210,54 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
 
     const TRANSPARENT = "rgba(0, 0, 0, 0)";
     const shapeOf = (m: NonNullable<typeof issues>) => ({
-      // Fully round means a radius at least half the box; square means ~zero.
+      // Fully round means a radius at least half the box.
       round: m.radius >= m.w / 2 - 0.5,
-      square: m.radius <= 0.5,
+      // Clipped means a polygon is doing the shaping, which is the triangle.
+      clipped: m.clip !== "none" && m.clip.includes("polygon"),
       filled: m.bg !== TRANSPARENT,
     });
     const si = shapeOf(issues!);
     const sw = shapeOf(warnings!);
     const sm = shapeOf(monitoring!);
 
-    expect(si, "issues is a FILLED CIRCLE").toEqual({ round: true, square: false, filled: true });
-    expect(sw, "warnings is a FILLED SQUARE").toEqual({ round: false, square: true, filled: true });
+    expect(si, "issues is a FILLED CIRCLE").toEqual({
+      round: true,
+      clipped: false,
+      filled: true,
+    });
+    expect(sw, "warnings is a FILLED TRIANGLE").toEqual({
+      round: false,
+      clipped: true,
+      filled: true,
+    });
     expect(sm, "monitoring is a HOLLOW CIRCLE").toEqual({
       round: true,
-      square: false,
+      clipped: false,
       filled: false,
     });
 
     // LEGIBILITY AT RENDERED SIZE, which is the condition this repair shipped
-    // under: a 2px radius on an 8px box reads as the same blob as a circle, so
-    // "the radii differ" is not enough -- they must differ by a real fraction of
-    // the mark. Derived from the measured box, never a pixel literal.
+    // under. The circle is fully round and the triangle is not round at all, so
+    // the separation is the whole radius rather than a tuned fraction of it --
+    // derived from the measured box, never a pixel literal.
     expect(
-      Math.abs(issues!.radius - warnings!.radius),
-      `circle and square must be separable at the rendered ${issues!.w}px box`,
-    ).toBeGreaterThanOrEqual(issues!.w / 4);
+      issues!.radius,
+      `the circle must be fully round at the rendered ${issues!.w}px box`,
+    ).toBeGreaterThanOrEqual(issues!.w / 2 - 0.5);
+    expect(warnings!.radius, "the triangle carries no radius at all").toBeLessThanOrEqual(0.5);
+
+    // Every mark occupies the SAME 8px box, which is what KINDDOT-1 requires of
+    // a third shape: it aligns with its sibling discs and nothing reflows.
+    for (const [name, m] of [
+      ["warnings", warnings],
+      ["monitoring", monitoring],
+    ] as const) {
+      expect(m!.w, `the ${name} mark shares the issues mark's box width`).toBeCloseTo(issues!.w, 1);
+      expect(m!.h, `the ${name} mark shares the issues mark's box height`).toBeCloseTo(
+        issues!.h,
+        1,
+      );
+    }
 
     // THE POINT. Hue is not the carrier: the two filled states are the SAME
     // colour, so every bit of the issues-vs-warnings distinction is shape.
@@ -2235,6 +2265,104 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
       warnings!.bg,
       "issues and warnings must share a fill, so SHAPE carries the distinction",
     ).toBe(issues!.bg);
+  });
+
+  /**
+   * The MIXED state, which is where the shape channel was actually broken.
+   *
+   * The leading mark describes whichever segment LEADS, so with issues AND
+   * warnings present it is the issues circle and the warnings segment rendered
+   * as a bare integer: below `sm` the pill read "3 · 2", two amber numbers
+   * separated by position alone. The triangle only ever appeared in the
+   * warnings-ONLY pill. So the distinction was closed in the rare state and open
+   * in the common one, and nothing measured the common one -- the impeccable
+   * critique and the detector assessment found it independently of each other.
+   *
+   * This is that case. It also carries the cap measurement, because the repair
+   * adds a mark to a cluster with a `max-width` ceiling and the ceiling is the
+   * reason the copy went counts-only in the first place.
+   */
+  test("T-MARK-SEGMENT @375: in the MIXED state the warnings count carries its own mark, inside the cap", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "markworst.html");
+
+    const measured = await page
+      .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
+      .evaluate((pill) => {
+        const px = (v: string) => parseFloat(v) || 0;
+        const markOf = (el: Element | null) => {
+          const m = el?.querySelector<HTMLElement>('span[aria-hidden="true"]') ?? null;
+          if (m === null) return null;
+          const cs = getComputedStyle(m);
+          const r = m.getBoundingClientRect();
+          return {
+            w: r.width,
+            radius: px(cs.borderTopLeftRadius),
+            clipped: cs.clipPath !== "none" && cs.clipPath.includes("polygon"),
+            bg: cs.backgroundColor,
+          };
+        };
+        // The pill's own first decorative span is the LEADING mark.
+        const leading = markOf(pill);
+        const warnSeg = pill.querySelector('[data-testid="attention-pill-warnings-segment"]');
+        const monSeg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
+
+        // The capped ancestor, found by its computed ceiling rather than by a
+        // testid it does not have -- HEADER_ACTION_CAP's contract IS the
+        // max-width, so deriving it from that cannot drift from the token.
+        let capped: HTMLElement | null = null;
+        for (let e = pill.parentElement; e !== null; e = e.parentElement) {
+          const mw = px(getComputedStyle(e).maxWidth);
+          if (mw > 0) {
+            capped = e;
+            break;
+          }
+        }
+        return {
+          leading,
+          warnings: markOf(warnSeg),
+          monitoring: markOf(monSeg),
+          warnSegText: (warnSeg?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          pillW: pill.getBoundingClientRect().width,
+          pillH: pill.getBoundingClientRect().height,
+          capW: capped === null ? null : capped.getBoundingClientRect().width,
+          capMax: capped === null ? null : px(getComputedStyle(capped).maxWidth),
+        };
+      });
+
+    // PREMISE, positively asserted: this really is the mixed state. Without it
+    // the case passes vacuously on a pill that renders one segment.
+    expect(measured.warnings, "premise: the warnings segment is present").not.toBeNull();
+    expect(measured.monitoring, "premise: the monitoring segment is present").not.toBeNull();
+    expect(measured.leading, "premise: the pill renders a leading mark").not.toBeNull();
+    expect(
+      measured.warnSegText,
+      "premise: the warnings segment renders a TWO-DIGIT count, the worst realistic load",
+    ).toMatch(/\d\d/);
+
+    // THE FIX. The warnings segment carries its own mark, and that mark is the
+    // triangle -- not the circle the leading mark is showing for issues.
+    expect(measured.warnings!.clipped, "the warnings count carries its OWN triangle").toBe(true);
+    expect(measured.leading!.clipped, "the leading mark is the issues circle here").toBe(false);
+    expect(
+      measured.leading!.radius,
+      "the leading mark is fully round in the mixed state",
+    ).toBeGreaterThanOrEqual(measured.leading!.w / 2 - 0.5);
+
+    // And hue is still not the carrier: both marks are the same ink.
+    expect(
+      measured.warnings!.bg,
+      "the segment mark shares the leading mark's fill, so SHAPE separates them",
+    ).toBe(measured.leading!.bg);
+
+    // THE CAP. The added mark must not push the cluster past its ceiling.
+    expect(measured.capMax, "premise: a capped ancestor was found").not.toBeNull();
+    expect(
+      measured.capW!,
+      `the action cluster must stay within its ${measured.capMax}px ceiling ` +
+        `(measured ${measured.capW}px, pill ${measured.pillW}x${measured.pillH})`,
+    ).toBeLessThanOrEqual(measured.capMax! + 0.5);
   });
 
   test("T-COUNTS-ONLY @375: the pill shows counts without nouns, and still ANNOUNCES them", async ({

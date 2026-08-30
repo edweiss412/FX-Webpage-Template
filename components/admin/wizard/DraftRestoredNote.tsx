@@ -80,7 +80,21 @@ export function DraftRestoredNote({
     <p
       data-testid={`wizard-step3-card-${dfid}-draft-restored-note`}
       aria-hidden="true"
-      className="w-full rounded-md bg-surface-raised px-3 py-2 text-sm/relaxed text-text-strong"
+      // Ground-matched, not token-matched, and the distinction is the whole
+      // point. This first shipped `bg-surface-raised`, copied from the
+      // crew-row banner at `step3ReviewSections.tsx:1714-1725` -- but that
+      // banner sits inside a crew ROW, where raised lifts. Here the note sits
+      // directly in the content pane on `bg-bg`, where raised measures
+      // 1.044:1 light / 1.131:1 dark: no plate at all. Same mistake shape as
+      // the wizard mark's ring earlier in this branch, a token borrowed from a
+      // precedent without checking the ground it lands on.
+      // The nearest sibling in THIS slot is the resolve section
+      // (`Step3ReviewModal.tsx`, "Resolve before publishing"), which carries
+      // `rounded-md border border-border bg-surface-sunken p-tile-pad`. Its
+      // BORDER is what gives it an edge -- no fill in this system separates
+      // from the ground on its own -- so matching it is what makes the note
+      // read as a plate and share the pane's rhythm.
+      className="w-full rounded-md border border-border bg-surface-sunken p-tile-pad text-sm/relaxed text-text-strong"
     >
       {DRAFT_RESTORED_NOTE}
     </p>

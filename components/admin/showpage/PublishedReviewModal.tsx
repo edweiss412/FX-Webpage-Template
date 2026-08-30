@@ -1215,13 +1215,24 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                                the work ink it shares with issues: a sheet
                                warning is work, not monitoring.
 
-                               `rounded-none` rather than a small radius on
-                               purpose. At an 8px box a 2px radius reads as the
-                               same blob as a circle, which is the subtlety that
-                               cost the previous two rounds. Pinned in a real
-                               browser by T-MARK-GEOMETRY on computed
-                               `border-radius`, never on class strings. */
-                            "rounded-none bg-status-review"
+                               A TRIANGLE rather than the square this first
+                               shipped as. DESIGN.md's KINDDOT-1 already settled
+                               the rule for a third shape: it used a minus bar
+                               "because the minus glyph carries the 'removed'
+                               semantic that a ring would not". A square carries
+                               nothing -- it is a difference without a meaning,
+                               and at 8px inside a pill that is itself
+                               `max-sm:rounded-md` it reads first as a radius
+                               that failed to apply. A triangle is the universal
+                               warning silhouette, and its apex breaks the
+                               outline, which separates far more robustly at 8px
+                               than corner-versus-curve. Same 8px box, so it
+                               aligns with the sibling discs and nothing
+                               reflows, exactly as KINDDOT-1 requires.
+                               Pinned in a real browser by T-MARK-GEOMETRY on
+                               computed `clip-path` and `border-radius`, never on
+                               class strings. */
+                            "bg-status-review [clip-path:polygon(50%_0%,100%_100%,0%_100%)]"
                           : "rounded-pill bg-status-review"
                     }`}
                   />
@@ -1277,12 +1288,33 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                     <>
                       <span className="inline-flex items-center gap-1.5">
                         {needsYou.length > 0 ? (
-                          <span className="opacity-50 max-sm:opacity-100">{" · "}</span>
+                          <span className="opacity-50 max-sm:sr-only">{" · "}</span>
                         ) : null}
                         <span
                           data-testid="attention-pill-warnings-segment"
                           className="inline-flex items-center gap-1 max-sm:whitespace-nowrap"
                         >
+                          {/* The warnings segment carries its OWN mark, exactly as
+                              the monitoring segment below does, and for the same
+                              reason -- with one extra one that the impeccable
+                              gate had to point out. The LEADING mark describes
+                              whichever segment leads, so in the mixed state
+                              (issues AND warnings) it is the issues circle, and
+                              this segment rendered as a bare integer: below `sm`
+                              the pill read "3 · 2", two amber numbers separated
+                              by position alone. That is the exact ambiguity
+                              Decision 7 created and the shape channel exists to
+                              close, and it was open in the most common state
+                              while being closed in the rarest one.
+                              Guarded like monitoring's: only when this segment is
+                              NOT the leading mark, so the warnings-only pill
+                              never shows two triangles. */}
+                          {needsYou.length > 0 ? (
+                            <span
+                              aria-hidden="true"
+                              className="size-2 shrink-0 bg-status-review [clip-path:polygon(50%_0%,100%_100%,0%_100%)]"
+                            />
+                          ) : null}
                           {/* Decision 7: noun visually dropped below `sm`, one
                               flex item, space OUTSIDE the hidden span (see the
                               issues segment above for why inside breaks the
@@ -1328,7 +1360,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           the glyph out of the announced string. */}
                       <span className="inline-flex items-center gap-1.5">
                         {needsYou.length > 0 || k > 0 ? (
-                          <span className="opacity-50 max-sm:opacity-100">{" · "}</span>
+                          <span className="opacity-50 max-sm:sr-only">{" · "}</span>
                         ) : null}
                         {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1

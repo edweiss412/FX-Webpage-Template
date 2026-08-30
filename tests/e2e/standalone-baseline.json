@@ -350,6 +350,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-3a191ed8e7e3f91aeea9\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-HUB-FLUSH @ 1280: the share-hub group's right edge sits at the footer's content-box right edge\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-3c5367b8e720dd4b2b23\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [crew warnings capped] sheet @ 375: no zero-extent flex/grid item inside any gapped container\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-3e997352316fa691f258\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-CORNER @ 1280: opaque bands do not paint over the panel's rounded corners\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-3f5166c665ef660fc894\",[\"published-review-modal.layout.spec.ts\",\"attention pill phone type size (spec 2026-08-30)\",\"T-MARK-SEGMENT @375: in the MIXED state the warnings count carries its own mark, inside the cap\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-3f63f6006cbb3a95aa20\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [capped alert count] popup/two-pane @ 1280: no zero-extent flex/grid item inside any gapped container\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-508e5af2b51dda2358d2\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-NOSCROLLPORT @ 375: the corner clip did not make the panel a scroll port\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-55ff2077ff497b80fae8\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [not live] popup/two-pane @ 1280: no zero-extent flex/grid item inside any gapped container\"]]",
@@ -779,5 +780,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 678
+  "totalTests": 679
 }

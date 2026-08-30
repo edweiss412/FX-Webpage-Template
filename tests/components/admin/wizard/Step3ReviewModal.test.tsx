@@ -510,15 +510,13 @@ describe("Step3ReviewModal — attention pill (spec §3.2)", () => {
     // rather than the colour is what makes this pin survive a palette change.
     const judgmentDot = chip.querySelector('span[aria-hidden="true"]');
     expect(judgmentDot, "the pill renders its leading mark").not.toBeNull();
-    // `text-subtle`, not `text-faint`, since whole-diff R3: class-swept from the
-    // published pill's P0, `border-text-faint` measures 2.793:1 against
-    // `warning-bg` in dark mode, under the 3:1 non-text floor, and this ring is
-    // the mark's ONLY rendering -- below the floor it is an absent mark, not a
-    // quiet one. This assertion reads a class string, which cannot see whether a
-    // ring is visible; that property is pinned by the recorded contrast figures
-    // in the component and, for the published twin's three-way mark, by
-    // T-MARK-GEOMETRY in a real browser.
-    expect(judgmentDot!.className).toMatch(/\bborder-text-subtle\b/);
+    // `text-faint` is correct here and the impeccable gate is why. The ring
+    // renders only in the `n === 0` branch, whose plate is `surface-sunken`,
+    // where DESIGN.md section 1.2 measures faint as an outline at 3.02:1 light /
+    // 4.11:1 dark -- clearing the 3:1 non-text floor. The 2.793:1 figure that
+    // briefly moved this to `text-subtle` is against `warning-bg`, a ground this
+    // ring never paints on.
+    expect(judgmentDot!.className).toMatch(/\bborder-text-faint\b/);
     expect(judgmentDot!.className).toMatch(/\bbg-transparent\b/);
     expect(q.queryByText("All clean")).toBeNull();
     expect(q.getByTestId(tid("note")).textContent).toBe(
