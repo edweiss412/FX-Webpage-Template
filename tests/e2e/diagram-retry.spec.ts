@@ -32,7 +32,12 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { expect, test } from "@playwright/test";
+// `test` comes from the shared fixture, NOT from `@playwright/test`: any spec
+// that calls `compileEntryCss` renders documents whose measurements are
+// font-dependent, and the fixture is what attaches the font-readiness oracle.
+// Binding the bare import silently opts out of it -- pinned by
+// tests/e2e/_metaFontFidelityWiring.test.ts, which caught exactly that here.
+import { expect, test } from "./helpers/fontFidelityFixture";
 
 import { bundleLiveEntry, compileEntryCss } from "./helpers/liveEntryToolchain";
 
