@@ -267,7 +267,16 @@ async function fittedGeometry(page: Page) {
       // 1px, and it is a completion of the arithmetic rather than a loosened
       // tolerance — the 0.5px bound below is unchanged.
       const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
-      const available = Math.floor(p.bottom - sc.top - (gutter as number) - menuBorderBottom);
+      // NOT floored. The room below the scroller is a real quantity, and the
+      // engine gives the scroller a fractional height to match it (measured
+      // 283.61 and 273.20 at two different anchor heights, each equal to the
+      // unfloored room to the hundredth). Flooring injects up to 1px of
+      // artificial error into a comparison whose whole tolerance is 0.5px, so
+      // the assertion below decided on the fractional part of the room rather
+      // than on the fit: it accepted a scroller sitting 0.61px SHORT of its
+      // room while rejecting one that filled it exactly. Dropping the floor is
+      // therefore a strengthening. Kept in step at all three sites.
+      const available = p.bottom - sc.top - (gutter as number) - menuBorderBottom;
       return {
         contained: m.bottom <= p.bottom + 0.5,
         fitted: Math.abs(sc.height - available) <= 0.5,
@@ -320,7 +329,8 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
           // scroller and the clip edge now that the fitted cap lands on the
           // panel. Same completion, same 0.5px bound.
           const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
-          const available = Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom);
+          // Unfloored, per the rationale on fittedGeometry's `available`.
+          const available = p.bottom - s.top - (gutter as number) - menuBorderBottom;
           return {
             height: s.height,
             available,
@@ -368,7 +378,8 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
         const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
         return {
           height: s.height,
-          available: Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom),
+          // Unfloored, per the rationale on fittedGeometry's `available`.
+          available: p.bottom - s.top - (gutter as number) - menuBorderBottom,
         };
       },
       [PANEL, MENU, SCROLLER, GUTTER] as const,
