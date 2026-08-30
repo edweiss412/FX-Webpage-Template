@@ -203,11 +203,28 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/Step3ReviewModal.tsx",
-    // :783 until 2026-08-27, :979 until 2026-08-29 — the attention pill's state
-    // block and its effects (spec §3.2/§3.5) sit above the resolution radios, so
-    // every edit to them moves this row. LIM-LINE-KEYED-SITEID: the census keys a
-    // site by line number, and a line number is not an identity.
-    line: 1003,
+    // :783 until 2026-08-27, :979 until 2026-08-29, :1003 until 2026-08-30 — the
+    // attention pill's state block and its effects (spec §3.2/§3.5) sit above the
+    // resolution radios, so every edit to them moves this row. The 2026-08-30 move
+    // was a one-line import plus an eight-line comment and mount for the
+    // draft-restored note, none of which touched this checkbox or its label row.
+    // LIM-LINE-KEYED-SITEID, EIGHTH recurrence, all eight inside one arc: the
+    // census keys a site by line number, and a line number is not an identity.
+    // The fifth was the wizard twin taking Decision 7 (counts-only), which added
+    // 18 lines above this row. The eighth (:1050 -> :1065) is whole-diff R3's
+    // ring-contrast repair, which widened this file's leading-mark comment by 15
+    // lines and touched neither this input nor its label.
+    // Re-keyed by matching the element's own identity across revisions -- here
+    // the radio's `name={`resolution-${item.id}`}`, unique in the file, and the
+    // `<input>` two lines above it -- never by adding the delta. The delta
+    // happened to be right here and is wrong the moment two edits land at
+    // different depths in the same file. NINTH re-key (:1065 -> :1067) when the
+    // impeccable gate reverted the ring change above it. TENTH (:1067 -> :1098)
+    // when R4's P0 added the judgment segment's own mark above it, and an
+    // ELEVENTH (:1098 -> :1099) for the one comment line that marked it, and a
+    // TWELFTH (:1099 -> :1084) when the mark logic moved into its own module and
+    // took fifteen lines of comment out of this file.
+    line: 1084,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",

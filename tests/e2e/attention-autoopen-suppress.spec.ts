@@ -136,6 +136,24 @@ test("AC-TOGGLE-OPERABLE: at 375x667 the published toggle takes its own pointer 
   // Precondition, or the whole case is vacuous: the menu really is closed.
   await expect(page.locator(MENU)).toHaveCount(0);
 
+  // Premise on THIS case's own inputs (spec 2026-08-30 AC-2). The risk this
+  // case exists for is a TALL pill's hit band reaching the toggle, and the
+  // pill is only tall when every segment is populated. Without this, a
+  // dropped or unreachable segment shrinks it to one line and the occlusion
+  // assertion below passes on a load that never exercised the risk.
+  const pillText = ((await page.locator(PILL).textContent()) ?? "").replace(/\s+/g, " ");
+  expect(pillText, "issues segment present").toMatch(/\d+ issues?/);
+  expect(pillText, "monitoring segment present").toMatch(/\d+ monitoring/);
+  // AC-2b, not AC-2. The sheet-warnings segment is deliberately absent: this
+  // entry cannot render it (see the DOCUMENTED LIMIT in _pillFocusLiveEntry.tsx
+  // -- the warning model is subprocess-only), so this case runs at the tallest
+  // load the entry CAN reach. Asserting its absence rather than ignoring it
+  // keeps the limit visible: if the segment ever appears here, the limit was
+  // lifted and this premise should be widened back to all three.
+  expect(pillText, "AC-2b: sheet-warnings segment is unreachable in this entry").not.toMatch(
+    /sheet warnings?/,
+  );
+
   const report = await probeOcclusion(page, CLIP, null, PILL, [TOGGLE_ID]);
   const onToggle = report.interceptions.filter((i) => i.control === TOGGLE_ID);
 

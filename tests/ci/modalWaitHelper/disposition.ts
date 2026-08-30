@@ -458,8 +458,8 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    // 73 -> 74 -> 75 -> 76 -> 78 -> 80, by five independent arcs, which is what a
-    // declared population claim looks like when it is doing its job.
+    // 73 -> 74 -> 75 -> 76 -> 78 -> 80 -> 81, by six independent arcs, which is
+    // what a declared population claim looks like when it is doing its job.
     //
     // feat/review-modal-strip-dock added two: the §7 anchor-room measurement,
     // which drives a refusal through the real modal at `baseUrl` and is the case
@@ -490,11 +490,19 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // finger hits once the menu no longer opens itself below `sm`. Both gotos
     // are harness navigations; neither is ever the /admin loader.
     //
+    // fix/pill-size-draft-restored-note adds one, in
+    // `tests/e2e/published-review-modal.layout.spec.ts`: the T-PILL fixture case
+    // boots a SECOND harness page from the same mkdtemp server, so the
+    // three-segment and degraded pill branches can be measured on one stylesheet
+    // without the `/admin` loader. The note cases in
+    // `step3-review-modal.interactions.spec.ts` add none, because they reuse the
+    // goto that spec already had.
+    //
     // A declared count is a population claim, so growing the population is an
     // edit here by design — and this rule is a SUBJECT of
     // _metaScratchRootCleanup, so a stale count here fails that suite's premise
     // downstream, which is how the strip-dock bump was found.
-    expectedCount: 80,
+    expectedCount: 81,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {

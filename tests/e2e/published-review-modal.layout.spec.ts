@@ -140,6 +140,11 @@ test.beforeAll(async () => {
     crewWarnings: string;
     crewWarningsCapped: string;
     saturatedTitle: string;
+    threeSegment: string;
+    markWarningsOnly: string;
+    markMonitoringOnly: string;
+    markWorstCase: string;
+    degraded: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
   diagramConst = pages.diagram;
@@ -160,6 +165,15 @@ test.beforeAll(async () => {
   writeFileSync(join(workDir, "archived.html"), pageHtml("out.css", pages.archived));
   // sheet-icon-link spec §7.7: saturated header title (action-side worst case).
   writeFileSync(join(workDir, "saturatedtitle.html"), pageHtml("out.css", pages.saturatedTitle));
+  // spec 2026-08-30 AC-1 / AC-3.
+  writeFileSync(join(workDir, "threeseg.html"), pageHtml("out.css", pages.threeSegment));
+  writeFileSync(join(workDir, "degraded.html"), pageHtml("out.css", pages.degraded));
+  writeFileSync(join(workDir, "markwarnings.html"), pageHtml("out.css", pages.markWarningsOnly));
+  writeFileSync(join(workDir, "markworst.html"), pageHtml("out.css", pages.markWorstCase));
+  writeFileSync(
+    join(workDir, "markmonitoring.html"),
+    pageHtml("out.css", pages.markMonitoringOnly),
+  );
   // crew-warning-attachment T5: matched (under-row) + unmatched (in-card group).
   writeFileSync(join(workDir, "crewwarnings.html"), pageHtml("out.css", pages.crewWarnings));
   // crewwarn-underrow-polish §4: capped mixed stack (banner + 3 warnings, one member).
@@ -692,7 +706,31 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           const hit = document.elementFromPoint(cx, y);
           return hit !== null && (hit === el || el.contains(hit));
         };
-        return { visibleHeight: box.height, top: hits(topY), bottom: hits(botY) };
+        // Diagnostic for the local-vs-CI divergence (T-TAP @375). Local
+        // measures one line, CI two, and the two heights share the fractional
+        // part .296875 -- identical per-line metrics, so the font is NOT the
+        // variable and the available WIDTH is. Reported in the failure message
+        // so the classification comes from the failing run itself.
+        const parent = el.parentElement;
+        return {
+          visibleHeight: box.height,
+          top: hits(topY),
+          bottom: hits(botY),
+          diag: {
+            font: getComputedStyle(el).fontFamily,
+            fontSize: getComputedStyle(el).fontSize,
+            lineHeight: getComputedStyle(el).lineHeight,
+            pillWidth: box.width,
+            parentWidth: parent ? parent.getBoundingClientRect().width : null,
+            innerWidth: window.innerWidth,
+            clientWidth: document.documentElement.clientWidth,
+            scrollbarPx: window.innerWidth - document.documentElement.clientWidth,
+            interFaces: [...document.fonts]
+              .filter((f) => f.family.replace(/^["']|["']$/g, "") === "Inter")
+              .map((f) => f.status)
+              .join(","),
+          },
+        };
       });
 
       // Non-vacuity: the probe only proves anything if the VISIBLE pill is
@@ -701,7 +739,7 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
       // the design regression this test exists to prevent.
       expect(
         probe.visibleHeight,
-        `visible pill stays slim (${probe.visibleHeight}px) — the ::before, not the box, supplies the 44px floor`,
+        `visible pill stays slim (${probe.visibleHeight}px) — the ::before, not the box, supplies the 44px floor. DIAG ${JSON.stringify(probe.diag)}`,
       ).toBeLessThan(TAP_MIN);
       expect(probe.top, `21px ABOVE the pill's center hits the pill @ ${mode}`).toBe(true);
       expect(probe.bottom, `21px BELOW the pill's center hits the pill @ ${mode}`).toBe(true);
@@ -853,11 +891,24 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   // Close, so a four-digit count widens that group and squeezes the title —
   // breaking the Step 3 frame this change exists to adopt.
   //
-  // The assertion is DELIBERATELY NOT "same width as the 2-alert case":
-  // "99+ alerts" is legitimately wider than "2 alerts", so an equal-width
-  // assertion would be false-red, and the tempting fix would be dropping the
-  // visible unit §6.6 requires. What is asserted is that the group stays a
-  // MINORITY of the header and leaves the title real width.
+  // The assertion is DELIBERATELY NOT "same width as the 2-alert case": a
+  // capped count is legitimately wider than "2", so an equal-width assertion
+  // would be false-red. What is asserted is that the group stays a MINORITY of
+  // the header and leaves the title real width.
+  //
+  // SUPERSEDED, and the correction is the point (whole-diff R1 P1, 2026-08-30).
+  // This case used to assert that the visible text reads "99+ issues", on §6.6's
+  // grounds that a bare "99+" is not self-explanatory. Decision 7 (Eric,
+  // ratified 2026-08-30) overrides that BELOW `sm`: the phone pill shows counts
+  // only, with the unit carried in the accessible name. So the old assertion
+  // demanded exactly what the ratified fence forbids.
+  //
+  // Worse, it PASSED while demanding it. The old probe cloned the pill and
+  // stripped `.sr-only`, which does not match `max-sm:sr-only`, so the detached
+  // clone reported "99+ issues" while the live phone render showed "99+". A
+  // false green that could not have distinguished the shipped implementation
+  // from a regression restoring phone nouns. The probe now reads the LIVE tree
+  // and skips visually hidden ancestors, so it cannot drift from what renders.
   test("T-ALERT-CAP @375: a 1200-alert count stays capped and never starves the title", async ({
     page,
   }) => {
@@ -866,17 +917,55 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
     await expect(pill).toHaveCount(1);
 
-    // Visible text is capped — with the sr-only exact count stripped, since
-    // that node is precisely what must NOT satisfy a "visible text" claim.
+    // Read the LIVE tree, never a detached clone: a clone has no layout, so
+    // "hidden" there can only be guessed from class names, and guessing by
+    // `.sr-only` is what made this oracle false-green against `max-sm:sr-only`.
     const visible = await pill.evaluate((el) => {
-      const clone = el.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll('.sr-only, [aria-hidden="true"]').forEach((n) => n.remove());
-      return clone.textContent!.replace(/\s+/g, " ").trim();
+      const hiddenAncestor = (n: Node): boolean => {
+        for (
+          let e: HTMLElement | null = n.parentElement;
+          e && e !== el.parentElement;
+          e = e.parentElement
+        ) {
+          // Whole-diff R2 P1: recognising ONLY the sr-only shape left an
+          // ordinary `opacity-0`, `invisible` or `hidden` count wrapper counted
+          // as visible, so the rendered count could vanish while this guard
+          // still saw a digit. Every ordinary way to hide a box, computed.
+          const cs = getComputedStyle(e);
+          if (cs.display === "none" || cs.visibility === "hidden") return true;
+          if (parseFloat(cs.opacity) === 0) return true;
+          // Whole-diff R3 P1: `display: contents` generates NO box, so every
+          // rect below reads 0x0 on an element that hides NOTHING -- its
+          // children are laid out by the grandparent and render normally. A
+          // one-class edit from `max-sm:sr-only` to `max-sm:contents` therefore
+          // made the noun VISIBLE while this walker dropped it as hidden, and
+          // the counts-only assertion still passed: the guard accepted the exact
+          // regression it exists to reject. Skip the box tests for a
+          // pass-through element; its own ancestors are still checked on the
+          // following turns of this loop. `tests/e2e/helpers/phantomGap.ts:256`
+          // already recurses through `contents` for the same reason.
+          if (cs.display === "contents") continue;
+          const r = e.getBoundingClientRect();
+          if (cs.position === "absolute" && r.width <= 2) return true;
+          if (r.width === 0 || r.height === 0) return true;
+          if (e.getAttribute("aria-hidden") === "true") return true;
+        }
+        return false;
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let out = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!hiddenAncestor(n)) out += n.textContent ?? "";
+      }
+      return out.replace(/\s+/g, " ").trim();
     });
     expect(
       visible,
-      "the UNIT stays visible past the cap — a bare '99+' is not self-explanatory",
-    ).toBe("99+ issues");
+      "below sm the capped pill shows the COUNT ONLY (Decision 7); the unit lives in the accessible name",
+    ).toBe("99+");
+    // And the unit is genuinely still announced, so counts-only is a visual
+    // change and not a loss of meaning. Asserted against the COMPUTED name.
+    await expect(pill).toHaveAccessibleName(/issue/);
 
     const geom = await page.locator(HEADER).evaluate((header) => {
       const title = header.querySelector('[data-testid$="-title"]')!;
@@ -2031,4 +2120,876 @@ test.describe("diagram tile sizes oracle (published manifest, real ladder)", () 
       }
     });
   }
+});
+
+/**
+ * spec 2026-08-30: the pill's phone type size (§2.3) and the two risks it
+ * carries (§2.7). Fixture integrity is proved first and separately, because
+ * every geometry claim below rests on the fixture rendering three segments.
+ */
+test.describe("attention pill phone type size (spec 2026-08-30)", () => {
+  // ---------------------------------------------------------------------
+  // Decision 7 (Eric, ratified 2026-08-30): below `sm` the pill shows the
+  // COUNTS ONLY; the full wording stays at `sm` and up, and in the opened menu.
+  //
+  // WHY, in one line of arithmetic: the pill sits in a container capped at
+  // `max-width: 160px` (HEADER_ACTION_CAP, strip-dock §3.0). At `text-xs` the
+  // widest single-segment cluster measured 157.422px, 2.578px under that cap.
+  // Decision 5B's `text-sm` took the same cluster to 160px exactly, so any
+  // two-digit count wrapped -- on EVERY platform, not merely in CI. Counts-only
+  // takes it to 128.938px, 31.063px of headroom, and is the only measured option
+  // that MAKES headroom rather than spending it.
+  //
+  // DOCUMENTED LIMIT, named rather than hidden: a two-segment pill with BOTH
+  // counts past 99 ("99+ · 99+") still reaches 160px and wraps to 48.297px. That
+  // is a show with 100+ open issues AND 100+ monitoring items simultaneously,
+  // past the load 30 the cap's own ratifying sweep treated as realistic. It is
+  // accepted, not fixed, and asserted below so it cannot regress silently into
+  // something worse.
+  /**
+   * The leading mark, measured as GEOMETRY in a real browser.
+   *
+   * Three review rounds died on this one axis, each time because the guard
+   * checked a proxy instead of the property: R1's guard compared className
+   * strings, R2's reduced them to (filled, ringed) booleans still derived from
+   * classes, and R3 showed that a "ringed" mark whose ring measures 1.179:1
+   * against its own fill is not ringed to a human at all. Class strings cannot
+   * answer "can this be seen"; computed style can.
+   *
+   * So this reads `border-radius`, `background-color` and the rendered box off
+   * the live element, and the load-bearing assertion is the last one: issues and
+   * warnings must share a BACKGROUND, which makes hue provably not the carrier.
+   * If a later change separates the two states by colour again, that assertion
+   * fails even though the pill would look fine to whoever made the change.
+   */
+  test("T-MARK-GEOMETRY @375: the three leading marks differ in SHAPE, not in colour", async ({
+    page,
+  }) => {
+    const readMark = async (htmlPath: string) => {
+      await openHarness(page, { width: 375, height: 812 }, htmlPath);
+      return page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).evaluate((pill) => {
+        // The mark is the pill's first decorative span; the middots are the
+        // later ones. Same node the component renders as `aria-hidden`.
+        const mark = pill.querySelector<HTMLElement>('span[aria-hidden="true"]');
+        if (mark === null) return null;
+        const cs = getComputedStyle(mark);
+        const r = mark.getBoundingClientRect();
+        const px = (v: string) => parseFloat(v) || 0;
+        return {
+          w: r.width,
+          h: r.height,
+          radius: px(cs.borderTopLeftRadius),
+          bg: cs.backgroundColor,
+          borderWidth: px(cs.borderTopWidth),
+          // The triangle is a clip-path, so its border-radius is 0 -- the SAME
+          // as the square this shipped as first. Radius alone therefore no
+          // longer separates the three marks, and reading it alone would have
+          // gone on passing after the glyph changed meaning.
+          clip: cs.clipPath,
+        };
+      });
+    };
+
+    const issues = await readMark("harness.html");
+    const warnings = await readMark("markwarnings.html");
+    const monitoring = await readMark("markmonitoring.html");
+
+    // PREMISE, positively asserted: three real marks with real boxes. Without
+    // this the whole case passes vacuously on three nulls, which is exactly the
+    // shape of the P0 test that drove two harness flags to one state earlier in
+    // this branch.
+    for (const [name, m] of [
+      ["issues", issues],
+      ["warnings", warnings],
+      ["monitoring", monitoring],
+    ] as const) {
+      expect(m, `premise: the ${name} fixture renders a leading mark`).not.toBeNull();
+      expect(m!.w, `premise: the ${name} mark has a real box`).toBeGreaterThan(0);
+      expect(m!.h, `premise: the ${name} mark has a real box`).toBeGreaterThan(0);
+    }
+
+    const TRANSPARENT = "rgba(0, 0, 0, 0)";
+    // A polygon's POINT COUNT, not the word "polygon". Whole-diff R4 showed the
+    // weaker predicate accepts the retired square: a four-point clip keeps zero
+    // radius, the amber fill and `clipped: true`, so every assertion passed on
+    // the exact glyph this arc replaced. Three points is what makes it a
+    // triangle, so three points is what gets asserted.
+    // AREA, not a point count. R5: three COLLINEAR points pass a count check
+    // while painting nothing -- `polygon(50% 100%, 100% 100%, 0% 100%)` is a
+    // flat line with an 8px box, a computed fill and zero radius, so every
+    // other assertion here stays green and the mark is invisible.
+    const polyArea = (clip: string) => {
+      const m = /polygon\(([^)]*)\)/.exec(clip);
+      if (m === null) return 0;
+      const pts = m[1]!
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== "")
+        .map((p) => p.split(/[\s_]+/).map((n) => parseFloat(n)));
+      if (pts.length !== 3 || pts.some((p) => p.length !== 2 || p.some(Number.isNaN))) return 0;
+      const [a, b, c] = pts as [number[], number[], number[]];
+      return (
+        Math.abs(a[0]! * (b[1]! - c[1]!) + b[0]! * (c[1]! - a[1]!) + c[0]! * (a[1]! - b[1]!)) / 2
+      );
+    };
+
+    const shapeOf = (m: NonNullable<typeof issues>) => ({
+      // Fully round means a radius at least half the box.
+      round: m.radius >= m.w / 2 - 0.5,
+      // A triangle with REAL AREA: not the four-point square, and not three
+      // collinear points either.
+      triangle: polyArea(m.clip) > 100,
+      filled: m.bg !== TRANSPARENT,
+      // The ring is only a ring if it has a stroke. R4: this value was READ and
+      // never asserted, so deleting `border-[1.5px]` from the monitoring mark
+      // left an 8px round transparent box that passed as a "hollow circle".
+      ringed: m.borderWidth > 0,
+    });
+    const si = shapeOf(issues!);
+    const sw = shapeOf(warnings!);
+    const sm = shapeOf(monitoring!);
+
+    expect(si, "issues is a FILLED CIRCLE with no stroke").toEqual({
+      round: true,
+      triangle: false,
+      filled: true,
+      ringed: false,
+    });
+    expect(sw, "warnings is a FILLED TRIANGLE").toEqual({
+      round: false,
+      triangle: true,
+      filled: true,
+      ringed: false,
+    });
+    expect(sm, "monitoring is a HOLLOW, RINGED CIRCLE").toEqual({
+      round: true,
+      triangle: false,
+      filled: false,
+      ringed: true,
+    });
+
+    // LEGIBILITY AT RENDERED SIZE, which is the condition this repair shipped
+    // under. The circle is fully round and the triangle is not round at all, so
+    // the separation is the whole radius rather than a tuned fraction of it --
+    // derived from the measured box, never a pixel literal.
+    expect(
+      issues!.radius,
+      `the circle must be fully round at the rendered ${issues!.w}px box`,
+    ).toBeGreaterThanOrEqual(issues!.w / 2 - 0.5);
+    expect(warnings!.radius, "the triangle carries no radius at all").toBeLessThanOrEqual(0.5);
+
+    // Every mark occupies the SAME 8px box, which is what KINDDOT-1 requires of
+    // a third shape: it aligns with its sibling discs and nothing reflows.
+    for (const [name, m] of [
+      ["warnings", warnings],
+      ["monitoring", monitoring],
+    ] as const) {
+      expect(m!.w, `the ${name} mark shares the issues mark's box width`).toBeCloseTo(issues!.w, 1);
+      expect(m!.h, `the ${name} mark shares the issues mark's box height`).toBeCloseTo(
+        issues!.h,
+        1,
+      );
+    }
+
+    // THE POINT. Hue is not the carrier: the two filled states are the SAME
+    // colour, so every bit of the issues-vs-warnings distinction is shape.
+    expect(
+      warnings!.bg,
+      "issues and warnings must share a fill, so SHAPE carries the distinction",
+    ).toBe(issues!.bg);
+  });
+
+  /**
+   * The MIXED state, which is where the shape channel was actually broken.
+   *
+   * The leading mark describes whichever segment LEADS, so with issues AND
+   * warnings present it is the issues circle and the warnings segment rendered
+   * as a bare integer: below `sm` the pill read "3 · 2", two amber numbers
+   * separated by position alone. The triangle only ever appeared in the
+   * warnings-ONLY pill. So the distinction was closed in the rare state and open
+   * in the common one, and nothing measured the common one -- the impeccable
+   * critique and the detector assessment found it independently of each other.
+   *
+   * This is that case. It also carries the cap measurement, because the repair
+   * adds a mark to a cluster with a `max-width` ceiling and the ceiling is the
+   * reason the copy went counts-only in the first place.
+   */
+  test("T-MARK-SEGMENT @375: in the MIXED state the warnings count carries its own mark, inside the cap", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "markworst.html");
+
+    const measured = await page
+      .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
+      .evaluate((pill) => {
+        const px = (v: string) => parseFloat(v) || 0;
+        const markOf = (el: Element | null) => {
+          const m = el?.querySelector<HTMLElement>('span[aria-hidden="true"]') ?? null;
+          if (m === null) return null;
+          const cs = getComputedStyle(m);
+          const r = m.getBoundingClientRect();
+          // Area, not a point count -- see T-MARK-GEOMETRY. Computed in the
+          // page because the clip is only available as a computed string here.
+          const pm = /polygon\(([^)]*)\)/.exec(cs.clipPath);
+          let area = 0;
+          if (pm !== null) {
+            const q = pm[1]!
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s !== "")
+              .map((p) => p.split(/[\s_]+/).map((n) => parseFloat(n)));
+            if (q.length === 3 && q.every((p) => p.length === 2 && !p.some(Number.isNaN))) {
+              area =
+                Math.abs(
+                  q[0]![0]! * (q[1]![1]! - q[2]![1]!) +
+                    q[1]![0]! * (q[2]![1]! - q[0]![1]!) +
+                    q[2]![0]! * (q[0]![1]! - q[1]![1]!),
+                ) / 2;
+            }
+          }
+          return {
+            w: r.width,
+            radius: px(cs.borderTopLeftRadius),
+            triangle: area > 100,
+            bg: cs.backgroundColor,
+          };
+        };
+        // The pill's own first decorative span is the LEADING mark.
+        const leading = markOf(pill);
+        const warnSeg = pill.querySelector('[data-testid="attention-pill-warnings-segment"]');
+        const monSeg = pill.querySelector('[data-testid="attention-pill-monitoring-segment"]');
+
+        // The capped ancestor, found by its computed ceiling rather than by a
+        // testid it does not have -- HEADER_ACTION_CAP's contract IS the
+        // max-width, so deriving it from that cannot drift from the token.
+        let capped: HTMLElement | null = null;
+        for (let e = pill.parentElement; e !== null; e = e.parentElement) {
+          const mw = px(getComputedStyle(e).maxWidth);
+          if (mw > 0) {
+            capped = e;
+            break;
+          }
+        }
+        return {
+          leading,
+          warnings: markOf(warnSeg),
+          monitoring: markOf(monSeg),
+          warnSegText: (warnSeg?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          pillW: pill.getBoundingClientRect().width,
+          pillH: pill.getBoundingClientRect().height,
+          capW: capped === null ? null : capped.getBoundingClientRect().width,
+          capMax: capped === null ? null : px(getComputedStyle(capped).maxWidth),
+        };
+      });
+
+    // PREMISE, positively asserted: this really is the mixed state. Without it
+    // the case passes vacuously on a pill that renders one segment.
+    expect(measured.warnings, "premise: the warnings segment is present").not.toBeNull();
+    expect(measured.monitoring, "premise: the monitoring segment is present").not.toBeNull();
+    expect(measured.leading, "premise: the pill renders a leading mark").not.toBeNull();
+    expect(
+      measured.warnSegText,
+      "premise: the warnings segment renders a TWO-DIGIT count, the worst realistic load",
+    ).toMatch(/\d\d/);
+
+    // THE FIX. The warnings segment carries its own mark, and that mark is the
+    // triangle -- not the circle the leading mark is showing for issues.
+    expect(measured.warnings!.triangle, "the warnings count carries its OWN triangle").toBe(true);
+    expect(measured.leading!.triangle, "the leading mark is the issues circle here").toBe(false);
+    expect(
+      measured.leading!.radius,
+      "the leading mark is fully round in the mixed state",
+    ).toBeGreaterThanOrEqual(measured.leading!.w / 2 - 0.5);
+
+    // And hue is still not the carrier: both marks are the same ink.
+    expect(
+      measured.warnings!.bg,
+      "the segment mark shares the leading mark's fill, so SHAPE separates them",
+    ).toBe(measured.leading!.bg);
+
+    // THE CAP. The added mark must not push the cluster past its ceiling.
+    expect(measured.capMax, "premise: a capped ancestor was found").not.toBeNull();
+    expect(
+      measured.capW!,
+      `the action cluster must stay within its ${measured.capMax}px ceiling ` +
+        `(measured ${measured.capW}px, pill ${measured.pillW}x${measured.pillH})`,
+    ).toBeLessThanOrEqual(measured.capMax! + 0.5);
+  });
+
+  /**
+   * The mark's GROUND, measured rather than declared, and the mark COUNT per state.
+   *
+   * `attentionMarkClass(kind, plate)` makes every caller state the surface it
+   * paints on, which is a real improvement over four rounds of choosing an ink
+   * by eye. But whole-diff R5 pointed out what a parameter cannot do: nothing
+   * checked that the stated plate is the ACTUAL plate. Passing `sunken` for a
+   * mark that paints on `warning-bg` type-checks, satisfies the structural
+   * contrast arm (which believes the argument), and ships a ring at 2.793:1.
+   *
+   * So this reads the ink off the rendered element and walks UP to the first
+   * ancestor that actually paints a background, then computes the ratio between
+   * them. It cannot be fooled by a wrong argument, because it never reads one.
+   *
+   * It also counts marks per state. R5 showed the three leader-only states had
+   * no count guard at all: a one-edit change to any suppression predicate takes
+   * them from one mark to two, and the existing oracles either read only the
+   * first mark or exercise the mixed state where both predicates are already
+   * true.
+   */
+  test("T-MARK-GROUND @375: every mark clears 3:1 against the surface it really paints on", async ({
+    page,
+  }) => {
+    const readMarksHere = async () =>
+      page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).evaluate((pill) => {
+        const parse = (c: string): [number, number, number, number] | null => {
+          const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/.exec(c);
+          return m === null
+            ? null
+            : [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+        };
+        const out: {
+          ink: [number, number, number, number];
+          ground: [number, number, number, number];
+          opacity: number;
+        }[] = [];
+        for (const el of Array.from(
+          pill.querySelectorAll<HTMLElement>('span[aria-hidden="true"]'),
+        )) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          const cs = getComputedStyle(el);
+          // A ring's ink is its border; a filled mark's ink is its background.
+          const ringed = parseFloat(cs.borderTopWidth) > 0;
+          const ink = parse(ringed ? cs.borderTopColor : cs.backgroundColor);
+          if (ink === null || ink[3] === 0) continue;
+          // The first ancestor that actually PAINTS. Transparent parents do not
+          // ground anything, which is the whole point of walking rather than
+          // reading the immediate parent.
+          let ground: [number, number, number, number] | null = null;
+          for (let a: HTMLElement | null = el.parentElement; a !== null; a = a.parentElement) {
+            const c = parse(getComputedStyle(a).backgroundColor);
+            if (c !== null && c[3] > 0) {
+              ground = c;
+              break;
+            }
+          }
+          if (ground === null) continue;
+          // Accumulated opacity, so a faded mark cannot pass on token values.
+          let opacity = 1;
+          for (let a: HTMLElement | null = el; a !== null; a = a.parentElement) {
+            opacity *= parseFloat(getComputedStyle(a).opacity);
+          }
+          out.push({ ink, ground, opacity });
+        }
+        return out;
+      });
+
+    const hex = (c: readonly number[]) =>
+      `#${c
+        .slice(0, 3)
+        .map((v) => v.toString(16).padStart(2, "0"))
+        .join("")}`;
+
+    // Token tables from the LIVE stylesheet, with BOTH dark blocks kept apart:
+    // this project themes dark twice (first paint, and the explicit toggle) and
+    // a viewer sees one or the other.
+    //
+    // Read from the stylesheet rather than by re-rendering the fixture in dark,
+    // deliberately. Toggling `data-theme` on these harnesses switches some
+    // surfaces and not the pill's own plate, so a rendered dark check asserts
+    // into a half-switched page -- dark ink measured against a light ground,
+    // which is a state no viewer ever sees. Identify the plate by what it
+    // RENDERS, then do the contrast arithmetic on tokens.
+    const css = readFileSync(join(REPO_ROOT, "app/globals.css"), "utf8");
+    const mediaAt = css.indexOf("@media (prefers-color-scheme: dark)");
+    const attrAt = css.indexOf('[data-theme="dark"] {');
+    const readTable = (slice: string) => {
+      const out: Record<string, string> = {};
+      for (const m of slice.matchAll(/--color-([a-z-]+)-runtime:\s*(#[0-9a-fA-F]{6})/g)) {
+        if (out[m[1]!] === undefined) out[m[1]!] = m[2]!.toLowerCase();
+      }
+      return out;
+    };
+    const [lo, hi] = mediaAt < attrAt ? [mediaAt, attrAt] : [attrAt, mediaAt];
+    const TOK = {
+      light: readTable(css.slice(0, lo)),
+      darkA: readTable(css.slice(lo, hi)),
+      darkB: readTable(css.slice(hi)),
+    };
+    expect(Object.keys(TOK.light).length, "premise: the light token table parsed").toBeGreaterThan(
+      5,
+    );
+    const invert = (names: readonly string[]) =>
+      Object.fromEntries(names.map((n) => [TOK.light[n]!, n])) as Record<string, string>;
+    const PLATE_BY_LIGHT_HEX = invert(["warning-bg", "surface-sunken"]);
+    const INK_BY_LIGHT_HEX = invert([
+      "status-review",
+      "status-positive",
+      "text-faint",
+      "text-subtle",
+    ]);
+    const lum = (h: string) => {
+      const ch = [1, 3, 5].map((i) => {
+        const s = parseInt(h.slice(i, i + 2), 16) / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
+    };
+    /** The worse of the two dark blocks, so neither hides behind the other. */
+    const tokenContrast = (ink: string, plate: string, mode: "light" | "dark") =>
+      Math.min(
+        ...(mode === "light" ? [TOK.light] : [TOK.darkA, TOK.darkB]).map((tb) => {
+          const [x, y] = [lum(tb[ink]!), lum(tb[plate]!)];
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        }),
+      );
+
+    // Every state, with the number of marks each must render. The three
+    // leader-only states are the ones R5 found unguarded: exactly ONE mark, so
+    // a suppression predicate that regresses shows up here as two.
+    const STATES: ReadonlyArray<{ page: string; marks: number; what: string }> = [
+      { page: "harness.html", marks: 1, what: "issues-led" },
+      { page: "markwarnings.html", marks: 1, what: "warnings-only" },
+      { page: "markmonitoring.html", marks: 1, what: "monitoring-only" },
+      { page: "threeseg.html", marks: 3, what: "all three segments" },
+    ];
+
+    for (const state of STATES) {
+      await openHarness(page, { width: 375, height: 812 }, state.page);
+      const marks = await readMarksHere();
+      expect(
+        marks.length,
+        `${state.what}: expected exactly ${state.marks} mark(s), one per visible segment`,
+      ).toBe(state.marks);
+      for (const [i, m] of marks.entries()) {
+        // WHICH PLATE IS THIS, REALLY -- read off the render, never taken from
+        // the argument the call site passed.
+        const groundHex = hex(m.ground);
+        const plate = PLATE_BY_LIGHT_HEX[groundHex];
+        expect(
+          plate,
+          `${state.what} mark ${i}: painted on ${groundHex}, neither warning-bg nor surface-sunken`,
+        ).toBeDefined();
+        const inkHex = hex(m.ink);
+        const ink = INK_BY_LIGHT_HEX[inkHex];
+        expect(ink, `${state.what} mark ${i}: ink ${inkHex} is not a known token`).toBeDefined();
+        expect(m.opacity, `${state.what} mark ${i} is faded to ${m.opacity}`).toBe(1);
+        for (const mode of ["light", "dark"] as const) {
+          const r = tokenContrast(ink!, plate!, mode);
+          expect(
+            r,
+            `${state.what} mark ${i}: ${ink} on ${plate} is ${r.toFixed(3)}:1 in ${mode} mode, under the 3:1 non-text floor (WCAG 1.4.11)`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+  });
+
+  test("T-COUNTS-ONLY @375: the pill shows counts without nouns, and still ANNOUNCES them", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "threeseg.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveCount(1);
+
+    const seen = await pill.evaluate((el) => {
+      // VISIBLE text only: sr-only content is positioned out of flow but stays
+      // in textContent, so reading textContent would pass on an implementation
+      // that changed nothing. Walk the text nodes and drop any whose ancestor
+      // chain is visually hidden.
+      const hidden = (n: Node): boolean => {
+        let e: HTMLElement | null = n.parentElement;
+        while (e && e !== el.parentElement) {
+          // Same widening as T-ALERT-CAP (whole-diff R2 P1): a hairline box is
+          // only ONE way to be invisible, and the others let a vanished count
+          // satisfy a "the counts stay visible" claim.
+          const cs = getComputedStyle(e);
+          if (cs.display === "none" || cs.visibility === "hidden") return true;
+          if (parseFloat(cs.opacity) === 0) return true;
+          // Whole-diff R3 P1: same defect as the T-ALERT-CAP walker above --
+          // `display: contents` makes every rect below 0x0 on an element that
+          // hides nothing. NOT a `continue` here: this is a while loop whose
+          // increment sits at the BOTTOM, so continuing would skip it and spin
+          // forever. The box tests are guarded instead.
+          if (cs.display !== "contents") {
+            const r = e.getBoundingClientRect();
+            if (r.width <= 1 && r.height <= 1) return true;
+            if (cs.position === "absolute" && r.width <= 2) return true;
+          }
+          e = e.parentElement;
+        }
+        return false;
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let visible = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!hidden(n)) visible += n.textContent ?? "";
+      }
+      return {
+        visible: visible.replace(/\s+/g, " ").trim(),
+        announced: (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+      };
+    });
+
+    // The nouns are GONE from the visible pill...
+    for (const noun of ["issue", "issues", "sheet warning", "sheet warnings", "monitoring"]) {
+      expect(seen.visible, `"${noun}" must not be visible below sm`).not.toContain(noun);
+    }
+    // ...but at least one digit still is, so this cannot pass on an empty pill.
+    expect(seen.visible, "the counts themselves stay visible").toMatch(/\d/);
+    // ...and the nouns survive in the COMPUTED ACCESSIBLE NAME, not merely in
+    // `textContent`. The distinction is the whole assertion: `textContent` is a
+    // property of the DOM subtree, so it would still contain "issues" under an
+    // `aria-label` that replaced the name outright, and this test would pass
+    // while a screen reader heard "2". `toHaveAccessibleName` runs the actual
+    // name computation, which is the thing the ruling promised to preserve.
+    // EVERY segment's noun, not a sample of them. Whole-diff R4 mutated one
+    // noun away and this passed: the name read
+    // "2 issues·2·2 monitoring clearing on their own" -- the sheet-warnings
+    // noun simply gone -- while /issue/ and /monitoring/ both still matched.
+    // A three-segment pill needs three assertions.
+    for (const noun of [/issue/, /sheet warning/, /monitoring/]) {
+      await expect(pill, `the accessible name must keep ${noun}`).toHaveAccessibleName(noun);
+    }
+    // textContent is kept as a SECOND, weaker check: if the two ever disagree,
+    // the name is being synthesised from somewhere other than the visible tree.
+    expect(seen.announced, "the nouns are in the subtree too").toContain("issue");
+  });
+
+  test("T-COUNTS-ONLY @1280: the full wording is BACK at sm and up", async ({ page }) => {
+    await openHarness(page, { width: 1280, height: 812 }, "threeseg.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveCount(1);
+    const visible = await pill.evaluate((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let out = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const e = n.parentElement as HTMLElement | null;
+        const r = e?.getBoundingClientRect();
+        if (r && r.width > 1 && r.height > 1) out += n.textContent ?? "";
+      }
+      return out.replace(/\s+/g, " ").trim();
+    });
+    expect(visible, "the noun returns above the breakpoint").toContain("issue");
+    expect(visible, "the monitoring noun returns too").toContain("monitoring");
+  });
+
+  test("T-COUNTS-CAP @375: the widest single-segment load stays on ONE line", async ({ page }) => {
+    // The DISCRIMINATING fixture. T-TAP ran on the default page, whose pill says
+    // "2 issues", and that copy is short enough to fit at `text-sm` on darwin --
+    // which is exactly why a wrap that reached every two-digit show in production
+    // was caught only by a CI runner with wider glyph advances. `capped.html`
+    // renders past the 99 cap, so the segment reads "99+", the widest one.
+    await openHarness(page, { width: 375, height: 812 }, "capped.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveCount(1);
+    const m = await pill.evaluate((el) => {
+      const cluster = el.parentElement?.parentElement as HTMLElement;
+      return {
+        pillH: el.getBoundingClientRect().height,
+        clusterW: cluster.getBoundingClientRect().width,
+        lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+      };
+    });
+    // ONE line: the pill's height must stay within a line box plus its padding,
+    // derived from the live line-height rather than a pinned pixel constant.
+    expect(
+      m.pillH,
+      `the widest single-segment pill wrapped (${m.pillH}px against a ${m.lineHeight}px line box)`,
+    ).toBeLessThan(m.lineHeight + 12);
+    expect(m.clusterW, "and the cluster stays under the 160px cap").toBeLessThan(160);
+  });
+
+  test("T-PILL-FIXTURES @375: threeseg renders three segments, degraded renders the degraded branch", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "threeseg.html");
+    const three = (
+      (await page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).textContent()) ?? ""
+    ).replace(/\s+/g, " ");
+    // Named separately: one combined regex passes with a segment missing.
+    expect(three, "issues segment").toMatch(/\d+ issues?/);
+    expect(three, "sheet-warnings segment").toMatch(/\d+ sheet warnings?/);
+    expect(three, "monitoring segment").toMatch(/\d+ monitoring/);
+
+    await openHarness(page, { width: 375, height: 812 }, "degraded.html");
+    await expect(page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)).toHaveText(
+      /Alerts unavailable/,
+    );
+  });
+
+  test("T-PILL-SIZE @375x812: three-segment pill is 14px, at the cap, unclipped, ONE text row", async ({
+    page,
+  }) => {
+    const measure = () =>
+      page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const box = el.getBoundingClientRect();
+        const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+        const bord = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+        const cluster = el.parentElement!.parentElement!;
+        const cb = cluster.getBoundingClientRect();
+        const ccs = getComputedStyle(cluster);
+        // Every segment's OWN rect, so a segment painted outside the pill is
+        // caught rather than only the pill's own scroll overflow.
+        const kids = [...el.children].map((c) => c.getBoundingClientRect());
+        return {
+          fontSize: cs.fontSize,
+          h: box.height,
+          w: box.width,
+          contentH: box.height - pad - bord,
+          clusterW: cb.width,
+          spillsCluster: box.right > cb.right + 0.5 || box.left < cb.left - 0.5,
+          radius: cs.borderTopLeftRadius,
+          // Each VISIBLE segment's own height, so "one line per segment" is
+          // measurable. sr-only nodes are excluded: they are absolutely
+          // positioned and 1px wide, and counting them made an earlier probe
+          // report eight lines on a three-line pill.
+          segHeights: [...el.children]
+            .filter((c) => {
+              const ccs = getComputedStyle(c);
+              return !(ccs.position === "absolute" && c.getBoundingClientRect().width <= 2);
+            })
+            .map((c) => c.getBoundingClientRect().height),
+          clusterMaxW: ccs.maxWidth,
+          gap: parseFloat(ccs.columnGap || ccs.gap || "0"),
+          // NOT a scroll-dimension test. This box is `overflow: visible` and
+          // carries a `before:-inset-y-3` hit band, so scrollHeight exceeds
+          // clientHeight by 12px at EVERY type size, including the one that
+          // shipped before this change. Clipping is settled by whether the
+          // element can clip at all, plus segment containment below.
+          canClip: !["visible"].includes(cs.overflowX) || !["visible"].includes(cs.overflowY),
+          kidsInside: kids.every(
+            (k) =>
+              k.left >= box.left - 0.5 &&
+              k.right <= box.right + 0.5 &&
+              k.top >= box.top - 0.5 &&
+              k.bottom <= box.bottom + 0.5,
+          ),
+          // Line count from the TEXT's own client rects, not from child tops:
+          // the decorative dot is vertically centred, so its top differs from
+          // the text's and counting children counts the dot as a line.
+          lines: (() => {
+            const tops = new Set<number>();
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) {
+              const n = walker.currentNode as Text;
+              if (!n.textContent?.trim()) continue;
+              // Skip VISUALLY HIDDEN text. Decision 7 moved each noun into a
+              // `max-sm:sr-only` span, which is still a text node with a real
+              // client rect at its own top — so counting it added a phantom
+              // line and this premise reported 2 on a single-line pill. The
+              // same exclusion `segHeights` already makes, applied here too:
+              // an absolutely positioned, ~1px-wide ancestor is not a line.
+              let hiddenAncestor = false;
+              for (let e = n.parentElement; e && e !== el.parentElement; e = e.parentElement) {
+                const cs = getComputedStyle(e);
+                const r = e.getBoundingClientRect();
+                if (
+                  cs.display === "none" ||
+                  cs.visibility === "hidden" ||
+                  parseFloat(cs.opacity) === 0 ||
+                  (cs.position === "absolute" && r.width <= 2)
+                ) {
+                  hiddenAncestor = true;
+                  break;
+                }
+              }
+              if (hiddenAncestor) continue;
+              const r = document.createRange();
+              r.selectNodeContents(n);
+              for (const c of r.getClientRects()) tops.add(Math.round(c.top));
+            }
+            return tops.size;
+          })(),
+        };
+      });
+
+    await openHarness(page, { width: 375, height: 812 }, "threeseg.html");
+    const phone = await measure();
+    await openHarness(page, { width: 900, height: 812 }, "threeseg.html");
+    const desktop = await measure();
+    await openHarness(page, { width: 375, height: 812 }, "harness.html");
+    const single = await measure();
+
+    // (a) the responsive pair applied, on both sides of the breakpoint.
+    expect(phone.fontSize, "phone pill is one size up").toBe("14px");
+    expect(desktop.fontSize, "desktop pill is unchanged").toBe("12px");
+    // (b) differential, never a pixel literal.
+    expect(phone.h, "the larger type buys height").toBeGreaterThan(desktop.h);
+    // (c) the wrap is cap-driven. The cap element is identified first, then the
+    //     pill's width is compared against the CLUSTER's own measured budget
+    //     minus what the Close control and the gap take, so a pill that merely
+    //     fits cannot pass by being small.
+    expect(phone.clusterMaxW, "premise: the grandparent carries the 160px cap").toBe("160px");
+    expect(phone.clusterW, "premise: the cap actually binds at this viewport").toBeLessThanOrEqual(
+      160.5,
+    );
+    // The invariant the cap exists for: the pill may not spill out of the
+    // capped cluster. Measured against the cluster's own box, so it holds
+    // whatever the Close control and gap happen to take on a given fixture.
+    expect(phone.spillsCluster, "the pill overflowed the capped cluster").toBe(false);
+    // (d) nothing clipped, and every segment inside the pill's box.
+    expect(phone.canClip, "the pill must not be able to clip its own content").toBe(false);
+    expect(phone.kidsInside, "a segment painted outside the pill").toBe(true);
+    // (e2) Each segment is ONE line. Before this was pinned, the issues phrase
+    //     and both inner segment phrases were bare wrap units that broke
+    //     mid-phrase ("2 / issues"), turning a three-segment pill into eight
+    //     rows and a 141px box (impeccable critique P1). Measured after the
+    //     repair: 82.9px, three segments at 20.3px each -- both PRE-Decision 7.
+    //     Counts-only then took the pill to the 48.297px this file records at
+    //     (e4) below. The assertion does not read any of these numbers: it
+    //     bounds each segment against `single.contentH` measured in the same
+    //     run, which is why the copy change moved the geometry without moving
+    //     the test.
+    const textSegs = phone.segHeights.filter((h) => h > 12);
+    expect(textSegs.length, "premise: three text segments were measured").toBe(3);
+    for (const h of textSegs) {
+      expect(h, `a segment wrapped mid-phrase (${h}px is more than one line)`).toBeLessThan(
+        single.contentH + 6,
+      );
+    }
+    // (e3) A 999px radius on a tall wrapped box is an ellipse, and the fill
+    //     then cuts the corners off its own text. Below `sm` it is a plaque.
+    expect(phone.radius, "wrapped pill must not be an ellipse at phone widths").toBe("12px");
+    expect(desktop.radius, "unwrapped pill keeps the pill radius at sm and up").not.toBe("12px");
+
+    // (e) Decision 7 (Eric, 2026-08-30) INVERTED this assertion, and the old
+    //     form is kept in the comment because the inversion is the point. It
+    //     used to read `phone.lines > 1`: the three-segment phone pill wrapped
+    //     its TEXT across rows, and the test pinned that as the shipped design.
+    //     Counts-only copy fits all three segments on ONE row (measured: three
+    //     phrase spans sharing top 183), so the pill's text no longer wraps at
+    //     all and the old assertion now describes a design that does not ship.
+    expect(phone.lines, "Decision 7: all three segments share ONE text row").toBe(1);
+    expect(single.lines, "premise: the one-segment reference is a single line").toBe(1);
+
+    // (e4) DOCUMENTED, not silently accepted. The pill is still taller than one
+    //     text row (measured 48.297px against a 20.297px row) because a 12px
+    //     non-text child orphans onto a second flex row once the cluster is at
+    //     its 160px cap. That is a smaller defect than the wrapped text it
+    //     replaced, and it is pinned here so it cannot grow: the pill may carry
+    //     at most ONE extra row beyond its text, and every child must still sit
+    //     inside the pill's box (asserted at (d) above).
+    expect(
+      phone.contentH,
+      `the pill grew beyond one text row plus one orphaned control (${phone.contentH}px)`,
+    ).toBeLessThanOrEqual(single.contentH * 2 + 0.5);
+  });
+
+  test("T-LAYOUT-TALL @375x812: the panel equation closes with a wrapped pill", async ({
+    page,
+  }) => {
+    // Reuses this spec's own selectors and helper rather than raw tag queries:
+    // an earlier draft asked for `main` directly and measured 0, because the
+    // scroll region is not a bare <main> in this tree.
+    const read = async (file: string) => {
+      await openHarness(page, { width: 375, height: 812 }, file);
+      await expect(page.locator(FOOTER), "exactly one footer").toHaveCount(1);
+      const [headerH, mainH, footerH, grabH] = await Promise.all([
+        heightOf(page, HEADER),
+        heightOf(page, MAIN),
+        heightOf(page, FOOTER),
+        heightOf(page, GRAB),
+      ]);
+      const panel = await page.locator(PANEL).evaluate((el) => (el as HTMLElement).clientHeight);
+      return { headerH, mainH, footerH, grabH, panel };
+    };
+
+    const base = await read("harness.html");
+    const tall = await read("threeseg.html");
+
+    // Non-vacuity: this case means something only if the pill in the tall
+    // fixture is genuinely WRAPPED. The premise is about the pill rather than
+    // the header, and that distinction is the finding: an earlier version
+    // asserted the header grew, which was true at the 141px ellipse and became
+    // FALSE once the segments were made one-line each. From 82.9px pre-Decision
+    // 7, and 48.297px shipped, the pill fits the header's natural height either
+    // way, so the header no longer moves at all -- the desirable outcome, and
+    // one that would have read as a broken test.
+    const pillH = await page
+      .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
+      .evaluate((el) => el.getBoundingClientRect().height);
+    // Decision 7 (Eric, 2026-08-30) moved this number. The premise is still
+    // "the pill really is wrapped", but counts-only copy takes the three-segment
+    // phone pill from three rows to two, so the old `> 60` bound now describes a
+    // design that no longer ships. Bound it against the SINGLE-LINE height
+    // measured in this same run instead of a pixel literal, so the premise
+    // survives the next copy change and cannot pass on an unwrapped pill.
+    const singleLineH = await page
+      .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
+      .evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) + 10);
+    expect(
+      pillH,
+      `premise: the tall fixture's pill really is wrapped (${pillH}px against a ${singleLineH}px single-line box)`,
+    ).toBeGreaterThan(singleLineH);
+    expect(tall.headerH, "premise: the header is a real measured box").toBeGreaterThan(0);
+    expect(tall.mainH, "premise: main has real height").toBeGreaterThan(0);
+    // And the point of the repair: a wrapped pill no longer inflates the header.
+    expect(
+      tall.headerH,
+      `header grew from ${base.headerH} to ${tall.headerH} under a wrapped pill`,
+    ).toBe(base.headerH);
+
+    // Sheet mode at 375, so the grab strip is a term of the equation
+    // (see T-LAYOUT above). Dropping it false-reds a correct layout.
+    const sum = tall.headerH + tall.mainH + tall.footerH + tall.grabH;
+    expect(
+      Math.abs(sum - tall.panel),
+      `grab ${tall.grabH} + header ${tall.headerH} + main ${tall.mainH} + footer ${tall.footerH} vs panel ${tall.panel}`,
+    ).toBeLessThanOrEqual(0.5);
+  });
+
+  test("T-STATIC-WRAP @375x812: the degraded pill wraps and paints inside its padding box", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "degraded.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveText(/Alerts unavailable/);
+
+    const probe = await pill.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      // PADDING box, not the border box getBoundingClientRect returns: AC-3
+      // asks whether glyphs painted inside the content area, and a border-box
+      // test passes on text painted over the padding or the border itself.
+      const pad = {
+        left: box.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft),
+        right: box.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight),
+        top: box.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop),
+        bottom: box.bottom - parseFloat(cs.borderBottomWidth) - parseFloat(cs.paddingBottom),
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const rects: DOMRect[] = [];
+      // Per-line client rects: the count of distinct tops IS the line count.
+      const lineTops: number[] = [];
+      while (walker.nextNode()) {
+        const n = walker.currentNode as Text;
+        if (!n.textContent?.trim()) continue;
+        const r = document.createRange();
+        r.selectNodeContents(n);
+        rects.push(r.getBoundingClientRect());
+        for (const c of r.getClientRects()) lineTops.push(Math.round(c.top));
+      }
+      return {
+        found: rects.length > 0,
+        fontSize: cs.fontSize,
+        lines: new Set(lineTops).size,
+        clipped: el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > el.clientHeight + 0.5,
+        inside: rects.every(
+          (r) =>
+            r.left >= pad.left - 0.5 &&
+            r.right <= pad.right + 0.5 &&
+            r.top >= pad.top - 0.5 &&
+            r.bottom <= pad.bottom + 0.5,
+        ),
+      };
+    });
+
+    expect(probe.found, "premise: the label's own text node was located").toBe(true);
+    expect(probe.fontSize, "the static pill moved with its siblings").toBe("14px");
+    expect(probe.lines, "AC-3: the copy WRAPS rather than sitting on one line").toBeGreaterThan(1);
+    expect(probe.clipped, "copy is clipped").toBe(false);
+    expect(probe.inside, "the label painted outside the pill's padding box").toBe(true);
+  });
 });

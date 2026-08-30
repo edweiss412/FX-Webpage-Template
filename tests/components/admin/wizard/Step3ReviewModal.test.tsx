@@ -503,7 +503,21 @@ describe("Step3ReviewModal — attention pill (spec §3.2)", () => {
     expect(chip.tagName).toBe("BUTTON");
     expect(chip.className).toMatch(/\bbg-surface-sunken\b/);
     expect(chip.className).toMatch(/\bborder-text-faint\b/);
-    expect(chip.querySelector(".bg-text-faint")).not.toBeNull();
+    // The judgment dot is a HOLLOW RING, not a solid fill (whole-diff R1 P0,
+    // 2026-08-30). It used to assert `.bg-text-faint`, a SOLID dot differing
+    // from needs-look only in hue -- which, once Decision 7 hid the nouns below
+    // `sm`, left the two states sharing one silhouette. Asserting the shape
+    // rather than the colour is what makes this pin survive a palette change.
+    const judgmentDot = chip.querySelector('span[aria-hidden="true"]');
+    expect(judgmentDot, "the pill renders its leading mark").not.toBeNull();
+    // `text-faint` is correct here and the impeccable gate is why. The ring
+    // renders only in the `n === 0` branch, whose plate is `surface-sunken`,
+    // where DESIGN.md section 1.2 measures faint as an outline at 3.02:1 light /
+    // 4.11:1 dark -- clearing the 3:1 non-text floor. The 2.793:1 figure that
+    // briefly moved this to `text-subtle` is against `warning-bg`, a ground this
+    // ring never paints on.
+    expect(judgmentDot!.className).toMatch(/\bborder-text-faint\b/);
+    expect(judgmentDot!.className).toMatch(/\bbg-transparent\b/);
     expect(q.queryByText("All clean")).toBeNull();
     expect(q.getByTestId(tid("note")).textContent).toBe(
       `${m} parsed with judgment · publishing isn't blocked`,

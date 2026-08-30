@@ -104,11 +104,30 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 257 },
   // spec §4.2 row 16 — the `review-resolution-ignore` button. 797 until
   // fix/attention-autoopen-suppress-phone added the auto-open suppression
-  // predicate and its comment above it; the button itself is untouched.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 821 },
-  // spec §4.2 row 17 — the `review-publish` button. 883 until the same arc,
-  // same cause.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 907 },
+  // predicate and its comment above it; 860 until fix/pill-size-draft-restored-note
+  // widened the leading-mark comment above both rows (whole-diff R3). The button
+  // itself is untouched across all three. Relocated by finding its OWN
+  // `data-testid` and taking the `<button` it opens, never by applying the
+  // delta — `LIM-LINE-KEYED-SITEID`, which this arc has now hit eight times.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 894 },
+  // spec §4.2 row 17 — the `review-publish` button. 883, then 946, same two
+  // arcs and the same cause; located from its own testid the same way.
+  // NINTH re-key, same session: the impeccable gate reverted this file's ring
+  // change and its replacement comment is two lines longer, so both rows moved
+  // again (875 -> 877, 961 -> 963). TENTH: whole-diff R4's P0 gave the judgment
+  // segment its own mark, +31 lines above both rows (877 -> 908, 963 -> 994).
+  // Located from each button's own testid every single time; the deltas across
+  // these ELEVEN re-keys have been +15, +2, +31 and +1, which is why a delta is
+  // never the instrument. The eleventh was a single `§11` marker COMMENT line
+  // added above the mark these rows have nothing to do with -- the cheapest
+  // possible edit, and it still invalidated both rows. The TWELFTH went the
+  // other way (-15) when the mark logic moved into
+  // `components/admin/review/attentionMark.ts` and took its explanatory comment
+  // with it, and it moved the published pill button too (:1132 -> :1133).
+  // Twelve re-keys, deltas +15, +2, +31, +1, -15: a line number is not an
+  // identity, and every one of these was relocated from the element's own
+  // testid.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 980 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
@@ -294,7 +313,7 @@ export const CENSUS: readonly CensusRow[] = [
   // above the pill button (spec §4.1/§4.4).
   // :1083 until fix/attention-autoopen-suppress-phone, whose suppression
   // predicate and comment sit above the pill button.
-  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1113 },
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1133 },
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },

@@ -267,7 +267,16 @@ async function fittedGeometry(page: Page) {
       // 1px, and it is a completion of the arithmetic rather than a loosened
       // tolerance — the 0.5px bound below is unchanged.
       const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
-      const available = Math.floor(p.bottom - sc.top - (gutter as number) - menuBorderBottom);
+      // NOT floored. The room below the scroller is a real quantity, and the
+      // engine gives the scroller a fractional height to match it (measured
+      // 283.61 and 273.20 at two different anchor heights, each equal to the
+      // unfloored room to the hundredth). Flooring injects up to 1px of
+      // artificial error into a comparison whose whole tolerance is 0.5px, so
+      // the assertion below decided on the fractional part of the room rather
+      // than on the fit: it accepted a scroller sitting 0.61px SHORT of its
+      // room while rejecting one that filled it exactly. Dropping the floor is
+      // therefore a strengthening. Kept in step at all three sites.
+      const available = p.bottom - sc.top - (gutter as number) - menuBorderBottom;
       return {
         contained: m.bottom <= p.bottom + 0.5,
         fitted: Math.abs(sc.height - available) <= 0.5,
@@ -320,7 +329,8 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
           // scroller and the clip edge now that the fitted cap lands on the
           // panel. Same completion, same 0.5px bound.
           const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
-          const available = Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom);
+          // Unfloored, per the rationale on fittedGeometry's `available`.
+          const available = p.bottom - s.top - (gutter as number) - menuBorderBottom;
           return {
             height: s.height,
             available,
@@ -368,7 +378,8 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
         const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
         return {
           height: s.height,
-          available: Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom),
+          // Unfloored, per the rationale on fittedGeometry's `available`.
+          available: p.bottom - s.top - (gutter as number) - menuBorderBottom,
         };
       },
       [PANEL, MENU, SCROLLER, GUTTER] as const,
@@ -1588,8 +1599,25 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
             `PREMISE: load 30 must render a saturated attention state; pill reads ${JSON.stringify(signature)}`,
           ).toBeGreaterThanOrEqual(10);
         }
+        // ONE-SIDED, and the change is deliberate (Decision 7, 2026-08-30).
+        //
+        // This was `Math.abs(...) <= 0.5`, which asserts the header is INVARIANT
+        // with load rather than non-growing. That equality held for a reason
+        // nobody chose: at `text-sm` the composite pill wrapped at every load,
+        // and the wrapped pill happened to make the loaded header exactly as
+        // tall as the load-0 header, whose "In sync" arm is a different element
+        // entirely. Counts-only copy unwraps the pill, so load 2 now measures
+        // 143.891 against a 164.188 baseline -- the header SHRANK, and the
+        // symmetric bound failed on an improvement.
+        //
+        // The contract this case states in its own name, message and comment is
+        // growth: "the header does not grow with attention load", because a
+        // growing header pushes the strip and switch out of the panel. A shorter
+        // header serves that consequence strictly better, and the two containment
+        // assertions below still prove the consequence directly rather than by
+        // proxy. Narrowed to what was always meant, not loosened to admit a diff.
         expect(
-          Math.abs(m.headerHeight! - base.headerHeight!),
+          m.headerHeight! - base.headerHeight!,
           `header grew at load ${load.label}: ${m.headerHeight} vs the ${vp.w}px baseline ${base.headerHeight}`,
         ).toBeLessThanOrEqual(0.5);
 

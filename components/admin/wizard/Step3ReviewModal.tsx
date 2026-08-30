@@ -45,10 +45,12 @@ import { useViewerIsDeveloper } from "@/components/admin/dev/DeveloperFlagContex
 import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
 import { buildStagedSnapshot } from "@/components/admin/dev/snapshots";
 import { ReviewModalShell } from "@/components/admin/review/ReviewModalShell";
+import { DraftRestoredNote } from "@/components/admin/wizard/DraftRestoredNote";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { activeWarningEntries, ignoredWarningIndices } from "@/lib/admin/activeWarningEntries";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
 import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
+import { attentionMarkClass } from "@/components/admin/review/attentionMark";
 import {
   WizardAttentionMenu,
   type WizardAttentionEntry,
@@ -596,7 +598,7 @@ export function Step3ReviewModal({
                     setMenuAutoOpened(false);
                     setMenuOpen((v) => !v);
                   }}
-                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums ${HEADER_ACTION_CAP} max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill max-sm:rounded-md px-2.5 py-1 text-sm sm:text-xs font-semibold tabular-nums ${HEADER_ACTION_CAP} max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     n > 0
                       ? "border border-warning-text bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                       : /* judgment-only: quiet, because a judgment call is not a
@@ -605,13 +607,24 @@ export function Step3ReviewModal({
                         "border border-text-faint bg-surface-sunken text-text hover:border-text-subtle"
                   }`}
                 >
-                  {/* Decorative — the count text carries the meaning
-                      (DESIGN.md §1.3 colour-blind floor). */}
+                  {/* NOT decorative any more, and the old comment here said it
+                      was: it claimed "the count text carries the meaning
+                      (DESIGN.md §1.3 colour-blind floor)", which Decision 7
+                      falsified by hiding the noun below `sm`. Both states then
+                      painted a SOLID dot differing only in hue, so an
+                      equal-count needs-look pill and judgment-only pill shared
+                      dot, count and chevron entirely and a colour-blind reader
+                      saw one pill (whole-diff R1 P0, 2026-08-30 -- the same
+                      defect the published twin had, missed on this one).
+                      Judgment now takes the HOLLOW ring, the idiom
+                      `AttentionMenu.tsx:227` and the published pill both use, so
+                      the two differ in shape and not only in palette. */}
                   <span
                     aria-hidden="true"
-                    className={`size-2 shrink-0 rounded-pill ${
-                      n > 0 ? "bg-status-review" : "bg-text-faint"
-                    }`}
+                    className={attentionMarkClass(
+                      n > 0 ? "issues" : "judgment",
+                      n > 0 ? "warning" : "sunken",
+                    )}
                   />
                   {/* §11: instant — deliberate (segment presence follows the derived count) */}
                   {n > 0 ? (
@@ -619,7 +632,22 @@ export function Step3ReviewModal({
                       {/* Capped at 99+ for the same reason the published pill is:
                           an unbounded count in a shrink-0 cluster squeezes the
                           title at 375px. The exact count survives for AT. */}
-                      {n > 99 ? "99+" : n} {n === 1 ? "needs a look" : "need a look"}
+                      {/* Decision 7 (Eric, 2026-08-30), applied to this twin after
+                          the impeccable audit caught it had been left behind: the
+                          noun is visually dropped below `sm` and returns at `sm`
+                          and up, staying in the accessible name at both. ONE wrap
+                          unit, which also repairs the mid-phrase break these bare
+                          anonymous flex items allowed ("2 / need a look") under
+                          `max-sm:flex-wrap` -- the same defect the published pill
+                          fixed earlier in this branch. The separating space sits
+                          OUTSIDE the hidden span: inside it, the accessible-name
+                          computation trims each node and glues the name shut. */}
+                      <span className="inline-flex items-center max-sm:whitespace-nowrap">
+                        {n > 99 ? "99+" : n}{" "}
+                        <span className="max-sm:sr-only">
+                          {n === 1 ? "needs a look" : "need a look"}
+                        </span>
+                      </span>
                       {/* §11: instant — deliberate (sr-only cap expansion follows the count) */}
                       {n > 99 ? (
                         <>
@@ -639,10 +667,55 @@ export function Step3ReviewModal({
                     >
                       {/* Separator only BETWEEN segments, never a leading glyph,
                           and a REAL " · " text node so it is announced too. */}
+                      {/* `max-sm:opacity-100`, matching the published twin: below
+                          `sm` this middot is the ONLY thing separating adjacent
+                          counts once the nouns are hidden, and at `opacity-50`
+                          inside a `text-warning-text/80` parent it measures about
+                          2.04:1 light (whole-diff R1 P1).
+                          NOTE the comment ORDER: the §11 marker below must stay
+                          on the line directly above the conditional, because the
+                          source-marker audit reads the line above the site. */}
                       {/* §11: instant — deliberate (separator follows segment presence) */}
-                      {n > 0 ? <span className="opacity-50">{" · "}</span> : null}
-                      <span>
-                        {m > 99 ? "99+" : m} {m === 1 ? "judgment call" : "judgment calls"}
+                      {n > 0 ? <span className="opacity-50 max-sm:sr-only">{" · "}</span> : null}
+                      <span className="inline-flex items-center gap-1 max-sm:whitespace-nowrap">
+                        {/* The judgment segment carries its OWN mark, the same
+                            repair the published twin took for its warnings
+                            segment -- and missed here, which whole-diff R4
+                            caught as a P0. The LEADING mark describes whichever
+                            segment leads, so in the composite state it is the
+                            needs-look fill and this segment was a bare integer:
+                            below `sm` the pill read "2 · 1", two numbers
+                            separated by position alone, which is the exact
+                            ambiguity counts-only creates.
+                            Guarded on `n > 0`, the same predicate as the
+                            separator above, so when judgment LEADS its mark
+                            stays the leading one and the pill never shows two.
+
+                            `text-subtle`, NOT the `text-faint` the leading ring
+                            uses, and the difference is the ground rather than an
+                            inconsistency. The leading ring renders only when
+                            `n === 0`, where the plate is `surface-sunken` and
+                            faint clears at 3.02:1 / 4.11:1. THIS ring renders
+                            only when `n > 0`, where the plate is `warning-bg`
+                            and faint measures 2.793:1 in dark -- under the 3:1
+                            non-text floor. `text-subtle` clears that ground at
+                            6.128:1 / 4.717:1. Same defect class as the ring
+                            repair reverted earlier in this branch, caught this
+                            time by asking which plate the element actually
+                            paints on BEFORE choosing the token. */}
+                        {/* §11: instant — deliberate (segment mark follows the derived count) */}
+                        {n > 0 ? (
+                          <span
+                            aria-hidden="true"
+                            className={attentionMarkClass("judgment", "warning")}
+                          />
+                        ) : null}
+                        <span className="inline-flex items-center max-sm:whitespace-nowrap">
+                          {m > 99 ? "99+" : m}{" "}
+                          <span className="max-sm:sr-only">
+                            {m === 1 ? "judgment call" : "judgment calls"}
+                          </span>
+                        </span>
                       </span>
                       {/* §11: instant — deliberate (sr-only cap expansion follows the count) */}
                       {m > 99 ? (
@@ -947,6 +1020,14 @@ export function Step3ReviewModal({
         attentionJump={jump}
         layout="modal"
       >
+        {/* Draft-restored note (spec 2026-08-30 §3.2): FIRST in the content
+              pane's top slot, so it is visible without scrolling when the
+              modal reopens with a report draft that survived the close. It
+              lives here rather than beside the draft because the report
+              section is last and the modal opens at scroll 0. A component, so
+              its useContext reaches the shell's AdminAnnounceProvider, which
+              is an ancestor here and NOT of this file's own body. */}
+        <DraftRestoredNote dfid={dfid} wizardSessionId={wizardSessionId} />
         {/* Re-apply resolution body (spec §4.4): rendered ABOVE the section
               panels when this is a blocked re-apply row. Tier-1/2 items are
               context/diagnostic lines; tier-3 items force a radio choice.

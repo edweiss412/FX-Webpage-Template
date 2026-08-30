@@ -160,6 +160,23 @@ export function attentionHarnessWarnings(): ParseWarning[] {
   ];
 }
 
+/** JUDGMENT-ONLY fixture (whole-diff R1 P0, 2026-08-30): the rooms warning
+ *  alone, with no crew warnings, so the pill renders its single-segment
+ *  JUDGMENT state. `attentionHarnessWarnings` is composite by design and cannot
+ *  reach this, which is why the state that Decision 7 made indistinguishable
+ *  from needs-look had no fixture to be caught by. */
+export function judgmentOnlyHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      message: "Room header could be read two ways",
+      blockRef: { kind: "rooms" },
+      rawSnippet: "Ballroom A / B",
+    },
+  ];
+}
+
 export function nearMissHarnessWarnings(): ParseWarning[] {
   return [
     {
@@ -352,6 +369,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     outPath,
     JSON.stringify({
       dfid: HARNESS_DFID,
+      wsid: HARNESS_WSID,
       diagramStubCount: HARNESS_DIAGRAM_STUB_COUNT,
       servableDiagramIndex: HARNESS_SERVABLE_DIAGRAM_INDEX,
       crewWarningCount: HARNESS_CREW_WARNING_COUNT,

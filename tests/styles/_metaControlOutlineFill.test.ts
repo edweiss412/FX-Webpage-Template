@@ -455,7 +455,7 @@ const HOVER_DELETE = [
  * deleting it would remove hover feedback outright. Raising is the only
  * non-regressive option.
  *
- * `PublishedReviewModal.tsx:1113` is here because the classification is PER
+ * `PublishedReviewModal.tsx:1133` is here because the classification is PER
  * RENDER PATH: its path 0 is `border-border bg-surface-sunken …
  * hover:border-border-strong`, its path 1 is `bg-warning-bg …
  * hover:bg-warning-bg/80`. The other cue belongs only to path 1.
@@ -466,7 +466,7 @@ const HOVER_SUBTLE = [
   "app/me/meShowSections.tsx:258",
   "components/admin/UnarchiveShowButton.tsx:67",
   "components/admin/nav/UserMenu.tsx:51",
-  "components/admin/showpage/PublishedReviewModal.tsx:1113",
+  "components/admin/showpage/PublishedReviewModal.tsx:1133",
   "components/agenda/AgendaEmbed.tsx:83",
   "components/agenda/AgendaPdfViewer.tsx:198",
   "components/layout/ThemeToggle.tsx:92",

@@ -70,6 +70,13 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // fix/pill-size-draft-restored-note (2026-08-30). Eric ruled both on the
+  // 2026-08-29 decision board: the pill's type moves one size up at phone
+  // widths (decision 5B, both segments kept), and a transient note ships
+  // instead of a rail count (decision 6B), leaving the spec §D2 no-status-dot
+  // contract intact in both directions.
+  "ATTENTION-PILL-PHONE-LEGIBILITY-1",
+  "WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE-1",
   // fix/help-tour-grid-and-settings-card (2026-08-29). The first shipped by the
   // larger of the two repairs its entry named — the grids lifted out of the 70ch
   // cap rather than the second grid dropped to two columns. The second graduated

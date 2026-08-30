@@ -89,6 +89,7 @@ import {
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
 import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
+import { attentionMarkClass } from "@/components/admin/review/attentionMark";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { buildPublishedSnapshot } from "@/components/admin/dev/snapshots";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
@@ -1091,14 +1092,33 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               baseline at 375px, which is what put the strip out of reach. 160px
               is the largest cap that leaves every realistic load untouched: the
               sweep in §3.0 ran eight cap values against three loads, 96 changed
-              the 0-load baseline and 192 still failed at load 30, and the
-              2-item cluster measures 147.73 naturally, below this cap. */}
+              the 0-load baseline and 192 still failed at load 30.
+
+              THE HEADROOM THIS CAP LEAVES IS NOW 2.219px, not the 12.27px the
+              sweep chose it with. That 2-item cluster measured 147.73 at
+              `text-xs`; at the `text-sm` this file now ships below `sm` (Eric
+              decision 5B) it measures 157.781. The remaining 2.219px is inside
+              the range platform glyph-advance rounding moves: the SAME cluster,
+              same Inter file, same 14px, measures 109.781px wide on darwin/arm64
+              and 112.000px on the linux/x64 CI runner, which is wider by exactly
+              the headroom and wraps the pill to a second row there. The T-TAP
+              anti-inflation bound catches that as a 48.296875px pill against its
+              44px slim limit.
+
+              So decision 5B and this cap are 2.2px apart at 375 and which side a
+              device lands on is not something either decision controls. Escalated
+              rather than silently re-tuned, because both numbers are ratified.
+              Measurements: the diff section of
+              `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`. */}
           <div className={`flex shrink-0 items-center gap-2 ${HEADER_ACTION_CAP}`}>
             {/* Attention pill (published-show-alerts §5.1) — four states from
                 the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
-                COPIED from the prior pill: text-xs (~16px line box) + py-1
-                (8px) ≈ a 24px visible pill; -inset-y-3 (12px per side) ≈ 48px
-                ≥ the 44px tap floor. T-TAP probes the resolved band (§10). */}
+                COPIED from the prior pill, and re-derived for the phone size
+                (spec 2026-08-30 AC-7): below `sm` the pill is text-sm (~20px
+                line box) + py-1 (8px) ≈ a 28px visible pill, so -inset-y-3
+                (12px per side) ≈ 52px ≥ the 44px tap floor. At `sm` and up it
+                returns to text-xs (~16px line box) ≈ a 24px pill and a 48px
+                band. T-TAP probes the resolved band (§10) at both. */}
             {interactive ? (
               /* Composite pill (attention split §3.2): segments render only when
                  their count > 0; the middot separator renders only BETWEEN two
@@ -1125,7 +1145,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
                       }
                     : {})}
-                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill max-sm:rounded-md px-2.5 py-1 text-sm sm:text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     monitoringOnly
                       ? /* border separates button-gray from the passive label-gray
                            spans; hover moves the border, never fades toward the
@@ -1149,17 +1169,31 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         "border border-warning-text bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                   }`}
                 >
-                  {/* Decorative dot — the count text carries the meaning; live
-                      token (--color-status-review), never the mock hex. The
-                      quiet monitoring-only pill leads with the hollow
-                      positive-tone dot instead (spec §3.1). */}
+                  {/* The dot no longer merely decorates. Until Decision 7 the
+                      count text carried the meaning and this dot was a tone cue;
+                      counts-only removed the noun, and with it the only thing
+                      telling "3 issues" apart from "3 sheet warnings" below `sm`
+                      -- both rendered a solid dot and a 3, which spec §2.2 lists
+                      as DISTINCT states (impeccable critique P0, 2026-08-30).
+                      DESIGN.md §1 requires colour to be paired with text or an
+                      icon, and the text carrier is exactly what Decision 7 took
+                      away, leaving position alone.
+                      So the dot is SHAPED by whichever segment leads, reusing
+                      this cluster's own hollow idiom rather than inventing one:
+                      `AttentionMenu.tsx:227` already draws judgment as a hollow
+                      ring for the same colour-blind-floor reason. Costs zero
+                      width, which matters on a pill that is 31.063px from its
+                      cap at the widest single-segment load. */}
                   <span
                     aria-hidden="true"
-                    className={`size-2 shrink-0 rounded-pill ${
+                    className={attentionMarkClass(
                       monitoringOnly
-                        ? "border-[1.5px] border-status-positive bg-transparent"
-                        : "bg-status-review"
-                    }`}
+                        ? "monitoring"
+                        : needsYou.length === 0 && k > 0
+                          ? "warnings"
+                          : "issues",
+                      monitoringOnly ? "sunken" : "warning",
+                    )}
                   />
                   {needsYou.length > 0 ? (
                     <>
@@ -1169,8 +1203,31 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           "issues" is a NOUN (§2.4) and pluralises with a plain s
                           — "N need you" would have required a subject-verb
                           agreement branch at N = 1. */}
-                      {needsYou.length > 99 ? "99+" : needsYou.length}{" "}
-                      {needsYou.length === 1 ? "issue" : "issues"}
+                      {/* ONE wrap unit, like the two segments below it. As a
+                          bare anonymous flex item this broke MID-PHRASE under
+                          `max-sm:flex-wrap` ("2 / issues"), which at the phone
+                          type size turned a three-segment pill into six rows
+                          and a 141px oval (impeccable critique P1, 2026-08-30). */}
+                      <span className="inline-flex items-center gap-1 max-sm:whitespace-nowrap">
+                        {/* Decision 7 (Eric, 2026-08-30): the noun is VISUALLY
+                            dropped below `sm` and returns at `sm` and up. The
+                            count and its noun are wrapped in ONE inline span so
+                            they remain a single flex item -- as bare siblings
+                            the parent's `gap-1` would become live and add 4px
+                            between the number and its word above the breakpoint,
+                            changing a size the ruling leaves alone. The space is
+                            its own text node OUTSIDE the hidden span: inside it,
+                            the accessible-name computation trims each node and
+                            glued the name into "2issues".
+                            `sr-only`, never `hidden`: the noun stays in the
+                            accessible name at every width. */}
+                        <span>
+                          {needsYou.length > 99 ? "99+" : needsYou.length}{" "}
+                          <span className="max-sm:sr-only">
+                            {needsYou.length === 1 ? "issue" : "issues"}
+                          </span>
+                        </span>
+                      </span>
                       {needsYou.length > 99 ? (
                         <>
                           {/* Separator is its OWN visible text node (accName trim
@@ -1189,12 +1246,44 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                   {k > 0 ? (
                     <>
                       <span className="inline-flex items-center gap-1.5">
-                        {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                        {needsYou.length > 0 ? (
+                          <span className="opacity-50 max-sm:sr-only">{" · "}</span>
+                        ) : null}
                         <span
                           data-testid="attention-pill-warnings-segment"
-                          className="inline-flex items-center gap-1"
+                          className="inline-flex items-center gap-1 max-sm:whitespace-nowrap"
                         >
-                          {k > 99 ? "99+" : k} {k === 1 ? "sheet warning" : "sheet warnings"}
+                          {/* The warnings segment carries its OWN mark, exactly as
+                              the monitoring segment below does, and for the same
+                              reason -- with one extra one that the impeccable
+                              gate had to point out. The LEADING mark describes
+                              whichever segment leads, so in the mixed state
+                              (issues AND warnings) it is the issues circle, and
+                              this segment rendered as a bare integer: below `sm`
+                              the pill read "3 · 2", two amber numbers separated
+                              by position alone. That is the exact ambiguity
+                              Decision 7 created and the shape channel exists to
+                              close, and it was open in the most common state
+                              while being closed in the rarest one.
+                              Guarded like monitoring's: only when this segment is
+                              NOT the leading mark, so the warnings-only pill
+                              never shows two triangles. */}
+                          {needsYou.length > 0 ? (
+                            <span
+                              aria-hidden="true"
+                              className={attentionMarkClass("warnings", "warning")}
+                            />
+                          ) : null}
+                          {/* Decision 7: noun visually dropped below `sm`, one
+                              flex item, space OUTSIDE the hidden span (see the
+                              issues segment above for why inside breaks the
+                              accessible name). */}
+                          <span>
+                            {k > 99 ? "99+" : k}{" "}
+                            <span className="max-sm:sr-only">
+                              {k === 1 ? "sheet warning" : "sheet warnings"}
+                            </span>
+                          </span>
                         </span>
                       </span>
                       {k > 99 ? (
@@ -1230,14 +1319,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           the glyph out of the announced string. */}
                       <span className="inline-flex items-center gap-1.5">
                         {needsYou.length > 0 || k > 0 ? (
-                          <span className="opacity-50">{" · "}</span>
+                          <span className="opacity-50 max-sm:sr-only">{" · "}</span>
                         ) : null}
                         {/* /80 floor: /70 computes 4.01:1 over --color-warning-bg in
                           light theme (below AA 4.5:1 at text-xs); /80 is ~5.35:1
                           light, higher dark. Impeccable critique P1, 2026-07-22. */}
                         <span
                           data-testid="attention-pill-monitoring-segment"
-                          className={`inline-flex items-center gap-1 font-medium ${
+                          className={`inline-flex items-center gap-1 max-sm:whitespace-nowrap font-medium ${
                             monitoringOnly ? "text-text-subtle" : "text-warning-text/80"
                           }`}
                         >
@@ -1248,10 +1337,26 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           {monitoringOnly ? null : (
                             <span
                               aria-hidden="true"
-                              className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                              className={attentionMarkClass("monitoring", "warning")}
                             />
                           )}
-                          {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                          {/* Decision 7: noun visually dropped below `sm`. The
+                              wrapper matters MORE here than in the segments
+                              above -- this span's `gap-1` is genuinely live,
+                              spacing the hollow dot from the count, so leaving
+                              the noun as a bare sibling would space it from the
+                              count too. */}
+                          <span>
+                            {selfHeal.length > 99 ? "99+" : selfHeal.length}{" "}
+                            {/* The separating space is its OWN text node, OUTSIDE
+                                the hidden span. Inside it, the accessible-name
+                                computation trims each node and glued the name
+                                into "2monitoring"; outside, the name keeps its
+                                space and the visual cost is nil, because a
+                                trailing space before an out-of-flow span
+                                collapses. */}
+                            <span className="max-sm:sr-only">monitoring</span>
+                          </span>
                         </span>
                       </span>
                       {selfHeal.length > 99 ? (
@@ -1298,7 +1403,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  To-confirm state; the Overview notice card is the detail. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-sm sm:text-xs font-semibold text-text-subtle"
               >
                 Alerts unavailable
               </span>
@@ -1331,12 +1436,9 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  that it fits is a property of the string, not of the layout. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-sm sm:text-xs font-semibold text-status-positive-text"
               >
-                <span
-                  aria-hidden="true"
-                  className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-                />
+                <span aria-hidden="true" className={attentionMarkClass("monitoring", "sunken")} />
                 In sync
               </span>
             )}
