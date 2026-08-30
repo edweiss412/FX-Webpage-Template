@@ -38,8 +38,9 @@ finalize route, expect fail; (ii) EVASION BY LONGER NAME — plant `approvedRows
 ESCAPE — plant the identifier in a DIFFERENT file under `app/`, expect fail, which is what makes the
 widened scan of finding 5 load-bearing rather than cosmetic.
 
-Transition guard, FIVE families. Three came from R2, and two more from R3 finding 2, which showed the
-R2 closure was incomplete against mechanisms this repository actually uses:
+Transition guard, SIX families. Three came from R2; two more from R3 finding 2; the sixth from R4
+finding 1. Each round showed the prior closure incomplete against a mechanism this repository
+actually uses, which is why the sixth is a DERIVED cover rather than another enumerated pattern:
 
 (i) ANIMATION PRIMITIVE — plant an `AnimatePresence` wrapper in each progress subtree, expect fail.
 (ii) CSS TRANSITION CLASS — plant a `transition-*`/`animate-*` class on a node INSIDE a progress
@@ -55,10 +56,24 @@ subtree, expect fail. It changes no class and no node count, so again (i) throug
 repo-native: `components/admin/review/ReviewModalShell.tsx:315` manipulates `panel.style.transition`
 directly.
 
-The oracle must therefore inspect THREE things, not one: the rendered subtree's class names, its
-inline `style` for `transition`/`animation`, and the component source for `motion.` usage within the
-progress render paths. A guard that checks only the first stays green while either subtree animates,
-which is precisely the AC-5c claim it exists to defend.
+(vi) STYLESHEET-DRIVEN ANIMATION — plant a class or data-attribute on a progress node that
+`app/globals.css` animates, expect fail. Plan R4 finding 1: `route-enter` (`app/globals.css:660-672`)
+animates via `@keyframes` and its NAME matches neither `transition-*` nor `animate-*`, so a
+pattern-over-class-names oracle is blind to it. Live siblings in the same class: `.bootstrap-dot`,
+`.telemetry-ping`, and attribute-driven selectors such as `[data-rescan-overlay-result]`
+(`app/globals.css:1043-1044`, used at `components/admin/RescanSheetButton.tsx:244`).
+
+**Because of (vi) the oracle is a DERIVED COVER, not a list of class-name patterns.** Enumerating
+known animating class names re-opens the moment anyone adds one to `app/globals.css` — the exact
+shape the class-sweep rule warns against. Instead the guard PARSES `app/globals.css`, extracts every
+selector carrying an `animation:` or `transition:` declaration, and asserts no node in a progress
+subtree matches any of them. New CSS is then covered by construction rather than by someone
+remembering to extend a list, and family (vi) is what proves the derivation discriminates.
+
+So the oracle inspects FOUR things: the rendered subtree's class names, its inline `style` for
+`transition`/`animation`, the component source for `motion.` usage in the progress render paths, and
+every animating selector derived from `app/globals.css`. A guard checking only the first stays green
+while either subtree animates, which is precisely the AC-5c claim it exists to defend.
 
 No OTHER registry applies, and each candidate in `docs/agents/writing-plans.md:21` is declined for a
 stated reason: no Supabase call site is added (invariant 9), no advisory lock is acquired or moved
@@ -92,7 +107,7 @@ PARAMETER varied in turn. Every result is recorded in that task's commit message
 | 2 compact tracking copy | YES, per asserted string | same two, on the compact renderer |
 | 3 misnomer guard | NO — it is an ABSENCE guard, not a string-presence assertion. Its discriminating power comes from the three mutation families declared above, which is the stronger instrument for this shape. |  |
 | 3b applied-parse name | YES, on the emitted `name` | old vs REFRESHED title; rescan reached vs not reached; row succeeded vs failed. (a) is the sharpest here: with the fake's projection unwidened the value is empty, which is precisely the silent-null failure this task exists to prevent. |
-| 3c transition guard | NO — an absence guard. Covered by its three mutation families above. |  |
+| 3c transition guard | NO — an absence guard. Covered by its six mutation families above. |  |
 | 4 close-out | NO — its gate is a marker-grammar check, which gets the MUTANT-RED treatment instead (`docs/agents/writing-plans.md:28`): probe it against a constructed malformed marker and confirm non-zero exit. |  |
 
 Mutant (c) matters most for tasks 1 and 2: those assertions read text out of a rendered tree, and an
@@ -117,7 +132,13 @@ assertion that would pass against a commented-out string is not testing the rend
 <!-- tasks: depth=2 -->
 
 ## Task 1 — FinalizeButton: every layer of the batch-phase claim
-<!-- task: red=`pnpm vitest run tests/components/admin/FinalizeButton.test.tsx` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/FinalizeButton.test.tsx tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx` ac=AC-1,AC-2,AC-3,AC-4 -->
+RED and GREEN both run BOTH suites, because this task EDITS an assertion in the Step3 suite:
+`pnpm vitest run tests/components/admin/FinalizeButton.test.tsx tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx`
+Plan R4 finding 3: a command running only the FinalizeButton suite would let this task commit without
+ever executing the test it changed. The task that edits a test runs it before committing — invariant
+1's obligation, not a courtesy.
+
 RED, four assertions that each fail against current code:
   - batch header reads `Setting up your shows…`
   - the running button label reads `Setting up…`
@@ -223,8 +244,15 @@ own"):
   (b) the terminal `per_row` `display_name` for a FAILED row after the same re-scan
       (`app/api/admin/onboarding/finalize/route.ts:1704`) carries the new title too.
 Case (b) needs a row that re-parses cleanly and THEN fails, so its failure entry is built after the
-refreshed parse exists. If the fake cannot express that ordering, say so in the plan brief and cover
-(b) by asserting the shared source directly, rather than quietly shipping one case as two.
+refreshed parse exists. **There is no fallback.** An earlier draft permitted substituting an assertion
+against the "shared source"; plan R4 finding 2 is right that this is not equivalent evidence, since
+such a test passes while `app/api/admin/onboarding/finalize/route.ts:1704-1705` still omits or
+stale-renders `display_name` — the very output the orchestrator's condition names.
+
+The ordering IS expressible, so the fallback was weaker AND unnecessary:
+`tests/onboarding/finalizeInlineRescan.test.ts:69-78` already demonstrates a clean-restamp fake, and
+the version gate at `app/api/admin/onboarding/finalize/route.ts:1215-1230` supplies a post-rescan
+failure occurring BEFORE `display_name` is constructed. Compose those two.
 
 A stream test where the fake's inline re-scan returns a parse whose TITLE DIFFERS from the
 select-time one, asserting the emitted `name` is the new title.
@@ -411,8 +439,10 @@ for a generic atom.
 Ours is exactly one pre-existing assertion:
 `tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:252` asserts
 `b.textContent).toMatch(/Publishing/i)` on the running button label. It WILL fail when
-`runningLabel` becomes `Setting up…`, so AC-3 already has a failing-first test in the tree; Task 2
-retargets it to `/Setting up/i`.
+`runningLabel` becomes `Setting up…`, so AC-3 already has a failing-first test in the tree. **TASK 1
+retargets it**, because Task 1 is what changes `runningLabel`. An earlier draft assigned it to Task 2,
+and plan R4 finding 3 caught that this note still said so after the task bodies had moved it. Recorded
+rather than silently edited: it is the second self-consistency miss of this arc's repair rounds.
 
 That edit is NOT gate-editing. The assertion's subject legitimately changed and its STRENGTH is
 preserved: it still pins that the button steps into a disabled, aria-busy intermediary carrying a
