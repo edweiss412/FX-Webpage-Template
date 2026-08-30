@@ -129,6 +129,42 @@ assertion that would pass against a commented-out string is not testing the rend
 - `controllableNdjson()` is MODULE-LOCAL to the FinalizeButton suite (`tests/components/admin/FinalizeButton.test.tsx:961`), not exported. The Step3 suite holds its running state with a never-resolving fetch (`tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:231`) and so receives NO row events — its subline never renders today. T2 extracts the helper to a shared module and imports it in both suites. The panel subline carries `data-testid="wizard-finalize-current"` (`FinalizeButton.tsx:998`); the compact subline has no testid (`Step3ReviewWithFinalize.tsx:273`) and gains one in T2 so the assertion can be scoped.
 - House assertion style: derive expected values from the fixture with a comment saying so (`FinalizeButton.test.tsx:1021-1022`).
 
+## Concept-level self-consistency pass (bl-orch condition, run 2026-08-29 23:25 CDT)
+
+Required before the first Stage 3 commit. Every claim re-derived mechanically, not re-read.
+
+**Derived-cover parse over `app/globals.css`** — the oracle Task 3c will implement, run now against
+the live stylesheet. It extracts every rule whose body declares `animation:` or `transition:`:
+**20 animating selectors**, and it finds all four the R4 reviewer named (`.route-enter`,
+`.bootstrap-dot`, `.telemetry-ping`, `[data-rescan-overlay-result]`) plus the modal, warning-flash,
+share-link-flash, section-freshness-flash, admin-alert and agenda-chevron families it referred to
+collectively. The parse works, so family (vi) is implementable as specified.
+
+**And it settles AC-5c by derivation rather than assertion.** No animating selector matches any
+finalize progress surface: `wizard-finalize`, `step3-tracking`, `finalize-progress` and
+`wizard-step3` each return none. Note what DOES animate:
+`progress[data-testid="wizard-step2-progressbar"]:indeterminate` — the SCAN step's bar, a `progress`
+element with a testid, structurally identical to `wizard-finalize-progressbar`. A sibling bar in the
+same wizard IS animated, which is what makes the guard's discrimination meaningful and gives Task 3c
+a natural positive control: the guard must flag the step2 bar's selector and not the finalize one.
+
+**Every in-plan verification claim, re-run:**
+
+| Claim | Expected | Got |
+| --- | --- | --- |
+| `aria-label="Publish progress"` instances across both renderers | 4 | 4 |
+| `approvedRows` sites in the finalize route (1 declaration + 5 readers) | 6 | 6 |
+| `controllableNdjson` defined in the FinalizeButton suite | 1 | 1 |
+| ...and NOT exported (hence the extraction Task 2 owes) | 0 | 0 |
+| compact subline carries a `data-testid` today | 0 | 0 |
+| panel subline carries `wizard-finalize-current` | 1 | 1 |
+| `AnimatePresence`/`motion.` in either renderer | 0 | 0 |
+| the stale `toMatch(/Publishing/i)` assertion Task 1 must retarget | 1 | 1 |
+| source files rendering the batch copy | 2 | 2 |
+
+All green. The pass is keyed to the CONCEPT each claim asserts, not to the sentences a repair round
+rewrote — the failure mode that cost this arc two plan rounds.
+
 <!-- tasks: depth=2 -->
 
 ## Task 1 — FinalizeButton: every layer of the batch-phase claim
