@@ -220,7 +220,22 @@ async function readTour(page: Page) {
             const declared = parseFloat(
               getComputedStyle(c).getPropertyValue("--help-measure") || "NaN",
             );
-            return { body: b ? w(b) : -1, measurePx: Number.isFinite(declared) ? declared : -1 };
+            // DIAGNOSTIC, and it earns its place. Three different cap mechanisms
+            // measured identically on CI while every one of them passed locally,
+            // so the failure message now carries what the BROWSER resolved rather
+            // than leaving the next reader to re-derive it from two numbers. The
+            // var is read off the body itself, not only the card, because the two
+            // differing would itself be the answer.
+            const bs = b ? getComputedStyle(b) : null;
+            return {
+              body: b ? w(b) : -1,
+              measurePx: Number.isFinite(declared) ? declared : -1,
+              maxWidth: bs ? bs.maxWidth : "no-body",
+              bodyMeasureVar: bs
+                ? (bs.getPropertyValue("--help-measure") || "unset").trim()
+                : "no-body",
+              cls: b ? (b.getAttribute("class") ?? "") : "no-body",
+            };
           }),
           measureCh:
             bodies[0] && chOf(bodies[0]) ? +(w(bodies[0]) / chOf(bodies[0])).toFixed(1) : -1,
@@ -382,7 +397,9 @@ test.describe("/help/tour card grids — real-browser layout", () => {
           premise(`full-span card ${k + 1} renders a body at ${vw}px`, b.body, 0);
           expect(
             b.body,
-            `full-span card ${k + 1} body within the measure at ${vw}px`,
+            `full-span card ${k + 1} body within the measure at ${vw}px ` +
+              `[computed max-width=${b.maxWidth}; --help-measure on body=${b.bodyMeasureVar}; ` +
+              `class="${b.cls}"]`,
           ).toBeLessThanOrEqual(b.measurePx + TOL);
         }
       }
