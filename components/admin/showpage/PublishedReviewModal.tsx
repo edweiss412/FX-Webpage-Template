@@ -1091,8 +1091,24 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
               baseline at 375px, which is what put the strip out of reach. 160px
               is the largest cap that leaves every realistic load untouched: the
               sweep in §3.0 ran eight cap values against three loads, 96 changed
-              the 0-load baseline and 192 still failed at load 30, and the
-              2-item cluster measures 147.73 naturally, below this cap. */}
+              the 0-load baseline and 192 still failed at load 30.
+
+              THE HEADROOM THIS CAP LEAVES IS NOW 2.219px, not the 12.27px the
+              sweep chose it with. That 2-item cluster measured 147.73 at
+              `text-xs`; at the `text-sm` this file now ships below `sm` (Eric
+              decision 5B) it measures 157.781. The remaining 2.219px is inside
+              the range platform glyph-advance rounding moves: the SAME cluster,
+              same Inter file, same 14px, measures 109.781px wide on darwin/arm64
+              and 112.000px on the linux/x64 CI runner, which is wider by exactly
+              the headroom and wraps the pill to a second row there. The T-TAP
+              anti-inflation bound catches that as a 48.296875px pill against its
+              44px slim limit.
+
+              So decision 5B and this cap are 2.2px apart at 375 and which side a
+              device lands on is not something either decision controls. Escalated
+              rather than silently re-tuned, because both numbers are ratified.
+              Measurements: the diff section of
+              `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`. */}
           <div className={`flex shrink-0 items-center gap-2 ${HEADER_ACTION_CAP}`}>
             {/* Attention pill (published-show-alerts §5.1) — four states from
                 the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
