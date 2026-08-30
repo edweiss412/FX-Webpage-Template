@@ -331,3 +331,71 @@ describe("Task 2 — the gallery retry mechanism", () => {
     );
   });
 });
+
+/**
+ * Whole-diff review R1, finding 1: focus is lost on control-removal paths.
+ *
+ * The arc's own tests covered retry ENTRY (failed control -> in-flight overlay)
+ * and repeated FAILURE (overlay -> failed control), because both replace one
+ * control with another and the hand-off refs have a destination to land on.
+ * SUCCESS has no replacement control -- the cell returns to a plain image
+ * button -- so the hand-off had nowhere to go and nothing noticed.
+ *
+ * The assertion is WHERE FOCUS IS after the commit, not which ref was written:
+ * a ref-written assertion passes on exactly the code that drops focus to
+ * `<body>`, which is the defect. Verified by the reviewer with a direct DOM
+ * probe.
+ */
+describe("R1 finding 1: a control removed under focus relocates it", () => {
+  test("a SUCCESSFUL retry does not strand focus on <body>", async () => {
+    render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    failThumb(1);
+    const control = within(slot(1)).getByTestId("diagram-retry-1");
+    act(() => control.focus());
+    premiseHolds(
+      "the retry control really held focus before the tap",
+      document.activeElement === control,
+    );
+
+    tapRetry(1);
+    const overlay = within(slot(1)).getByTestId("diagram-retrying-1");
+    act(() => overlay.focus());
+    premiseHolds("the in-flight overlay really held focus", document.activeElement === overlay);
+
+    // The retry succeeds. The overlay unmounts with focus on it.
+    await loadImage(1);
+
+    expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
+    const list = screen.getByRole("list");
+    expect(
+      list.contains(document.activeElement),
+      "and it lands somewhere inside the gallery list",
+    ).toBe(true);
+  });
+
+  test("an item going unavailable under focus does not strand it either", () => {
+    const { rerender } = render(<Gallery showId={SHOW_ID} rev={REV} items={[item(1), item(2)]} />);
+    failThumb(1);
+    const control = within(slot(1)).getByTestId("diagram-retry-1");
+    act(() => control.focus());
+    premiseHolds(
+      "the retry control held focus before the item went away",
+      document.activeElement === control,
+    );
+
+    // Availability is the OTHER removal path, and it removes the control with
+    // no user action at all.
+    rerender(
+      <Gallery showId={SHOW_ID} rev={REV} items={[item(1, { available: false }), item(2)]} />,
+    );
+
+    expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
+    // Not-body is too weak on its own: focus sitting on a DETACHED node also
+    // reads as not-body while being just as broken, and jsdom will happily
+    // report it. Connectedness is the property that actually matters.
+    expect(
+      document.activeElement?.isConnected,
+      "and focus is on a node still in the document",
+    ).toBe(true);
+  });
+});

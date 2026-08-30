@@ -1590,22 +1590,27 @@ describe("GalleryLightbox — only the ACTIVE slide offers a retry (Task 6)", ()
     act(() => emblaApis.at(-1)!.scrollTo(1));
     const spokenBefore = view.spoken.length;
 
-    // The abandoned image is still in the DOM; resolve it.
+    // REWRITTEN BY R1 FINDING 2, and the rewrite is the point rather than an
+    // accommodation. This case used to keep its own premise alive: `available`
+    // included `isRetrying` without `isActive`, so the swiped-away image stayed
+    // mounted with live handlers and the contract worth testing was "they fire
+    // but stay quiet". Review found that leaving the retry in flight was itself
+    // the defect -- swiping back resurrected `Retrying…` for a request nobody
+    // awaited. Ending the retry on the swipe makes the old scenario unreachable
+    // BY CONSTRUCTION, which the premise correctly refused to pretend otherwise
+    // about rather than passing vacuously.
+    //
+    // So the assertion moves up to the stronger guarantee that now ships: there
+    // is no abandoned handler to stay quiet, because there is no abandoned
+    // retry. The original concern is kept as the second assertion, not dropped.
     const stale = [...view.container.querySelectorAll("img")].find((img) =>
       (img.getAttribute("src") ?? "").includes("embedded-obj-1"),
     );
-    // PREMISE, not a convenience guard. If the abandoned image is not mounted
-    // there is nothing that could announce, and the assertion below would pass
-    // without exercising anything -- which is exactly how a vacuous test looks.
-    premiseHolds(
-      "the swiped-away slide's retried image is still mounted, so an announcement is POSSIBLE",
-      stale !== undefined,
-    );
-    act(() => {
-      fireEvent.error(stale as HTMLImageElement);
-    });
-
-    expect(view.spoken.length, "an outcome for an off-screen slide is not announced").toBe(
+    expect(
+      stale,
+      "the swiped-away slide's retry ENDED, so no abandoned image remains to announce",
+    ).toBeUndefined();
+    expect(view.spoken.length, "and nothing was announced for the off-screen slide").toBe(
       spokenBefore,
     );
   });
@@ -1726,6 +1731,115 @@ describe("GalleryLightbox — session state does not outlive availability (Task 
     expect(
       view.container.querySelector(CHIP),
       "no chip over a slide whose diagram is no longer there",
+    ).toBeNull();
+  });
+});
+
+/**
+ * Whole-diff review R1 findings 1-3, all three on the lightbox.
+ *
+ * The common defect in the arc's own coverage: every existing case observed the
+ * state at the moment it changed, and none made the ROUND TRIP. AC-16 checked
+ * the immediately-inactive figure and never came back to the slide; the sweep
+ * cases checked the unavailable frame and never restored the item. A defect
+ * that only shows on return is invisible to a test that never returns.
+ */
+describe("R1: control removal, abandoned retries, and the sweep's full member set", () => {
+  test("finding 1: a SUCCESSFUL lightbox retry keeps focus inside the dialog", async () => {
+    const { container } = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    const control = container.querySelector('[data-testid="lightbox-retry"]') as HTMLElement;
+    premiseHolds("the slide offered a retry", control !== null);
+    act(() => {
+      fireEvent.click(control);
+    });
+    const overlay = container.querySelector('[data-testid="lightbox-retrying"]') as HTMLElement;
+    premiseHolds("the in-flight overlay exists to hold focus", overlay !== null);
+    act(() => overlay.focus());
+    premiseHolds("the overlay really held focus", document.activeElement === overlay);
+
+    await act(async () => {
+      fireEvent.load(activeImage(container));
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(document.activeElement, "focus never falls to <body>").not.toBe(document.body);
+    expect(
+      dialog!.contains(document.activeElement),
+      "and it stays inside the aria-modal dialog",
+    ).toBe(true);
+  });
+
+  test("finding 2: swiping away ENDS the retry, so swiping back shows no Retrying", () => {
+    const { container } = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    const control = container.querySelector('[data-testid="lightbox-retry"]') as HTMLElement;
+    premiseHolds("the slide offered a retry", control !== null);
+    act(() => {
+      fireEvent.click(control);
+    });
+    premiseHolds(
+      "the retry is genuinely in flight before we leave",
+      container.querySelector('[data-testid="lightbox-retrying"]') !== null,
+    );
+
+    // Leave the slide, then COME BACK. The return is the half the arc's own
+    // AC-16 case never made.
+    act(() => emblaApis.at(-1)!.scrollTo(1));
+    act(() => emblaApis.at(-1)!.scrollTo(0));
+
+    expect(
+      container.querySelector('[data-testid="lightbox-retrying"]'),
+      "the abandoned request does not resurrect its in-flight overlay",
+    ).toBeNull();
+  });
+});
+
+/**
+ * R1 finding 3: the sweep does not clear every member whose registry row says
+ * `swept: true`.
+ *
+ * The registry justified `activeScale` and `requestedScaleRef` with "the
+ * active-slide ERROR path already resets it". True, and beside the point: going
+ * UNAVAILABLE is a different path, and it is the one the sweep exists for. The
+ * chain runs further -- `controlsSlotRef` is registered `swept: false` on the
+ * reasoning that "the chip that would strand is hidden by sweeping activeScale
+ * instead", so a false claim about activeScale made a second row's reason false
+ * too.
+ */
+describe("R1 finding 3: the availability sweep clears what its registry rows claim", () => {
+  test("a zoomed item that leaves and RETURNS is no longer zoomed", () => {
+    const items = [item(1), item(2)];
+    const view = open(items);
+    emitScale(2);
+    premiseHolds(
+      "the item is genuinely zoomed before it goes away",
+      view.container.querySelector('[data-testid="lightbox-reset-chip"]') !== null,
+    );
+
+    const rerenderWith = (next: GalleryItem[]) =>
+      view.rerender(
+        <GalleryLightbox
+          showId={SHOW_ID}
+          snapshotRevisionId={REV}
+          items={next}
+          startIndex={0}
+          onClose={() => {}}
+          onAnnounce={() => {}}
+        />,
+      );
+
+    rerenderWith([item(1, { available: false }), item(2)]);
+    rerenderWith(items); // ...and back, which is the half nothing tested.
+
+    expect(
+      view.container.querySelector('[data-testid="lightbox-reset-chip"]'),
+      "the returning item does not carry its previous life's zoom",
     ).toBeNull();
   });
 });

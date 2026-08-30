@@ -48,6 +48,15 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       "`onLoad` (retrying -> idle) and `onError` (retrying -> failed), both per item; and the availability sweep, since a slide that goes unavailable mid-flight must not return holding an overlay (spec §4, §9.1)",
     sweep: { swept: true },
   },
+  "Gallery.tsx:focusThumbRef": {
+    kind: "per-item",
+    clearedBy:
+      "the layout effect that consumes it, which nulls it before focusing; armed only when the in-flight overlay is the focused element",
+    sweep: {
+      swept: false,
+      why: "a single-commit hand-off, not retained state. It is armed and consumed within one commit pair, so an item cannot go unavailable between the two -- and if the target is gone the optional-chained `.focus()` is a no-op rather than a stale focus",
+    },
+  },
   "Gallery.tsx:focusFailedRef": {
     kind: "per-item",
     clearedBy:
@@ -142,7 +151,7 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   "GalleryLightbox.tsx:activeScale": {
     kind: "per-item",
     clearedBy:
-      "the active-slide error path already resets it (`GalleryLightbox.tsx:1112`); a retry returning the slide to idle leaves it at 1, correct for a freshly loaded clamped tier",
+      "the availability sweep, in render, when the active item is not available; ALSO the active-slide error path and a slide change. R1 finding 3: the error path alone was cited here and is a DIFFERENT path from going unavailable, so this row claimed a sweep that did not exist",
     sweep: { swept: true },
   },
   "GalleryLightbox.tsx:liveRegionText": { kind: "not-per-item", why: "one live region" },
@@ -223,9 +232,18 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       why: "React nulls it when TransformWrapper unmounts, which the unavailable render already does. The chip that would strand is hidden by sweeping activeScale instead",
     },
   },
+  "GalleryLightbox.tsx:itemsRef": {
+    kind: "not-per-item",
+    why: "a mirror of the whole `items` prop, not a per-item slot. Same reason as `retryingStateRef`: the Embla `select` subscriber is registered once, so reading the prop there would consult the roster of the render that subscribed",
+  },
+  "GalleryLightbox.tsx:retryingStateRef": {
+    kind: "not-per-item",
+    why: "a whole-set mirror of `retrying`, not a per-item slot. It exists because the Embla `select` subscriber is registered once and would otherwise read the `retrying` of the render that subscribed; the sweep acts on `retrying` itself, and this follows it in an effect",
+  },
   "GalleryLightbox.tsx:requestedScaleRef": {
     kind: "per-item",
-    clearedBy: "the active-slide error path already resets it (`GalleryLightbox.tsx:1110`)",
+    clearedBy:
+      "the ref half of the availability sweep, in an effect (`react-hooks/refs` forbids writing a ref in render, and this one does not render); ALSO the error path and a slide change. Same R1 finding 3 correction as `activeScale`",
     sweep: { swept: true },
   },
   "GalleryLightbox.tsx:wasZoomedRef": {

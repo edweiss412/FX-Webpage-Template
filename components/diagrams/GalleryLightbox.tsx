@@ -314,6 +314,25 @@ export function GalleryLightbox({
   // gallery-only by design, so nothing here inherits from it.
   const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
   const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  // A mirror of `retrying`, read by the Embla `select` subscriber. That callback
+  // is registered once and captures the `retrying` of the render that subscribed,
+  // so reading the state directly there would consult an arbitrarily old set --
+  // and the abandon path would silently do nothing for exactly the ids it exists
+  // to clear. Synced in an effect, which is current long before any swipe.
+  const retryingStateRef = useRef<ReadonlySet<string>>(retrying);
+  useEffect(() => {
+    retryingStateRef.current = retrying;
+  }, [retrying]);
+  // `items` needs the same treatment for the same reason, and eslint's
+  // exhaustive-deps caught that I had introduced the very staleness class the
+  // mirror above exists to prevent: the abandon path reads `items` inside the
+  // `select` subscriber, which is registered once. Adding `items` to that
+  // effect's deps would re-subscribe on every roster change instead, which is
+  // worse -- it tears down a live Embla listener mid-gesture.
+  const itemsRef = useRef<readonly GalleryItem[]>(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
   const retryControlRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const focusRetryTargetRef = useRef<string | null>(null);
 
@@ -490,6 +509,34 @@ export function GalleryLightbox({
       // also resets so the next keyboard +/- bases targets on 1.
       setActiveScale(1);
       requestedScaleRef.current = 1;
+      // R1 finding 2: leaving a slide ABANDONS its in-flight retry, so the
+      // state has to end with it. Previously only the RENDERING stopped (the
+      // overlay is gated on `isActive`) while `retrying` kept the id, so
+      // swiping back resurrected `Retrying…` for a request nobody is waiting
+      // on and could remount a second image request. The sweep could not catch
+      // this: it keys on availability, and an inactive slide is still available.
+      //
+      // `failedKeys` regains the id in the same breath. The item did fail, the
+      // retry that would have cleared it was abandoned, so the honest state on
+      // return is the failed cell with its retry control -- not a loaded image
+      // and not a phantom spinner.
+      setRetrying((prev) => {
+        if (prev.size === 0) return prev;
+        const leaving = itemsRef.current.filter((entry, i) => i !== index && prev.has(entry.id));
+        if (leaving.length === 0) return prev;
+        const next = new Set(prev);
+        for (const entry of leaving) next.delete(entry.id);
+        return next;
+      });
+      setFailedKeys((prev) => {
+        const leaving = itemsRef.current.filter(
+          (entry, i) => i !== index && retryingStateRef.current.has(entry.id),
+        );
+        if (leaving.length === 0) return prev;
+        const next = new Set(prev);
+        for (const entry of leaving) next.add(entry.id);
+        return next;
+      });
       // The announcement is owed by THIS handler, not by the chevrons: a swipe
       // changes the slide with no button involved, and since the inactive
       // slides left the accessibility tree the change is otherwise silent.
@@ -689,14 +736,44 @@ export function GalleryLightbox({
   //
   // useLayoutEffect, not useEffect: this runs in the commit that unmounts the
   // chip, before paint, so no keystroke can land on `<body>` in between.
+  //
+  // R1 finding 1 GENERALISED this from the chip to every control-removal path.
+  // The chip was never special: a successful retry, a repeated failure, an item
+  // going unavailable and a slide change all unmount a control that may hold
+  // focus, and each dropped it to `<body>` outside a dialog that is still
+  // trapping. The predicate was already the right one -- "is focus inside the
+  // dialog" is order-independent and true whatever removed the node -- so the
+  // repair is to stop narrowing WHEN it runs, not to add four more mechanisms.
+  //
+  // The `zoomed` early return is gone with it: focus escaping WHILE zoomed
+  // wanted rescuing too, and returning early there was the bug in miniature.
+  //
+  // Closing is the one case that must NOT be rescued: `handleClose` hands focus
+  // back to the thumbnail, which is correctly outside this dialog, and yanking
+  // it to Close would fight the close. `closedAtNonce === openNonce` is exactly
+  // "this session is closing" and is already the gate the demote chip uses.
   useLayoutEffect(() => {
-    if (zoomed) return;
+    if (closedAtNonce === openNonce) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
     const active = document.activeElement;
     if (active instanceof HTMLElement && dialog.contains(active)) return;
     closeRef.current?.focus();
-  }, [zoomed]);
+  }, [zoomed, retrying, failedKeys, activeIndex, activeAvailable, closedAtNonce, openNonce]);
+  // The REF half of the availability sweep. Split from the render-time half
+  // above only because `react-hooks/refs` forbids writing a ref during render;
+  // neither of these renders, so committing a frame later costs nothing.
+  // `requestedScaleRef` decides what the NEXT keyboard +/- bases its target on,
+  // and left stale it makes the next zoom jump from the departed item's scale.
+  useEffect(() => {
+    if (activeAvailable) return;
+    requestedScaleRef.current = 1;
+    if (demoteTimerRef.current !== null) {
+      clearTimeout(demoteTimerRef.current);
+      demoteTimerRef.current = null;
+    }
+  }, [activeAvailable]);
+
   // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
   //
   // Keyed on the rendered id SET rather than on `item.available`, because an item
@@ -723,6 +800,23 @@ export function GalleryLightbox({
   if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
   if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
   if (sweptWantsOriginal !== wantsOriginal) setWantsOriginal(sweptWantsOriginal);
+
+  // R1 finding 3. Four more members carry `swept: true` rows and none of them
+  // were being swept. The registry's stated reason -- "the active-slide ERROR
+  // path already resets it" -- is true and beside the point: going UNAVAILABLE
+  // is a different path, and it is the one this sweep exists for.
+  //
+  // `activeScale` is lifted state and renders, so it is swept HERE, in render,
+  // for the same reason `wantsOriginal` is: an effect commits one frame late and
+  // that frame paints an enabled Reset chip on an item that is gone. Its two
+  // REFS are swept in the effect below instead -- `react-hooks/refs` forbids
+  // writing a ref during render, and neither ref renders, so a frame costs
+  // nothing there.
+  if (!activeAvailable && activeScale !== 1) setActiveScale(1);
+  // The chip is per-item and keyed by id, so an item that leaves takes its
+  // notice with it. Without this a demote could outlive its item and reappear
+  // on the returning slide inside the six-second window.
+  if (demotedNotice !== null && !liveIds.has(demotedNotice.id)) setDemotedNotice(null);
 
   return (
     <motion.div

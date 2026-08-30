@@ -26,7 +26,7 @@
  * gallery that a diagram is known-but-temporarily-unavailable (admin
  * sees the `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
@@ -140,6 +140,12 @@ export function Gallery({
   // control's ref callback. It CANNOT be a synchronous `.focus()` in the failure
   // handler: the control has not mounted at the moment the handler runs.
   const focusFailedRef = useRef<string | null>(null);
+  // The SUCCESS destination. The other two hand-offs replace one control with
+  // another, so each had somewhere to land; success removes the in-flight
+  // overlay and puts back a plain thumbnail, which is why this one was missing
+  // and why no test caught it -- whole-diff review R1 finding 1, confirmed by a
+  // DOM probe showing `document.activeElement` on `BODY`.
+  const focusThumbRef = useRef<string | null>(null);
   // Separate from `focusFailedRef` on purpose. The dialog's restore target must
   // follow the failed cell even when the cell did NOT hold focus -- the common
   // case is the trigger failing while focus is inside the open dialog, where
@@ -254,6 +260,17 @@ export function Gallery({
     if (id === null) return;
     focusRetryingRef.current = null;
     retryingRefs.current.get(id)?.focus();
+  }, [retrying]);
+
+  // The success hand-off, consumed in a LAYOUT effect rather than a passive one:
+  // this runs in the commit that unmounted the overlay, before paint, so no
+  // keystroke can land on `<body>` in between. Same reasoning the lightbox's
+  // zoom-chip rescue already carries.
+  useLayoutEffect(() => {
+    const id = focusThumbRef.current;
+    if (id === null) return;
+    focusThumbRef.current = null;
+    thumbRefs.current.get(id)?.focus();
   }, [retrying]);
 
   // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
@@ -425,6 +442,14 @@ export function Gallery({
     // dialog-open and exit-window cases follow the same path every other
     // announcement here takes (AC-3).
     routeAnnouncement(`${nameOf(item, visibleIndex)} loaded.`);
+    // Arm the hand-off ONLY when the overlay is the focused element. The
+    // condition is where focus IS, not a "was it focused" flag: browsers
+    // disagree about whether removing a focused node fires blur, so a flag
+    // reads false exactly where the repair is needed.
+    const overlay = retryingRefs.current.get(item.id) ?? null;
+    if (overlay !== null && document.activeElement === overlay) {
+      focusThumbRef.current = item.id;
+    }
     setRetrying((prev) => {
       if (!prev.has(item.id)) return prev;
       const next = new Set(prev);
