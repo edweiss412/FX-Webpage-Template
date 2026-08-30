@@ -38,12 +38,27 @@ finalize route, expect fail; (ii) EVASION BY LONGER NAME — plant `approvedRows
 ESCAPE — plant the identifier in a DIFFERENT file under `app/`, expect fail, which is what makes the
 widened scan of finding 5 load-bearing rather than cosmetic.
 
-Transition guard, three families: (i) ANIMATION PRIMITIVE — plant an `AnimatePresence` wrapper in
-each progress subtree, expect fail; (ii) CSS TRANSITION — plant a `transition-*`/`animate-*` class on
-a node INSIDE a progress subtree, expect fail (this family is the direct answer to R2 finding 2: a
-framer-marker-only oracle is blind to it); (iii) NESTED DUPLICATE — plant a second conditional mount
-one level deeper so two nodes coexist below the outer mount, expect fail, which is the escape R2
-finding 2 named against an outer-child-count check.
+Transition guard, FIVE families. Three came from R2, and two more from R3 finding 2, which showed the
+R2 closure was incomplete against mechanisms this repository actually uses:
+
+(i) ANIMATION PRIMITIVE — plant an `AnimatePresence` wrapper in each progress subtree, expect fail.
+(ii) CSS TRANSITION CLASS — plant a `transition-*`/`animate-*` class on a node INSIDE a progress
+subtree, expect fail. A framer-marker-only oracle is blind to it.
+(iii) NESTED DUPLICATE — plant a second conditional mount one level deeper so two nodes coexist below
+the outer mount, expect fail. An outer-child-count check cannot see it.
+(iv) STANDALONE `motion.*` — replace an existing element with `motion.div`/`motion.span` carrying
+`animate` props, expect fail. This adds NO `AnimatePresence`, NO transition class and NO duplicate
+node, so families (i) through (iii) all miss it. Not hypothetical: the repository uses standalone
+`motion.*` at `components/diagrams/GalleryLightbox.tsx:622`.
+(v) INLINE STYLE ANIMATION — set `style.transition` or `style.animation` on a node in a progress
+subtree, expect fail. It changes no class and no node count, so again (i) through (iii) miss it. Also
+repo-native: `components/admin/review/ReviewModalShell.tsx:315` manipulates `panel.style.transition`
+directly.
+
+The oracle must therefore inspect THREE things, not one: the rendered subtree's class names, its
+inline `style` for `transition`/`animation`, and the component source for `motion.` usage within the
+progress render paths. A guard that checks only the first stays green while either subtree animates,
+which is precisely the AC-5c claim it exists to defend.
 
 No OTHER registry applies, and each candidate in `docs/agents/writing-plans.md:21` is declined for a
 stated reason: no Supabase call site is added (invariant 9), no advisory lock is acquired or moved
@@ -123,6 +138,22 @@ idle button legitimately contain other copy, and a document-wide grep would eith
 fail on unrelated text.
 PRESERVATION in the same task: the CAS header still reads `Finishing setup…`. Declared as
 preservation, not claimed as failing-first.
+
+**Task 1 ALSO updates the one pre-existing assertion its own change breaks** (plan R3 finding 1).
+`runningLabel` lives in `components/admin/FinalizeButton.tsx:493` and is rendered through the trigger
+on BOTH surfaces, so changing it reds
+`tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:252`
+(`expect(b.textContent ?? "").toMatch(/Publishing/i)`, in the test named at
+`tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:229`). The R2 ordering
+assigned that update to Task 2, which would have left Task 1 committing a knowingly red suite and
+started Task 2 red for a stale assertion rather than its own named behavior — a violation of
+invariant 1's per-task red-green-commit cycle. The task that BREAKS an assertion owns fixing it.
+
+Retarget it to `/Setting up/i`. This is NOT gate-editing: the subject legitimately changed and the
+assertion's strength is preserved — it still pins that the button steps into a disabled, aria-busy
+intermediary carrying a specific label, and still fails if that label goes missing or reverts. Say
+so in the commit, because "the implementer changed a failing test" is exactly the shape a reviewer
+should challenge.
 GREEN: `components/admin/FinalizeButton.tsx:485` liveMessage, `components/admin/FinalizeButton.tsx:493` runningLabel, `components/admin/FinalizeButton.tsx:967` and `components/admin/FinalizeButton.tsx:983` aria-labels,
 `components/admin/FinalizeButton.tsx:974` header, `components/admin/FinalizeButton.tsx:1002` subline.
 COMMIT: `fix(admin): batch progress reports setup, not publishing`
@@ -223,6 +254,23 @@ GREEN: widen the `app/api/admin/onboarding/finalize/route.ts:1040` query to incl
 `asParseResult` (a legacy double-encoded row returns a JSON string scalar and `parsedShowTitle` must
 not receive one). This also repairs the failure `display_name` at `app/api/admin/onboarding/finalize/route.ts:1704`, which reads the same
 stale source.
+**Advisory-lock topology declaration (invariant 2, mandatory for a plan editing this path).** Task 3b
+edits inside `processApprovedRow`, which runs under a held per-show lock, so the holder enumeration is
+required rather than the bare "no lock changes" the R2 version offered (plan R3 finding 3).
+
+- **Every existing holder, enumerated:** exactly ONE — the JS-side acquisition in `defaultWithRowTx`,
+  `await tx.query("select pg_advisory_xact_lock(hashtext('show:' || $1))", …)` at
+  `app/api/admin/onboarding/finalize/route.ts:238`. `adoptShowLockHeld` does not acquire; it adopts
+  and asserts the lock already held.
+- **Chosen layer:** unchanged. This task acquires NOTHING. It widens an existing SELECT that already
+  runs inside that held lock and rebinds one more field from its result. Zero new acquisitions, so the
+  single-holder rule is preserved by construction rather than by care.
+- **Preservation guard that must stay green, named so a regression is attributed rather than
+  discovered:** `tests/auth/advisoryLockRpcDeadlock.test.ts:869`, "finalize §5.6 re-select topology:
+  parse_result re-read runs under the existing show: lock with zero new acquisitions". That guard is
+  about THIS EXACT re-read, so it is the direct oracle for this task, not a general smoke test. Run it
+  in the task's GREEN step alongside the stream suite.
+
 SCOPE NOTE for the commit message: this arc's premise was "no route change beyond a rename", and
 this is a route change. It is here because §3.2 keeps the NAME claim, and keeping a claim means
 owning its truth conditions. Say that in the commit rather than leaving a reviewer to wonder.
@@ -248,8 +296,10 @@ conditional block in the batch and CAS branches of `components/admin/FinalizeBut
 instant, so the assertion is structural. Plan R2 finding 2 named three holes in the R1 framing, and
 each is closed:
 
-- **Not framer markers alone.** Also scan for CSS animation: any `transition-*` or `animate-*` class
-  on a node INSIDE a progress subtree. A marker-only oracle is blind to a CSS transition.
+- **Not framer markers alone, and not classes alone.** Scan the rendered subtree's classes for
+  `transition-*`/`animate-*`, its inline `style` for `transition`/`animation`, AND the component
+  source for `motion.` usage in the progress render paths — the three mechanisms families (ii), (v)
+  and (iv) plant. A marker-only oracle is blind to a CSS transition.
   SCOPE IT TO THE PROGRESS SUBTREES — `components/admin/wizard/Step3ReviewWithFinalize.tsx:146`
   carries a legitimate `transition-colors duration-fast` hover treatment on the footer's Back button,
   and a file-scoped assertion reds on correct code.
