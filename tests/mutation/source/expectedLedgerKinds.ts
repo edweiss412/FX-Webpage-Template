@@ -564,4 +564,10 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // not hold, which is why the two REACH signals are killed rather than accepted, each by
   // its own chain fixture. A third row appearing here owes its own written argument.
   connectionCensus: { equivalent: 2 },
+  // Enrolled 2026-08-30. Four equivalents, every one of them a resource bound in
+  // the child-process spawn options, argued individually in the registry. The
+  // first run returned SEVEN survivors; the other three were real defects in the
+  // output parsing and were killed rather than ledgered, which is the split this
+  // count exists to make visible. A fifth row appearing here owes its own argument.
+  configBranchProbe: { equivalent: 4 },
 };

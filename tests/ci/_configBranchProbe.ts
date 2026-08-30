@@ -97,6 +97,36 @@ export type ConfigProbe = {
   matchers: Matcher[];
 };
 
+/** The sentinel the child writes before its JSON payload. */
+export const PROBE_MARKER = "<<PROBE>>";
+
+/** How much of an unusable child output the error quotes. */
+export const PROBE_ERROR_QUOTE = 400;
+
+export type RawProbe = { abs: string; testDir: string; matchers: Matcher[] };
+
+/**
+ * The child's stdout, parsed.
+ *
+ * Extracted from `probeAllConfigs` so it can be exercised directly. Mutation
+ * scoring found the marker check and both quote offsets unpinned — the suite
+ * drove only the happy path through a real child process, so a mutant that
+ * accepted a MISSING marker survived, and so did one that dropped the first
+ * character of the diagnostic. The child is the expensive part; the decision is
+ * not, and only the decision needed testing.
+ *
+ * Throws on a missing marker rather than parsing whatever came back: a child
+ * that died before printing leaves stderr text on stdout, and `JSON.parse` of it
+ * would fail somewhere less legible with the actual output already discarded.
+ */
+export function parseProbeOutput(out: string): RawProbe[] {
+  const marker = out.indexOf(PROBE_MARKER);
+  if (marker === -1) {
+    throw new Error(`probeAllConfigs: no probe output. Got: ${out.slice(0, PROBE_ERROR_QUOTE)}`);
+  }
+  return JSON.parse(out.slice(marker + PROBE_MARKER.length)) as RawProbe[];
+}
+
 /**
  * Evaluate every config in a child process and report its matchers.
  *
@@ -140,7 +170,7 @@ export function probeAllConfigs(): ConfigProbe[] {
         }
         out.push({ abs, testDir: config.testDir ?? ".", matchers });
       }
-      process.stdout.write("<<PROBE>>" + JSON.stringify(out));
+      process.stdout.write(${JSON.stringify(PROBE_MARKER)} + JSON.stringify(out));
     })().catch((e) => { console.error(e); process.exit(1); });
   `;
   const out = execFileSync("pnpm", ["exec", "tsx", "--eval", script], {
@@ -158,15 +188,7 @@ export function probeAllConfigs(): ConfigProbe[] {
       GITHUB_ACTIONS: "true",
     },
   });
-  const marker = out.indexOf("<<PROBE>>");
-  if (marker === -1) {
-    throw new Error(`probeAllConfigs: no probe output. Got: ${out.slice(0, 400)}`);
-  }
-  const raw = JSON.parse(out.slice(marker + "<<PROBE>>".length)) as {
-    abs: string;
-    testDir: string;
-    matchers: Matcher[];
-  }[];
+  const raw = parseProbeOutput(out);
   return raw.map((r, i) => ({
     config: configs[i]!,
     // Playwright resolves testDir against the CONFIG's directory, not the cwd.

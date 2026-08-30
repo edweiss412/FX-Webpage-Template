@@ -28,10 +28,14 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { premiseHolds } from "@/tests/_shared/premise";
 import {
   declaredFilesOf,
   discoverConfigs,
+  parseProbeOutput,
   PINNED_CONFIGS,
+  PROBE_ERROR_QUOTE,
+  PROBE_MARKER,
   probeAllConfigs,
   type Matcher,
 } from "./_configBranchProbe";
@@ -89,9 +93,11 @@ describe("the reader itself (a guard that parses nothing asserts nothing)", () =
 describe("no Playwright config names a file that does not exist", () => {
   it("every declared branch, in every config and project, resolves to a real file", () => {
     const dead: string[] = [];
+    let declared = 0;
     for (const probe of probeAllConfigs()) {
       for (const matcher of probe.matchers) {
         for (const file of declaredFilesOf(matcher)) {
+          declared += 1;
           const abs = join(probe.testDirAbs, file);
           if (!existsSync(abs)) {
             dead.push(
@@ -101,6 +107,9 @@ describe("no Playwright config names a file that does not exist", () => {
         }
       }
     }
+    // Without a branch to check, "no dead branches" is true of nothing and this
+    // assertion would pass forever on a probe that had quietly stopped reading.
+    premiseHolds("at least one config declared at least one branch", declared > 0);
     expect(
       dead,
       "these testMatch branches name files that do not exist. A stale stem still " +
@@ -116,6 +125,10 @@ describe("no Playwright config names a file that does not exist", () => {
     // unexamined. That is the same error the spec is about — enumerate one side,
     // call it the population — and round 1 of review found it here.
     const discovered = discoverConfigs();
+    // A walk that reached nothing would satisfy every "contains" below vacuously
+    // if the pinned list were ever emptied, and would satisfy the beyond-the-belt
+    // filter with an empty array too.
+    premiseHolds("the filesystem walk reached at least one config", discovered.length > 0);
     for (const pinned of PINNED_CONFIGS) {
       expect(discovered, `${pinned} vanished from discovery`).toContain(pinned);
     }
@@ -136,5 +149,43 @@ describe("no Playwright config names a file that does not exist", () => {
       expect(p.matchers.length, `${p.config} contributed no matcher`).toBeGreaterThan(0);
       expect(existsSync(p.testDirAbs), `${p.config} testDir ${p.testDirAbs}`).toBe(true);
     }
+  });
+});
+
+describe("the child's output is parsed, not trusted", () => {
+  // These three cases exist because mutation scoring found the decision below
+  // unpinned: the suite drove only the happy path through a real child process,
+  // so a mutant that ACCEPTED a missing marker survived, and so did both offsets
+  // of the diagnostic quote. The child is the expensive part; the decision is not.
+
+  it("parses the payload that follows the marker, ignoring anything before it", () => {
+    const payload = [{ abs: "/x/playwright.config.ts", testDir: ".", matchers: [] }];
+    const out = `some npm preamble\n${PROBE_MARKER}${JSON.stringify(payload)}`;
+    expect(parseProbeOutput(out)).toEqual(payload);
+  });
+
+  it("THROWS on a missing marker rather than parsing whatever came back", () => {
+    // A child that dies before printing leaves stderr text on stdout. Accepting
+    // that and letting JSON.parse fail later discards the actual output, which is
+    // the only thing that says WHY the child died.
+    expect(() => parseProbeOutput("Error: tsx exited before writing anything")).toThrow(
+      /no probe output/i,
+    );
+  });
+
+  it("quotes the unusable output from its FIRST character, and caps the quote", () => {
+    // Two separate off-by-one defects, both of which survived scoring: an offset
+    // that drops the leading character (so the most diagnostic part of a stack
+    // trace goes missing) and a cap that is one too generous.
+    const noisy = "E" + "x".repeat(PROBE_ERROR_QUOTE + 100);
+    let message = "";
+    try {
+      parseProbeOutput(noisy);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    const quoted = message.slice(message.indexOf("Got: ") + "Got: ".length);
+    expect(quoted.startsWith("E"), "the quote dropped its first character").toBe(true);
+    expect(quoted).toHaveLength(PROBE_ERROR_QUOTE);
   });
 });

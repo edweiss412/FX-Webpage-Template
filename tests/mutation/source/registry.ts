@@ -187,6 +187,95 @@ export function validateSurface(surface: GuardSurface): string[] {
  * an unreviewed surface.
  */
 export const GUARD_SURFACES: GuardSurface[] = [
+  {
+    id: "configBranchProbe",
+    // MEASURED, three consecutive runs of the deciding suite: 2314ms, 1976ms,
+    // 1905ms real. Median, not mean, so one cold start does not price every shard.
+    millisPerBoot: 1976,
+    sourcePath: "tests/ci/_configBranchProbe.ts",
+    suitePaths: ["tests/ci/_metaConfigBranchStaleness.test.ts"],
+    // The full declared set. This surface is a RECOGNIZER over Playwright
+    // `testMatch` sources, and scoping the operator subset would leave the
+    // excluded operators' sites unscored — the exact gap enrolment exists to
+    // close. Spec: docs/superpowers/specs/ci/2026-08-30-e2e-declared-vs-resolved.md.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "regex-quantifier-bound",
+      "statement-removal",
+    ],
+    scoreFloor: 0.9,
+    // Enrolled BEFORE the diff review, per AGENTS.md's convergence criterion:
+    // this surface is a guard whose defect class is "reports OK while the output
+    // moved", which is what the registry expresses, and review is worst at
+    // absence. Round 1 of spec review had already found this module's population
+    // hand-listed in two places that agreed with each other, so the surface has
+    // a demonstrated history of failing in exactly the direction a score
+    // measures.
+    //
+    // Control: blinds the alternation split, so the reader yields NOTHING for
+    // every matcher. Chosen over a narrower blind deliberately — a control that
+    // disables one branch can pass on a reader that has stopped working
+    // altogether, and a reader yielding [] makes the staleness assertion
+    // vacuously green, which is this guard's worst failure mode. Verified unique
+    // on the current source (`grep -c -F` = 1).
+    control: {
+      from: 'const stems = (group ?? single)!.split("|");',
+      to: "const stems: string[] = [];",
+    },
+    // Four equivalents, all in the child-process spawn OPTIONS, and all the same
+    // argument: these numbers bound a resource, and the bound's exact value has no
+    // observable consequence inside this surface's threat fence (ordinary authoring
+    // mistakes; four config files totalling a few kilobytes of matcher text).
+    //
+    // The first scoring run returned SEVEN survivors here, and only these four were
+    // equivalent. The other three were real and are now killed by
+    // `parseProbeOutput`'s own cases: a mutant that accepted a MISSING marker, and
+    // both offsets of the diagnostic quote — one dropping the leading character of
+    // whatever the child actually printed, which is the part that says why it died.
+    // That is the difference this ledger has to keep visible: a survivor is not
+    // evidence of equivalence, it is a question, and three of these seven answered
+    // the other way.
+    accepted: [
+      {
+        siteId: "integer-literal:179:14:300000>300001",
+        kind: "equivalent",
+        reason:
+          "The child-process timeout in milliseconds. It exists so a wedged `tsx` cannot hang " +
+          "the suite forever, and it is set two orders of magnitude above the real cost " +
+          "(the whole four-config probe runs in about two seconds). 300000 and 300001 differ " +
+          "only for a child that hangs for exactly 300 seconds and then completes within one " +
+          "millisecond, which no input reaches. The bound's EXISTENCE is what matters and is " +
+          "pinned by the option being present at all.",
+      },
+      {
+        siteId: "integer-literal:180:16:64>65",
+        kind: "equivalent",
+        reason:
+          "The megabyte term of the stdout buffer ceiling. The probe's real payload is the " +
+          "matcher sources of four config files, measured well under one megabyte, so 64MiB " +
+          "and 65MiB are both unreachably far above it. Raising the ceiling cannot change any " +
+          "output; only LOWERING it below the payload could, and no operator produces that.",
+      },
+      {
+        siteId: "integer-literal:180:21:1024>1025",
+        kind: "equivalent",
+        reason:
+          "The first kibibyte term of the same ceiling, equivalent for the same reason: the " +
+          "product moves by 64KiB against a payload three orders of magnitude smaller.",
+      },
+      {
+        siteId: "integer-literal:180:28:1024>1025",
+        kind: "equivalent",
+        reason:
+          "The second kibibyte term of the same ceiling. Same argument as the term above; the " +
+          "two are one expression and are accepted together rather than one being left to " +
+          "look like an oversight.",
+      },
+    ],
+  },
   /**
    * The render-fault detector, enrolled 2026-08-24 before its first diff review.
    *
