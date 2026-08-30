@@ -483,7 +483,9 @@ All four were wired into `desktop-chromium` and are green: 55 passing in the lay
 
 **Owning record:** this index, plus the diff section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
 
-**Re-file trigger:** a second independent arc losing time to this case, or the rate rising above roughly 1 in 5. A candidate repair polls for placement settle before measuring, the way `settledGeometry` already does two hundred lines above it in the same file; that helper existing and this case not using it is the most likely actual defect.
+**It is a CLASS in that file, not one case.** Measured later the same night: `popover-clip-fit.spec.ts:609`, "placement is RE-COMPUTED once the entrance settles (no-preference)", failed once in a full-file run and then passed 5 of 5 in isolation, having already passed 5 consecutive full-file runs at the same commit. Same shape as the 1280 case: a placement measured once, without polling for settle, in a file whose own `settledGeometry` helper exists precisely because "a single sample taken right after a structural change can land on the frame BEFORE the re-apply". Two cases share the defect; the file has more that sample once.
+
+**Re-file trigger:** a second independent arc losing time to either case, or the rate rising above roughly 1 in 5. A candidate repair routes every placement measurement through the settle poll rather than sampling once. The right form is a sweep of that file for single-sample placement reads, not a patch of the two cases already caught, since catching them one flake at a time is how a class stays open for months.
 
 ---
 
