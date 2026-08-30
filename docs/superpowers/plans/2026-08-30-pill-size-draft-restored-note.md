@@ -298,6 +298,70 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
 
 **Critique P2 — three unmigrated 12px peers. Deferred, out of class, and the citation corrected.** The critique placed both under components/admin/ (as TodaySection.tsx and DriveConnectionPanel.tsx directly); neither path exists. The real files are `components/crew/sections/TodaySection.tsx:403` and `components/admin/settings/DriveConnectionPanel.tsx:203` and `components/admin/settings/DriveConnectionPanel.tsx:221`, and `spec:lint` caught me quoting the critique's paths without checking them, which is precisely the citation class this arc's own spec stage spent five rounds on. Verified: all three are `rounded-pill` chips at 12px, so they are real peers of the SHAPE.
 
+### Ordering deviation: graduation landed before the diff review closed
+
+Both ledger rows were graduated and archived while diff R2 was still open, so
+every commit after that point is a graduation-then-repairs deviation from the
+settled ordering. Recorded here rather than left implicit, following the
+precedent set by `wizdraft`.
+
+What landed after graduation:
+
+- `9e0a9c9e4` — the oracle sweep, which is the actual resolution of the red that
+  Task 4b spent most of its life mis-describing.
+- `4d1b08054` — the corrections to the plan, the closeout and
+  `LIM-E2E-SPEC-DISCOVERY-GAP`, the two new limits, and the `writing-plans.md`
+  count fix.
+- The `141.48px` correction below, plus whatever diff R2 returns.
+
+The marker-off half of invariant 12 is unaffected and stays binding: the
+in-progress markers came off before the merge, and neither ledger file carries
+one now.
+
+### A stale measurement stated as the shipped geometry
+
+`DEFERRED-archive.md:2223` and Step 10 of the plan both quoted the three-segment
+pill as **123.98px at `text-xs`, 141.48px at `text-sm`**, presented as the
+measurement this arc finally supplied for a geometry the row could not measure.
+
+Both numbers are PRE-repair. The impeccable critique measured 110x141.48px at
+375 and found the pill rendering as an ellipse with copy outside its fill,
+because each count phrase was a bare wrap unit breaking mid-phrase under
+`max-sm:flex-wrap`. The `max-sm:whitespace-nowrap` repair took it to **82.9px**.
+Plan line 285 carries both sides, which is how this was settled from the record
+rather than by another run.
+
+Corrected by labelling BOTH numbers as pre-repair rather than swapping one. The
+`text-xs` figure is pre-repair for the same reason, so replacing only the
+`text-sm` number would leave a reader trusting its neighbour. The shipped
+three-segment height is 82.9px, and the direction is confirmed independently by
+the anchor heights measured during the MID-ENTRANCE work: 84.4px on a control
+with both components at `origin/main` against 74.6px at this head. Bigger type,
+shorter pill.
+
+The `+17.5px delta matching the two-segment fixture's` claim in Step 10 held
+only pre-repair and is removed with the numbers it described.
+
+### Local full suite: WAIVED, replaced by CI
+
+bl-orch waived the granted local full-suite run under the standing readiness
+doctrine: a unit-suite rollup green on the SHIPPING head substitutes for the
+local full run. The queue slot was released back to the pool rather than spent
+on a run that duplicates it.
+
+Rollup run: https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33308599952
+
+What the waiver does NOT cover, and what was run locally instead, because CI
+does not reach it: the DB-free tiers this diff disturbs (`tests/docs` +
+`tests/specLint` 2352, `tests/styles` 1442 including the five re-keyed
+line-keyed census rows, `tests/components` + `tests/log` 6199), and the eight
+affected e2e specs on `tests/e2e/standalone.config.ts` (230 passed), which the
+main config's projects do not all discover.
+
+**The waiver binds to the FINAL head.** If diff R2's repairs move it, CI must
+re-green there, and any new DB-touching test those repairs add takes a scoped
+local run on a then-granted slot.
+
 They are still out of class, and the corrected paths make the case stronger rather than weaker. `TodaySection` is a **crew** surface, not admin at all: a different user, on a different page, with no capped header cluster. The two settings chips sit in a settings panel, not a review-modal header. §1.1 R8 fences the class to the review-modal header pill, and Eric ruled on that surface because it is the one carrying zero-scroll discovery for Doug. Sweeping three chips on two unrelated surfaces is a product decision he has not been asked.
 
 **Critique P3 — band arithmetic true for the unwrapped pill, false at 375 when wrapped.** Recorded as a documented limit rather than fixed: the comment describes the single-segment case `T-TAP` actually probes, and the wrapped case's band is now much smaller after P1a anyway.
