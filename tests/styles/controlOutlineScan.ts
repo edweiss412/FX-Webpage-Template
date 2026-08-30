@@ -104,11 +104,15 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/telemetry/HealthAlertsPanel.tsx", line: 257 },
   // spec §4.2 row 16 — the `review-resolution-ignore` button. 797 until
   // fix/attention-autoopen-suppress-phone added the auto-open suppression
-  // predicate and its comment above it; the button itself is untouched.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 860 },
-  // spec §4.2 row 17 — the `review-publish` button. 883 until the same arc,
-  // same cause.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 946 },
+  // predicate and its comment above it; 860 until fix/pill-size-draft-restored-note
+  // widened the leading-mark comment above both rows (whole-diff R3). The button
+  // itself is untouched across all three. Relocated by finding its OWN
+  // `data-testid` and taking the `<button` it opens, never by applying the
+  // delta — `LIM-LINE-KEYED-SITEID`, which this arc has now hit eight times.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 875 },
+  // spec §4.2 row 17 — the `review-publish` button. 883, then 946, same two
+  // arcs and the same cause; located from its own testid the same way.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 961 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are

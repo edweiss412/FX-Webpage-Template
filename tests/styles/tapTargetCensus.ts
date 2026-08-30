@@ -208,14 +208,18 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // resolution radios, so every edit to them moves this row. The 2026-08-30 move
     // was a one-line import plus an eight-line comment and mount for the
     // draft-restored note, none of which touched this checkbox or its label row.
-    // LIM-LINE-KEYED-SITEID, SEVENTH recurrence, all seven inside one arc: the
+    // LIM-LINE-KEYED-SITEID, EIGHTH recurrence, all eight inside one arc: the
     // census keys a site by line number, and a line number is not an identity.
     // The fifth was the wizard twin taking Decision 7 (counts-only), which added
-    // 18 lines above this row. Re-keyed by matching the element's own testid
-    // across the two revisions, never by adding the delta -- the delta happened
-    // to be right here and is wrong the moment two edits land at different
-    // depths in the same file.
-    line: 1050,
+    // 18 lines above this row. The eighth (:1050 -> :1065) is whole-diff R3's
+    // ring-contrast repair, which widened this file's leading-mark comment by 15
+    // lines and touched neither this input nor its label.
+    // Re-keyed by matching the element's own identity across revisions -- here
+    // the radio's `name={`resolution-${item.id}`}`, unique in the file, and the
+    // `<input>` two lines above it -- never by adding the delta. The delta
+    // happened to be right here and is wrong the moment two edits land at
+    // different depths in the same file.
+    line: 1065,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",

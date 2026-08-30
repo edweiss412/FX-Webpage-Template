@@ -372,6 +372,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-a0ff37497977366c0dd4\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-OVERVIEW-TIGHT popup/two-pane @ 1280: no vertical slack below the Overview section's last visible content\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-a122578b2ed03d0a6d8e\",[\"published-review-modal.layout.spec.ts\",\"crew warning placement — containment (crew-warning-attachment T5)\",\"T-WARN-WIDTHFILL @1280: under-row stack fills its member's row (border box + content box)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-a1b63e0dc67526760531\",[\"published-review-modal.layout.spec.ts\",\"phantom gap — zero-height flex items charge their parent's gap\",\"T-NOPHANTOM [crew warnings] popup/two-pane @ 1280: no zero-extent flex/grid item inside any gapped container\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-a272ff7e6968c9d59f00\",[\"published-review-modal.layout.spec.ts\",\"attention pill phone type size (spec 2026-08-30)\",\"T-MARK-GEOMETRY @375: the three leading marks differ in SHAPE, not in colour\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-a9ba8b5aea664f556eb4\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-CONTRAST light: the hub kebab's icon color clears WCAG 1.4.3 (>=4.5:1) on its real backdrop\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-ae289657bfa758b081ed\",[\"published-review-modal.layout.spec.ts\",\"crew warning placement — containment (crew-warning-attachment T5)\",\"T-WARN-WIDTHFILL @390: under-row stack fills its member's row (border box + content box)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"56377480da2fdcb42eea-b7d2e4e05950388af804\",[\"published-review-modal.layout.spec.ts\",\"PublishedReviewModal — dimensional invariants (spec §6.6)\",\"T-LAYOUT sheet @ 375×812: grab + header + main + footer === panel.clientHeight (±0.5px)\"]]",
@@ -778,5 +779,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 677
+  "totalTests": 678
 }

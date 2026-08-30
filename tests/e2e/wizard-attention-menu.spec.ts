@@ -400,6 +400,13 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
               // box is checked now, computed rather than inferred from classes.
               if (cs.display === "none" || cs.visibility === "hidden") return true;
               if (parseFloat(cs.opacity) === 0) return true;
+              // Whole-diff R3 P1: same defect as the two published-modal
+              // walkers. `display: contents` generates no box, so the rects
+              // below read 0x0 on an element that hides nothing, and the noun
+              // would be dropped while it renders. `return false` is this
+              // IIFE's "this ancestor hides nothing"; the remaining ancestors
+              // are still checked by the enclosing loop.
+              if (cs.display === "contents") return false;
               const r = e.getBoundingClientRect();
               if (cs.position === "absolute" && r.width <= 2) return true;
               if (r.width === 0 || r.height === 0) return true;

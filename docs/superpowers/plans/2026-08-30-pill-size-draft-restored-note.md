@@ -153,7 +153,7 @@ tests/e2e/attention-autoopen-suppress.spec.ts:37
 
   The first run of the P3 mutant reported a survivor and was wrong: the line index was stale because an earlier comment edit had shifted the file by three lines, so `replace()` matched nothing. Re-run with the edit asserted, it was killed like the rest.
 
-- [x] **Step 10: The three-segment geometry, no longer unmeasured, and the first numbers superseded.** Spec §2.2 recorded that no fixture reached three segments. It now does. The first pair taken, 123.98px at `text-xs` and 141.48px at `text-sm`, are **both PRE-repair**: at that point every count phrase was a bare wrap unit breaking mid-phrase under `max-sm:flex-wrap`. The `+17.5px delta matching the two-segment fixture` read off them held only in that broken state and is withdrawn with them. Post-repair the shipped three-segment pill is **82.9px** (see the critique entry below). Both numbers are labelled rather than one being swapped, because replacing only the `text-sm` figure would leave a reader trusting its neighbour.
+- [x] **Step 10: The three-segment geometry, no longer unmeasured, and the first numbers superseded.** Spec §2.2 recorded that no fixture reached three segments. It now does. The first pair taken, 123.98px at `text-xs` and 141.48px at `text-sm`, are **both PRE-repair**: at that point every count phrase was a bare wrap unit breaking mid-phrase under `max-sm:flex-wrap`. The `+17.5px delta matching the two-segment fixture` read off them held only in that broken state and is withdrawn with them. Post-repair the three-segment pill measured **82.9px** -- still PRE-Decision 7, and superseded the same day: counts-only copy took the SHIPPED three-segment height to **48.297px**, recorded live by `tests/e2e/published-review-modal.layout.spec.ts` at its (e4) assertion. 82.9px is kept here, labelled, for the same reason the two figures above it are: swapping one number and leaving its neighbours makes a reader trust the survivors. Both numbers are labelled rather than one being swapped, because replacing only the `text-sm` figure would leave a reader trusting its neighbour.
 
 ### Task 2: The occlusion load, and three specs that ran nowhere
 
@@ -381,70 +381,6 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
 
 **Critique P2 — three unmigrated 12px peers. Deferred, out of class, and the citation corrected.** The critique placed both under components/admin/ (as TodaySection.tsx and DriveConnectionPanel.tsx directly); neither path exists. The real files are `components/crew/sections/TodaySection.tsx:403` and `components/admin/settings/DriveConnectionPanel.tsx:203` and `components/admin/settings/DriveConnectionPanel.tsx:221`, and `spec:lint` caught me quoting the critique's paths without checking them, which is precisely the citation class this arc's own spec stage spent five rounds on. Verified: all three are `rounded-pill` chips at 12px, so they are real peers of the SHAPE.
 
-### Ordering deviation: graduation landed before the diff review closed
-
-Both ledger rows were graduated and archived while diff R2 was still open, so
-every commit after that point is a graduation-then-repairs deviation from the
-settled ordering. Recorded here rather than left implicit, following the
-precedent set by `wizdraft`.
-
-What landed after graduation:
-
-- `9e0a9c9e4` — the oracle sweep, which is the actual resolution of the red that
-  Task 4b spent most of its life mis-describing.
-- `4d1b08054` — the corrections to the plan, the closeout and
-  `LIM-E2E-SPEC-DISCOVERY-GAP`, the two new limits, and the `writing-plans.md`
-  count fix.
-- The `141.48px` correction below, plus whatever diff R2 returns.
-
-The marker-off half of invariant 12 is unaffected and stays binding: the
-in-progress markers came off before the merge, and neither ledger file carries
-one now.
-
-### A stale measurement stated as the shipped geometry
-
-`DEFERRED-archive.md:2223` and Step 10 of the plan both quoted the three-segment
-pill as **123.98px at `text-xs`, 141.48px at `text-sm`**, presented as the
-measurement this arc finally supplied for a geometry the row could not measure.
-
-Both numbers are PRE-repair. The impeccable critique measured 110x141.48px at
-375 and found the pill rendering as an ellipse with copy outside its fill,
-because each count phrase was a bare wrap unit breaking mid-phrase under
-`max-sm:flex-wrap`. The `max-sm:whitespace-nowrap` repair took it to **82.9px**.
-Plan line 285 carries both sides, which is how this was settled from the record
-rather than by another run.
-
-Corrected by labelling BOTH numbers as pre-repair rather than swapping one. The
-`text-xs` figure is pre-repair for the same reason, so replacing only the
-`text-sm` number would leave a reader trusting its neighbour. The shipped
-three-segment height is 82.9px, and the direction is confirmed independently by
-the anchor heights measured during the MID-ENTRANCE work: 84.4px on a control
-with both components at `origin/main` against 74.6px at this head. Bigger type,
-shorter pill.
-
-The `+17.5px delta matching the two-segment fixture's` claim in Step 10 held
-only pre-repair and is removed with the numbers it described.
-
-### Local full suite: WAIVED, replaced by CI
-
-bl-orch waived the granted local full-suite run under the standing readiness
-doctrine: a unit-suite rollup green on the SHIPPING head substitutes for the
-local full run. The queue slot was released back to the pool rather than spent
-on a run that duplicates it.
-
-Rollup run: https://github.com/edweiss412/FX-Webpage-Template/actions/runs/33308599952
-
-What the waiver does NOT cover, and what was run locally instead, because CI
-does not reach it: the DB-free tiers this diff disturbs (`tests/docs` +
-`tests/specLint` 2352, `tests/styles` 1442 including the five re-keyed
-line-keyed census rows, `tests/components` + `tests/log` 6199), and the eight
-affected e2e specs on `tests/e2e/standalone.config.ts` (230 passed), which the
-main config's projects do not all discover.
-
-**The waiver binds to the FINAL head.** If diff R2's repairs move it, CI must
-re-green there, and any new DB-touching test those repairs add takes a scoped
-local run on a then-granted slot.
-
 They are still out of class, and the corrected paths make the case stronger rather than weaker. `TodaySection` is a **crew** surface, not admin at all: a different user, on a different page, with no capped header cluster. The two settings chips sit in a settings panel, not a review-modal header. §1.1 R8 fences the class to the review-modal header pill, and Eric ruled on that surface because it is the one carrying zero-scroll discovery for Doug. Sweeping three chips on two unrelated surfaces is a product decision he has not been asked.
 
 **Critique P3 — band arithmetic true for the unwrapped pill, false at 375 when wrapped.** Recorded as a documented limit rather than fixed: the comment describes the single-segment case `T-TAP` actually probes, and the wrapped case's band is now much smaller after P1a anyway.
@@ -491,7 +427,7 @@ What landed after graduation:
 - `4d1b08054` — the corrections to the plan, the closeout and
   `LIM-E2E-SPEC-DISCOVERY-GAP`, the two new limits, and the `writing-plans.md`
   count fix.
-- The `141.48px` correction below, plus whatever diff R2 returns.
+- The `141.48px` correction below. Diff R2 has since returned BLOCKING with 4 findings, all repaired, and diff R3 BLOCKING with 4 more.
 
 The marker-off half of invariant 12 is unaffected and stays binding: the
 in-progress markers came off before the merge, and neither ledger file carries
@@ -506,7 +442,7 @@ measurement this arc finally supplied for a geometry the row could not measure.
 Both numbers are PRE-repair. The impeccable critique measured 110x141.48px at
 375 and found the pill rendering as an ellipse with copy outside its fill,
 because each count phrase was a bare wrap unit breaking mid-phrase under
-`max-sm:flex-wrap`. The `max-sm:whitespace-nowrap` repair took it to **82.9px**.
+`max-sm:flex-wrap`. The `max-sm:whitespace-nowrap` repair took it to **82.9px**, and Decision 7 then took the shipped height to **48.297px**.
 Plan line 285 carries both sides, which is how this was settled from the record
 rather than by another run.
 
@@ -537,9 +473,87 @@ line-keyed census rows, `tests/components` + `tests/log` 6199), and the eight
 affected e2e specs on `tests/e2e/standalone.config.ts` (230 passed), which the
 main config's projects do not all discover.
 
-**The waiver binds to the FINAL head.** If diff R2's repairs move it, CI must
-re-green there, and any new DB-touching test those repairs add takes a scoped
-local run on a then-granted slot.
+**The waiver binds to the FINAL head.** R2's repairs moved it to `b694dabe3`,
+where the required 13 went green; R3's repairs move it again, so that green is
+superseded and CI must re-green at the head this arc finally reports. Any new
+DB-touching test those repairs add takes a scoped local run on a then-granted
+slot.
+
+### Whole-diff R3: the third round on one axis, and what finally closed it
+
+BLOCKING, 4 findings, all real, all repaired.
+
+**P0 — the ring I added in R2 cannot be seen.** `border-text-faint` on
+`bg-status-review` measures **1.179:1 light and 2.522:1 dark**, against a 3:1
+non-text floor. So issues (filled) and warnings (filled + "ringed") were
+separated by hue alone, which is the defect R1 raised and R2 was supposed to
+close. Three rounds, one axis, and each of my repairs caused the next round:
+R1's hollow ring collided with monitoring's ring, R2's filled-and-ringed had an
+invisible ring.
+
+The repair changed the CHANNEL rather than tuning it again. Nine candidate
+tokens were measured against that fill and **none** clears 3:1 in both modes,
+because `status-review` is a mid-tone amber: a dark ring clears in light mode, a
+light one clears in dark. That is a property of the fill, not a gap in the
+search. Geometry has no such dependency, so the three marks are now a filled
+circle (issues), a filled SQUARE (warnings), and a hollow circle (monitoring).
+Ratified at bl-orch's desk, on the record that mark glyphs are design-system
+mechanics rather than the pill CONTENT Eric ruled in Decision 7; fenced both
+directions in spec §2.3b so a later round cannot walk it back to another token.
+
+Two guards were retired to get here, and the pattern in them is the lesson: R2's
+compared `className` strings, R3's reduced classes to (filled, ringed) booleans.
+Both asked "which classes are present" when the question was "can a human see
+the difference". jsdom applies no stylesheet and structurally cannot answer that,
+so the surviving guard is `T-MARK-GEOMETRY`, a real-browser case reading computed
+`border-radius` and `background-color`. Its load-bearing assertion is that issues
+and warnings share a BACKGROUND -- if anyone separates the two by colour again,
+it fails even though the pill would look fine to whoever changed it.
+
+**Class-swept, and R3 undercounted this one.** R3 wrote "this class has one
+runtime instance". The wizard's judgment ring is a second: `border-text-faint`
+measures 2.793:1 against `warning-bg` in dark, under the same floor, and that
+ring is the mark's ONLY rendering -- below the floor it is not a quiet mark, it
+is an absent one. Moved to `border-text-subtle` (6.128 / 4.717 on `warning-bg`,
+6.094 / 6.941 on `surface-sunken`), keeping the hollow idiom, since that pill has
+two states and fill alone separates them.
+
+**P1 — three walkers false-green on `display: contents`.** An element with
+`display: contents` generates no box, so `getBoundingClientRect()` returns zeros
+and all three counts-only walkers classified it as HIDDEN and dropped its text --
+which renders normally. A one-class edit from `max-sm:sr-only` to
+`max-sm:contents` therefore made the noun visible while every guard still passed.
+Proven in both directions rather than argued: with the mutant applied and the old
+walkers, 3 passed; with the fix, 3 failed naming the defect (`Received: "99+
+issues"`); mutant reverted, 165 pass. `tests/e2e/helpers/phantomGap.ts:256`
+already recursed through `contents` for the same reason, so the repo had the
+precedent and these three did not use it.
+
+Swept for the fourth walker R2 had widened. It is at
+`tests/e2e/published-review-modal.layout.spec.ts` in the `lines` counter, it has
+NO zero-rect check, and it measures text nodes with `Range.getClientRects()` --
+the robust technique. Not an instance, and recorded as checked rather than
+patched to look thorough.
+
+**P1 — the round-economy filing miscounted its own corpus**, and this one had
+already been found independently minutes earlier by sweeping my own artifacts for
+stale numbers. It claimed "9 findings, three per round" across three named rounds
+while the `**Examined:**` line directly above it counted four. It omitted the
+round it was written during. Corrected to the corpus figure and recounted after
+R3 landed: 17 findings across 5 rounds.
+
+**P1 — 82.9px was still labelled as shipped** in four places. It is the
+post-`whitespace-nowrap`, PRE-Decision-7 height; counts-only took the shipped
+three-segment pill to 48.297px. This is the second time a superseded pill height
+outlived its measurement in this arc -- 141.48px was the first -- so the numbers
+are labelled with what they describe rather than swapped.
+
+**Found by my own sweep, not by R3: a 65-line block was duplicated verbatim in
+this closeout.** Copies at 383-447 and 479-543, the ordering-deviation,
+141.48px-correction and waiver subsections. Copy A split the "three unmigrated
+12px peers" paragraph from its own continuation, which is how it was identified;
+copy B sits correctly. R3 cited lines 420 and 516 as two separate instances of
+the stale 82.9px without noticing they were the same text twice. Deleted copy A.
 
 ### The class-sweep unit is the decision PLUS its consequences
 

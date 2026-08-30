@@ -621,7 +621,22 @@ export function Step3ReviewModal({
                   <span
                     aria-hidden="true"
                     className={`size-2 shrink-0 rounded-pill ${
-                      n > 0 ? "bg-status-review" : "border-[1.5px] border-text-faint bg-transparent"
+                      n > 0
+                        ? "bg-status-review"
+                        : /* `text-subtle`, not `text-faint`. Class-swept from the
+                             published pill's R3 P0: this hollow ring is the same
+                             defect's second instance, which R3 called "one
+                             runtime instance". `border-text-faint` measures
+                             3.040:1 light but 2.793:1 DARK against `warning-bg`,
+                             under the 3:1 non-text floor -- and this mark's ring
+                             is its only rendering, so below the floor it is not a
+                             quiet mark, it is an absent one. `text-subtle` clears
+                             on BOTH backgrounds this pill takes and in both
+                             modes: 6.128 / 4.717 on `warning-bg`, 6.094 / 6.941
+                             on `surface-sunken`. The hollow idiom is kept -- this
+                             pill has two states, so fill alone separates them and
+                             the radius channel is not needed here. */
+                          "border-[1.5px] border-text-subtle bg-transparent"
                     }`}
                   />
                   {/* §11: instant — deliberate (segment presence follows the derived count) */}

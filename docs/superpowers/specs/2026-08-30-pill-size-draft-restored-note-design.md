@@ -126,6 +126,55 @@ remain in the accessible name at every width. The separating space is its own
 text node OUTSIDE the hidden span: inside it, the accessible-name computation
 trims each node and glues the name into `2monitoring`.
 
+### 2.3b The leading mark is SHAPE, and the channel is fenced both ways
+
+RATIFIED at bl-orch's desk 2026-08-30, on the record that mark glyphs are
+design-system mechanics rather than the pill CONTENT Eric ruled in 2.3a.
+
+Decision 7 removed the noun, and the noun was the only thing telling "3 issues"
+apart from "3 sheet warnings" below `sm`. That distinction had to move somewhere,
+and it took three review rounds to move it somewhere that works:
+
+| round | mechanism | why it failed |
+|---|---|---|
+| R1 | warnings got a hollow ring | collided with monitoring, already a hollow ring |
+| R2 | warnings got filled-and-ringed | the ring measures 1.179:1 light / 2.522:1 dark against its own fill, under the 3:1 non-text floor -- so the pair was separated by hue again |
+| R3 | -- | the channel changed |
+
+**Shipped.** Three marks, two channels, every pair differing in at least one:
+issues a filled CIRCLE, warnings a filled SQUARE (`rounded-none`), monitoring a
+hollow circle. Issues and warnings share a fill deliberately: a sheet warning is
+work, and the shape carries the whole distinction.
+
+**Fence, direction 1 — the distinction does NOT go back to colour, or to any
+token.** Not a different border ink, not a tint, not an opacity step. Nine
+candidate tokens were measured against the `status-review` fill and NONE clears
+3:1 in both modes, because that fill is a mid-tone amber (#a87716 light, #e0b84e
+dark): a dark ring clears in light mode, a light ring clears in dark, and no
+single token clears in both. This is a property of the fill, not a gap in the
+search, so proposing another token is proposing a tenth measurement of a settled
+question. `tests/e2e/published-review-modal.layout.spec.ts` T-MARK-GEOMETRY
+asserts that issues and warnings share a background, so a colour-based
+"improvement" fails the suite rather than shipping.
+
+**Fence, direction 2 — the shapes do NOT become subtle.** `rounded-none`, not a
+2px radius: at an 8px box a small radius reads as the same blob as a circle, and
+subtlety is exactly what cost R1 and R2. T-MARK-GEOMETRY requires the radii to
+differ by at least a quarter of the measured mark box, derived from the box
+rather than a pixel literal. Marks also stay at `size-2`; enlarging them to buy
+legibility would move the cluster against the 160px cap, which is Eric's call and
+not this fence's.
+
+**And the guard reads computed geometry, never class strings.** Two guards were
+retired to get here: one compared `className` (R2), one reduced classes to
+(filled, ringed) booleans that could not see whether a ring was visible (R3).
+jsdom applies no stylesheet and so cannot evaluate the discriminating property at
+all, which is why the surviving guard is a real-browser one.
+
+**Documented limit.** Both counts past 99 render "99+" in both segments; the
+marks still differ, but the two pills read alike at a glance. Out of scope by the
+same reasoning as the cap itself.
+
 ### 2.4 Why `text-sm sm:text-xs` and not `text-xs max-sm:text-sm`
 
 They render identically. The repo has a settled convention and the pill's own file has a local one, and they point opposite ways, so the choice is stated here once to keep it out of review.

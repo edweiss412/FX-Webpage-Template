@@ -1185,24 +1185,44 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       cap at the widest single-segment load. */}
                   <span
                     aria-hidden="true"
-                    className={`size-2 shrink-0 rounded-pill ${
+                    className={`size-2 shrink-0 ${
                       monitoringOnly
-                        ? "border-[1.5px] border-status-positive bg-transparent"
+                        ? "rounded-pill border-[1.5px] border-status-positive bg-transparent"
                         : needsYou.length === 0 && k > 0
-                          ? /* FILLED AND RINGED, which is the third distinct
-                               shape rather than a third colour. The first repair
-                               gave warnings the hollow ring and closed the
-                               issues-vs-warnings collision while opening a new
-                               one, because MONITORING was already a hollow ring
-                               (whole-diff R2 P0). Three states need three shapes,
-                               and (filled, ringed) supplies exactly three from
-                               tokens this component already uses: issues
-                               filled/plain, warnings filled/ringed, monitoring
-                               hollow/ringed. The fill stays the work ink it
-                               shares with issues -- a sheet warning is work, not
-                               monitoring -- and the ring is what separates it. */
-                            "border-[1.5px] border-text-faint bg-status-review"
-                          : "bg-status-review"
+                          ? /* A SQUARE, and the radius is the whole signal.
+                               Three rounds died on this one axis before the
+                               channel changed: R1 gave warnings a hollow ring,
+                               which collided with monitoring's ring (R2 P0); R2
+                               made it filled-and-ringed, and R3 measured that
+                               ring at 1.179:1 light and 2.522:1 dark against the
+                               fill it encloses, under the 3:1 non-text floor --
+                               so issues and warnings were separated by hue
+                               alone again, which is the defect all three rounds
+                               were trying to fix.
+
+                               No ink fixes it. `status-review` is a mid-tone
+                               amber (#a87716 light, #e0b84e dark); a dark ring
+                               clears in light mode and a light ring clears in
+                               dark, and nine candidate tokens were measured with
+                               none clearing 3:1 in BOTH. Geometry has no such
+                               dependency: a square is a square in either mode, in
+                               greyscale, and to a colour-blind reader.
+
+                               So the three marks are a filled CIRCLE (issues), a
+                               filled SQUARE (warnings), and a hollow circle
+                               (monitoring) -- two channels, radius and fill, and
+                               every pair differs in at least one. The fill stays
+                               the work ink it shares with issues: a sheet
+                               warning is work, not monitoring.
+
+                               `rounded-none` rather than a small radius on
+                               purpose. At an 8px box a 2px radius reads as the
+                               same blob as a circle, which is the subtlety that
+                               cost the previous two rounds. Pinned in a real
+                               browser by T-MARK-GEOMETRY on computed
+                               `border-radius`, never on class strings. */
+                            "rounded-none bg-status-review"
+                          : "rounded-pill bg-status-review"
                     }`}
                   />
                   {needsYou.length > 0 ? (

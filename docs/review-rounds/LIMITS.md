@@ -507,3 +507,15 @@ All four were wired into `desktop-chromium` and are green: 55 passing in the lay
 - `tests/e2e/section-header-layout.layout.spec.ts:849` uses `Math.round(h * 100) / 100`, a two-decimal display round whose 0.005 worst case is two orders below the 0.5 tolerance.
 
 **Re-file trigger:** any new instance. The durable repair is not another sweep but a lint over the shape; that was NOT filed as a row, because the freeze's admission test asks for a number outside the process and a lint's done condition is a property of the lint.
+
+## LIM-WORKFLOW-PATHS-TEST-IMPORT-GAP
+
+**Shape:** A CI workflow carrying a `paths:` filter RUNS a set of specs, but the filter names only some of the components those specs exercise. An edit to an unnamed component then triggers nothing, and the gate reports green having executed none of the cases written for it. The dark half is invisible from either side: the workflow looks complete because it lists real paths, and the spec looks covered because a job with its name exists and passes. The derivable form is the fix -- for each workflow with a `paths:` filter, every component transitively imported by the specs it runs must appear in that filter -- which is a static import walk, not an enumeration.
+
+**Named by:** 1 arc — fix/pill-size-draft-restored-note/1789e76bb82f.md (diff, R2: `.github/workflows/step3-live-bundle.yml` ran the draft-restored-note cases while its filter omitted `components/admin/wizard/DraftRestoredNote.tsx`, so a note-only edit would have got no Chromium coverage; the path was added, the class was not closed)
+
+**Owning record:** this index. The instance repair is in that arc's diff; nothing else pins the class.
+
+**Not filed as a row, deliberately.** Process-facing under the 2026-08-25 freeze, and it fails the admission test on its own terms: the done condition would be a property of the walker (does it resolve every import edge), which is refutable once per review round and finishes never. It earns a row when it blocks a product arc — a component edit that reached `main` with its gate green and its cases unrun — and the `**Incident:**` then names that arc.
+
+**Re-file trigger:** a second arc naming it, OR one measured instance of a component edit merging with its workflow green and its specs unexecuted. A workflow filter merely LOOKING incomplete is not the trigger; the filter legitimately omits paths whose specs it does not run.

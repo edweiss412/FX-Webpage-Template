@@ -530,6 +530,19 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
         attentionItems: [...harnessAttentionItems(2), ...harnessMonitoringItems(2)],
         withCrewWarnings: true,
       }),
+      // Whole-diff R3 P0 (T-MARK-GEOMETRY): one page per LEADING-MARK state, so
+      // the three marks can be measured against each other in a real browser.
+      // `normal` already supplies the issues-led case. These two do not exist
+      // anywhere else: every other page has actionable items, which is exactly
+      // why the warnings-only and monitoring-only marks went three review rounds
+      // without a single rendered measurement of either.
+      markWarningsOnly: renderModalHtml(0, {
+        attentionItems: [],
+        withCrewWarnings: true,
+      }),
+      markMonitoringOnly: renderModalHtml(0, {
+        attentionItems: harnessMonitoringItems(2),
+      }),
       // spec 2026-08-30 AC-3: the degraded branch. Reachable only with every
       // count at zero, because `interactive` is tested first (§2.8).
       degraded: renderModalHtml(0, { attentionItems: [], alertsDegraded: true }),

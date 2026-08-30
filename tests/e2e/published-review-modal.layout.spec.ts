@@ -141,6 +141,8 @@ test.beforeAll(async () => {
     crewWarningsCapped: string;
     saturatedTitle: string;
     threeSegment: string;
+    markWarningsOnly: string;
+    markMonitoringOnly: string;
     degraded: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
@@ -165,6 +167,11 @@ test.beforeAll(async () => {
   // spec 2026-08-30 AC-1 / AC-3.
   writeFileSync(join(workDir, "threeseg.html"), pageHtml("out.css", pages.threeSegment));
   writeFileSync(join(workDir, "degraded.html"), pageHtml("out.css", pages.degraded));
+  writeFileSync(join(workDir, "markwarnings.html"), pageHtml("out.css", pages.markWarningsOnly));
+  writeFileSync(
+    join(workDir, "markmonitoring.html"),
+    pageHtml("out.css", pages.markMonitoringOnly),
+  );
   // crew-warning-attachment T5: matched (under-row) + unmatched (in-card group).
   writeFileSync(join(workDir, "crewwarnings.html"), pageHtml("out.css", pages.crewWarnings));
   // crewwarn-underrow-polish §4: capped mixed stack (banner + 3 warnings, one member).
@@ -925,6 +932,17 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
           const cs = getComputedStyle(e);
           if (cs.display === "none" || cs.visibility === "hidden") return true;
           if (parseFloat(cs.opacity) === 0) return true;
+          // Whole-diff R3 P1: `display: contents` generates NO box, so every
+          // rect below reads 0x0 on an element that hides NOTHING -- its
+          // children are laid out by the grandparent and render normally. A
+          // one-class edit from `max-sm:sr-only` to `max-sm:contents` therefore
+          // made the noun VISIBLE while this walker dropped it as hidden, and
+          // the counts-only assertion still passed: the guard accepted the exact
+          // regression it exists to reject. Skip the box tests for a
+          // pass-through element; its own ancestors are still checked on the
+          // following turns of this loop. `tests/e2e/helpers/phantomGap.ts:256`
+          // already recurses through `contents` for the same reason.
+          if (cs.display === "contents") continue;
           const r = e.getBoundingClientRect();
           if (cs.position === "absolute" && r.width <= 2) return true;
           if (r.width === 0 || r.height === 0) return true;
@@ -2126,6 +2144,99 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
   // past the load 30 the cap's own ratifying sweep treated as realistic. It is
   // accepted, not fixed, and asserted below so it cannot regress silently into
   // something worse.
+  /**
+   * The leading mark, measured as GEOMETRY in a real browser.
+   *
+   * Three review rounds died on this one axis, each time because the guard
+   * checked a proxy instead of the property: R1's guard compared className
+   * strings, R2's reduced them to (filled, ringed) booleans still derived from
+   * classes, and R3 showed that a "ringed" mark whose ring measures 1.179:1
+   * against its own fill is not ringed to a human at all. Class strings cannot
+   * answer "can this be seen"; computed style can.
+   *
+   * So this reads `border-radius`, `background-color` and the rendered box off
+   * the live element, and the load-bearing assertion is the last one: issues and
+   * warnings must share a BACKGROUND, which makes hue provably not the carrier.
+   * If a later change separates the two states by colour again, that assertion
+   * fails even though the pill would look fine to whoever made the change.
+   */
+  test("T-MARK-GEOMETRY @375: the three leading marks differ in SHAPE, not in colour", async ({
+    page,
+  }) => {
+    const readMark = async (htmlPath: string) => {
+      await openHarness(page, { width: 375, height: 812 }, htmlPath);
+      return page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).evaluate((pill) => {
+        // The mark is the pill's first decorative span; the middots are the
+        // later ones. Same node the component renders as `aria-hidden`.
+        const mark = pill.querySelector<HTMLElement>('span[aria-hidden="true"]');
+        if (mark === null) return null;
+        const cs = getComputedStyle(mark);
+        const r = mark.getBoundingClientRect();
+        const px = (v: string) => parseFloat(v) || 0;
+        return {
+          w: r.width,
+          h: r.height,
+          radius: px(cs.borderTopLeftRadius),
+          bg: cs.backgroundColor,
+          borderWidth: px(cs.borderTopWidth),
+        };
+      });
+    };
+
+    const issues = await readMark("harness.html");
+    const warnings = await readMark("markwarnings.html");
+    const monitoring = await readMark("markmonitoring.html");
+
+    // PREMISE, positively asserted: three real marks with real boxes. Without
+    // this the whole case passes vacuously on three nulls, which is exactly the
+    // shape of the P0 test that drove two harness flags to one state earlier in
+    // this branch.
+    for (const [name, m] of [
+      ["issues", issues],
+      ["warnings", warnings],
+      ["monitoring", monitoring],
+    ] as const) {
+      expect(m, `premise: the ${name} fixture renders a leading mark`).not.toBeNull();
+      expect(m!.w, `premise: the ${name} mark has a real box`).toBeGreaterThan(0);
+      expect(m!.h, `premise: the ${name} mark has a real box`).toBeGreaterThan(0);
+    }
+
+    const TRANSPARENT = "rgba(0, 0, 0, 0)";
+    const shapeOf = (m: NonNullable<typeof issues>) => ({
+      // Fully round means a radius at least half the box; square means ~zero.
+      round: m.radius >= m.w / 2 - 0.5,
+      square: m.radius <= 0.5,
+      filled: m.bg !== TRANSPARENT,
+    });
+    const si = shapeOf(issues!);
+    const sw = shapeOf(warnings!);
+    const sm = shapeOf(monitoring!);
+
+    expect(si, "issues is a FILLED CIRCLE").toEqual({ round: true, square: false, filled: true });
+    expect(sw, "warnings is a FILLED SQUARE").toEqual({ round: false, square: true, filled: true });
+    expect(sm, "monitoring is a HOLLOW CIRCLE").toEqual({
+      round: true,
+      square: false,
+      filled: false,
+    });
+
+    // LEGIBILITY AT RENDERED SIZE, which is the condition this repair shipped
+    // under: a 2px radius on an 8px box reads as the same blob as a circle, so
+    // "the radii differ" is not enough -- they must differ by a real fraction of
+    // the mark. Derived from the measured box, never a pixel literal.
+    expect(
+      Math.abs(issues!.radius - warnings!.radius),
+      `circle and square must be separable at the rendered ${issues!.w}px box`,
+    ).toBeGreaterThanOrEqual(issues!.w / 4);
+
+    // THE POINT. Hue is not the carrier: the two filled states are the SAME
+    // colour, so every bit of the issues-vs-warnings distinction is shape.
+    expect(
+      warnings!.bg,
+      "issues and warnings must share a fill, so SHAPE carries the distinction",
+    ).toBe(issues!.bg);
+  });
+
   test("T-COUNTS-ONLY @375: the pill shows counts without nouns, and still ANNOUNCES them", async ({
     page,
   }) => {
@@ -2147,9 +2258,16 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
           const cs = getComputedStyle(e);
           if (cs.display === "none" || cs.visibility === "hidden") return true;
           if (parseFloat(cs.opacity) === 0) return true;
-          const r = e.getBoundingClientRect();
-          if (r.width <= 1 && r.height <= 1) return true;
-          if (cs.position === "absolute" && r.width <= 2) return true;
+          // Whole-diff R3 P1: same defect as the T-ALERT-CAP walker above --
+          // `display: contents` makes every rect below 0x0 on an element that
+          // hides nothing. NOT a `continue` here: this is a while loop whose
+          // increment sits at the BOTTOM, so continuing would skip it and spin
+          // forever. The box tests are guarded instead.
+          if (cs.display !== "contents") {
+            const r = e.getBoundingClientRect();
+            if (r.width <= 1 && r.height <= 1) return true;
+            if (cs.position === "absolute" && r.width <= 2) return true;
+          }
           e = e.parentElement;
         }
         return false;
@@ -2364,7 +2482,12 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     //     and both inner segment phrases were bare wrap units that broke
     //     mid-phrase ("2 / issues"), turning a three-segment pill into eight
     //     rows and a 141px box (impeccable critique P1). Measured after the
-    //     repair: 82.9px, three segments at 20.3px each.
+    //     repair: 82.9px, three segments at 20.3px each -- both PRE-Decision 7.
+    //     Counts-only then took the pill to the 48.297px this file records at
+    //     (e4) below. The assertion does not read any of these numbers: it
+    //     bounds each segment against `single.contentH` measured in the same
+    //     run, which is why the copy change moved the geometry without moving
+    //     the test.
     const textSegs = phone.segHeights.filter((h) => h > 12);
     expect(textSegs.length, "premise: three text segments were measured").toBe(3);
     for (const h of textSegs) {
@@ -2426,9 +2549,10 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     // fixture is genuinely WRAPPED. The premise is about the pill rather than
     // the header, and that distinction is the finding: an earlier version
     // asserted the header grew, which was true at the 141px ellipse and became
-    // FALSE once the segments were made one-line each. At 82.9px the pill fits
-    // the header's natural height, so the header no longer moves at all -- the
-    // desirable outcome, and one that would have read as a broken test.
+    // FALSE once the segments were made one-line each. From 82.9px pre-Decision
+    // 7, and 48.297px shipped, the pill fits the header's natural height either
+    // way, so the header no longer moves at all -- the desirable outcome, and
+    // one that would have read as a broken test.
     const pillH = await page
       .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
       .evaluate((el) => el.getBoundingClientRect().height);
