@@ -32,7 +32,7 @@ The count is not wrong. The verb is.
 | Decision | Ratification |
 | --- | --- |
 | Seven rows IS the correct unit of work for the batch phase; this spec does not change which rows finalize processes | `app/api/admin/onboarding/finalize/route.ts:130` (Task B2), predicate at `app/api/admin/onboarding/finalize/route.ts:468-469` |
-| The batch phase publishes nothing; the Live flip is `/finalize-cas` | `app/api/admin/onboarding/finalize/route.ts:1407` (`firstSeenPublished: false`, unconditional), `app/api/admin/onboarding/finalize/route.ts:132`, `supabase/migrations/20260501000000_initial_public_schema.sql:26` |
+| The batch phase publishes nothing; the Live flip is `/finalize-cas` | `app/api/admin/onboarding/finalize/route.ts:1438` (`firstSeenPublished: false`, unconditional), `app/api/admin/onboarding/finalize/route.ts:132`, `supabase/migrations/20260501000000_initial_public_schema.sql:26` |
 | The progress stream makes NO per-row claim about publishing; the wire is unchanged | §2.1 — the ratified narrowing decision, owner call 2026-08-29 |
 | The displayed NAME is a claim this spec keeps, so it must name the applied parse | §3.1b — settled by spec review R4 |
 | The four `Publish progress` accessible names change too | §3.2, with the class-sweep command and its full result |
@@ -43,11 +43,11 @@ The count is not wrong. The verb is.
 
 `selectFinishableCleanRows` returns every finishable clean row, approved or not — deliberate, recorded at `app/api/admin/onboarding/finalize/route.ts:130` ("finalize processes EVERY clean row, not only wizard_approved=true") and enforced by the predicate at `app/api/admin/onboarding/finalize/route.ts:468-469`. Seven rows is the correct unit of work.
 
-The batch phase publishes nothing. The first-seen apply passes `firstSeenPublished: false` unconditionally (`app/api/admin/onboarding/finalize/route.ts:1407`), and `shows.published` defaults `true` (`supabase/migrations/20260501000000_initial_public_schema.sql:26`), so that argument exists precisely to create every show Held. The Live flip belongs to the later `/finalize-cas` call, whose own phase vocabulary already contains `publishing` (`lib/onboarding/finalizeProgress.ts:76`) and whose relationship to approval is recorded at `app/api/admin/onboarding/finalize/route.ts:132`.
+The batch phase publishes nothing. The first-seen apply passes `firstSeenPublished: false` unconditionally (`app/api/admin/onboarding/finalize/route.ts:1438`), and `shows.published` defaults `true` (`supabase/migrations/20260501000000_initial_public_schema.sql:26`), so that argument exists precisely to create every show Held. The Live flip belongs to the later `/finalize-cas` call, whose own phase vocabulary already contains `publishing` (`lib/onboarding/finalizeProgress.ts:76`) and whose relationship to approval is recorded at `app/api/admin/onboarding/finalize/route.ts:132`.
 
 So `Publishing your shows…` is wrong for all seven rows, not merely the five unchecked ones, and `Publishing: <name>` is wrong for whichever row it names, always. The count of seven is the only honest number on the panel.
 
-The local variable holding those rows is named `approvedRows` (`app/api/admin/onboarding/finalize/route.ts:1593`) while the query applies no such filter, which is where the misreading starts.
+The local variable holding those rows is named `approvedRows` (`app/api/admin/onboarding/finalize/route.ts:1624`) while the query applies no such filter, which is where the misreading starts.
 
 ## 2.1 Why no per-row publish claim is made (ratified narrowing)
 
@@ -69,9 +69,9 @@ Per AGENTS.md's repair direction under same-axis recurrence — "the class-level
 
 ## 2.2 The row event marks a COMPLETED row, so the subline is past tense
 
-`onRow` fires after `await runtime.withRowTx(...)` has resolved for that row and after its result is pushed, and it carries `done: perRow.length` — rows finished so far (`app/api/admin/onboarding/finalize/route.ts:1701-1715`). The named row is therefore done, not in progress: across a seven-row batch, events 1 through 6 each name a row that has just completed while the server works on the next one, and event 7 names a completed row until the terminal result replaces the panel.
+`onRow` fires after `await runtime.withRowTx(...)` has resolved for that row and after its result is pushed, and it carries `done: perRow.length` — rows finished so far (`app/api/admin/onboarding/finalize/route.ts:1732-1746`). The named row is therefore done, not in progress: across a seven-row batch, events 1 through 6 each name a row that has just completed while the server works on the next one, and event 7 names a completed row until the terminal result replaces the panel.
 
-The same event fires for a row that FAILED. The route's own comment says so: "a row that fails still surfaces via per_row (client stops on non-OK)" (`app/api/admin/onboarding/finalize/route.ts:1707-1709`). A failure is not reported to the client until the terminal `result` at the END of the batch, so a failed row's name can sit in the subline for the remainder of the batch.
+The same event fires for a row that FAILED. The route's own comment says so: "a row that fails still surfaces via per_row (client stops on non-OK)" (`app/api/admin/onboarding/finalize/route.ts:1740`). A failure is not reported to the client until the terminal `result` at the END of the batch, so a failed row's name can sit in the subline for the remainder of the batch.
 
 Both facts constrain the label. It cannot be present tense ("Setting up: X" names a row that is finished), and it cannot imply success ("Done: X", "Finished: X" would be false for the failed row sitting there until the batch ends).
 
@@ -81,17 +81,17 @@ Both facts constrain the label. It cannot be present tense ("Setting up: X" name
 
 ### 3.1 Route: the misnomer that started this
 
-`app/api/admin/onboarding/finalize/route.ts:1593` and its five readers rename `approvedRows` → `finishableRows`. Pure rename, no behavior change, no emit change. In scope because the name asserts a filter the query does not apply, and this spec's own first two drafts repeated that error one level up by treating approval as destiny.
+`app/api/admin/onboarding/finalize/route.ts:1624` and its five readers rename `approvedRows` → `finishableRows`. Pure rename, no behavior change, no emit change. In scope because the name asserts a filter the query does not apply, and this spec's own first two drafts repeated that error one level up by treating approval as destiny.
 
 `lib/onboarding/finalizeProgress.ts` is NOT modified. The stream contract is unchanged.
 
 ### 3.1b The displayed name must come from the parse that was applied
 
-`onRow` derives the displayed name from the OUTER, select-time row: `name: parsedShowTitle(row.parse_result)` (`app/api/admin/onboarding/finalize/route.ts:1713`). When an inline re-scan heals a modified sheet, the route re-parses it and applies the REFRESHED parse, but the auto-heal block rebinds only three fields onto the local row — its own comment says "Rebind those three onto the local `row`" — and its query selects `staged_id, staged_modified_time, triggered_review_items` and not `parse_result` (`app/api/admin/onboarding/finalize/route.ts:1039-1048`). The freshly-read parse lives on a LOCAL copy inside `processApprovedRow` and never reaches the outer row.
+`onRow` derives the displayed name from the OUTER, select-time row: `name: parsedShowTitle(row.parse_result)` (`app/api/admin/onboarding/finalize/route.ts:1744`). When an inline re-scan heals a modified sheet, the route re-parses it and applies the REFRESHED parse, but the auto-heal block rebinds only three fields onto the local row — its own comment says "Rebind those three onto the local `row`" — and its query selects `staged_id, staged_modified_time, triggered_review_items` and not `parse_result` (`app/api/admin/onboarding/finalize/route.ts:1064-1073`). The freshly-read parse lives on a LOCAL copy inside `processApprovedRow` and never reaches the outer row.
 
 A title-only rename survives as clean, because `computeRescanDecision` weighs selected crew invariants and data-gap regressions rather than the title (`lib/onboarding/rescanDecision.ts:35`). So an ordinary rename produces a row that is set up as `New Show` while the stream says `Old Show`, with nothing downstream to correct it: a successful `per_row` entry carries no name at all.
 
-The same stale source feeds the failure `display_name` (`app/api/admin/onboarding/finalize/route.ts:1704`), so this repair fixes both.
+The same stale source feeds the failure `display_name` (`app/api/admin/onboarding/finalize/route.ts:1735`), so this repair fixes both.
 
 **Fix:** widen that query to include `parse_result` and rebind it onto the local row alongside the other three, coercing with `asParseResult` exactly as the inner path does, so the outer row's shape matches `coercedRow`. Note the coercion is defence in depth rather than a correctness requirement for the two consumers at hand: both read through `parsedShowTitle`, which already JSON-parses a legacy string scalar and returns null if it will not parse (`lib/onboarding/blockerDisplayName.ts:12-23`). An earlier draft of this section claimed `parsedShowTitle` must not receive a string scalar; that was wrong, and it is corrected here rather than in a reopened spec round, per the orchestrator's 2026-08-29 fence. The block already exists to make the outer row match the generation that will be applied; this makes it do that for the one field the operator actually reads.
 

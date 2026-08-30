@@ -125,7 +125,7 @@ assertion that would pass against a commented-out string is not testing the rend
 - Copy sites: header `components/admin/FinalizeButton.tsx:974` + `components/admin/wizard/Step3ReviewWithFinalize.tsx:257`; subline `FinalizeButton.tsx:1002` + `Step3ReviewWithFinalize.tsx:274`; `liveMessage` `FinalizeButton.tsx:485`; `runningLabel` `FinalizeButton.tsx:493`.
 - Accessible names: `components/admin/FinalizeButton.tsx:967` (group) and `components/admin/FinalizeButton.tsx:983` (bar); `components/admin/wizard/Step3ReviewWithFinalize.tsx:249` (group) and `components/admin/wizard/Step3ReviewWithFinalize.tsx:270` (bar). Both groups wrap `state.phase === "batch" ? … : …` (`FinalizeButton.tsx:962-972`, `Step3ReviewWithFinalize.tsx:245-254`), so their label must suit BOTH phases.
 - Class-sweep for the publish verb in accessible names returns exactly those four; the other hits are modal Close/dismiss labels, the confirm dialog `aria-labelledby`, the announcer `sr-only`, and two name tooltips.
-- The rename target: `const approvedRows = await selectFinishableCleanRows(...)` (`app/api/admin/onboarding/finalize/route.ts:1593`), read at `app/api/admin/onboarding/finalize/route.ts:1597`, `app/api/admin/onboarding/finalize/route.ts:1611`, `app/api/admin/onboarding/finalize/route.ts:1628`, `app/api/admin/onboarding/finalize/route.ts:1646`, `app/api/admin/onboarding/finalize/route.ts:1712`. Five readers, one declaration.
+- The rename target: `const approvedRows = await selectFinishableCleanRows(...)` (`app/api/admin/onboarding/finalize/route.ts:1624`), read at `app/api/admin/onboarding/finalize/route.ts:1659`, `app/api/admin/onboarding/finalize/route.ts:1642`, `app/api/admin/onboarding/finalize/route.ts:1659`, `app/api/admin/onboarding/finalize/route.ts:1677`, `app/api/admin/onboarding/finalize/route.ts:1743`. Five readers, one declaration.
 - `controllableNdjson()` is MODULE-LOCAL to the FinalizeButton suite (`tests/components/admin/FinalizeButton.test.tsx:961`), not exported. The Step3 suite holds its running state with a never-resolving fetch (`tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:231`) and so receives NO row events — its subline never renders today. T2 extracts the helper to a shared module and imports it in both suites. The panel subline carries `data-testid="wizard-finalize-current"` (`FinalizeButton.tsx:998`); the compact subline has no testid (`Step3ReviewWithFinalize.tsx:273`) and gains one in T2 so the assertion can be scoped.
 - House assertion style: derive expected values from the fixture with a comment saying so (`FinalizeButton.test.tsx:1021-1022`).
 
@@ -241,7 +241,7 @@ _metaNoApprovedRowsMisnomer, with the usual dot-test-dot-ts extension (spelled o
 path: it does
 not exist yet and `spec:lint` reads a path-shaped token as a citation to a tracked file). It asserts that
 no file under `app/` binds the identifier `approvedRows`. It FAILS on the live
-tree today (the declaration at `app/api/admin/onboarding/finalize/route.ts:1593` plus five readers)
+tree today (the declaration at `app/api/admin/onboarding/finalize/route.ts:1624` plus five readers)
 and PASSES after the rename — same command, observed both ways.
 
 SCOPE, per plan R2 finding 5: the scan covers ALL of `app/`, not just `app/api/admin/onboarding/`,
@@ -254,7 +254,7 @@ before asserting anything about its contents, so a mistyped glob cannot report s
 nothing.
 The guard matches the identifier as a WORD, not a substring, so `finishableRows` does not satisfy it
 by accident and a future `approvedRowsCount` does not evade it.
-GREEN: `approvedRows` -> `finishableRows` at `app/api/admin/onboarding/finalize/route.ts:1593` and
+GREEN: `approvedRows` -> `finishableRows` at `app/api/admin/onboarding/finalize/route.ts:1624` and
 its five readers. The new guard passes, and `tests/onboarding/finalizeStream.test.ts` still passes
 unchanged — the latter is a PRESERVATION check stated as such, not this task's red.
 COMMIT: `refactor(onboarding): name the finishable row set for what the query selects`
@@ -262,9 +262,9 @@ COMMIT: `refactor(onboarding): name the finishable row set for what the query se
 ## Task 3b — the displayed name must come from the parse that was applied
 <!-- task: red=`pnpm vitest run tests/onboarding/finalizeInlineRescan.test.ts` ac=AC-5b -->
 Spec §3.1b. `onRow` reads `parsedShowTitle(row.parse_result)` from the OUTER select-time row
-(`app/api/admin/onboarding/finalize/route.ts:1713`), but the inline-rescan auto-heal rebinds only
+(`app/api/admin/onboarding/finalize/route.ts:1744`), but the inline-rescan auto-heal rebinds only
 `staged_id`, `staged_modified_time` and `triggered_review_items` and does not even select
-`parse_result` (`app/api/admin/onboarding/finalize/route.ts:1039-1048`). A title-only rename stays clean (`lib/onboarding/rescanDecision.ts:35`
+`parse_result` (`app/api/admin/onboarding/finalize/route.ts:1064-1073`). A title-only rename stays clean (`lib/onboarding/rescanDecision.ts:35`
 weighs crew invariants and data-gap regressions, not the title), so the sheet is set up as its NEW
 title while the stream reports the OLD one, uncorrected.
 
@@ -278,16 +278,16 @@ Two cases, both required (bl-orch: "the failure display_name path covered by the
 own"):
   (a) the `row` STREAM EVENT carries the new title after a title-only inline re-scan;
   (b) the terminal `per_row` `display_name` for a FAILED row after the same re-scan
-      (`app/api/admin/onboarding/finalize/route.ts:1704`) carries the new title too.
+      (`app/api/admin/onboarding/finalize/route.ts:1735`) carries the new title too.
 Case (b) needs a row that re-parses cleanly and THEN fails, so its failure entry is built after the
 refreshed parse exists. **There is no fallback.** An earlier draft permitted substituting an assertion
 against the "shared source"; plan R4 finding 2 is right that this is not equivalent evidence, since
-such a test passes while `app/api/admin/onboarding/finalize/route.ts:1704-1705` still omits or
+such a test passes while `app/api/admin/onboarding/finalize/route.ts:1735` still omits or
 stale-renders `display_name` — the very output the orchestrator's condition names.
 
 The ordering IS expressible, so the fallback was weaker AND unnecessary:
 `tests/onboarding/finalizeInlineRescan.test.ts:69-78` already demonstrates a clean-restamp fake, and
-the version gate at `app/api/admin/onboarding/finalize/route.ts:1215-1230` supplies a post-rescan
+the version gate at `app/api/admin/onboarding/finalize/route.ts:1246-1261` supplies a post-rescan
 failure occurring BEFORE `display_name` is constructed. Compose those two.
 
 A stream test where the fake's inline re-scan returns a parse whose TITLE DIFFERS from the
@@ -314,10 +314,10 @@ select-time one, asserting the emitted `name` is the new title.
       than yielding null. This bullet predicted a silent nullification; the coercion makes it loud,
       and the closeout records the correction. The assertion is POSITIVE anyway
       (`name === "New Show"`), because a negative one would pass on a null just as happily.
-GREEN: widen the `app/api/admin/onboarding/finalize/route.ts:1040` query to include `parse_result`, rebind it onto the local row with
+GREEN: widen the `app/api/admin/onboarding/finalize/route.ts:1064` query to include `parse_result`, rebind it onto the local row with
 `asParseResult` (a legacy double-encoded row returns a JSON string scalar; `parsedShowTitle`
 decodes that shape itself, `lib/onboarding/blockerDisplayName.ts:14-20`, so the coercion is for
-shape parity with the inner path, not because the helper cannot cope). This also repairs the failure `display_name` at `app/api/admin/onboarding/finalize/route.ts:1704`, which reads the same
+shape parity with the inner path, not because the helper cannot cope). This also repairs the failure `display_name` at `app/api/admin/onboarding/finalize/route.ts:1735`, which reads the same
 stale source.
 **Advisory-lock topology declaration (invariant 2, mandatory for a plan editing this path).** Task 3b
 edits inside `processApprovedRow`, which runs under a held per-show lock, so the holder enumeration is
