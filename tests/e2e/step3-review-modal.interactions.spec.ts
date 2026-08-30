@@ -1330,7 +1330,10 @@ test.describe("draft-restored note (spec 2026-08-30)", () => {
 
     // DI-8. The scroller is a flex column, so this is the class doing the work.
     expect(g.display, "premise: the pane is the flex column DI-8 is about").toContain("flex");
-    expect(Math.abs(g.nW - g.contentW), "DI-8: note spans the pane's content width").toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs(g.nW - g.contentW),
+      "DI-8: note spans the pane's content width",
+    ).toBeLessThanOrEqual(0.5);
     // DI-9: never a zero-height in-flow child.
     expect(g.nH, "DI-9: the note has real height").toBeGreaterThan(0);
     // AC-8: the whole point. Reachable without scrolling.
@@ -1413,7 +1416,9 @@ test.describe("draft-restored note (spec 2026-08-30)", () => {
     const top = await page.evaluate(
       () => document.querySelector("[data-note-ref]")!.getBoundingClientRect().top,
     );
-    expect(Math.abs(top - ref.top), "visible content moved under the operator").toBeLessThanOrEqual(1);
+    expect(Math.abs(top - ref.top), "visible content moved under the operator").toBeLessThanOrEqual(
+      1,
+    );
   });
 
   for (const dir of ["expand", "collapse"] as const) {
@@ -1472,11 +1477,14 @@ test.describe("draft-restored note (spec 2026-08-30)", () => {
           },
           [NOTE, PANE, start === "scrolled"] as const,
         );
-        if (start === "scrolled") expect(before.scrollTop, "premise: really scrolled").toBeGreaterThan(0);
+        if (start === "scrolled")
+          expect(before.scrollTop, "premise: really scrolled").toBeGreaterThan(0);
         else expect(before.scrollTop, "premise: really at the top").toBe(0);
         // The note must still be up at the moment the reference is taken, or
         // the dismissal this case measures already happened.
-        await expect(page.locator(NOTE), "note still live when the reference is taken").toHaveCount(1);
+        await expect(page.locator(NOTE), "note still live when the reference is taken").toHaveCount(
+          1,
+        );
 
         await expect(page.locator(NOTE)).toHaveCount(0, { timeout: 9_000 });
 
@@ -1490,7 +1498,10 @@ test.describe("draft-restored note (spec 2026-08-30)", () => {
 
         if (start === "scrolled") {
           // AC-16's oracle: what the operator is looking at must not move.
-          expect(Math.abs(after.refTop - before.refTop), "visible content moved").toBeLessThanOrEqual(1);
+          expect(
+            Math.abs(after.refTop - before.refTop),
+            "visible content moved",
+          ).toBeLessThanOrEqual(1);
         } else {
           // AC-11's oracle: the measured shift equation, not "scrollTop unchanged".
           expect(after.scrollTop, "pane stays at the top").toBe(before.scrollTop);

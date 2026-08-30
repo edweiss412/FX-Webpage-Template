@@ -26,7 +26,13 @@ const S3M = "components/admin/wizard/Step3ReviewModal.tsx";
 type Pill = { className: string; text: string; file: string };
 
 function parse(rel: string): ts.SourceFile {
-  return ts.createSourceFile(rel, readFileSync(join(ROOT, rel), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  return ts.createSourceFile(
+    rel,
+    readFileSync(join(ROOT, rel), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
 }
 
 /** The literal text of `className` on this opening element, interpolations
@@ -53,7 +59,11 @@ function elements(file: ts.SourceFile): Pill[] {
       const cls = classNameOf(open);
       if (cls !== null) {
         const text = ts.isJsxElement(node)
-          ? node.children.filter(ts.isJsxText).map((c) => c.text.trim()).filter(Boolean).join(" ")
+          ? node.children
+              .filter(ts.isJsxText)
+              .map((c) => c.text.trim())
+              .filter(Boolean)
+              .join(" ")
           : "";
         out.push({ className: cls, text, file: file.fileName });
       }
@@ -87,7 +97,9 @@ describe("pill type-size class boundary (spec §2.3, §1.1 R8)", () => {
     // asserts it. A fifth capped, wrapping pill fails here first, by design.
     const wrapping = all.filter(isWrappingPill);
     premise("capped wrapping pills across both modals", wrapping.length, 1);
-    expect(wrapping.length, "the wrapping-pill census moved; re-run the §2.5 class analysis").toBe(2);
+    expect(wrapping.length, "the wrapping-pill census moved; re-run the §2.5 class analysis").toBe(
+      2,
+    );
   });
 
   it("every capped, wrapping pill carries the responsive pair", () => {
@@ -97,7 +109,9 @@ describe("pill type-size class boundary (spec §2.3, §1.1 R8)", () => {
 
   it("the two static published pills carry the pair too", () => {
     for (const label of ["Alerts unavailable", "In sync"]) {
-      expect(rendering(label).className, `${label} pill missing the responsive pair`).toContain(RESPONSIVE);
+      expect(rendering(label).className, `${label} pill missing the responsive pair`).toContain(
+        RESPONSIVE,
+      );
     }
   });
 

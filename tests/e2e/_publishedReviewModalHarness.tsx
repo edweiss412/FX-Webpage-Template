@@ -97,7 +97,6 @@ export function harnessMonitoringItems(count: number): AttentionItem[] {
   }));
 }
 
-
 /** Testid prefix for every surface node (`wizard-step3-card-<dfid>-review-*`). */
 export const MODAL_DFID = "drive-pubmodal-1";
 export const MODAL_SLUG = "published-modal-layout-show";

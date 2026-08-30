@@ -2048,8 +2048,9 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     page,
   }) => {
     await openHarness(page, { width: 375, height: 812 }, "threeseg.html");
-    const three = ((await page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).textContent()) ?? "")
-      .replace(/\s+/g, " ");
+    const three = (
+      (await page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).textContent()) ?? ""
+    ).replace(/\s+/g, " ");
     // Named separately: one combined regex passes with a segment missing.
     expect(three, "issues segment").toMatch(/\d+ issues?/);
     expect(three, "sheet-warnings segment").toMatch(/\d+ sheet warnings?/);
@@ -2104,8 +2105,10 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
           canClip: !["visible"].includes(cs.overflowX) || !["visible"].includes(cs.overflowY),
           kidsInside: kids.every(
             (k) =>
-              k.left >= box.left - 0.5 && k.right <= box.right + 0.5 &&
-              k.top >= box.top - 0.5 && k.bottom <= box.bottom + 0.5,
+              k.left >= box.left - 0.5 &&
+              k.right <= box.right + 0.5 &&
+              k.top >= box.top - 0.5 &&
+              k.bottom <= box.bottom + 0.5,
           ),
           // Line count from the TEXT's own client rects, not from child tops:
           // the decorative dot is vertically centred, so its top differs from
@@ -2142,7 +2145,9 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     //     minus what the Close control and the gap take, so a pill that merely
     //     fits cannot pass by being small.
     expect(phone.clusterMaxW, "premise: the grandparent carries the 160px cap").toBe("160px");
-    expect(phone.clusterW, "premise: the cap actually binds at this viewport").toBeLessThanOrEqual(160.5);
+    expect(phone.clusterW, "premise: the cap actually binds at this viewport").toBeLessThanOrEqual(
+      160.5,
+    );
     // The invariant the cap exists for: the pill may not spill out of the
     // capped cluster. Measured against the cluster's own box, so it holds
     // whatever the Close control and gap happen to take on a given fixture.
@@ -2171,10 +2176,14 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     //     top offsets, and cross-checked against this run's single-line render.
     expect(phone.lines, "the pill wrapped onto multiple lines").toBeGreaterThan(1);
     expect(single.lines, "premise: the one-segment reference is a single line").toBe(1);
-    expect(phone.contentH, "three-segment box exceeds one line").toBeGreaterThan(single.contentH * 1.5);
+    expect(phone.contentH, "three-segment box exceeds one line").toBeGreaterThan(
+      single.contentH * 1.5,
+    );
   });
 
-  test("T-LAYOUT-TALL @375x812: the panel equation closes with a wrapped pill", async ({ page }) => {
+  test("T-LAYOUT-TALL @375x812: the panel equation closes with a wrapped pill", async ({
+    page,
+  }) => {
     // Reuses this spec's own selectors and helper rather than raw tag queries:
     // an earlier draft asked for `main` directly and measured 0, because the
     // scroll region is not a bare <main> in this tree.
@@ -2259,8 +2268,11 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
         lines: new Set(lineTops).size,
         clipped: el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > el.clientHeight + 0.5,
         inside: rects.every(
-          (r) => r.left >= pad.left - 0.5 && r.right <= pad.right + 0.5 &&
-                 r.top >= pad.top - 0.5 && r.bottom <= pad.bottom + 0.5,
+          (r) =>
+            r.left >= pad.left - 0.5 &&
+            r.right <= pad.right + 0.5 &&
+            r.top >= pad.top - 0.5 &&
+            r.bottom <= pad.bottom + 0.5,
         ),
       };
     });

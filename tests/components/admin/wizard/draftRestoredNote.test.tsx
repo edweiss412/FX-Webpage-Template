@@ -90,7 +90,10 @@ describe("DraftRestoredNote (spec §3.2-§3.6)", () => {
         <DraftRestoredNote dfid={DFID} wizardSessionId={WSID} />
       </UndoAnnounceContext.Provider>,
     );
-    expect(screen.queryByTestId(NOTE), "the note is a restore signal, not a draft signal").toBeNull();
+    expect(
+      screen.queryByTestId(NOTE),
+      "the note is a restore signal, not a draft signal",
+    ).toBeNull();
   });
 
   it("dismisses on its own timer and not before (AC-15)", () => {
@@ -106,20 +109,24 @@ describe("DraftRestoredNote (spec §3.2-§3.6)", () => {
     ["cleared", () => window.sessionStorage.removeItem(KEY)],
     ["submitted and the key removed", () => window.sessionStorage.removeItem(KEY)],
     ["edited to something else", () => window.sessionStorage.setItem(KEY, "different")],
-  ])("stays accurate and still dismisses on its timer when the draft is %s (AC-18)", (_l, mutate) => {
-    window.sessionStorage.setItem(KEY, "half a sentence");
-    mount();
-    const before = screen.getByTestId(NOTE).textContent;
-    act(() => {
-      mutate();
-      vi.advanceTimersByTime(1000);
-    });
-    expect(screen.getByTestId(NOTE).textContent, "copy describes the restore, not the draft now").toBe(
-      before,
-    );
-    act(() => void vi.advanceTimersByTime(DRAFT_RESTORED_NOTE_MS - 999));
-    expect(screen.queryByTestId(NOTE), "its own timer still owns the dismissal").toBeNull();
-  });
+  ])(
+    "stays accurate and still dismisses on its timer when the draft is %s (AC-18)",
+    (_l, mutate) => {
+      window.sessionStorage.setItem(KEY, "half a sentence");
+      mount();
+      const before = screen.getByTestId(NOTE).textContent;
+      act(() => {
+        mutate();
+        vi.advanceTimersByTime(1000);
+      });
+      expect(
+        screen.getByTestId(NOTE).textContent,
+        "copy describes the restore, not the draft now",
+      ).toBe(before);
+      act(() => void vi.advanceTimersByTime(DRAFT_RESTORED_NOTE_MS - 999));
+      expect(screen.queryByTestId(NOTE), "its own timer still owns the dismissal").toBeNull();
+    },
+  );
 
   it("copy is past tense, so nothing the operator does can falsify it (AC-18)", () => {
     // Not a denylist of three phrasings: the copy must not make ANY
