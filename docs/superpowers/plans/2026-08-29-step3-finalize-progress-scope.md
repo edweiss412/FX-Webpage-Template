@@ -518,7 +518,53 @@ unrelated areas; this one is used by two sibling suites in the same directory.)
 
 ## 12. Close-out — gate findings and dispositions
 
-impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=5 dispositions=recorded
+
+**RE-RUN, 2026-08-30 (whole-diff R2 finding 1, P0).** The first run of this gate landed in
+`f8c56ab3d`, and `69031be34` then changed `components/admin/FinalizeButton.tsx`. This section
+requires both halves to re-run on ANY UI repair, and that commit's message asserted an exemption
+for a nonvisual test hook which this plan does not grant — an exemption written by the party the
+invariant constrains. The marker above describes the RE-RUN, against the UI diff that ships.
+
+Method: critique ran as two isolated parallel sub-agents (design review; detector evidence), so no
+degraded-run banner applies. The audit half ran as a third. Setup gates were run as written:
+the skill's context script loaded PRODUCT.md + DESIGN.md, and the register is PRODUCT, so the
+product register reference was the one read. Browser visualization was SKIPPED and reported as skipped, not silently omitted:
+this worktree forbids starting a dev server or running a build.
+
+Deterministic half: the bundled detector exited 0, zero findings. Zero hardcoded hex. Zero real em-dash
+violations — 42 raw hits, every one inside a `//` or block comment rather than JSX text or a string
+literal. Four arbitrary Tailwind bracket values were checked against the diff and none is added by
+this arc; they live in the untouched confirm-sheet and dot code, so they are recorded as
+observed-out-of-scope rather than counted against a marker for work this change did not cause.
+
+Scores: critique 24/40, audit 14/20. **P0: none. P1: five — two fixed here, three deferred.**
+
+| P1 | Disposition |
+| --- | --- |
+| The two renderers told different stories: the compact readout said `1 of 2` where the panel said `1 of 2 shows` | FIXED. It is this arc's own class — a count with no noun, beside a heading that had just stopped saying "publishing", is the of-what ambiguity the change exists to remove — and it is the surface Doug actually uses. Pinned by a test and proved by reverting the noun. |
+| `animate-spin` on the running trigger carried no reduced-motion gate | FIXED. Mechanical, and the repo convention already existed at `components/admin/ReSyncButton.tsx:456` and `components/admin/ShowRowActions.tsx:766`. |
+| The CAS phase has no progress affordance: bar and count vanish at the boundary | DEFERRED, `FINALIZE-CAS-PROGRESS-AFFORDANCE-1`. Exception (a) — whether a settled batch line persists and whether an indeterminate bar reassures or misleads are product calls a copy repair should not make. |
+| The finalize progress bar has no CSS at all and ships raw UA chrome in both themes | DEFERRED, `FINALIZE-PROGRESSBAR-UNTHEMED-1`. Exception (c) — a visual restyle this PR does not otherwise open, and one this worktree cannot verify: no dev server, no build, so no screenshot. Pre-existing; this arc changed the bar's name, never its styling. |
+| Every child of the CAS group is `aria-hidden`, and the sub-phases are never announced | DEFERRED, `FINALIZE-PROGRESS-AT-PERCEIVABILITY-1`. Exception (a) — the live region does announce the phase, so nothing is silent; folding `casPhaseLabel` into `liveMessage` is two lines but takes a screen-reader operator from one utterance per phase to four, and that cadence is a decision about how Doug works. |
+
+**Findings REFUTED with their mechanism, recorded so no later round re-derives them.**
+
+- The critique read three surviving "publish" strings as a missed sweep. Two are correct as
+  written: "Some sheets need another look before we can publish" is forward-looking on the
+  race-row panel, and "Some sheets are blocking the final publish step" names the CAS phase, which
+  genuinely does publish. Changing either would make the copy less accurate. The third was real
+  and is fixed: `GENERIC_ERROR` said "The publish step could not complete" and is reached from
+  eight BATCH-phase paths, where that is precisely the falsehood this arc removes. It is local
+  component copy carrying a `not-subject:M5-D8` comment, not catalog-routed, so no §12.4 lockstep
+  applies.
+- The audit proposed renaming the bar so the group and bar do not share an accessible name. That
+  collides with the ratified acceptance criterion that the SET of `[aria-label]` values in the
+  batch phase equals `{"Show setup progress"}` — re-affirmed in R2 finding 7. Not taken.
+- Two of R2's own challenges were independently resolved by the audit rather than by argument: no
+  competing `aria-labelledby` exists, so the accessible name IS computed from the `aria-label` the
+  tests pin; and the announcer keys on kind and phase only, so it emits one utterance per phase and
+  never one per row.
 
 ### 12.1 The dual gate
 
@@ -612,4 +658,23 @@ it queried lsof by directory alone, so long-lived MCP servers sharing the worktr
 orphans and it returned NOT RELEASED on an idle machine. A limb that always passes and a
 limb that never clears are the same defect in opposite directions; both are fixed and both
 are proved by a positive and a negative control.
+
+## 14. Whole-diff review round 2 — findings and dispositions
+
+BLOCKING, 7 findings, all verified against the tree before acceptance (this reviewer could not
+execute either — Vite `EPERM` in its sandbox), all fixed, none deferred and none refuted.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | P0: the invariant-8 gate was stale — a later commit changed a component after it ran | Dual gate RE-RUN; §12 now describes the diff that ships. Two P1s fixed, three deferred with entries, two findings refuted with mechanism. |
+| 2 | The fake projected `parse_result` whether or not the query selected it | Fixed. Proved by deleting the column from the production query and watching the guards raise `JsonbCoercionError` where they had passed. |
+| 3 | The named lock guard does not pin the edited SELECT | Claim corrected rather than the guard stretched. Its acquisition-count arm is what invariant 2 needs and does hold. |
+| 4 | Declared transition family (iii) was not asserted | Fixed: testids in the subtree must be unique, because a duplicate RAISES the node count and passes a lower bound. |
+| 5 | Inline animation longhands escaped the audit | Fixed: the check reads `cssText`. jsdom leaves both shorthands empty while the longhands are set — probed, not assumed. |
+| 6 | Three tests read `aria-label` and called it the accessible name | Fixed: each also pins that no `aria-labelledby` overrides it. |
+| 7 | A second wrong-suite citation in a table round 1 had already edited | Fixed, and swept as a COLUMN this time; component citations re-anchored where this arc's own edits had shifted them. |
+
+**The pattern worth keeping.** Round 1's sweep grepped the instance; round 2 found the second
+instance in the same table. Sweeping the column rather than the string is what closed it, and the
+same sweep caught two component citations pointing four and five lines off their constructs.
 

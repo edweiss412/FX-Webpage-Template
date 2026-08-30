@@ -320,6 +320,18 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(tracking.textContent ?? "").not.toContain("Publishing: ");
   });
 
+  test("the compact count names WHAT it counts, like the panel does", async () => {
+    // Impeccable critique P1: the compact readout said "1 of 2" while the panel said
+    // "1 of 2 shows". The compact one is the surface Doug actually uses, and "1 of 2"
+    // of WHAT is precisely the ambiguity this arc set out to remove — a count with no
+    // noun beside a heading that had just stopped saying "publishing" tells him less
+    // than it should at the moment he is watching it.
+    const { getByTestId } = await runningCompactTracking();
+    // The fixture streams total: 2, so the plural branch is the one under test; derived
+    // from the fixture rather than hardcoded so a fixture change cannot silently pass.
+    expect(getByTestId("wizard-step3-tracking").textContent ?? "").toContain("1 of 2 shows");
+  });
+
   test("compact subline names the completed row and makes no claim about its outcome", async () => {
     const { getByTestId } = await runningCompactTracking();
     // Premise: the row event actually populated lastName. Without it this suite

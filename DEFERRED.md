@@ -8,6 +8,44 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### FINALIZE-CAS-PROGRESS-AFFORDANCE-1 — impeccable P1: the highest-stakes phase has the weakest feedback (2026-08-30)
+
+**Effort:** M · **Facing:** product · **Un-defer trigger:** the first report of an operator reloading mid-finalize, or any arc that opens the finalize progress panel's structure rather than its copy.
+
+`fix/step3-publish-progress-scope` corrects what the batch phase CLAIMS: it creates every show Held, so "Publishing your shows…" was false and now reads "Setting up your shows…". That change is copy-only and shipped. What the critique found is structural and predates it: at the batch-to-CAS boundary the determinate `<progress>` and the `N of M` count both DISAPPEAR, leaving two text lines, one of which is empty until the first phase event arrives. The empty STRING is deliberate — `casPhaseLabel(null)` returns `""` with a comment explaining it avoids a redundant second line under the heading — but the empty `<p>` is still rendered, so a `gap-2` column pays for a line that shows nothing. The choice is sound; the artifact is that nothing suppresses the element when the label it holds is empty.
+
+**Why it matters for Doug specifically.** The CAS phase is the one that actually puts shows live. PRODUCT.md has him on a venue floor, one-handed, glancing. The phase with the highest stakes currently gives him the least evidence anything is happening, and the two phases read as a REPLACEMENT rather than a sequence: there is no completion beat for the batch he just watched finish. A project manager who sees a bar vanish reads it as failure and reloads, and reloading mid-run lands him in the `in_progress` checkpoint path — a real bad outcome produced by a display gap rather than by any fault in the run.
+
+**The recommendation from the critique**, kept because it is concrete: keep the settled batch line ("12 of 12 shows set up"), render an indeterminate `<progress>` for the CAS phase so the surface still reads as working, and drop the `<p>` entirely when the phase label is empty rather than rendering a blank one.
+
+**Why deferred rather than fixed in this arc.** Class-sweep exception (a): it is a product and design decision, not a bug fix. Whether the batch line persists into CAS, and whether an indeterminate bar reassures or misleads when no percentage is knowable, are calls about what Doug should be told at the moment of the live flip. This arc's mandate was to stop the surface making a false claim; it is strictly subtractive on copy and touches no phase structure. Adding a new progress element and a persisted completion line is new design on a surface this change does not otherwise open.
+
+**What this arc DID close** rather than leave here: the sibling P1, that the two renderers told different stories — the compact tracking Doug actually uses said "3 of 12" with no noun while the panel said "3 of 12 shows", which is exactly the of-what ambiguity the arc set out to remove. Both now name what they count.
+
+---
+
+### FINALIZE-PROGRESSBAR-UNTHEMED-1 — impeccable P1: the finalize progress bar ships raw browser chrome in both themes (2026-08-30)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens `app/globals.css`'s progress-element block, or the first screenshot review of the finalize surface in dark mode.
+
+`app/globals.css` styles the step-2 scan bar across six selectors (`:688-758`) and styles the finalize bar with none: `wizard-finalize-progressbar` appears nowhere in the stylesheet. Both renderers therefore paint the native UA bar, which is platform-accent blue on macOS, in light AND dark mode. DESIGN.md permits exactly one accent, FXAV orange, and says dark is first-class rather than derived; an OS-blue bar is neither. `ProgressPanel`'s own docstring claims it uses "same tokens, same native bar" as step 2, which is false today.
+
+**Why deferred rather than fixed in this arc.** Class-sweep exception (c): it is a visual restyle of a surface this PR does not otherwise open. The change is small in bytes — widen the six step-2 selectors to match both testids — but its output is a VISUAL change, and this arc has no way to verify it: the worktree is under a heavy-phase restriction that forbids starting a dev server or running a build, so no screenshot or contrast measurement could be taken. Shipping an unverified repaint of the element the operator watches during the highest-stakes action, inside a copy-only change, trades a known-wrong appearance for an unmeasured one. It is also strictly pre-existing: this arc changed the bar's accessible name and never its styling.
+
+---
+
+### FINALIZE-PROGRESS-AT-PERCEIVABILITY-1 — impeccable P1: the CAS phase is a focused group whose every child is hidden from assistive tech (2026-08-30)
+
+**Effort:** M · **Facing:** product · **Un-defer trigger:** the VoiceOver spot-check owed under VOICEOVER-ANNOUNCER-SPOTCHECK, or any arc that changes `liveMessage`.
+
+Every visible string in both progress renderers carries `aria-hidden="true"` (FinalizeButton.tsx:976, 993, 1004, 1016, 1022; Step3ReviewWithFinalize.tsx:259, 264, 281, 289, 292). In the BATCH phase that is sound: the native `<progress>` carries the machine-readable state and `FinalizeAnnouncer` carries the words, so hiding the visual copy is what stops a screen reader saying everything twice. In the CAS phase there is no `<progress>` at all, so a focused group named "Show setup progress" contains nothing perceivable, and the three sub-phases `casPhaseLabel` renders — "Applying your edits…", "Making shows live…", "Connecting your folder…" — are never announced, because `liveMessage` keys on phase alone and says only "Finishing setup".
+
+**Not silent, which is why this is deferred rather than urgent:** the live region does announce the phase change, so a screen-reader operator is told the run moved on. What they lose is the sub-phase detail a sighted operator can read.
+
+**Why deferred rather than fixed in this arc.** Class-sweep exception (a): the fix is a product decision about announcement cadence, not a defect repair. Folding `casPhaseLabel` into `liveMessage` is two lines, but it changes a screen-reader operator's experience from one utterance per phase to up to four, and the announcer was deliberately built to avoid chattiness — the same file already declines to double-announce completion. Whether the extra detail is worth the extra speech is a call about how Doug works, and this arc's mandate was to stop the batch phase making a false claim.
+
+---
+
 ### ATTENTION-PILL-PHONE-LEGIBILITY-1 — impeccable P1: the pill now carries discovery alone at phone widths, at 12px in ~108px (2026-08-29)
 
 **Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a missed actionable item on a phone, or any arc that opens the review-modal header's action cluster.

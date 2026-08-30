@@ -134,7 +134,7 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
 const GENERIC_ERROR =
-  "The publish step could not complete. Refresh and try again, or contact the developer if this keeps happening.";
+  "Setting up your shows could not complete. Refresh and try again, or contact the developer if this keeps happening.";
 
 export type FinalizeRunProps = {
   wizardSessionId: string;
@@ -580,7 +580,7 @@ export function FinalizeTrigger({ run }: { run: FinalizeRun }) {
     >
       {running ? (
         <>
-          <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+          <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
           {run.runningLabel}
         </>
       ) : (
