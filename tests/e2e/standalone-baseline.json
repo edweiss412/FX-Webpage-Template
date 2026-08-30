@@ -754,6 +754,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-0479afa6e6a291228c83\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the menu's scroller is a nameable, focusable region\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-072ab056429209f556d7\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"a row click scrolls its warning into the scroller's view and flashes it\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-28bf4e8c8fb46cbbefcd\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"every menu row clears the 44px floor at 375x844\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-4aa9ce6e1d8da9602e2a\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"T-WIZ-MARK @375: needs-look and judgment-only do not share one silhouette\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-4cb3c85bb149f1ba72e6\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the panel stays inside the modal clip at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-7530ebac4c5a7a9d8f43\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the pill's hit band clears the 44px floor at 1280x800\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-8df424e194fae616f67d\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"tap-opened at a phone width, then widened past sm: the menu stays open\"]]",
@@ -777,5 +778,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 676
+  "totalTests": 677
 }

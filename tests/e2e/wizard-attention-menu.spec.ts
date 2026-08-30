@@ -411,6 +411,76 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     await expect(chip).toHaveAccessibleName(/need a look|judgment call/);
   });
 
+  // Whole-diff R1 P0 (2026-08-30). The SAME defect the published twin already
+  // had, missed on this one: Decision 7 hides the nouns below `sm`, and the
+  // wizard's leading dot is SOLID in both states with only its colour changing
+  // (`n > 0 ? bg-status-review : bg-text-faint`). So an equal-count needs-look
+  // pill and judgment-only pill share dot, count and chevron entirely, leaving
+  // meaning on palette alone against DESIGN.md's colour-blind floor.
+  //
+  // The judgment-only state needed a fixture to be testable at all: the
+  // `attention=1` fixture is composite by design, which is exactly why this
+  // shipped uncaught.
+  test("T-WIZ-MARK @375: needs-look and judgment-only do not share one silhouette", async ({
+    page,
+  }) => {
+    // SHAPE, not hue. A first version of this compared backgroundColor and
+    // PASSED against the defect, because the two states already differ in
+    // colour (`bg-status-review` vs `bg-text-faint`) -- which is precisely the
+    // finding: meaning carried by palette alone. The oracle has to survive
+    // colour being removed, so it reduces each mark to whether it is FILLED and
+    // whether it is RINGED, and compares those booleans.
+    const markOf = async () =>
+      page.locator(CHIP).evaluate((el) => {
+        const dot = el.querySelector('span[aria-hidden="true"]') as HTMLElement | null;
+        if (!dot) return null;
+        const cs = getComputedStyle(dot);
+        const transparent = (c: string) =>
+          c === "transparent" || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(c);
+        return {
+          filled: !transparent(cs.backgroundColor),
+          ringed: parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== "none",
+        };
+      });
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    await page.goto(`${baseUrl}?attention=1`);
+    await page.locator(CHIP).waitFor();
+    const composite = await markOf();
+
+    await page.goto(`${baseUrl}?judgmentOnly=1`);
+    await page.locator(CHIP).waitFor();
+    const judgmentOnly = await markOf();
+
+    expect(composite, "PREMISE: the composite pill rendered a mark").not.toBeNull();
+    expect(judgmentOnly, "PREMISE: the judgment-only pill rendered a mark").not.toBeNull();
+
+    // PREMISE that the fixtures really are two states, asserted positively so a
+    // flag that silently did nothing fails HERE rather than satisfying the
+    // comparison below by rendering the same page twice.
+    const seg = async () =>
+      page
+        .locator(CHIP)
+        .evaluate(
+          (el) => !!el.querySelector('[data-testid="wizard-attention-pill-judgment-segment"]'),
+        );
+    const judgmentSeg = await seg();
+    await page.goto(`${baseUrl}?attention=1`);
+    await page.locator(CHIP).waitFor();
+    const compositeSeg = await seg();
+    expect(
+      { composite: compositeSeg, judgmentOnly: judgmentSeg },
+      "PREMISE: both fixtures render a judgment segment, so the two differ by the needs-look segment rather than by nothing",
+    ).toEqual({ composite: true, judgmentOnly: true });
+
+    expect(
+      judgmentOnly!.filled === composite!.filled && judgmentOnly!.ringed === composite!.ringed,
+      `both wizard states paint the same SHAPE (${JSON.stringify(composite)}); they may differ in hue, but a colour-blind reader sees one pill`,
+    ).toBe(false);
+  });
+
   test("T-WIZ-COUNTS @1280: the wizard pill's full wording is BACK at sm and up", async ({
     page,
   }) => {

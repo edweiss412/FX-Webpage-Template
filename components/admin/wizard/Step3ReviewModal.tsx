@@ -606,12 +606,22 @@ export function Step3ReviewModal({
                         "border border-text-faint bg-surface-sunken text-text hover:border-text-subtle"
                   }`}
                 >
-                  {/* Decorative — the count text carries the meaning
-                      (DESIGN.md §1.3 colour-blind floor). */}
+                  {/* NOT decorative any more, and the old comment here said it
+                      was: it claimed "the count text carries the meaning
+                      (DESIGN.md §1.3 colour-blind floor)", which Decision 7
+                      falsified by hiding the noun below `sm`. Both states then
+                      painted a SOLID dot differing only in hue, so an
+                      equal-count needs-look pill and judgment-only pill shared
+                      dot, count and chevron entirely and a colour-blind reader
+                      saw one pill (whole-diff R1 P0, 2026-08-30 -- the same
+                      defect the published twin had, missed on this one).
+                      Judgment now takes the HOLLOW ring, the idiom
+                      `AttentionMenu.tsx:227` and the published pill both use, so
+                      the two differ in shape and not only in palette. */}
                   <span
                     aria-hidden="true"
                     className={`size-2 shrink-0 rounded-pill ${
-                      n > 0 ? "bg-status-review" : "bg-text-faint"
+                      n > 0 ? "bg-status-review" : "border-[1.5px] border-text-faint bg-transparent"
                     }`}
                   />
                   {/* §11: instant — deliberate (segment presence follows the derived count) */}
@@ -655,8 +665,18 @@ export function Step3ReviewModal({
                     >
                       {/* Separator only BETWEEN segments, never a leading glyph,
                           and a REAL " · " text node so it is announced too. */}
+                      {/* `max-sm:opacity-100`, matching the published twin: below
+                          `sm` this middot is the ONLY thing separating adjacent
+                          counts once the nouns are hidden, and at `opacity-50`
+                          inside a `text-warning-text/80` parent it measures about
+                          2.04:1 light (whole-diff R1 P1).
+                          NOTE the comment ORDER: the §11 marker below must stay
+                          on the line directly above the conditional, because the
+                          source-marker audit reads the line above the site. */}
                       {/* §11: instant — deliberate (separator follows segment presence) */}
-                      {n > 0 ? <span className="opacity-50">{" · "}</span> : null}
+                      {n > 0 ? (
+                        <span className="opacity-50 max-sm:opacity-100">{" · "}</span>
+                      ) : null}
                       <span className="inline-flex items-center max-sm:whitespace-nowrap">
                         {m > 99 ? "99+" : m}{" "}
                         <span className="max-sm:sr-only">

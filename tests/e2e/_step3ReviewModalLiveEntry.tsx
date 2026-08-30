@@ -25,6 +25,7 @@ import { createRoot } from "react-dom/client";
 import {
   buildSectionData,
   attentionHarnessWarnings,
+  judgmentOnlyHarnessWarnings,
   harnessResolution,
   modalElement,
   nearMissHarnessWarnings,
@@ -88,6 +89,10 @@ const NEAR_MISS = params.get("nearMiss") === "1";
 // Fourth flag in the same idiom (wizard-review-attention-menu §9): a navigation
 // WITHOUT it is byte-identical to the no-argument call, as the others are.
 const ATTENTION = params.get("attention") === "1";
+// Fifth flag, same idiom: the single-segment JUDGMENT state. Needed because
+// `attention=1` is composite and cannot render a judgment-only pill, which is
+// the state Decision 7 left sharing a silhouette with needs-look.
+const JUDGMENT_ONLY = params.get("judgmentOnly") === "1";
 
 window.__resolveAction = (name: string, ok = true) => {
   pendingActions.get(name)?.(ok);
@@ -99,9 +104,11 @@ function LiveHarness() {
   if (!open) return null;
   const warningsOverride = NEAR_MISS
     ? { warnings: nearMissHarnessWarnings() }
-    : ATTENTION
-      ? { warnings: attentionHarnessWarnings() }
-      : {};
+    : JUDGMENT_ONLY
+      ? { warnings: judgmentOnlyHarnessWarnings() }
+      : ATTENTION
+        ? { warnings: attentionHarnessWarnings() }
+        : {};
   return modalElement(buildSectionData(warningsOverride), {
     onRequestSetChecked: DEFER_ACTIONS ? () => deferred("publish") : async () => true,
     ...(WITH_RESOLUTION

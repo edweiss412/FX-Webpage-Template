@@ -882,11 +882,24 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
   // Close, so a four-digit count widens that group and squeezes the title —
   // breaking the Step 3 frame this change exists to adopt.
   //
-  // The assertion is DELIBERATELY NOT "same width as the 2-alert case":
-  // "99+ alerts" is legitimately wider than "2 alerts", so an equal-width
-  // assertion would be false-red, and the tempting fix would be dropping the
-  // visible unit §6.6 requires. What is asserted is that the group stays a
-  // MINORITY of the header and leaves the title real width.
+  // The assertion is DELIBERATELY NOT "same width as the 2-alert case": a
+  // capped count is legitimately wider than "2", so an equal-width assertion
+  // would be false-red. What is asserted is that the group stays a MINORITY of
+  // the header and leaves the title real width.
+  //
+  // SUPERSEDED, and the correction is the point (whole-diff R1 P1, 2026-08-30).
+  // This case used to assert that the visible text reads "99+ issues", on §6.6's
+  // grounds that a bare "99+" is not self-explanatory. Decision 7 (Eric,
+  // ratified 2026-08-30) overrides that BELOW `sm`: the phone pill shows counts
+  // only, with the unit carried in the accessible name. So the old assertion
+  // demanded exactly what the ratified fence forbids.
+  //
+  // Worse, it PASSED while demanding it. The old probe cloned the pill and
+  // stripped `.sr-only`, which does not match `max-sm:sr-only`, so the detached
+  // clone reported "99+ issues" while the live phone render showed "99+". A
+  // false green that could not have distinguished the shipped implementation
+  // from a regression restoring phone nouns. The probe now reads the LIVE tree
+  // and skips visually hidden ancestors, so it cannot drift from what renders.
   test("T-ALERT-CAP @375: a 1200-alert count stays capped and never starves the title", async ({
     page,
   }) => {
@@ -895,17 +908,36 @@ test.describe("PublishedReviewModal — dimensional invariants (spec §6.6)", ()
     const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
     await expect(pill).toHaveCount(1);
 
-    // Visible text is capped — with the sr-only exact count stripped, since
-    // that node is precisely what must NOT satisfy a "visible text" claim.
+    // Read the LIVE tree, never a detached clone: a clone has no layout, so
+    // "hidden" there can only be guessed from class names, and guessing by
+    // `.sr-only` is what made this oracle false-green against `max-sm:sr-only`.
     const visible = await pill.evaluate((el) => {
-      const clone = el.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll('.sr-only, [aria-hidden="true"]').forEach((n) => n.remove());
-      return clone.textContent!.replace(/\s+/g, " ").trim();
+      const hiddenAncestor = (n: Node): boolean => {
+        for (
+          let e: HTMLElement | null = n.parentElement;
+          e && e !== el.parentElement;
+          e = e.parentElement
+        ) {
+          const r = e.getBoundingClientRect();
+          if (getComputedStyle(e).position === "absolute" && r.width <= 2) return true;
+          if (e.getAttribute("aria-hidden") === "true") return true;
+        }
+        return false;
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let out = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!hiddenAncestor(n)) out += n.textContent ?? "";
+      }
+      return out.replace(/\s+/g, " ").trim();
     });
     expect(
       visible,
-      "the UNIT stays visible past the cap — a bare '99+' is not self-explanatory",
-    ).toBe("99+ issues");
+      "below sm the capped pill shows the COUNT ONLY (Decision 7); the unit lives in the accessible name",
+    ).toBe("99+");
+    // And the unit is genuinely still announced, so counts-only is a visual
+    // change and not a loss of meaning. Asserted against the COMPUTED name.
+    await expect(pill).toHaveAccessibleName(/issue/);
 
     const geom = await page.locator(HEADER).evaluate((header) => {
       const title = header.querySelector('[data-testid$="-title"]')!;
