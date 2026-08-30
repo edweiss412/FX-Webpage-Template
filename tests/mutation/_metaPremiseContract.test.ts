@@ -504,6 +504,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // with no `process` and no I/O -- that separation is why it is enrollable at
   // all -- and the suite drives literal record arrays through it.
   "tests/ci/shardBudget.test.ts": 0,
+  // The config-to-disk staleness guard, enrolled 2026-08-30. TWO env-touching
+  // cases, both of which read the live tree: one walks the repo for Playwright
+  // configs and probes each in a child process, the other resolves every declared
+  // branch against the filesystem. Both carry a premise, because both have a
+  // vacuous shape available to them — a walk that reaches nothing, or a probe that
+  // declares nothing, makes "no dead branches" true of an empty set and would pass
+  // forever. The five reader cases are pure and touch nothing.
+  "tests/ci/_metaConfigBranchStaleness.test.ts": 2,
   // shardPartition's 0 is a SCANNER-RULE 0 and a known under-count, recorded
   // rather than papered over. The suite imports no member of
   // ENVIRONMENT_SOURCES directly, which is what the scanner classifies on, but

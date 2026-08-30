@@ -406,38 +406,37 @@ offered as a class closure.
 
 ## LIM-E2E-SPEC-DISCOVERY-GAP
 
-**What:** A Playwright spec file whose basename matches no project's `testMatch` regex in `playwright.config.ts` runs nowhere, reports nothing, and looks exactly like a spec that passes. Nothing in the repo compares the set of spec files on disk against the set any project discovers, so a spec can be authored, reviewed, merged, and then silently never execute again.
+**STATUS: the headline finding was REFUTED 2026-08-30 by `test/e2e-spec-discovery-wiring`. There were never 48 dark specs. The gap was in the census, not in the specs.** The entry is kept, corrected in place rather than deleted, because the wrong version is what an unchecked census looks like and this file is where the next arc will look for the shape.
 
-**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`, by counting both sets rather than by any gate reporting it: **118 spec files exist under `tests/e2e`; 70 are discovered** by `npx playwright test --list`. This arc found four of the undiscovered ones by needing them, not by looking for them:
+**What the original entry claimed.** That a spec matching no project's `testMatch` runs nowhere and looks exactly like a spec that passes; that nothing compares the set of spec files on disk against the set any project discovers; and, measured, that **118 spec files exist under `tests/e2e` while 70 are discovered**.
 
-- `tests/e2e/step3-review-modal.layout.spec.ts` — found while looking for real-browser coverage of a swept pill site.
-- `tests/e2e/attention-autoopen-suppress.spec.ts` — **the sharpest one.** It carries the toggle-occlusion assertion that `fix/attention-autoopen-suppress-phone` deliberately tightened, after that arc found it had been filtering pill-band interceptions out as "pre-existing". That assertion has therefore never executed. It is also the assertion this arc's own RISK-1 depends on.
-- `tests/e2e/attention-pill-focus.spec.ts`
-- `tests/e2e/popover-clip-fit.spec.ts`
+**What is actually true.** The first claim is sound and is the useful part of this entry. The second was already false when it was written. The third measured one config and reported the difference as darkness.
 
-All four were wired into `desktop-chromium` and are green: 55 passing in the layout spec, 75 across the three pill specs. Wired in `cf4ffc698` (layout) and `5a1fc2134` (the pill trio).
+- **All 118 spec files are discovered.** Four configs resolve spec files here, and the original count came from `npx playwright test --list` against `playwright.config.ts` alone. The union partitions cleanly: 61 files in `playwright.config.ts` only, 42 in `tests/e2e/standalone.config.ts` only, 8 in both, 4 in `playwright.config.ts` + `playwright.screenshots.config.ts`, 2 in the screenshots config only, 1 in `tests/e2e/visual.config.ts` only, and **0 in nothing**.
+- **The 42 standalone-only files were never dark.** `.github/workflows/standalone-e2e.yml:71` runs the whole standalone config on an unfiltered `pull_request` trigger, and has since `c7c5625c2` (2026-07-26).
+- **Every one of the four specs this entry named as its evidence had been executing on every PR.** `step3-review-modal.layout` entered `standalone.config.ts` on 2026-07-03 (`e870595a4`), `attention-pill-focus` on 2026-07-21 (`a794c4124`), `popover-clip-fit` on 2026-08-02 (`434deaf7f`). The fourth, `attention-autoopen-suppress`, was created BY `19716fcd9` (2026-08-29), which added it to the config and regenerated the baseline in the same commit — so it ran from the moment it existed. The evidence set is 0 for 4. The first correction of this entry still allowed that one a day of darkness; that was the same one-sided reading applied to a commit nobody had opened, and diff review round 1 caught it.
+- **So the sentence "that assertion has therefore never executed" was wrong for all four**, including `attention-autoopen-suppress`, which ran from the commit that created it.
+- **The comparison this entry says nothing performs was already shipped.** `tests/ci/_metaSpecRegistration.test.ts:952` asserts that every test-shaped file under `tests/e2e` resolves in some config, over the same four configs, with `DARK_SPEC_ALLOWLIST` empty (`tests/ci/_metaSpecRegistration.test.ts:184`). `tests/ci/_metaE2eWorkflowCoverage.test.ts:262` asserts the stronger property that every spec is PR-covered, with a reasoned row for every exception.
 
-**Measurement caveat, recorded because it nearly produced a false census:** the first count claimed every spec listed zero tests, including ones known to run. The grep pattern was wrong and returned zero for everything, which is indistinguishable from a real finding of total darkness. The numbers above come from re-measuring against playwright's own `--list` output after the instrument was checked against a spec whose discovery was already known.
+**The instrument failed twice, in the same direction, and the entry warned about it once.** Its own "measurement caveat" paragraph records a first bad census — a grep returning zero for every spec, "which is indistinguishable from a real finding of total darkness" — and says the numbers were re-measured "against playwright's own `--list` output". They were. Against one config. Checking the instrument is not the same as checking that it ranges over the population, and the second error survived precisely because the first had been caught and the author felt measured.
 
-**Why this is a limit and not a row (2026-08-25 process mint freeze):** the repair is a guard over a config file, which is process-facing, and its done condition would be a property of the guard rather than a number a product arc or a human notices moving. The freeze's admission test is not met by "118 versus 70" on its own.
+**What the arc found instead, in the direction nobody had asked about.** The comparison runs disk-to-config and never config-to-disk, and the reverse was broken: `playwright.config.ts` named **nine spec files that do not exist**, each duplicated across `mobile-safari` and `desktop-chromium`, eighteen occurrences.
 
-**Owning record:** this index, plus the diff section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+```
+$ ls tests/e2e/ | grep -E "apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|alert-identity-banner-layout|alert-banner-autoresolve-layout|bootstrap"
+$ echo $?
+1
+```
 
-**First incident:** this arc, 2026-08-30. Four specs wired; one of them held an assertion that had never run and that this arc's own risk analysis depended on.
+A dead branch is invisible to `--list` by construction — the resolved set is identical whether or not it is there — which is why both existing guards were blind to it, and it is a hazard rather than litter: these matchers are unanchored alternations of bare stems, so a name outliving its file keeps matching by substring and adopts the next file whose name contains it. `playwright.config.ts:77-78` already records that exact fear about a name chosen carelessly. Repaired and guarded in `db27d5ebf` (`tests/ci/_metaConfigBranchStaleness.test.ts`); the deletion is behavior-neutral, proved by identical `file::project::case` resolution before and after.
 
-**What the gap actually cost, measured hours later on the same branch, and CORRECTED once it was measured properly.** `tests/e2e/popover-clip-fit.spec.ts`, wired by this arc, then went red on the arc's own change. This entry previously said that red was a production regression, that the phone pill had grown, that the scroller settled against a stale cap, and that it was repaired in `ca8699574`. **Every one of those was wrong**, and the corrections are recorded here rather than quietly deleted because the wrong version is what an unmeasured reading of a red looks like:
+**A third variant, mechanism proved and no live instance, recorded here rather than guarded.** Playwright silently drops a positional path whose selected project cannot match it — probed as `--project=desktop-chromium` over one matching and one non-matching file, reporting `Total: 33 tests in 1 file` at exit 0, with no warning and no "no tests found" error because the run is non-empty. All 62 (path, project-set) pairs across `.github/workflows/*.yml` currently resolve, and no instance has ever been observed live. Under the 2026-08-25 process mint freeze that is a documented limit with its probe, not a guard arm and not a row.
 
-- The pill got SHORTER, 84.4px to 74.6px. Bigger type, fewer wrapped lines.
-- There is no stale cap. The scroller filled its available room to the hundredth at head (283.61) and on the control (273.20).
-- `ca8699574` was reverted; its diagnosis was refuted by whole-diff review.
-- The red was the spec's OWN oracle: it floored the scroller's true room and then asked for agreement within 0.5px, so it decided on the fractional remainder. `origin/main` passed it on .20 by luck. Repaired in `9e0a9c9e4`.
+**Owning record:** this index, plus `docs/superpowers/specs/ci/2026-08-30-e2e-declared-vs-resolved.md`.
 
-**The gap's cost is real but is not the cost this entry first claimed.** What sat undiscovered while the spec was dark was a defective oracle: one that accepts a scroller 0.61px short of its room while rejecting one that fills it exactly, and that would have gone red for whoever next moved the layout past a .5 remainder, regardless of whether they broke anything. A dark spec is not merely unprotective, it also rots, and nobody pays for the rot until it is wired. The slug was filed on a count, 118 files on disk against 70 discovered, which reads as housekeeping; this is the first evidence of what the count means.
-
-**Re-file trigger:** a **second independent arc** hitting the same gap. That recurrence, cited against this slug, is the `**Mint-exception:** product-blocked` evidence a row would need — the freeze's own recurrence clause requires hits spanning at least two independent arcs, and one arc hitting its own limit twice does not qualify. What would NOT settle it: wiring more specs by hand as they are discovered, which is what this arc did and which leaves the next 44 exactly as dark. A candidate repair compares the two sets mechanically, so a spec that matches no project fails at authoring time rather than at the moment somebody happens to need it.
+**Re-file trigger:** a spec file that resolves in no config (which `_metaSpecRegistration` now fails on, so this would mean that guard is broken), or a second independent arc finding a config naming files that do not exist. What would NOT settle it, and is the correction this entry most wants carried forward: **a census that enumerates one member of a population and reports the remainder as a finding.** Before believing a count like "118 versus 70", establish what the population of the denominator is, and check that the instrument ranges over all of it.
 
 ---
-
 ## LIM-SPEC-QUOTES-UNRECONCILED-MEASUREMENT
 
 **What:** A spec quotes a pixel figure for a surface whose ledger row already carries an independently measured one, and nothing compares them. Both numbers sit in the same repository, about the same element, and disagree.
@@ -479,13 +478,17 @@ All four were wired into `desktop-chromium` and are green: 55 passing in the lay
 
 **Why a limit and not a row (2026-08-25 process mint freeze):** the repair is test-infrastructure, its done condition is a property of the suite, and no product surface is blocked. It costs arc wall-clock and, worse, costs credibility: an intermittent red trains readers to retry rather than to read.
 
-**Cross-reference:** [[LIM-E2E-SPEC-DISCOVERY-GAP]]. The two are the same story from opposite ends. This flake lives in a spec that the discovery gap kept dark, so it has presumably been flaking undetected for as long as the file has existed, and it became measurable only when this arc wired the spec in. A second independent arc hitting either slug is the `**Mint-exception:** product-blocked` evidence a row would need.
+**Cross-reference:** [[LIM-E2E-SPEC-DISCOVERY-GAP]]. The two are the same story from opposite ends. This flake lives in a spec that ran under `standalone.config.ts` on every PR from 2026-08-02, so it has been flaking in a CI-visible suite for as long as the file has existed; what the earlier account called darkness was the census's, not the spec's. A second independent arc hitting either slug is the `**Mint-exception:** product-blocked` evidence a row would need.
 
 **Owning record:** this index, plus the diff section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
 
 **It is a CLASS in that file, not one case.** Measured later the same night: `popover-clip-fit.spec.ts:609`, "placement is RE-COMPUTED once the entrance settles (no-preference)", failed once in a full-file run and then passed 5 of 5 in isolation, having already passed 5 consecutive full-file runs at the same commit. Same shape as the 1280 case: a placement measured once, without polling for settle, in a file whose own `settledGeometry` helper exists precisely because "a single sample taken right after a structural change can land on the frame BEFORE the re-apply". Two cases share the defect; the file has more that sample once.
 
-**Re-file trigger:** a second independent arc losing time to either case, or the rate rising above roughly 1 in 5. A candidate repair routes every placement measurement through the settle poll rather than sampling once. The right form is a sweep of that file for single-sample placement reads, not a patch of the two cases already caught, since catching them one flake at a time is how a class stays open for months.
+**REPAIRED 2026-08-30 by `test/e2e-spec-discovery-wiring`, in the swept form this trigger asked for.** The population was derived from the mechanism rather than from the two known cases: `components/admin/showpage/AttentionMenu.tsx:479` states that `entered` is the only re-place signal and that the mount measurement runs before the entrance rAF, so any case that opens the menu and asserts on placement-derived geometry from a single sample is in the class. That is SIX cases across four reads, including the three `settled fit` cases which never waited on the entrance scale at all and which a symptom-derived population missed. All four reads now go through `settledSample`, which resamples until two consecutive reads agree on every value and THROWS rather than returning an unsettled sample. Excluded with reasons: the animated case awaits `transitionend` explicitly, and the DOM-descendant case asserts node containment rather than geometry.
+
+**No reproduction was obtained, and none is claimed.** Six full-file runs before the repair were 6 of 6 green, consistent with the ~1 in 7 measured above; six after were also green at 42 passing each. The repair rests on the defect shape and on the component's own comment, not on a red this arc observed.
+
+**Re-file trigger:** a placement read in that file that does not go through the settle poll, or the flake recurring after this repair — which would mean the mechanism is not the one named here.
 
 ---
 
