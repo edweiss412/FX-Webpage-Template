@@ -50,6 +50,7 @@ import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { activeWarningEntries, ignoredWarningIndices } from "@/lib/admin/activeWarningEntries";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
 import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
+import { attentionMarkClass } from "@/components/admin/review/attentionMark";
 import {
   WizardAttentionMenu,
   type WizardAttentionEntry,
@@ -620,26 +621,10 @@ export function Step3ReviewModal({
                       the two differ in shape and not only in palette. */}
                   <span
                     aria-hidden="true"
-                    className={`size-2 shrink-0 rounded-pill ${
-                      n > 0
-                        ? "bg-status-review"
-                        : /* `text-faint`, and the impeccable gate is why it is
-                             still `text-faint`. I briefly moved this to
-                             `text-subtle`, class-sweeping the published pill's
-                             ring-contrast P0 on the belief that this ring sits on
-                             `warning-bg`, where faint measures 2.793:1 in dark.
-                             It does not. This branch and the PILL's own
-                             background share one predicate (`n > 0`), so the
-                             hollow ring renders only when the plate is
-                             `surface-sunken` -- a ground faint clears at 3.02:1
-                             light / 4.11:1 dark, already measured in DESIGN.md
-                             section 1.2. The sweep was right about the shape of
-                             the defect and wrong about this instance being one.
-                             Reverting also protects the D9 contract: `text-subtle`
-                             at ~6.9:1 makes the QUIET pill's mark heavier, which
-                             is the inversion that spec fenced against. */
-                          "border-[1.5px] border-text-faint bg-transparent"
-                    }`}
+                    className={attentionMarkClass(
+                      n > 0 ? "issues" : "judgment",
+                      n > 0 ? "warning" : "sunken",
+                    )}
                   />
                   {/* §11: instant — deliberate (segment presence follows the derived count) */}
                   {n > 0 ? (
@@ -722,7 +707,7 @@ export function Step3ReviewModal({
                         {n > 0 ? (
                           <span
                             aria-hidden="true"
-                            className="size-2 shrink-0 rounded-pill border-[1.5px] border-text-subtle bg-transparent"
+                            className={attentionMarkClass("judgment", "warning")}
                           />
                         ) : null}
                         <span className="inline-flex items-center max-sm:whitespace-nowrap">

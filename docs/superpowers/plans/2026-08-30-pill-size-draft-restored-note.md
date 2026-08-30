@@ -722,6 +722,52 @@ added above a mark those rows have nothing to do with — the cheapest possible
 edit, and it still invalidated both rows. That is the whole argument for
 content-keyed ids in one observation.
 
+### The twin axis, closed by construction rather than by care
+
+Ordered before R5 as a dispatch condition, and it is the right order: four
+rounds found the same defect, so a fifth reading of the same shape would only
+have found the fifth instance.
+
+**There is now one description of a mark.**
+`components/admin/review/attentionMark.ts` takes a `kind` and the `plate` it
+paints on and returns the whole className. Both pills call it at every site --
+the published leading mark, its warnings and monitoring segments, the in-sync
+pill, the wizard's leading mark and its judgment segment. None of them builds a
+mark string any more, so there is no second place for the two to diverge.
+
+**The plate is a parameter because the ground is what the arc kept getting
+wrong.** Twice I chose a ring ink against a background the element never paints
+on -- the wizard ring against `warning-bg`, the note's plate against a card. So
+`judgment` resolves to `text-subtle` on the attention plate and `text-faint` on
+the quiet one, which looks inconsistent until you notice they are answers to two
+different questions. The builder makes stating the ground unavoidable at every
+call site.
+
+**`tests/components/admin/attentionMarkParity.test.ts` is the walk**, and both
+of its halves were proven by mutation rather than argued:
+
+- It walks `components/` FROM DISK, so a mark in a file that does not exist
+  today fails by default. Planting one hand-rolled mark back into the published
+  pill fails it, naming the file and the fix. Exemptions match the EXACT literal,
+  never the file -- a per-file registry would have exempted every future mark in
+  `Step3ReviewModal.tsx`, whose chip is registered while its pill marks are not,
+  and the first draft made exactly that mistake while claiming otherwise in its
+  own comment.
+- It recomputes every `(kind, plate)` contrast row from `app/globals.css`.
+  Reverting `judgment` on the attention plate to `text-faint` fails it with
+  "2.793:1 in dark mode, under the 3:1 non-text floor" -- the exact defect I
+  shipped and reverted by hand earlier in this branch, now caught mechanically.
+
+**One tidying was wrong and the baseline said so.** Folding the "Sheet changed"
+chip into the builder added `shrink-0` and broke `T-STEP3-DIRTY-INVARIANT`, a
+byte baseline whose entire job is proving Step 3 unchanged. The chip is not a
+pill mark and is not under the header cap; it got its literal back and a
+registry row explaining why. The baseline was right and the tidying was wrong.
+
+`LIM-LINE-KEYED-SITEID` reached TWELVE re-keys, the last one NEGATIVE (-15) as
+the mark comments left these files, and it moved a published row for the first
+time. Deltas across the arc: +15, +2, +31, +1, -15.
+
 ### The class-sweep unit is the decision PLUS its consequences
 
 The sharpest lesson of this arc, and it took two rounds to reach because the

@@ -89,6 +89,7 @@ import {
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import { deriveWarningAttention } from "@/lib/admin/warningAttention";
 import { HEADER_ACTION_CAP } from "@/components/admin/review/headerActionCap";
+import { attentionMarkClass } from "@/components/admin/review/attentionMark";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { buildPublishedSnapshot } from "@/components/admin/dev/snapshots";
 import type { PickerResetCrewRow } from "@/app/admin/show/[slug]/PickerResetControl";
@@ -1185,56 +1186,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       cap at the widest single-segment load. */}
                   <span
                     aria-hidden="true"
-                    className={`size-2 shrink-0 ${
+                    className={attentionMarkClass(
                       monitoringOnly
-                        ? "rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                        ? "monitoring"
                         : needsYou.length === 0 && k > 0
-                          ? /* A SQUARE, and the radius is the whole signal.
-                               Three rounds died on this one axis before the
-                               channel changed: R1 gave warnings a hollow ring,
-                               which collided with monitoring's ring (R2 P0); R2
-                               made it filled-and-ringed, and R3 measured that
-                               ring at 1.179:1 light and 2.522:1 dark against the
-                               fill it encloses, under the 3:1 non-text floor --
-                               so issues and warnings were separated by hue
-                               alone again, which is the defect all three rounds
-                               were trying to fix.
-
-                               No ink fixes it. `status-review` is a mid-tone
-                               amber (#a87716 light, #e0b84e dark); a dark ring
-                               clears in light mode and a light ring clears in
-                               dark, and nine candidate tokens were measured with
-                               none clearing 3:1 in BOTH. Geometry has no such
-                               dependency: a square is a square in either mode, in
-                               greyscale, and to a colour-blind reader.
-
-                               So the three marks are a filled CIRCLE (issues), a
-                               filled SQUARE (warnings), and a hollow circle
-                               (monitoring) -- two channels, radius and fill, and
-                               every pair differs in at least one. The fill stays
-                               the work ink it shares with issues: a sheet
-                               warning is work, not monitoring.
-
-                               A TRIANGLE rather than the square this first
-                               shipped as. DESIGN.md's KINDDOT-1 already settled
-                               the rule for a third shape: it used a minus bar
-                               "because the minus glyph carries the 'removed'
-                               semantic that a ring would not". A square carries
-                               nothing -- it is a difference without a meaning,
-                               and at 8px inside a pill that is itself
-                               `max-sm:rounded-md` it reads first as a radius
-                               that failed to apply. A triangle is the universal
-                               warning silhouette, and its apex breaks the
-                               outline, which separates far more robustly at 8px
-                               than corner-versus-curve. Same 8px box, so it
-                               aligns with the sibling discs and nothing
-                               reflows, exactly as KINDDOT-1 requires.
-                               Pinned in a real browser by T-MARK-GEOMETRY on
-                               computed `clip-path` and `border-radius`, never on
-                               class strings. */
-                            "bg-status-review [clip-path:polygon(50%_0%,100%_100%,0%_100%)]"
-                          : "rounded-pill bg-status-review"
-                    }`}
+                          ? "warnings"
+                          : "issues",
+                      monitoringOnly ? "sunken" : "warning",
+                    )}
                   />
                   {needsYou.length > 0 ? (
                     <>
@@ -1312,7 +1271,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           {needsYou.length > 0 ? (
                             <span
                               aria-hidden="true"
-                              className="size-2 shrink-0 bg-status-review [clip-path:polygon(50%_0%,100%_100%,0%_100%)]"
+                              className={attentionMarkClass("warnings", "warning")}
                             />
                           ) : null}
                           {/* Decision 7: noun visually dropped below `sm`, one
@@ -1378,7 +1337,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           {monitoringOnly ? null : (
                             <span
                               aria-hidden="true"
-                              className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
+                              className={attentionMarkClass("monitoring", "warning")}
                             />
                           )}
                           {/* Decision 7: noun visually dropped below `sm`. The
@@ -1479,10 +1438,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                 data-testid={`${TESTID_BASE}-alert-pill`}
                 className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-sm sm:text-xs font-semibold text-status-positive-text"
               >
-                <span
-                  aria-hidden="true"
-                  className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
-                />
+                <span aria-hidden="true" className={attentionMarkClass("monitoring", "sunken")} />
                 In sync
               </span>
             )}
