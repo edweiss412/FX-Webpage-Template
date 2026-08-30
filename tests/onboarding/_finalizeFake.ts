@@ -301,17 +301,20 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
     if (normalized.startsWith("select staged_id, staged_modified_time, triggered_review_items")) {
       const foundRow = this.approved.find((candidate) => candidate.drive_file_id === params[1]);
       if (!foundRow) return { rows: [], rowCount: 0 };
-      return {
-        rows: [
-          {
-            staged_id: foundRow.staged_id,
-            staged_modified_time: foundRow.staged_modified_time,
-            triggered_review_items: foundRow.triggered_review_items,
-            parse_result: foundRow.parse_result,
-          } as T,
-        ],
-        rowCount: 1,
+      // PROJECT WHAT THE QUERY ASKED FOR, not what the caller happens to want. This
+      // handler used to return `parse_result` unconditionally, so dropping the column
+      // from the production SELECT while leaving the matched prefix intact kept both
+      // rebind tests green — while real Postgres would omit the field and
+      // `asParseResult(undefined)` would throw (whole-diff R2 finding 2). The tests
+      // claimed to protect that column; they could not have noticed it leaving.
+      const selectsParseResult = /\bparse_result\b/.test(normalized.split(" from ")[0] ?? "");
+      const row: Record<string, unknown> = {
+        staged_id: foundRow.staged_id,
+        staged_modified_time: foundRow.staged_modified_time,
+        triggered_review_items: foundRow.triggered_review_items,
       };
+      if (selectsParseResult) row.parse_result = foundRow.parse_result;
+      return { rows: [row as T], rowCount: 1 };
     }
 
     if (normalized.startsWith("delete from public.pending_syncs")) {

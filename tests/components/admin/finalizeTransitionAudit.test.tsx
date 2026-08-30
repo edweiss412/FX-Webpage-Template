@@ -185,6 +185,18 @@ describe("finalize progress transitions are instant", () => {
     // draws a heading and a phase label.
     premise(`the ${ph} subtree has real descendants`, nodes.length, ph === "batch" ? 3 : 2);
 
+    // Declared transition family (iii), NESTED DUPLICATE, which the descendant-count
+    // premise does not catch: an extra unanimated conditional mount RAISES the count and
+    // satisfies every per-node check (whole-diff R2 finding 4). A count is a lower bound;
+    // duplication needs an identity assertion. Every testid inside the subtree must be
+    // unique, so a second conditional mount of the same block fails here rather than
+    // passing as "more nodes".
+    const testids = nodes
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((t): t is string => t !== null);
+    const dupes = testids.filter((t, i) => testids.indexOf(t) !== i);
+    expect(dupes, `${ph}: duplicated data-testid inside the progress subtree`).toEqual([]);
+
     const selectors = animatingSelectors();
     // Premise: the derived cover must actually have derived something, and must
     // include a selector we know animates — otherwise a parser regression turns
@@ -202,8 +214,16 @@ describe("finalize progress transitions are instant", () => {
       expect(el.className, `${el.tagName} class`).not.toMatch(
         /(?:^|\s)(transition|animate)(-[\w[\]/.-]+)?(?=\s|$)/,
       );
-      expect(el.style.transition ?? "", `${el.tagName} inline transition`).toBe("");
-      expect(el.style.animation ?? "", `${el.tagName} inline animation`).toBe("");
+      // cssText, NOT the shorthand properties. Probed in jsdom: setting
+      // transitionProperty/transitionDuration/animationName/animationDuration leaves
+      // BOTH `style.transition` and `style.animation` as the empty string while
+      // cssText carries all four, so a node animating via inline longhands passed the
+      // old check completely (whole-diff R2 finding 5). Distinct from the stylesheet
+      // longhand case repaired in R1: that one parses globals.css, this one reads the
+      // element's own inline style.
+      expect(el.style.cssText, `${el.tagName} inline style`).not.toMatch(
+        /(?:^|;|\s)(transition|animation)(-[a-z-]+)?\s*:/,
+      );
       for (const sel of selectors) {
         let matches = false;
         try {
@@ -235,5 +255,12 @@ describe("finalize progress transitions are instant", () => {
     const after = getByTestId("wizard-finalize-progress").getAttribute("aria-label");
     premiseHolds("the label was present before the boundary", before !== null);
     expect(after).toBe(before);
+    // Same reason as the two component suites (whole-diff R2 finding 6): comparing the
+    // raw attribute across the boundary says nothing if an `aria-labelledby` appears on
+    // one side of it, because that is what the name would then be computed from.
+    expect(
+      getByTestId("wizard-finalize-progress").hasAttribute("aria-labelledby"),
+      "aria-labelledby would override the attribute this test compares",
+    ).toBe(false);
   });
 });

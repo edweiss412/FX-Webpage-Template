@@ -340,5 +340,16 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(new Set(labelled.map((el) => el.getAttribute("aria-label")))).toEqual(
       new Set(["Show setup progress"]),
     );
+    // The RAW attribute is not the accessible name. `aria-labelledby` WINS over
+    // `aria-label`, so a labelledby pointing at stale copy leaves this set reading
+    // "Show setup progress" while a screen reader announces something else — probed
+    // and confirmed in whole-diff R2 finding 6. Two assertions, because each catches
+    // what the other cannot: the set pins the attribute VALUE, and this pins that the
+    // attribute is what the name is actually computed FROM.
+    const overridden = labelled.filter((el) => el.hasAttribute("aria-labelledby"));
+    expect(
+      overridden.map((el) => el.getAttribute("data-testid") ?? el.tagName),
+      "aria-labelledby would override the aria-label these assertions pin",
+    ).toEqual([]);
   });
 });

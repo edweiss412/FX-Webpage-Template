@@ -106,9 +106,9 @@ Both surfaces render the same batch-phase text and both change identically.
 | Batch header (`components/admin/FinalizeButton.tsx:974`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:257`) | `Publishing your shows…` | `Setting up your shows…` |
 | Batch SR live message (`components/admin/FinalizeButton.tsx:485`) | `Publishing your shows` | `Setting up your shows` |
 | Batch button label (`components/admin/FinalizeButton.tsx:493`) | `Publishing…` | `Setting up…` |
-| Row subline (`components/admin/FinalizeButton.tsx:1002`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publishing: <name>` | `<name>`, with no prefix |
+| Row subline (`components/admin/FinalizeButton.tsx:1002`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:279`) | `Publishing: <name>` | `<name>`, with no prefix |
 | Group accessible name, BOTH phases (`components/admin/FinalizeButton.tsx:967`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249`) | `Publish progress` | `Show setup progress` |
-| Progress bar accessible name (`components/admin/FinalizeButton.tsx:983`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:270`) | `Publish progress` | `Show setup progress` |
+| Progress bar accessible name (`components/admin/FinalizeButton.tsx:987`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publish progress` | `Show setup progress` |
 
 Unchanged: the `N of M` count, the progress bar geometry, the CAS-phase header `Finishing setup…`, the CAS sub-label from `casPhaseLabel`, the idle button label, and the `title={state.lastName}` truncation tooltips.
 
@@ -201,7 +201,7 @@ row literally would have had to change shipped, dual-gate-ratified copy to match
 nothing else agreed with. Corrected here, in the plan's AC-4 and guard description, and
 in both test names.
 
-| Running button label reads `Setting up…` | RED | `tests/components/admin/FinalizeButton.test.tsx` | The most prominent control keeping the false verb. |
+| Running button label reads `Setting up…` | RED | `tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx` | The most prominent control keeping the false verb. NOT the FinalizeButton suite: in that composition the trigger UNMOUNTS while running, so `runningLabel` is only observable through the wizard's `FinalizeTrigger`. |
 | CAS-phase header still reads `Finishing setup…` and its accessible name is still reachable | PRESERVATION | `tests/components/admin/FinalizeButton.test.tsx` | An over-broad copy edit reaching the wrong phase. Green today by construction. |
 | `finishableRows` rename is behavior-neutral: the existing stream suite passes unmodified | PRESERVATION | `tests/onboarding/finalizeStream.test.ts` | A rename that accidentally changes a reader. |
 | After an inline re-scan that changes ONLY the title, the emitted `name` is the NEW title | RED | `tests/onboarding/finalizeInlineRescan.test.ts` | §3.1b. The fixture must actually CHANGE the title across the re-parse; a fixture whose title is stable cannot distinguish the stale source from the fresh one, which is exactly why the existing suite does not catch this. |

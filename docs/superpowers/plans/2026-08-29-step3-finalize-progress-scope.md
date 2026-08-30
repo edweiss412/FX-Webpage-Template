@@ -122,8 +122,8 @@ assertion that would pass against a commented-out string is not testing the rend
 
 ## Pre-draft verification pass (run 2026-08-29 in this worktree)
 
-- Copy sites: header `components/admin/FinalizeButton.tsx:974` + `components/admin/wizard/Step3ReviewWithFinalize.tsx:257`; subline `FinalizeButton.tsx:1002` + `Step3ReviewWithFinalize.tsx:274`; `liveMessage` `FinalizeButton.tsx:485`; `runningLabel` `FinalizeButton.tsx:493`.
-- Accessible names: `components/admin/FinalizeButton.tsx:967` (group) and `components/admin/FinalizeButton.tsx:983` (bar); `components/admin/wizard/Step3ReviewWithFinalize.tsx:249` (group) and `components/admin/wizard/Step3ReviewWithFinalize.tsx:270` (bar). Both groups wrap `state.phase === "batch" ? … : …` (`FinalizeButton.tsx:962-972`, `Step3ReviewWithFinalize.tsx:245-254`), so their label must suit BOTH phases.
+- Copy sites: header `components/admin/FinalizeButton.tsx:974` + `components/admin/wizard/Step3ReviewWithFinalize.tsx:257`; subline `FinalizeButton.tsx:1002` + `Step3ReviewWithFinalize.tsx:279`; `liveMessage` `FinalizeButton.tsx:485`; `runningLabel` `FinalizeButton.tsx:493`.
+- Accessible names: `components/admin/FinalizeButton.tsx:967` (group) and `components/admin/FinalizeButton.tsx:987` (bar); `components/admin/wizard/Step3ReviewWithFinalize.tsx:249` (group) and `components/admin/wizard/Step3ReviewWithFinalize.tsx:270` (bar). Both groups wrap `state.phase === "batch" ? … : …` (`FinalizeButton.tsx:962-972`, `Step3ReviewWithFinalize.tsx:245-254`), so their label must suit BOTH phases.
 - Class-sweep for the publish verb in accessible names returns exactly those four; the other hits are modal Close/dismiss labels, the confirm dialog `aria-labelledby`, the announcer `sr-only`, and two name tooltips.
 - The rename target: `const approvedRows = await selectFinishableCleanRows(...)` (`app/api/admin/onboarding/finalize/route.ts:1624`), read at `app/api/admin/onboarding/finalize/route.ts:1659`, `app/api/admin/onboarding/finalize/route.ts:1642`, `app/api/admin/onboarding/finalize/route.ts:1659`, `app/api/admin/onboarding/finalize/route.ts:1677`, `app/api/admin/onboarding/finalize/route.ts:1743`. Five readers, one declaration.
 - `controllableNdjson()` is MODULE-LOCAL to the FinalizeButton suite (`tests/components/admin/FinalizeButton.test.tsx:961`), not exported. The Step3 suite holds its running state with a never-resolving fetch (`tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:231`) and so receives NO row events — its subline never renders today. T2 extracts the helper to a shared module and imports it in both suites. The panel subline carries `data-testid="wizard-finalize-current"` (`FinalizeButton.tsx:998`); the compact subline has no testid (`Step3ReviewWithFinalize.tsx:273`) and gains one in T2 so the assertion can be scoped.
@@ -224,7 +224,7 @@ FIRST, before any assertion: extract `controllableNdjson()` from `tests/componen
 into a shared test module and import it in BOTH suites. Without it the Step3 suite cannot produce a
 row event, `state.lastName` stays null, and a subline assertion would pass vacuously against an
 element that never renders. Assert `lastName` is actually populated before asserting its text.
-GREEN: `components/admin/wizard/Step3ReviewWithFinalize.tsx:257` header, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274` subline, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249` and `components/admin/wizard/Step3ReviewWithFinalize.tsx:270` aria-labels, and a
+GREEN: `components/admin/wizard/Step3ReviewWithFinalize.tsx:257` header, `components/admin/wizard/Step3ReviewWithFinalize.tsx:279` subline, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249` and `components/admin/wizard/Step3ReviewWithFinalize.tsx:270` aria-labels, and a
 `data-testid` on the subline at `components/admin/wizard/Step3ReviewWithFinalize.tsx:273` so the assertion can be scoped to it.
 COMMIT: `fix(admin): compact tracking reports setup, not publishing`
 
@@ -332,9 +332,15 @@ required rather than the bare "no lock changes" the R2 version offered (plan R3 
   single-holder rule is preserved by construction rather than by care.
 - **Preservation guard that must stay green, named so a regression is attributed rather than
   discovered:** `tests/auth/advisoryLockRpcDeadlock.test.ts:869`, "finalize §5.6 re-select topology:
-  parse_result re-read runs under the existing show: lock with zero new acquisitions". That guard is
-  about THIS EXACT re-read, so it is the direct oracle for this task, not a general smoke test. Run it
-  in the task's GREEN step alongside the stream suite.
+  parse_result re-read runs under the existing show: lock with zero new acquisitions". Corrected
+  after whole-diff R2 finding 3: it is NOT the oracle for the SELECT this task edits. Its shape arm
+  matches `/select parse_result[\s\S]*?from public\.pending_syncs/i`, which is the later
+  generation-scoped re-read, not the rebind query whose select list begins `select staged_id, ...`.
+  What it DOES pin, and what invariant 2 actually needs here, is its other arm: it counts every
+  `pg_advisory_xact_lock(hashtext('show:' || $1))` occurrence in the route source, so a second
+  acquisition anywhere fails it. This task adds none — the rebind rides the transaction that already
+  holds the lock — and that is the claim the guard settles. Run it in GREEN alongside the stream
+  suite, for the acquisition count, not as a shape oracle for the edited query.
 
 SCOPE NOTE for the commit message: this arc's premise was "no route change beyond a rename", and
 this is a route change. It is here because §3.2 keeps the NAME claim, and keeping a claim means
