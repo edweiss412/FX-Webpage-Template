@@ -70,6 +70,13 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // fix/help-tour-grid-and-settings-card (2026-08-29). The first shipped by the
+  // larger of the two repairs its entry named — the grids lifted out of the 70ch
+  // cap rather than the second grid dropped to two columns. The second graduated
+  // because the product decision it was waiting on was made: Eric chose the card
+  // over softening the intro copy.
+  "HELPTOUR-CARD-GRID-MEASURE-1",
+  "HELPTOUR-SETTINGS-CARD-MISSING-1",
   // feat/a11y-privacy-cluster (2026-08-07, arc A): the share-link scroll cue.
   // Un-deferred by the user into an arc that could own both requirements the
   // deferral named — a transition inventory for the new motion surface and a
