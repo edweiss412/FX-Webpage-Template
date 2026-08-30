@@ -73,7 +73,9 @@ Per AGENTS.md's repair direction under same-axis recurrence — "the class-level
 
 The same event fires for a row that FAILED. The route's own comment says so: "a row that fails still surfaces via per_row (client stops on non-OK)" (`app/api/admin/onboarding/finalize/route.ts:1707-1709`). A failure is not reported to the client until the terminal `result` at the END of the batch, so a failed row's name can sit in the subline for the remainder of the batch.
 
-Both facts constrain the label. It cannot be present tense ("Setting up: X" names a row that is finished), and it cannot imply success ("Done: X", "Finished: X" would be false for the failed row sitting there until the batch ends). `Processed: ` is the one form that is true in both branches, which means it needs no correction from the terminal result rather than merely getting one.
+Both facts constrain the label. It cannot be present tense ("Setting up: X" names a row that is finished), and it cannot imply success ("Done: X", "Finished: X" would be false for the failed row sitting there until the batch ends).
+
+**So the line carries NO prefix at all.** An earlier draft used `Processed: `, which is true in both branches but is warehouse vocabulary in a register whose voice is explicitly plain-language, and it reads as success to a non-technical operator even though the code means it neutrally. The impeccable critique (P1) made the better argument: the name sits under a labelled progress bar and a `N of M` count, so its role is already established by position. Dropping the prefix removes a word, removes a claim, and returns roughly eleven characters to a line that truncates on a phone. The strongest form of "true in both branches" is to assert nothing.
 
 ## 3. What ships
 
@@ -104,13 +106,13 @@ Both surfaces render the same batch-phase text and both change identically.
 | Batch header (`components/admin/FinalizeButton.tsx:974`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:257`) | `Publishing your shows…` | `Setting up your shows…` |
 | Batch SR live message (`components/admin/FinalizeButton.tsx:485`) | `Publishing your shows` | `Setting up your shows` |
 | Batch button label (`components/admin/FinalizeButton.tsx:493`) | `Publishing…` | `Setting up…` |
-| Row subline (`components/admin/FinalizeButton.tsx:1002`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publishing: <name>` | `Processed: <name>` |
-| Group accessible name, BOTH phases (`components/admin/FinalizeButton.tsx:967`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249`) | `Publish progress` | `Setup progress` |
-| Progress bar accessible name (`components/admin/FinalizeButton.tsx:983`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:270`) | `Publish progress` | `Setup progress` |
+| Row subline (`components/admin/FinalizeButton.tsx:1002`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publishing: <name>` | `<name>`, with no prefix |
+| Group accessible name, BOTH phases (`components/admin/FinalizeButton.tsx:967`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249`) | `Publish progress` | `Show setup progress` |
+| Progress bar accessible name (`components/admin/FinalizeButton.tsx:983`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:270`) | `Publish progress` | `Show setup progress` |
 
 Unchanged: the `N of M` count, the progress bar geometry, the CAS-phase header `Finishing setup…`, the CAS sub-label from `casPhaseLabel`, the idle button label, and the `title={state.lastName}` truncation tooltips.
 
-The four accessible names are in scope because they are the same false claim in the layer a sighted operator cannot see. Both labelled groups wrap `state.phase === "batch" ? … : …` (`components/admin/FinalizeButton.tsx:962-972`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:245-254`) and both take focus when the batch starts, so without this a screen-reader operator hears "Setting up your shows" immediately followed by "Publish progress". `Setup progress` is correct for the CAS phase too, whose header is `Finishing setup…`.
+The four accessible names are in scope because they are the same false claim in the layer a sighted operator cannot see. Both labelled groups wrap `state.phase === "batch" ? … : …` (`components/admin/FinalizeButton.tsx:962-972`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:245-254`) and both take focus when the batch starts, so without this a screen-reader operator hears "Setting up your shows" immediately followed by "Publish progress". `Show setup progress` is correct for the CAS phase too, whose header is `Finishing setup…`, and it follows the pattern its siblings already set — `Onboarding progress` on the wizard stepper (`components/admin/OnboardingWizard.tsx:197`) and `Folder scan progress` on step 2 (`components/admin/wizard/Step2Verify.tsx:487`). A bare `Setup progress` was the vaguest of the three and the nearest to the stepper's own name; the impeccable critique (P2) caught it.
 
 **Class-sweep record.** The sweep is `rg -n 'aria-label|aria-labelledby|sr-only|title=' components/admin/FinalizeButton.tsx components/admin/wizard/Step3ReviewWithFinalize.tsx`. It returns exactly four `Publish progress` instances (the four above) and no other accessible name carrying the publish verb in either phase. The remaining hits are the modal Close/dismiss labels, the confirm dialog's `aria-labelledby`, the announcer's `sr-only`, and the two name tooltips.
 
@@ -130,7 +132,7 @@ This project's Tailwind v4 does not default `.flex` to `align-items: stretch`; n
 
 ### 3.4 Transition inventory
 
-Batch-phase subline states: **A** none (`lastName === null`), **B** `Processed: <name>`. Phase states: **batch**, **cas**.
+Batch-phase subline states: **A** none (`lastName === null`), **B** the bare `<name>`. Phase states: **batch**, **cas**.
 
 | Pair | Treatment |
 | --- | --- |
@@ -138,14 +140,14 @@ Batch-phase subline states: **A** none (`lastName === null`), **B** `Processed: 
 | B → B (name changes) | Instant text swap inside one persistent node. Today's behavior. |
 | B → A | Does not occur: `lastName` is only ever set, never cleared, within a batch. |
 
-Compound: a name change arriving in the same `setState` as `done`/`total` is ONE commit (every row event carries all three), so the count, the bar and the subline update together with no interleaving to animate. The batch → cas change replaces the whole subtree, instant today and instant after. The group's accessible name is deliberately phase-neutral (`Setup progress`) so it does not change across that boundary, which keeps a screen reader from re-announcing the group mid-run. There is no `AnimatePresence` or `motion.*` in either renderer and none is added.
+Compound: a name change arriving in the same `setState` as `done`/`total` is ONE commit (every row event carries all three), so the count, the bar and the subline update together with no interleaving to animate. The batch → cas change replaces the whole subtree, instant today and instant after. The group's accessible name is deliberately phase-neutral (`Show setup progress`) so it does not change across that boundary, which keeps a screen reader from re-announcing the group mid-run. There is no `AnimatePresence` or `motion.*` in either renderer and none is added.
 
 ## 4. Guard conditions
 
 | Input | Rendered |
 | --- | --- |
 | `lastName: null` (no row event yet) | No subline. Unchanged from today. |
-| `name: null` on the wire (no parsed title) | Existing fallback stands: `msg.name \|\| msg.driveFileId` (`components/admin/FinalizeButton.tsx:232`), behind the `Processed: ` label. |
+| `name: null` on the wire (no parsed title) | Existing fallback stands: `msg.name \|\| msg.driveFileId` (`components/admin/FinalizeButton.tsx:232`), rendered bare like any other name. |
 | `total: 0` | No count, no bar value — existing `state.total > 0` guards (`components/admin/FinalizeButton.tsx:981-985`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:259-269`). Unchanged. |
 | `done > total` | Existing `Math.min(state.done, state.total)` clamp. Unchanged. |
 | Zero-row finish | `listed(0)`, no row events, no subline. Covered today by `tests/onboarding/finalizeStream.test.ts:63`. |
@@ -159,7 +161,7 @@ All DB-free. No `TEST_DATABASE_URL` and no DB slot are required. Each row declar
 | Test | Kind | File | Failure it catches |
 | --- | --- | --- | --- |
 | Batch header reads `Setting up your shows…`, and `Publishing your shows` appears nowhere in the batch phase | RED | both component suites | Copy reverted on one of two components that independently render the same sentence. |
-| Subline reads `Processed: <name>`, and `Publishing: ` appears nowhere in the batch phase | RED | both component suites | Same, for the subline. |
+| Subline text equals `<name>` EXACTLY, and `Publishing: ` appears nowhere in the batch phase | RED | both component suites | Same, for the subline. Exact equality, so a prefix creeping back in fails it. |
 | The SET of `[aria-label]` values inside the batch phase equals `{"Setup progress"}` | RED | both component suites | The four instances, AND any fifth a later edit adds. The set form is what makes it a class guard rather than four spot checks. |
 | Running button label reads `Setting up…` | RED | `tests/components/admin/FinalizeButton.test.tsx` | The most prominent control keeping the false verb. |
 | CAS-phase header still reads `Finishing setup…` and its accessible name is still reachable | PRESERVATION | `tests/components/admin/FinalizeButton.test.tsx` | An over-broad copy edit reaching the wrong phase. Green today by construction. |

@@ -318,13 +318,12 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(tracking.textContent ?? "").not.toContain("Publishing: ");
   });
 
-  test("compact subline names the COMPLETED row in past tense", async () => {
+  test("compact subline names the completed row and makes no claim about its outcome", async () => {
     const { getByTestId } = await runningCompactTracking();
     // Premise: the row event actually populated lastName. Without it this suite
     // renders no subline at all and the assertion below would prove nothing.
     const line = getByTestId("wizard-step3-tracking-current");
-    expect(line.textContent ?? "").toContain("East Coast");
-    expect(line.textContent ?? "").toContain("Processed: ");
+    expect(line.textContent).toBe("East Coast");
   });
 
   test("every accessible name in the compact batch phase reads Setup progress", async () => {
@@ -337,7 +336,7 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     );
     expect(labelled.length).toBeGreaterThanOrEqual(2);
     expect(new Set(labelled.map((el) => el.getAttribute("aria-label")))).toEqual(
-      new Set(["Setup progress"]),
+      new Set(["Show setup progress"]),
     );
   });
 });

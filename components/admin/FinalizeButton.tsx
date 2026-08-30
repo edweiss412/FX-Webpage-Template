@@ -964,7 +964,7 @@ const ProgressPanel = forwardRef<
       ref={ref}
       tabIndex={-1}
       role="group"
-      aria-label="Setup progress"
+      aria-label="Show setup progress"
       data-testid="wizard-finalize-progress"
       className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
@@ -984,7 +984,7 @@ const ProgressPanel = forwardRef<
             className="h-2 w-full"
             max={state.total > 0 ? state.total : undefined}
             value={state.total > 0 ? Math.min(state.done, state.total) : undefined}
-            aria-label="Setup progress"
+            aria-label="Show setup progress"
           />
           {state.total > 0 ? (
             <p
@@ -1003,7 +1003,6 @@ const ProgressPanel = forwardRef<
               title={state.lastName}
               aria-hidden="true"
             >
-              <span className="text-text-subtle">Processed: </span>
               {state.lastName}
             </p>
           ) : null}

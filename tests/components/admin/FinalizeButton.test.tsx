@@ -1435,11 +1435,14 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     expect(panel.textContent ?? "").not.toContain("Publishing: ");
   });
 
-  test("row subline names the COMPLETED row in past tense, true for a failed row too", async () => {
+  test("row subline names the completed row and makes no claim about its outcome", async () => {
     const { getByTestId } = await runningBatchPanel();
     const line = getByTestId("wizard-finalize-current");
-    expect(line.textContent ?? "").toContain("Processed: ");
-    expect(line.textContent ?? "").toContain("East Coast");
+    // The name stands alone. Impeccable critique P1: a prefix here is a word and a
+    // claim the line does not need — the labelled bar and the count above already
+    // say what this name is, and on a phone the prefix ate ~11 chars of a
+    // truncating line. EXACT, so a prefix creeping back in fails this.
+    expect(line.textContent).toBe("East Coast");
   });
 
   // NOTE: runningLabel is deliberately NOT asserted here. In this composition the
@@ -1469,7 +1472,7 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     // An empty set trivially equals an empty set; require the real members first.
     expect(labelled.length).toBeGreaterThanOrEqual(2);
     expect(new Set(labelled.map((el) => el.getAttribute("aria-label")))).toEqual(
-      new Set(["Setup progress"]),
+      new Set(["Show setup progress"]),
     );
   });
 

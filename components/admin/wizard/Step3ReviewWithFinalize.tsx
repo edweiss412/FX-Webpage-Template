@@ -246,7 +246,7 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
       ref={trackingRef}
       tabIndex={-1}
       role="group"
-      aria-label="Setup progress"
+      aria-label="Show setup progress"
       data-testid="wizard-step3-tracking"
       className="flex w-full flex-col gap-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
@@ -271,7 +271,7 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
             className="h-1.5 w-full"
             max={state.total > 0 ? state.total : undefined}
             value={state.total > 0 ? Math.min(state.done, state.total) : undefined}
-            aria-label="Setup progress"
+            aria-label="Show setup progress"
           />
           {state.lastName ? (
             <span
@@ -280,7 +280,7 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
               title={state.lastName}
               aria-hidden="true"
             >
-              Processed: {state.lastName}
+              {state.lastName}
             </span>
           ) : null}
         </>

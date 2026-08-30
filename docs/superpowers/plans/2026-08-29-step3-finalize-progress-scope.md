@@ -178,7 +178,7 @@ ever executing the test it changed. The task that edits a test runs it before co
 RED, four assertions that each fail against current code:
   - batch header reads `Setting up your shows…`
   - the running button label reads `Setting up…`
-  - the subline reads `Processed: <name>` (past tense and outcome-neutral: spec §2.2)
+  - the subline reads `<name>` with NO prefix (spec §2.2: the strongest outcome-neutral form is to assert nothing)
   - the SET of `[aria-label]` values within the batch phase equals `{"Setup progress"}`
 The aria assertion is a SET comparison, not four string checks: that is what makes it catch a fifth
 instance someone adds later, which four spot checks would not.
@@ -429,7 +429,7 @@ COMMIT: `docs(plan): close out step3 finalize progress scope`
 
 ## Acceptance criteria
 - AC-1 the batch header reads `Setting up your shows…` on both surfaces
-- AC-2 the batch subline reads `Processed: <name>` on both surfaces
+- AC-2 the batch subline reads `<name>` with no prefix on both surfaces
 - AC-3 the running button label reads `Setting up…`
 - AC-4 every accessible name in the batch phase reads `Setup progress`, on both surfaces
 - AC-5 no source file under `app/` refers to `approvedRows`, and the stream suite passes unmodified
