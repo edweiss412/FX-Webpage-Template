@@ -307,16 +307,17 @@ select-time one, asserting the emitted `name` is the new title.
     - The fake matches the rebind query by PREFIX
       (`normalized.startsWith("select staged_id, staged_modified_time, triggered_review_items")`,
       `tests/onboarding/_finalizeFake.ts:296`). APPEND `parse_result` to that query in the route;
-      inserting it earlier breaks the prefix match, the handler returns no rows, and the route demotes
-      with `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` — a failure that looks like a race bug.
-    - Widen the fake's handler to RETURN `parse_result`. Without it the rebind assigns undefined;
-      `parsedShowTitle` is fully defensive (`lib/onboarding/blockerDisplayName.ts:12-23`) so it
-      returns null rather than throwing, the emit's `?? null` makes `name` null, and the client falls
-      back to the Drive file id. Silent, and a "the name changed" assertion passes on it.
-      The assertion is therefore POSITIVE: `name === "New Show"`.
+      inserting it earlier breaks the prefix match and the fake falls through to its
+      `Unhandled SQL in finalize fake` throw. Loud, and it names the query that stopped matching.
+    - Widen the fake's handler to RETURN `parse_result`. Without it the rebind passes undefined to
+      `asParseResult`, which THROWS `JsonbCoercionError` (`lib/db/coerceJsonbObject.ts:133`) rather
+      than yielding null. This bullet predicted a silent nullification; the coercion makes it loud,
+      and the closeout records the correction. The assertion is POSITIVE anyway
+      (`name === "New Show"`), because a negative one would pass on a null just as happily.
 GREEN: widen the `app/api/admin/onboarding/finalize/route.ts:1040` query to include `parse_result`, rebind it onto the local row with
-`asParseResult` (a legacy double-encoded row returns a JSON string scalar and `parsedShowTitle` must
-not receive one). This also repairs the failure `display_name` at `app/api/admin/onboarding/finalize/route.ts:1704`, which reads the same
+`asParseResult` (a legacy double-encoded row returns a JSON string scalar; `parsedShowTitle`
+decodes that shape itself, `lib/onboarding/blockerDisplayName.ts:14-20`, so the coercion is for
+shape parity with the inner path, not because the helper cannot cope). This also repairs the failure `display_name` at `app/api/admin/onboarding/finalize/route.ts:1704`, which reads the same
 stale source.
 **Advisory-lock topology declaration (invariant 2, mandatory for a plan editing this path).** Task 3b
 edits inside `processApprovedRow`, which runs under a held per-show lock, so the holder enumeration is

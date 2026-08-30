@@ -1055,9 +1055,12 @@ async function processApprovedRow(
     // show). clean_restamped keeps wizard_approved=true and stays Live-eligible via the shadow.
     const freshRows = (await rescanTx.unsafe(
       // parse_result is APPENDED, never inserted earlier: the fake matches this
-      // query by prefix (tests/onboarding/_finalizeFake.ts), and reordering the
-      // select list silently stops that match, returning no rows and demoting the
-      // row with STAGED_PARSE_REVISION_RACE_DURING_FINALIZE.
+      // query by prefix (tests/onboarding/_finalizeFake.ts), so reordering the select
+      // list stops that match and the fake falls through to its `Unhandled SQL in
+      // finalize fake` throw. Loud, not silent — this comment used to predict a
+      // no-rows demote with STAGED_PARSE_REVISION_RACE_DURING_FINALIZE, which is what
+      // the ROUTE would do if the query genuinely returned nothing, but is not what
+      // the fixture does (whole-diff R1 finding 9).
       `select staged_id, staged_modified_time, triggered_review_items, parse_result
          from public.pending_syncs
         where wizard_session_id = $1::uuid and drive_file_id = $2`,
