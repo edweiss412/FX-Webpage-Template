@@ -188,7 +188,12 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
       const limit = Number(params[1] ?? 100);
       const cleanRows = this.approved.filter(isFinishableClean).slice(0, limit);
       return {
-        rows: cleanRows as T[],
+        // DETACHED, not aliased. postgres.js returns fresh objects; it never hands
+        // back a reference into some in-memory store that a later write mutates.
+        // Returning `cleanRows` directly meant a fake core mutating the stored row
+        // ALSO mutated the route's already-selected row, so a test for "the route
+        // must re-read the refreshed value" passed against code that never re-read.
+        rows: cleanRows.map((row) => ({ ...row })) as T[],
         rowCount: cleanRows.length,
       };
     }
@@ -302,6 +307,7 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
             staged_id: foundRow.staged_id,
             staged_modified_time: foundRow.staged_modified_time,
             triggered_review_items: foundRow.triggered_review_items,
+            parse_result: foundRow.parse_result,
           } as T,
         ],
         rowCount: 1,

@@ -1037,7 +1037,11 @@ async function processApprovedRow(
     // normal unchecked-row finalize path (an unchecked-but-finishable row always yields a Held
     // show). clean_restamped keeps wizard_approved=true and stays Live-eligible via the shadow.
     const freshRows = (await rescanTx.unsafe(
-      `select staged_id, staged_modified_time, triggered_review_items
+      // parse_result is APPENDED, never inserted earlier: the fake matches this
+      // query by prefix (tests/onboarding/_finalizeFake.ts), and reordering the
+      // select list silently stops that match, returning no rows and demoting the
+      // row with STAGED_PARSE_REVISION_RACE_DURING_FINALIZE.
+      `select staged_id, staged_modified_time, triggered_review_items, parse_result
          from public.pending_syncs
         where wizard_session_id = $1::uuid and drive_file_id = $2`,
       [wizardSessionId, row.drive_file_id],
@@ -1045,6 +1049,7 @@ async function processApprovedRow(
       staged_id: string;
       staged_modified_time: string | Date;
       triggered_review_items: unknown;
+      parse_result: unknown;
     }>;
     const fresh = freshRows[0];
     if (!fresh) {
@@ -1066,6 +1071,12 @@ async function processApprovedRow(
     row.staged_modified_time =
       normalizeTimestamptz(fresh.staged_modified_time) ?? row.staged_modified_time;
     row.triggered_review_items = fresh.triggered_review_items;
+    // The FOURTH field, and the only one an operator reads. Without it the stream
+    // and the failure display_name both report the SELECT-time title while the
+    // refreshed parse is what got applied — a renamed sheet set up as "New Show"
+    // and reported as "Old Show", uncorrected (a successful per_row entry carries
+    // no name). Coerced for shape parity with the inner path's coercedRow.
+    row.parse_result = asParseResult(fresh.parse_result);
     input.autoHealedDriveFileIds.add(row.drive_file_id);
     // Fall through to the generation-scoped freshRead + publish flow with the fresh identifiers.
   }
