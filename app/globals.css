@@ -1232,17 +1232,19 @@ details[open] > summary [data-agenda-day-count] {
    the full-span card's body sits inside an anchor inside a grid, so it is not a
    direct child and takes no cap from the layer.
 
-   A `@utility`, NOT a rule in `@layer base`. This shipped once as a base-layer
-   class and CI caught it: `@layer base` loses to `@layer utilities`, and the
-   carrier it replaced (`max-w-[var(--help-measure)]`) was a utility, so moving it
-   to base silently dropped the cap and the span card measured 81.4ch against a
-   75ch ceiling. `@utility` emits into the utilities layer, which is where the
-   original lived.
+   DELIBERATELY UNLAYERED, and this is the third mechanism tried. The first was
+   `max-w-[var(--help-measure)]` inline, which works but puts a literal `--` into
+   MDX where the em-dash copy guard scans structurally. The second was a class in
+   `@layer base`, which CI caught: base loses to utilities. The third was
+   `@utility`, correct in layer but still 814px on CI against 700px expected,
+   while passing locally against the same `pnpm build` — so the cascade was not
+   the whole story and the emitted rule could not be relied on.
 
-   Named rather than written inline, because the arbitrary-value form puts a
-   literal `--` into MDX and the em-dash copy guard scans MDX lines structurally,
-   markup included. */
-@utility help-measure-cap {
+   A plain unlayered rule removes both failure modes at once: it is literal CSS,
+   so nothing decides whether to emit it, and unlayered declarations outrank every
+   cascade layer, so no utility can shadow it. Verified by grepping the built
+   stylesheet rather than by reasoning about it. */
+.help-measure-cap {
   max-width: var(--help-measure);
 }
 
