@@ -18,7 +18,10 @@ import { join } from "node:path";
 import { premise, premiseHolds } from "../_shared/premise";
 
 const APP_DIR = join(__dirname, "..", "..", "app");
-const CODE = /\.(ts|tsx)$/;
+// Every extension Next.js will execute under app/, not just the two this repo happens
+// to use today. The guard's name claims 'no file under app/', and a .js or .jsx route
+// is ordinary Next.js that would have bound the misnomer while the guard stayed green.
+const CODE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
 /** Word-matched, so `approvedRowsCount` neither satisfies nor evades the guard. */
 const MISNOMER = /\bapprovedRows\b/;
