@@ -1557,7 +1557,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // lib/admin/reportDraftStore.ts and the component gained a seven-line import
       // for them near the top. Located on the live tree by the same rounded-pill
       // border-border <span>, not by applying the delta.
-      "components/admin/wizard/step3ReviewSections.tsx:2455",
+      // Relocated on the ref-error-cell-anchors merge; same rounded-pill count span.
+      "components/admin/wizard/step3ReviewSections.tsx:2456",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

@@ -1079,6 +1079,12 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // and has no href to build. The destination surface genuinely shrank by
         // one, which is the change this census exists to make visible.
         "tests/drive/unknownFieldAnchors.test.ts": 1,
+        // ONE asserted href, the wave-code twin of the row above (spec
+        // 2026-08-29-ref-error-cell-anchors §5 T3, AC-1): each of fintech's five
+        // `#REF!` warnings is compared against the exact `#gid=<gid>&range=<a1>`
+        // the builder must produce for a scoped cell anchor on a tab that is NOT in
+        // SOURCE_LINK_ALLOWLIST. One call site, inside the per-warning loop.
+        "tests/drive/waveCodeAnchors.resolution.test.ts": 1,
         "tests/e2e/_pillFocusLiveEntry.tsx": 1,
         "tests/e2e/_publishedReviewModalHarness.tsx": 1,
         "tests/e2e/_skeletonParityHarness.tsx": 1,
@@ -1131,6 +1137,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "lib/drive/showDayTimeAnchors.ts": 1,
         "lib/drive/sourceAnchors.ts": 1,
         "lib/drive/unknownFieldAnchors.ts": 2,
+        // Type-only `SourceAnchor` import on the wave-code anchor replay, the second
+        // raw-workbook scanner that sets `scope: "cell"` (spec 2026-08-29 §2). Same shape
+        // as `showDayTimeAnchors.ts` above: a type, never the builder.
+        "lib/drive/waveCodeAnchors.ts": 1,
         // Type-only `SourceAnchor` import on the Phase-D shadow-payload parse boundary,
         // which surfaces the staged anchors the finalize-cas apply forwards (2026-08-03).
         "lib/onboarding/shadowPayload.ts": 1,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { OPERATOR_ACTIONABLE_ANCHORED, operatorActionableWarnings } from "@/lib/parser/dataGaps";
+import { warningIdentityKey } from "@/lib/dataQuality/warningIdentity";
 import type { ParseWarning } from "@/lib/parser/types";
 
 const anchor = { title: "INFO", gid: 0, a1: "C2" };
@@ -291,5 +292,31 @@ describe("ORPHANED_CREW_ROWS rawSnippet fold (whole-diff r1 F2)", () => {
       { ...base, rawSnippet: "Carl Fenton" },
     ];
     expect(operatorActionableWarnings(ws)).toHaveLength(1);
+  });
+});
+
+// Spec docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md §5 T8: five
+// #REF! rows on five different tabs each gain a DISTINCT cell anchor, and the staged
+// page's selector dedups by (code, gid, a1). Five distinct cells must stay five rows.
+// Green on arrival; added as cover for the shape this arc produces.
+describe("five distinct REF_ERROR_LITERAL cells stay five rows (spec §5 T8)", () => {
+  const five: ParseWarning[] = [1, 2, 3, 4, 5].map(
+    (gid) =>
+      ({
+        severity: "warn",
+        code: "REF_ERROR_LITERAL",
+        message: "m",
+        blockRef: { kind: "section" },
+        rawSnippet: "\\#REF\\!",
+        sourceCell: { title: `T${gid}`, gid, a1: "A1", scope: "cell" },
+      }) as ParseWarning,
+  );
+
+  it("the staged selector keeps all five", () => {
+    expect(operatorActionableWarnings(five)).toHaveLength(5);
+  });
+
+  it("warningIdentityKey gives five distinct keys", () => {
+    expect(new Set(five.map((w) => warningIdentityKey(w))).size).toBe(5);
   });
 });

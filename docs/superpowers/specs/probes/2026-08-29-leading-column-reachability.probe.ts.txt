@@ -1,0 +1,56 @@
+// Probe: can LEADING_COLUMN_AUTOCORRECTED fire on any workbook this exporter synthesizes?
+// Answer measured 2026-08-29 (plan R1 review, finding 3): NO, on seven constructed shapes.
+// Derivation (lib/drive/exportSheetToMarkdown.ts splitBlocks/trimBlock/renderRow;
+// lib/parser/leadingColumnNormalize.ts leadsEmpty/opener): a block whose rows all lead
+// empty loses that column to trimBlock; a block-initial logical section owns the alignment
+// row whose cell 1 is `:---:` (never empty); a mid-block shifted opener needs the row to be
+// exactly one cell wider than the last unshifted row, which renderRow padding to one width
+// makes impossible. Run from the worktree: pnpm exec tsx <this file copied to .ts>
+
+import * as XLSX from "xlsx";
+import { synthesizeMarkdownFromXlsx, synthesizeBlocksFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import { parseSheet } from "@/lib/parser";
+import { isMidBlockSectionStart } from "@/lib/parser/knownSections";
+import { canonicalSectionKind } from "@/lib/parser/sectionKind";
+
+function wb(rows: (string | number)[][]): ArrayBuffer {
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "INFO");
+  const u8 = XLSX.write(book, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  return u8;
+}
+const shapes: Record<string, (string | number)[][]> = {
+  "plan(c): VENUE unshifted then shifted HOTEL, no blank row": [
+    ["VENUE", "Marriott", "NYC"], ["Address", "1 Main", ""], ["", "HOTEL", "x"], ["", "#REF!", "y"], ["", "Room", "z"],
+  ],
+  "shifted HOTEL block-initial, then unshifted CLIENT": [
+    ["", "HOTEL", "x"], ["", "#REF!", "y"], ["", "Room", "z"], ["CLIENT", "Acme", ""], ["Contact", "Bob", ""],
+  ],
+  "shifted HOTEL block-initial, then unshifted Venue (mixed case)": [
+    ["", "HOTEL", "x"], ["", "#REF!", "y"], ["Venue", "Marriott", ""], ["Address", "1 Main", ""],
+  ],
+  "shifted HOTEL block-initial, then unshifted DRESS": [
+    ["", "HOTEL", "x"], ["", "#REF!", "y"], ["DRESS", "Black", ""], ["Notes", "n", ""],
+  ],
+  "shifted HOTEL block-initial, then unshifted VENUE (uppercase known)": [
+    ["", "HOTEL", "x"], ["", "#REF!", "y"], ["VENUE", "Marriott", ""], ["Address", "1 Main", ""],
+  ],
+  "typo TRANSPORTATON unshifted with #REF!": [
+    ["TRANSPORTATON", "", ""], ["Driver", "#REF!", ""], ["Van", "v", ""],
+  ],
+  "shifted HOTEL block-initial two REF one after pipe, then CLIENT": [
+    ["", "HOTEL", "x", "w"], ["", "a|b", "#REF!", "#REF!"], ["CLIENT", "Acme", "", ""],
+  ],
+};
+for (const [name, rows] of Object.entries(shapes)) {
+  const buf = wb(rows);
+  const { blocks } = synthesizeBlocksFromXlsx(buf);
+  const { markdown } = synthesizeMarkdownFromXlsx(buf);
+  const ws = parseSheet(markdown, "probe.xlsx").warnings.filter((w) => ["REF_ERROR_LITERAL", "ROW_CELLS_FUSED", "LEADING_COLUMN_AUTOCORRECTED", "SECTION_HEADER_AUTOCORRECTED"].includes(w.code));
+  console.log("###", name);
+  console.log("blocks:", blocks.length, blocks.map((b) => b.kind === "grid" ? `grid@col${b.absCol0} rows=${b.rows.length}` : "opaque").join(", "));
+  console.log(markdown);
+  console.log("warnings:", JSON.stringify(ws.map((w) => [w.code, w.blockRef?.kind, w.rawSnippet ?? null])));
+}
+console.log("isMidBlockSectionStart:", ["HOTEL", "CLIENT", "Venue", "DRESS", "VENUE", "DATES", "EVENT DETAILS", "TRANSPORTATON"].map((s) => `${s}=${isMidBlockSectionStart(s)}`).join(" "));
+console.log("canonicalSectionKind:", ["HOTEL", "CLIENT", "Venue", "DRESS", "VENUE", "DATES", "EVENT DETAILS", "TRANSPORTATON"].map((s) => `${s}=${canonicalSectionKind(s)}`).join(" "));

@@ -1,3 +1,4 @@
+import { WAVE_CODES, type WaveCode, type WavePairedAnchors } from "@/lib/drive/waveCodeAnchors";
 import * as XLSX from "xlsx";
 import { buildAbsGrid } from "@/lib/drive/sourceAnchors";
 import { clean, normalizeDate } from "@/lib/parser/blocks/_helpers";
@@ -122,8 +123,19 @@ export type WarningAnchorSources = {
   // typecheck; both production callers (attachWarningAnchors, applyParseResult)
   // populate it explicitly, and the dispatch reads `?? []` (safe degradation).
   unknownField?: UnknownFieldAnchor[];
+  // One array per wave code, each entry aligned with that code's warnings in array order
+  // (spec 2026-08-29 §2.1). Optional: absent means the replay could not run, and every
+  // wave warning falls through to the fallbacks below exactly as it does today.
+  wave?: WavePairedAnchors;
   region: Record<string, SourceAnchor>;
 };
+
+/** An anchor's GRAIN: `cell` when `a1` is a single cell (present, no colon), `range` for a
+ *  region range or a tab-level anchor, none for no anchor at all. Spec 2026-08-29 §2.1. */
+function grainOf(a: SourceAnchor | null | undefined): 0 | 1 | 2 {
+  if (!a) return 0;
+  return typeof a.a1 === "string" && a.a1.length > 0 && !a.a1.includes(":") ? 2 : 1;
+}
 
 /**
  * Mutate `warnings` in place, setting `sourceCell` on each anchored warning.
@@ -133,76 +145,101 @@ export type WarningAnchorSources = {
  *     against the crew-role cell anchors (exactly-one match else null).
  *   - FIELD_UNREADABLE → per-ROW crew cell by blockRef.name (mirror UNKNOWN_ROLE_TOKEN),
  *     with the region anchor for blockRef.kind as the fallback (no name / no unique match).
+ *   - the three WAVE codes → the i-th entry of `sources.wave[code]`, the detector replay's
+ *     i-th hit (spec 2026-08-29 §2). Runs FIRST; a null entry falls through to the
+ *     fallbacks below unchanged.
  * Best-effort: a warning with no/ambiguous match is left link-less.
+ *
+ * ASSIGNMENT NEVER DEMOTES. The site below assigns only when the new anchor's grain is at
+ * least the existing one's, so the cron's second, region-only pass (applyParseResult) can
+ * no longer replace a per-row cell with a region range. A same-grain re-pass still
+ * overwrites with the same value, so every existing idempotency claim holds.
  */
 export function attachSourceCellAnchors(
   warnings: ParseWarning[],
   sources: WarningAnchorSources,
 ): void {
+  const waveCursor: Partial<Record<WaveCode, number>> = {};
   for (const w of warnings) {
     if (!CELL_ANCHORED_CODES.has(w.code)) continue;
     let cell: SourceAnchor | null = null;
-    if (w.code === "SCHEDULE_TIME_UNPARSED") {
-      cell = resolveSourceCell(sources.showDay, w.blockRef?.iso);
-    } else if (
-      w.code === "UNKNOWN_ROLE_TOKEN" ||
-      w.code === "UNKNOWN_DAY_RESTRICTION" ||
-      w.code === "UNKNOWN_STAGE_RESTRICTION" ||
-      w.code === "STAGE_WORD_AUTOCORRECTED" ||
-      w.code === "ROLE_TOKEN_AUTOCORRECTED"
-    ) {
-      cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
-    } else if (w.code === "UNKNOWN_FIELD") {
-      // Per-row cell by (kind,label,value); no region fallback — a no/ambiguous
-      // match leaves the warning link-less (spec §5.1.1: correct cell or null).
-      cell = resolveUnknownFieldCell(
-        sources.unknownField ?? [],
-        w.blockRef?.kind,
-        w.blockRef?.name,
-        valueFromRawSnippet(w.rawSnippet),
-      );
-    } else if (w.code === "FIELD_UNREADABLE") {
-      // Per-ROW crew cell by name (mirror the UNKNOWN_ROLE_TOKEN crew-cell path), so DISTINCT
-      // crew rows produce DISTINCT a1 and survive operatorActionableWarnings dedup instead of
-      // all collapsing to the single crew region anchor (idx32/#154). Region fallback when
-      // there is no name / no unique crew match: a missed anchor degrades to the region link,
-      // never a wrong one (spec §5.1.1).
-      cell =
-        resolveCrewRoleCell(sources.crewRole, w.blockRef?.name) ??
-        (w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null);
-    } else if (w.code === "ORPHANED_CREW_ROWS") {
-      // Region fallback ONLY (spec 2026-07-27-export-blank-row-segmentation §3.3):
-      // the orphan tail's exact source row cannot be uniquely located
-      // post-synthesis, so the crew REGION link is the correct grain — a region
-      // link, never a wrong-cell link. Null (link-less card) when no crew region
-      // source exists.
-      cell = w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null;
-    } else if (HOTEL_REGION_ANCHORED.has(w.code)) {
-      // Region grain only (spec 2026-08-27 §3): the ambiguity describes how ONE cell was
-      // read, and blockRef carries a hotel NAME, not a coordinate. A missing region
-      // degrades to null (a link-less card), never to another section's range.
-      cell = sources.region["hotels"] ?? null;
-    } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
-      // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
-      // in-set codes (the CELL_ANCHORED_CODES gate above). Any future code added to
-      // the set with kind agenda/pull_sheet region-anchors by design (pinned by the
-      // membership pin-test in tests/parser/operatorActionableWarnings.test.ts).
-      cell = sources.region[KIND_TO_REGION[w.blockRef.kind]!] ?? null;
-    } else if (
-      w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
-      w.code === "SECTION_HEADER_AUTOCORRECTED" ||
-      w.code === "FIELD_LABEL_AUTOCORRECTED" ||
-      w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"
-    ) {
-      // Region-level anchor: blockRef.kind is a RegionId (column header → "crew";
-      // section header → the corrected section's RegionId, e.g. "transportation"/"details";
-      // off-schedule strike → "rooms", the ROOMS-tab region the strike was read from).
-      // (FIELD_UNREADABLE has its OWN per-row crew-cell branch above, with this region as
-      // its fallback.)
-      const kind = w.blockRef?.kind;
-      cell = kind ? (sources.region[kind] ?? null) : null;
+    if ((WAVE_CODES as readonly string[]).includes(w.code)) {
+      // The pairing is POSITIONAL: the i-th warning of a code takes the i-th replayed hit,
+      // over the SAME warnings array `pairWaveCodeSites` filtered. The cursor advances on
+      // every visit, whether or not the family resolved, so a short or absent array leaves
+      // the tail unanchored rather than mis-aligning it.
+      const code = w.code as WaveCode;
+      const i = waveCursor[code] ?? 0;
+      waveCursor[code] = i + 1;
+      cell = sources.wave?.[code]?.[i] ?? null;
+      // A null falls through: the code-agnostic KIND_TO_REGION fallback below still applies
+      // for agenda / pull_sheet kinds (spec 2026-08-29 §1.1, the ratified exception).
     }
-    if (cell) w.sourceCell = cell;
+    if (cell === null) {
+      if (w.code === "SCHEDULE_TIME_UNPARSED") {
+        cell = resolveSourceCell(sources.showDay, w.blockRef?.iso);
+      } else if (
+        w.code === "UNKNOWN_ROLE_TOKEN" ||
+        w.code === "UNKNOWN_DAY_RESTRICTION" ||
+        w.code === "UNKNOWN_STAGE_RESTRICTION" ||
+        w.code === "STAGE_WORD_AUTOCORRECTED" ||
+        w.code === "ROLE_TOKEN_AUTOCORRECTED"
+      ) {
+        cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
+      } else if (w.code === "UNKNOWN_FIELD") {
+        // Per-row cell by (kind,label,value); no region fallback — a no/ambiguous
+        // match leaves the warning link-less (spec §5.1.1: correct cell or null).
+        cell = resolveUnknownFieldCell(
+          sources.unknownField ?? [],
+          w.blockRef?.kind,
+          w.blockRef?.name,
+          valueFromRawSnippet(w.rawSnippet),
+        );
+      } else if (w.code === "FIELD_UNREADABLE") {
+        // Per-ROW crew cell by name (mirror the UNKNOWN_ROLE_TOKEN crew-cell path), so DISTINCT
+        // crew rows produce DISTINCT a1 and survive operatorActionableWarnings dedup instead of
+        // all collapsing to the single crew region anchor (idx32/#154). Region fallback when
+        // there is no name / no unique crew match: a missed anchor degrades to the region link,
+        // never a wrong one (spec §5.1.1).
+        cell =
+          resolveCrewRoleCell(sources.crewRole, w.blockRef?.name) ??
+          (w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null);
+      } else if (w.code === "ORPHANED_CREW_ROWS") {
+        // Region fallback ONLY (spec 2026-07-27-export-blank-row-segmentation §3.3):
+        // the orphan tail's exact source row cannot be uniquely located
+        // post-synthesis, so the crew REGION link is the correct grain — a region
+        // link, never a wrong-cell link. Null (link-less card) when no crew region
+        // source exists.
+        cell = w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null;
+      } else if (HOTEL_REGION_ANCHORED.has(w.code)) {
+        // Region grain only (spec 2026-08-27 §3): the ambiguity describes how ONE cell was
+        // read, and blockRef carries a hotel NAME, not a coordinate. A missing region
+        // degrades to null (a link-less card), never to another section's range.
+        cell = sources.region["hotels"] ?? null;
+      } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
+        // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
+        // in-set codes (the CELL_ANCHORED_CODES gate above), and for a wave code whose
+        // replay pairing yielded null (spec 2026-08-29 §1.1: a refusal never removes a link
+        // the surface has today). Any future code added to
+        // the set with kind agenda/pull_sheet region-anchors by design (pinned by the
+        // membership pin-test in tests/parser/operatorActionableWarnings.test.ts).
+        cell = sources.region[KIND_TO_REGION[w.blockRef.kind]!] ?? null;
+      } else if (
+        w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
+        w.code === "SECTION_HEADER_AUTOCORRECTED" ||
+        w.code === "FIELD_LABEL_AUTOCORRECTED" ||
+        w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"
+      ) {
+        // Region-level anchor: blockRef.kind is a RegionId (column header → "crew";
+        // section header → the corrected section's RegionId, e.g. "transportation"/"details";
+        // off-schedule strike → "rooms", the ROOMS-tab region the strike was read from).
+        // (FIELD_UNREADABLE has its OWN per-row crew-cell branch above, with this region as
+        // its fallback.)
+        const kind = w.blockRef?.kind;
+        cell = kind ? (sources.region[kind] ?? null) : null;
+      }
+    }
+    if (cell && grainOf(cell) >= grainOf(w.sourceCell)) w.sourceCell = cell;
   }
 }
 

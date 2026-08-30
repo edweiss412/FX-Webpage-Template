@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import * as XLSX from "xlsx";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
+import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import { parseSheet } from "@/lib/parser";
+import { premiseHolds } from "@/tests/_shared/premise";
 import * as crewMod from "@/lib/drive/crewRoleAnchors";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -135,5 +138,82 @@ describe("attachWarningAnchors — UNKNOWN_FIELD end-to-end", () => {
     // they resolved, which is what lets buildSheetDeepLink trust them past the REGION
     // allowlist. Every other producer here is unscoped and unchanged.
     expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2", scope: "cell" });
+  });
+});
+
+// Spec docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md §5 T7.
+// The replay must walk the block list the parsed markdown came from: same bytes, SAME
+// `includePullSheetFromTab`. A mismatch changes the hit count and refuses; it cannot
+// mis-pair. Both production call sites forward the option (runOnboardingScan,
+// runScheduledCronSync), and a missing forward degrades to a link-less row.
+describe("attachWarningAnchors forwards synthOpts to the wave-code replay (spec §5 T7)", () => {
+  const OLD_TAB = "OLD PULL SHEET";
+
+  function twoTabBuffer(): ArrayBuffer {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["CREW", "NAME"],
+        ["Alice", "#REF!"],
+        ["Bob", "x"],
+      ]),
+      "INFO",
+    );
+    // The five rows that make an OLD tab collectable (regionA, tests/drive/synthesizeBlocks.test.ts).
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["PULL SHEET", "PULL SHEET"],
+        ["RIA - CHICAGO, IL"],
+        [],
+        ["QTY", "ITEM"],
+        ["2", "#REF!"],
+      ]),
+      OLD_TAB,
+    );
+    const u8 = new Uint8Array(
+      XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayLike<number>,
+    );
+    return u8.buffer as ArrayBuffer;
+  }
+
+  const bothGids = () =>
+    Promise.resolve(
+      new Map([
+        ["INFO", 0],
+        [OLD_TAB, 1],
+      ]),
+    );
+
+  function parsedWithOldTab(buffer: ArrayBuffer): ParseWarning[] {
+    const { markdown } = synthesizeMarkdownFromXlsx(buffer, { includePullSheetFromTab: OLD_TAB });
+    return parseSheet(markdown, "probe.xlsx").warnings;
+  }
+
+  it("with the fifth argument, the grid #REF! anchors to its cell", async () => {
+    const buffer = twoTabBuffer();
+    const warnings = parsedWithOldTab(buffer);
+    const refs = () => warnings.filter((w) => w.code === "REF_ERROR_LITERAL");
+    premiseHolds("the OLD tab was included, so both #REF! cells parsed", refs().length === 2);
+    await attachWarningAnchors(
+      warnings,
+      buffer,
+      bothGids,
+      {},
+      { includePullSheetFromTab: OLD_TAB },
+    );
+    expect(refs()[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "B2", scope: "cell" });
+    // The opaque OLD-tab hit is archived content, never a place to send an operator.
+    expect(refs()[1]!.sourceCell).toBeUndefined();
+  });
+
+  it("without it, the replay sees a different block list and refuses rather than mis-pairs", async () => {
+    const buffer = twoTabBuffer();
+    const warnings = parsedWithOldTab(buffer);
+    await attachWarningAnchors(warnings, buffer, bothGids, {});
+    for (const w of warnings.filter((w) => w.code === "REF_ERROR_LITERAL")) {
+      expect(w.sourceCell).toBeUndefined();
+    }
   });
 });
