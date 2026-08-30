@@ -26,7 +26,7 @@
  * gallery that a diagram is known-but-temporarily-unavailable (admin
  * sees the `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
@@ -120,6 +120,38 @@ export function Gallery({
   // proxy 4xx/5xx falls back to the same `item.available === false`
   // placeholder branch as parse-time-known-unavailable items.
   const [failedKeys, setFailedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  // Task 2 (spec §4). `failedKeys` stops being the whole story: an item is now
+  // idle, failed, or retrying, and `item.available` is a conjunct of all three
+  // so none can overlap the parse-time `unavailable` branch.
+  const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
+  // The in-flight controls, so focus can be handed to one. The failed control
+  // UNMOUNTS as the overlay mounts, so without this hand-off focus falls to
+  // `<body>` -- outside anything -- which is precisely the §7.1 defect this arc
+  // repairs elsewhere. AC-4 requires the control still hold focus after the
+  // transition.
+  const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  /** The FAILED controls, so the hand-off can tell whether one held focus. */
+  const retryControlRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  // Set only when the control being replaced actually HELD focus. Moving focus
+  // on a retry the user triggered by pointer, or on one triggered while focus
+  // sat elsewhere, would steal it.
+  const focusRetryingRef = useRef<string | null>(null);
+  // Set when a failure took focus off the thumbnail, and consumed by the retry
+  // control's ref callback. It CANNOT be a synchronous `.focus()` in the failure
+  // handler: the control has not mounted at the moment the handler runs.
+  const focusFailedRef = useRef<string | null>(null);
+  // The SUCCESS destination. The other two hand-offs replace one control with
+  // another, so each had somewhere to land; success removes the in-flight
+  // overlay and puts back a plain thumbnail, which is why this one was missing
+  // and why no test caught it -- whole-diff review R1 finding 1, confirmed by a
+  // DOM probe showing `document.activeElement` on `BODY`.
+  const focusThumbRef = useRef<string | null>(null);
+  // Separate from `focusFailedRef` on purpose. The dialog's restore target must
+  // follow the failed cell even when the cell did NOT hold focus -- the common
+  // case is the trigger failing while focus is inside the open dialog, where
+  // taking focus is forbidden but re-pointing the restore target is required, or
+  // closing the dialog lands on `<body>`.
+  const restoreToControlRef = useRef<string | null>(null);
 
   // ── Failed-thumbnail focus + announcements (spec 2026-08-10 §4.2) ────────
   //
@@ -200,6 +232,164 @@ export function Gallery({
     for (const message of buffered) announceInDialog(message);
   }, [lightboxIndex, announceInDialog]);
 
+  // `pendingFailuresRef`'s half of the sweep, in an effect rather than in render
+  // because mutating a ref during render is a React violation and eslint's
+  // `react-hooks/refs` rightly refuses it. An effect is the correct home here for
+  // a second reason: this ref is never rendered, it only de-duplicates
+  // announcements, so a one-frame delay changes nothing anyone can observe --
+  // unlike the two state sets above, which ARE rendered and are therefore swept
+  // in render so no stale frame can paint.
+  useEffect(() => {
+    const live = new Set(items.filter((entry) => entry.available).map((entry) => entry.id));
+    for (const id of [...pendingFailuresRef.current]) {
+      if (!live.has(id)) pendingFailuresRef.current.delete(id);
+    }
+  }, [items]);
+
+  // The focus hand-off. It runs after the commit that mounts the overlay, which
+  // is the earliest point the target exists -- doing it inside `handleRetry`
+  // would call `.focus()` on an element React has not created yet.
+  //
+  // Placed ABOVE the empty-items early return DELIBERATELY. eslint's
+  // rules-of-hooks caught it below that return, where it would be called
+  // conditionally: a gallery rendering zero items would skip it and shift every
+  // later hook's slot. No test caught this, because none renders the empty case
+  // while a retry is in flight.
+  useEffect(() => {
+    const id = focusRetryingRef.current;
+    if (id === null) return;
+    focusRetryingRef.current = null;
+    retryingRefs.current.get(id)?.focus();
+  }, [retrying]);
+
+  // ── The focus rescue, ONE mechanism for EVERY removal path (R2 finding 1) ──
+  //
+  // R1 named two paths and I repaired those two paths; R2 then found the same
+  // class on the prop-driven ones. That is the drip-feed this repo has a rule
+  // against, so this is deliberately not a third hand-off ref: it is the
+  // predicate the lightbox already uses, which asks WHERE FOCUS IS and is
+  // therefore order-independent and true whatever removed the node.
+  //
+  // It cannot ask "was focus inside the list" during the commit that destroys
+  // the node, so it remembers the answer from the PREVIOUS commit. A ref written
+  // inside an effect is fine; a ref written during render is not
+  // (`react-hooks/refs`), which is what rules out doing this in the sweep.
+  //
+  // The gallery is NOT a modal, so the rescue is deliberately conditional: it
+  // fires only when focus WAS ours and is now on `<body>`. Focus that was never
+  // in the list is none of our business, and stealing it would be its own bug.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const focusWasOursRef = useRef(false);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const root = rootRef.current;
+    if (list !== null && focusWasOursRef.current && document.activeElement === document.body) {
+      list.focus();
+      return;
+    }
+    // Re-sample only against a CONNECTED element. A detached `activeElement`
+    // means the commit just removed the focused node and the browser has not
+    // settled yet; treating that as "focus is no longer ours" would clear the
+    // flag exactly when the rescue is about to need it.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.isConnected && root !== null) {
+      focusWasOursRef.current = root.contains(active);
+    }
+  });
+
+  // The success hand-off, consumed in a LAYOUT effect rather than a passive one:
+  // this runs in the commit that unmounted the overlay, before paint, so no
+  // keystroke can land on `<body>` in between. Same reasoning the lightbox's
+  // zoom-chip rescue already carries.
+  useLayoutEffect(() => {
+    const id = focusThumbRef.current;
+    if (id === null) return;
+    focusThumbRef.current = null;
+    thumbRefs.current.get(id)?.focus();
+  }, [retrying]);
+
+  // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
+  //
+  // Per-item session state must not outlive the item's availability. A crew
+  // member whose diagram is removed by one sync and restored by the next should
+  // get the diagram back, not the wreckage of its last life -- a retry control
+  // for a fault that no longer applies, or worse a `Retrying…` claiming a
+  // request that was abandoned when the cell unmounted.
+  //
+  // KEYED ON THE RENDERED ID SET, not on `item.available`: an item dropped from
+  // `items` never flips that prop, it simply stops being rendered, so a sweep
+  // watching only the flag would miss that path entirely.
+  //
+  // Cleared here rather than in a `useEffect`, because it must not survive even
+  // one committed frame: an effect runs AFTER paint, so the returning cell would
+  // render once holding the stale control.
+  const liveIds = new Set(items.filter((entry) => entry.available).map((entry) => entry.id));
+  const sweep = (prev: ReadonlySet<string>): ReadonlySet<string> => {
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of prev) {
+      if (liveIds.has(id)) next.add(id);
+      else changed = true;
+    }
+    return changed ? next : prev;
+  };
+  const sweptFailed = sweep(failedKeys);
+  // `retrying` is swept against what is RENDERED, not merely what is available.
+  // The two sets answer different questions: `failedKeys` is a fact about the
+  // DIAGRAM and rightly survives the cell scrolling out of the collapsed grid,
+  // while `retrying` describes a request belonging to a MOUNTED element -- and
+  // unmounting that element abandons the request. Keyed on `items` alone, a
+  // retry in flight when the user hits "Show fewer" came back on re-expand still
+  // claiming `Retrying…` with `aria-busy`, for work that had stopped.
+  const renderedIds = new Set(
+    (expanded || items.length <= INITIAL_VISIBLE ? items : items.slice(0, INITIAL_VISIBLE))
+      .filter((entry) => entry.available)
+      .map((entry) => entry.id),
+  );
+  // R2 finding 2. Ending a retry with NO OUTCOME must hand the item back its
+  // failure, and this sweep was the one path that dropped it instead.
+  //
+  // `handleRetry` moves an id OUT of `failedKeys` and INTO `retrying`. When the
+  // cell then unmounts -- Show fewer, or an in-flight item reordered past the
+  // twelve-item cutoff -- the id left `retrying` here and never returned to
+  // `failedKeys`, so the diagram came back IDLE: no retry control, and a fresh
+  // image request for a diagram already known to have failed. The user pays for
+  // the same broken asset twice and is offered no next step.
+  //
+  // Restored only for items that still EXIST and are AVAILABLE. An item that
+  // left `items` or went unavailable has its `failedKeys` entry swept above,
+  // correctly -- there is no cell to offer a retry on.
+  //
+  // Same class as the lightbox's swipe-away abandon, which R1 repaired at that
+  // one site. Stated here rather than left implicit, because repairing this
+  // class per site is exactly what produced this finding.
+  const abandoned: string[] = [];
+  const sweptRetrying = (() => {
+    let changed = false;
+    const next = new Set<string>();
+    for (const id of retrying) {
+      if (renderedIds.has(id)) next.add(id);
+      else {
+        changed = true;
+        if (liveIds.has(id)) abandoned.push(id);
+      }
+    }
+    return changed ? next : retrying;
+  })();
+  // The two writes are ordered and the order matters: `sweptFailed` drops ids
+  // whose items are gone, and the abandoned ids are then added back on top. An
+  // id cannot be in both groups -- `abandoned` is filtered to `liveIds`, which
+  // is exactly what `sweptFailed` keeps -- so this composes rather than fights.
+  const restoredFailed =
+    abandoned.length === 0
+      ? sweptFailed
+      : (() => {
+          const next = new Set(sweptFailed);
+          for (const id of abandoned) next.add(id);
+          return next;
+        })();
+  if (restoredFailed !== failedKeys) setFailedKeys(restoredFailed);
+  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
   if (items.length === 0) return null;
 
   const showAll = expanded || items.length <= INITIAL_VISIBLE;
@@ -210,30 +400,6 @@ export function Gallery({
   /** The label scheme the thumbnail's own aria-label uses, so the two agree. */
   const nameOf = (item: GalleryItem, visibleIndex: number): string =>
     item.alt || `Diagram ${visibleIndex + 1}`;
-
-  /**
-   * Where focus (or the restore target) goes when `failingId`'s button is about
-   * to be removed: the next still-present thumbnail in DOM order, else the
-   * previous one, else the show-more control, else the list itself.
-   */
-  const successorTo = (failingId: string): HTMLElement | null => {
-    const order = visible.map((entry) => entry.id);
-    const at = order.indexOf(failingId);
-    const usable = (id: string | undefined): HTMLButtonElement | null => {
-      if (id === undefined || pendingFailuresRef.current.has(id)) return null;
-      const button = thumbRefs.current.get(id);
-      return button?.isConnected ? button : null;
-    };
-    for (let i = at + 1; i < order.length; i += 1) {
-      const button = usable(order[i]);
-      if (button) return button;
-    }
-    for (let i = at - 1; i >= 0; i -= 1) {
-      const button = usable(order[i]);
-      if (button) return button;
-    }
-    return showMoreRef.current ?? listRef.current;
-  };
 
   /** Route one message to whichever channel is announceable right now. */
   const routeAnnouncement = (message: string): void => {
@@ -271,7 +437,100 @@ export function Gallery({
     for (const message of buffered) deliver(message);
   };
 
-  const handleThumbnailFailure = (item: GalleryItem, visibleIndex: number): void => {
+  /**
+   * `failed` → `retrying` (spec §4).
+   *
+   * Clears BOTH `failedKeys` and `pendingFailuresRef`. The second is not
+   * housekeeping: `pendingFailuresRef` is add-only today, so after a successful
+   * retry the de-duplication guard in `handleThumbnailFailure` would discard the
+   * item's NEXT failure -- no announcement, no control, the diagram breaking a
+   * second time in silence. That is AC-10, and §4.0.1 is the write-up.
+   */
+  const handleRetry = (item: GalleryItem): void => {
+    // Read BEFORE the state updates, while the failed control is still mounted.
+    const failedControl = retryControlRefs.current.get(item.id) ?? null;
+    if (failedControl && document.activeElement === failedControl) {
+      focusRetryingRef.current = item.id;
+    }
+    pendingFailuresRef.current.delete(item.id);
+    setFailedKeys((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+    setRetrying((prev) => {
+      if (prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.add(item.id);
+      return next;
+    });
+  };
+
+  /**
+   * `retrying` → `failed` (spec §4). Leaving the id in `retrying` would strand
+   * the cell under the in-flight overlay forever: `runtimeFailed` excludes
+   * `retrying`, so the failed control could never render again and a second
+   * tap would be impossible. Each re-entry into the available branch mounts a
+   * fresh element on its own, so no remount token is needed.
+   */
+  const handleRetryFailure = (item: GalleryItem, visibleIndex: number): void => {
+    // The overlay is a SEPARATE element from the thumbnail, and it is where focus
+    // sits after a tap. When it unmounts there is no node to inherit focus, so
+    // without this hand-off focus falls to `<body>` -- outside the gallery, on a
+    // page whose diagram just failed twice (AC-6).
+    //
+    // The thumbnail path needs no such hand-off, and it is worth saying why: the
+    // failed control replaces the thumbnail button in the same position, so React
+    // REUSES the DOM node and focus never moves. That is reconciliation doing the
+    // work, not this code. Here the elements differ, so the hand-off is real.
+    const overlay = retryingRefs.current.get(item.id) ?? null;
+    if (overlay && document.activeElement === overlay) {
+      focusFailedRef.current = item.id;
+    }
+    setRetrying((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+    // NOT `handleThumbnailFailure`: that speaks the first-failure copy, and the
+    // two outcomes must be distinguishable -- a user who cannot tell a failed
+    // retry from the original failure learns nothing from tapping. The rest of
+    // that handler's work (focus relocation, the pending guard, re-adding to
+    // `failedKeys`) is still needed, so it runs with the announcement suppressed.
+    handleThumbnailFailure(item, visibleIndex, {
+      announce: `${nameOf(item, visibleIndex)} still could not be loaded.`,
+    });
+  };
+
+  /** `retrying` → `idle`. The image node itself does not change (§4.0.5). */
+  const handleRetrySuccess = (item: GalleryItem, visibleIndex: number): void => {
+    // Routed through `routeAnnouncement`, not spoken directly, so the
+    // dialog-open and exit-window cases follow the same path every other
+    // announcement here takes (AC-3).
+    routeAnnouncement(`${nameOf(item, visibleIndex)} loaded.`);
+    // Arm the hand-off ONLY when the overlay is the focused element. The
+    // condition is where focus IS, not a "was it focused" flag: browsers
+    // disagree about whether removing a focused node fires blur, so a flag
+    // reads false exactly where the repair is needed.
+    const overlay = retryingRefs.current.get(item.id) ?? null;
+    if (overlay !== null && document.activeElement === overlay) {
+      focusThumbRef.current = item.id;
+    }
+    setRetrying((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
+  };
+
+  const handleThumbnailFailure = (
+    item: GalleryItem,
+    visibleIndex: number,
+    opts?: { announce?: string },
+  ): void => {
     const button = thumbRefs.current.get(item.id) ?? null;
     // STALE HANDLER GUARD: `onError` can fire after its item stopped rendering
     // (collapsed by "Show fewer", or replaced). `failedKeys` is idempotent
@@ -282,15 +541,33 @@ export function Gallery({
     // tick is never chosen as anyone's successor — including its own.
     pendingFailuresRef.current.add(item.id);
 
-    // BEFORE the state update that removes the button, or there is nothing left
-    // to move focus off and no node left to compare the restore target against.
-    const successor = successorTo(item.id);
-    if (document.activeElement === button) successor?.focus();
-    // The closure rule: re-point on EVERY failure that removes the current
-    // target, so A → B → C works rather than only the first hop.
-    if (restoreTargetRef.current === button) restoreTargetRef.current = successor;
+    // The destination is the cell's OWN retry control, not a sibling (§7.1,
+    // Task 4). Relocating away from it would move the user off the one element
+    // that can fix the problem they were just told about.
+    //
+    // NO focus hand-off on this path, deliberately, and the reason is worth
+    // stating because the absence looks like an oversight.
+    //
+    // The failed control replaces the thumbnail button in the SAME position, so
+    // React reuses the DOM node: the element the user is focused on is mutated
+    // into the retry control rather than swapped for it, and focus never moves.
+    // A hand-off was written here and removed -- no mutation could kill it,
+    // because reconciliation had already done the work. The BEHAVIOUR is pinned
+    // by "a focused failing thumbnail keeps focus ON ITS OWN retry control" in
+    // gallery.failedItem.test.tsx, which goes red if React ever stops reusing
+    // the node, so the reliance is caught rather than assumed.
+    //
+    // The retrying overlay is a different story: it is a SEPARATE element, so
+    // when it unmounts there is nothing to inherit focus. That path does need
+    // the hand-off, and has it in `handleRetryFailure`.
+    // The closure rule still applies to the restore target, but the target is
+    // now the cell's own control, handed over by the same ref callback.
+    if (restoreTargetRef.current === button) {
+      restoreTargetRef.current = null;
+      restoreToControlRef.current = item.id;
+    }
 
-    routeAnnouncement(`${nameOf(item, visibleIndex)} could not be loaded.`);
+    routeAnnouncement(opts?.announce ?? `${nameOf(item, visibleIndex)} could not be loaded.`);
 
     setFailedKeys((prev) => {
       if (prev.has(item.id)) return prev;
@@ -309,7 +586,22 @@ export function Gallery({
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div
+      className="flex flex-col gap-3"
+      ref={rootRef}
+      // Focus tracking is EVENT-DRIVEN, not commit-sampled, and round 2 of the
+      // whole-diff review is why. The first version recorded "was focus ours"
+      // at the end of every commit, which misses the ordinary case entirely:
+      // focus arriving on a control produces no re-render, so the flag still
+      // held the previous commit's answer and the rescue never fired.
+      //
+      // Scoped to the ROOT rather than the list because the Show all / Show
+      // fewer toggle lives outside the `<ul>`, and it disappears on its own
+      // when the count falls to twelve.
+      onFocus={() => {
+        focusWasOursRef.current = true;
+      }}
+    >
       <ul
         ref={listRef}
         // Programmatically focusable ONLY: the last relocation target when a
@@ -328,7 +620,15 @@ export function Gallery({
         aria-label="Diagrams gallery thumbnails"
       >
         {visible.map((item, i) => {
-          const runtimeFailed = failedKeys.has(item.id);
+          const isRetrying = sweptRetrying.has(item.id);
+          // `failed` excludes `retrying` (spec §4): the states are disjoint, so
+          // the render picks exactly one branch.
+          const runtimeFailed = sweptFailed.has(item.id) && !isRetrying;
+          // The image renders for BOTH idle and retrying, mounted ONCE in its
+          // final position (§4.0.5). Were retrying a different element, React
+          // would unmount it on load and the second mount would issue a fresh
+          // unconditional GET -- the asset route sends `must-revalidate` with no
+          // validator -- so the user would pay twice for one tap.
           const isAvailable = item.available && !runtimeFailed;
           return (
             <li
@@ -351,37 +651,75 @@ export function Gallery({
               className="relative aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-focus-ring"
             >
               {isAvailable ? (
-                <button
-                  type="button"
-                  ref={(node) => {
-                    thumbRefs.current.set(item.id, node);
-                  }}
-                  onClick={(event) => {
-                    // The dialog's restore target starts as its trigger, and is
-                    // re-pointed by the closure rule if this button later fails.
-                    restoreTargetRef.current = event.currentTarget;
-                    dialogMountedRef.current = true;
-                    // Both flags are set SYNCHRONOUSLY here and cleared
-                    // synchronously in `onClose` below, never from an effect: a
-                    // failure landing between the close commit and a passive
-                    // effect would read the dialog as still open and route into
-                    // a frozen channel — the narrow form of the very race
-                    // `lightboxOpenRef` exists to close.
-                    lightboxOpenRef.current = true;
-                    // The re-open signal the lightbox has no `open` prop to see.
-                    // A re-open inside the exit window CANCELS the exit and
-                    // retains that instance, so this counter is the only thing
-                    // that tells it a new session began.
-                    setOpenNonce((n) => n + 1);
-                    setLightboxIndex(i);
-                    // A buffer left over from an exit this open just cancelled is
-                    // drained by the effect above, one commit later — see its
-                    // comment for why it cannot be drained here.
-                  }}
-                  aria-label={`Open ${nameOf(item, i)}`}
-                  className="block size-full cursor-zoom-in focus:outline-none"
-                >
-                  {/*
+                <>
+                  <button
+                    type="button"
+                    // While the overlay covers this button it is still in the tab
+                    // order, and it still opens the lightbox for the diagram that
+                    // is currently failing. A pointer user cannot reach it; a
+                    // keyboard user Shift+Tabs straight onto it. Removed from the
+                    // tab order and hidden from the accessibility tree for exactly
+                    // as long as the overlay is up, rather than disabled -- the
+                    // button is fine, it is just not the cell's action right now.
+                    // `inert`, not `tabIndex={-1}` and not `aria-hidden`.
+                    //
+                    // R2 finding 3 measured what `tabIndex={-1}` actually buys:
+                    // it removes the SEQUENTIAL tab stop and nothing else. The
+                    // button stays in the accessibility tree and stays
+                    // activatable, so a screen reader's button navigator still
+                    // finds "Open Diagram 1" underneath the overlay and can
+                    // still fire it -- a second, hidden action on a cell whose
+                    // only offered action is "retry". My own test could not see
+                    // this: it filtered candidates on `tabIndex >= 0`, so the
+                    // one element the repair had pushed to -1 was the one
+                    // element it excluded.
+                    //
+                    // `aria-hidden` was rejected in R1 for hiding the nested
+                    // <Image>, and that reasoning was half right: it is the
+                    // wrong instrument, but not because hiding the image is
+                    // wrong. While the overlay is up the cell's accessible
+                    // meaning IS the overlay, and a covered mid-retry image has
+                    // no name worth exposing. `aria-hidden` is wrong because it
+                    // hides without disabling -- the button remains clickable by
+                    // script and by any AT that activates through the DOM.
+                    // `inert` removes it from the tree AND from the activation
+                    // model, which is the property the finding actually needs.
+                    // BOTH, not either. `inert` is the stronger claim and the
+                    // one the finding needs, but jsdom does not implement it, so
+                    // it is unverifiable in this suite and unenforced in any
+                    // engine that lags on it. `tabIndex={-1}` costs nothing,
+                    // holds the sequential-order property everywhere, and is
+                    // checkable here. Belt and braces, deliberately.
+                    {...(isRetrying ? { inert: true, tabIndex: -1 } : {})}
+                    ref={(node) => {
+                      thumbRefs.current.set(item.id, node);
+                    }}
+                    onClick={(event) => {
+                      // The dialog's restore target starts as its trigger, and is
+                      // re-pointed by the closure rule if this button later fails.
+                      restoreTargetRef.current = event.currentTarget;
+                      dialogMountedRef.current = true;
+                      // Both flags are set SYNCHRONOUSLY here and cleared
+                      // synchronously in `onClose` below, never from an effect: a
+                      // failure landing between the close commit and a passive
+                      // effect would read the dialog as still open and route into
+                      // a frozen channel — the narrow form of the very race
+                      // `lightboxOpenRef` exists to close.
+                      lightboxOpenRef.current = true;
+                      // The re-open signal the lightbox has no `open` prop to see.
+                      // A re-open inside the exit window CANCELS the exit and
+                      // retains that instance, so this counter is the only thing
+                      // that tells it a new session began.
+                      setOpenNonce((n) => n + 1);
+                      setLightboxIndex(i);
+                      // A buffer left over from an exit this open just cancelled is
+                      // drained by the effect above, one commit later — see its
+                      // comment for why it cannot be drained here.
+                    }}
+                    aria-label={`Open ${nameOf(item, i)}`}
+                    className="block size-full cursor-zoom-in focus:outline-none"
+                  >
+                    {/*
                   next/image with a CUSTOM LOADER (spec §6). The revert that
                   put a raw <img> here was about the /_next/image optimizer,
                   which strips auth cookies and rewrites Cache-Control — this
@@ -394,23 +732,119 @@ export function Gallery({
                   back to the same unavailable placeholder branch as
                   parse-time-known-unavailable items.
                 */}
-                  <Image
-                    loader={makeDiagramLoader({
-                      showId,
-                      rev: snapshotRevisionId,
-                      key: item.key,
-                      variants: item.variants,
-                    })}
-                    src={item.key}
-                    alt={item.alt || `Diagram ${i + 1}`}
-                    fill
-                    sizes={sizes}
-                    {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
-                      ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
-                      : {})}
-                    onError={() => handleThumbnailFailure(item, i)}
-                    className="object-cover"
-                  />
+                    <Image
+                      loader={makeDiagramLoader({
+                        showId,
+                        rev: snapshotRevisionId,
+                        key: item.key,
+                        variants: item.variants,
+                      })}
+                      src={item.key}
+                      alt={item.alt || `Diagram ${i + 1}`}
+                      fill
+                      sizes={sizes}
+                      {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
+                        ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
+                        : {})}
+                      onError={() =>
+                        isRetrying ? handleRetryFailure(item, i) : handleThumbnailFailure(item, i)
+                      }
+                      onLoad={() => {
+                        // Only meaningful while retrying; on an ordinary load the
+                        // set does not hold the id and the setter no-ops.
+                        if (isRetrying) handleRetrySuccess(item, i);
+                      }}
+                      className="object-cover"
+                    />
+                  </button>
+                  {isRetrying ? (
+                    /*
+                    The in-flight overlay (spec §4.0.5). It sits ABOVE the image
+                    rather than replacing it, which is the whole point: the node
+                    that loads is the node the idle cell then shows, so nothing
+                    remounts and one tap stays one request.
+
+                    AC-4's semantics are deliberate. `aria-disabled` and NOT the
+                    native `disabled`, because a natively disabled control leaves
+                    the tab order and the browser drops focus to `<body>`, which
+                    is the §7.1 defect this arc also repairs. The control stays
+                    focusable and clickable; its handler simply refuses to start
+                    a second request.
+                  */
+                    <button
+                      type="button"
+                      data-testid={`diagram-retrying-${i}`}
+                      ref={(node) => {
+                        retryingRefs.current.set(item.id, node);
+                      }}
+                      aria-busy="true"
+                      aria-disabled="true"
+                      onClick={(event) => event.preventDefault()}
+                      aria-label={`${nameOf(item, i)} could not be loaded. Retrying…`}
+                      // OPAQUE, not `/80`: over a translucent ground the label
+                      // composites against whatever the diagram happens to be, and
+                      // the worst case measured 3.80:1 -- under the 4.5:1 floor, on
+                      // the surface a crew member reads in direct sun. An opaque
+                      // ground makes the ratio a property of the tokens instead of
+                      // the image. `text-text` for §1.1a: in-flight is not an action,
+                      // but it is a button, and the rule's default is text or stronger.
+                      className="absolute inset-0 flex min-h-tap-min flex-col items-center justify-center gap-1 bg-surface-sunken text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <ImageOff aria-hidden="true" className="size-5" />
+                      <span className="text-xs/relaxed">Retrying…</span>
+                    </button>
+                  ) : null}
+                </>
+              ) : runtimeFailed ? (
+                /*
+                  The RUNTIME-failed branch, split from the parse-time one by
+                  Task 1. Only this side has an asset behind it: `!item.available`
+                  means the object was never published, so a control there would
+                  offer to re-fetch nothing. The split is asserted from BOTH sides
+                  in gallery.failureRecovery.test.tsx, because a repair painting
+                  the control on the shared branch would satisfy a presence-only
+                  assertion.
+
+                  Copy per spec §5. The cell is ~117px at `30vw` on a 390px phone,
+                  so the VISIBLE string is the bare action and the accessible name
+                  carries the diagram. No `Full size.` line here: that belongs to
+                  the lightbox and only to originals-only entries (§5.1). The
+                  thumbnail cannot know the byte count in advance, and an invented
+                  number is worse than silence.
+                */
+                <button
+                  type="button"
+                  data-testid={`diagram-retry-${i}`}
+                  ref={(node) => {
+                    retryControlRefs.current.set(item.id, node);
+                    // The hand-off. Consumed on the mount that follows the
+                    // failure, which is the first moment this element exists.
+                    if (node && focusFailedRef.current === item.id) {
+                      focusFailedRef.current = null;
+                      node.focus();
+                      restoreTargetRef.current = node;
+                    }
+                    // Independently of focus: the trigger that failed hands its
+                    // restore duty to its own control, so closing the dialog
+                    // comes back to the cell rather than to `<body>`.
+                    if (node && restoreToControlRef.current === item.id) {
+                      restoreToControlRef.current = null;
+                      restoreTargetRef.current = node;
+                    }
+                  }}
+                  onClick={() => handleRetry(item)}
+                  aria-label={`${nameOf(item, i)} could not be loaded. Tap to retry.`}
+                  // `text-accent-on-bg`, not `text-subtle`: DESIGN.md §1.1a says
+                  // subtle is never an action target's resting colour, and the
+                  // three carve-out families are owner-ratified rather than
+                  // extendable here. It also settles an inconsistency the critique
+                  // found -- the lightbox's retry was already an accent action
+                  // while this one was grey, so one screen offered the same action
+                  // in two visual languages.
+                  className="flex size-full min-h-tap-min flex-col items-center justify-center gap-1 text-accent-on-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  <ImageOff aria-hidden="true" className="size-5" />
+                  <span className="text-xs/relaxed">Tap to retry</span>
                 </button>
               ) : (
                 <div className="flex size-full flex-col items-center justify-center gap-1 text-text-subtle">

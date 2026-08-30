@@ -458,7 +458,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    // 73 -> 74 -> 75 -> 76 -> 78, by four independent arcs, which is what a
+    // 73 -> 74 -> 75 -> 76 -> 78 -> 80, by five independent arcs, which is what a
     // declared population claim looks like when it is doing its job.
     //
     // feat/review-modal-strip-dock added two: the §7 anchor-room measurement,
@@ -467,6 +467,12 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // the degraded-pill case from diff review round 3, which boots the same entry
     // at load 0 with `alertsDegraded` to reach the branch where the 160px cap was
     // unenforceable.
+    //
+    // feat/diagram-failure-retry added two, both standalone live-entry harnesses
+    // on a mkdtemp workdir: `diagram-retry` (AC-1 node identity and AC-2's
+    // one-request count, which jsdom structurally cannot measure) and
+    // `diagram-retry-dimensions` (AC-7's real-browser geometry against the
+    // aspect-square cell).
     //
     // fix/control-outline-cover adds two more, both in
     // `tests/e2e/control-outline-contrast.live.spec.ts`: it serves the real
@@ -488,7 +494,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // edit here by design — and this rule is a SUBJECT of
     // _metaScratchRootCleanup, so a stale count here fails that suite's premise
     // downstream, which is how the strip-dock bump was found.
-    expectedCount: 78,
+    expectedCount: 80,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {

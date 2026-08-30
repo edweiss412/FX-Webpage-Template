@@ -344,14 +344,27 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/diagrams/Gallery.tsx",
-    line: 354,
+    // 354 -> 530 on the diagram-failure-retry arc (availability sweep + retry
+    // branches inserted above), then 530 -> 547 when it folded origin/main, then
+    // 547 -> 572 when whole-diff review R1 added the success focus hand-off above
+    // it. The ELEMENT and its reason are unchanged at every key. Verified at this
+    // key by enumeration rather than by offset: 572 is the ONLY `<button>` between
+    // 560 and 615, and its `block size-full cursor-zoom-in` className is 41 lines
+    // below the tag, which is why reading the tag line alone looks wrong.
+    // 572 -> 633 on the R2 repairs; still the only button in its span.
+    line: 655,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
   },
   {
     file: "components/diagrams/GalleryLightbox.tsx",
-    line: 622,
+    // 622 -> 715 on the same arc, then 715 -> 728 on its fold of origin/main,
+    // then 728 -> 822 on the R1 repairs. Element and reason unchanged at every
+    // key: still the `motion.div` carrying `fixed inset-0 z-overlay flex`,
+    // confirmed by reading that className at the new key.
+    // 822 -> 864 on the R2 repairs; still the `fixed inset-0 z-overlay` surface.
+    line: 882,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",

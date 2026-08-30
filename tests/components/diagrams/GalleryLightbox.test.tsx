@@ -382,7 +382,9 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     fireEvent.error(activeImage(container));
 
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
-    expect(screen.getByText(/unavailable/i)).toBeTruthy();
+    // Runtime failure, so the slide offers its next step. Parse-time
+    // unavailability still renders the inert placeholder, asserted below.
+    expect(screen.getByText(/tap to retry/i)).toBeTruthy();
   });
 
   test("blur → failed and empty → failed: onError swaps an INACTIVE slide to unavailable", () => {
@@ -406,9 +408,18 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
 
     act(() => emblaApis.at(-1)!.scrollTo(1));
 
-    // Item 2 is the active slide now, and it is still the unavailable branch.
+    // Item 2 is the active slide now. Task 5 changed WHAT it shows -- the retry
+    // offer rather than the inert placeholder -- but the invariant this case
+    // exists for is unchanged and is the important half: becoming active must not
+    // AUTOMATICALLY re-request. A failure clears only on a deliberate tap, or a
+    // swipe through a broken gallery would refetch every failed tile on venue
+    // wifi, which is the opposite of what this arc is for.
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
-    expect(screen.getByText(/unavailable/i)).toBeTruthy();
+    expect(screen.getByText(/tap to retry/i), "the offer is present").toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="lightbox-retrying"]'),
+      "and nothing is in flight: no request was issued by the swipe alone",
+    ).toBeNull();
 
     // ...and the REVERSE direction: active-failed back to inactive-failed. The
     // inventory declares failure terminal in BOTH directions, so both are driven.
@@ -422,7 +433,19 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     expect(pathOf(activeImage(container).getAttribute("src"))).toBe(TOP_TIER(1));
     expect(container.querySelectorAll("img")).toHaveLength(before - 1);
     // Item 2 is inactive again and STILL failed — no retry on the way back.
-    expect(screen.getByText(/unavailable/i)).toBeTruthy();
+    // Item 2 is INACTIVE again and still failed. Task 6 scopes both retry
+    // controls to the active slide, so this slide offers none -- an invisible,
+    // off-screen, Tab-reachable control inside an aria-modal dialog is the
+    // hazard §2 forbids. The invariant this case exists for still holds: nothing
+    // re-requested on the way back.
+    expect(
+      container.querySelector('[data-testid="lightbox-retry"]'),
+      "no control on the inactive failed slide",
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="lightbox-retrying"]'),
+      "and nothing in flight: the swipe issued no request",
+    ).toBeNull();
     expect(inactiveImages(container)).toHaveLength(0);
   });
 

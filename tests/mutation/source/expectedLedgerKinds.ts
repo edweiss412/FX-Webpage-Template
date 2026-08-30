@@ -22,6 +22,14 @@
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // Enrolled 2026-08-29 with an EMPTY accepted set: the surface was hardened
+  // against plan review R4's four fail-open edits before enrolment, so it starts
+  // with nothing to accept. An entry appearing here later means a survivor was
+  // ledgered rather than killed, which is the decision this file makes visible.
+  // One equivalent, minted BY the loop bound and kept deliberately: the fixtures
+  // derive their depth from the exported ceiling, so the literal's value is
+  // unobservable. Reasoning in the registry row.
+  perItemStateScanner: { equivalent: 1 },
   // The transport observer, enrolled 2026-08-25. Declares an EMPTY ledger: every mutant of it is
   // killed, with no proven equivalence and no accepted gap. A row appearing here later is the
   // surface's first and owes its own argument — the module is 60 lines of straight-line transport

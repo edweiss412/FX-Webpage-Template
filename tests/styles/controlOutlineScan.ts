@@ -213,7 +213,19 @@ export const CENSUS: readonly CensusRow[] = [
   // Same merge, same method: located by its own `disabled={draft.trim()...}` opener at 4855.
   { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4855 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 728 },
+  // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
+  // the in-flight overlay and the availability sweep above this chip; then
+  // 821 -> 834 when that branch folded origin/main, which moved the file again;
+  // then 834 -> 928 when whole-diff review R1 forced the focus-rescue, abandon
+  // and sweep repairs above it. THREE times in one arc, which is what a
+  // line-keyed row costs on a file under active edit. The ELEMENT is unchanged
+  // throughout: same `<button data-testid="lightbox-reset-chip">`, same
+  // `bg-surface-raised` ground. Re-keyed each time by locating that testid and
+  // stepping to its opening tag, never by adding the diff's line delta -- an
+  // offset is right only until two edits land in one file.
+  // 928 -> 970 on the R2 class-level repairs. FOURTH key this arc; the element
+  // has never changed.
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 988 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.
