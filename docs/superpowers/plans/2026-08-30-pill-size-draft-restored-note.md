@@ -216,20 +216,23 @@ These live in the interactions spec because the layout spec emits only static `h
 - [x] **Step 6: Present-before / absent-after brackets every dismissal case,** so an implementation whose timer is cancelled by scrolling cannot pass by never leaving.
 - [x] **Step 7: `33 passed`** across the whole interactions spec, so the seeding does not leak into cases that never asked for a draft.
 
-### Task 4b: A regression this branch caused, and the repair
+### Task 4b: A regression this branch causes, and a repair that was WRONG
 
-<!-- task: red=`pnpm heavy npx playwright test tests/e2e/popover-clip-fit.spec.ts --project=desktop-chromium -g "MID-ENTRANCE"` red-state=live why=`the taller phone pill moves the menu's anchor after placement, and the scroller settles against a stale cap; deterministic 3/3 at this head, green on a control run with the components at origin/main` ac=AC-4 -->
+<!-- task: red=`pnpm heavy npx playwright test tests/e2e/popover-clip-fit.spec.ts --project=desktop-chromium -g "MID-ENTRANCE"` red-state=live why=`the taller phone pill moves the menu's anchor and the scroller settles against a stale cap; deterministic 3/3 at this head, green on a control run with both modal components at origin/main` ac=AC-4 -->
 
-**Files:** `components/admin/showpage/AttentionMenu.tsx`. Shipped in `ca8699574`.
+**Files:** `components/admin/showpage/AttentionMenu.tsx` — **currently identical to `origin/main`.** The repair committed in `ca8699574` was reverted after whole-diff review refuted its diagnosis.
 
 Not a documented limit. A deterministic red at this head with a green control at `origin/main` is a regression this diff causes, and causing one on `AttentionMenu` makes that surface this arc's to repair.
 
 - [x] **Step 1: Establish it is mine, not inherited.** Control run with both modal components restored to `origin/main`: passes. At this head: fails 3/3 under `--repeat-each=3`, so not flake.
-- [x] **Step 2: Bisect.** Not the radius, and not the `whitespace-nowrap` (which was scoped to `max-sm:` after an unscoped version changed desktop too). It is the ratified type-size change itself.
-- [x] **Step 3: Diagnose.** The observer effect resolves `panel.offsetParent` once, at setup, and observes it as the anchor. `offsetParent` is **null while the panel is hidden**, which is exactly the mid-entrance window, so a menu mounting in that state never observes its anchor and every later anchor resize leaves the written coordinates stale. `entered` is the only other re-place signal and fires once. Survivable while the anchor's height never moved.
-- [x] **Step 4: Minimal touch.** `measureAndApply` already re-resolves `panel.offsetParent` on every call, so it adopts the anchor there the first time it resolves, ref-guarded to observe once and cleared with the observer. The placement anchor is unchanged: `pillRef` is deliberately not the anchor, for a measured reason recorded at `components/admin/showpage/AttentionMenu.tsx:383`, and this does not touch that.
-- [x] **Step 5: Sweep the shape.** No component consumes pill metrics; only a `components/admin/showpage/StatusStrip.tsx:382` comment names the testid. Seven e2e specs read pill geometry.
-- [ ] **Step 6: Verify red-to-green,** plus `published-review-modal.realtime` and `published-show-attention`, which this branch has not yet run. Held under the fleet DB rule; nothing is claimed green until then.
+- [x] **Step 2: Bisect.** Not the radius, and not the `whitespace-nowrap` (scoped to `max-sm:` after an unscoped version changed desktop too). It is the ratified type-size change itself.
+- [x] **Step 3: A diagnosis that was wrong, and how it was caught.** I claimed `panel.offsetParent` is null while the panel is hidden mid-entrance, so the observer effect never observes the anchor. **False.** The pre-entrance panel is `absolute … scale-95 opacity-0` (`components/admin/showpage/AttentionMenu.tsx:644`); neither `opacity` nor `scale` removes an element from layout, and an absolutely positioned element has an `offsetParent`. It is null only for `display: none`, `position: fixed`, or a detached node. So the existing effect already resolves and observes the anchor, and the adoption branch I added was **inert**.
+
+  The whole-diff reviewer caught it, on a brief that told it the repair was reasoned but not observed and that refuting the diagnosis would be the round's most valuable outcome. It was.
+
+- [x] **Step 4: Reverted.** `components/admin/showpage/AttentionMenu.tsx` is byte-identical to `origin/main` again. Shipping inert code on a false rationale is worse than shipping nothing: the next reader inherits both.
+- [x] **Step 5: Sweep the shape.** No component consumes pill metrics; only a `components/admin/showpage/StatusStrip.tsx:382` comment names the testid.
+- [ ] **Step 6: Re-diagnose from scratch, with the probe in hand.** The regression is real and unrepaired. Held under the fleet DB rule, since the deciding evidence is a Playwright case. Candidate lines of enquiry, none yet privileged: the flip decision itself (a taller pill leaves less room below, so the panel may now flip where it did not, and `entered` is the only re-place signal), the placement maths given a taller anchor, and whether the single settled re-pass lands before or after the anchor's final height. **Do not** re-apply a fix without observing red-to-green on `-g "MID-ENTRANCE"`.
 
 ### Task 5: Graduation and closeout
 
@@ -238,7 +241,7 @@ Not a documented limit. A deterministic red at this head with a green control at
 **Files:** `DEFERRED.md`, `DEFERRED-archive.md`, `tests/docs/_metaDeferralLedgerGraduation.test.ts`.
 
 - [x] **Step 1: Added both ids to `GRADUATED`** and observed the red: each `missing from DEFERRED-archive.md` and `still in DEFERRED.md`.
-- [x] **Step 2: Moved both entries whole,** deleting the `· **Status:** IN PROGRESS · **Branch:** …` run from each meta line as you go. The marker comes off here, in the PR's last commit, because one that merges into main names a branch the merge just deleted and `tests/docs/_metaLedgerInProgress.test.ts` then reds main. One provenance line each.
+- [x] **Step 2: Moved both entries whole,** deleting the `· **Status:** IN PROGRESS · **Branch:** …` run from each meta line as I went, because archives categorically reject in-progress entries. **The marker came off in `0e0df724c`, which is NOT this PR's last commit — three commits follow it.** Invariant 12's purpose is that the marker never reaches main, and it does not; but the invariant names the last commit specifically, so this is a deviation recorded as one rather than described as compliance. Nothing needs re-doing: the marker is off, `tests/docs/_metaLedgerInProgress.test.ts` is green, and re-adding it in order to remove it again would be theatre. One provenance line per entry: the four in-class sites and the out-of-class fence for the first, the note's placement and past-tense copy for the second.
 - [x] **Step 3: Ledger guards green (`171 passed`):** `_metaDeferralLedgerGraduation`, `_metaLedgerInProgress`, `_metaLedgerMintBar`.
 - [ ] **Step 4: The draft key is seeded in exactly one e2e spec (AC-12, DI-11).** An equality against the expected one-file set, not a search that filters out its own counterexample: `rg -l "fxav-report-draft" tests/e2e/` must return exactly `tests/e2e/step3-review-modal.interactions.spec.ts`.
 - [ ] **Step 5: CI wiring reaches a real run (AC-14).** All four newly wired specs present in `playwright.config.ts`'s `desktop-chromium` `testMatch`, and the step3 pair in the workflow's `paths` watch and its `playwright test` invocation. If real CI reds or flakes on any of them, revert that spec's workflow entry only, keep its project wire, and record the gap as a documented limit with a re-file trigger.

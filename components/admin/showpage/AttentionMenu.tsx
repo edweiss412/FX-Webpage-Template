@@ -346,10 +346,6 @@ export function AttentionMenuFrame({
   // listener below reads it at event time rather than closing over a snapshot.
   const engagedRef = useRef(!escTransparentUntilEngaged);
   const [entered, setEntered] = useState(false);
-  /** The live ResizeObserver, so `measureAndApply` can adopt an anchor that
-   *  was not resolvable when the observer effect ran. */
-  const roRef = useRef<ResizeObserver | null>(null);
-  const observedAnchorRef = useRef<Element | null>(null);
   // The clipping ReviewModalShell panel. BOUNDS ONLY — this consumer does not
   // portal into it (see the placement effect for why).
   // `ReviewModalShell` provides its own `panelRef` here, so the host rect IS the
@@ -393,22 +389,6 @@ export function AttentionMenuFrame({
     // the placement anchor.
     const anchor = panel.offsetParent;
     if (anchor === null) return;
-    // Adopt the anchor the first time it resolves. The observer effect runs
-    // once per open and resolves `offsetParent` at that instant; when the panel
-    // is still hidden it gets null, and nothing would ever observe the anchor
-    // for the life of that menu. Observing here costs one call per anchor
-    // change (ResizeObserver.observe is idempotent for an element already
-    // observed by the same observer, and the ref stops the repeat anyway).
-    //
-    // Found by a deterministic failure of the MID-ENTRANCE flip case once the
-    // attention pill grew taller at phone widths: the anchor's height changed
-    // after placement and no re-fit was scheduled, so the menu's scroller
-    // settled against a stale cap.
-    const ro = roRef.current;
-    if (ro !== null && anchor !== observedAnchorRef.current) {
-      ro.observe(anchor);
-      observedAnchorRef.current = anchor;
-    }
     const host = hostRef?.current ?? document.body;
     const hostRaw = host === document.body ? null : host.getBoundingClientRect();
     const triggerRect = anchor.getBoundingClientRect();
@@ -547,21 +527,9 @@ export function AttentionMenuFrame({
       const anchorNow = panelNow?.offsetParent ?? null;
       if (anchorNow !== null && anchorNow !== host && anchorNow !== panelNow) {
         ro.observe(anchorNow);
-        observedAnchorRef.current = anchorNow;
       }
-      // ...and keep the observer reachable, because the anchor resolved ONCE
-      // here can be null. `offsetParent` is null while the panel is still
-      // hidden, which is precisely the mid-entrance window, so a menu that
-      // mounts in that state never observes its anchor at all and every later
-      // anchor resize leaves the written coordinates stale. `measureAndApply`
-      // re-resolves the anchor on every call and adopts it there.
-      roRef.current = ro;
     }
     return () => {
-      // Cleared with the observer, or the next open adopts against a stale
-      // anchor from the previous one and skips its own observe().
-      roRef.current = null;
-      observedAnchorRef.current = null;
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", onScrollCapture, { capture: true });
       vv?.removeEventListener("scroll", schedule);
