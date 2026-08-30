@@ -140,6 +140,8 @@ test.beforeAll(async () => {
     crewWarnings: string;
     crewWarningsCapped: string;
     saturatedTitle: string;
+    threeSegment: string;
+    degraded: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
   diagramConst = pages.diagram;
@@ -160,6 +162,9 @@ test.beforeAll(async () => {
   writeFileSync(join(workDir, "archived.html"), pageHtml("out.css", pages.archived));
   // sheet-icon-link spec §7.7: saturated header title (action-side worst case).
   writeFileSync(join(workDir, "saturatedtitle.html"), pageHtml("out.css", pages.saturatedTitle));
+  // spec 2026-08-30 AC-1 / AC-3.
+  writeFileSync(join(workDir, "threeseg.html"), pageHtml("out.css", pages.threeSegment));
+  writeFileSync(join(workDir, "degraded.html"), pageHtml("out.css", pages.degraded));
   // crew-warning-attachment T5: matched (under-row) + unmatched (in-card group).
   writeFileSync(join(workDir, "crewwarnings.html"), pageHtml("out.css", pages.crewWarnings));
   // crewwarn-underrow-polish §4: capped mixed stack (banner + 3 warnings, one member).
@@ -2031,4 +2036,197 @@ test.describe("diagram tile sizes oracle (published manifest, real ladder)", () 
       }
     });
   }
+});
+
+/**
+ * spec 2026-08-30: the pill's phone type size (§2.3) and the two risks it
+ * carries (§2.7). Fixture integrity is proved first and separately, because
+ * every geometry claim below rests on the fixture rendering three segments.
+ */
+test.describe("attention pill phone type size (spec 2026-08-30)", () => {
+  test("T-PILL-FIXTURES @375: threeseg renders three segments, degraded renders the degraded branch", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "threeseg.html");
+    const three = ((await page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).textContent()) ?? "")
+      .replace(/\s+/g, " ");
+    // Named separately: one combined regex passes with a segment missing.
+    expect(three, "issues segment").toMatch(/\d+ issues?/);
+    expect(three, "sheet-warnings segment").toMatch(/\d+ sheet warnings?/);
+    expect(three, "monitoring segment").toMatch(/\d+ monitoring/);
+
+    await openHarness(page, { width: 375, height: 812 }, "degraded.html");
+    await expect(page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)).toHaveText(
+      /Alerts unavailable/,
+    );
+  });
+
+  test("T-PILL-SIZE @375x812: three-segment pill is 14px, at the cap, unclipped, multi-line", async ({
+    page,
+  }) => {
+    const measure = () =>
+      page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const box = el.getBoundingClientRect();
+        const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+        const bord = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+        const cluster = el.parentElement!.parentElement!;
+        const cb = cluster.getBoundingClientRect();
+        const ccs = getComputedStyle(cluster);
+        // Every segment's OWN rect, so a segment painted outside the pill is
+        // caught rather than only the pill's own scroll overflow.
+        const kids = [...el.children].map((c) => c.getBoundingClientRect());
+        return {
+          fontSize: cs.fontSize,
+          h: box.height,
+          w: box.width,
+          contentH: box.height - pad - bord,
+          clusterW: cb.width,
+          spillsCluster: box.right > cb.right + 0.5 || box.left < cb.left - 0.5,
+          clusterMaxW: ccs.maxWidth,
+          gap: parseFloat(ccs.columnGap || ccs.gap || "0"),
+          // NOT a scroll-dimension test. This box is `overflow: visible` and
+          // carries a `before:-inset-y-3` hit band, so scrollHeight exceeds
+          // clientHeight by 12px at EVERY type size, including the one that
+          // shipped before this change. Clipping is settled by whether the
+          // element can clip at all, plus segment containment below.
+          canClip: !["visible"].includes(cs.overflowX) || !["visible"].includes(cs.overflowY),
+          kidsInside: kids.every(
+            (k) =>
+              k.left >= box.left - 0.5 && k.right <= box.right + 0.5 &&
+              k.top >= box.top - 0.5 && k.bottom <= box.bottom + 0.5,
+          ),
+          // Line count from the TEXT's own client rects, not from child tops:
+          // the decorative dot is vertically centred, so its top differs from
+          // the text's and counting children counts the dot as a line.
+          lines: (() => {
+            const tops = new Set<number>();
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) {
+              const n = walker.currentNode as Text;
+              if (!n.textContent?.trim()) continue;
+              const r = document.createRange();
+              r.selectNodeContents(n);
+              for (const c of r.getClientRects()) tops.add(Math.round(c.top));
+            }
+            return tops.size;
+          })(),
+        };
+      });
+
+    await openHarness(page, { width: 375, height: 812 }, "threeseg.html");
+    const phone = await measure();
+    await openHarness(page, { width: 900, height: 812 }, "threeseg.html");
+    const desktop = await measure();
+    await openHarness(page, { width: 375, height: 812 }, "harness.html");
+    const single = await measure();
+
+    // (a) the responsive pair applied, on both sides of the breakpoint.
+    expect(phone.fontSize, "phone pill is one size up").toBe("14px");
+    expect(desktop.fontSize, "desktop pill is unchanged").toBe("12px");
+    // (b) differential, never a pixel literal.
+    expect(phone.h, "the larger type buys height").toBeGreaterThan(desktop.h);
+    // (c) the wrap is cap-driven. The cap element is identified first, then the
+    //     pill's width is compared against the CLUSTER's own measured budget
+    //     minus what the Close control and the gap take, so a pill that merely
+    //     fits cannot pass by being small.
+    expect(phone.clusterMaxW, "premise: the grandparent carries the 160px cap").toBe("160px");
+    expect(phone.clusterW, "premise: the cap actually binds at this viewport").toBeLessThanOrEqual(160.5);
+    // The invariant the cap exists for: the pill may not spill out of the
+    // capped cluster. Measured against the cluster's own box, so it holds
+    // whatever the Close control and gap happen to take on a given fixture.
+    expect(phone.spillsCluster, "the pill overflowed the capped cluster").toBe(false);
+    // (d) nothing clipped, and every segment inside the pill's box.
+    expect(phone.canClip, "the pill must not be able to clip its own content").toBe(false);
+    expect(phone.kidsInside, "a segment painted outside the pill").toBe(true);
+    // (e) genuinely more than one flex line, counted from the segments' own
+    //     top offsets, and cross-checked against this run's single-line render.
+    expect(phone.lines, "the pill wrapped onto multiple lines").toBeGreaterThan(1);
+    expect(single.lines, "premise: the one-segment reference is a single line").toBe(1);
+    expect(phone.contentH, "three-segment box exceeds one line").toBeGreaterThan(single.contentH * 1.5);
+  });
+
+  test("T-LAYOUT-TALL @375x812: the panel equation closes with a wrapped pill", async ({ page }) => {
+    // Reuses this spec's own selectors and helper rather than raw tag queries:
+    // an earlier draft asked for `main` directly and measured 0, because the
+    // scroll region is not a bare <main> in this tree.
+    const read = async (file: string) => {
+      await openHarness(page, { width: 375, height: 812 }, file);
+      await expect(page.locator(FOOTER), "exactly one footer").toHaveCount(1);
+      const [headerH, mainH, footerH, grabH] = await Promise.all([
+        heightOf(page, HEADER),
+        heightOf(page, MAIN),
+        heightOf(page, FOOTER),
+        heightOf(page, GRAB),
+      ]);
+      const panel = await page.locator(PANEL).evaluate((el) => (el as HTMLElement).clientHeight);
+      return { headerH, mainH, footerH, grabH, panel };
+    };
+
+    const base = await read("harness.html");
+    const tall = await read("threeseg.html");
+
+    // Non-vacuity, measured rather than a literal threshold: this case means
+    // something only if the three-segment header is genuinely TALLER than the
+    // one-segment header. A fixed number would pass on chrome height alone.
+    expect(tall.headerH, "premise: the wrapped pill made a taller header").toBeGreaterThan(base.headerH);
+    expect(tall.mainH, "premise: main has real height").toBeGreaterThan(0);
+
+    // Sheet mode at 375, so the grab strip is a term of the equation
+    // (see T-LAYOUT above). Dropping it false-reds a correct layout.
+    const sum = tall.headerH + tall.mainH + tall.footerH + tall.grabH;
+    expect(
+      Math.abs(sum - tall.panel),
+      `grab ${tall.grabH} + header ${tall.headerH} + main ${tall.mainH} + footer ${tall.footerH} vs panel ${tall.panel}`,
+    ).toBeLessThanOrEqual(0.5);
+  });
+
+  test("T-STATIC-WRAP @375x812: the degraded pill wraps and paints inside its padding box", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "degraded.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveText(/Alerts unavailable/);
+
+    const probe = await pill.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      // PADDING box, not the border box getBoundingClientRect returns: AC-3
+      // asks whether glyphs painted inside the content area, and a border-box
+      // test passes on text painted over the padding or the border itself.
+      const pad = {
+        left: box.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft),
+        right: box.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight),
+        top: box.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop),
+        bottom: box.bottom - parseFloat(cs.borderBottomWidth) - parseFloat(cs.paddingBottom),
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const rects: DOMRect[] = [];
+      while (walker.nextNode()) {
+        const n = walker.currentNode as Text;
+        if (!n.textContent?.trim()) continue;
+        const r = document.createRange();
+        r.selectNodeContents(n);
+        rects.push(r.getBoundingClientRect());
+        // Per-line client rects: the count of distinct tops IS the line count.
+        var lineTops = [...r.getClientRects()].map((c) => Math.round(c.top));
+      }
+      return {
+        found: rects.length > 0,
+        fontSize: cs.fontSize,
+        lines: new Set(lineTops ?? []).size,
+        clipped: el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > el.clientHeight + 0.5,
+        inside: rects.every(
+          (r) => r.left >= pad.left - 0.5 && r.right <= pad.right + 0.5 &&
+                 r.top >= pad.top - 0.5 && r.bottom <= pad.bottom + 0.5,
+        ),
+      };
+    });
+
+    expect(probe.found, "premise: the label's own text node was located").toBe(true);
+    expect(probe.fontSize, "the static pill moved with its siblings").toBe("14px");
+    expect(probe.lines, "AC-3: the copy WRAPS rather than sitting on one line").toBeGreaterThan(1);
+    expect(probe.clipped, "copy is clipped").toBe(false);
+    expect(probe.inside, "the label painted outside the pill's padding box").toBe(true);
+  });
 });

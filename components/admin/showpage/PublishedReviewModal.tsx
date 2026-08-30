@@ -1096,9 +1096,12 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
           <div className={`flex shrink-0 items-center gap-2 ${HEADER_ACTION_CAP}`}>
             {/* Attention pill (published-show-alerts §5.1) — four states from
                 the ONE derived list. `before:-inset-y-3` hit-band arithmetic is
-                COPIED from the prior pill: text-xs (~16px line box) + py-1
-                (8px) ≈ a 24px visible pill; -inset-y-3 (12px per side) ≈ 48px
-                ≥ the 44px tap floor. T-TAP probes the resolved band (§10). */}
+                COPIED from the prior pill, and re-derived for the phone size
+                (spec 2026-08-30 AC-7): below `sm` the pill is text-sm (~20px
+                line box) + py-1 (8px) ≈ a 28px visible pill, so -inset-y-3
+                (12px per side) ≈ 52px ≥ the 44px tap floor. At `sm` and up it
+                returns to text-xs (~16px line box) ≈ a 24px pill and a 48px
+                band. T-TAP probes the resolved band (§10) at both. */}
             {interactive ? (
               /* Composite pill (attention split §3.2): segments render only when
                  their count > 0; the middot separator renders only BETWEEN two
@@ -1125,7 +1128,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
                       }
                     : {})}
-                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-sm sm:text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     monitoringOnly
                       ? /* border separates button-gray from the passive label-gray
                            spans; hover moves the border, never fades toward the
@@ -1298,7 +1301,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  To-confirm state; the Overview notice card is the detail. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-text-subtle"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-sm sm:text-xs font-semibold text-text-subtle"
               >
                 Alerts unavailable
               </span>
@@ -1331,7 +1334,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                  that it fits is a property of the string, not of the layout. */
               <span
                 data-testid={`${TESTID_BASE}-alert-pill`}
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-xs font-semibold text-status-positive-text"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-pill bg-surface-sunken px-2.5 py-1 text-sm sm:text-xs font-semibold text-status-positive-text"
               >
                 <span
                   aria-hidden="true"

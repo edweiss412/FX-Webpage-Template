@@ -82,6 +82,22 @@ export function harnessAttentionItems(count: number): AttentionItem[] {
   }));
 }
 
+/** N self-healing items: the pill renders "N monitoring" (published-show-alerts
+ *  §3.1). Distinct from `harnessAttentionItems`, whose items are all
+ *  `actionable: true`, which is why no committed page rendered a monitoring
+ *  segment before spec 2026-08-30 AC-1 needed one. */
+export function harnessMonitoringItems(count: number): AttentionItem[] {
+  const base = harnessAttentionItems(1)[0]!;
+  return Array.from({ length: count }, (_, i) => ({
+    ...base,
+    id: `alert:harness-mon-${i}`,
+    actionable: false,
+    clearingKind: "self_heal" as const,
+    menuTitle: `Harness monitoring item ${i + 1}`,
+  }));
+}
+
+
 /** Testid prefix for every surface node (`wizard-step3-card-<dfid>-review-*`). */
 export const MODAL_DFID = "drive-pubmodal-1";
 export const MODAL_SLUG = "published-modal-layout-show";
@@ -508,6 +524,16 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
         withCappedCrewWarnings: true,
         attentionItems: [...harnessAttentionItems(HARNESS_ALERT_COUNT), crewCappedAttentionItem()],
       }),
+      // spec 2026-08-30 AC-1: the ONLY page with all three segments populated
+      // at once. Every other page's items are actionable, so the monitoring
+      // branch never rendered and the three-segment geometry was unmeasured.
+      threeSegment: renderModalHtml(HARNESS_ALERT_COUNT, {
+        attentionItems: [...harnessAttentionItems(2), ...harnessMonitoringItems(2)],
+        withCrewWarnings: true,
+      }),
+      // spec 2026-08-30 AC-3: the degraded branch. Reachable only with every
+      // count at zero, because `interactive` is tested first (§2.8).
+      degraded: renderModalHtml(0, { attentionItems: [], alertsDegraded: true }),
       // sheet-icon-link spec §7.7: saturated title fills the header's flex-1
       // block at every measured width, pushing the sheet link to the cluster
       // gap so the action-side intersection cases measure the real worst case.
