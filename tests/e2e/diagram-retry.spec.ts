@@ -9,11 +9,17 @@
  *   AC-2  one tap is ONE request; the `srcSet` candidate set is unchanged across
  *         the transition; and for a laddered entry it holds no original-tier URL.
  *
- * WHY A BROWSER. jsdom issues no requests, so the remount key that makes a retry
- * re-fetch at all is invisible to every jsdom assertion — removing it leaves the
- * whole component suite green (probed, 196/196). A green jsdom suite therefore
- * says nothing about AC-2, which is why the acceptance criterion names a real
- * browser rather than a rendered attribute.
+ * WHY A BROWSER. jsdom issues no requests, so what makes a retry re-fetch at all
+ * is invisible to every jsdom assertion — removing it leaves the whole component
+ * suite green (probed, 196/196). A green jsdom suite therefore says nothing about
+ * AC-2, which is why the acceptance criterion names a real browser rather than a
+ * rendered attribute.
+ *
+ * This paragraph used to call that mechanism "the remount key", which was wrong in
+ * a way worth recording: no remount key ships, and the test BELOW asserts the
+ * opposite — that the loaded node SURVIVES into idle. §4.0.5 forbids the remount,
+ * because the asset route has no validator and a remount is a second unconditional
+ * GET. Corrected by whole-diff review round 3; see §0 of the design spec.
  *
  * ANTI-TAUTOLOGY POSTURE.
  *   - The count window OPENS after the first failure settles, so the initial

@@ -7,9 +7,14 @@
  * than being silently exempt.
  *
  * `clearedBy` is the field spec §4.0.3's table publishes. A per-item row must say
- * how its entry goes away, or say `deliberately none` in exactly those words —
- * `demotedRef` is precisely a row whose correct value is the literal phrase, and
- * an empty string would document nothing while still counting as "classified".
+ * how its entry goes away; an empty string would document nothing while still
+ * counting as "classified".
+ *
+ * It used to add "or say `deliberately none` in exactly those words", naming
+ * `demotedRef` as the row whose correct value that was. Whole-diff review round 2
+ * refuted it — the latch is not conservative across snapshot revisions, because a
+ * crew id outlives the asset behind it — and round 3 caught that this header still
+ * called the phrase correct four lines above the code that retires it.
  */
 // REMOVED with its last user (whole-diff review round 2). `demotedRef` was the
 // only row whose clearedBy was this phrase, and the review showed the claim

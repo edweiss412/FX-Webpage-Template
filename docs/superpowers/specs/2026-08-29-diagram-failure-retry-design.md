@@ -2,6 +2,27 @@
 
 Closes `DIAGRAM-FAILURE-RECOVERY-1` (DEFERRED.md). Branch `feat/diagram-failure-retry`.
 
+## 0. AS-BUILT DIVERGENCE — read this before implementing anything below
+
+This spec is canonical under plan invariant 7, which is exactly why this section
+exists at the top rather than as footnotes. Six mechanisms specified below were
+DELETED OR REPLACED during implementation, and the prose describing them was left
+in place. Whole-diff review round 3 found that, and it was right to call it
+blocking: an implementer following the normative text literally would reintroduce
+defects this branch removed.
+
+Every later mention of these names is superseded by this table. Where a section
+still reads as a requirement, this section wins.
+
+| specified below | what actually ships | why it changed |
+|---|---|---|
+| `attempt` counter keying `<Image>` for a remount | NOTHING. The image node is deliberately NOT remounted | §4.0.5 requires the same node to survive. The asset route sends `private, max-age=0, must-revalidate` with no validator, so a remount is a second unconditional GET and a crew member pays twice for one tap. A counter whose only purpose was to force that remount was specifying the defect. **Must not be re-added.** |
+| `focusOnMount` flag | `focusRetryingRef`, `focusFailedRef`, `focusThumbRef` — one hand-off per transition — plus a single root-scoped focus rescue | One flag could not express which of several destinations a given removal wanted, and the per-transition enumeration was itself a defect: rounds kept finding removal paths the table had not listed. The rescue asks where focus IS after any commit instead of predicting which transitions strand it |
+| `retryRefs` (one map) | `retryControlRefs` and `retryingRefs`, split | The failed control and the in-flight overlay are DIFFERENT elements; one map could not address them separately |
+| `successorTo` | DELETED, zero callers | The product owner's override gives every runtime-failed cell its own control, so focus never leaves the cell and the eligibility question dissolved rather than being answered |
+| `demotedRef` cleared by "deliberately none" | cleared on a `snapshotRevisionId` change | Crew ids are STABLE ACROSS SYNCS while the asset key and variants change, so a never-cleared latch silently denied full detail to a healthy replacement asset. Not conservative, as the original text claimed |
+| retry transitions as "the same node re-labelled" | a separate in-flight overlay replaces the failed control, with an explicit focus hand-off | The overlay must not be natively `disabled` (that drops focus to `<body>`), so it is a distinct element and focus has to be handed to it deliberately |
+
 ## 1. Problem and probe evidence
 
 A runtime image failure is terminal for the rest of the page session. `failedKeys` is
@@ -101,7 +122,8 @@ it is feature behaviour, so it is settled by the task that implements it.
 | U-6 | Clearing session state when an item goes unavailable OR leaves `items`, keyed on the rendered id set, leaves no render able to observe retained state | §9.1 | **Plan Task 7**, not a probe: this is feature behaviour, so it is settled where its implementation lands. EVERY per-item member §4.0.3 classifies is planted and the FIRST frame after the flip asserted, `wantsOriginal` included |
 
 Two things deliberately NOT in this table, because they are settled by reading rather than by
-running: `demotedRef` has no clear path (grep over the component establishes it), and
+running: **[SUPERSEDED — §0]** ~~`demotedRef` has no clear path~~ — it is cleared on a
+`snapshotRevisionId` change, and
 `servingVariants` excludes any row naming the original (the function's body establishes it).
 Round 2 verified the second directly.
 
@@ -264,14 +286,14 @@ both files.
 
 Transitions, exactly:
 
-- **`failed` → `retrying`**: add the id to `retrying`, increment `attempt[id]`, remove the
+- **`failed` → `retrying`**: add the id to `retrying`, **[SUPERSEDED — see §0]** ~~increment `attempt[id]`~~, remove the
   id from `failedKeys`, **and delete it from `pendingFailuresRef`** (see below). Removing it
   from `failedKeys` is what makes that set non-terminal; the `retrying` membership is what
   keeps the cell from flashing the image before it loads.
 - **`retrying` → `idle`**: `onLoad` removes the id from `retrying`, which removes the
   overlay. **The `<Image>` node itself does not change** (§4.0.5).
 - **`retrying` → `failed`**: `onError` removes the id from `retrying` and adds it back to
-  `failedKeys`. `attempt[id]` is NOT reset, so a third tap remounts again.
+  `failedKeys`. **[SUPERSEDED — see §0]** ~~`attempt[id]` is NOT reset, so a third tap remounts again~~ — nothing remounts; the node survives (§4.0.5).
 
 ### 4.0.1 `pendingFailuresRef` is part of the machine, not outside it
 
@@ -347,7 +369,9 @@ work creates, under `tests/components/diagrams/`, named for per-item state lifet
    pattern-matched, so a `Record`, an object literal, or a shape nobody has thought of yet is
    still enumerated.
 2. The registry classifies each declaration by name as `per-item` or `not-per-item`, and
-   every `per-item` row states its clear path or the explicit words `deliberately none`.
+   every `per-item` row states its clear path. **[SUPERSEDED — §0]** ~~or the explicit words
+   `deliberately none`~~ — that vocabulary was retired with its last user, `demotedRef`, once
+   review showed the claim behind it was false.
 3. The test fails when the scanner finds a declaration the registry does not classify.
 
 That is what makes it fail by default: a member added later is unclassified, so the suite
@@ -369,7 +393,7 @@ Current `per-item` rows:
 |---|---|---|
 | `failedKeys` (gallery) | `Gallery.tsx:122` | entering `retrying`; the item going unavailable or leaving `items` (§9.1) |
 | `pendingFailuresRef` | `Gallery.tsx:156` | entering `retrying` (§4.0.1); the item going unavailable or leaving `items` |
-| `thumbRefs` | `Gallery.tsx:132` | React, on unmount. **Holds ONLY the healthy thumbnail button**; the retry button gets its own `retryRefs` map (§7) |
+| `thumbRefs` | `Gallery.tsx:132` | React, on unmount. **Holds ONLY the healthy thumbnail button**; the retry control and the in-flight overlay get `retryControlRefs` and `retryingRefs` respectively **[was `retryRefs` — superseded, §0]** |
 | `restoreTargetRef` | `Gallery.tsx:139` | re-pointed on every failure that removes the current target (§7) |
 | `failedKeys` (lightbox) | `GalleryLightbox.tsx:293` | entering `retrying`; the item going unavailable or leaving `items` |
 | `wantsOriginal` | `GalleryLightbox.tsx:303` | entering `retrying` (§4.0.2); the demote path, unchanged |
@@ -380,9 +404,9 @@ Current `per-item` rows:
 | `requestedScaleRef` | `GalleryLightbox.tsx:391` | same handler, same reason (`GalleryLightbox.tsx:1110`) |
 | `controlsSlotRef` | `GalleryLightbox.tsx:380` | React, on `TransformWrapper` unmount. The `failed` branch does not mount it, so it is null for the whole failed-and-retrying window |
 | `retrying` (NEW) | both | `onLoad`, `onError`, a slide going inactive (§4.0.4), the item going unavailable or leaving `items` |
-| `attempt` (NEW) | both | never. Monotonic per item; that is what makes it a usable remount key |
-| `focusOnMount` (NEW) | `Gallery.tsx` | the retry button's ref callback on consume, **and the same unavailable/removed sweep**, so an item that never mounts its button cannot strand the flag (§9.1) |
-| `retryRefs` (NEW) | both | React, on unmount |
+| ~~`attempt`~~ **[SUPERSEDED — §0]** | — | DOES NOT SHIP. Its only purpose was to force the remount §4.0.5 forbids |
+| ~~`focusOnMount`~~ **[SUPERSEDED — §0]** | `Gallery.tsx` | replaced by three per-transition hand-off refs plus one root-scoped focus rescue |
+| ~~`retryRefs`~~ **[SUPERSEDED — §0]** | both | split into `retryControlRefs` and `retryingRefs`; React, on unmount |
 
 ### 4.0.4 A slide going inactive ends its retry
 
@@ -451,7 +475,7 @@ mount today:
 |---|---|
 | the user taps a visible failed cell | yes, by definition of tapping it |
 | the user Tabs to the control and presses it | yes — focusing an element scrolls it into view |
-| `focusOnMount` focuses the retry button after a failure (§7) | yes, same reason |
+| **[SUPERSEDED — see §0]** ~~`focusOnMount` focuses the retry button after a failure (§7)~~ | yes, same reason |
 | the user scrolls away DURING the in-flight window | irrelevant: the request was issued at mount, which happened in view |
 | the lightbox active slide | yes — only the ACTIVE slide carries a control (§2), and it is the one on screen |
 | "Show more" expands the grid | mounts thumbnails, not retry images; a newly revealed failed cell has not been tapped |
@@ -476,7 +500,7 @@ Painting OVER the image satisfies that; replacing it does not.
 | `item.variants` | `[]`, or malformed | `servingVariants` in `lib/images/diagramLoader.ts` drops malformed rows and the loader falls back to the original. The retry control is unaffected: it does not read `variants`. |
 | `item.available` | `false` | no control (§4, `unavailable` row). |
 | `item.blurDataURL` | absent | unchanged. The `retrying` state does not depend on it; the in-flight signal is text, not the blur. |
-| `attempt[id]` | absent | treated as `0`. A missing counter means "never retried", which is the correct initial key. |
+| **[SUPERSEDED — see §0]** ~~`attempt[id]`~~ | — | DOES NOT SHIP |
 | rapid double-tap | — | the click handler returns early while the id is in `retrying`, and the control carries `aria-disabled`. NOT the native `disabled` attribute, which would eject focus (§7.1). |
 | the item stops rendering mid-retry | — | the existing stale-handler guard (`Gallery.tsx:276-279`, `if (!button?.isConnected) return`) already covers `onError` after unmount; `onLoad` gets the same guard for the same reason. |
 

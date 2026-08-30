@@ -1,12 +1,23 @@
 # Tasks 1-10 — the retry affordance
 
+> **AS-BUILT DIVERGENCE.** This plan was written before implementation and names
+> mechanisms that DO NOT SHIP: the `attempt` counter, `focusOnMount`, `retryRefs`,
+> `successorTo`, `demotedRef` as never-cleared, and retry transitions as a same-node
+> relabel. Every one of them is superseded by **§0 of the design spec**, which is the
+> single authority on what replaced them and why. Whole-diff review round 3 found the
+> spec amended only in part, and the same was true here; both are corrected at the
+> source rather than line by line, because patching the cited lines is what left it
+> half-done the first time. Read §0 before treating any name below as a requirement.
+
+
+
 Runs after Tasks P1-P5 and the five spec amendments they produce. Task numbering below is the authority; the probe file owns P1-P5 and there is no P6. Every task: RED observed →
 minimal implementation → GREEN on the SAME command → commit.
 
 ## Every task that adds per-item state extends the registry in the SAME commit
 
 Task P5's scanner enumerates every `useState`/`useRef` in both components and reds on any it
-cannot classify. Tasks 2, 4 and 5 add `retrying`, `attempt`, `focusOnMount` and `retryRefs`,
+cannot classify. **[SUPERSEDED — spec §0]** Tasks 2, 4 and 5 add `retrying`, ~~`attempt`, `focusOnMount` and `retryRefs`~~,
 so each of those tasks WILL red that guard the moment its state lands — correctly, which is
 the whole point of a cover that fails by default.
 
@@ -20,9 +31,9 @@ The rows each task owes:
 
 | task | members it adds | clear path each must state |
 |---|---|---|
-| Task 2 | `retrying`, `attempt` (gallery) | `retrying`: `onLoad`, `onError`, the availability sweep. `attempt`: `deliberately none`, monotonic by design |
-| Task 4 | `focusOnMount`, `retryRefs` (gallery) | `focusOnMount`: the ref callback on consume, and the availability sweep. `retryRefs`: React, on unmount |
-| Task 5 | `retrying`, `attempt`, `retryRefs` (lightbox) | as Task 2 and Task 4, plus a slide going inactive (§4.0.4) |
+| Task 2 | `retrying` (gallery) | `retrying`: `onLoad`, `onError`, the availability sweep. **[SUPERSEDED — spec §0]** ~~`attempt`: `deliberately none`, monotonic by design~~ — does not ship |
+| Task 4 | **[SUPERSEDED — spec §0]** ~~`focusOnMount`, `retryRefs`~~ (gallery) | shipped as three per-transition hand-off refs plus a root-scoped rescue, and `retryControlRefs`/`retryingRefs` split |
+| Task 5 | `retrying` (lightbox) | **[SUPERSEDED — spec §0]** ~~`attempt`, `retryRefs`~~ do not ship. As Task 2 and Task 4, plus a slide going inactive (§4.0.4) |
 
 Task 5 adds the LAST of them, so AC-17 is claimed there: that is the first point at which
 "every per-item member is classified" is true of the finished component pair rather than of a
@@ -39,7 +50,7 @@ at today's head, so the order below is derived from what each task leaves behind
 |---|---|---|
 | Task 1 | the control renders | anything asserting "no control exists" |
 | Task 1 | the control renders on BOTH the gallery cell and the lightbox's shared failed branch | Task 6's red is that leak onto inactive slides, introduced HERE |
-| Task 2 | `onLoad`, the `attempt` key, `failedKeys` clearing, the overlay | Task 3's announcement red is a DEFECT in Task 2's handler, not its absence |
+| Task 2 | `onLoad`, **[SUPERSEDED — spec §0]** ~~the `attempt` key~~, `failedKeys` clearing, the overlay | Task 3's announcement red is a DEFECT in Task 2's handler, not its absence |
 | Task 4 | focus targets the control; `successorTo` is gone | Task 4 must run after Task 2, or the success-removal path it asserts does not exist yet |
 
 Each task below states its red against the tree AS THE TASK RUNS. Where that red is a defect
@@ -113,7 +124,7 @@ hazard actually lives. The order matters and it is not an oversight.
 
 **Scope: the GALLERY only.** Plan review R2 found "the whole mechanism" ambiguous across the
 two components, and the ambiguity broke Task 5's red either way it was read. The gallery gets
-the `retrying` set, the `attempt` key, `onLoad`/`onError`, the same-node overlay, and AC-4's
+the `retrying` set, **[SUPERSEDED — spec §0]** ~~the `attempt` key~~, `onLoad`/`onError`, ~~the same-node overlay~~ (it is a SEPARATE overlay), and AC-4's
 in-flight attributes. The lightbox gets its own copy in Task 5, whose red is therefore intact:
 `GalleryLightbox.tsx:1121` is still add-only when Task 5 starts. **No `loading`
 override**: Task P3 refuted the mechanism that motivated one, and a tap implies the cell is in
@@ -160,7 +171,7 @@ relocates to the gallery list when no control remains, has an unreachable premis
 rewritten as the positive claim rather than deleted. The case at line 480, focus never landing
 on `<body>`, is unchanged and becomes stronger.
 
-Focus moves from a ref callback on the retry button gated by a per-item `focusOnMount` flag,
+**[SUPERSEDED — spec §0]** ~~Focus moves from a ref callback on the retry button gated by a per-item `focusOnMount` flag~~ — three per-transition hand-off refs plus one root-scoped rescue,
 never synchronously in the handler — the button has not mounted when the handler runs. The flag
 is NOT set while `lightboxOpenRef` is true (spec §7.1), or a thumbnail failing behind an open
 dialog would steal focus out of the modal.

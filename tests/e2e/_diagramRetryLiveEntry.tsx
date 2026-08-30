@@ -13,8 +13,16 @@
  *         entry it contains no original-tier URL.
  *
  * The request count is the whole reason this is a browser test: jsdom issues no
- * requests at all, so the remount key that makes a retry actually re-fetch is
- * invisible to every jsdom assertion (probed: removing it leaves 196/196 green).
+ * requests at all, so what makes a retry actually re-fetch is invisible to every
+ * jsdom assertion (probed: removing it leaves 196/196 green).
+ *
+ * This said "the remount key" until whole-diff review round 3. No remount key
+ * ships and none may be added: §4.0.5 requires the loaded node to SURVIVE, since
+ * the asset route carries no validator and a remount is a second unconditional
+ * GET. This file was not among the sites the finding cited — it turned up only
+ * because the repair enumerated every mention of the dead mechanisms rather than
+ * fixing the ones named, which is the difference between sweeping a class and
+ * patching instances. See §0 of the design spec.
  *
  * The item is LADDERED on purpose. An originals-only entry has no clamped tier,
  * so "no original-tier URL in the candidate set" would hold vacuously and the

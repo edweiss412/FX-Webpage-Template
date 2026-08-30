@@ -1,5 +1,16 @@
 # Diagram failure retry — implementation plan
 
+> **AS-BUILT DIVERGENCE.** This plan was written before implementation and names
+> mechanisms that DO NOT SHIP: the `attempt` counter, `focusOnMount`, `retryRefs`,
+> `successorTo`, `demotedRef` as never-cleared, and retry transitions as a same-node
+> relabel. Every one of them is superseded by **§0 of the design spec**, which is the
+> single authority on what replaced them and why. Whole-diff review round 3 found the
+> spec amended only in part, and the same was true here; both are corrected at the
+> source rather than line by line, because patching the cited lines is what left it
+> half-done the first time. Read §0 before treating any name below as a requirement.
+
+
+
 Spec: `docs/superpowers/specs/2026-08-29-diagram-failure-retry-design.md`.
 Closes `DIAGRAM-FAILURE-RECOVERY-1` (DEFERRED.md). Branch `feat/diagram-failure-retry`.
 
