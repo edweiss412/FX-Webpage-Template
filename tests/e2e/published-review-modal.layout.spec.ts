@@ -2083,6 +2083,17 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
           contentH: box.height - pad - bord,
           clusterW: cb.width,
           spillsCluster: box.right > cb.right + 0.5 || box.left < cb.left - 0.5,
+          radius: cs.borderTopLeftRadius,
+          // Each VISIBLE segment's own height, so "one line per segment" is
+          // measurable. sr-only nodes are excluded: they are absolutely
+          // positioned and 1px wide, and counting them made an earlier probe
+          // report eight lines on a three-line pill.
+          segHeights: [...el.children]
+            .filter((c) => {
+              const ccs = getComputedStyle(c);
+              return !(ccs.position === "absolute" && c.getBoundingClientRect().width <= 2);
+            })
+            .map((c) => c.getBoundingClientRect().height),
           clusterMaxW: ccs.maxWidth,
           gap: parseFloat(ccs.columnGap || ccs.gap || "0"),
           // NOT a scroll-dimension test. This box is `overflow: visible` and
@@ -2139,6 +2150,23 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     // (d) nothing clipped, and every segment inside the pill's box.
     expect(phone.canClip, "the pill must not be able to clip its own content").toBe(false);
     expect(phone.kidsInside, "a segment painted outside the pill").toBe(true);
+    // (e2) Each segment is ONE line. Before this was pinned, the issues phrase
+    //     and both inner segment phrases were bare wrap units that broke
+    //     mid-phrase ("2 / issues"), turning a three-segment pill into eight
+    //     rows and a 141px box (impeccable critique P1). Measured after the
+    //     repair: 82.9px, three segments at 20.3px each.
+    const textSegs = phone.segHeights.filter((h) => h > 12);
+    expect(textSegs.length, "premise: three text segments were measured").toBe(3);
+    for (const h of textSegs) {
+      expect(h, `a segment wrapped mid-phrase (${h}px is more than one line)`).toBeLessThan(
+        single.contentH + 6,
+      );
+    }
+    // (e3) A 999px radius on a tall wrapped box is an ellipse, and the fill
+    //     then cuts the corners off its own text. Below `sm` it is a plaque.
+    expect(phone.radius, "wrapped pill must not be an ellipse at phone widths").toBe("12px");
+    expect(desktop.radius, "unwrapped pill keeps the pill radius at sm and up").not.toBe("12px");
+
     // (e) genuinely more than one flex line, counted from the segments' own
     //     top offsets, and cross-checked against this run's single-line render.
     expect(phone.lines, "the pill wrapped onto multiple lines").toBeGreaterThan(1);
@@ -2166,11 +2194,24 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     const base = await read("harness.html");
     const tall = await read("threeseg.html");
 
-    // Non-vacuity, measured rather than a literal threshold: this case means
-    // something only if the three-segment header is genuinely TALLER than the
-    // one-segment header. A fixed number would pass on chrome height alone.
-    expect(tall.headerH, "premise: the wrapped pill made a taller header").toBeGreaterThan(base.headerH);
+    // Non-vacuity: this case means something only if the pill in the tall
+    // fixture is genuinely WRAPPED. The premise is about the pill rather than
+    // the header, and that distinction is the finding: an earlier version
+    // asserted the header grew, which was true at the 141px ellipse and became
+    // FALSE once the segments were made one-line each. At 82.9px the pill fits
+    // the header's natural height, so the header no longer moves at all -- the
+    // desirable outcome, and one that would have read as a broken test.
+    const pillH = await page
+      .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
+      .evaluate((el) => el.getBoundingClientRect().height);
+    expect(pillH, "premise: the tall fixture's pill really is wrapped").toBeGreaterThan(60);
+    expect(tall.headerH, "premise: the header is a real measured box").toBeGreaterThan(0);
     expect(tall.mainH, "premise: main has real height").toBeGreaterThan(0);
+    // And the point of the repair: a wrapped pill no longer inflates the header.
+    expect(
+      tall.headerH,
+      `header grew from ${base.headerH} to ${tall.headerH} under a wrapped pill`,
+    ).toBe(base.headerH);
 
     // Sheet mode at 375, so the grab strip is a term of the equation
     // (see T-LAYOUT above). Dropping it false-reds a correct layout.
@@ -2202,19 +2243,20 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
       };
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       const rects: DOMRect[] = [];
+      // Per-line client rects: the count of distinct tops IS the line count.
+      const lineTops: number[] = [];
       while (walker.nextNode()) {
         const n = walker.currentNode as Text;
         if (!n.textContent?.trim()) continue;
         const r = document.createRange();
         r.selectNodeContents(n);
         rects.push(r.getBoundingClientRect());
-        // Per-line client rects: the count of distinct tops IS the line count.
-        var lineTops = [...r.getClientRects()].map((c) => Math.round(c.top));
+        for (const c of r.getClientRects()) lineTops.push(Math.round(c.top));
       }
       return {
         found: rects.length > 0,
         fontSize: cs.fontSize,
-        lines: new Set(lineTops ?? []).size,
+        lines: new Set(lineTops).size,
         clipped: el.scrollWidth > el.clientWidth + 0.5 || el.scrollHeight > el.clientHeight + 0.5,
         inside: rects.every(
           (r) => r.left >= pad.left - 0.5 && r.right <= pad.right + 0.5 &&

@@ -1128,7 +1128,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         title: `${selfHeal.length} monitoring, clearing on their own, no action needed`,
                       }
                     : {})}
-                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill px-2.5 py-1 text-sm sm:text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                  className={`relative inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-pill max-sm:rounded-md px-2.5 py-1 text-sm sm:text-xs font-semibold tabular-nums max-sm:flex-wrap max-sm:justify-end transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-3 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
                     monitoringOnly
                       ? /* border separates button-gray from the passive label-gray
                            spans; hover moves the border, never fades toward the
@@ -1172,8 +1172,15 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           "issues" is a NOUN (§2.4) and pluralises with a plain s
                           — "N need you" would have required a subject-verb
                           agreement branch at N = 1. */}
-                      {needsYou.length > 99 ? "99+" : needsYou.length}{" "}
-                      {needsYou.length === 1 ? "issue" : "issues"}
+                      {/* ONE wrap unit, like the two segments below it. As a
+                          bare anonymous flex item this broke MID-PHRASE under
+                          `max-sm:flex-wrap` ("2 / issues"), which at the phone
+                          type size turned a three-segment pill into six rows
+                          and a 141px oval (impeccable critique P1, 2026-08-30). */}
+                      <span className="inline-flex items-center gap-1 max-sm:whitespace-nowrap">
+                        {needsYou.length > 99 ? "99+" : needsYou.length}{" "}
+                        {needsYou.length === 1 ? "issue" : "issues"}
+                      </span>
                       {needsYou.length > 99 ? (
                         <>
                           {/* Separator is its OWN visible text node (accName trim
@@ -1195,7 +1202,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                         {needsYou.length > 0 ? <span className="opacity-50">{" · "}</span> : null}
                         <span
                           data-testid="attention-pill-warnings-segment"
-                          className="inline-flex items-center gap-1"
+                          className="inline-flex items-center gap-1 max-sm:whitespace-nowrap"
                         >
                           {k > 99 ? "99+" : k} {k === 1 ? "sheet warning" : "sheet warnings"}
                         </span>
@@ -1240,7 +1247,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           light, higher dark. Impeccable critique P1, 2026-07-22. */}
                         <span
                           data-testid="attention-pill-monitoring-segment"
-                          className={`inline-flex items-center gap-1 font-medium ${
+                          className={`inline-flex items-center gap-1 max-sm:whitespace-nowrap font-medium ${
                             monitoringOnly ? "text-text-subtle" : "text-warning-text/80"
                           }`}
                         >

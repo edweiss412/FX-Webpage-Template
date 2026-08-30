@@ -236,7 +236,33 @@ These cases go in the interactions spec, not the layout spec: the layout spec em
 
 ## 12. Closeout
 
-The gate runs on the whole diff, before the whole-diff cross-model review and before this arc reports READY, with the canonical v3 setup gates (`context.mjs` context load of PRODUCT.md + DESIGN.md, then the register reference read). Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry. The marker line below is filled in when both halves have run.
+The gate runs on the whole diff, before the whole-diff cross-model review and before this arc reports READY, with the canonical v3 setup gates (`context.mjs` context load of PRODUCT.md + DESIGN.md, then the register reference read). Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry. Both halves ran on 2026-08-30 as isolated subagents, with the canonical v3 setup gates.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
+
+**Audit — 8 items, 7 PASS.** Canonical tokens, the em-dash and apostrophe ban, the 44px band on both sides of the breakpoint (52.3px at `text-sm`, 48.8px at `text-xs`), colour tokens unchanged, mobile-first spelling, live-region contract, and the note's explicit `w-full`. One P1 and two P3.
+
+**Audit P1 — FIXED.** `tests/styles/_metaTapTargetFloor.test.ts` was RED: the tap-target census keys the Step-3 selection checkbox by LINE NUMBER, and this branch's added lines moved it from 1003 to 1012. A merge blocker, and mine. The census comment already logged two earlier moves under `LIM-LINE-KEYED-SITEID`; this was its fourth. Re-keyed. It then recurred twice more in the same session, in `tests/styles/controlOutlineScan.ts` (two rows) and in a second hard-coded list inside `_metaControlOutlineFill.test.ts`, so the class touched three registries and five rows for one nine-line insertion.
+
+**Critique — 0 P0, 2 P1, both FIXED.**
+
+**Critique P1a — the three-segment pill rendered as an ellipse and painted copy outside its own fill.** Measured 110×141.48px at 375, with `--radius-pill: 999px` clamping to ~70px on a 141px box. The issues phrase and both inner segment phrases were bare wrap units, so `max-sm:flex-wrap` broke them MID-PHRASE ("2 / issues") into about six rows. Each count phrase is now one wrap unit under `max-sm:whitespace-nowrap`, and the pill takes `max-sm:rounded-md`. Measured after: **82.9px, 12px radius, three segments at 20.3px each** — a 41% reduction, matching the critique's ~83px prediction.
+
+  The nowrap was first applied unscoped and broke `popover-clip-fit.spec.ts`; scoping it to `max-sm:` is why it is prefixed. See the open item below.
+
+  **My own T-PILL-SIZE oracle had missed this**, which is the more useful half: it asserted every segment's rect was inside the pill's BOX, and the painted fill is clipped by the border radius, so copy outside the fill was inside the box. The case now pins one line per segment and the resolved radius at both sides of the breakpoint.
+
+**Critique P1b — the note was the quietest element on screen, at 12px, in the PR that declares 12px too small.** `bg-surface-sunken` on the panel's `bg-bg` is 1.06:1, so the plate contributed nothing. The 5s precedent it cites (`components/admin/wizard/step3ReviewSections.tsx:1714-1725`) uses `bg-surface-raised text-sm text-text-strong`; the first draft took its timing and inverted its treatment. Now `bg-surface-raised px-3 py-2 text-sm/relaxed text-text-strong`, an already-shipped pair.
+
+**Critique P2 — copy garden-paths, FIXED.** "in Report an issue" parses as a verb phrase first. Every "It is in..." rewrite fails the shipped AC-18 tense assertion, which the critique verified by running the regex. Now: "Report draft restored. Find it in the last section, Report an issue."
+
+**Critique P2 — announcement collided with dialog-open, FIXED.** A polite message arriving while `role="dialog"` is being spoken is routinely dropped. Held 400ms, cleared with the dismiss timer, registered in §5.5.
+
+**Critique P2 — three unmigrated 12px peers** at `components/admin/TodaySection.tsx:403` and `components/admin/DriveConnectionPanel.tsx:203`/`:221`. **Deferred, out of class:** none is a review-modal header pill, so none is in the class §1.1 R8 fences, and widening the sweep to them is a product decision Eric has not been asked.
+
+**Critique P3 — band arithmetic true for the unwrapped pill, false at 375 when wrapped.** Recorded as a documented limit rather than fixed: the comment describes the single-segment case `T-TAP` actually probes, and the wrapped case's band is now much smaller after P1a anyway.
+
+**Critique P3 and audit P3 — DESIGN.md §5.5 row indentation** matches its 40 siblings' generator output; cosmetic.
  Both halves run with the canonical v3 setup gates: context.mjs context load (PRODUCT.md + DESIGN.md), then the register reference read. Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry.
 
 **UI surfaces in this diff:** `components/admin/showpage/PublishedReviewModal.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`. No `app/globals.css` `@theme` change, no `DESIGN.md` change, no new colour token, so no new contrast ratio needs pinning.

@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import {
+  ANNOUNCE_DELAY_MS,
   DRAFT_RESTORED_NOTE,
   DRAFT_RESTORED_NOTE_MS,
   DraftRestoredNote,
@@ -134,6 +135,10 @@ describe("DraftRestoredNote (spec §3.2-§3.6)", () => {
   it("announces once per mount, only with a draft, matching the visible copy (AC-13)", () => {
     window.sessionStorage.setItem(KEY, "half a sentence");
     const first = mount();
+    // Deliberately delayed off the dialog-open announcement, so nothing has
+    // been said yet at mount.
+    expect(first.announce, "held back at mount").not.toHaveBeenCalled();
+    act(() => void vi.advanceTimersByTime(ANNOUNCE_DELAY_MS));
     expect(first.announce).toHaveBeenCalledTimes(1);
     expect(first.announce.mock.calls[0]![0]).toBe(screen.getByTestId(NOTE).textContent);
     // Not "once ever": advancing past the dismissal must not announce again.
@@ -144,11 +149,13 @@ describe("DraftRestoredNote (spec §3.2-§3.6)", () => {
     // A fresh mount WITH a draft announces again: this is per-mount, not once
     // per module. A module-global "announced already" flag fails here.
     const second = mount();
+    act(() => void vi.advanceTimersByTime(ANNOUNCE_DELAY_MS));
     expect(second.announce, "a second mount with a draft announces again").toHaveBeenCalledTimes(1);
     cleanup();
 
     window.sessionStorage.clear();
     const third = mount();
+    act(() => void vi.advanceTimersByTime(ANNOUNCE_DELAY_MS + 1000));
     expect(third.announce, "no draft, no announcement").not.toHaveBeenCalled();
   });
 
