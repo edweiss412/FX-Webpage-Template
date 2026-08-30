@@ -28,6 +28,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { premise, premiseHolds } from "../../_shared/premise";
+import { stripCssComments } from "../../_shared/stripComments";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/",
@@ -45,7 +46,11 @@ const SOURCES = [
 
 /** Every selector in globals.css whose body declares animation: or transition:. */
 function animatingSelectors(): string[] {
-  const css = readFileSync(GLOBALS, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  // Comment stripping goes through the shared module, never a local regex
+  // (tests/cross-cutting/_metaStripCommentsSingleSource.test.ts). It is also the
+  // correct one here: a naive /\*...\*/ sweep also eats a comment-looking run
+  // inside a quoted value, and this file then loses the rule that contained it.
+  const css = stripCssComments(readFileSync(GLOBALS, "utf8"));
   const out: string[] = [];
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const sel = m[1]!.replace(/\s+/g, " ").trim();
