@@ -25,6 +25,7 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
+import { controllableNdjson } from "./_finalizeStreamHarness";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -957,34 +958,6 @@ function mockNdjsonResponse(lines: unknown[]): Response {
   } as unknown as Response;
 }
 
-// A stream the test feeds one event at a time so intermediate progress states can be observed.
-function controllableNdjson() {
-  let controller!: ReadableStreamDefaultController<Uint8Array>;
-  const stream = new ReadableStream<Uint8Array>({
-    start(c) {
-      controller = c;
-    },
-  });
-  const enc = new TextEncoder();
-  const response = {
-    ok: true,
-    status: 200,
-    headers: {
-      get: (k: string) => (k.toLowerCase() === "content-type" ? "application/x-ndjson" : null),
-    },
-    body: stream,
-    json: async () => {
-      throw new Error("stream response has no json()");
-    },
-  } as unknown as Response;
-  return {
-    response,
-    push: (obj: unknown) => controller.enqueue(enc.encode(JSON.stringify(obj) + "\n")),
-    close: () => controller.close(),
-    error: (err: unknown) => controller.error(err),
-  };
-}
-
 const allBatchesDone = () => ({
   status: "all_batches_complete",
   wizard_session_id: WIZARD_SESSION_ID,
@@ -1422,5 +1395,111 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     expect(queryByTestId("wizard-finalize-confirm")).toBeNull();
     expect(queryByTestId("wizard-finalize-button")).toBeNull();
     expect(getByTestId("wizard-finalize-progress")).toBeTruthy();
+  });
+  // ---------------------------------------------------------------------------
+  // Task 1 (spec 2026-08-29-step3-finalize-progress-scope): the batch phase
+  // reports SETUP, not a publish that has not happened. It creates every show
+  // Held (route.ts:1407 passes firstSeenPublished:false unconditionally); the
+  // Live flip belongs to /finalize-cas. So "Publishing your shows…" was wrong
+  // for every row, and "Publishing: <name>" wrong for whichever row it named.
+  // The subline is also PAST tense: onRow fires after the row's tx resolved and
+  // carries done = rows finished, and it fires for FAILED rows too, so the label
+  // must be true in both branches.
+  // ---------------------------------------------------------------------------
+  async function runningBatchPanel() {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />);
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
+    });
+    return { ...view, batch, cas };
+  }
+
+  test("batch header reports setup, and the publish verb is gone from the batch phase", async () => {
+    const { getByTestId } = await runningBatchPanel();
+    const panel = getByTestId("wizard-finalize-progress");
+    // EXACT, not toContain: mutant (b) showed a substring assertion passes against
+    // "Setting up your shows… now", so it could not distinguish the shipped copy
+    // from an appended-suffix regression.
+    expect(getByTestId("wizard-finalize-heading").textContent).toBe("Setting up your shows…");
+    // Scoped to the batch subtree on purpose: the CAS branch and the idle button
+    // legitimately carry other copy, so a document-wide assertion would either
+    // pass vacuously or fail on correct code.
+    expect(panel.textContent ?? "").not.toContain("Publishing your shows");
+    expect(panel.textContent ?? "").not.toContain("Publishing: ");
+  });
+
+  test("row subline names the completed row and makes no claim about its outcome", async () => {
+    const { getByTestId } = await runningBatchPanel();
+    const line = getByTestId("wizard-finalize-current");
+    // The name stands alone. Impeccable critique P1: a prefix here is a word and a
+    // claim the line does not need — the labelled bar and the count above already
+    // say what this name is, and on a phone the prefix ate ~11 chars of a
+    // truncating line. EXACT, so a prefix creeping back in fails this.
+    expect(line.textContent).toBe("East Coast");
+  });
+
+  // NOTE: runningLabel is deliberately NOT asserted here. In this composition the
+  // trigger UNMOUNTS while running (the panel replaces it), so the label is only
+  // observable through the wizard's FinalizeTrigger. Its coverage is the
+  // pre-existing Step3 assertion this task retargets — which is why Task 1 runs
+  // BOTH suites before committing.
+
+  test("the SR announcer reports setup — it is a SIBLING of the panel, not inside it", async () => {
+    const { container, getByTestId } = await runningBatchPanel();
+    const status = container.querySelector('[role="status"]');
+    expect(status, "the announcer must exist while running").toBeTruthy();
+    // Premise: the announcer is NOT inside the labelled group, which is exactly
+    // why the group-scoped assertions above cannot see it.
+    expect(getByTestId("wizard-finalize-progress").contains(status)).toBe(false);
+    expect(status!.textContent ?? "").toBe("Setting up your shows");
+  });
+
+  test("every accessible name in the batch phase reads Show setup progress", async () => {
+    const { getByTestId } = await runningBatchPanel();
+    const group = getByTestId("wizard-finalize-progress");
+    // querySelectorAll is DESCENDANT-only and the aria-label sits on the SAME
+    // element as the testid, so the group's own label must be added explicitly.
+    const labelled = [group, ...Array.from(group.querySelectorAll("[aria-label]"))].filter((el) =>
+      el.hasAttribute("aria-label"),
+    );
+    // An empty set trivially equals an empty set; require the real members first.
+    expect(labelled.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(labelled.map((el) => el.getAttribute("aria-label")))).toEqual(
+      new Set(["Show setup progress"]),
+    );
+    // The RAW attribute is not the accessible name. `aria-labelledby` WINS over
+    // `aria-label`, so a labelledby pointing at stale copy leaves this set reading
+    // "Show setup progress" while a screen reader announces something else — probed
+    // and confirmed in whole-diff R2 finding 6. Two assertions, because each catches
+    // what the other cannot: the set pins the attribute VALUE, and this pins that the
+    // attribute is what the name is actually computed FROM.
+    const overridden = labelled.filter((el) => el.hasAttribute("aria-labelledby"));
+    expect(
+      overridden.map((el) => el.getAttribute("data-testid") ?? el.tagName),
+      "aria-labelledby would override the aria-label these assertions pin",
+    ).toEqual([]);
+  });
+
+  test("PRESERVATION: the CAS phase header is untouched by the batch-phase edit", async () => {
+    const { getByTestId, batch, cas } = await runningBatchPanel();
+    await act(async () => {
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    await act(async () => {
+      cas.push({ type: "phase", phase: "applying" });
+    });
+    // Scoped to the header ELEMENT and exact, not `toContain` over the whole panel:
+    // the panel also renders the CAS phase label, so a header that changed or vanished
+    // left the searched string alive elsewhere and this preservation test stayed green
+    // (whole-diff R1 finding 6).
+    expect(getByTestId("wizard-finalize-cas-heading").textContent).toBe("Finishing setup…");
   });
 });
