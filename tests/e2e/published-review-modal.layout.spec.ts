@@ -2068,6 +2068,111 @@ test.describe("diagram tile sizes oracle (published manifest, real ladder)", () 
  * every geometry claim below rests on the fixture rendering three segments.
  */
 test.describe("attention pill phone type size (spec 2026-08-30)", () => {
+  // ---------------------------------------------------------------------
+  // Decision 7 (Eric, ratified 2026-08-30): below `sm` the pill shows the
+  // COUNTS ONLY; the full wording stays at `sm` and up, and in the opened menu.
+  //
+  // WHY, in one line of arithmetic: the pill sits in a container capped at
+  // `max-width: 160px` (HEADER_ACTION_CAP, strip-dock §3.0). At `text-xs` the
+  // widest single-segment cluster measured 157.422px, 2.578px under that cap.
+  // Decision 5B's `text-sm` took the same cluster to 160px exactly, so any
+  // two-digit count wrapped -- on EVERY platform, not merely in CI. Counts-only
+  // takes it to 128.938px, 31.063px of headroom, and is the only measured option
+  // that MAKES headroom rather than spending it.
+  //
+  // DOCUMENTED LIMIT, named rather than hidden: a two-segment pill with BOTH
+  // counts past 99 ("99+ · 99+") still reaches 160px and wraps to 48.297px. That
+  // is a show with 100+ open issues AND 100+ monitoring items simultaneously,
+  // past the load 30 the cap's own ratifying sweep treated as realistic. It is
+  // accepted, not fixed, and asserted below so it cannot regress silently into
+  // something worse.
+  test("T-COUNTS-ONLY @375: the pill shows counts without nouns, and still ANNOUNCES them", async ({
+    page,
+  }) => {
+    await openHarness(page, { width: 375, height: 812 }, "threeseg.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveCount(1);
+
+    const seen = await pill.evaluate((el) => {
+      // VISIBLE text only: sr-only content is positioned out of flow but stays
+      // in textContent, so reading textContent would pass on an implementation
+      // that changed nothing. Walk the text nodes and drop any whose ancestor
+      // chain is visually hidden.
+      const hidden = (n: Node): boolean => {
+        let e: HTMLElement | null = n.parentElement;
+        while (e && e !== el.parentElement) {
+          const r = e.getBoundingClientRect();
+          if (r.width <= 1 && r.height <= 1) return true;
+          e = e.parentElement;
+        }
+        return false;
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let visible = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!hidden(n)) visible += n.textContent ?? "";
+      }
+      return {
+        visible: visible.replace(/\s+/g, " ").trim(),
+        announced: (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+      };
+    });
+
+    // The nouns are GONE from the visible pill...
+    for (const noun of ["issue", "issues", "sheet warning", "sheet warnings", "monitoring"]) {
+      expect(seen.visible, `"${noun}" must not be visible below sm`).not.toContain(noun);
+    }
+    // ...but at least one digit still is, so this cannot pass on an empty pill.
+    expect(seen.visible, "the counts themselves stay visible").toMatch(/\d/);
+    // ...and the accessible string still carries them, so nothing is lost to AT.
+    expect(seen.announced, "the nouns survive for assistive tech").toContain("issue");
+    expect(seen.announced, "the nouns survive for assistive tech").toContain("monitoring");
+  });
+
+  test("T-COUNTS-ONLY @1280: the full wording is BACK at sm and up", async ({ page }) => {
+    await openHarness(page, { width: 1280, height: 812 }, "threeseg.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveCount(1);
+    const visible = await pill.evaluate((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let out = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const e = n.parentElement as HTMLElement | null;
+        const r = e?.getBoundingClientRect();
+        if (r && r.width > 1 && r.height > 1) out += n.textContent ?? "";
+      }
+      return out.replace(/\s+/g, " ").trim();
+    });
+    expect(visible, "the noun returns above the breakpoint").toContain("issue");
+    expect(visible, "the monitoring noun returns too").toContain("monitoring");
+  });
+
+  test("T-COUNTS-CAP @375: the widest single-segment load stays on ONE line", async ({ page }) => {
+    // The DISCRIMINATING fixture. T-TAP ran on the default page, whose pill says
+    // "2 issues", and that copy is short enough to fit at `text-sm` on darwin --
+    // which is exactly why a wrap that reached every two-digit show in production
+    // was caught only by a CI runner with wider glyph advances. `capped.html`
+    // renders past the 99 cap, so the segment reads "99+", the widest one.
+    await openHarness(page, { width: 375, height: 812 }, "capped.html");
+    const pill = page.locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`);
+    await expect(pill).toHaveCount(1);
+    const m = await pill.evaluate((el) => {
+      const cluster = el.parentElement?.parentElement as HTMLElement;
+      return {
+        pillH: el.getBoundingClientRect().height,
+        clusterW: cluster.getBoundingClientRect().width,
+        lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+      };
+    });
+    // ONE line: the pill's height must stay within a line box plus its padding,
+    // derived from the live line-height rather than a pinned pixel constant.
+    expect(
+      m.pillH,
+      `the widest single-segment pill wrapped (${m.pillH}px against a ${m.lineHeight}px line box)`,
+    ).toBeLessThan(m.lineHeight + 12);
+    expect(m.clusterW, "and the cluster stays under the 160px cap").toBeLessThan(160);
+  });
+
   test("T-PILL-FIXTURES @375: threeseg renders three segments, degraded renders the degraded branch", async ({
     page,
   }) => {
@@ -2086,7 +2191,7 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     );
   });
 
-  test("T-PILL-SIZE @375x812: three-segment pill is 14px, at the cap, unclipped, multi-line", async ({
+  test("T-PILL-SIZE @375x812: three-segment pill is 14px, at the cap, unclipped, ONE text row", async ({
     page,
   }) => {
     const measure = () =>
@@ -2143,6 +2248,21 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
             while (walker.nextNode()) {
               const n = walker.currentNode as Text;
               if (!n.textContent?.trim()) continue;
+              // Skip VISUALLY HIDDEN text. Decision 7 moved each noun into a
+              // `max-sm:sr-only` span, which is still a text node with a real
+              // client rect at its own top — so counting it added a phantom
+              // line and this premise reported 2 on a single-line pill. The
+              // same exclusion `segHeights` already makes, applied here too:
+              // an absolutely positioned, ~1px-wide ancestor is not a line.
+              let hiddenAncestor = false;
+              for (let e = n.parentElement; e && e !== el.parentElement; e = e.parentElement) {
+                const r = e.getBoundingClientRect();
+                if (getComputedStyle(e).position === "absolute" && r.width <= 2) {
+                  hiddenAncestor = true;
+                  break;
+                }
+              }
+              if (hiddenAncestor) continue;
               const r = document.createRange();
               r.selectNodeContents(n);
               for (const c of r.getClientRects()) tops.add(Math.round(c.top));
@@ -2196,13 +2316,27 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     expect(phone.radius, "wrapped pill must not be an ellipse at phone widths").toBe("12px");
     expect(desktop.radius, "unwrapped pill keeps the pill radius at sm and up").not.toBe("12px");
 
-    // (e) genuinely more than one flex line, counted from the segments' own
-    //     top offsets, and cross-checked against this run's single-line render.
-    expect(phone.lines, "the pill wrapped onto multiple lines").toBeGreaterThan(1);
+    // (e) Decision 7 (Eric, 2026-08-30) INVERTED this assertion, and the old
+    //     form is kept in the comment because the inversion is the point. It
+    //     used to read `phone.lines > 1`: the three-segment phone pill wrapped
+    //     its TEXT across rows, and the test pinned that as the shipped design.
+    //     Counts-only copy fits all three segments on ONE row (measured: three
+    //     phrase spans sharing top 183), so the pill's text no longer wraps at
+    //     all and the old assertion now describes a design that does not ship.
+    expect(phone.lines, "Decision 7: all three segments share ONE text row").toBe(1);
     expect(single.lines, "premise: the one-segment reference is a single line").toBe(1);
-    expect(phone.contentH, "three-segment box exceeds one line").toBeGreaterThan(
-      single.contentH * 1.5,
-    );
+
+    // (e4) DOCUMENTED, not silently accepted. The pill is still taller than one
+    //     text row (measured 48.297px against a 20.297px row) because a 12px
+    //     non-text child orphans onto a second flex row once the cluster is at
+    //     its 160px cap. That is a smaller defect than the wrapped text it
+    //     replaced, and it is pinned here so it cannot grow: the pill may carry
+    //     at most ONE extra row beyond its text, and every child must still sit
+    //     inside the pill's box (asserted at (d) above).
+    expect(
+      phone.contentH,
+      `the pill grew beyond one text row plus one orphaned control (${phone.contentH}px)`,
+    ).toBeLessThanOrEqual(single.contentH * 2 + 0.5);
   });
 
   test("T-LAYOUT-TALL @375x812: the panel equation closes with a wrapped pill", async ({
@@ -2237,7 +2371,19 @@ test.describe("attention pill phone type size (spec 2026-08-30)", () => {
     const pillH = await page
       .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
       .evaluate((el) => el.getBoundingClientRect().height);
-    expect(pillH, "premise: the tall fixture's pill really is wrapped").toBeGreaterThan(60);
+    // Decision 7 (Eric, 2026-08-30) moved this number. The premise is still
+    // "the pill really is wrapped", but counts-only copy takes the three-segment
+    // phone pill from three rows to two, so the old `> 60` bound now describes a
+    // design that no longer ships. Bound it against the SINGLE-LINE height
+    // measured in this same run instead of a pixel literal, so the premise
+    // survives the next copy change and cannot pass on an unwrapped pill.
+    const singleLineH = await page
+      .locator(`${MODAL} [data-testid="${BASE}-alert-pill"]`)
+      .evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) + 10);
+    expect(
+      pillH,
+      `premise: the tall fixture's pill really is wrapped (${pillH}px against a ${singleLineH}px single-line box)`,
+    ).toBeGreaterThan(singleLineH);
     expect(tall.headerH, "premise: the header is a real measured box").toBeGreaterThan(0);
     expect(tall.mainH, "premise: main has real height").toBeGreaterThan(0);
     // And the point of the repair: a wrapped pill no longer inflates the header.

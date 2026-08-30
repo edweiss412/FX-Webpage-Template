@@ -1194,8 +1194,22 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           type size turned a three-segment pill into six rows
                           and a 141px oval (impeccable critique P1, 2026-08-30). */}
                       <span className="inline-flex items-center gap-1 max-sm:whitespace-nowrap">
-                        {needsYou.length > 99 ? "99+" : needsYou.length}{" "}
-                        {needsYou.length === 1 ? "issue" : "issues"}
+                        {/* Decision 7 (Eric, 2026-08-30): the noun is VISUALLY
+                            dropped below `sm` and returns at `sm` and up. The
+                            count and its noun are wrapped in ONE inline span so
+                            they remain a single flex item -- as bare siblings
+                            the parent's `gap-1` would become live and add 4px
+                            between the number and its word above the breakpoint,
+                            changing a size the ruling leaves alone. The space
+                            lives INSIDE the hidden span, so it goes with it.
+                            `sr-only`, never `hidden`: the noun stays in the
+                            accessible name at every width. */}
+                        <span>
+                          {needsYou.length > 99 ? "99+" : needsYou.length}{" "}
+                          <span className="max-sm:sr-only">
+                            {needsYou.length === 1 ? "issue" : "issues"}
+                          </span>
+                        </span>
                       </span>
                       {needsYou.length > 99 ? (
                         <>
@@ -1220,7 +1234,14 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                           data-testid="attention-pill-warnings-segment"
                           className="inline-flex items-center gap-1 max-sm:whitespace-nowrap"
                         >
-                          {k > 99 ? "99+" : k} {k === 1 ? "sheet warning" : "sheet warnings"}
+                          {/* Decision 7: noun visually dropped below `sm`, one
+                              flex item, space inside the hidden span. */}
+                          <span>
+                            {k > 99 ? "99+" : k}{" "}
+                            <span className="max-sm:sr-only">
+                              {k === 1 ? "sheet warning" : "sheet warnings"}
+                            </span>
+                          </span>
                         </span>
                       </span>
                       {k > 99 ? (
@@ -1277,7 +1298,23 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                               className="size-2 shrink-0 rounded-pill border-[1.5px] border-status-positive bg-transparent"
                             />
                           )}
-                          {selfHeal.length > 99 ? "99+" : selfHeal.length} monitoring
+                          {/* Decision 7: noun visually dropped below `sm`. The
+                              wrapper matters MORE here than in the segments
+                              above -- this span's `gap-1` is genuinely live,
+                              spacing the hollow dot from the count, so leaving
+                              the noun as a bare sibling would space it from the
+                              count too. */}
+                          <span>
+                            {selfHeal.length > 99 ? "99+" : selfHeal.length}{" "}
+                            {/* The separating space is its OWN text node, OUTSIDE
+                                the hidden span. Inside it, the accessible-name
+                                computation trims each node and glued the name
+                                into "2monitoring"; outside, the name keeps its
+                                space and the visual cost is nil, because a
+                                trailing space before an out-of-flow span
+                                collapses. */}
+                            <span className="max-sm:sr-only">monitoring</span>
+                          </span>
                         </span>
                       </span>
                       {selfHeal.length > 99 ? (

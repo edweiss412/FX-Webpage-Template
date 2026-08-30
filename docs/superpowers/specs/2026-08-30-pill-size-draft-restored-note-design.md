@@ -83,6 +83,49 @@ The change at all four: `text-xs` -> `text-sm sm:text-xs`. Nothing else moves. N
 
 **Out of class — unchanged, and not a deferred defect.** `components/admin/wizard/Step3ReviewModal.tsx:574` ("Sheet changed") and `components/admin/wizard/Step3ReviewModal.tsx:676` ("All clean") are the ternary's other two arms. They are excluded on the **same-shape test**, and §2.5 gives the reasoning.
 
+### 2.3a Decision 7 — counts only below `sm` (Eric, ratified 2026-08-30)
+
+RATIFIED, and fenced in BOTH directions. Below `sm` the pill renders the COUNTS
+without their nouns; the full wording returns at `sm` and up, and is present at
+every width in the opened menu and in the accessible name.
+
+**Why it was needed.** Decision 5B's `text-sm` collided with the 160px
+`HEADER_ACTION_CAP` ratified in strip-dock §3.0. Measured at 375, cluster width
+/ pill height / headroom vs the cap:
+
+| single-segment load | `text-xs` (before 5B) | `text-sm` (5B alone) | `text-sm` + counts-only |
+|---|---|---|---|
+| 2, 5, 9 issues | 149.734 / 26.797 / 10.266 | 157.797 / 30.297 / 2.203 | — |
+| 10, 20, 99 issues | 157.422 / 26.797 / 2.578 | 160 / **48.297** / **0** | 128.938 / 30.297 / **31.063** |
+
+5B alone wrapped every two-digit count, on every platform. Counts-only is the
+only measured option that MAKES headroom rather than spending it.
+
+**Fence, direction 1 — the nouns do NOT come back below `sm`.** Not as a shorter
+synonym, not as an abbreviation, not at a wider phone width. Restoring visible
+wording below `sm` re-creates the wrap this decision exists to remove, and the
+next contributor to try it will find `T-COUNTS-ONLY @375` red.
+
+**Fence, direction 2 — the type size does NOT revert.** `text-sm sm:text-xs`
+stands. Decision 5B is not reopened by this; counts-only is what makes 5B
+shippable at 375, and reverting the size would make this decision pointless
+rather than solving anything.
+
+**Documented limit, named rather than hidden.** A three-segment pill at phone
+width still exceeds one row: the three counts fit a single TEXT row, but a 12px
+control orphans onto a second flex row once the cluster is at its cap, so the
+pill measures 48.297px against a 20.297px text row. That is smaller than the
+wrapped-text state it replaces and is pinned by `T-PILL-SIZE` at one extra row,
+so it cannot grow silently. Separately, a two-segment pill with BOTH counts past
+99 (`99+ · 99+`) still reaches the cap and wraps; that is a show with 100+ open
+issues AND 100+ monitoring items at once, past the load 30 the cap's own
+ratifying sweep treated as realistic.
+
+**Accessibility is not traded away.** The nouns move to `max-sm:sr-only`, so they
+remain in the accessible name at every width. The separating space is its own
+text node OUTSIDE the hidden span: inside it, the accessible-name computation
+trims each node and glues the name into `2monitoring`.
+
 ### 2.4 Why `text-sm sm:text-xs` and not `text-xs max-sm:text-sm`
 
 They render identically. The repo has a settled convention and the pill's own file has a local one, and they point opposite ways, so the choice is stated here once to keep it out of review.
