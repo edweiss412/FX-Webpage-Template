@@ -251,6 +251,89 @@ Kept in full rather than rewritten into a tidy narrative, because two successive
 
 - [x] **Step 7: The one remaining red is inherited, and measured as such.** The full-file run also surfaced `containment at 1280x800` failing once, at `menu.right` 1068.625 against `pill.right` 1084. That is the geometry the case's own comment documents as correct (`CI measured menu.right 1068.16 against pill.right 1084`), so the guard flipped rather than the layout moving. It reproduces on the CONTROL at the same rate: 1 failure in 5 full-file runs with both components at `origin/main`, against 1 in 7 at this head. Inherited flake, not this diff's. Filed as a documented limit, not repaired here.
 
+- [x] **Step 8: A THIRD red, which is not a bug at all but two ratified decisions colliding.** Opened by CI, not by review. `published-review-modal.layout.spec.ts` T-TAP @375
+failed 3/3 in CI while passing locally, which looked like a font or environment
+artifact and is neither.
+
+**What was eliminated, each by measurement rather than argument.** Both
+environments render the committed Inter (`harness-font-face` proves the bytes by
+fontkit advance width and passes in CI), at the same 14px and 20.3px
+line-height, with `scrollbarPx` 0 on both sides. The only quantity that differed
+was the pill's own width: 109.781 on darwin/arm64, 112.000 on the linux/x64
+runner.
+
+**The constraint.** The pill sits in a flex container carrying
+`HEADER_ACTION_CAP`, `max-width: 160px`, ratified in
+`docs/superpowers/specs/2026-08-25-review-modal-strip-dock.md` §3.0 by a sweep of
+eight cap values against three loads. That cap's own comment recorded the 2-item
+cluster measuring 147.73px at `text-xs`, which is 12.27px of headroom. At
+`text-sm` it measures 157.781px, so this branch spends 10px of it and leaves
+2.219px. The CI runner's advances are wider by exactly that, hitting 160 dead on.
+
+**The load sweep, which is the finding.** Cluster width / pill height / headroom
+vs 160, at 375, single-segment loads:
+
+| issues | `text-xs` (main) | `text-sm` (this branch) |
+|---|---|---|
+| 2, 5, 9 | 149.734 / 26.797 / 10.266 | 157.797 / 30.297 / 2.203 |
+| 10, 20, 99 | 157.422 / 26.797 / 2.578 | 160 / **48.297** / **0** |
+
+**Verdict: regression by bump.** On main every single-segment pill fits one line
+at every count from 2 to 99, its height never leaving 26.797px. At `text-sm` any
+two-digit count wraps, on every platform, not merely in CI. T-TAP saw it only in
+CI because its fixture says `"2 issues"` — a non-discriminating fixture in the
+very test that guards this cap, which is the same class as the three oracles
+recorded above.
+
+**The padding trim was measured and rejected.** `px-2` and `gap-1` each buy 4px,
+both together 8px. That rescues single-digit counts to 10.203px of headroom but
+leaves two-digit counts at 1.219px, which is under the 2.219px platform delta
+already observed on shorter copy. It would ship a per-device coin flip, so it is
+not an option even though it touches neither ratified decision.
+
+**Multi-segment loads are out of scope here.** From `2/0/3` upward the pill wraps
+at 74.594px (70.594px trimmed) regardless of the cap; that is the case
+`max-sm:flex-wrap` exists for, and the critique already accepted the wrapped
+three-segment pill at 82.9px.
+
+**Escalated, not repaired.** Eric decision 5B (type one size up below `sm`) and
+strip-dock §3.0 (the 160px cap) cannot both hold at 375 for a show with ten or
+more issues. Both are ratified, so the tie is not this arc's to break, and it
+goes to the decision board with the table above. Worth carrying into that
+discussion: main itself holds only 2.578px at two-digit counts, so the cap was
+already tight before 5B and any option that spends headroom rather than creating
+it will be fragile in the same place.
+
+**The options, each measured**, cluster width / pill height / headroom vs 160 at
+375 and `text-sm`, so the board carries numbers rather than sketches:
+
+| option | single-segment at cap | two-segment 99 + 99 | two-segment at true `99+` cap |
+|---|---|---|---|
+| ship as-is | 160 / 48.297 / 0 | 160 / 74.594 / 0 | 160 / 74.594 / 0 |
+| `px-2` + `gap-1` trim | 158.781 / 30.297 / 1.219 | 160 / 70.594 / 0 | 160 / 70.594 / 0 |
+| counts-only copy below `sm` | 128.938 / 30.297 / **31.063** | 154.344 / **30.297** / 5.656 | 160 / 48.297 / 0 |
+
+The trim is dead on its own numbers: 1.219px of headroom sits under the 2.219px
+platform delta already observed, so it would ship a per-device coin flip. The
+counts-only variant is the only one that MAKES headroom instead of spending it,
+and the only one that brings the two-segment pill to a single line at all, a case
+the critique had accepted as wrapped at 82.9px. It fails only when both counts
+are simultaneously past 99, which is beyond the load 30 the cap's own ratifying
+sweep treated as realistic.
+
+**One measurement was discarded rather than reported.** The first attempt at the
+two-segment `99+` row set only the FIRST phrase and left the second at full copy,
+so it reproduced full-copy geometry and would have read as "counts-only still
+wraps". Same defect as the three oracles above, measuring something adjacent to
+the claim, and caught only because the number came back suspiciously identical to
+the row above it.
+
+**Also owed, and independent of the ruling:** T-TAP's fixture should exercise a
+two-digit count, since a cap guard whose fixture cannot reach the cap is the
+defect that let this ship to CI in the first place. Deliberately not changed
+while the ruling is open, because the discriminating fixture is red under the
+current design and its correct expectation depends on which option lands.
+
 ### Task 5: Graduation and closeout
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:72` why=`the two ids added to the GRADUATED registry are still in DEFERRED.md and absent from DEFERRED-archive.md, so the archive-only assertion fails on each` ac=AC-12,AC-14 -->
