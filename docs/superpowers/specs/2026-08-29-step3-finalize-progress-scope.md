@@ -91,7 +91,7 @@ A title-only rename survives as clean, because `computeRescanDecision` weighs se
 
 The same stale source feeds the failure `display_name` (`app/api/admin/onboarding/finalize/route.ts:1704`), so this repair fixes both.
 
-**Fix:** widen that query to include `parse_result` and rebind it onto the local row alongside the other three, coercing with `asParseResult` exactly as the inner path does (a row written by the legacy double-encoding writer returns a JSON string scalar, and `parsedShowTitle` must not receive one). The block already exists to make the outer row match the generation that will be applied; this makes it do that for the one field the operator actually reads.
+**Fix:** widen that query to include `parse_result` and rebind it onto the local row alongside the other three, coercing with `asParseResult` exactly as the inner path does, so the outer row's shape matches `coercedRow`. Note the coercion is defence in depth rather than a correctness requirement for the two consumers at hand: both read through `parsedShowTitle`, which already JSON-parses a legacy string scalar and returns null if it will not parse (`lib/onboarding/blockerDisplayName.ts:12-23`). An earlier draft of this section claimed `parsedShowTitle` must not receive a string scalar; that was wrong, and it is corrected here rather than in a reopened spec round, per the orchestrator's 2026-08-29 fence. The block already exists to make the outer row match the generation that will be applied; this makes it do that for the one field the operator actually reads.
 
 Rows that fail BEFORE the re-parse have no refreshed title and are unaffected.
 

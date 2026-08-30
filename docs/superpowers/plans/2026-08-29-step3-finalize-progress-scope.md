@@ -16,6 +16,36 @@ Spec review is CLOSED at 4 rounds (3-2-1-1, decaying; R4 repaired at cause in `d
 - **Fence:** a spec-shaped defect surfacing at plan stage is repaired IN-ARC and named in the plan review brief. It never reopens a spec round.
 - Plan review has its own fresh 4-round budget.
 
+## Meta-test inventory (mandatory declaration)
+
+**This plan creates NO structural meta-test, and extends none.** Reason: it ships no new call
+boundary, no registry, no lock topology, no admin alert, and no new rendering contract — it changes
+four literal strings on two components, four accessible names, one local identifier, and one SQL
+projection. The candidate registries in `docs/agents/writing-plans.md:21` are each inapplicable for
+that reason: no Supabase call site is added (invariant 9), no advisory lock is acquired or moved
+(invariant 2), no `admin_alerts` row is written, no sentinel-in-optional-text is introduced, and no
+email normalization is touched.
+
+Two EXISTING structural guards must keep passing and are named so a regression is attributed rather
+than discovered: `tests/docs/_metaInvariant8Closeout.test.ts` (this plan is a UI unit) and
+`tests/docs/_metaReviewRoundEconomy.test.ts` (this arc has a filed round-economy record).
+
+## Four-mutant validation for every string-presence assertion (mandatory, `docs/agents/writing-plans.md:16`)
+
+Every task below asserts "this string appears in this output", so every one of them runs all four
+mutants BEFORE the review dispatch and records each result in that task's commit message:
+
+- (a) the asserted value EMPTIED — the assertion must fail;
+- (b) the expected content plus an APPENDED SUFFIX — a substring assertion passes here and must be
+  tightened until it does not;
+- (c) the content present but NOT LIVE — commented out, escaped, moved into an attribute, or behind
+  a false condition — so it exists in the file but not where the assertion claims;
+- (d) each discriminating parameter varied in turn — for these tasks that means the PHASE
+  (`batch` vs `cas`) and, for the subline, `lastName` null vs set.
+
+Mutant (c) is the one that matters most here: several assertions read text out of a rendered tree,
+and an assertion that would pass against a commented-out string is not testing the render.
+
 ## Global constraints
 
 - AGENTS.md invariants exercised: 1 (TDD), 2 (no lock change), 5 (no new codes), 6 (conventional commits), 8 (UI gate at close-out), 10 (audit sink not on the diff), 11 (worktree-only), 12 (no ledger row owed, bl-orch ruling 2026-08-29).
@@ -43,6 +73,13 @@ RED, four assertions that each fail against current code:
   - the SET of `[aria-label]` values within the batch phase equals `{"Setup progress"}`
 The aria assertion is a SET comparison, not four string checks: that is what makes it catch a fifth
 instance someone adds later, which four spot checks would not.
+THE SR ANNOUNCER NEEDS ITS OWN ASSERTION, OUTSIDE THE GROUP (plan R1 finding 1). `liveMessage` is
+rendered by `FinalizeAnnouncer` as a separate `<span class="sr-only" role="status" aria-live="polite">`
+(`components/admin/FinalizeButton.tsx:547-553`), mounted as a SIBLING of the progress panel
+(`components/admin/FinalizeButton.tsx:938`). A group-scoped assertion cannot see it, so every other
+test in this task can pass while a screen reader still says "Publishing your shows". Assert the
+announcer by its `role="status"` node and require its text to be `Setting up your shows`.
+
 Plus a scoped absence assertion: neither `Publishing your shows` nor `Publishing: ` appears anywhere
 in the batch-phase subtree. Scope it to the batch subtree, not the document — the CAS branch and the
 idle button legitimately contain other copy, and a document-wide grep would either pass vacuously or
@@ -67,14 +104,28 @@ GREEN: `components/admin/wizard/Step3ReviewWithFinalize.tsx:257` header, `compon
 COMMIT: `fix(admin): compact tracking reports setup, not publishing`
 
 ## Task 3 — the misnomer that started this
-<!-- task: red=`pnpm vitest run tests/onboarding/finalizeStream.test.ts` ac=AC-5 -->
-This is a behavior-neutral rename, so its RED is the EXISTING suite passing unmodified before and
-after. State that honestly rather than inventing a failing test: a rename with no observable
-behavior has no honest red, and manufacturing one would be the tautology the spec's own history
-warns about.
+<!-- task: red=`pnpm vitest run tests/onboarding/_metaNoApprovedRowsMisnomer.test.ts` ac=AC-5 -->
+Plan R1 finding 2 was right and the earlier framing of this task was invalid: it named
+`finalizeStream.test.ts` as its `red=` while its own body said that suite passes before and after,
+which is the "guard test that passes the moment it is authored" shape rejected at
+`docs/agents/writing-plans.md:28`. A behavior-neutral rename still owes a red-then-green on the SAME
+command; it just cannot come from a behavioral suite.
+
+RED: a NEW structural guard this task CREATES under `tests/onboarding/`, named
+_metaNoApprovedRowsMisnomer, with the usual dot-test-dot-ts extension (spelled out, not written as a
+path: it does
+not exist yet and `spec:lint` reads a path-shaped token as a citation to a tracked file). It asserts that
+no file under `app/api/admin/onboarding/` binds the identifier `approvedRows`. It FAILS on the live
+tree today (the declaration at `app/api/admin/onboarding/finalize/route.ts:1593` plus five readers)
+and PASSES after the rename — same command, observed both ways.
+PREMISE GUARD (`tests/_shared/premise.ts`): assert the walk actually SAW the finalize route file
+before asserting anything about its contents, so a mistyped glob cannot report success by scanning
+nothing.
+The guard matches the identifier as a WORD, not a substring, so `finishableRows` does not satisfy it
+by accident and a future `approvedRowsCount` does not evade it.
 GREEN: `approvedRows` -> `finishableRows` at `app/api/admin/onboarding/finalize/route.ts:1593` and
-its five readers. Verify by `rg -n 'approvedRows' app/` returning nothing, and by the untouched
-stream suite passing.
+its five readers. The new guard passes, and `tests/onboarding/finalizeStream.test.ts` still passes
+unchanged — the latter is a PRESERVATION check stated as such, not this task's red.
 COMMIT: `refactor(onboarding): name the finishable row set for what the query selects`
 
 ## Task 3b — the displayed name must come from the parse that was applied
@@ -108,9 +159,23 @@ select-time one, asserting the emitted `name` is the new title.
   stable — which is exactly why the current suite passes. Derive both titles from the fixture and
   assert they DIFFER before asserting which one was emitted, so the test cannot silently degrade
   into comparing a value to itself.
-  Check first whether `FakeFinalizeDb` can express a re-parse that changes the title; if the
-  auto-heal path is not reachable in the fake, that reachability work is part of this task and must
-  be done before the assertion, not around it.
+  REACHABILITY IS VERIFIED, so do not re-litigate it: `applyRescanDecisionUnderLock` is an injectable
+  dep (`tests/onboarding/_finalizeFake.ts:447` is the demoting example to copy), and `parseResult(title)`
+  is exported (`tests/onboarding/_finalizeFake.ts:48`). What IS real harness work, and what the observed
+  RED exists to force:
+    - `FakeFinalizeDb` returns ALIASED pending-row objects, so mutating the stored parse also mutates
+      the outer selected row and the test goes green against the UNFIXED code. Take a DETACHED
+      select-time snapshot so the two are genuinely distinct (plan R1, reviewer note).
+    - The fake matches the rebind query by PREFIX
+      (`normalized.startsWith("select staged_id, staged_modified_time, triggered_review_items")`,
+      `tests/onboarding/_finalizeFake.ts:296`). APPEND `parse_result` to that query in the route;
+      inserting it earlier breaks the prefix match, the handler returns no rows, and the route demotes
+      with `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` — a failure that looks like a race bug.
+    - Widen the fake's handler to RETURN `parse_result`. Without it the rebind assigns undefined;
+      `parsedShowTitle` is fully defensive (`lib/onboarding/blockerDisplayName.ts:12-23`) so it
+      returns null rather than throwing, the emit's `?? null` makes `name` null, and the client falls
+      back to the Drive file id. Silent, and a "the name changed" assertion passes on it.
+      The assertion is therefore POSITIVE: `name === "New Show"`.
 GREEN: widen the `app/api/admin/onboarding/finalize/route.ts:1040` query to include `parse_result`, rebind it onto the local row with
 `asParseResult` (a legacy double-encoded row returns a JSON string scalar and `parsedShowTitle` must
 not receive one). This also repairs the failure `display_name` at `app/api/admin/onboarding/finalize/route.ts:1704`, which reads the same
@@ -120,12 +185,48 @@ this is a route change. It is here because §3.2 keeps the NAME claim, and keepi
 owning its truth conditions. Say that in the commit rather than leaving a reviewer to wonder.
 COMMIT: `fix(onboarding): report the applied parse title in finalize progress`
 
+## Task 3c — transition audit (mandatory: the spec carries a Transition Inventory)
+<!-- task: red=`pnpm vitest run tests/components/admin/finalizeTransitionAudit.test.tsx` ac=AC-5c -->
+Required by the writing-plans rule for any component with a Transition Inventory (spec §3.4). Plan R1
+finding 4: the existing coverage audits part of `FinalizeButton` only, and covers neither the compact
+Step-3 renderer nor the two compound cases the inventory names.
+
+Inventory BOTH components' conditional renders — every `AnimatePresence`, every ternary render, every
+conditional block in the batch and CAS branches of `components/admin/FinalizeButton.tsx:962-1030` and
+`components/admin/wizard/Step3ReviewWithFinalize.tsx:230-290` — and assert each is either deliberately instant or carries
+appropriate `exit`/`initial`/`animate` props. The spec's inventory says ALL are instant, so the
+assertion is structural: no `AnimatePresence`, no `motion.*`, and no `data-framer-*`/`motion-` marker
+attribute appears in either subtree at any point in the sequence, and the mount's direct child count
+never exceeds one (the duplicate-exiting-node tell). Shape to copy:
+`tests/e2e/blocked-row-resolver-transitions.spec.ts`, which does exactly this two ways, structurally
+and behaviorally.
+
+COMPOUND cases from spec §3.4, both required:
+  - the name changing while the count/bar change in the SAME commit (every row event carries all
+    three, so this is the common path, not an edge case);
+  - batch -> CAS while a subline is rendered, asserting the group's accessible name does NOT change
+    across the boundary (that is the property keeping a screen reader from re-announcing the group
+    mid-run, and it is the reason the label is phase-neutral).
+RED: the compact renderer has no transition coverage at all today, so the Step3 half fails on the
+live tree before this task writes the assertions.
+COMMIT: `test(admin): audit finalize progress transitions across both renderers`
+
 ## Task 4 — close-out
 <!-- task: red=`grep -qE "^impeccable-gate: critique=RAN" docs/superpowers/plans/2026-08-29-step3-finalize-progress-scope.md` ac=AC-6 -->
 The close-out RED greps for its own marker, so the task cannot be marked done before the gate ran
 (pattern from `docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md:67`).
 Full suite under `pnpm heavy` (DB slot as a named grant from bl-orch), typecheck, eslint,
-format:check. Invariant-8 gate on the diff, findings dispositioned. Marker grammar, live example at
+format:check.
+
+Invariant-8 gate on the diff, run with the canonical v3 setup gates and not as a bare command
+(plan R1 finding 6): the skill's context.mjs load, which reads PRODUCT.md and DESIGN.md, then the
+register reference read (its brand or product register). Those are impeccable-skill files, not repo
+paths, so they are named in prose. Findings dispositioned in the close-out.
+
+**Both halves re-run if the later whole-diff review causes ANY UI repair.** The marker must describe
+the diff that SHIPS, not a pre-repair snapshot of it; a gate run before a UI change is a gate run
+against different bytes. If the whole-diff review changes nothing under `components/`, the first run
+stands. Marker grammar, live example at
 `docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md:94`:
 `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>`
 Then whole-diff Codex review to APPROVE, push, PR, 13 required contexts green, READY to bl-orch.
@@ -140,6 +241,7 @@ COMMIT: `docs(plan): close out step3 finalize progress scope`
 - AC-3 the running button label reads `Setting up…`
 - AC-4 every accessible name in the batch phase reads `Setup progress`, on both surfaces
 - AC-5 no source file under `app/` refers to `approvedRows`, and the stream suite passes unmodified
+- AC-5c every conditional render in both progress renderers is deliberately instant, and both compound transitions from spec §3.4 are covered
 - AC-5b the emitted `name` is the title of the parse that was applied, including after an inline re-scan that changed only the title
 - AC-6 full suite, typecheck, lint, format green; invariant-8 gate run and dispositioned
 
