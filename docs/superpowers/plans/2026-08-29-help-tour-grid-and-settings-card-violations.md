@@ -78,13 +78,31 @@ assertion could not fail at either viewport for any layout — a tautology, in a
 written to close a round-2 finding, sampled where it could never bind. Adding 1280, where
 the body is 814px, produced the red above.
 
-**The carrier was renamed after this probe ran, and the assertion did not care.** At the time it was
-`max-w-[var(--help-measure)]` written inline; it is now the named `help-measure-cap` class, because
-the arbitrary-value form puts a literal `--` into MDX and the em-dash copy guard scans MDX lines
-structurally, markup included. The transcript above is preserved as observed. That the row survives
-a change of mechanism is the round-4 repair working: it asserts the effect, not the carrier.
+**The carrier was renamed TWICE, and the second rename shipped a regression CI caught.**
+The first rename, to a `.help-measure-cap` class in `@layer base`, was made to keep a literal `--`
+out of MDX for the em-dash guard. It was never re-verified in a browser, because the vitest suite
+does not cover Playwright — and `@layer base` LOSES to `@layer utilities`, which is where the
+original `max-w-[var(--help-measure)]` utility lived. The cap silently stopped applying and the
+span card measured **81.4ch against the 75ch ceiling** on CI's non-required `deep-link-walker` job.
+Bisected by run history: green at `a80725068`, first red at `84587d8e8`, the rename commit itself.
 
-That is the SAME class as round 2's `22rem` finding: sample coverage, not assertion form.
+Repaired with a Tailwind v4 `@utility`, which emits into the utilities layer; confirmed by compiling
+`app/globals.css` and reading which layer the rule landed in, then re-probed:
+
+| assertion | staged violation | observed | result |
+| --- | --- | --- | --- |
+| §4 row 7, body vs the measure, under `@utility` | `help-measure-cap` removed from the span card's `<p>` | full-span card 1 body within the measure at 1280px: expected <= 704.876, received **814** | RED OBSERVED |
+
+**The lesson is not about CSS layers.** A mechanism change was made and the test that verifies that
+mechanism was not re-run — the same omission this document exists to prevent, committed by its own
+author, four commits after writing the row above. The assertion was correct throughout; nothing
+executed it.
+
+**What the round-4 repair did buy:** the row survives both renames unedited, because it asserts the
+EFFECT rather than the carrier. A guard keyed to `max-w-[var(--help-measure)]` would have needed
+rewriting twice and would have passed vacuously in between.
+
+ That is the SAME class as round 2's `22rem` finding: sample coverage, not assertion form.
 It recurred here in the repair for a different finding, which is the honest measure of how
 easily this class hides — and it was caught by staging the violation rather than by
 reasoning about the assertion, exactly as the AC-1c row above was.

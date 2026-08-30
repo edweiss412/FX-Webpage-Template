@@ -1228,6 +1228,24 @@ details[open] > summary [data-agenda-day-count] {
   initial-value: 0px;
 }
 
+/* The measure as an opt-IN, for elements the `.help-prose > *` rule cannot reach:
+   the full-span card's body sits inside an anchor inside a grid, so it is not a
+   direct child and takes no cap from the layer.
+
+   A `@utility`, NOT a rule in `@layer base`. This shipped once as a base-layer
+   class and CI caught it: `@layer base` loses to `@layer utilities`, and the
+   carrier it replaced (`max-w-[var(--help-measure)]`) was a utility, so moving it
+   to base silently dropped the cap and the span card measured 81.4ch against a
+   75ch ceiling. `@utility` emits into the utilities layer, which is where the
+   original lived.
+
+   Named rather than written inline, because the arbitrary-value form puts a
+   literal `--` into MDX and the em-dash copy guard scans MDX lines structurally,
+   markup included. */
+@utility help-measure-cap {
+  max-width: var(--help-measure);
+}
+
 @layer base {
   .help-prose {
     --help-measure: 70ch;
@@ -1238,19 +1256,6 @@ details[open] > summary [data-agenda-day-count] {
   }
 
   /* The escape hatch the card grids take. Without this the bleed class is inert. */
-  /* The measure as an opt-IN, for elements the `> *` rule cannot reach: the
-     full-span card's body sits inside an anchor inside a grid, so it is not a
-     direct child of `.help-prose` and takes no cap from the layer.
-     Named rather than written inline as `max-w-[var(--help-measure)]`, because
-     that arbitrary value puts a literal `--` into MDX and the em-dash copy guard
-     scans MDX lines structurally, markup included. A class attribute is not
-     rendered copy, but the guard cannot know that, and the alternative was a
-     file-level EXEMPT row that would stop catching real em dashes on a page this
-     branch is actively adding copy to. */
-  .help-measure-cap {
-    max-width: var(--help-measure);
-  }
-
   .help-prose > .help-bleed {
     max-width: none;
   }
