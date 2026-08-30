@@ -1485,6 +1485,10 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     await act(async () => {
       cas.push({ type: "phase", phase: "applying" });
     });
-    expect(getByTestId("wizard-finalize-progress").textContent ?? "").toContain("Finishing setup…");
+    // Scoped to the header ELEMENT and exact, not `toContain` over the whole panel:
+    // the panel also renders the CAS phase label, so a header that changed or vanished
+    // left the searched string alive elsewhere and this preservation test stayed green
+    // (whole-diff R1 finding 6).
+    expect(getByTestId("wizard-finalize-cas-heading").textContent).toBe("Finishing setup…");
   });
 });

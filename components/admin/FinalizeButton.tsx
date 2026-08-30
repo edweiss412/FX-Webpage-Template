@@ -1009,7 +1009,11 @@ const ProgressPanel = forwardRef<
         </>
       ) : (
         <>
-          <p className="text-base font-semibold text-text-strong" aria-hidden="true">
+          <p
+            className="text-base font-semibold text-text-strong"
+            data-testid="wizard-finalize-cas-heading"
+            aria-hidden="true"
+          >
             Finishing setup…
           </p>
           <p

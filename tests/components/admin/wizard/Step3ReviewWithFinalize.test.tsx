@@ -227,7 +227,7 @@ describe("WizardFooter — step-3 publish footer (tracking-in-center redesign 20
     expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  test("clicking Publish keeps the button MOUNTED in a disabled 'Publishing…' state (no vanish)", async () => {
+  test("clicking Publish keeps the button MOUNTED in a disabled 'Setting up…' state (no vanish)", async () => {
     // Hang the finalize request so the run stays in flight (never resolves).
     fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
     const { getByTestId } = render(
@@ -254,7 +254,9 @@ describe("WizardFooter — step-3 publish footer (tracking-in-center redesign 20
     const b = btn();
     expect(b.disabled).toBe(true);
     expect(b.getAttribute("aria-busy")).toBe("true");
-    expect(b.textContent ?? "").toMatch(/Setting up/i);
+    // Exact, not a case-insensitive substring: /Setting up/i also passes on an appended
+    // suffix or a contradictory sentence containing the phrase (whole-diff R1 finding 6).
+    expect((b.textContent ?? "").trim()).toBe("Setting up…");
     // The detailed per-sheet tracking still renders alongside it in the center.
     expect(getByTestId("wizard-step3-tracking")).toBeTruthy();
   });
