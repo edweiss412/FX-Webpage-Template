@@ -236,7 +236,8 @@ These cases go in the interactions spec, not the layout spec: the layout spec em
 
 ## 12. Closeout
 
-impeccable-gate: `/impeccable critique` + `/impeccable audit` on the whole diff, before the whole-diff cross-model review and before this arc reports READY. Both halves run with the canonical v3 setup gates: context.mjs context load (PRODUCT.md + DESIGN.md), then the register reference read. Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry.
+The gate runs on the whole diff, before the whole-diff cross-model review and before this arc reports READY, with the canonical v3 setup gates (`context.mjs` context load of PRODUCT.md + DESIGN.md, then the register reference read). Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry. The marker line below is filled in when both halves have run.
+ Both halves run with the canonical v3 setup gates: context.mjs context load (PRODUCT.md + DESIGN.md), then the register reference read. Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry.
 
 **UI surfaces in this diff:** `components/admin/showpage/PublishedReviewModal.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`. No `app/globals.css` `@theme` change, no `DESIGN.md` change, no new colour token, so no new contrast ratio needs pinning.
 

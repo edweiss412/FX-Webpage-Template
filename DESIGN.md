@@ -764,6 +764,7 @@ realtime reconnect backoff.
 | `PENDING_TIMEOUT_MS` | 8000 | `components/shared/pendingTimeout.ts` |
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
 | `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
+ | `DRAFT_RESTORED_NOTE_MS` | 5000 | `components/admin/wizard/DraftRestoredNote.tsx` |
 
 Rows written `timer(N)` / `duration(N)` are inline literals rather than named constants; the file
 column is where they live.
