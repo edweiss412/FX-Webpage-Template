@@ -179,7 +179,7 @@ RED, four assertions that each fail against current code:
   - batch header reads `Setting up your shows…`
   - the running button label reads `Setting up…`
   - the subline reads `<name>` with NO prefix (spec §2.2: the strongest outcome-neutral form is to assert nothing)
-  - the SET of `[aria-label]` values within the batch phase equals `{"Setup progress"}`
+  - the SET of `[aria-label]` values within the batch phase equals `{"Show setup progress"}`
 The aria assertion is a SET comparison, not four string checks: that is what makes it catch a fifth
 instance someone adds later, which four spot checks would not.
 THE SR ANNOUNCER NEEDS ITS OWN ASSERTION, OUTSIDE THE GROUP (plan R1 finding 1). `liveMessage` is
@@ -260,7 +260,7 @@ unchanged — the latter is a PRESERVATION check stated as such, not this task's
 COMMIT: `refactor(onboarding): name the finishable row set for what the query selects`
 
 ## Task 3b — the displayed name must come from the parse that was applied
-<!-- task: red=`pnpm vitest run tests/onboarding/finalizeStream.test.ts` ac=AC-5b -->
+<!-- task: red=`pnpm vitest run tests/onboarding/finalizeInlineRescan.test.ts` ac=AC-5b -->
 Spec §3.1b. `onRow` reads `parsedShowTitle(row.parse_result)` from the OUTER select-time row
 (`app/api/admin/onboarding/finalize/route.ts:1713`), but the inline-rescan auto-heal rebinds only
 `staged_id`, `staged_modified_time` and `triggered_review_items` and does not even select
@@ -431,7 +431,7 @@ COMMIT: `docs(plan): close out step3 finalize progress scope`
 - AC-1 the batch header reads `Setting up your shows…` on both surfaces
 - AC-2 the batch subline reads `<name>` with no prefix on both surfaces
 - AC-3 the running button label reads `Setting up…`
-- AC-4 every accessible name in the batch phase reads `Setup progress`, on both surfaces
+- AC-4 every accessible name in the batch phase reads `Show setup progress`, on both surfaces
 - AC-5 no source file under `app/` refers to `approvedRows`, and the stream suite passes unmodified
 - AC-5c every conditional render in both progress renderers is deliberately instant, and both compound transitions from spec §3.4 are covered
 - AC-5b the emitted `name` is the title of the parse that was applied, including after an inline re-scan that changed only the title
@@ -453,7 +453,7 @@ the obvious spelling silently drops the group's own label and asserts over 1 of 
 surface — passing while half the class is unfixed.
 
 Write it as: take the group element, then collect `[el, ...el.querySelectorAll("[aria-label]")]`,
-filter to those carrying the attribute, and compare the resulting SET to `{"Setup progress"}`.
+filter to those carrying the attribute, and compare the resulting SET to `{"Show setup progress"}`.
 Assert the collected count is >= 2 before comparing, so a selector that matches nothing cannot pass
 the set comparison vacuously (an empty set equals an empty set).
 

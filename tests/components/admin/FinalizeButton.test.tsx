@@ -1461,7 +1461,7 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     expect(status!.textContent ?? "").toBe("Setting up your shows");
   });
 
-  test("every accessible name in the batch phase reads Setup progress", async () => {
+  test("every accessible name in the batch phase reads Show setup progress", async () => {
     const { getByTestId } = await runningBatchPanel();
     const group = getByTestId("wizard-finalize-progress");
     // querySelectorAll is DESCENDANT-only and the aria-label sits on the SAME

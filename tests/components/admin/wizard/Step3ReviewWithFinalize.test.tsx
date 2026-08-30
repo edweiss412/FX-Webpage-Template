@@ -326,7 +326,7 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(line.textContent).toBe("East Coast");
   });
 
-  test("every accessible name in the compact batch phase reads Setup progress", async () => {
+  test("every accessible name in the compact batch phase reads Show setup progress", async () => {
     const { getByTestId } = await runningCompactTracking();
     const group = getByTestId("wizard-step3-tracking");
     // querySelectorAll is DESCENDANT-only and the aria-label sits on the SAME
