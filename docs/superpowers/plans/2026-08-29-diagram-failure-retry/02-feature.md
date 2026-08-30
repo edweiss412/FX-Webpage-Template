@@ -313,9 +313,9 @@ carry it:
 | pair | treatment |
 |---|---|
 | idle → failed | instant swap, no animation |
-| failed → retrying | instant label swap within the same button node; the `<Image>` mounts in its final position beneath the overlay in the same commit |
+| failed → retrying | instant. **[SUPERSEDED — spec §0]** ~~label swap within the same button node~~ — a SEPARATE overlay replaces the failed control; the `<Image>` mounts in its final position beneath the overlay in the same commit |
 | retrying → idle | instant; the overlay unmounts and the image becomes visible in the same commit |
-| retrying → failed | instant label swap back, same node |
+| retrying → failed | instant. **[SUPERSEDED — spec §0]** ~~label swap back, same node~~ — the overlay is replaced by the failed control |
 | idle → retrying | unreachable by construction: `retrying` is entered only from `failed` |
 | any session state ↔ unavailable | reachable both ways and instant; `item.available` flipping does not remount the cell |
 

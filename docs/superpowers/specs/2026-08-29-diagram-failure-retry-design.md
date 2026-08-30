@@ -397,7 +397,7 @@ Current `per-item` rows:
 | `restoreTargetRef` | `Gallery.tsx:139` | re-pointed on every failure that removes the current target (§7) |
 | `failedKeys` (lightbox) | `GalleryLightbox.tsx:293` | entering `retrying`; the item going unavailable or leaving `items` |
 | `wantsOriginal` | `GalleryLightbox.tsx:303` | entering `retrying` (§4.0.2); the demote path, unchanged |
-| `demotedRef` | `GalleryLightbox.tsx:312` | **deliberately none, unchanged.** This spec adds no write to it (§4.0.2) |
+| `demotedRef` | `GalleryLightbox.tsx:312` | **[SUPERSEDED — §0]** ~~**deliberately none, unchanged.**~~ Cleared on a `snapshotRevisionId` change. This spec adds no write to it (§4.0.2) |
 | `demotedNotice` | `GalleryLightbox.tsx:320` | its own timer; `failedKeys` gaining the id; the item going unavailable (§9.1) |
 | `demoteTimerRef` | `GalleryLightbox.tsx:321` | cleared with `demotedNotice`, never separately |
 | `activeScale` | `GalleryLightbox.tsx:272` | the active-slide error path already resets it (`GalleryLightbox.tsx:1110-1112`); a retry that returns the slide to `idle` leaves it at 1, which is correct for a freshly loaded clamped tier |
@@ -590,7 +590,7 @@ parse-time-unavailable cells never held focus, so nothing about them changes.
 
 **Ordering constraint.** The retry button does not exist when `handleThumbnailFailure` runs;
 it mounts in the commit that handler's state update causes. Focus is therefore moved from a
-ref callback on the retry button, gated by a per-item `focusOnMount` flag the handler sets
+**[SUPERSEDED — §0]** ~~ref callback on the retry button, gated by a per-item `focusOnMount` flag the handler sets~~
 and the callback clears. A synchronous `focus()` in the handler would target a node that has
 not mounted.
 
@@ -619,8 +619,8 @@ reason:
 
 - DROPPED: adding a `retrying`/`failedKeys` conjunct to `usable`. There is no `usable`.
 - KEPT: **`thumbRefs` holds only the healthy thumbnail button, and the retry button gets its
-  own `retryRefs` map** (§4.0.3). Not for eligibility any more, but because §7's focus move
-  and §4's `focusOnMount` need to address the retry button specifically, and a shared map
+  own map** **[SUPERSEDED — §0]** ~~`retryRefs`~~ — shipped as `retryControlRefs` and `retryingRefs` (§4.0.3). Not for eligibility any more, but because §7's focus move
+  and §4's focus hand-offs **[SUPERSEDED — §0]** ~~`focusOnMount`~~ need to address the retry button specifically, and a shared map
   cannot say which kind of button an id currently holds.
 
 AC-15 is restated accordingly: no successor-hop exists at all. It is a source-scan guard
@@ -675,12 +675,12 @@ Every other transition that REMOVES a control names its destination, so no path 
 | `failed → retrying` (gallery and lightbox) | the failed control is replaced by a separate in-flight overlay | relocated by an explicit hand-off. This is why the overlay must not be natively `disabled` |
 | `retrying → idle` (gallery) | yes, the image returns | the cell's `<button>` wrapper, which is the healthy thumbnail's own control and is focusable |
 | any control removal not listed above | yes | the gallery list (`listRef`), via the single focus rescue. **AMENDED 2026-08-29 (R2 finding 1):** this table originally enumerated destinations per transition, and that enumeration was the defect — each round found a removal path it had not listed. The rescue now asks where focus IS after any commit rather than predicting which transitions can strand it |
-| `retrying → failed` | no, same node | stays |
+| `retrying → failed` | **[SUPERSEDED — §0]** ~~no, same node~~ — the in-flight overlay is REPLACED by the failed control | relocated by explicit hand-off |
 | any session state → `unavailable` (gallery) | yes, nothing focusable remains in the cell | the gallery list (`listRef`), the existing last-resort destination (`Gallery.tsx:130`) |
 | active slide's control removed for any reason (retry succeeds, slide goes inactive, item goes unavailable) | yes | the dialog's Close button, matching the existing error path (`GalleryLightbox.tsx:1096-1103`) |
 | a thumbnail fails while its lightbox is OPEN | n/a — focus is inside the dialog | untouched. `restoreTargetRef` is re-pointed to the new retry button so CLOSING lands correctly, which is a different thing from moving focus now |
 
-The last row is the distinction `focusOnMount` must respect: it means "focus this button
+The last row is the distinction the focus hand-offs must respect **[SUPERSEDED — §0]** ~~`focusOnMount`~~: it means "focus this button
 when it mounts" only when focus was on its predecessor in the gallery, and never when the
 dialog is open. Otherwise a failure behind an open lightbox would steal focus out of the
 modal. `lightboxOpenRef` (`Gallery.tsx:169`) is the existing signal for that, already read by
@@ -713,9 +713,9 @@ nothing, so session state survives a props flip and every pair below is reachabl
 | pair | treatment |
 |---|---|
 | idle → failed | instant swap, no animation. Matches the existing instant swap. |
-| failed → retrying | instant. The control keeps its node and re-labels; the `<Image>` MOUNTS in its FINAL position beneath the overlay in the same commit (§4.0.5), which is the point of the transition. |
+| failed → retrying | instant. **[SUPERSEDED — §0]** ~~The control keeps its node and re-labels~~ — a SEPARATE overlay replaces the failed control; the `<Image>` MOUNTS in its FINAL position beneath the overlay in the same commit (§4.0.5), which is the point of the transition. |
 | retrying → idle | instant. The `<Image>` becomes visible on `onLoad` and the control unmounts in the same commit. |
-| retrying → failed | instant label swap back, same node. |
+| retrying → failed | instant. **[SUPERSEDED — §0]** ~~label swap back, same node~~ — the overlay is replaced by the failed control. |
 | idle → retrying | unreachable by construction: `retrying` is entered only from `failed`, and only by a tap on a control that exists only in `failed`. |
 | any session state ↔ unavailable | reachable in both directions and instant. `item.available` flipping does not remount the cell, so the rules below are load-bearing rather than theoretical. |
 
@@ -900,7 +900,7 @@ here rather than as a finding.
 - **AC-16** A slide swiped away mid-retry does not return holding a disabled `Retrying…`,
   and focus does not reach `<body>` when its control unmounts (§4.0.4).
 - **AC-17** Every per-item member of the §4.0.3 table has a clear path, or a row saying
-  deliberately none. Asserted as a source-derived guard over the grep in that section, so a
+  **[SUPERSEDED — §0]** ~~deliberately none~~ — that vocabulary was retired with its last user. Asserted as a source-derived guard over the grep in that section, so a
   new member fails by default.
 
 ## 12. Out of scope

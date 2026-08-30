@@ -62,7 +62,7 @@ exists: the plan named the allowlist and would have left the baseline to be disc
   change, and whether the candidate set itself is stable. (discharged by Task P4)
 - AC-P5 The registry meta-test fails on a planted unclassified declaration of each shape the
   rejected grep missed, and every `per-item` row carries a clear path or the exact words
-  `deliberately none`. (discharged by Task P5)
+  **[SUPERSEDED — spec §0]** ~~`deliberately none`~~ — the phrase was retired with `demotedRef`, its last user. (discharged by Task P5)
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -187,7 +187,7 @@ scanner SEES the declaration, and that the registry check REDS while it is uncla
 scanner that enumerates correctly behind a gate that never fails is not a cover.
 
 **A third assertion, which round 1 found missing from AC-17**: every `per-item` row in the
-shipped registry carries a non-empty clear path or the exact string `deliberately none`. A
+shipped registry carries a non-empty clear path **[SUPERSEDED — spec §0]** ~~or the exact string `deliberately none`~~. A
 row present but empty would satisfy "classified" while documenting nothing, and `demotedRef`
 is precisely a row whose correct value is the literal words.
 
