@@ -34,6 +34,7 @@ The count is not wrong. The verb is.
 | Seven rows IS the correct unit of work for the batch phase; this spec does not change which rows finalize processes | `app/api/admin/onboarding/finalize/route.ts:130` (Task B2), predicate at `app/api/admin/onboarding/finalize/route.ts:468-469` |
 | The batch phase publishes nothing; the Live flip is `/finalize-cas` | `app/api/admin/onboarding/finalize/route.ts:1407` (`firstSeenPublished: false`, unconditional), `app/api/admin/onboarding/finalize/route.ts:132`, `supabase/migrations/20260501000000_initial_public_schema.sql:26` |
 | The progress stream makes NO per-row claim about publishing; the wire is unchanged | §2.1 — the ratified narrowing decision, owner call 2026-08-29 |
+| The displayed NAME is a claim this spec keeps, so it must name the applied parse | §3.1b — settled by spec review R4 |
 | The four `Publish progress` accessible names change too | §3.2, with the class-sweep command and its full result |
 | The `N of M` count, the progress bar, the CAS-phase copy, and the idle button label are unchanged | §3.2 |
 | No wire change, no DB change, no migration, no new error code, no advisory-lock change | §6 |
@@ -81,6 +82,18 @@ Both facts constrain the label. It cannot be present tense ("Setting up: X" name
 `app/api/admin/onboarding/finalize/route.ts:1593` and its five readers rename `approvedRows` → `finishableRows`. Pure rename, no behavior change, no emit change. In scope because the name asserts a filter the query does not apply, and this spec's own first two drafts repeated that error one level up by treating approval as destiny.
 
 `lib/onboarding/finalizeProgress.ts` is NOT modified. The stream contract is unchanged.
+
+### 3.1b The displayed name must come from the parse that was applied
+
+`onRow` derives the displayed name from the OUTER, select-time row: `name: parsedShowTitle(row.parse_result)` (`app/api/admin/onboarding/finalize/route.ts:1713`). When an inline re-scan heals a modified sheet, the route re-parses it and applies the REFRESHED parse, but the auto-heal block rebinds only three fields onto the local row — its own comment says "Rebind those three onto the local `row`" — and its query selects `staged_id, staged_modified_time, triggered_review_items` and not `parse_result` (`app/api/admin/onboarding/finalize/route.ts:1039-1048`). The freshly-read parse lives on a LOCAL copy inside `processApprovedRow` and never reaches the outer row.
+
+A title-only rename survives as clean, because `computeRescanDecision` weighs selected crew invariants and data-gap regressions rather than the title (`lib/onboarding/rescanDecision.ts:35`). So an ordinary rename produces a row that is set up as `New Show` while the stream says `Old Show`, with nothing downstream to correct it: a successful `per_row` entry carries no name at all.
+
+The same stale source feeds the failure `display_name` (`app/api/admin/onboarding/finalize/route.ts:1704`), so this repair fixes both.
+
+**Fix:** widen that query to include `parse_result` and rebind it onto the local row alongside the other three, coercing with `asParseResult` exactly as the inner path does (a row written by the legacy double-encoding writer returns a JSON string scalar, and `parsedShowTitle` must not receive one). The block already exists to make the outer row match the generation that will be applied; this makes it do that for the one field the operator actually reads.
+
+Rows that fail BEFORE the re-parse have no refreshed title and are unaffected.
 
 ### 3.2 UI copy
 
@@ -151,6 +164,7 @@ All DB-free. No `TEST_DATABASE_URL` and no DB slot are required. Each row declar
 | Running button label reads `Setting up…` | RED | `tests/components/admin/FinalizeButton.test.tsx` | The most prominent control keeping the false verb. |
 | CAS-phase header still reads `Finishing setup…` and its accessible name is still reachable | PRESERVATION | `tests/components/admin/FinalizeButton.test.tsx` | An over-broad copy edit reaching the wrong phase. Green today by construction. |
 | `finishableRows` rename is behavior-neutral: the existing stream suite passes unmodified | PRESERVATION | `tests/onboarding/finalizeStream.test.ts` | A rename that accidentally changes a reader. |
+| After an inline re-scan that changes ONLY the title, the emitted `name` is the NEW title | RED | `tests/onboarding/finalizeStream.test.ts` | §3.1b. The fixture must actually CHANGE the title across the re-parse; a fixture whose title is stable cannot distinguish the stale source from the fresh one, which is exactly why the existing suite does not catch this. |
 
 Feeding stream events is NOT symmetric across the two suites and the plan must budget for it. `controllableNdjson()` is a module-local function in the FinalizeButton suite (`tests/components/admin/FinalizeButton.test.tsx:961`), not exported and not shared. The Step3 suite holds the running state with a never-resolving fetch (`tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:231`), which produces NO row events, so `state.lastName` stays null and its subline never renders at all. Asserting the compact subline therefore requires extracting that helper to a shared module and importing it in both suites. The extraction is mechanical and is part of the compact-surface task. Existing suites that must stay green unmodified: the whole of `tests/onboarding/finalizeStream.test.ts` (this spec does not touch the route's emit), plus `tests/log/adminOutcomeBehavior.test.ts` and `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10 — the audit sink is not on the diff).
 
