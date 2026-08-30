@@ -515,7 +515,7 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 
 ### 12.1 The dual gate
 
-Both halves ran on the diff, with the v3 setup gates first (`context.mjs` context load, then the product register — this is admin tooling, so design SERVES the product). Critique ran its two assessments as ISOLATED PARALLEL SUB-AGENTS, not inline; an inline run is a degraded run and would have required a banner on the report.
+Both halves ran on the diff, with the v3 setup gates first (the skill context load, then the product register — this is admin tooling, so design SERVES the product). Critique ran its two assessments as ISOLATED PARALLEL SUB-AGENTS, not inline; an inline run is a degraded run and would have required a banner on the report.
 
 **Critique — 2 P1 findings, both FIXED (commit `081f00570`).**
 
