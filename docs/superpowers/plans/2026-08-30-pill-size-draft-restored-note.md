@@ -204,16 +204,32 @@ tests/e2e/attention-autoopen-suppress.spec.ts:37
 
 <!-- task: red=`pnpm heavy npx playwright test tests/e2e/step3-review-modal.interactions.spec.ts --project=desktop-chromium -g "T-NOTE"` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:954` why=`no case in that spec seeds a draft key, so the note locator resolves to zero nodes until the seeding helper and the cases are authored` ac=AC-8,AC-11,AC-16,AC-17 -->
 
-**Files:** `tests/e2e/step3-review-modal.interactions.spec.ts`.
+**Files:** `tests/e2e/step3-review-modal.interactions.spec.ts`, `tests/e2e/_step3ReviewModalHarness.tsx`. Shipped in `62b057488`.
 
-These cases go in the interactions spec, not the layout spec: the layout spec emits only static `harness*.html` pages, while the live page and esbuild bundle exist here (`tests/e2e/step3-review-modal.interactions.spec.ts:134`), and this spec is already in CI and in `desktop-chromium`.
+These live in the interactions spec because the layout spec emits only static `harness*.html` pages, while the live page and its esbuild bundle are built here and this spec is already in CI.
 
-- [ ] **Step 1: Seed before hydration.** The note decides its state in a mount initializer, so a seed after `goto` is one it never sees: use `page.addInitScript` with the draft key, then navigate.
-- [ ] **Step 2: Geometry (AC-8, DI-8, DI-9).** The note spans the pane's content width within 0.5px, has real height, and its rect sits inside the scroller's initial client rect. A sibling case with no draft asserts it does not mount at all (DI-11).
-- [ ] **Step 3: The shift (AC-11, DI-10).** Bracket the note present-before and absent-after, then assert the follower rose by **the note's measured height plus the scroller's measured `gap-6`**, both read at runtime. "scrollTop unchanged" alone proves nothing: an in-flow node vanishing above the fold leaves it untouched while everything below moves, so that is asserted **as well as**, never instead of.
-- [ ] **Step 4: Scrolled (AC-16).** With the pane scrolled past the note, a reference element's viewport-relative `top` is unchanged across the dismissal. The present/absent bracket is what makes this non-vacuous: an implementation whose timer is cancelled by scrolling would otherwise pass trivially.
-- [ ] **Step 5: The compound matrix (AC-17), all four cells.** Expand and collapse, each from scroll-top and from scrolled. Each asserts the section's own `aria-expanded` actually changed before drawing any conclusion, and then applies the oracle its starting state demands: the shift equation from the top, the fixed-reference rule when scrolled.
-- [ ] **Step 6: Run the whole interactions spec,** so a leaking `addInitScript` cannot start mounting the note in cases that never asked for one.
+- [x] **Step 1: Seed before hydration.** The note decides its state in a mount initializer, so `page.addInitScript` with the draft key, then navigate. A seed after `goto` is one the component never sees.
+- [x] **Step 2: The harness emits its wizard session id** alongside its dfid, so this spec asserts parity instead of keeping a second literal that drifts. The spec deliberately does not import the harness module, which is why the constant is mirrored and checked rather than imported.
+- [x] **Step 3: Eight cases, observed red then green.** Geometry and above-the-fold (AC-8, DI-8, DI-9), the no-draft case (DI-11), the shift equation (AC-11, DI-10), the scrolled case (AC-16), and the full four-cell AC-17 matrix: expand and collapse, each from scroll-top and from scrolled.
+- [x] **Step 4: Four of the eight first failed on "pane stays at the top",** which is round 1's finding 17 arriving for real: `click()` scrolls its target into view, so a reference captured before the toggle is compared across the toggle's reflow AND the auto-scroll. The toggle now happens first and the reference is captured after, with the starting scroll state established at that point.
+- [x] **Step 5: The shift oracle asserts `scrollTop` unchanged AS WELL AS the measured equation,** never instead of it. Both the note height and the scroller gap are read at runtime.
+- [x] **Step 6: Present-before / absent-after brackets every dismissal case,** so an implementation whose timer is cancelled by scrolling cannot pass by never leaving.
+- [x] **Step 7: `33 passed`** across the whole interactions spec, so the seeding does not leak into cases that never asked for a draft.
+
+### Task 4b: A regression this branch caused, and the repair
+
+<!-- task: red=`pnpm heavy npx playwright test tests/e2e/popover-clip-fit.spec.ts --project=desktop-chromium -g "MID-ENTRANCE"` red-state=live why=`the taller phone pill moves the menu's anchor after placement, and the scroller settles against a stale cap; deterministic 3/3 at this head, green on a control run with the components at origin/main` ac=AC-4 -->
+
+**Files:** `components/admin/showpage/AttentionMenu.tsx`. Shipped in `ca8699574`.
+
+Not a documented limit. A deterministic red at this head with a green control at `origin/main` is a regression this diff causes, and causing one on `AttentionMenu` makes that surface this arc's to repair.
+
+- [x] **Step 1: Establish it is mine, not inherited.** Control run with both modal components restored to `origin/main`: passes. At this head: fails 3/3 under `--repeat-each=3`, so not flake.
+- [x] **Step 2: Bisect.** Not the radius, and not the `whitespace-nowrap` (which was scoped to `max-sm:` after an unscoped version changed desktop too). It is the ratified type-size change itself.
+- [x] **Step 3: Diagnose.** The observer effect resolves `panel.offsetParent` once, at setup, and observes it as the anchor. `offsetParent` is **null while the panel is hidden**, which is exactly the mid-entrance window, so a menu mounting in that state never observes its anchor and every later anchor resize leaves the written coordinates stale. `entered` is the only other re-place signal and fires once. Survivable while the anchor's height never moved.
+- [x] **Step 4: Minimal touch.** `measureAndApply` already re-resolves `panel.offsetParent` on every call, so it adopts the anchor there the first time it resolves, ref-guarded to observe once and cleared with the observer. The placement anchor is unchanged: `pillRef` is deliberately not the anchor, for a measured reason recorded at `components/admin/showpage/AttentionMenu.tsx:383`, and this does not touch that.
+- [x] **Step 5: Sweep the shape.** No component consumes pill metrics; only a `components/admin/showpage/StatusStrip.tsx:382` comment names the testid. Seven e2e specs read pill geometry.
+- [ ] **Step 6: Verify red-to-green,** plus `published-review-modal.realtime` and `published-show-attention`, which this branch has not yet run. Held under the fleet DB rule; nothing is claimed green until then.
 
 ### Task 5: Graduation and closeout
 
@@ -221,9 +237,9 @@ These cases go in the interactions spec, not the layout spec: the layout spec em
 
 **Files:** `DEFERRED.md`, `DEFERRED-archive.md`, `tests/docs/_metaDeferralLedgerGraduation.test.ts`.
 
-- [ ] **Step 1: Add both ids to `GRADUATED`** and observe the red: each is `missing from DEFERRED-archive.md` and `still in DEFERRED.md`.
-- [ ] **Step 2: Move both entries whole,** deleting the `· **Status:** IN PROGRESS · **Branch:** …` run from each meta line as you go. The marker comes off here, in the PR's last commit, because one that merges into main names a branch the merge just deleted and `tests/docs/_metaLedgerInProgress.test.ts` then reds main. One provenance line each.
-- [ ] **Step 3: Ledger guards green:** `_metaDeferralLedgerGraduation`, `_metaLedgerInProgress`, `_metaLedgerMintBar`.
+- [x] **Step 1: Added both ids to `GRADUATED`** and observed the red: each `missing from DEFERRED-archive.md` and `still in DEFERRED.md`.
+- [x] **Step 2: Moved both entries whole,** deleting the `· **Status:** IN PROGRESS · **Branch:** …` run from each meta line as you go. The marker comes off here, in the PR's last commit, because one that merges into main names a branch the merge just deleted and `tests/docs/_metaLedgerInProgress.test.ts` then reds main. One provenance line each.
+- [x] **Step 3: Ledger guards green (`171 passed`):** `_metaDeferralLedgerGraduation`, `_metaLedgerInProgress`, `_metaLedgerMintBar`.
 - [ ] **Step 4: The draft key is seeded in exactly one e2e spec (AC-12, DI-11).** An equality against the expected one-file set, not a search that filters out its own counterexample: `rg -l "fxav-report-draft" tests/e2e/` must return exactly `tests/e2e/step3-review-modal.interactions.spec.ts`.
 - [ ] **Step 5: CI wiring reaches a real run (AC-14).** All four newly wired specs present in `playwright.config.ts`'s `desktop-chromium` `testMatch`, and the step3 pair in the workflow's `paths` watch and its `playwright test` invocation. If real CI reds or flakes on any of them, revert that spec's workflow entry only, keep its project wire, and record the gap as a documented limit with a re-file trigger.
 - [ ] **Step 6: Full local verification.** `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, `pnpm heavy pnpm test`, and the six e2e specs this arc touches or shares a fixture with.
@@ -236,7 +252,7 @@ These cases go in the interactions spec, not the layout spec: the layout spec em
 
 ## 12. Closeout
 
-The gate runs on the whole diff, before the whole-diff cross-model review and before this arc reports READY, with the canonical v3 setup gates (`context.mjs` context load of PRODUCT.md + DESIGN.md, then the register reference read). Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry. Both halves ran on 2026-08-30 as isolated subagents, with the canonical v3 setup gates.
+The gate runs on the whole diff, before the whole-diff cross-model review and before this arc reports READY, with the canonical v3 setup gates (the skill's context load of PRODUCT.md and DESIGN.md, then the register reference read). Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry. Both halves ran on 2026-08-30 as isolated subagents, with the canonical v3 setup gates.
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
 
@@ -258,11 +274,30 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
 
 **Critique P2 — announcement collided with dialog-open, FIXED.** A polite message arriving while `role="dialog"` is being spoken is routinely dropped. Held 400ms, cleared with the dismiss timer, registered in §5.5.
 
-**Critique P2 — three unmigrated 12px peers** at `components/admin/TodaySection.tsx:403` and `components/admin/DriveConnectionPanel.tsx:203`/`:221`. **Deferred, out of class:** none is a review-modal header pill, so none is in the class §1.1 R8 fences, and widening the sweep to them is a product decision Eric has not been asked.
+**Critique P2 — three unmigrated 12px peers. Deferred, out of class, and the citation corrected.** The critique placed both under components/admin/ (as TodaySection.tsx and DriveConnectionPanel.tsx directly); neither path exists. The real files are `components/crew/sections/TodaySection.tsx:403` and `components/admin/settings/DriveConnectionPanel.tsx:203` and `components/admin/settings/DriveConnectionPanel.tsx:221`, and `spec:lint` caught me quoting the critique's paths without checking them, which is precisely the citation class this arc's own spec stage spent five rounds on. Verified: all three are `rounded-pill` chips at 12px, so they are real peers of the SHAPE.
+
+They are still out of class, and the corrected paths make the case stronger rather than weaker. `TodaySection` is a **crew** surface, not admin at all: a different user, on a different page, with no capped header cluster. The two settings chips sit in a settings panel, not a review-modal header. §1.1 R8 fences the class to the review-modal header pill, and Eric ruled on that surface because it is the one carrying zero-scroll discovery for Doug. Sweeping three chips on two unrelated surfaces is a product decision he has not been asked.
 
 **Critique P3 — band arithmetic true for the unwrapped pill, false at 375 when wrapped.** Recorded as a documented limit rather than fixed: the comment describes the single-segment case `T-TAP` actually probes, and the wrapped case's band is now much smaller after P1a anyway.
 
 **Critique P3 and audit P3 — DESIGN.md §5.5 row indentation** matches its 40 siblings' generator output; cosmetic.
+
+### The regression, and why it was caught at all
+
+The larger phone pill moves the attention menu's anchor, and `popover-clip-fit.spec.ts`'s MID-ENTRANCE case caught it: deterministic at this head, green on a control run with the components at `origin/main`. Repaired in `ca8699574` (Task 4b), not fenced — a documented limit covers guard incompleteness, never a defect the diff introduces.
+
+**That spec had never executed.** It matched no project regex until this arc wired it, hours before it failed. Under the discovery gap recorded as `LIM-E2E-SPEC-DISCOVERY-GAP`, this regression ships invisibly: the pill grows, the menu's scroller settles against a stale cap on phones, and no gate anywhere says so. The slug was filed on a count — 118 spec files on disk, 70 discovered — which is the kind of number that reads as housekeeping. This is what it actually buys.
+
+It also sharpens the slug's own re-file trigger. The gap did not merely hide an untested surface; it hid a surface that a *later, unrelated, ratified* change would break. A census of what is dark measures exposure, not risk, and the risk is only visible once something moves.
+
+### Lessons this arc's own oracles taught
+
+Two of my assertions were wrong in the same way, and both passed review before execution refuted them:
+
+- **T-PILL-SIZE asserted every segment's rect was inside the pill's BOX.** The painted fill is clipped by the border radius, so copy painted outside the fill was still inside the box. The oracle measured a rectangle the design does not draw.
+- **The tap-band comment's arithmetic** described the single-segment pill `T-TAP` actually probes, and was false for the wrapped case at 375 — an assertion about geometry that no case evaluated.
+
+Both are the same shape as the clip oracle that read `scrollHeight` on an `overflow: visible` box and so reported "clipped" identically at the type size that already shipped. Each measured something adjacent to the claim rather than the claim. Executing them is what separated the three; reading them had not, across two review rounds.
  Both halves run with the canonical v3 setup gates: context.mjs context load (PRODUCT.md + DESIGN.md), then the register reference read. Findings and dispositions land in this section; P0 and P1 are fixed or explicitly deferred with a `DEFERRED.md` entry.
 
 **UI surfaces in this diff:** `components/admin/showpage/PublishedReviewModal.tsx`, `components/admin/wizard/Step3ReviewModal.tsx`. No `app/globals.css` `@theme` change, no `DESIGN.md` change, no new colour token, so no new contrast ratio needs pinning.

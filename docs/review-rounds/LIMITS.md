@@ -425,6 +425,8 @@ All four were wired into `desktop-chromium` and are green: 55 passing in the lay
 
 **First incident:** this arc, 2026-08-30. Four specs wired; one of them held an assertion that had never run and that this arc's own risk analysis depended on.
 
+**What the gap actually cost, measured hours later on the same branch.** `tests/e2e/popover-clip-fit.spec.ts`, wired by this arc, then caught a regression the arc itself introduced: the ratified larger phone pill moves the attention menu's anchor, and the menu's scroller settled against a stale cap. Deterministic at head, green on a control run with the components at `origin/main`, repaired in `ca8699574`. **Under this gap that regression ships invisibly** — the pill grows, the menu mis-sizes on phones, and no gate says so. The slug was filed on a count, 118 files on disk against 70 discovered, which reads as housekeeping; this is the first evidence of what the count means. It also sharpens the trigger below: a census of what is dark measures exposure, and the risk only becomes visible when something unrelated later moves.
+
 **Re-file trigger:** a **second independent arc** hitting the same gap. That recurrence, cited against this slug, is the `**Mint-exception:** product-blocked` evidence a row would need — the freeze's own recurrence clause requires hits spanning at least two independent arcs, and one arc hitting its own limit twice does not qualify. What would NOT settle it: wiring more specs by hand as they are discovered, which is what this arc did and which leaves the next 44 exactly as dark. A candidate repair compares the two sets mechanically, so a spec that matches no project fails at authoring time rather than at the moment somebody happens to need it.
 
 ---
