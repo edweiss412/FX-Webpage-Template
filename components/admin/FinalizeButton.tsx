@@ -215,6 +215,11 @@ export function useFinalizeRun({
   // the grand total (completed + the current batch's `listed` remaining). Reset each runLoop entry.
   const completedRef = useRef(0);
   const grandTotalRef = useRef(0);
+  // Both accumulators above are fed ONLY by stream events, so a batch read through the
+  // `!isStream` safety net advances neither while the run moves on. This flag records
+  // that the run's counts stopped being a measurement; the settled receipt reads it and
+  // says nothing rather than reporting the last pair it happened to see. Reset with them.
+  const countsExactRef = useRef(true);
   // A11y (WCAG 2.4.3) focus management on entering the running/terminal states
   // lives in the presentational pieces that own the DOM — <ProgressPanel> (via
   // its host in FinalizeButton), <FinalizeStatusRegion> (terminal alerts), and
@@ -228,12 +233,20 @@ export function useFinalizeRun({
   // response.json(). A stream that ends before its terminal `result` returns an interruption sentinel.
   async function readFinalizeBatch(
     response: Response,
-  ): Promise<{ body: FinalizeResponse; rowsProcessed: number } | { interrupted: true }> {
+  ): Promise<
+    { body: FinalizeResponse; rowsProcessed: number; streamed: boolean } | { interrupted: true }
+  > {
     const contentType = response.headers?.get?.("content-type") ?? "";
     const isStream =
       response.ok && contentType.includes(FINALIZE_STREAM_CONTENT_TYPE) && response.body != null;
     if (!isStream) {
-      return { body: (await response.json()) as FinalizeResponse, rowsProcessed: 0 };
+      // `streamed: false` is not the same claim as `rowsProcessed: 0`. This batch may have
+      // finished any number of rows; nothing on this path can say how many.
+      return {
+        body: (await response.json()) as FinalizeResponse,
+        rowsProcessed: 0,
+        streamed: false,
+      };
     }
     const baseline = completedRef.current;
     const reader = response.body!.getReader();
@@ -291,7 +304,7 @@ export function useFinalizeRun({
       if (tail) handle(tail);
     }
     if (!terminal) return { interrupted: true };
-    return { body: terminal, rowsProcessed };
+    return { body: terminal, rowsProcessed, streamed: true };
   }
 
   // Read the /finalize-cas response: phase events drive the "Finishing setup…" sub-label; returns
@@ -357,6 +370,7 @@ export function useFinalizeRun({
     // prior run's completed count (the server's `listed` reflects only the REMAINING finishable rows).
     completedRef.current = 0;
     grandTotalRef.current = 0;
+    countsExactRef.current = true;
 
     // mode:"finish" (spec §4.5) — the batch loop already ran in a prior session
     // (checkpoint all_batches_complete); go straight to the /finalize-cas flip.
@@ -412,6 +426,7 @@ export function useFinalizeRun({
         }
         // This batch's rows are now finished — fold them into the cross-batch baseline.
         completedRef.current += read.rowsProcessed;
+        if (!read.streamed) countsExactRef.current = false;
         if (batchBody.status === "batch_complete") continue;
         if (batchBody.status === "all_batches_complete") break;
         setState({ kind: "error", copy: GENERIC_ERROR, code: null });
@@ -441,8 +456,15 @@ export function useFinalizeRun({
       // event's own `total` — so a stream whose row events disagree with its listed
       // total drives them apart and the receipt claims more work than it says was
       // asked for. Reproduced as "5 of 1 show set up". Impeccable critique P2.
-      settledDone: Math.min(completedRef.current, grandTotalRef.current),
-      settledTotal: grandTotalRef.current,
+      // countsExactRef: a mixed-transport run (one batch streamed, a later one read
+      // through the non-stream safety net) leaves the refs holding the last STREAMED
+      // batch's partial pair while the loop went on to finish everything. Suppressing
+      // the receipt there is the same posture as the checkpoint-resume path, which also
+      // has no batch of its own to report.
+      settledDone: countsExactRef.current
+        ? Math.min(completedRef.current, grandTotalRef.current)
+        : 0,
+      settledTotal: countsExactRef.current ? grandTotalRef.current : 0,
     });
     let casResponse: Response;
     try {

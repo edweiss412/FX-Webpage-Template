@@ -1809,3 +1809,75 @@ describe("FinalizeButton — the CAS group answers 'is it still working?'", () =
     expect(getByTestId("wizard-finalize-progress").getAttribute("aria-busy")).toBe("true");
   });
 });
+
+describe("FinalizeButton — the settled receipt only claims counts it actually has", () => {
+  test("a streamed batch followed by a NON-STREAMED batch prints no receipt", async () => {
+    // Whole-diff review R1 finding 3. The two accumulators are fed only by stream
+    // events: `listed` sets grandTotalRef, each `row` event's own total feeds
+    // completedRef. `readFinalizeBatch`'s `!isStream` safety net returns
+    // `rowsProcessed: 0` and touches neither ref, so a run whose FIRST batch streamed
+    // 2 of 3 and whose SECOND came back as plain JSON reaching all_batches_complete
+    // arrives at CAS with the refs still reading the first batch's partial numbers.
+    // The receipt then says "2 of 3 shows set up" about a run that finished everything.
+    //
+    // Reachable: the non-stream path exists because a proxy can strip the Accept
+    // header, and nothing makes that decision once per run rather than per request.
+    // Retry after race_row / cas_per_row / error resets both refs, and the
+    // first-request non-stream, zero-row and mode:"finish" paths all resolve to zero
+    // honestly. This mixed-transport sequence is the one route that lands on a stale
+    // partial, so the fix is to stop claiming a count once any batch was unmeasurable
+    // rather than to guess at one.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(cas.response);
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={3} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 3 });
+      batch.push({ type: "row", done: 2, total: 2, name: "A", driveFileId: "f1" });
+      batch.push({
+        type: "result",
+        body: {
+          status: "batch_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 1,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        },
+      });
+      batch.close();
+    });
+
+    // PREMISE: the run reached the CAS phase on this case's own inputs. Without it a
+    // run that errored out renders no receipt either and the assertion below would
+    // pass for the wrong reason.
+    expect(
+      getByTestId("wizard-finalize-progress").textContent,
+      "premise: the mixed-transport run must have reached the CAS phase",
+    ).toContain("Finishing setup");
+    expect(
+      queryByTestId("wizard-finalize-settled"),
+      "a run whose batch counts went unmeasured must print no receipt rather than the last measured pair",
+    ).toBeNull();
+    const announcer = document.querySelector(".sr-only[role='status']");
+    expect(
+      announcer!.textContent,
+      "and the announcement must not speak the stale pair either",
+    ).not.toContain("of 3");
+  });
+});
