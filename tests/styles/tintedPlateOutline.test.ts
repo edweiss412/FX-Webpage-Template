@@ -236,7 +236,17 @@ const REGISTRY: readonly RegistryRow[] = [
     // move is the raw/comment split: the ruling is explained in two new
     // comment lines inside the component itself.
     // Counted CODE-ONLY: the raw count is 13, four of them in comments.
-    neutralFaintCount: 9,
+    // 9 -> 10 on 2026-08-31: the diagram tile's PLACEHOLDER box took the
+    // control-edge token too (docs/superpowers/plans/2026-08-31-diagram-tile-states.md
+    // Task 5, closing DIAGRAMTILE-FAILURE-STATE-COPY-1's folded-in P2). It was
+    // `border-border` at 1.22-1.27:1 against its own sunken ground, under the
+    // 3:1 non-text floor; the LIVE box already carried border-text-faint, so
+    // this closes the gap between the two branches of one tile rather than
+    // introducing a new pairing. Neutral ground, not a tinted plate: the box is
+    // filled with `bg-surface-sunken`, one of the four neutrals, which is
+    // exactly the DESIGN.md §1.2a case where the stroke IS the boundary and
+    // takes the text ramp. Raw count is now 14, four of them still in comments.
+    neutralFaintCount: 10,
   },
 ];
 

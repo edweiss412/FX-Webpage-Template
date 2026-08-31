@@ -4163,7 +4163,7 @@ export function DiagramTile({
       <span className="flex flex-col gap-1" data-testid={cellTestId}>
         <span
           data-testid={testId}
-          className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-border bg-surface-sunken px-1 text-center"
+          className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-text-faint bg-surface-sunken px-1 text-center"
         >
           <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
           <span className="text-xs text-text-subtle">Preview unavailable</span>

@@ -160,6 +160,29 @@ describe("diagram tile chrome lives on the wrapper", () => {
     }
   });
 
+  // AC-8. The suite above pins the bare `border` utility and says nothing about
+  // WHICH stroke token, so the placeholder's edge was unguarded in both
+  // directions: it could be restyled, or silently reverted, and nothing here
+  // would notice. `border-border` is 1.22-1.27:1 against the sunken ground,
+  // under the 3:1 non-text floor; `border-text-faint` is 3.02:1 and is what the
+  // LIVE box already carries, so this also closes the gap between the two
+  // branches of one tile. DESIGN.md §1.2a is the rule: a box filled with one of
+  // the four neutral grounds carries no visual weight of its own, so its stroke
+  // IS its boundary and takes the text ramp.
+  test("the placeholder's stroke is the control-edge token, not the hairline (AC-8)", () => {
+    const { getByTestId, container } = renderTile(false);
+    const box = getByTestId(TEST_ID);
+
+    premiseHolds("the failed branch rendered no <img>", container.querySelector("img") === null);
+    premiseHolds("the failed branch's box element is not the anchor", box.tagName !== "A");
+
+    const have = tokens(box);
+    expect(have.has("border-text-faint"), "the placeholder carries border-text-faint").toBe(true);
+    expect(have.has("border-border"), "the placeholder no longer carries border-border").toBe(
+      false,
+    );
+  });
+
   // Spec §8's compound case. The two axes (which branch renders, and whether the
   // box is focused) were independent while the chrome sat on the image, because
   // an <img> is never focus-visible. On the anchor one event moves both, so the
