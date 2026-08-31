@@ -266,10 +266,24 @@ Nouns are taken verbatim from the accessible names they explain: `unseen` from
 (`AdminNav.tsx:240`). Singular and plural are handled on both halves
 independently.
 
-**The utterance carries the TRUE count, never the `9+` display cap.** The cap
-at `NotifBell.tsx:93` and `AdminNav.tsx:230` is a badge-width constraint; both
-accessible names already interpolate the real number, so the announcement
-matches the names rather than the pills.
+**The referent invariant, which the rest of the spec is stated against.** The
+utterance explains the ACCESSIBLE NAME of a control, never the glyph rendered
+in its pill. Where the two disagree the name wins, because the name is what a
+screen-reader user actually receives and the announcement exists to repair a
+name that changed unheard.
+
+They disagree in exactly one place, by design: the pill caps at `9+`
+(`NotifBell.tsx:93`, `AdminNav.tsx:230`) and the names do not
+(`NotifBell.tsx:80`, `AdminNav.tsx:240` both interpolate the real number). So
+**the utterance carries the TRUE count, never the `9+` display cap** (AC-8),
+and at a count of 12 it says "12" while the pill shows `9+`. That is the
+invariant holding, not an exception to it: the cap is a badge-width constraint
+on a decorative glyph, and speaking it would announce a number no accessible
+name anywhere carries.
+
+Everywhere else in this spec, a sentence that reasons about "what the badge
+shows" is shorthand for the name, and the two agree at every count at or below
+nine, under `degraded`, and at zero.
 
 No em dash (`DESIGN.md:874` house rules). No apostrophe. Sentence-final periods
 supplied here, matching `undoneAnnouncement`'s reasoning at
@@ -427,9 +441,10 @@ clears on any ok result (`useBellBadge.ts:112`).
 So the domain point "both halves pending, the operator opens the bell, zero
 commits, the demoted fetch commits 2, attention then settles at 3" announces
 "2 unseen notifications. 3 items need attention." That is the correct outcome
-rather than an escape: at that instant the badge displays 2 and the accessible
-name reads `"Notifications: 2 unseen"`, so the utterance matches the control it
-explains and the consequence bound holds. The ordering in which attention
+rather than an escape: at that instant the accessible name reads
+`"Notifications: 2 unseen"` (and the pill, being under the cap, agrees), so by
+the referent invariant in §3.3 the utterance matches the control it explains
+and the consequence bound holds. The ordering in which attention
 settles BEFORE the restoration announces no bell sentence, and both orderings
 are right for the same reason.
 
@@ -580,7 +595,11 @@ Filed here rather than as ledger rows, per the arc's no-new-rows rule.
 - AC-6 After the announcement, a later change to either count appends nothing
   further to the region.
 - AC-7 A count of 1 on either half uses the singular noun.
-- AC-8 A count above 9 announces the true number, not `9+`.
+- AC-8 A count above 9 announces the true number, not `9+`, on either half.
+  This is the referent invariant of §3.3, not an exception to it: at 12 the
+  accessible names read `"Notifications: 12 unseen"` (`NotifBell.tsx:80`) and
+  `"Needs attention, 12 items"` (`AdminNav.tsx:240`) while only the decorative
+  pills cap (`NotifBell.tsx:93`, `AdminNav.tsx:230`).
 - AC-9 `NotifBell` rendered without `onBellState` behaves identically to
   today: same accessible names, same badge, same panel behavior.
 - AC-10 No `role="log"`, `role="status"` or `aria-live` attribute is added to
