@@ -1044,6 +1044,17 @@ const ProgressPanel = forwardRef<
           >
             Finishing setup…
           </p>
+          {/* No `value` attribute, which is what makes it INDETERMINATE: the CAS phase
+              has no knowable percentage, so the bar reports activity rather than
+              progress. Same testid as the batch bar because it is the same element in a
+              later phase, so it inherits the themed selector set; same phase-neutral
+              accessible name so a screen reader does not re-announce the group at the
+              boundary (spec 2026-08-29 §3.2, ratified). */}
+          <progress
+            data-testid="wizard-finalize-progressbar"
+            className="h-2 w-full"
+            aria-label="Show setup progress"
+          />
           {/* The batch the operator just watched finish, settled into a past-tense
               receipt so the two phases read as a sequence rather than a replacement.
               Suppressed when this session ran no batch (both accumulators zero), where

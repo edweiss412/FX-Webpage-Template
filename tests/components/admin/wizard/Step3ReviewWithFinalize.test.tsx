@@ -432,6 +432,16 @@ describe("Step3 compact tracking — the settled batch receipt in the CAS phase"
     expect(view.getByTestId("wizard-step3-tracking-settled").textContent).toContain(expected);
   });
 
+  test("an INDETERMINATE progress bar renders during CAS", async () => {
+    const view = await runToCas(2);
+    const bar = view.getByTestId("wizard-finalize-progressbar") as unknown as HTMLProgressElement;
+    // PREMISE: in the CAS phase. The batch phase also renders a bar with this testid,
+    // so without this the assertion could be reading the determinate one.
+    expect(view.getByTestId("wizard-step3-tracking").textContent).toContain("Finishing setup");
+    expect(bar.getAttribute("value"), "the CAS bar must be INDETERMINATE").toBeNull();
+    expect(bar.getAttribute("aria-label")).toBe("Show setup progress");
+  });
+
   test("no receipt when this session ran no batch (checkpoint resume)", async () => {
     // checkpointStatus "all_batches_complete" maps to mode "finish"
     // (Step3ReviewWithFinalize.tsx:100-104), which skips the batch loop entirely and

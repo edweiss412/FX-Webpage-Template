@@ -1554,3 +1554,42 @@ describe("FinalizeButton — the settled batch receipt in the CAS phase", () => 
   // (Step3ReviewWithFinalize.tsx:100-104). That is also the real surface an operator
   // reaches it through.
 });
+
+describe("FinalizeButton — the CAS phase reads as working", () => {
+  test("an INDETERMINATE progress bar renders during CAS", async () => {
+    // The highest-stakes phase had the weakest feedback: at the batch-to-CAS boundary
+    // the determinate bar disappeared and nothing replaced it, so the surface gave no
+    // evidence anything was happening during the step that actually puts shows live.
+    //
+    // Same testid as the batch bar: it is the same element in a later phase, which also
+    // means it inherits the themed selector set rather than needing a third one. No
+    // existing test asserts the bar is ABSENT during CAS (checked by grep), so nothing
+    // contradicts this.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 2, total: 2, name: "RPAS", driveFileId: "f2" });
+    });
+    // PREMISE: the batch bar is DETERMINATE first, so the assertion below distinguishes
+    // a phase change from a bar that was always indeterminate.
+    const batchBar = getByTestId("wizard-finalize-progressbar") as unknown as HTMLProgressElement;
+    expect(batchBar.getAttribute("value"), "premise: the batch bar carries a value").not.toBeNull();
+
+    await act(async () => {
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+
+    const casBar = getByTestId("wizard-finalize-progressbar") as unknown as HTMLProgressElement;
+    expect(casBar.getAttribute("value"), "the CAS bar must be INDETERMINATE").toBeNull();
+    expect(casBar.getAttribute("aria-label")).toBe("Show setup progress");
+  });
+});

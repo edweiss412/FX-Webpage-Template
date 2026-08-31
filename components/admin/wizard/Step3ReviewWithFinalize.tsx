@@ -315,6 +315,11 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
               </span>
             ) : null}
           </div>
+          <progress
+            data-testid="wizard-finalize-progressbar"
+            className="h-1.5 w-full"
+            aria-label="Show setup progress"
+          />
           <span
             className="text-text-subtle"
             data-testid="wizard-step3-tracking-cas-phase"
