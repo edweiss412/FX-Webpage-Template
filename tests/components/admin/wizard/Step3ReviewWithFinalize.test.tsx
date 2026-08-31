@@ -290,7 +290,7 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
   // running-state test hangs fetch forever and so receives NO row events, which
   // would make a subline assertion pass against an element that never renders.
   // ---------------------------------------------------------------------------
-  async function runningCompactTracking() {
+  async function runningCompactTracking({ done = 1, total = 2 } = {}) {
     const batch = controllableNdjson();
     fetchMock.mockResolvedValueOnce(batch.response);
     const view = render(
@@ -306,8 +306,8 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
       fireEvent.click(view.getByTestId("wizard-finalize-button"));
     });
     await act(async () => {
-      batch.push({ type: "listed", total: 2 });
-      batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
+      batch.push({ type: "listed", total });
+      batch.push({ type: "row", done, total, name: "East Coast", driveFileId: "f1" });
     });
     return { ...view, batch };
   }
@@ -320,19 +320,28 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(tracking.textContent ?? "").not.toContain("Publishing: ");
   });
 
-  test("the compact count stays bare, as the plan deliberately settled", async () => {
-    // Whole-diff R3 P0. An impeccable critique called the divergence from the panel's
-    // "1 of 2 shows" a defect, and this suite briefly asserted the noun. That was wrong:
-    // the plan RECORDS the bare form as deliberate — the compact readout lives in a
-    // sticky bar whose height is load-bearing — and the spec's dimensional proof assumes
-    // the only text that changes sits inside a truncated node, which this count is not.
-    // A critique finding does not outrank a ratified decision; the check is to read the
-    // plan before repairing, which is what the two surviving "publish" strings got and
-    // this did not.
-    const { getByTestId } = await runningCompactTracking();
-    const text = getByTestId("wizard-step3-tracking").textContent ?? "";
-    expect(text).toContain("1 of 2");
-    expect(text).not.toContain("1 of 2 shows");
+  test.each([
+    { done: 1, total: 2, expected: "1 of 2 shows" },
+    { done: 1, total: 1, expected: "1 of 1 show" },
+  ])("the compact count names what it counts ($expected)", async ({ done, total, expected }) => {
+    // This suite used to pin the count BARE, and that was right at the time: the plan
+    // recorded the bare form as deliberate, because the compact readout lives in a
+    // sticky bar whose height is load-bearing and the spec's dimensional proof assumed
+    // the only changing text sat inside a truncated node, which this count did not.
+    // The measurement that would have settled it could not be taken in that worktree.
+    //
+    // It has been taken. At 375px against the real footer the heading holds ONE line at
+    // every rung through 99999 of 99999 with the noun appended, footer flat at 54.6px;
+    // it wraps only at six digits. And the heading now carries `min-w-0 truncate`, so
+    // the one-line guarantee is structural rather than a property of the counts anyone
+    // happened to sample — which matters because state.total is unbounded. The bare
+    // form is no longer the correct state, and the reason it WAS is recorded here
+    // rather than deleted.
+    //
+    // BOTH totals, because a suite testing only the plural lets "1 of 1 shows" regress
+    // silently.
+    const { getByTestId } = await runningCompactTracking({ done, total });
+    expect(getByTestId("wizard-step3-tracking").textContent ?? "").toContain(expected);
   });
 
   test("compact subline names the completed row and makes no claim about its outcome", async () => {

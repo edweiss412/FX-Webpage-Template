@@ -36,7 +36,7 @@ The count is not wrong. The verb is.
 | The progress stream makes NO per-row claim about publishing; the wire is unchanged | §2.1 — the ratified narrowing decision, owner call 2026-08-29 |
 | The displayed NAME is a claim this spec keeps, so it must name the applied parse | §3.1b — settled by spec review R4 |
 | The four `Publish progress` accessible names change too | §3.2, with the class-sweep command and its full result |
-| The `N of M` count, the progress bar, the CAS-phase copy, and the idle button label are unchanged | §3.2 |
+| The idle button label is unchanged. **Amended 2026-08-31** (`fix/finalize-progress-polish`): the `N of M` count now names what it counts on the compact surface too, the progress bar is themed and gains a CAS instance, and the CAS phase gains a settled receipt and per-sub-phase announcement. Each is recorded at its own section below; the idle button label really is untouched. | §3.2, and the amendments noted there |
 | No wire change, no DB change, no migration, no new error code, no advisory-lock change | §6 |
 
 ## 2. What the batch phase actually does
@@ -110,7 +110,13 @@ Both surfaces render the same batch-phase text and both change identically.
 | Group accessible name, BOTH phases (`components/admin/FinalizeButton.tsx:967`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249`) | `Publish progress` | `Show setup progress` |
 | Progress bar accessible name (`components/admin/FinalizeButton.tsx:987`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publish progress` | `Show setup progress` |
 
-Unchanged: the `N of M` count, the progress bar geometry, the CAS-phase header `Finishing setup…`, the CAS sub-label from `casPhaseLabel`, the idle button label, and the `title={state.lastName}` truncation tooltips.
+Unchanged: the CAS-phase header `Finishing setup…`, the idle button label, and the `title={state.lastName}` truncation tooltips.
+
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). Three items left this list, each for its own reason:
+
+- **The `N of M` count** now carries its noun on the compact surface, matching the panel. This spec settled the bare form deliberately, because the count is not inside a truncated node and the footer's height is load-bearing; the measurement that would have settled it could not be taken in that worktree. It was taken at 375px against the real footer: the heading holds one line at every count through `99999 of 99999` and wraps only at six digits. The compact heading also gained `min-w-0 truncate`, so the one-line guarantee is now structural rather than a property of the counts that were sampled, which matters because `state.total` is unbounded.
+- **The progress bar geometry** is unchanged in the batch phase. `app/globals.css` now paints both wizard bars from one selector set rather than the step-2 bar alone, and the CAS phase gains an indeterminate bar that did not exist.
+- **The CAS sub-label from `casPhaseLabel`** — the FUNCTION is untouched and still returns the empty string for a null phase. What changed is that the ELEMENT holding it is no longer rendered while that string is empty.
 
 The four accessible names are in scope because they are the same false claim in the layer a sighted operator cannot see. Both labelled groups wrap `state.phase === "batch" ? … : …` (`components/admin/FinalizeButton.tsx:962-972`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:245-254`) and both take focus when the batch starts, so without this a screen-reader operator hears "Setting up your shows" immediately followed by "Publish progress". `Show setup progress` is correct for the CAS phase too, whose header is `Finishing setup…`, and it follows the pattern its siblings already set — `Onboarding progress` on the wizard stepper (`components/admin/OnboardingWizard.tsx:197`) and `Folder scan progress` on step 2 (`components/admin/wizard/Step2Verify.tsx:487`). A bare `Setup progress` was the vaguest of the three and the nearest to the stepper's own name; the impeccable critique (P2) caught it.
 
