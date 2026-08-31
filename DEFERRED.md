@@ -153,7 +153,7 @@ screen-reader user unable to tell a failed retry from a successful one on this p
 
 ### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips now read lighter than the control they sit beside (2026-08-16)
 
-**Effort:** S per site, M as a rule
+**Status:** IN PROGRESS · **Branch:** docs/paired-chrome-stale-text · **Effort:** S per site, M as a rule
 
 Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P1,
 audit P2 — recorded at the higher call). Findings and dispositions are in §12 of
