@@ -33,6 +33,40 @@ entry does not name. No surface is enrolled under review pressure.
 
 ## Task list
 
+## Oracle-observability self-pass
+
+Ordered by the orchestrator after the plan cap, and run before implementation rather than per
+finding. Five of this stage's 26 findings were one shape: an oracle that cannot physically observe
+the thing its task asserts. FOUR of those five were introduced BY REPAIRS to earlier findings,
+because the question asked each time was "what could observe this?" and never "what does this
+instrument actually record?"
+
+So every task states, in one line, WHAT ITS ORACLE OBSERVES and HOW THE SUBJECT REACHES IT. A task
+that cannot answer both had its oracle fixed here, before any code.
+
+| task | what the oracle observes | how the subject reaches it |
+|---|---|---|
+| 1 constant | the timing scanner's parse of `components/**` | the exported literal is read by `scripts/scan-interaction-timings.ts` and compared against `DESIGN.md` §5.5 |
+| 2 shape | TypeScript's own error set, plus a source walker over both files | the type change makes every Set-shaped site a compile error; the walker reads the source text of each functional updater |
+| 3 gallery check-in | a spy on `routeAnnouncement` and the rendered DOM under `@testing-library` | announcements reach the spy because the component calls that function; copy reaches the DOM because the phase renders it |
+| 4 lightbox | the same two | the same two |
+| 5 Restart | THREE instruments, because no one of them sees everything: `addedNodes` from a `MutationObserver` for element presence, `record.oldValue` for attribute history, and `focusin`/`focusout` listeners for focus | presence and attributes reach the observer as committed mutations; focus reaches the listeners as events, which is the ONLY way it is observable, since a `MutationObserver` records no focus at all |
+| 6 transitions | the rendered DOM across state changes, plus a source scan for presence wrappers | states reach the DOM by rendering; the absence of an `AnimatePresence` is a source fact, not a runtime one |
+| 7 dimensions | `getBoundingClientRect` in a real engine, against the CONTENT box | layout reaches the rect only in a browser; jsdom computes none, and the content box is the comparable rectangle because the `<li>` has a border |
+| 8 e2e | the harness server's request log, the rendered DOM, and a parse of spec §1.2 | requests reach the server because the harness serves the asset; the recorded answer reaches the parser as three structured tokens, not as prose |
+| 9 gates | the suites' own exit codes and the ledger meta-tests | each gate is a command whose non-zero exit is the observation |
+
+**The two that this pass changed, and they were both still wrong after their round-3 repairs:**
+
+- Task 3 and Task 4's unmount case asserted timer cleanup by invoking a captured callback after
+  unmount and expecting no state update. React SILENTLY IGNORES a post-unmount state update, so the
+  case passes whether or not the timer was cleared. Round 4 probed this against the installed stack.
+  The oracle is replaced: spy on `clearTimeout` and assert it was called with the id the mount
+  registered. A cleanup that happened is observable; a state update that did not happen is not.
+- Task 5's focus assertion is listed above as its own instrument for the same reason. Sampling
+  `document.activeElement` before and after observes only settled focus, and passes when one commit
+  moves it and the next restores it.
+
 <!-- tasks: depth=2 red-contract -->
 
 ## Task 1: the constant and its §5.5 row
@@ -62,21 +96,63 @@ carries the whole shape change and lands green.
 `type RetryPhase = "pending" | "checked-in" | "restarting"`. Only `"pending"` exists after this
 task; the other two arrive with their behaviour in Tasks 3 and 5.
 
-**Every Set-shaped site that breaks, derived rather than listed.** The derivation is three greps
-over the two components, run at plan time, and its output is the table below:
+**Every Set-shaped site that breaks, DERIVED, and the previous version of this paragraph is why
+the word now has to be earned.** Round 3 caught this plan claiming the sweeps were unedited. The
+repair ran three greps, published what they found, and called it a derivation. Round 4 found that
+none of those greps had included `new Set(`. Three greps chosen by the author cover exactly what the
+author already suspected, which is an enumeration wearing a derivation's clothes.
 
-    grep -n "retryingStateRef" components/diagrams/GalleryLightbox.tsx
-    grep -n "sweepSet(\|= sweep(" components/diagrams/*.tsx
-    grep -n "of retrying\|retrying\.has\|\.\.\.retrying" components/diagrams/Gallery.tsx
+The committed expression set, which now includes the pattern that was missing, and its attribution
+pass. Run it to reproduce the table; it is one command and its output is pasted verbatim below:
 
-| site | change |
-|---|---|
-| `Gallery.tsx:370` `for (const id of retrying)` | iterating a Map yields `[id, phase]` tuples. Left alone this is silent: `id` becomes an array, `liveIds.has(id)` is always false, and every in-flight retry reads as abandoned. Iterate `.keys()` |
-| `Gallery.tsx:327` `sweep` | untouched. It serves only `failedKeys` (`Gallery.tsx:336`), which stays a Set |
-| `GalleryLightbox.tsx:848` `sweepSet` | SHARED by three states, called once each in the block at `GalleryLightbox.tsx:857`. It stays exactly as it is for `failedKeys` and `wantsOriginal`, and the phase map gets a sibling `sweepPhases` beside it. SPLIT rather than made generic: widening a helper two other states depend on, to serve one new caller, is the shape that got the last three mechanisms refuted on this arc |
-| `GalleryLightbox.tsx:549` the Embla `select` writer | builds `new Set(prev)` and deletes. Becomes `new Map(prev)` and deletes |
-| `GalleryLightbox.tsx:340` `retryingStateRef` | type moves to the map. Its ONLY consumer, the Embla subscriber at `GalleryLightbox.tsx:559`, calls `.has`, which `Map` also has, so no logic changes. It is the Embla subscriber's mirror and gains no reader from this arc |
-| `tests/components/diagrams/gallery.transitions.test.tsx:135` | its oracle regexes the literal `setRetrying((prev) => {` source form to count entries. The rename breaks it, so this task updates the recognizer in the same commit that renames |
+    node --import tsx scripts/derive-retry-set-sites.ts
+
+It greps `new Set(prev)`, `sweepSet(|= sweep(`, `of retrying|retrying\.has|\.\.\.retrying` and
+`retryingStateRef` over both components, then walks upward from each `new Set(prev)` to the enclosing
+`setX((prev) =>` to attribute it. Attribution is the part a bare count cannot give:
+
+| file | line | enclosing setter | breaks under a Map |
+|---|---|---|---|
+| `Gallery.tsx` | 458 | `setFailedKeys` | no, stays a Set |
+| `Gallery.tsx` | 464 | `setRetrying` | YES |
+| `Gallery.tsx` | 493 | `setRetrying` | YES |
+| `Gallery.tsx` | 523 | `setRetrying` | YES |
+| `Gallery.tsx` | 574 | `setFailedKeys` | no |
+| `GalleryLightbox.tsx` | 398 | `setWantsOriginal` | no |
+| `GalleryLightbox.tsx` | 404 | `setFailedKeys` | no |
+| `GalleryLightbox.tsx` | 410 | `setRetrying` | YES |
+| `GalleryLightbox.tsx` | 473 | `setWantsOriginal` | no |
+| `GalleryLightbox.tsx` | 553 | `setRetrying` | YES |
+| `GalleryLightbox.tsx` | 562 | `setFailedKeys` | no |
+| `GalleryLightbox.tsx` | 1325 | `setRetrying` | YES |
+| `GalleryLightbox.tsx` | 1347 | `setRetrying` | YES |
+| `GalleryLightbox.tsx` | 1353 | `setFailedKeys` | no |
+| `GalleryLightbox.tsx` | 1400 | `setWantsOriginal` | no |
+| `GalleryLightbox.tsx` | 1484 | `setFailedKeys` | no |
+| `GalleryLightbox.tsx` | 1536 | `setFailedKeys` | no |
+
+**SEVENTEEN `new Set(prev)` sites; SEVEN of them write the retry state and break under a Map.** The
+ten that do not are `failedKeys` and `wantsOriginal`, which stay Sets. Round 4 reported six; the
+attribution pass finds seven, and the count reconciles because 7 + 6 `failedKeys` + 3
+`wantsOriginal` + 1 more `failedKeys` in the gallery = 17.
+
+Plus the four non-`new Set` sites the earlier greps did find: `Gallery.tsx:370` iterating a Map
+yields `[id, phase]` tuples so every in-flight retry silently reads as abandoned;
+`GalleryLightbox.tsx:848` `sweepSet` is shared by three states and gets a `sweepPhases` sibling
+rather than being widened; `Gallery.tsx:327` `sweep` serves only `failedKeys` and is untouched; and
+`retryingStateRef` (`GalleryLightbox.tsx:340`) is retyped while its only consumer, the Embla subscriber at `GalleryLightbox.tsx:559`, calls `.has`, which `Map` also has.
+
+**THE COUNT LIVES IN CODE, NOT IN THIS TABLE.** A pasted table goes stale the moment anyone adds a
+writer, which is the same failure one level up. This task adds a new suite `retryWriterSetPin` under `tests/components/diagrams/`, created here and
+so tracked only once it lands. It is red before the shape change and green after, which is why it lands HERE rather than in a later task: it walks both component sources,
+enumerates every functional updater of the retry state, asserts each uses `new Map(prev)` and reads
+`prev.get(...)` before writing, and asserts the enumerated count. A writer added later without the
+guard fails; a writer added later WITH it updates the count deliberately rather than silently.
+
+**Why the walker is not in the constant task**, which is where the orchestrator placed it: at that
+point the code is still Set-based, so a walker asserting the Map form has no green to reach within
+its own task. Landing it with the shape change preserves red-then-green on the same command, which
+is what invariant 1 asks for. The intent, an executable count rather than a prose one, is unchanged.
 
 **Registry, in this task and not later.** Six new keys, two per component plus one shared latch each,
 and one edited row. The counts are stated because an earlier draft claimed eight rows and four
@@ -146,7 +222,11 @@ draft requiring exactly that. Restart's own stale-write case lives in Task 5, wh
 cannot poison a later retry and the third assertion greens against the broken mechanism too. A
 non-discriminating case in a deciding suite is worse than no case. Unmount's real obligation is timer
 cleanup, and it is asserted in this task as its own case: unmount with a callback pending, then
-assert the timer was cleared by observing that firing it after unmount throws no state update.
+assert the timer was cleared by SPYING ON `clearTimeout` and checking it was called with the id the
+mount registered. Not by firing the callback after unmount and expecting no state update: React
+silently ignores that, so the case would pass whether or not cleanup happened, which round 4 probed
+against the installed stack. A cleanup that occurred is observable; a state update that did not occur
+is not.
 
 Assert per row: no check-in renders, nothing is announced, and a SUBSEQUENT retry waits a full
 `RETRY_CHECK_IN_MS`.
@@ -259,7 +339,7 @@ so the request stays held for the whole case and each evaluate is guarded.
 
 ## Task 8: the check-in appears, in a real browser, and U-1 is recorded
 
-<!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/diagram-retry.spec.ts && node --import tsx scripts/assert-u1-recorded.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:782` why=`the overlay onClick is a bare preventDefault at this line, so Restart issues no second request and the browser case fails on the request count; the second command then fails because spec 1.2 still says the claim is unsettled` ac=AC-2,AC-8,AC-9,AC-D3 -->
+<!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/diagram-retry.spec.ts; node --import tsx scripts/assert-u1-recorded.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:782` why=`the overlay onClick is a bare preventDefault at this line, so Restart issues no second request and the browser case fails on the request count; the second command then fails because spec 1.2 records no observed answer. The two are joined by ; and NOT by &&: the first is SUPPOSED to red, and under && the shell would never reach the second, so its red could not be observed at all` ac=AC-2,AC-8,AC-9,AC-D3 -->
 
 EXTENDS `tests/e2e/diagram-retry.spec.ts` and its harness. **Boot mechanism, as it actually is:** not
 a Next server. `tests/e2e/_diagramRetryLiveEntry.tsx` mounts the real `<Gallery>`, `bundleLiveEntry`
@@ -281,9 +361,19 @@ browser at all.
 whether removing a mid-fetch `<img>` abandons its request. This case already holds a request open and
 unmounts that `<img>` on Restart, so record from the harness server whether the socket closes, and
 write the observed answer into spec §1.2. A new `assert-u1-recorded` script under `scripts/`, created by this task, is the gate and the second
-half of this task's command: it reads §1.2 and exits non-zero while the section still says the
-claim is unsettled. Without it the browser case greens while AC-D3 stays undischarged, which review
-round 3 raised as finding 9.
+half of this task's command. **It pins the PARSED ANSWER, not the phrasing.** An earlier draft
+defined it as failing while §1.2 still said the claim was unsettled, which round 4 correctly showed
+is satisfied by deleting or rewording that sentence without recording anything. Prose guards close by
+pinning, so the script parses §1.2 for a structured record and fails unless it finds all three:
+
+- a verdict token from a CLOSED set, `ABANDONED` or `CONTINUED`, so "it depends" or a hedge cannot
+  satisfy it
+- the citation of the e2e case that measured it, resolving to a real test name in
+  `tests/e2e/diagram-retry.spec.ts`
+- the date of the measurement
+
+Any of the three missing is a non-zero exit. Rewording the surrounding sentence changes nothing,
+because none of the three is a phrase the author chooses.
 
 **Scope, stated rather than implied:** the harness mounts `<Gallery>` and no lightbox, so the
 real-browser evidence is gallery-only. The lightbox check-in is covered by Task 4's jsdom suite and
