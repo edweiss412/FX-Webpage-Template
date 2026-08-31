@@ -271,24 +271,6 @@ exempted, and the gap is recorded here where deferrals are actually reviewed.
 passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
 Register the mutation as an adversary at that point and confirm it reds.
 
-### SHARELINK-CUE-FOCUS-OBSCURED-1 — the scroll cue may push the focused rotate control out of view (2026-08-07, arc A)
-
-**Status:** IN PROGRESS · **Branch:** fix/sharelink-cue-focus · **Effort:** S
-
-**Reachability:** PROBED 2026-08-31 on `fix/sharelink-cue-focus`. REFUTED.
-
-**Probe result.** At 390x560 and at 390x460, in WebKit and in Chromium, `document.activeElement` after the cue's glide settles is `<body>`. No element inside the popover holds focus, so the cue cannot obscure a focused control, under either reading of 2.4.11. When the idle rotate control returns it renders fully inside the popover's visible band: 53.1 of 53.1 CSS px visible at both heights, zero clipping. Full rect tables, the exact commands, and the reproduction case: `docs/superpowers/specs/ci/probes/2026-08-31-sharelink-cue-focus-probe.md`.
-
-**What the probe did turn up, recorded rather than filed.** Focus is dropped to `<body>` at the moment the rotation is CONFIRMED, before any scrolling: `scrollTop` is unchanged between the armed and just-confirmed measurements in every run, so the cue is not the cause. `onConfirmClick` sets `ui = "resolving"`, which disables the button the operator just activated (`app/admin/show/[slug]/RotateShareTokenButton.tsx:179-182` and `app/admin/show/[slug]/RotateShareTokenButton.tsx:370-371`), and disabling a focused element blurs it. Focus never returns, because the C5 close-focus restore is gated on `restoreFocusRef`, written only inside `closeConfirm()` (`app/admin/show/[slug]/RotateShareTokenButton.tsx:123-132`), which Cancel and the arm-expiry timer reach and the confirm path does not. The control that makes this a finding rather than an observation is in the probe record: the identical keyboard journey ending in Cancel restores focus to the rotate trigger. Only Confirm loses it. This is a different element, a different cause, and a different defect from the one this row predicted. It is also a CLASS, not a site: `grep -rn "restoreFocusRef.current = " app/ components/` returns five two-tap destructive controls (rotate, revoke-admin, picker-reset, reset-picker-epoch, archive-show), and in every one of them the only setter is Cancel's own path. No confirm or submit handler writes the flag anywhere in the repo. The focus outcome was measured on rotate only; the other four are predicted by the same mechanism, not observed. Filed as `BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS` (BACKLOG.md, product-facing) on bl-orch's 2026-08-31 ruling, and repaired in a fresh arc rather than here: the repair spans five UI files and carries the invariant-8 dual gate, which would have converted this docs-only probe PR into a five-file UI arc.
-
-From the impeccable audit of `feat/a11y-privacy-cluster` (P2). The new rotation cue scrolls the crew-URL row into view inside the share hub's `overflow-y-auto` popover. The URL row sits ABOVE the rotate control, so the scroll moves the viewport up and can push the just-activated control — which still holds focus — below the visible band. WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum, AA).
-
-**Not fixed, because the obvious repair fights the feature.** The cue exists precisely to move the view off the rotate control and onto the link that changed; scrolling the focused control back into view would undo it. `block: "nearest"` already minimizes the movement, and does nothing at all when the row is already visible. Whether the residual case is a real 2.4.11 failure also turns on a question this arc did not settle: 2.4.11 is written about author-created content covering the focused element (sticky headers, overlays), and an author-initiated scroll within a scroll container is a greyer reading.
-
-**The probe that settled it.** Run as specified above, at 390x560 and also at 390x460, the tallest swept height where the popover overflows enough for the cue to move anything (measured `maxScrollTop` 97 at 560 against a URL-row bottom of 127, `docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md` §4), so the worst case for this claim was included rather than assumed away. Both refute it. The record carries the rect tables, the commands, and the reproduction case.
-
-**Un-defer trigger:** the probe is spent and refuted this row's claim, so nothing reopens it as written. A share-hub change that moves the rotate control BELOW the fold at rest, or that reintroduces focus inside the popover across the cue, would need re-probing against the same record.
-
 ### TRAVEL-SUPPRESSION-PARTIAL-EXPLANATION-1 — a partly-suppressed Travel section explains nothing (2026-08-07, arc A)
 
 **Effort:** M
