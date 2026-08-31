@@ -106,6 +106,17 @@ one of them plus one single-commit staging state, rather than a fifth branch:
 | `retrying+checked-in` | `item.available && retrying.has(id) && checkedIn.has(id)` | the SAME `<Image>`, same node, plus the same overlay element carrying check-in copy and a working Restart handler |
 | `restarting` | `item.available && restarting.has(id)` — and the id is NOT in `retrying` | the same overlay element, `Retrying…`, inert, and NO `<Image>`. Lives for one commit cycle and is never painted (§4.1) |
 
+**INVARIANT: `retrying` and `restarting` are disjoint, and every write that adds an id to one
+removes it from the other in the SAME update.** Stated once, as an invariant, because review round 2
+found one violation of it and the sweep that followed found a second. Both had the same consequence
+and neither was visible as a missing line: an id in both sets, or in neither, leaves the cell
+showing an inert `Retrying…` over no image, permanently. The two sites were Restart's entry (which
+added to `restarting` without leaving `retrying`, so the replacement request inherited no deadline)
+and the layout effect's exit (which returned the id to `retrying` without dropping it from
+`restarting`, so the `<Image>` the whole mechanism exists to mount would never have mounted). A
+per-site rule would have caught the first and missed the second, which is why this is an invariant
+the implementation asserts rather than a step in two procedures.
+
 **`restarting` is disjoint from `retrying`, and that is load-bearing rather than tidy.** Review
 round 2 found the first draft of §4.1 adding an id to `restarting` without removing it from
 `retrying`. Two things break if it stays: the §3.2 effect sees uninterrupted membership, so it never
@@ -244,8 +255,10 @@ the source, so the row is not optional bookkeeping: the meta-test reds until it 
   Reached from both sub-states.
 - **`retrying+checked-in` → `restarting`** (Restart, one commit): remove the id from `retrying` and
   `checkedIn`, add it to `restarting`. The §3.2 reconciler sees the id leave and retires its timer.
-- **`restarting` → `retrying`** (the layout effect, before paint): the id returns to `retrying`, the
-  reconciler starts a FRESH `RETRY_CHECK_IN_MS` window, and a new `<Image>` mounts. §4.1.
+- **`restarting` → `retrying`** (the layout effect, before paint): the id is removed from
+  `restarting` and added to `retrying` in one update, per the disjointness invariant in §3. The
+  reconciler then starts a FRESH `RETRY_CHECK_IN_MS` window, and a new `<Image>` mounts because the
+  render predicate no longer gates it off. §4.1.
 - **any session state → `unavailable`**: the availability sweep of 2026-08-29 §9.1 is unchanged.
   It sweeps `retrying`, and §3.1 and §3.2 carry `checkedIn` and the timer with it.
 
@@ -259,7 +272,10 @@ Restart is the only new user gesture, and it never renders a state that contradi
    new request would then carry no deadline at all. The `<Image>` unmounts, because the render
    predicate of §3 gates it on `restarting` being false. The overlay stays: it is the same element,
    in the same position, so the browser keeps focus on it with no hand-off.
-2. **A `useLayoutEffect`** keyed on `restarting` moves every id in it to `retrying`. A layout effect
+2. **A `useLayoutEffect`** keyed on `restarting` moves every id in it OUT of `restarting` and INTO
+   `retrying`, in one update. An id left in both sets renders no image forever, since §3's predicate
+   gates the `<Image>` on `restarting` being false; the disjointness invariant in §3 is what forbids
+   that state rather than a caution in this step. A layout effect
    runs before the browser paints, so the imageless commit is never painted. `restarting` is swept
    by the same predicates as `retrying` — availability in both components, plus `renderedIds` in the
    gallery and the active slide in the lightbox — and the effect promotes only ids that survive that
@@ -503,6 +519,7 @@ rather than as a finding.
 | AC-7 | `onError` during the check-in reaches `failed` and announces the existing still-failed string |
 | AC-8 | Restart reaches `retrying` and the second `<Image>` is a DIFFERENT node from the first |
 | AC-8b | The replacement request gets its own check-in: after Restart the id is out of `retrying` for one commit and back in on the next, and a check-in fires `RETRY_CHECK_IN_MS` after THAT re-entry |
+| AC-8c | `retrying` and `restarting` are never both true for one id, and never both false while the cell is in flight, asserted on every commit of a Restart. This is the disjointness invariant of §3, and it is its own criterion because both of its violations were silent |
 | AC-9 | No code path in either component calls `AbortController`, `abort()`, or clears an `<img>` `src` |
 | AC-10 | Across every commit of Restart: the failed control is never rendered, the overlay keeps `aria-busy="true"`, and `document.activeElement` does not change. Stated as the three observable facts rather than as a ban on a phrase, because the in-flight name legitimately contains that phrase (§6) |
 | AC-11 | A `checkedIn` id whose `retrying` entry is gone renders nothing, asserted directly for the rendered-ID sweep and for the Embla swipe-away |
