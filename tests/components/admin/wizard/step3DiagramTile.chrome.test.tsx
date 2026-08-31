@@ -79,6 +79,7 @@ function tile(hasPreviewSource: boolean) {
       sizes="100px"
       alt="Stage plot"
       testId={TEST_ID}
+      cellTestId={`${TEST_ID}-cell`}
       hasPreviewSource={hasPreviewSource}
     />
   );

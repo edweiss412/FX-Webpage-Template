@@ -353,7 +353,12 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // this row, so neither number described the merged tree. Located by the scanner on the
     // merged tree, never by composing the two deltas.
     // The scanner reports this file's one unclassified site as 4191, that same `<a>`.
-    line: 4191,
+    // 4191 -> 4203 when the diagram tile gained its cell wrapper (Task 1 of
+    // docs/superpowers/plans/2026-08-31-diagram-tile-states.md). Located by RUNNING
+    // the scanner on the post-edit tree, not by adding a delta: it reports exactly one
+    // unclassified site in this file, 4203, and 4203 is that same `<a>` — the tile
+    // anchor, now one level deeper inside the wrapper. Same element, same reason below.
+    line: 4203,
     tag: "a",
     category: "full-bleed",
     reason:

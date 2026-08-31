@@ -215,6 +215,7 @@ describe("staged wizard diagram tile — transition inventory", () => {
         sizes="100px"
         alt=""
         testId="noname-tile"
+        cellTestId="noname-cell"
         hasPreviewSource={false}
       />,
     );

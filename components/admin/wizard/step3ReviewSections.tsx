@@ -4099,6 +4099,7 @@ export function DiagramTile({
   sizes,
   alt,
   testId,
+  cellTestId,
   hasPreviewSource,
   anchorRef,
   onFailure,
@@ -4109,6 +4110,14 @@ export function DiagramTile({
   sizes: string;
   alt: string;
   testId: string;
+  /** The WRAPPER's handle, built at the call site from the same parts as
+   *  `testId` and never derived from it by string rewrite. Its `-diagram-cell-`
+   *  segment is deliberate: five prefix consumers in the corpus select on the
+   *  literal `-diagram-tile-`, and an id sharing that prefix would be counted
+   *  AS a tile — the defect recorded below that read 24 tiles where 12 was
+   *  correct. Required, not optional: one omitted call site would render a
+   *  wrapper with no handle and the cap assertion could not see it. */
+  cellTestId: string;
   hasPreviewSource: boolean;
   /** Registers the live anchor with the grid, which needs a NODE to move focus
    *  off and to compare against — see `handleTileFailure`. */
@@ -4151,13 +4160,14 @@ export function DiagramTile({
   const strippedAlt = stripNewTabSuffix(alt);
   if (failed) {
     return (
-      <span
-        data-testid={testId}
-        className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-border bg-surface-sunken px-1 text-center"
-      >
-        <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
-        <span className="text-xs text-text-subtle">Preview unavailable</span>
-        {/* WHICH diagram is dark. The name is already in hand as `alt` and was
+      <span className="flex flex-col gap-1" data-testid={cellTestId}>
+        <span
+          data-testid={testId}
+          className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-border bg-surface-sunken px-1 text-center"
+        >
+          <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
+          <span className="text-xs text-text-subtle">Preview unavailable</span>
+          {/* WHICH diagram is dark. The name is already in hand as `alt` and was
             being discarded, so a grid of failures read as N identical grey
             boxes and the reviewer could not tell which sheet tab was missing —
             on the surface where he confirms diagrams made it in before
@@ -4171,36 +4181,40 @@ export function DiagramTile({
             testid derived from the tile's own would be counted AS a tile — the
             cap assertion read 24 where 12 was correct at every breakpoint. The
             title attribute is the handle instead. */}
-        {strippedAlt ? (
-          <span title={strippedAlt} className="max-w-full truncate text-xs text-text-subtle">
-            {strippedAlt}
-          </span>
-        ) : null}
+          {strippedAlt ? (
+            <span title={strippedAlt} className="max-w-full truncate text-xs text-text-subtle">
+              {strippedAlt}
+            </span>
+          ) : null}
+        </span>
       </span>
     );
   }
   return (
-    /* The anchor is the tile's SOLE accessible name (spec
+    <span className="flex flex-col gap-1" data-testid={cellTestId}>
+      {/* The anchor is the tile's SOLE accessible name (spec
        2026-08-07-step3-a11y-cluster §2.4, closing NEWTAB-A11Y-RESIDUE-1(a)).
        Its aria-label — including the empty-alt fallback below — is the
        nameless-link guard (WCAG 2.4.4/4.1.2) and is unchanged. The inner <img>
        used to repeat the same string as its alt, so a screen reader navigating
        into the link heard the name twice; it is now decorative. That reverses
        an earlier belt-and-braces audit fix deliberately: the fallback here
-       makes the duplicate redundant rather than defensive. */
-    <a
-      ref={(node) => {
-        anchorNodeRef.current = node;
-        anchorRef?.(node);
-      }}
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={
-        strippedAlt ? `${strippedAlt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"
-      }
-      data-testid={testId}
-      /* `relative` and the aspect box are REQUIRED, and only these: without a
+       makes the duplicate redundant rather than defensive. */}
+      <a
+        ref={(node) => {
+          anchorNodeRef.current = node;
+          anchorRef?.(node);
+        }}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={
+          strippedAlt
+            ? `${strippedAlt} (opens in a new tab)`
+            : "Staged diagram (opens in a new tab)"
+        }
+        data-testid={testId}
+        /* `relative` and the aspect box are REQUIRED, and only these: without a
          positioned ancestor a `fill` image resolves against the modal panel,
          which IS positioned, and one thumbnail covers the whole dialog —
          measured at all three modes.
@@ -4228,32 +4242,33 @@ export function DiagramTile({
          Spec L3. Pinned in a real browser at
          tests/e2e/step3-review-modal.layout.spec.ts, which asserts the border
          is on THIS element and not on the image. */
-      /* Focus ring: WCAG 2.4.7. This anchor is a link and had NO visible focus
+        /* Focus ring: WCAG 2.4.7. This anchor is a link and had NO visible focus
          indicator beyond the browser default, while every sibling link in this
          file carries the recipe. The arc that rewrote this className is the one
          that owes it. `overflow-hidden` above does not clip it — an element's
          own overflow never clips its own ring — and the offset ground is
          `surface`, the panel-card the grid sits in. */
-      className="relative block aspect-4/3 w-full overflow-hidden rounded-md border border-text-faint bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-    >
-      <Image
-        loader={loader}
-        src={sourceKey}
-        alt=""
-        fill
-        sizes={sizes}
-        /* ORDER IS LOAD-BEARING, and it is the crew gallery's
+        className="relative block aspect-4/3 w-full overflow-hidden rounded-md border border-text-faint bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      >
+        <Image
+          loader={loader}
+          src={sourceKey}
+          alt=""
+          fill
+          sizes={sizes}
+          /* ORDER IS LOAD-BEARING, and it is the crew gallery's
            (components/diagrams/Gallery.tsx:286-293): the grid is handed the
            anchor BEFORE `failed` flips, because after the flip there is no
            anchor left to move focus off and no node left to compare the
            active element against. */
-        onError={() => {
-          onFailure?.(anchorNodeRef.current);
-          setFailed(true);
-        }}
-        className="object-cover"
-      />
-    </a>
+          onError={() => {
+            onFailure?.(anchorNodeRef.current);
+            setFailed(true);
+          }}
+          className="object-cover"
+        />
+      </a>
+    </span>
   );
 }
 
@@ -4404,6 +4419,7 @@ export function DiagramsBreakdown({
                 handleTileFailure(i, stub.alt?.trim() || `Diagram from ${stub.sheetTab}`, node)
               }
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
+              cellTestId={`wizard-step3-card-${dfid}-diagram-cell-${i}`}
               href={resolveSrc(stub)}
               sourceKey={resolveSourceKey(stub)}
               loader={resolveLoader(stub)}

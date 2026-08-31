@@ -138,6 +138,7 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
         sizes="100px"
         alt="Stage plot"
         testId="reconcile-loader"
+        cellTestId="reconcile-loader-cell"
         hasPreviewSource={true}
       />
     );
