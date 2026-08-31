@@ -63,14 +63,18 @@ nothing else.
 
 1. A per-item `checkedIn` set, read only through its intersection with `retrying` (§3.1), so no
    removal path has to maintain it.
-2. One reconciling effect per component owning every check-in timer, derived from the live
-   `retrying` set rather than from a list of removal sites (§3.2).
+2. Two effects per component owning every check-in timer: a reconciler derived from the live
+   `retrying` set rather than from a list of removal sites, and a mount-scoped guard that clears
+   everything on unmount (§3.2).
 3. At `RETRY_CHECK_IN_MS`, the in-flight control changes copy, drops `aria-disabled`, gains a
    working `onClick`, and announces once. `aria-busy` does not change.
-4. Restart: a one-commit `restarting` state that unmounts the `<Image>`, followed by a layout
-   effect that re-enters `retrying` before paint and mounts a fresh one (§4.1).
-5. Registry rows for every new `useState` / `useRef`, per 2026-08-29 §4.0.3.
-6. `DESIGN.md` §5.5 gains one timings row (§3.3).
+4. Restart: a one-commit `restarting` state, disjoint from `retrying`, that unmounts the `<Image>`,
+   followed by a layout effect that re-enters `retrying` before paint and mounts a fresh one, with a
+   fresh check-in window (§4.1).
+5. An announcement effect derived from the effective checked-in set, so the clock never speaks
+   directly (§6.1).
+6. Registry rows for every new `useState` / `useRef`, per 2026-08-29 §4.0.3.
+7. `DESIGN.md` §5.5 gains one timings row (§3.3).
 
 Both surfaces get all of it, the same way.
 
@@ -100,7 +104,27 @@ one of them plus one single-commit staging state, rather than a fifth branch:
 |---|---|---|
 | `retrying` | `item.available && retrying.has(id) && !checkedIn.has(id)` | the `<Image>` plus the in-flight overlay, `Retrying…`, inert |
 | `retrying+checked-in` | `item.available && retrying.has(id) && checkedIn.has(id)` | the SAME `<Image>`, same node, plus the same overlay element carrying check-in copy and a working Restart handler |
-| `restarting` | `item.available && restarting.has(id)` | the same overlay element, `Retrying…`, inert, and NO `<Image>`. Lives for one commit cycle and is never painted (§4.1) |
+| `restarting` | `item.available && restarting.has(id)` — and the id is NOT in `retrying` | the same overlay element, `Retrying…`, inert, and NO `<Image>`. Lives for one commit cycle and is never painted (§4.1) |
+
+**`restarting` is disjoint from `retrying`, and that is load-bearing rather than tidy.** Review
+round 2 found the first draft of §4.1 adding an id to `restarting` without removing it from
+`retrying`. Two things break if it stays: the §3.2 effect sees uninterrupted membership, so it never
+retires the expired timer or starts a fresh one, and the REPLACEMENT request inherits no deadline at
+all — the exact defect this arc exists to close, reintroduced by the repair for it. Leaving
+`retrying` is what makes the new request a new thirty seconds.
+
+**The render predicate `restarting` needs, stated because leaving `retrying` is not sufficient.**
+Both components decide the image branch from `retrying` and `failedKeys`
+(`Gallery.tsx:623-632`, `GalleryLightbox.tsx:1025-1029`), so an id that leaves `retrying` without
+entering `failedKeys` would fall through to the IDLE branch and mount the image that never loaded.
+Each component therefore computes an in-flight conjunct that covers both states, and gates the
+`<Image>` on `restarting` being false:
+
+- the failed branch is chosen on `failedKeys.has(id) && !(retrying.has(id) || restarting.has(id))`,
+  so `restarting` is never the failed cell
+- the `<Image>` mounts when the cell is available AND `!restarting.has(id)`
+- the overlay mounts on `retrying.has(id) || restarting.has(id)`, which is what keeps it ONE element
+  across check-in, restarting and retrying (§4.1)
 
 **Why a sub-state and not a branch.** A fifth branch would have to decide what happens to the
 `<Image>`, and every answer except "leave it exactly where it is" cancels a request the ruling says
@@ -140,14 +164,29 @@ guaranteeing.
 The set is still swept, so it does not grow without bound: the reconciling effect in §3.2 drops
 ids that have left `retrying`. But nothing CORRECT depends on that sweep having run.
 
-### 3.2 One reconciling effect owns every timer
+### 3.2 Two effects own every timer, and the split is not cosmetic
 
-Per component, one effect keyed on the swept `retrying` set:
+Per component, TWO effects, and the split is the whole point.
+
+**The reconciler**, keyed on the swept `retrying` set, with NO cleanup function:
 
 - for each id in `retrying` with no timer, start one for `RETRY_CHECK_IN_MS`
 - for each timer whose id is no longer in `retrying`, clear it and drop the handle
-- drop the same ids from `checkedIn`
-- on unmount, clear every timer
+- drop those ids from `checkedIn` and from the announced set (§6)
+
+**The unmount guard**, empty dependency list, whose cleanup clears every live timer.
+
+**Why two and not one, which review round 2 caught.** React runs an effect's cleanup before EVERY
+dependency-driven re-run, not only on unmount. A single effect that cleared every timer in its
+cleanup would restart every OTHER item's window whenever any item entered or left `retrying`: item A
+waits 29 seconds, item B enters, A's timer is cleared and restarted at zero, and A checks in at
+about second 59. The reconciler therefore computes the difference between the timer map and the
+current set inside its BODY, and touches only the ids that actually changed. The clear-everything
+path belongs to the mount-scoped effect, which runs its cleanup exactly once.
+
+That defect is invisible to a criterion that counts timers, because A does have exactly one live
+timer throughout. AC-1 is written accordingly (§10): it pins WHEN a check-in fires relative to its
+own entry, with a second item entering and leaving in between.
 
 **Why an effect and not the removal sites.** Two reasons, both from the live tree rather than from
 principle. Both availability sweeps run in the RENDER phase — `Gallery.tsx` computes `sweptRetrying`
@@ -157,7 +196,11 @@ exactly as it applies to membership: the effect derives what should be running f
 retrying, so a removal path nobody has written yet is already covered.
 
 **The timer callback needs no membership check, and that is the point.** It writes `checkedIn` and
-nothing else. If its id has already left `retrying` — including in the same tick as an `onLoad` —
+nothing else. In particular it does NOT announce: review round 2 established that announcing from
+the callback destroys the inert-write guarantee, because the admitted same-tick `onLoad` case would
+say "is still loading" after the image had already succeeded, and a swept item would speak for a
+cell that is no longer shown. The announcement has its own source in §6, derived from the effective
+set rather than from the clock. If its id has already left `retrying` — including in the same tick as an `onLoad` —
 the write is inert by §3.1, and the effect drops it on the next commit. The first draft specified a
 callback that "returns early on the membership test", which the gallery cannot do: it has no
 `retryingStateRef` (the lightbox has one, `GalleryLightbox.tsx:340`), and the closure a timer
@@ -199,7 +242,10 @@ the source, so the row is not optional bookkeeping: the meta-test reds until it 
   and the timer follow from §3.1 and §3.2 rather than from this handler.
 - **`retrying` → `failed`** (`onError`): remove the id from `retrying`, add it back to `failedKeys`.
   Reached from both sub-states.
-- **`retrying+checked-in` → `restarting` → `retrying`** (Restart): §4.1.
+- **`retrying+checked-in` → `restarting`** (Restart, one commit): remove the id from `retrying` and
+  `checkedIn`, add it to `restarting`. The §3.2 reconciler sees the id leave and retires its timer.
+- **`restarting` → `retrying`** (the layout effect, before paint): the id returns to `retrying`, the
+  reconciler starts a FRESH `RETRY_CHECK_IN_MS` window, and a new `<Image>` mounts. §4.1.
 - **any session state → `unavailable`**: the availability sweep of 2026-08-29 §9.1 is unchanged.
   It sweeps `retrying`, and §3.1 and §3.2 carry `checkedIn` and the timer with it.
 
@@ -207,11 +253,17 @@ the source, so the row is not optional bookkeeping: the meta-test reds until it 
 
 Restart is the only new user gesture, and it never renders a state that contradicts what is true.
 
-1. **One commit.** Remove the id from `checkedIn`, add it to `restarting`. The `<Image>` unmounts,
-   because `restarting` renders none. The overlay stays: it is the same element, in the same
-   position, so the browser keeps focus on it with no hand-off.
+1. **One commit.** Remove the id from `retrying` AND from `checkedIn`, and add it to `restarting`.
+   Leaving `retrying` is what lets §3.2 retire the expired timer, so the replacement request gets a
+   fresh thirty seconds; an earlier draft left the id in `retrying` and review round 2 showed the
+   new request would then carry no deadline at all. The `<Image>` unmounts, because the render
+   predicate of §3 gates it on `restarting` being false. The overlay stays: it is the same element,
+   in the same position, so the browser keeps focus on it with no hand-off.
 2. **A `useLayoutEffect`** keyed on `restarting` moves every id in it to `retrying`. A layout effect
-   runs before the browser paints, so the imageless commit is never painted.
+   runs before the browser paints, so the imageless commit is never painted. `restarting` is swept
+   by the same predicates as `retrying` — availability in both components, plus `renderedIds` in the
+   gallery and the active slide in the lightbox — and the effect promotes only ids that survive that
+   sweep, so an item that goes away mid-Restart is not resurrected into a request nobody wants.
 3. The `retrying` commit mounts a NEW `<Image>`, which is a new request. That is where the fresh
    attempt comes from.
 
@@ -304,7 +356,16 @@ is the same trigger that closes documented limit 1 there.
 | `aria-busy` | `"true"` | `"true"` | `"true"` |
 | `aria-disabled` | `"true"` | ABSENT | `"true"` |
 | native `disabled` | never | never | never |
-| accessible name | `<name> could not be loaded. Retrying…` | `<name> is still loading. Restart.` | `<name> could not be loaded. Retrying…` |
+| accessible name | `<name> could not be loaded. Retrying…` | `<name> is still loading. Restart.` | `<name> could not be loaded. Retrying…`, the same as `retrying` |
+
+**On `restarting` carrying the word "loaded", which review round 2 flagged against AC-10.** The
+name is the in-flight name, unchanged, and it is true: the diagram DID fail to load, and a retry is
+running. What was false in the design round 1 killed was the FAILED control's name, which says the
+attempt is over and offers a new one while a request is still in flight. AC-10 was written as a
+phrase ban and that was the imprecise half, so §10 now states the criterion the finding was actually
+about: during Restart no committed frame renders the failed control, every committed frame keeps
+`aria-busy="true"`, and focus does not move. That is testable, it catches the original defect, and
+it does not forbid a true sentence.
 
 `aria-busy` is `"true"` in all three because in all three a request is in flight. This is the honest
 value at second 31 exactly as it was at second 1. Dropping it would announce a completion that has
@@ -318,10 +379,29 @@ the timer changed `aria-busy` — declaring a request finished because a clock s
 never touches `aria-busy`. What the timer changes is what the UI OFFERS, and offering an exit from a
 wait is not a claim about the wait ending.
 
-The check-in announces once per entry, through the existing channel router (`routeAnnouncement`,
+### 6.1 Where the announcement comes from, since the clock is the wrong source
+
+The check-in announces once per entry through the existing channel router (`routeAnnouncement`,
 `Gallery.tsx:405`), so a check-in inside an open lightbox reaches the dialog-local region and one
-during the exit window is buffered, exactly as failures and retry outcomes already are. `restarting`
-announces nothing: it is a sub-frame staging state, and announcing it would say `Retrying…` twice.
+during the exit window is buffered, exactly as failures and retry outcomes already are.
+
+**It is emitted by an effect over the EFFECTIVE checked-in set, never by the timer callback.**
+Review round 2 was right that the two cannot both hold otherwise: §3.2 promises a late timer write
+is inert, and a callback that also speaks has already spoken by the time anything could make it
+inert. So:
+
+- an effect keyed on `effectiveCheckedIn` (§3.1) announces for each id present in it that is not in
+  `announcedCheckInRef`, then records the id
+- the §3.2 reconciler drops an id from `announcedCheckInRef` when it leaves `retrying`, so a genuine
+  second entry announces again and a re-render does not
+
+Both admitted races fall out rather than needing their own rule. On the same-tick `onLoad`, the id
+has already left `retrying`, so it is absent from `effectiveCheckedIn` on that render and the effect
+never sees it. On any sweep, likewise. The intersection is doing the work in both cases, which is
+why the announcement reads from it rather than from the set the timer writes.
+
+`restarting` announces nothing. It is a staging state that says `Retrying…`, which the entry already
+announced, and saying it twice is noise rather than information.
 
 **An inactive lightbox slide cannot RENDER a check-in.** The overlay is gated on
 `isRetrying && isActive` (`GalleryLightbox.tsx:1062`), and the Embla `select` handler
@@ -365,11 +445,11 @@ on this machine a pair is routinely reachable one way and unreachable the other.
 | failed / restarting | unreachable: Restart exists only in the check-in | unreachable: `restarting` leaves only to `retrying`. This is the pair the first draft got wrong, and §4.1 records why |
 | failed / unavailable | flips false. Instant. The availability sweep clears `failedKeys` on the way in (2026-08-29 §9.1) | flips true. Instant, and the cell returns `idle`, because the sweep already cleared the id |
 | retrying / checked-in | the timer fires at `RETRY_CHECK_IN_MS`. Instant, and deliberately so: a fade would draw the eye to a control that has been sitting still for thirty seconds, and the change is a copy swap inside a node that does not move | unreachable directly: nothing removes an id from `checkedIn` while leaving it in `retrying`, except Restart, which routes through `restarting` |
-| retrying / restarting | unreachable: Restart is offered only in the check-in | the layout effect of §4.1. One commit cycle, never painted |
+| retrying / restarting | unreachable directly: Restart is offered only in the check-in, so the path out of plain `retrying` into `restarting` does not exist | the layout effect of §4.1, before paint. The id re-enters `retrying` with a fresh timer, which is what makes the replacement request carry its own deadline |
 | retrying / unavailable | flips false. Instant. The sweep clears `retrying`; `checkedIn` and the timer follow by §3.1 and §3.2 | flips true. Instant, returning `idle`; the in-flight request is not resumed, because its state is gone |
-| checked-in / restarting | pressing Restart. Instant, one commit | unreachable: `restarting` leaves only to `retrying`, and a new check-in needs another 30 seconds there |
+| checked-in / restarting | pressing Restart. Instant, one commit, and the id leaves `retrying` in the same write | unreachable: `restarting` leaves only to `retrying`, and a new check-in needs another 30 seconds there |
 | checked-in / unavailable | flips false. Instant. Same three members, same two mechanisms | flips true. Instant, returning `idle` |
-| restarting / unavailable | flips false. Instant. `restarting` requires `item.available`, so the branch is gone on the same render; the layout effect finds an id the sweep has dropped and does nothing | flips true. Instant, returning `idle` |
+| restarting / unavailable | flips false, or the item leaves `renderedIds`, or its slide goes inactive. Instant. `restarting` is swept by the same predicates as `retrying` (§4.1 step 2), so the branch is gone on that render and the layout effect finds an id the sweep dropped and promotes nothing | flips true. Instant, returning `idle`. The abandoned request is not resumed, because its state is gone |
 
 ### 8.1 Compound transitions
 
@@ -381,6 +461,7 @@ on this machine a pair is routinely reachable one way and unreachable the other.
 | the item leaves `renderedIds` while checked in | "Show fewer" or a reorder past the cutoff. The rendered-ID sweep abandons the retry and restores the failure; on re-expand the cell offers its retry control, never a resurrected check-in |
 | an active slide is swiped away while checked in | the Embla handler abandons the retry and restores the failure. Swiping back shows the failed control, not a check-in for a request nobody is waiting on |
 | Restart pressed, and the ORIGINAL request completes during the staging commit | the old `<img>` is out of the document and its listeners are detached, so neither handler fires. The new request decides the outcome |
+| Restart pressed while ANOTHER item is 29 seconds into its own wait | that item's window is untouched. The §3.2 reconciler changes only the ids whose membership changed, and the clear-everything path is a separate mount-scoped effect. This is AC-1b |
 | Restart pressed, and the item goes unavailable in the same tick | the sweep drops the id, the `restarting` branch is gone on that render, and the layout effect moves nothing |
 | the timer fires in the same tick as `onLoad` | the `checkedIn` write is inert by §3.1. No ordering guarantee is needed |
 | two items checked in at once | independent. Per-item state, per-item timers, two overlays |
@@ -413,6 +494,7 @@ rather than as a finding.
 | id | criterion |
 |---|---|
 | AC-1 | An item entering `retrying` has exactly one live check-in timer, and an item leaving `retrying` by ANY of the seven paths in §3.1 has none |
+| AC-1b | An item's check-in fires at `RETRY_CHECK_IN_MS` after ITS OWN entry, with a second item entering and then leaving `retrying` in between. A count of live timers cannot see this, which is why it is its own criterion |
 | AC-2 | At `RETRY_CHECK_IN_MS` the overlay shows `Still loading` and `Restart`, and its accessible name is `<name> is still loading. Restart.` |
 | AC-3 | `aria-busy` is `"true"` in all three in-flight states, asserted on the same element across the transitions |
 | AC-4 | `aria-disabled` is present before the check-in, absent during it, and present again in `restarting` |
@@ -420,12 +502,14 @@ rather than as a finding.
 | AC-6 | `onLoad` during the check-in reaches `idle` with no intermediate frame |
 | AC-7 | `onError` during the check-in reaches `failed` and announces the existing still-failed string |
 | AC-8 | Restart reaches `retrying` and the second `<Image>` is a DIFFERENT node from the first |
+| AC-8b | The replacement request gets its own check-in: after Restart the id is out of `retrying` for one commit and back in on the next, and a check-in fires `RETRY_CHECK_IN_MS` after THAT re-entry |
 | AC-9 | No code path in either component calls `AbortController`, `abort()`, or clears an `<img>` `src` |
-| AC-10 | No committed frame between the check-in and the new request exposes a control whose accessible name says the diagram could not be loaded, and focus does not move during Restart |
+| AC-10 | Across every commit of Restart: the failed control is never rendered, the overlay keeps `aria-busy="true"`, and `document.activeElement` does not change. Stated as the three observable facts rather than as a ban on a phrase, because the in-flight name legitimately contains that phrase (§6) |
 | AC-11 | A `checkedIn` id whose `retrying` entry is gone renders nothing, asserted directly for the rendered-ID sweep and for the Embla swipe-away |
 | AC-12 | Every new `useState` / `useRef` in both components has a `PER_ITEM_STATE_REGISTRY` row with a non-empty `clearedBy` and a sweep decision |
 | AC-13 | In a real browser, with the asset request held open, the check-in appears and the check-in button's height equals the gallery cell's within 0.5px |
 | AC-14 | The check-in announces once per entry through the existing channel router, and `restarting` announces nothing |
+| AC-15 | No announcement is emitted for an id that has left `retrying`, asserted for the same-tick `onLoad` and for a swept item. This is the criterion that pins the announcement to the effective set rather than to the timer |
 
 ## 11. Out of scope
 
