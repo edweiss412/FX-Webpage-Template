@@ -13,7 +13,7 @@ impeccable-gate: pending, this arc ships UI
 - **Invariant 6 (commit per task).** Scope is admin wizard UI plus one crew component: `feat(admin)`, `fix(admin)`, `test(admin)`, `fix(crew-page)` for the gallery, `docs(plan)`.
 - **Invariant 8 (impeccable dual gate).** `/impeccable critique` and `/impeccable audit` both run on the diff before the whole-diff review. This arc touches `components/` twice; the gate is not optional.
 - **Invariant 11.** All work in `/Users/ericweiss/FX-worktrees/diagtile`. Never the main checkout.
-- **Invariant 12.** The three ledger rows are marked IN PROGRESS on the branch and graduate in the PR's last commit (Task 8), never on main.
+- **Invariant 12.** The three ledger rows are marked IN PROGRESS on the branch and graduate in the PR's last commit, in the closeout below, never on main.
 - **No new ledger row, of any facing.** Unrepaired peers stay in spec section 6 and go to bl-orch in the readiness message. Filing a `BL-`/`DEF-` row is not an available disposition for anything this arc finds.
 - **The two sentences are ratified and typed exactly**, from the `DIAGRAMTILE-FAILURE-STATE-COPY-1` row body: `Not captured. Won't appear on the crew page.` and `Preview couldn't load. The diagram will still publish.` Straight apostrophes, period form, no em dash. AC-10 and `tests/styles/_metaEmDashCopy.test.ts` are the guards.
 - **Type tokens are `@theme` names.** The message is `text-xs/relaxed` (the repo's wrapping-copy class); the name line is plain `text-xs` and truncates.
@@ -74,7 +74,7 @@ failureFocus suites, and exact `getByTestId` in `publishedNoStagedTraffic.test.t
 An exact id cannot be matched by a new `-diagram-cell-` sibling, so the cap-count risk is confined to
 the five prefix consumers, as the spec says. AC-9 rests on this and it holds.
 
-**V3: is `TriangleAlert` importable where the spec puts it? (negative; Task 3 rests on it).**
+**V3: is `TriangleAlert` importable where the spec puts it? (negative; the glyph task rests on it).**
 
 ```
 $ rg -n "TriangleAlert|ImageOff" components/admin/wizard/step3ReviewSections.tsx
@@ -107,7 +107,7 @@ is a sixth occurrence it does not name**, inside the `CHROME_TOKEN` doc comment,
 where `object-cover border size-full` is a worked example of a regex boundary bug. **Disposition:
 leave it.** That comment is about the token regex's anchoring, not about what the tile ships, and
 rewriting it to `object-contain` would make the worked example disagree with the bug it documents.
-Task 5 states this rather than leaving a reader to wonder whether the sweep missed it.
+Task 4 states this rather than leaving a reader to wonder whether the sweep missed it.
 
 **V5: does anything already pin the gallery's fit class? (negative; AC-12 rests on it).**
 
@@ -139,7 +139,7 @@ trusted:
 
 ```
 $ npx playwright test tests/e2e/step3-review-modal.layout.spec.ts --project=desktop-chromium --list
-Total: 0 tests in 0 files          # what the first draft shipped
+Total: 0 tests in 0 files          # what the first draft shipped; exit 1, "No tests found"
 
 $ npx playwright test --config tests/e2e/standalone.config.ts \
     tests/e2e/step3-review-modal.layout.spec.ts --project=standalone-chromium --list
@@ -154,7 +154,7 @@ Total: 33 tests in 1 file
 under project `standalone-chromium` (`tests/e2e/standalone.config.ts:100`). The default config's
 `desktop-chromium` allow-list (`playwright.config.ts:96-97`) carries
 `step3-review-modal.interactions` and `published-review-modal.layout` but NOT
-`step3-review-modal.layout`. Tasks 5 and 6 use the config-and-project form above.
+`step3-review-modal.layout`. Tasks 2 and 4 use the config-and-project form above.
 
 **V6: the premise helper's real exports.**
 
@@ -192,7 +192,7 @@ Tasks 6 and 7 attach Playwright, so the three mandatory declarations:
 - **(a) Server boot.** Both specs run against the existing `tests/e2e/_step3ReviewModalHarness.tsx` bundle under the committed Playwright config, `--project=desktop-chromium`. No new server, no new port.
 - **(b) Readiness gate**, and it is NOT a hydration wait, which the first draft of this section wrongly claimed. `openHarness` (`tests/e2e/step3-review-modal.layout.spec.ts:237-249`) does two things that matter: `page.emulateMedia({ reducedMotion: "reduce" })`, which collapses the panel entrance animation through the `prefers-reduced-motion` block in `app/globals.css` so **geometry is final on load** and no animation-end wait is needed, and `await page.evaluate(() => document.fonts.ready)`, which is the actual gate. The font gate is load-bearing rather than incidental: AC-7b's first clause measures the message against ONE LINE-HEIGHT, and a fallback font resolves to a different one, so measuring before fonts settle fails in the direction that passes. Never `networkidle` alone, and there is no `networkidle` in that spec.
 - **(c) Detach safety.** Every rect is read in ONE `page.evaluate` that resolves each element and returns plain numbers, never a sequence of `locator.evaluate` calls that can outlive a re-render. This is also what keeps the readability walk in AC-7b consistent: ancestor and message rects must come from the same layout frame or containment is compared across two.
-- **(d) Two harnesses, because one cannot reach both failure states.** The layout spec renders through `renderToStaticMarkup` (`tests/e2e/_step3ReviewModalHarness.tsx:344`), and its own comment says so: static markup has no hydration, so `onError` is never attached (`tests/e2e/step3-review-modal.layout.spec.ts:207-212`). `absent` is seeded from props and therefore renders statically; `load-failed` is reachable ONLY by a real error event and therefore cannot exist there at all. `tests/e2e/step3-review-modal.interactions.spec.ts` builds a live page from an esbuild bundle into an empty `#root` (`tests/e2e/step3-review-modal.interactions.spec.ts:145`), so it is hydrated and interactive. AC-7b is split across the two on that boundary, in Task 6.
+- **(d) Two harnesses, because one cannot reach both failure states.** The layout spec renders through `renderToStaticMarkup` (`tests/e2e/_step3ReviewModalHarness.tsx:344`), and its own comment says so: static markup has no hydration, so `onError` is never attached (`tests/e2e/step3-review-modal.layout.spec.ts:207-212`). `absent` is seeded from props and therefore renders statically; `load-failed` is reachable ONLY by a real error event and therefore cannot exist there at all. `tests/e2e/step3-review-modal.interactions.spec.ts` builds a live page from an esbuild bundle into an empty `#root` (`tests/e2e/step3-review-modal.interactions.spec.ts:145`), so it is hydrated and interactive. AC-7b is split across the two on that boundary, in Task 2. The hydrated spec has its OWN opener, `openLive` (`tests/e2e/step3-review-modal.interactions.spec.ts:202`), which does the same reduced-motion and `document.fonts.ready` steps and then adds the gate the static spec has no need of: `await expect(page.locator(PANEL)).toBeVisible()`, which is what waits for the bundle to mount. Citing the layout spec's `openHarness` for both arms would be wrong.
 ## File structure
 
 New files are written unbackticked here because they do not exist yet; a citation to an untracked
@@ -200,176 +200,156 @@ path is a lint failure, and a plan that dodges it by not naming the file is wors
 
 | File | Responsibility | Task |
 |---|---|---|
-| `components/admin/wizard/step3ReviewSections.tsx` | wrapper, name line, three-state union, two sentences, glyph split, border token, fit class | 1, 2, 3, 4 |
-| tests/components/admin/wizard/step3DiagramTile.states.test.tsx (new) | AC-1 to AC-6 | 1, 2 |
-| `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx` | census re-scope; the broken premise and `[title]` lookup | 1 |
-| `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx` | census re-scope; three of the five live-negatives | 1 |
-| `tests/components/admin/wizard/step3DiagramTile.published.test.tsx` | census re-scope; one live-negative | 1 |
-| `tests/components/admin/wizard/step3ReviewSections.test.tsx` | census re-scope; one live-negative; the cap count | 1 |
-| `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` | census re-scope (the `.textContent` site) | 1 |
-| `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx` | the fit assertion and its negative controls; the border pin | 3, 4 |
-| `components/diagrams/Gallery.tsx` | the crew gallery's fit class | 3 |
-| tests/components/diagrams/galleryTileFit.test.tsx (new) | AC-12's first pin on the gallery THUMBNAIL | 3 |
-| `tests/e2e/step3-review-modal.layout.spec.ts` | AC-7 dimensional invariants; AC-7b's `absent` arm | 5, 6 |
-| `tests/e2e/step3-review-modal.interactions.spec.ts` | AC-7b's `load-failed` arm, which needs hydration | 6 |
+| `components/admin/wizard/step3ReviewSections.tsx` | wrapper and cell id; caption out of the box; three-state union, sentences, glyphs; fit class; border token | 1, 2, 3, 4, 5 |
+| tests/components/admin/wizard/step3DiagramTile.states.test.tsx (new) | AC-9; AC-3/4/5; AC-1/2/6 | 1, 2, 3 |
+| `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx` | census re-scope; the broken premise and `[title]` lookup | 2 |
+| `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx` | census re-scope; three of the five live-negatives | 2 |
+| `tests/components/admin/wizard/step3DiagramTile.published.test.tsx` | census re-scope; one live-negative | 2 |
+| `tests/components/admin/wizard/step3ReviewSections.test.tsx` | census re-scope; one live-negative; the cap count | 2 |
+| `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` | census re-scope (the `.textContent` site) | 2 |
+| `tests/e2e/step3-review-modal.layout.spec.ts` | AC-7 dimensional invariants; AC-7b's `absent` arm | 2 |
+| `tests/e2e/step3-review-modal.interactions.spec.ts` | AC-7b's `load-failed` arm, which needs hydration | 2 |
+| `tests/styles/tapTargetCensus.ts`, `tests/styles/subtleInteractiveExemptions.ts` | three line-keyed rows relocated by running their scanners | 2, 3 |
+| `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx` | the fit expectation and its negative controls; the border pin | 4, 5 |
+| `components/diagrams/Gallery.tsx` | the crew thumbnail's fit class; the crew cell's border token | 4, 5 |
+| tests/components/diagrams/galleryTileFit.test.tsx (new) | AC-12's first pin on the gallery thumbnail; the crew border pin | 4, 5 |
 
 ---
 
 <!-- tasks: depth=3 red-contract -->
 
-Six tasks, not the seven the first draft carried. Plan review round 1 showed the transition task
-could not be red: by the time it ran, the task before it had already implemented the reconcile it
-claimed was broken, so its cases would have gone green the moment they were authored. The
-transitions are proved by the same red as the copy split and belong in that task.
+Five tasks. Round 2 showed the six-task shape could not satisfy its own contract: **all of the
+production change sat in the first four tasks, so the two browser tasks had nothing left to make
+red.** A task whose files are all tests, running after the implementation its assertions need, goes
+green the moment it is authored. The decomposition below is therefore by PRODUCTION INCREMENT: each
+task owns one change to shipped code, and carries every assertion that change turns green, unit and
+browser alike.
 
-### Task 1: The caption leaves the box, and the seventeen sites move with it
+### Task 1: The wrapper, and the handle the cap depends on
 
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.states.test.tsx tests/components/admin/wizard/step3DiagramTile.staged.test.tsx tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx tests/components/admin/wizard/step3DiagramTile.published.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4174` why=`the name line exists only inside the failed branch, so the live tile has no name node at all and the AC-3 case finds nothing to assert on` ac=AC-3,AC-4,AC-5,AC-9,AC-11 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.states.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4152` why=`both branches return the box element directly with no wrapper around it, so the cell testid resolves to zero nodes and every AC-9 assertion fails on an absent element` ac=AC-9 -->
 
-**Files:** tests/components/admin/wizard/step3DiagramTile.states.test.tsx (new), `components/admin/wizard/step3ReviewSections.tsx`, and the five census suites.
+**Files:** tests/components/admin/wizard/step3DiagramTile.states.test.tsx (new), `components/admin/wizard/step3ReviewSections.tsx`.
 
-- [ ] **Step 1: The suite, name line only.** AC-3: a live tile renders its name as visible text and that text carries `aria-hidden="true"`. AC-4: both failed states render the name WITHOUT `aria-hidden`. AC-5: with `alt` empty or whitespace, no name line renders in any state, and the anchor's `aria-label` still falls back to `Staged diagram (opens in a new tab)`.
-- [ ] **Step 2: Observed red.** `components/admin/wizard/step3ReviewSections.tsx:4174` is `{strippedAlt ? (`, inside the `failed` branch that returns at `components/admin/wizard/step3ReviewSections.tsx:4152`. The live branch has no name node, so AC-3 has nothing to find.
-- [ ] **Step 3: The wrapper.** A `<span className="flex flex-col gap-1">` holding the box and the caption. The box keeps its exact geometry and its `data-testid`; the caption is a sibling, free to be as tall as its content.
-- [ ] **Step 4: The name line, once, outside the box, in every state.** Plain `text-xs`, `truncate`, `title={strippedAlt}`. `aria-hidden="true"` in the live state only, because there the anchor already carries the name (`components/admin/wizard/step3ReviewSections.tsx:4199-4201`); in the two failed states there is no anchor, so the caption is the only accessible text and must stay announced. Same argument that emptied the image's `alt` at `components/admin/wizard/step3ReviewSections.tsx:4242`.
-- [ ] **Step 5: Four pre-dispatch mutants** on every string-presence assertion this task adds: the value emptied; the expected content plus an appended suffix; the content present but not live (the name in an attribute only); each discriminating parameter varied in turn. Results recorded in the commit.
-- [ ] **Step 6: The loud red, and it is the same commit.** Moving the caption reds thirteen existing sites at once, so the census repair CANNOT be a separate task: a boundary here commits a red tree. Thirteen loud failures: the ten positive `getByText` sites, the `.textContent` site at `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx:903`, the premise at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:188-191`, and the `[title]` lookup at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:196-199`.
-- [ ] **Step 7: Thirteen re-point from the box to the cell.**
-- [ ] **Step 8: The five live-negatives get a POSITIVE discriminator, not just a re-scope (AC-11).** Each today asserts a placeholder string is ABSENT from the box; move the string to a sibling and the assertion passes whether or not the tile is a placeholder. Each instead asserts the box IS an `<a>` with a mounted `<img>`. The five: `tests/components/admin/wizard/step3DiagramTile.published.test.tsx:275`, `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:84`, `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:118`, `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:157`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:841`.
-- [ ] **Step 9: AC-11 is discharged by EXECUTED mutants, and this step is where they run.** The five discriminators pass both before and after the restructure, which is exactly the property that makes them worth nothing until proved; step 5's four mutants cover string-presence assertions and do not touch these. So: force the component onto the placeholder branch (seed `hasPreviewSource: false`), run each of the five sites, and record that each FAILS. A discriminator that still passes against a placeholder tile is the defect AC-11 names, and nothing else in this plan can catch it. Verify each mutation applied before reading the result, because a mutation that silently fails to apply reports exactly what a surviving mutant reports.
-- [ ] **Step 10: The wrapper's own handle (AC-9).** The cell carries `-diagram-cell-`, not `-diagram-tile-`, because five prefix consumers require the literal `-diagram-tile-` and would otherwise count the wrapper as a tile: the four CSS selectors in verification V2 plus the `TILE_PREFIX` constant at `tests/components/admin/wizard/step3ReviewSections.test.tsx:749` that three queries in that file derive from. Assert the `-diagram-tile-` prefix count over a full grid still equals `DIAGRAM_TILE_CAP` (`components/admin/wizard/step3ReviewSections.tsx:4077`, value 12), which is the assertion that read 24 where 12 was correct.
-- [ ] **Step 11: One near miss, checked and left alone.** `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx:375` selects `[data-testid*="diagram" i]`, a case-insensitive SUBSTRING, which the new cell id does match. It is the only one of the corpus's 27 substring selectors mentioning "diagram", and it is a single `querySelector` used as a `.not.toBeNull()` premise, so an additional match cannot change its verdict.
-- [ ] **Step 12: Observed green** on the new suite and all five census suites.
+- [ ] **Step 1: The AC-9 cases.** `data-testid` stays on the box in every state; the wrapper carries a `-diagram-cell-` id; the `-diagram-tile-` prefix count over a full grid still equals `DIAGRAM_TILE_CAP` (`components/admin/wizard/step3ReviewSections.tsx:4077`, value 12); the cell contains the box and not the reverse.
+- [ ] **Step 2: A premise that the grid rendered MORE stubs than the cap**, on the case's own inputs. A count of 12 against 12 stubs proves nothing about capping.
+- [ ] **Step 3: Observed red.** `components/admin/wizard/step3ReviewSections.tsx:4152` returns the placeholder `<span>` directly and the live branch returns the `<a>` directly; there is no wrapper element in either, so the cell query finds nothing.
+- [ ] **Step 4: The wrapper.** A `<span className="flex flex-col gap-1">` around the box. It is a grid item, so it is blockified and the flex column applies; the box keeps its width through its own `w-full` rather than through any `align-items` default, which Tailwind v4 does not give `.flex`.
+- [ ] **Step 5: The cell id is a SIBLING prop, never a rewrite of the tile id.** `testId` is built inline at the call site from `dfid` and `i` (`components/admin/wizard/step3ReviewSections.tsx:4406`); the cell id is built there from the same two parts. Deriving one from the other by string substitution is what makes a prefix selector count the wrapper as a tile.
+- [ ] **Step 6: Why the segment is `-diagram-cell-`.** Five prefix consumers require the literal `-diagram-tile-`: the four CSS selectors in verification V2 plus the `TILE_PREFIX` constant at `tests/components/admin/wizard/step3ReviewSections.test.tsx:749` that three queries in that file derive from. A cell id sharing the tile prefix would restore the defect the comment at `components/admin/wizard/step3ReviewSections.tsx:4166-4172` records, where the cap assertion read 24 where 12 was correct.
+- [ ] **Step 7: One near miss, checked and left alone.** `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx:375` selects `[data-testid*="diagram" i]`, a case-insensitive SUBSTRING, which the new cell id does match. It is the only one of the corpus's 27 substring selectors mentioning "diagram", and it is a single `querySelector` used as a `.not.toBeNull()` premise, so an additional match cannot change its verdict.
+- [ ] **Step 8: Observed green**, plus the five census suites, which this task does not yet disturb: the caption has not moved, so every existing assertion still reads the box it was written against.
 
-### Task 2: Three states, two sentences, two glyphs, and every transition
+### Task 2: The caption leaves the box
 
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.states.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4159` why=`one string, Preview unavailable, renders for both failed states, so absent and load-failed are indistinguishable and every copy case and every transition case that names a landing state fails on that one line` ac=AC-1,AC-2,AC-6,AC-10 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.states.test.tsx tests/components/admin/wizard/step3DiagramTile.staged.test.tsx tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx tests/components/admin/wizard/step3DiagramTile.published.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4174` why=`the name line exists only inside the failed branch, so the live tile has no name node and every AC-3 assertion fails on an absent element` ac=AC-3,AC-4,AC-5,AC-7,AC-7b,AC-11 -->
 
-**Files:** `components/admin/wizard/step3ReviewSections.tsx`, tests/components/admin/wizard/step3DiagramTile.states.test.tsx.
+**Files:** tests/components/admin/wizard/step3DiagramTile.states.test.tsx, the five census suites, `tests/e2e/step3-review-modal.layout.spec.ts`, `tests/e2e/step3-review-modal.interactions.spec.ts`, `components/admin/wizard/step3ReviewSections.tsx`.
 
-The transitions live here rather than in a task of their own **because they cannot be red anywhere
-else**. Once the union exists and writes the right value on each path, every ordered transition
-lands correctly; a later task asserting them would go green the moment it was authored, which the
-red contract rejects. Before the union, the two failed states render one string and no transition
-case can tell which one it landed on. That is one red, and it covers both.
+One production change, the caption moving out of the box, and everything it turns green. The browser
+oracles live HERE and not in a later task for the reason round 2 gave: after this change the message
+is already outside the box, so an AC-7b authored later could never be red.
 
-- [ ] **Step 1: The copy cases, both directions each.** AC-1: seeded `hasPreviewSource: false` renders `Not captured. Won't appear on the crew page.` and NOT the load-failed sentence. AC-2: a mounted image that fires a real `onError` renders `Preview couldn't load. The diagram will still publish.` and NOT the absent sentence. Both directions is what catches a split that threads the state and still renders one string.
-- [ ] **Step 2: AC-2 is reached by a real error event on a mounted image**, never by seeding a `load-failed` prop. A seed-only test passes against a seed-only implementation.
-- [ ] **Step 3: The transition matrix (AC-6)**, reproduced from spec §4.1 per the writing-plans rule. Three states, three unordered pairs, six ordered transitions, every one INSTANT with no animation anywhere in this component.
-
-| Ordered transition | Reachable | Driver |
-|---|---|---|
-| `live` to `absent` | yes | reconcile, `hasPreviewSource` goes false |
-| `live` to `load-failed` | yes | `onError` on the mounted image |
-| `absent` to `live` | yes | reconcile, a good source arrives |
-| `load-failed` to `live` | yes | reconcile, `href` or `sourceKey` moves |
-| `load-failed` to `absent` | yes | reconcile, `hasPreviewSource` goes false |
-| `absent` to `load-failed` | **no** | no image mounts in `absent`, so `onError` cannot fire |
-
-- [ ] **Step 4: Every transition driven through a stable React key**, so a remount cannot be mistaken for a re-derivation. The grid keys tiles by `${stub.objectId}-${i}`; the cases hold `objectId` fixed and re-render rather than replace. A remount would seed fresh state and every case would pass without the reconcile existing at all.
-- [ ] **Step 5: The two compound cases from spec §4.1.** A flip while a sibling tile in the same row is mid-flip: assert the END state of both and that every box in the row is still 4:3, never a single batched frame, which the spec explicitly does not guarantee. And `live` to `load-failed` while the anchor HOLDS focus: existing behaviour, asserted unchanged, because `onFailure` hands the grid the anchor before the flip (`components/admin/wizard/step3ReviewSections.tsx:4245-4253`) and `handleTileFailure` moves focus forward, then backward, then to the grid (`components/admin/wizard/step3ReviewSections.tsx:4336-4348`).
-- [ ] **Step 6: Observed red** against `components/admin/wizard/step3ReviewSections.tsx:4159`.
-- [ ] **Step 7: The union.** `type DiagramTileState = "live" | "absent" | "load-failed"`. The seed at `components/admin/wizard/step3ReviewSections.tsx:4120` becomes `hasPreviewSource ? "live" : "absent"`; the reconcile at `components/admin/wizard/step3ReviewSections.tsx:4149` re-seeds on the same rule; the `onError` handler at `components/admin/wizard/step3ReviewSections.tsx:4245-4253` writes `"load-failed"` AFTER calling `onFailure`. That order is load-bearing and unchanged: after the flip there is no anchor left to move focus off.
-- [ ] **Step 8: The glyph split.** `TriangleAlert` for `absent`, `ImageOff` for `load-failed`, both `size-4 text-text-subtle` and `aria-hidden`. Glyph carries the state, not colour. **`TriangleAlert` is not imported today** (verification V3): add it to the existing `lucide-react` import at `components/admin/wizard/step3ReviewSections.tsx:47`.
-- [ ] **Step 9: Four pre-dispatch mutants per sentence**, as Task 1 step 5.
-- [ ] **Step 10: Observed green**, plus `pnpm vitest run tests/styles/_metaEmDashCopy.test.ts` for AC-10.
-
-### Task 3: Shrink to fit, on both surfaces
-
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/components/diagrams/galleryTileFit.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:757` why=`both surfaces ship object-cover, so the admin equality at step3DiagramTile.chrome.test.tsx:144 fails on the changed expectation and the new gallery pin fails on the thumbnail class` ac=AC-12 -->
-
-**Files:** `components/admin/wizard/step3ReviewSections.tsx`, `components/diagrams/Gallery.tsx`, `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx`, tests/components/diagrams/galleryTileFit.test.tsx (new).
-
-Eric ruled this at 15:10 on 2026-08-31. The product-wide scope is part of the ruling, not an
-inference from it. **Both files are in the red command**, because a command naming only the admin
-suite goes green with `Gallery.tsx` still on `object-cover`, which is half the criterion unproved.
-
-- [ ] **Step 1: The gallery's first pin, scoped to the thumbnail.** Verification V5 shows the only existing `object-contain` assertion in `tests/` is on the LIGHTBOX image (`tests/components/diagrams/GalleryLightboxPinchZoom.test.tsx:1012`), a different element. The new suite therefore scopes to `[data-testid^="diagram-slot-"] img` (the cell testid is set at `components/diagrams/Gallery.tsx:636`), and carries a premise that with the lightbox closed every rendered image IS a thumbnail, so the scope cannot silently widen.
-- [ ] **Step 2: Observed red** on both: `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:144` asserts `img!.className.trim()` equals `"object-cover"`; the gallery pin fails on the shipped thumbnail class.
-- [ ] **Step 3: Two class edits.** `components/admin/wizard/step3ReviewSections.tsx:4254` and `components/diagrams/Gallery.tsx:757`. Both letterbox against a `bg-surface-sunken` plate that already exists and already meets its contrast pin: the anchor at `components/admin/wizard/step3ReviewSections.tsx:4237` on the admin side, the cell `<li>` at `components/diagrams/Gallery.tsx:651` on the crew side. The two aspect boxes differ and that is not reconciled here: the admin tile is `aspect-4/3`, the gallery cell `aspect-square`.
-- [ ] **Step 4: The negative-control literals move with it.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:98-112` embed the fit class as DATA mirroring production rather than as an assertion about it, so they move or the controls stop mirroring the thing they control for.
-- [ ] **Step 5: The one occurrence that does NOT move, stated rather than left to a reader.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:48` carries the fit class inside the `CHROME_TOKEN` doc comment as a worked example of a regex-anchoring bug. It documents the token matcher, not the shipped fit; rewriting it would make the example disagree with the bug it explains. Left alone deliberately.
-- [ ] **Step 6: Nothing else moves, checked rather than assumed.** Spec §7's three non-movers, each with its oracle: the padding-box assertion at `tests/e2e/step3-review-modal.layout.spec.ts:595` and the srcset-tier assertion at `tests/e2e/published-review-modal.layout.spec.ts:2079` both run in Tasks 5 and 6 and would red if the reasoning were wrong; the blur placeholder is settled by `docs/superpowers/specs/probes/2026-08-31-next-blur-background-size-probe.mjs`, re-run in this task's commit against the version its report records.
-- [ ] **Step 7: Observed green**, both unit suites plus the two e2e specs.
-
-### Task 4: The placeholder's edge stops being the faintest thing on screen
-
-<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4156` why=`the placeholder box ships border-border, so the positive pin on border-text-faint fails and the negative pin on border-border fails with it` ac=AC-8 -->
-
-**Files:** `components/admin/wizard/step3ReviewSections.tsx`, `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx`.
-
-- [ ] **Step 1: A POSITIVE pin, because the suite has none.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:157`,
-`tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:186-192` and
-`tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:219-225` assert the placeholder's chrome SHAPE without pinning which border token, so the restyle is unguarded in both directions today. Add both arms: carries `border-text-faint`, does not carry `border-border`.
-- [ ] **Step 2: Observed red** against `components/admin/wizard/step3ReviewSections.tsx:4156`.
-- [ ] **Step 3: One token.** `border-border` becomes `border-text-faint`, matching the live box: 1.22-1.27:1 light becomes 3.02:1 light, over the 3:1 non-text floor. No NEW token pairing, so no new `DESIGN.md` contrast row is owed; the pair is already pinned at `DESIGN.md:184`.
-- [ ] **Step 4: Observed green.**
-- [ ] **Step 5: The peer this task does NOT repair, and why.** `components/diagrams/Gallery.tsx:651` is the same shape: an `aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken` cell on a neutral ground, on the crew surface Task 3 already opens. After this task the admin pair agrees and the crew cell is the odd one out. It is NOT repaired here, under class-sweep exception (a): the parallel change to that same surface, the fit, required Eric's explicit ruling before this arc could touch it, and a contrast-token change to a crew-facing cell is a second product call nobody has made. Two things are genuinely unsettled and are not pre-empted here: whether that cell counts as a control (it wraps a `<button>` and carries `has-[button:focus-visible]:ring-2`, which may put it on a different `DESIGN.md` row) and whether the callout at `components/admin/wizard/step3ReviewSections.tsx:2415` is in the class at all. Goes to the PR body under "Unfixed peers" and to the orchestrator. No ledger row, of any facing.
-
-### Task 5: The dimensional invariants, in a real browser
-
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts --project=standalone-chromium -g "T-DIAGRAM-CELL"` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4156` why=`the failed tile is a bare box with no wrapper, so the cell locator resolves to zero nodes and the mixed-row case cannot select a failed cell beside a live one` ac=AC-7 -->
-
-**Files:** `tests/e2e/step3-review-modal.layout.spec.ts`.
-
-The config and project are the ones that actually collect this file (verification V6): the default
-config's `desktop-chromium` selects **0 tests in 0 files** for it, which the first draft shipped.
-
-jsdom computes no layout, so every relationship below is asserted by `getBoundingClientRect()`
-within 0.5px, at 320, 390, 640 and 1072 CSS px, **with one failed tile beside a live tile in the
-same grid row**. Reproduced from spec §3.3 in full, per the writing-plans rule.
+- [ ] **Step 1: The unit cases.** AC-3: a live tile renders its name as visible text carrying `aria-hidden="true"`. AC-4: both failed states render the name WITHOUT `aria-hidden`. AC-5: with `alt` empty or whitespace, no name line renders in any state and the anchor's `aria-label` still falls back to `Staged diagram (opens in a new tab)`.
+- [ ] **Step 2: AC-5 constructs `DiagramTile` DIRECTLY, and the plan says why.** The grid can never hand it an empty alt: the call site falls back to `Diagram from ${stub.sheetTab}` (`components/admin/wizard/step3ReviewSections.tsx:4414`, widened from `??` to `||` after an impeccable audit P2 on nameless links), and there is exactly one `<DiagramTile>` call site in the repo. So AC-5 guards DEFENSIVE component-level behaviour, not a reachable app state. Going through the grid would render a name line and fail the case for a reason unrelated to the component. Corpus precedent for constructing it directly: `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:221` scopes to a custom `noname-tile` testid for exactly this.
+- [ ] **Step 3: The browser oracles, authored now because now is when they can be red.** Both under the config and project that actually collect these files (verification V6). AC-7's five dimensional relationships, from spec §3.3, `getBoundingClientRect()` within 0.5px at 320 / 390 / 640 / 1072, with one failed tile beside a live tile so the stretch is exercised:
 
 | Parent | Child | Relationship | What guarantees it |
 |---|---|---|---|
-| grid cell | wrapper | wrapper fills the cell's width | `flex flex-col` on a block-level wrapper |
+| grid cell | wrapper | wrapper fills the cell's width | `flex flex-col` on a blockified grid item |
 | wrapper | box | box width equals wrapper width | `w-full` on the box, unchanged |
 | wrapper | box | box height equals box width times 3/4, exactly, at every viewport | `aspect-4/3` on the box; a column-flex item with no `flex-grow` |
 | grid row | wrapper | a tall failed wrapper does not stretch a live SIBLING's box | the sibling's wrapper stretches, its box does not |
 | live box | placeholder box | equal width AND equal height in the same grid | both `aspect-4/3 w-full`; already pinned at `tests/e2e/step3-review-modal.layout.spec.ts:682-700` |
 
-The fourth row is what this design exists to protect; the fifth is a ratified contract that growing
-the BOX for the failed states would have broken.
+- [ ] **Step 4: AC-7b, both failure states, split across two harnesses because one cannot reach both.** Per harness readiness (d): `absent` is seeded from props and renders in the static layout spec; `load-failed` needs hydration and a real `onError`, so it goes in the interactions spec, whose server 404s anything outside its `workDir` (`tests/e2e/step3-review-modal.interactions.spec.ts:177-192`) — the servable stub's request fails and the tile lands in `load-failed` by that harness's ordinary behaviour. Its opener is `openLive` (`tests/e2e/step3-review-modal.interactions.spec.ts:202`), which adds a panel-visible gate the static spec does not need. For each state, at each of the four viewports, all five clauses:
+  1. the message's `getBoundingClientRect().height` exceeds one line-height;
+  2. its own `scrollHeight` does not exceed its own `clientHeight`;
+  3. its computed `display` is not `none` and its `-webkit-line-clamp` is `none`;
+  4. **it is not a descendant of the box** (`element.contains()` against the `-diagram-tile-` element, asserted false);
+  5. **no ancestor clips it**: walk from the message to the scroll container and, for every ancestor whose computed `overflow-x` or `overflow-y` is not `visible`, assert the message's rect is contained in that ancestor's rect.
 
-- [ ] **Step 1: One `page.evaluate` per viewport**, resolving every element and returning plain numbers. Never a sequence of `locator.evaluate` calls: a re-render between two of them compares rects from two layout frames, and auto-wait hangs on a node that has unmounted.
-- [ ] **Step 2: A premise on the mixed row**, via `premiseHolds` from `tests/_shared/premise.ts`, asserting on the case's OWN inputs that the row genuinely holds one failed and one live tile. A row that degenerates to all-live satisfies every stretch assertion vacuously.
-- [ ] **Step 3: The failed tile here is `absent`, and only `absent`.** This harness is `renderToStaticMarkup` with no hydration (harness readiness (d)), so `absent` is the only failure state that can exist in it. That is sufficient for AC-7, whose claims are about the BOX, which both failed states share.
-- [ ] **Step 4: Expected widths derive from `diagramTileWidthAt`** (`components/admin/wizard/diagramTileGeometry.ts:51`), never hardcoded.
-- [ ] **Step 5: Observed red, implementation, observed green.**
+  Clauses 1 to 3 alone pass against the implementation this design most invites, because the box's own scroll box is not the one overflowing. Clause 4 is the specific instance; clause 5 the general form. The name line is exempt from 2 and 5 by design: it is `truncate`, so it is SUPPOSED to clip, and its assertion is that its `title` equals the untruncated name.
+- [ ] **Step 5: Clause 1 depends on the font gate.** Both openers await `document.fonts.ready`; a fallback font resolves to a different line-height, so measuring early fails in the direction that passes. Reduced-motion emulation is what makes the geometry final on load in both.
+- [ ] **Step 6: One `page.evaluate` per viewport**, resolving every element and returning plain numbers. Never a sequence of `locator.evaluate` calls: a re-render between two compares rects from two layout frames, and auto-wait hangs on a node that has unmounted. Expected widths derive from `diagramTileWidthAt` (`components/admin/wizard/diagramTileGeometry.ts:51`), never hardcoded.
+- [ ] **Step 7: Observed red.** `components/admin/wizard/step3ReviewSections.tsx:4174` is `{strippedAlt ? (` inside the failed branch that returns at `components/admin/wizard/step3ReviewSections.tsx:4152`, so the live tile has no name node; and the message renders inside the `overflow-hidden aspect-4/3` box, so clause 4 fails and clause 5 finds that box clipping it.
+- [ ] **Step 8: The name line, once, outside the box, in every state.** Plain `text-xs`, `truncate`, `title={strippedAlt}`. `aria-hidden="true"` in the live state only, because there the anchor already carries the name (`components/admin/wizard/step3ReviewSections.tsx:4199-4201`); in the two failed states there is no anchor, so the caption is the only accessible text and must stay announced. Same argument that emptied the image's `alt` at `components/admin/wizard/step3ReviewSections.tsx:4242`. The message moves out with it.
+- [ ] **Step 9: The loud red, same commit.** Moving the caption reds thirteen existing sites at once: the ten positive `getByText` sites, the `.textContent` site at `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx:903`, the premise at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:188-191`, and the `[title]` lookup at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:196-199`. All thirteen re-point from the box to the cell. Two carry non-standard scopes and are NOT uniform: `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:221` uses a custom `noname-tile` testid (it IS the box, so it re-points), and `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:157` is scoped to a `reconcile-loader` wrapper rather than a tile.
+- [ ] **Step 10: AC-11, and what it actually requires, which is less than the spec claims.** Spec §5.0 says the five live-negatives "pass SILENTLY and become vacuous". Read one at a time, that is true of none of them: each already carries an assertion that fails on a placeholder — `container.querySelectorAll("img").length` is 1 at `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:84` and `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:118`, the same plus a variant `src` at `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:157`, a non-null tile-scoped `img` plus the full srcset ladder at `tests/components/admin/wizard/step3DiagramTile.published.test.tsx:275`, and `tagName === "A"` plus a non-null `img` at `tests/components/admin/wizard/step3ReviewSections.test.tsx:841`. What goes vacuous is the single `queryByText` LINE inside each, not the test. **So this task does NOT add discriminators.** It re-scopes each `queryByText` line to the cell so it keeps meaning, and scopes the two that count images on `container` rather than on the tile, which is a real if small improvement. **This diverges from spec §5.0 and AC-11's framing, deliberately and on the record**; the spec is canonical and is not being edited, and the divergence goes to the orchestrator rather than being silently absorbed.
+- [ ] **Step 11: The verification that replaces the mutant proof round 2 refuted.** Pinning the component's failed branch kills all five, but on their PRE-EXISTING assertions, which is why a mutant count settles nothing about any new discriminator. The property AC-11 actually names is "each of the five fails when the tile is a placeholder", and the evidence is the enumeration in step 10, each read at its cited line. Record that reading, not a mutant tally.
+- [ ] **Step 12: Four pre-dispatch mutants** on every string-presence assertion this task adds: the value emptied; the expected content plus an appended suffix; the content present but not live (the name in an attribute only); each discriminating parameter varied in turn.
+- [ ] **Step 13: Relocate three line-keyed census rows.** This task and Task 3 both move lines in `components/admin/wizard/step3ReviewSections.tsx`. Three rows are line-keyed and shift: `tests/styles/tapTargetCensus.ts:325`, `tests/styles/subtleInteractiveExemptions.ts:79` and `tests/styles/subtleInteractiveExemptions.ts:112`. `tests/styles/controlOutlineResidue.ts:1038` is keyed by `{file, tag, paint, category, reason}` and does not move. **Relocate by running each scanner and confirming identity, never by adding a delta** — the tap-target row's own comment is a chain of eight relocations saying exactly that, and two of the three name their identity handle already (the `<a>` for the tap-target row, a unique `data-testid` for the ignored-summary row).
+- [ ] **Step 14: Observed green**, on the new suite, the five census suites, both e2e specs, and the three census suites touched in step 13.
 
-### Task 6: The message is not merely present, it is readable
+### Task 3: Three states, two sentences, two glyphs, and every transition
 
-<!-- task: red=`pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts tests/e2e/step3-review-modal.interactions.spec.ts --project=standalone-chromium -g "T-DIAGRAM-READABLE"` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4159` why=`the message renders inside the overflow-hidden aspect-4/3 box, so the not-a-descendant clause fails and the ancestor-containment walk finds that box clipping it` ac=AC-7b -->
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.states.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4159` why=`one string renders for both failed states, so every case asserting WHICH failed state the tile landed on fails on that line` ac=AC-1,AC-2,AC-6,AC-10 -->
 
-**Files:** `tests/e2e/step3-review-modal.layout.spec.ts`, `tests/e2e/step3-review-modal.interactions.spec.ts`.
+**Files:** `components/admin/wizard/step3ReviewSections.tsx`, tests/components/admin/wizard/step3DiagramTile.states.test.tsx.
 
-**AC-7b needs BOTH failure states, and no single harness can reach both.** Per harness readiness
-(d): the layout spec is static markup with no hydration, so `onError` never attaches and
-`load-failed` cannot exist in it; the interactions spec builds a live hydrated page, so a real error
-event is reachable there. The criterion is therefore split on that boundary, and both specs are in
-the red command:
+The transitions live here because this is the task that makes them observable. **Precisely which
+cases are red, since round 2 caught the earlier overclaim:** the cases asserting a FAILED landing
+state fail, because both failed states render one string and cannot be told apart. The cases landing
+on `live` pass before and after, and so does the unreachable `absent → load-failed` case; they are
+coverage, not the red, and the task does not pretend otherwise.
 
-| Failure state | Spec | Why there |
-|---|---|---|
-| `absent` | `tests/e2e/step3-review-modal.layout.spec.ts` | seeded from props, renders in static markup |
-| `load-failed` | `tests/e2e/step3-review-modal.interactions.spec.ts` | needs hydration and a real `onError` |
+- [ ] **Step 1: The copy cases, both directions each.** AC-1: seeded `hasPreviewSource: false` renders `Not captured. Won't appear on the crew page.` and NOT the load-failed sentence. AC-2: a mounted image that fires a real `onError` renders `Preview couldn't load. The diagram will still publish.` and NOT the absent sentence. Both directions is what catches a split that threads the state and still renders one string.
+- [ ] **Step 2: AC-2 is reached by a real error event on a mounted image**, never by seeding a `load-failed` prop. A seed-only test passes against a seed-only implementation.
+- [ ] **Step 3: The transition matrix (AC-6)**, from spec §4.1. Three states, six ordered transitions, every one INSTANT with no animation in this component.
 
-For each state, at each of the four viewports, all five clauses:
+| Ordered transition | Reachable | Driver | Red before the union? |
+|---|---|---|---|
+| `live` to `absent` | yes | reconcile, `hasPreviewSource` goes false | yes, the landing state is unnameable |
+| `live` to `load-failed` | yes | `onError` on the mounted image | yes, same |
+| `absent` to `live` | yes | reconcile, a good source arrives | no, lands on `live` |
+| `load-failed` to `live` | yes | reconcile, `href` or `sourceKey` moves | no, lands on `live` |
+| `load-failed` to `absent` | yes | reconcile, `hasPreviewSource` goes false | yes, the landing state is unnameable |
+| `absent` to `load-failed` | **no** | no image mounts in `absent`, so `onError` cannot fire | no, passes throughout |
 
-1. the message's `getBoundingClientRect().height` exceeds one line-height;
-2. its own `scrollHeight` does not exceed its own `clientHeight`;
-3. its computed `display` is not `none` and its `-webkit-line-clamp` is `none`;
-4. **it is not a descendant of the box** (`element.contains()` against the `-diagram-tile-` element, asserted false);
-5. **no ancestor clips it either**: walk from the message to the scroll container and, for every ancestor whose computed `overflow-x` or `overflow-y` is not `visible`, assert the message's rect is contained in that ancestor's rect.
+- [ ] **Step 4: Every transition driven through a stable React key.** The grid keys tiles by `${stub.objectId}-${i}`; the cases hold `objectId` fixed and re-render rather than replace. A remount would seed fresh state and every case would pass without the reconcile existing at all.
+- [ ] **Step 5: The two compound cases from spec §4.1.** A flip while a sibling in the same row is mid-flip: assert the END state of both and that every box in the row is still 4:3, never a single batched frame, which the spec does not guarantee. And `live` to `load-failed` while the anchor HOLDS focus: existing behaviour, asserted unchanged, because `onFailure` hands the grid the anchor before the flip (`components/admin/wizard/step3ReviewSections.tsx:4245-4253`) and `handleTileFailure` moves focus forward, then backward, then to the grid (`components/admin/wizard/step3ReviewSections.tsx:4336-4348`).
+- [ ] **Step 6: Observed red** against `components/admin/wizard/step3ReviewSections.tsx:4159`.
+- [ ] **Step 7: The union.** `type DiagramTileState = "live" | "absent" | "load-failed"`. The seed at `components/admin/wizard/step3ReviewSections.tsx:4120` becomes `hasPreviewSource ? "live" : "absent"`; the reconcile at `components/admin/wizard/step3ReviewSections.tsx:4149` re-seeds on the same rule; the `onError` handler at `components/admin/wizard/step3ReviewSections.tsx:4245-4253` writes `"load-failed"` AFTER calling `onFailure`. That order is load-bearing and unchanged: after the flip there is no anchor left to move focus off.
+- [ ] **Step 8: The glyph split.** `TriangleAlert` for `absent`, `ImageOff` for `load-failed`, both `size-4 text-text-subtle` and `aria-hidden`. Glyph carries the state, not colour. **`TriangleAlert` is not imported today** (verification V3): add it to the existing `lucide-react` import at `components/admin/wizard/step3ReviewSections.tsx:47`. That single line shifts every line below it, so the three line-keyed census rows from Task 2 step 13 are re-checked here by the same procedure.
+- [ ] **Step 9: Four pre-dispatch mutants per sentence.**
+- [ ] **Step 10: Observed green**, plus `pnpm vitest run tests/styles/_metaEmDashCopy.test.ts` for AC-10. That guard walks `components` from the filesystem, and the file's `SENTINEL_ANCHORS` entry (`tests/styles/_metaEmDashCopy.test.ts:211`) is keyed by an expression's own source text rather than by file, so the allowance cannot be inherited by new copy and the two sentences are genuinely scanned. Do not disturb the three registered anchors; a stale allowance is itself a failure.
 
-Clauses 1 to 3 alone do not catch the implementation this design most invites, because the box's own
-scroll box is not the one overflowing. Clause 4 is the specific instance; clause 5 is the general
-form.
+### Task 4: Shrink to fit, on both surfaces
 
-- [ ] **Step 1: The name line is exempt from clauses 2 and 5 by design.** It is `truncate`, so it is SUPPOSED to clip, and its full value stays in the `title`. Its assertion is that its `title` equals the untruncated name.
-- [ ] **Step 2: Clause 1 depends on the font gate**, `await page.evaluate(() => document.fonts.ready)` in `openHarness`: a fallback font resolves to a different line-height, so measuring early fails in the direction that passes.
-- [ ] **Step 3: Same-frame reads**, as Task 5 step 1. Ancestor and message rects come from one `page.evaluate`, or containment is compared across two layout frames.
-- [ ] **Step 4: Detach safety.** No sampler outlives its element; every read resolves inside the evaluate.
-- [ ] **Step 5: Observed red, implementation, observed green**, on both specs.
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/components/diagrams/galleryTileFit.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:757` why=`the crew thumbnail ships object-cover with nothing pinning it, so the new gallery test fails, and step 2 flips the admin expectation to object-contain before any production edit so that assertion fails too` ac=AC-12 -->
+
+**Files:** `components/admin/wizard/step3ReviewSections.tsx`, `components/diagrams/Gallery.tsx`, `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx`, tests/components/diagrams/galleryTileFit.test.tsx (new).
+
+Eric ruled this at 15:10 on 2026-08-31; the product-wide scope is part of the ruling.
+
+- [ ] **Step 1: The gallery's first pin, scoped to the thumbnail.** Verification V5 shows the only existing `object-contain` assertion in `tests/` is on the LIGHTBOX image (`tests/components/diagrams/GalleryLightboxPinchZoom.test.tsx:1012`), a different element. The new suite scopes to `[data-testid^="diagram-slot-"] img` (the cell testid is set at `components/diagrams/Gallery.tsx:636`) and carries a premise that with the lightbox closed every rendered image IS a thumbnail, so the scope cannot silently widen.
+- [ ] **Step 2: Flip the admin EXPECTATION first, before any production edit.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:144` asserts `img!.className.trim()` equals `"object-cover"` and passes today; changing the expectation to `"object-contain"` is what makes it red. Round 2 caught this ordering missing: without it only the new gallery test is red and the admin half of AC-12 rides along unproved.
+- [ ] **Step 3: Observed red**, on both suites.
+- [ ] **Step 4: Two class edits.** `components/admin/wizard/step3ReviewSections.tsx:4254` and `components/diagrams/Gallery.tsx:757`. Both letterbox against a `bg-surface-sunken` plate that already exists: the anchor at `components/admin/wizard/step3ReviewSections.tsx:4237`, the cell `<li>` at `components/diagrams/Gallery.tsx:651`. The two aspect boxes differ and that is not reconciled here: the admin tile is `aspect-4/3`, the gallery cell `aspect-square`.
+- [ ] **Step 5: The negative-control literals move with it.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:98-112` embed the fit class as DATA mirroring production rather than as an assertion about it, so they move or the controls stop mirroring what they control for.
+- [ ] **Step 6: The one occurrence that does NOT move.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:48` carries the fit class inside the `CHROME_TOKEN` doc comment as a worked example of a regex-anchoring bug. It documents the token matcher, not the shipped fit; rewriting it would make the example disagree with the bug it explains.
+- [ ] **Step 7: Spec §7's three non-movers, with the oracle for each.** The padding-box assertion at `tests/e2e/step3-review-modal.layout.spec.ts:595` and the srcset-tier assertion at `tests/e2e/published-review-modal.layout.spec.ts:2079` are re-run here **unfiltered** — `pnpm heavy npx playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.layout.spec.ts tests/e2e/published-review-modal.layout.spec.ts --project=standalone-chromium`, with no `-g`, because the `-g` filters used elsewhere in this plan exclude both. Round 2 caught the earlier claim that Tasks 5 and 6 already ran them; they did not. The blur placeholder is settled by `docs/superpowers/specs/probes/2026-08-31-next-blur-background-size-probe.mjs`, re-run in this commit against the version its report records.
+- [ ] **Step 8: Observed green**, both unit suites plus the two e2e specs unfiltered.
+
+### Task 5: The faint edge, on both surfaces
+
+<!-- task: red=`pnpm vitest run tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx tests/components/diagrams/galleryTileFit.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:4156` why=`both boxes ship border-border, so the positive pin on border-text-faint fails on each and the negative pin on border-border fails with it` ac=AC-8 -->
+
+**Files:** `components/admin/wizard/step3ReviewSections.tsx`, `components/diagrams/Gallery.tsx`, `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx`, tests/components/diagrams/galleryTileFit.test.tsx.
+
+**Scope note, and it is a ruling rather than an inference.** AC-8 is written for the admin
+placeholder alone. Eric ruled on 2026-08-31, after the spec was approved, that the crew gallery cell
+is IN SCOPE for this arc on the same consistency argument as the letterbox ruling, the surface being
+open in Task 4 already. So this task discharges AC-8 and additionally restyles
+`components/diagrams/Gallery.tsx:651` under that ruling. No new ledger row, of any facing; the spec
+is not edited, and the divergence is declared here rather than absorbed.
+
+- [ ] **Step 1: A POSITIVE pin on each, because neither suite has one.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:157`, `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:186-192` and `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:219-225` assert the placeholder's chrome SHAPE without pinning which border token, so the restyle is unguarded in both directions today; the gallery has no border pin at all. Add both arms on both surfaces: carries `border-text-faint`, does not carry `border-border`.
+- [ ] **Step 2: Observed red** against `components/admin/wizard/step3ReviewSections.tsx:4156` and `components/diagrams/Gallery.tsx:651`.
+- [ ] **Step 3: One token, twice.** `border-border` becomes `border-text-faint` on both: 1.22-1.27:1 light becomes 3.02:1 light, over the 3:1 non-text floor. `DESIGN.md` §1.2a is the rule — a box filled with one of the four neutral grounds carries no visual weight of its own, so its stroke IS its boundary and takes the text ramp. No NEW token pairing is introduced on either surface, so no new `DESIGN.md` contrast row is owed; the pair is already pinned at `DESIGN.md:184`.
+- [ ] **Step 4: Check the crew cell against the control rows before assuming the admin argument transfers.** The gallery cell wraps a `<button>` and carries `has-[button:focus-visible]:ring-2` (`components/diagrams/Gallery.tsx:651`), so it may sit on a different `DESIGN.md` row than the admin placeholder. The ruling settles that it changes; it does not settle which row justifies it, and the plan should not pretend otherwise. Confirm against `DESIGN.md` §1.2a and record which row applies.
+- [ ] **Step 5: The remaining peer, checked and NOT swept in.** `components/admin/wizard/step3ReviewSections.tsx:2415` is a callout box with the same `bg-surface-sunken border border-border` paint. It is not a diagram surface, this arc does not otherwise open it, and no ruling covers it. `tests/styles/controlOutlineResidue.ts:1038` censuses the pack-case count PILL, a different element again, and does not move. Both stay, and both go in the PR body under "Unfixed peers".
+- [ ] **Step 6: Observed green**, both suites, plus `pnpm vitest run tests/styles/_metaControlOutlineResidue.test.ts` and `tests/styles/tintedPlateOutline.test.ts` to confirm no census row was owed by either edit.
 
 <!-- tasks: end -->
 
@@ -379,12 +359,11 @@ Criteria are declared in the spec (§5.1) and claimed here, per the coverage-map
 
 | AC | Task |
 |---|---|
-| AC-1, AC-2, AC-6, AC-10 | Task 2 |
-| AC-3, AC-4, AC-5, AC-9, AC-11 | Task 1 |
-| AC-7 | Task 5 |
-| AC-7b | Task 6 |
-| AC-8 | Task 4 |
-| AC-12 | Task 3 |
+| AC-9 | Task 1 |
+| AC-3, AC-4, AC-5, AC-7, AC-7b, AC-11 | Task 2 |
+| AC-1, AC-2, AC-6, AC-10 | Task 3 |
+| AC-12 | Task 4 |
+| AC-8 | Task 5 |
 
 ## 12. Closeout
 
@@ -399,13 +378,16 @@ whole-diff review.
 
 ## Self-review record
 
-Round 1 returned BLOCKING with six findings, every one accepted. The record below is what the plan
-says AFTER those repairs, not what the first draft claimed.
+Round 1 returned BLOCKING with six findings, round 2 BLOCKING with three. Every one was accepted;
+none was disputed. This records the plan after both.
 
-- **Spec coverage.** Every §5.1 criterion appears in the map above, and each of §5's nine new-coverage items lands in a task: items 1 and 2 in Task 2, items 3 and 4 in Task 1, item 5 in Task 2, items 6 and 7 in Tasks 5 and 6, item 8 in Task 4, item 9 in Task 1. §5.2's five "does not apply" declarations need no task by construction.
-- **The class round 1 found, and the derivation that closes it.** Five of the six findings were one shape: **a claim about a task's execution context that nothing had executed.** Task 3's `why=` described correct post-Task-2 behaviour as a defect; two Playwright commands named a project whose `testMatch` excludes their file; Task 7 named a harness that cannot reach one of the two states it had to measure; V5 recorded `(no output)` for a command nobody ran. The repair is not four corrections, it is a rule with a probe behind it: **every command this plan records is RUN and its real output pasted** (V5, V6), and **every `why=` is true at its task's execution point, not at the merge base**. V6 is the mechanised half, and it is what turns "the command works" from a belief into `Total: 44 tests in 1 file`.
-- **Ordering, re-derived.** Six tasks, not seven. Task 3 of the first draft could not be red: by the time it ran, Task 2 had implemented the reconcile it called broken, so its cases would have passed the moment they were authored. The transitions moved into Task 2, where the same red covers them, because before the union the two failed states are indistinguishable and no transition case can name its landing state.
-- **RED validity.** Each `red-target=` names a production line verified on the live tree at `00c184c02` by opening the line and asking whether the `why=` sentence is true OF it: `components/admin/wizard/step3ReviewSections.tsx:4174` the name line inside the failed branch, `components/admin/wizard/step3ReviewSections.tsx:4159` the shared string, `components/admin/wizard/step3ReviewSections.tsx:4156` the placeholder's `border-border`, and `components/diagrams/Gallery.tsx:757` the thumbnail's `object-cover`. None derives from a fixture the test itself writes, and none is now stated against a tree that an earlier task has already changed.
-- **Anti-tautology.** Task 1's AC-11 is discharged by EXECUTED mutants in its own step 9, not implied by its red: the five discriminators pass before and after, so nothing else in the plan can catch a vacuous one, and the mutation is verified to have applied before the result is read. Task 2 asserts both directions per sentence and drives every transition through a stable key, so a remount cannot be mistaken for a reconcile. Task 3's red names BOTH suites, because a command naming only the admin one goes green with the gallery still cropping. Task 3's gallery pin scopes to the thumbnail slot, because the corpus's only existing `object-contain` assertion is on the lightbox image. Task 5 carries a premise that the mixed row really holds one failed and one live tile. Task 6's clauses 4 and 5 exist precisely because 1 to 3 pass against the wrong implementation.
+- **What round 2 actually found, and it was structural.** Round 1's repair fixed the commands and the claims but left the DECOMPOSITION wrong: all production change sat in the first four tasks, so the two browser tasks had nothing left to make red. A task whose files are all tests, scheduled after the implementation its assertions need, goes green the moment it is authored. The plan is now decomposed by PRODUCTION INCREMENT — five tasks, each owning one change to shipped code and carrying every assertion that change turns green, unit and browser alike. That is why AC-7 and AC-7b sit in Task 2 beside the caption move rather than in tasks of their own.
+- **The other two findings were overclaims, and both are now stated precisely.** Task 3's transition table has a "red before the union?" column, because only the cases naming a FAILED landing state are red; the ones landing on `live` and the unreachable `absent → load-failed` case pass throughout and are coverage, not the red. And Task 4 now flips the admin EXPECTATION before touching production, because its existing `object-cover` assertion passes and without that step only the gallery half of AC-12 is red.
+- **AC-11, twice corrected.** Round 2 showed that pinning the failed branch kills all five live-negatives on their PRE-EXISTING assertions, so no mutant count can establish anything about a new discriminator. Combined with what the code shows — every one of the five already fails on a placeholder, via an `img` count, a `tagName`, or a full srcset ladder — the answer is that AC-11 needs no new discriminators at all. Task 2 step 10 re-scopes the `queryByText` lines and enumerates the existing evidence per site; step 11 records that reading instead of a mutant tally. **This diverges from spec §5.0, which overstates the exposure**, and the divergence is declared rather than absorbed. The spec is canonical and is not edited.
+- **RED validity.** Each `red-target=` names a production line verified on the live tree by opening it and asking whether the `why=` sentence is true OF it, and then whether it is still true when that task RUNS: `components/admin/wizard/step3ReviewSections.tsx:4152`, both branches returning the box unwrapped (Task 1); `components/admin/wizard/step3ReviewSections.tsx:4174`, the name line only in the failed branch (Task 2); `components/admin/wizard/step3ReviewSections.tsx:4159`, one string for two states (Task 3); `components/diagrams/Gallery.tsx:757`, the unpinned thumbnail, plus a scheduled expectation flip on the admin side (Task 4); and `components/admin/wizard/step3ReviewSections.tsx:4156`, the shipped `border-border` (Task 5).
+- **Every command is run, not asserted.** V5 and V6 are pasted from real runs; V6 records that the zero-collection form exits 1 with "No tests found", not 0. Task 4 step 7 runs the two e2e oracles UNFILTERED, because round 2 caught that the `-g` filters elsewhere in this plan exclude both.
+- **Anti-tautology.** Task 1 premises that more stubs than the cap were rendered. Task 2's AC-5 constructs the tile directly, because the grid can never hand it an empty alt. Task 2's clauses 4 and 5 exist because 1 to 3 pass against the wrong implementation, and clause 1 rests on the font gate. Task 3 asserts both directions per sentence and drives every transition through a stable key. Task 4 scopes the gallery pin to the thumbnail slot, because the corpus's only existing `object-contain` assertion is on the lightbox image.
+- **Line-keyed censuses.** Three rows shift when this arc edits the component and are relocated by running their scanners and confirming identity, never by delta: `tests/styles/tapTargetCensus.ts:325` and `tests/styles/subtleInteractiveExemptions.ts:79` and `tests/styles/subtleInteractiveExemptions.ts:112`. `tests/styles/controlOutlineResidue.ts:1038` is identity-keyed and does not move.
+- **Scope added after approval, on a ruling.** The crew cell's border restyle (`components/diagrams/Gallery.tsx:651`) was filed as an unfixed peer; Eric ruled it IN SCOPE on 2026-08-31, on the same consistency argument as the letterbox ruling. It is Task 5, declared as a ruling rather than an inference from AC-8, which is written for the admin placeholder alone.
+- **Unfixed peers that remain:** `components/admin/wizard/step3ReviewSections.tsx:2415`, a callout box with the same paint on a surface this arc does not open, and the pack-case count pill censused at `tests/styles/controlOutlineResidue.ts:1038`, a different element. Both to the PR body. No ledger row, of any facing.
 - **Placeholder scan.** No TBD, no "handle edge cases", no "similar to Task N".
-- **Unfixed peer, declared rather than discovered later.** `components/diagrams/Gallery.tsx:651` carries `border-border` on a neutral ground, the same shape Task 4 repairs on the admin placeholder, on the crew surface Task 3 already opens. Task 4 step 5 states it, names class-sweep exception (a), and sends it to the PR body and the orchestrator. No ledger row, of any facing.
