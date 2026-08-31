@@ -1069,8 +1069,10 @@ const ProgressPanel = forwardRef<
               {state.settledTotal === 1 ? "" : "s"} set up
             </p>
           ) : null}
+          {/* empty:hidden, not a conditional — see the compact renderer for the
+              reasoning; the same empty string charges this column's gap-2. */}
           <p
-            className="text-text-subtle"
+            className="text-text-subtle empty:hidden"
             data-testid="wizard-finalize-cas-phase"
             aria-hidden="true"
           >

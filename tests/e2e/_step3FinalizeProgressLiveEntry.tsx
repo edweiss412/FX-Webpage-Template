@@ -68,12 +68,19 @@ window.__setCounts = (done, total, name = "East Coast") => {
 };
 
 window.__enterCas = (phase) => {
+  // The terminal body is WRAPPED, exactly as the route emits it and as the jsdom suites
+  // push it: `{ type: "result", body }`. An earlier draft pushed the body raw, which the
+  // reducer ignored, so the run never left the batch phase and the CAS element never
+  // appeared. Nothing caught that until a test actually asked for the CAS phase.
   batch.push({
-    status: "all_batches_complete",
-    wizard_session_id: WSID,
-    remaining_count: 0,
-    unresolved_manifest_count: 0,
-    per_row: [],
+    type: "result",
+    body: {
+      status: "all_batches_complete",
+      wizard_session_id: WSID,
+      remaining_count: 0,
+      unresolved_manifest_count: 0,
+      per_row: [],
+    },
   });
   batch.close();
   if (phase) cas.push({ type: "phase", phase });

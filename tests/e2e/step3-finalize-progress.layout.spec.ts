@@ -450,3 +450,54 @@ test("the compact heading holds one line at 375px at any count", async ({ page }
     ].join("\n"),
   );
 });
+
+test("the CAS column spends no gap on an empty phase label", async ({ page }) => {
+  // THE ORACLE IS THE PARENT'S GEOMETRY, not the child's.
+  //
+  // Asserting the phase element "contributes no extent" would not be red: an empty
+  // block already has zero height. The defect is that a zero-height IN-FLOW item still
+  // charges its parent's `gap`, so the column is one gap taller than its content and
+  // the surface shows a seam nothing accounts for. The discriminating comparison is the
+  // column's height with the empty element present against its height with that element
+  // removed from the DOM entirely — they differ by exactly one gap before the fix and
+  // must be equal after.
+  //
+  // Measured by removing the element rather than against a hardcoded gap value, so a
+  // later spacing-token change cannot silently make this pass.
+  await page.setViewportSize({ width: 375, height: 720 });
+  await runningCompact(page, 2, 2);
+  await page.evaluate(() => window.__enterCas?.());
+  await page
+    .locator('[data-testid="wizard-step3-tracking-cas-phase"]')
+    .waitFor({ state: "attached" });
+
+  const { withEmpty, without, labelText, gap } = await page.evaluate(() => {
+    const col = document.querySelector('[data-testid="wizard-step3-tracking"]')!;
+    const label = document.querySelector('[data-testid="wizard-step3-tracking-cas-phase"]')!;
+    const gapPx = parseFloat(getComputedStyle(col).rowGap || "0");
+    const before = col.getBoundingClientRect().height;
+    const parent = label.parentElement!;
+    const next = label.nextSibling;
+    label.remove();
+    const after = col.getBoundingClientRect().height;
+    parent.insertBefore(label, next);
+    return {
+      withEmpty: before,
+      without: after,
+      labelText: (label.textContent ?? "").trim(),
+      gap: gapPx,
+    };
+  });
+
+  // PREMISE: the label really is EMPTY on this run. casPhaseLabel returns "" before the
+  // first phase event, and if a phase HAD arrived the element would carry text and the
+  // comparison below would be measuring something else entirely.
+  expect(labelText, "premise: the phase label is empty at CAS entry").toBe("");
+  // PREMISE: the column actually spends a gap, or there is nothing to charge.
+  expect(gap, "premise: the CAS column has a non-zero row gap").toBeGreaterThan(0);
+
+  expect(
+    withEmpty,
+    "an empty in-flow child must not charge the column's gap once empty:hidden takes it out of flow",
+  ).toBe(without);
+});

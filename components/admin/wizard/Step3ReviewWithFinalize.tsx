@@ -320,8 +320,14 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
             className="h-1.5 w-full"
             aria-label="Show setup progress"
           />
+          {/* empty:hidden, not a conditional. casPhaseLabel returns "" before the
+              first phase event and React leaves ZERO child nodes for an empty string,
+              so :empty matches. DESIGN.md §7a is the ratified idiom and prefers keeping
+              the documented slot over collapsing it, and without it this zero-height
+              in-flow child still charges the column's gap — measured at 4px, the whole
+              of gap-1. */}
           <span
-            className="text-text-subtle"
+            className="text-text-subtle empty:hidden"
             data-testid="wizard-step3-tracking-cas-phase"
             aria-hidden="true"
           >
