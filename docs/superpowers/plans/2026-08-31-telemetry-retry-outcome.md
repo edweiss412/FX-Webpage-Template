@@ -99,13 +99,11 @@ Transition Inventory from the spec (verbatim): empty↔intent instant; intent↔
 
 Run `/impeccable critique` and `/impeccable audit` on the affected diff (canonical v3 setup gates: context.mjs PRODUCT.md + DESIGN.md load, register reference). Fix P0/P1 or defer with a DEFERRED.md entry (none expected: the diff's only perceivable change is a screen-reader announcement). Write the sibling closeout document beside this plan (stem-named, `-closeout` suffix, created by this task) with `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded` and the findings table.
 
-### Task 6 — graduation, in the PR's last commit (AC-11)
-
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`DEFERRED.md:111` why=`the graduation edit itself authors the failing state: moving the row to the archive with the IN PROGRESS marker at DEFERRED.md:111 still attached reds the archive-rejects-in-flight case (archives categorically reject in-progress entries); removing the marker in the same edit turns the SAME command green — the red is observed mid-edit during the two-step, and the committed state is green` ac=AC-11 -->
-
-Move the `TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1` row from DEFERRED.md to its archive with a closing note (mechanism shipped, guard landed), removing the `**Status:** IN PROGRESS · **Branch:**` marker in the same edit. This is the last commit before readiness; the marker never reaches main.
-
 <!-- tasks: end -->
+
+### Task 6 — graduation, in the PR's last commit (AC-11; outside the enrolled region — the marker grammar cannot cite a root-level file as a red-target, and DEFERRED.md lives at the repo root)
+
+Move the `TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1` row from DEFERRED.md to `DEFERRED-archive.md` with a closing note (mechanism shipped, guard landed), removing the `**Status:** IN PROGRESS · **Branch:**` marker in the same edit. Verification is the two-step observed by hand: mid-edit, the row parked in the archive with its marker still attached reds `tests/docs/_metaLedgerInProgress.test.ts` ("archived work cannot be in flight", its `isArchive` walk at `tests/docs/_metaLedgerInProgress.test.ts:52`); removing the marker in the same edit turns the same command green, and the committed state is green. This is the last commit before readiness; the marker never reaches main. Discharges AC-11.
 
 ## Checklist
 
