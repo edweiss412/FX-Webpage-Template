@@ -10,7 +10,7 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### FINALIZE-COMPACT-COUNT-NOUN-1 — impeccable P1: the compact count says "1 of 2" without saying of what (2026-08-30)
 
-**Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens the step-3 sticky footer's layout, or a real-browser measurement of the footer at 375px confirming the noun fits on one line.
+**Status:** IN PROGRESS · **Branch:** fix/finalize-progress-polish · **Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens the step-3 sticky footer's layout, or a real-browser measurement of the footer at 375px confirming the noun fits on one line.
 
 The panel renders `1 of 2 shows`; the compact readout in the sticky footer renders `1 of 2`. The impeccable critique called the divergence a P1, and the reasoning is good: the compact readout is the surface Doug actually uses, and a count with no noun sitting under a heading that had just stopped saying "publishing" is the of-what ambiguity this arc set out to remove.
 
@@ -22,7 +22,7 @@ The panel renders `1 of 2 shows`; the compact readout in the sticky footer rende
 
 ### FINALIZE-CAS-PROGRESS-AFFORDANCE-1 — impeccable P1: the highest-stakes phase has the weakest feedback (2026-08-30)
 
-**Effort:** M · **Facing:** product · **Un-defer trigger:** the first report of an operator reloading mid-finalize, or any arc that opens the finalize progress panel's structure rather than its copy.
+**Status:** IN PROGRESS · **Branch:** fix/finalize-progress-polish · **Effort:** M · **Facing:** product · **Un-defer trigger:** the first report of an operator reloading mid-finalize, or any arc that opens the finalize progress panel's structure rather than its copy.
 
 `fix/step3-publish-progress-scope` corrects what the batch phase CLAIMS: it creates every show Held, so "Publishing your shows…" was false and now reads "Setting up your shows…". That change is copy-only and shipped. What the critique found is structural and predates it: at the batch-to-CAS boundary the determinate `<progress>` and the `N of M` count both DISAPPEAR, leaving two text lines, one of which is empty until the first phase event arrives. The empty STRING is deliberate — `casPhaseLabel(null)` returns `""` with a comment explaining it avoids a redundant second line under the heading — but the empty `<p>` is still rendered, so a `gap-2` column pays for a line that shows nothing. The choice is sound; the artifact is that nothing suppresses the element when the label it holds is empty.
 
@@ -38,7 +38,7 @@ The panel renders `1 of 2 shows`; the compact readout in the sticky footer rende
 
 ### FINALIZE-PROGRESSBAR-UNTHEMED-1 — impeccable P1: the finalize progress bar ships raw browser chrome in both themes (2026-08-30)
 
-**Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens `app/globals.css`'s progress-element block, or the first screenshot review of the finalize surface in dark mode.
+**Status:** IN PROGRESS · **Branch:** fix/finalize-progress-polish · **Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens `app/globals.css`'s progress-element block, or the first screenshot review of the finalize surface in dark mode.
 
 `app/globals.css` styles the step-2 scan bar across six selectors (`:688-758`) and styles the finalize bar with none: `wizard-finalize-progressbar` appears nowhere in the stylesheet. Both renderers therefore paint the native UA bar, which is platform-accent blue on macOS, in light AND dark mode. DESIGN.md permits exactly one accent, FXAV orange, and says dark is first-class rather than derived; an OS-blue bar is neither. `ProgressPanel`'s own docstring claims it uses "same tokens, same native bar" as step 2, which is false today.
 
@@ -48,7 +48,7 @@ The panel renders `1 of 2 shows`; the compact readout in the sticky footer rende
 
 ### FINALIZE-PROGRESS-AT-PERCEIVABILITY-1 — impeccable P1: the CAS phase is a focused group whose every child is hidden from assistive tech (2026-08-30)
 
-**Effort:** M · **Facing:** product · **Un-defer trigger:** the VoiceOver spot-check owed under VOICEOVER-ANNOUNCER-SPOTCHECK, or any arc that changes `liveMessage`.
+**Status:** IN PROGRESS · **Branch:** fix/finalize-progress-polish · **Effort:** M · **Facing:** product · **Un-defer trigger:** the VoiceOver spot-check owed under VOICEOVER-ANNOUNCER-SPOTCHECK, or any arc that changes `liveMessage`.
 
 Every visible string in both progress renderers carries `aria-hidden="true"` (FinalizeButton.tsx:976, 993, 1004, 1016, 1022; Step3ReviewWithFinalize.tsx:259, 264, 281, 289, 292). In the BATCH phase that is sound: the native `<progress>` carries the machine-readable state and `FinalizeAnnouncer` carries the words, so hiding the visual copy is what stops a screen reader saying everything twice. In the CAS phase there is no `<progress>` at all, so a focused group named "Show setup progress" contains nothing perceivable, and the three sub-phases `casPhaseLabel` renders — "Applying your edits…", "Making shows live…", "Connecting your folder…" — are never announced, because `liveMessage` keys on phase alone and says only "Finishing setup".
 
