@@ -33,8 +33,8 @@ The changed value need not come from the tapped refresh specifically. The 20-sec
 
 Let `finite(x)` mean `Number.isFinite(x)`.
 
-1. **Mount:** status region rendered with the button, empty. Unchanged (`TelemetryRetryButton.tsx:80`, pinned by `telemetryRetryButton.test.tsx` case 1).
-2. **Tap:** announce intent `Retrying {what}` (`retryAnnouncement`, `TelemetryRetryButton.tsx:49`, unchanged); if `finite(renderedAt)`, record `baseline = renderedAt`. If not finite, record nothing.
+1. **Mount:** status region rendered with the button, empty. Unchanged (the `AnnounceLogRegion` in `components/admin/telemetry/TelemetryRetryButton.tsx`, pinned by `telemetryRetryButton.test.tsx` case 1).
+2. **Tap:** announce intent `Retrying {what}` (the `retryAnnouncement` export in `components/admin/telemetry/TelemetryRetryButton.tsx`, unchanged); if `finite(renderedAt)`, record `baseline = renderedAt`. If not finite, record nothing.
 3. **Render while baseline recorded and `finite(renderedAt)` and `renderedAt !== baseline`:** the rule is ANY difference, in either direction, never an ordering test, because a server clock correction can move the value backwards and that render still settled a re-read. Announce outcome `Still couldn’t load {what}`; clear the baseline. This is the new behavior.
 4. **Render while baseline recorded and `renderedAt === baseline`:** no change to the region (the RSC payload has not arrived yet, or arrived within the same millisecond — see Documented limits).
 5. **Render with no baseline recorded** (auto-refresh with no tap in flight): silent, whatever `renderedAt` does. Matches today's auto-refresh silence.
@@ -44,7 +44,7 @@ Let `finite(x)` mean `Number.isFinite(x)`.
 
 ## 4. Copy
 
-- Intent (unchanged): `Retrying {what}` — `retryAnnouncement` at `TelemetryRetryButton.tsx:49`.
+- Intent (unchanged): `Retrying {what}` — the `retryAnnouncement` export in `components/admin/telemetry/TelemetryRetryButton.tsx`.
 - Outcome (new): `Still couldn’t load {what}`, exported as `retryOutcomeAnnouncement(what)` beside `retryAnnouncement` so a call site cannot spell them independently. Curly apostrophe (house rule, DESIGN.md §9; sibling copy `Couldn’t load activity right now.` at `EventTimeline.tsx:22`). No em dash, no `--` (DESIGN.md §9, enforced by `tests/styles/_metaEmDashCopy.test.ts`). Calm register per PRODUCT.md density/rhythm posture: states the fact, instructs nothing, no exclamation.
 - The two strings must differ for every `what` (trivially true by prefix; asserted anyway, see §5.3).
 
@@ -66,7 +66,7 @@ with `renderedAt={now.getTime()}` a fixed literal expression, identical at all t
 
 ### 5.3 Component behavior tests
 
-`telemetryRetryButton.test.tsx` gains cases for contract items 3, 4, 5, 7 (§3), the NaN guard, and intent/outcome string divergence. Assertions read the RENDERED region text (existing anti-tautology posture in that file: "Asserted on the RENDERED text rather than on the constant"). Rerender with a changed `renderedAt` prop simulates the RSC payload landing; `telemetryPage.test.tsx` already models a refresh that re-renders (its retry cases install a re-rendering `refresh` implementation, `tests/app/admin/telemetryPage.test.tsx:47`).
+`telemetryRetryButton.test.tsx` gains cases for contract items 3, 4, 5, 7 (§3), the NaN guard, and intent/outcome string divergence. Assertions read the RENDERED region text (existing anti-tautology posture in that file: "Asserted on the RENDERED text rather than on the constant"). Rerender with a changed `renderedAt` prop simulates the RSC payload landing; `telemetryPage.test.tsx` already models a refresh that re-renders: its retry cases install a `refresh` implementation that re-renders the page.
 
 ## 6. Guard conditions for every prop (spec-self-review)
 
@@ -84,7 +84,7 @@ One mode; no shared elements across modes because there is only one.
 
 ### 7.1 Dimensional Invariants
 
-None introduced. No fixed-dimension parent is added or changed; the only mutated DOM is the `sr-only` status region's text, which renders at zero visual size by definition. The control's plate layout (parent flex container tokens) is pinned by the census's container-parity case (`telemetryRetryButtonSites.test.ts`, "every site's fallback plate carries the same container layout") and this diff does not touch it.
+None introduced. No fixed-dimension parent is added or changed. The only mutated DOM is inside the `sr-only` region, which renders at zero visual size by definition: under the append channel that means keyed child spans added per announcement and removed at a cycle boundary, not a text swap on one node (§3.6). The control's plate layout (parent flex container tokens) is pinned by the census's container-parity case (`telemetryRetryButtonSites.test.ts`, "every site's fallback plate carries the same container layout") and this diff does not touch it.
 
 ### 7.2 Transition Inventory
 
@@ -122,15 +122,24 @@ Compound transitions: none — the region is the only stateful visual element in
 - AC-10: The invariant-8 impeccable dual gate runs on the affected diff and the sibling closeout carries the `impeccable-gate:` marker with dispositions recorded.
 - AC-11: The ledger row is graduated to the archive with its IN PROGRESS marker removed in the PR's last commit; the marker never reaches main.
 
-(AC-10 and AC-11 were added after spec round 1's APPROVE to give the plan's process tasks citable criteria; they restate standing repo invariants — AGENTS.md invariant 8 and invariant 12 — rather than new design, and the plan-stage review covers them.)
+(AC-10 and AC-11 were added after spec round 1's APPROVE, to give the plan's process tasks citable criteria. They restate standing repo invariants, the impeccable dual gate and the ledger-marker lifecycle, rather than introducing new design, and the plan-stage review covers them.)
 
 ## 10. Test-surface inventory (files this diff touches)
 
-- `components/admin/telemetry/TelemetryRetryButton.tsx` — prop, baseline state, outcome announcement, exported `retryOutcomeAnnouncement`.
-- `app/admin/dev/telemetry/page.tsx`, `components/admin/telemetry/EventTimeline.tsx`, `components/admin/telemetry/HealthAlertsPanel.tsx` — one-line prop threading each.
-- `tests/components/telemetry/telemetryRetryButton.test.tsx` — new behavior cases (§5.3).
-- `tests/components/telemetry/telemetryRetryButtonSites.test.ts` — widened canonical form + threading assertion (§5.2).
-- `tests/lib/time/` (or the suite the plan names) — the signal guard (§5.1).
-- `tests/app/admin/telemetryPage.test.tsx`, `tests/components/telemetry/eventTimeline.test.tsx` — updated only as the prop threading requires (`HealthAlertsPanel`'s coverage lives in `telemetryPage.test.tsx`; there is no dedicated suite for it); their pinned contracts are unchanged.
+Reconciled against `git diff origin/main --stat -- tests/` rather than written from intent, after whole-diff review round 3 found this section describing files the diff never touched.
+
+Production:
+
+- `components/admin/telemetry/TelemetryRetryButton.tsx` — the prop, the baseline, the outcome announcement, the exported `retryOutcomeAnnouncement`, and the move onto the shared append channel.
+- `app/admin/dev/telemetry/page.tsx`, `components/admin/telemetry/EventTimeline.tsx`, `components/admin/telemetry/HealthAlertsPanel.tsx` — one call site each, threading `renderedAt={now.getTime()}`.
+
+Tests, and what each actually carries:
+
+- `tests/components/telemetry/telemetryRetryButton.test.tsx` — the control's whole contract: the outcome cases, the guard domain, the cadence, the channel shape, the pruning rule, and both copy literals.
+- `tests/components/telemetry/telemetryRetryButtonSites.test.ts` — the widened canonical form plus the totality bridge, which is what makes the threading claim total over direct usage at all three sites.
+- `tests/time/now.test.ts` — the signal guard (§5.1). NOT `tests/lib/time/`, which exists but is a different suite this diff does not touch.
+- `tests/app/admin/telemetryPage.test.tsx` — the end-to-end proof for ONE site, the cron-health fallback: a tap, a server re-render at a different instant, and the outcome in the live region. It gained a mutable page clock for that, so it is more than prop threading.
+
+Coverage boundary, stated because the inventory used to imply otherwise: `eventTimeline.test.tsx` is unchanged by this diff, and `HealthAlertsPanel` is mocked to `null` in the page suite, so neither of those two sites has BEHAVIOURAL coverage of the outcome announcement. What covers them is the census, statically, plus the control's own suite, which owns a contract identical at every site because the control takes the same three props everywhere. A per-site behavioural test would assert the same component three times.
 
 No DB, no migration, no RPC, no flag: the tier×domain matrix, CHECK/enum matrix, and flag lifecycle table are N/A — client/RSC prop threading only. No enrolled mutation surface is touched (checked against `tests/mutation/source/registry.ts` at Stage 0; none of the files above appears as a `sourcePath`).
