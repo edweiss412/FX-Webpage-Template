@@ -1762,3 +1762,50 @@ describe("FinalizeButton — the settled count reaches assistive tech too", () =
     expect(announcer!.textContent).toBe("Applying your edits");
   });
 });
+
+describe("FinalizeButton — the CAS group answers 'is it still working?'", () => {
+  test("the announced count keeps its denominator, and the group is aria-busy while running", async () => {
+    // Two audit findings, one case.
+    //
+    // P2: the screen said "2 of 3 shows set up" while the announcement said "2 shows
+    // set up". The clamp comment in this file documents that done and total genuinely
+    // diverge, so the partial case is real and a screen-reader operator lost the "of 3".
+    // Plural also keyed on settledDone in speech and settledTotal on screen.
+    //
+    // P3: every visible string here is aria-hidden and the CAS bar carries no value, so
+    // a virtual-cursor user re-reading the group between utterances found a named group
+    // with no perceivable state. aria-busy answers that without adding speech.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={3} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      // A PARTIAL settle: `listed` says three, but the batch reports two processed.
+      // completedRef takes the row event's own total, grandTotalRef takes listed's, so
+      // this is the shape that makes the denominator carry information. The first draft
+      // of this fixture used matching totals and its own premise caught it rendering
+      // "3 of 3", where the two forms would have agreed by accident.
+      batch.push({ type: "listed", total: 3 });
+      batch.push({ type: "row", done: 2, total: 2, name: "A", driveFileId: "f1" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+
+    const announcer = document.querySelector(".sr-only[role='status']");
+    const visible = getByTestId("wizard-finalize-settled").textContent ?? "";
+    // PREMISE: this run is genuinely PARTIAL, so the denominator carries information.
+    // A complete run would read "3 of 3" and the two forms would agree by accident.
+    expect(visible, "premise: the fixture is a partial settle").toContain("2 of 3");
+    expect(
+      announcer!.textContent,
+      "the announcement must carry the denominator the screen shows",
+    ).toContain("2 of 3");
+
+    expect(getByTestId("wizard-finalize-progress").getAttribute("aria-busy")).toBe("true");
+  });
+});

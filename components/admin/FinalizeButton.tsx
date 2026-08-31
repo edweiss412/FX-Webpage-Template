@@ -540,7 +540,14 @@ export function useFinalizeRun({
             // rather than per sub-step, because four numbers where one is the
             // reassurance is the chattiness this announcer is built against.
             state.settledTotal > 0
-            ? `Finishing setup. ${state.settledDone} show${state.settledDone === 1 ? "" : "s"} set up.`
+            ? // The DENOMINATOR is carried, because the screen carries it: the visible
+              // receipt reads "2 of 3 shows set up", and the two accumulators genuinely
+              // diverge (see the clamp above), so dropping it loses information rather
+              // than trimming a formality. Plural keys on the TOTAL, matching the
+              // visible string, rather than on the done count.
+              `Finishing setup. ${state.settledDone} of ${state.settledTotal} show${
+                state.settledTotal === 1 ? "" : "s"
+              } set up.`
             : "Finishing setup"
         : "Setting up your shows"
       : // Empty for every NON-RUNNING state, and that is load-bearing: a stale
@@ -1031,6 +1038,11 @@ const ProgressPanel = forwardRef<
       tabIndex={-1}
       role="group"
       aria-label="Show setup progress"
+      // Every visible string in here is aria-hidden and the CAS bar carries no value, so
+      // a virtual-cursor user re-reading the group between utterances found a named group
+      // with no perceivable state. This answers "is it still working?" without adding
+      // speech. Unconditional because the panel only mounts while the run is live.
+      aria-busy="true"
       data-testid="wizard-finalize-progress"
       className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
