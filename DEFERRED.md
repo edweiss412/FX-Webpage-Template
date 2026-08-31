@@ -108,7 +108,7 @@ strings above are final; type them verbatim.
 
 ### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome (2026-08-27)
 
-**Effort:** S for the mechanism, M with the prop threading and its tests
+**Status:** IN PROGRESS · **Branch:** feat/telemetry-retry-outcome · **Effort:** S for the mechanism, M with the prop threading and its tests
 
 Surfaced by the invariant-8 dual gate on branch `feat/telemetry-fallback-retry` (critique P1,
 audit P2 — recorded at the higher call). Findings and dispositions are in the closeout beside
