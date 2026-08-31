@@ -297,10 +297,29 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
         </>
       ) : (
         <>
-          <span className="font-semibold text-text-strong" aria-hidden="true">
-            Finishing setup…
-          </span>
-          <span className="text-text-subtle" aria-hidden="true">
+          {/* The CAS heading row is built the same way as the batch one, and that is
+              load-bearing rather than cosmetic: it inherits the same min-w-0 + truncate
+              one-line guarantee, so the sticky footer's height holds here too. */}
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="min-w-0 truncate font-semibold text-text-strong" aria-hidden="true">
+              Finishing setup…
+            </span>
+            {state.settledTotal > 0 ? (
+              <span
+                className="shrink-0 tabular-nums text-text-subtle"
+                data-testid="wizard-step3-tracking-settled"
+                aria-hidden="true"
+              >
+                {state.settledDone} of {state.settledTotal} show
+                {state.settledTotal === 1 ? "" : "s"} set up
+              </span>
+            ) : null}
+          </div>
+          <span
+            className="text-text-subtle"
+            data-testid="wizard-step3-tracking-cas-phase"
+            aria-hidden="true"
+          >
             {casPhaseLabel(state.casPhase)}
           </span>
         </>

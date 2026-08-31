@@ -105,7 +105,24 @@ type ButtonState =
   // batches (done = rows finished so far; total = the grand total). lastName is the current sheet.
   | { kind: "running"; phase: "batch"; done: number; total: number; lastName: string | null }
   // The distinct "Finishing setup…" step; casPhase drives the sub-label.
-  | { kind: "running"; phase: "cas"; casPhase: FinalizeCasPhase | null }
+  //
+  // `settledDone`/`settledTotal` are the batch phase's OWN counts, carried forward so
+  // the work the operator just watched finish settles into a receipt instead of
+  // vanishing at the phase boundary (Eric's ruling, 2026-08-31). Both are zero when
+  // this session ran no batch — the non-stream path, a zero-row finish, and mode
+  // "finish" after a checkpoint resume — and the receipt is then not rendered at all,
+  // because there is nothing this run did to report.
+  //
+  // NOT a publish count. Spec 2026-08-29 §7 fences those; this carries the batch
+  // phase's own ratified verb over work it already displayed, and nothing counts
+  // publishes during CAS.
+  | {
+      kind: "running";
+      phase: "cas";
+      casPhase: FinalizeCasPhase | null;
+      settledDone: number;
+      settledTotal: number;
+    }
   | { kind: "race_row"; failures: PerRowFailure[] }
   | { kind: "cas_per_row"; rows: CasPerRowEntry[] }
   | { kind: "error"; copy: string; code: string | null }
@@ -397,7 +414,16 @@ export function useFinalizeRun({
       // inside the loop, so reaching here means the batches are clean to finish.
     }
 
-    setState({ kind: "running", phase: "cas", casPhase: null });
+    setState({
+      kind: "running",
+      phase: "cas",
+      casPhase: null,
+      // Read synchronously from the refs the batch loop maintained: completedRef is
+      // rows finished, grandTotalRef the grand total. Both are 0 when the loop was
+      // skipped, which is what suppresses the receipt.
+      settledDone: completedRef.current,
+      settledTotal: grandTotalRef.current,
+    });
     let casResponse: Response;
     try {
       casResponse = await fetch("/api/admin/onboarding/finalize-cas", {
@@ -1018,6 +1044,20 @@ const ProgressPanel = forwardRef<
           >
             Finishing setup…
           </p>
+          {/* The batch the operator just watched finish, settled into a past-tense
+              receipt so the two phases read as a sequence rather than a replacement.
+              Suppressed when this session ran no batch (both accumulators zero), where
+              there is nothing this run did to report. */}
+          {state.settledTotal > 0 ? (
+            <p
+              className="tabular-nums text-text-subtle"
+              data-testid="wizard-finalize-settled"
+              aria-hidden="true"
+            >
+              {state.settledDone} of {state.settledTotal} show
+              {state.settledTotal === 1 ? "" : "s"} set up
+            </p>
+          ) : null}
           <p
             className="text-text-subtle"
             data-testid="wizard-finalize-cas-phase"

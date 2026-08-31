@@ -1503,3 +1503,54 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     expect(getByTestId("wizard-finalize-cas-heading").textContent).toBe("Finishing setup…");
   });
 });
+
+describe("FinalizeButton — the settled batch receipt in the CAS phase", () => {
+  // Eric's ruling, 2026-08-31: the batch the operator just watched finish does not
+  // vanish at the phase boundary. It settles into a past-tense receipt, so the two
+  // phases read as a sequence rather than a replacement. A project manager who sees a
+  // bar disappear reads it as failure and reloads, and reloading mid-run lands in the
+  // in_progress checkpoint path — a bad outcome produced by a display gap.
+  //
+  // NOT a publish count. Spec 2026-08-29 §7 fences those, and this carries the batch
+  // phase's own ratified verb ("set up") forward over work the batch already did and
+  // already displayed. Nothing counts publishes during CAS. Ratified by bl-orch
+  // 2026-08-31 in reply to this arc's flag.
+  async function runToCas(rows: number) {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={rows} />);
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: rows });
+      for (let i = 1; i <= rows; i++) {
+        batch.push({ type: "row", done: i, total: rows, name: `Show ${i}`, driveFileId: `f${i}` });
+      }
+    });
+    await act(async () => {
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    return { ...view, cas };
+  }
+
+  test.each([
+    { rows: 2, expected: "2 of 2 shows set up" },
+    { rows: 1, expected: "1 of 1 show set up" },
+  ])("the CAS phase carries the settled count ($expected)", async ({ rows, expected }) => {
+    const { getByTestId } = await runToCas(rows);
+    // PREMISE: actually in the CAS phase on this case's own inputs. A run still in the
+    // batch phase renders its own live count, which contains the same digits.
+    expect(getByTestId("wizard-finalize-cas-heading").textContent).toContain("Finishing setup");
+    expect(getByTestId("wizard-finalize-settled").textContent).toContain(expected);
+  });
+
+  // The checkpoint-resume case (mode "finish", which reaches CAS with both
+  // accumulators at zero and therefore renders NO receipt) lives in the Step3 suite:
+  // `mode` is a useFinalizeRun prop and FinalizeButtonProps does not expose it, while
+  // Step3ReviewWithFinalize's `checkpointStatus` maps to it directly
+  // (Step3ReviewWithFinalize.tsx:100-104). That is also the real surface an operator
+  // reaches it through.
+});

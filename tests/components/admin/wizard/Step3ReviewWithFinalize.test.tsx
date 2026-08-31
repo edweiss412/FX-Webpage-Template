@@ -377,3 +377,91 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     ).toEqual([]);
   });
 });
+
+describe("Step3 compact tracking — the settled batch receipt in the CAS phase", () => {
+  async function runToCas(rows: number) {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: rows });
+      for (let i = 1; i <= rows; i++) {
+        batch.push({ type: "row", done: i, total: rows, name: `Show ${i}`, driveFileId: `f${i}` });
+      }
+    });
+    await act(async () => {
+      batch.push({
+        type: "result",
+        body: {
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        },
+      });
+      batch.close();
+    });
+    return view;
+  }
+
+  test.each([
+    { rows: 2, expected: "2 of 2 shows set up" },
+    { rows: 1, expected: "1 of 1 show set up" },
+  ])("the compact CAS phase carries the settled count ($expected)", async ({ rows, expected }) => {
+    // The receipt carries the NOUN here as well as on the panel. A bare "2 of 2 set up"
+    // beside the panel's "2 of 2 shows set up" would recreate the exact divergence
+    // FINALIZE-COMPACT-COUNT-NOUN-1 is about, on the surface that row is about.
+    const view = await runToCas(rows);
+    // PREMISE: in the CAS phase on this case's own inputs. The batch phase renders a
+    // live count containing the same digits, so without this the assertion could match
+    // a run that never left it.
+    expect(view.getByTestId("wizard-step3-tracking").textContent).toContain("Finishing setup");
+    expect(view.getByTestId("wizard-step3-tracking-settled").textContent).toContain(expected);
+  });
+
+  test("no receipt when this session ran no batch (checkpoint resume)", async () => {
+    // checkpointStatus "all_batches_complete" maps to mode "finish"
+    // (Step3ReviewWithFinalize.tsx:100-104), which skips the batch loop entirely and
+    // reaches CAS with completedRef and grandTotalRef both reset to zero. There is no
+    // batch in THIS session to report, so a receipt would be counting work this run did
+    // not do.
+    //
+    // This is the flow an operator lands in after reloading mid-finalize, which is
+    // exactly the outcome FINALIZE-CAS-PROGRESS-AFFORDANCE-1 exists to prevent — so the
+    // state it produces is deliberate rather than an accident of two refs being zero.
+    // An implementation seeding the receipt from the checkpoint would pass every other
+    // case and print a count for work this run never did.
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(cas.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+        checkpointStatus="all_batches_complete"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    // PREMISE: the run actually entered the CAS phase. Without it a run still idle
+    // renders no receipt either, and the assertion below would pass vacuously.
+    expect(view.getByTestId("wizard-step3-tracking")).toBeTruthy();
+    expect(view.queryByTestId("wizard-step3-tracking-settled")).toBeNull();
+  });
+});

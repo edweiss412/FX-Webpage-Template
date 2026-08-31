@@ -132,7 +132,7 @@ The batch tracking sits in the sticky footer, whose height is load-bearing: the 
 | --- | --- | --- |
 | `wizard-step3-tracking` (flex column, `gap-1`) → subline | Subline occupies exactly ONE line regardless of name length, so footer height is independent of show-name length | `truncate` on the subline (`components/admin/wizard/Step3ReviewWithFinalize.tsx:273`), unchanged by this spec |
 | `ProgressPanel` subline `<p>` → its two spans | Same one-line guarantee on the other surface | `truncate text-text` on the `<p>` (`components/admin/FinalizeButton.tsx:997`), unchanged |
-| Footer height, before vs after | Identical | No element is added or removed; only the text content of existing nodes changes, and the node is `truncate`d to one line at any length |
+| Footer height, before vs after | Identical | **Amended 2026-08-31.** Elements ARE now added: a settled receipt and an indeterminate bar in the CAS phase, and the phase label is suppressed while empty. The height proof no longer rests on 'no element changes' but on measurement: the compact heading carries `min-w-0 truncate` so it holds one line at any count, the CAS heading row is built identically to the batch one and inherits that, and the footer measures flat at 54.6px across the whole ladder in `tests/e2e/step3-finalize-progress.layout.spec.ts` |
 
 This project's Tailwind v4 does not default `.flex` to `align-items: stretch`; no new flex parent is introduced and the existing containers are untouched.
 
@@ -231,4 +231,6 @@ No Playwright task. The earlier draft's geometry test existed to protect a trail
 
 ## 7. Out of scope
 
-Any per-row publish claim on the progress stream (§2.1, ratified). A publish count on the CAS phase. Renaming `FakeFinalizeDb.approved`. Any change to `listed`, to the `row` event, or to which rows finalize processes.
+Any per-row publish claim on the progress stream (§2.1, ratified). A publish count on the CAS phase.
+
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). The publish-count fence STANDS: nothing counts publishes during the CAS phase, before or after that arc. What was lifted, by Eric's ruling and ratified by bl-orch the same day in reply to the arc's flag, is narrower: the batch phase's own SET-UP count now persists into CAS as a settled receipt. That is a carry-forward of a count this spec already ratified and already displayed, using the same verb §3.2 gave the batch phase, over work the batch had finished. It makes no claim about publishing. Both halves are recorded here because a fence that notes only its lift reads as repealed. Renaming `FakeFinalizeDb.approved`. Any change to `listed`, to the `row` event, or to which rows finalize processes.
