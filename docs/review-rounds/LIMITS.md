@@ -386,7 +386,7 @@ offered as a class closure.
 
 **Shape:** A document states a property, calls it load-bearing in as many words, and its test plan does not mention the property at all. Distinct from LIM-NONDISCRIMINATING-FIXTURE, where an assertion exists and is too weak: here there is nothing to weaken. Five instances in one spec stage, and the last one is the shape's argument for existing — the spec said explicitly that a probe must not "fix" an occlusion by re-anchoring the panel to its trigger, the source file records that exact attempt and the measured breakage it caused, and no assertion covered it, so the arc's own defect stayed reachable by a second route through a fully green suite. Not mechanizable as stated: deciding which sentences of a spec are load-bearing claims ranges over an open grammar, which is the recognizer-growth shape this repo has already measured. The repair that held is structural, an obligations table mapping every claim to the assertion that settles it, which turns the next instance into a visibly missing row rather than a paid review round.
 
-**Named by:** 1 arc — fix/attention-autoopen-suppress-phone/e7751f61de2c.md (spec)
+**Named by:** 2 arcs — fix/attention-autoopen-suppress-phone/e7751f61de2c.md (spec), fix/diagram-tile-states/47e9544e65dd.md (spec)
 
 **Owning record:** none — this index is the record (the filing ships the structural repair in its own spec §9.3 and declines a detector)
 
