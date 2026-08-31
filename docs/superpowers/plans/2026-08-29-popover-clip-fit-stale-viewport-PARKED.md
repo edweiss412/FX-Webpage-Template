@@ -1,15 +1,17 @@
 # PARKED, then recounted — the stale fitted cap that flapped popover-clip-fit on CI
 
-**Status:** parked 2026-08-29 by bl-orch ruling, split out of `fix/attention-autoopen-suppress-phone`. **Recounted 2026-08-30 against `origin/main` at `8171e7bb0`: the core premise is REFUTED. The defect no longer reproduces.** Nothing was implemented. This document is the arc's record, and §Appendix preserves the design so a later reader can see what was proposed and why it stopped being needed.
+**Status:** parked 2026-08-29 by bl-orch ruling, split out of `fix/attention-autoopen-suppress-phone`. **Recounted 2026-08-30 against `origin/main` at `8171e7bb0`: the core premise is REFUTED as stated. The defect does not reproduce on this host, at a rate the former measurement rules out.** Nothing was implemented. This document is the arc's record, and §Appendix preserves the design so a later reader can see what was proposed and why it stopped being needed.
 
 ## Stage 0 recount, 2026-08-30
 
 The arc was parked before three merges landed on its own surface, so the first job was to check whether the plan still described reality. It does not.
 
+**What the evidence supports, stated precisely.** The measurements below reject the parked 3-in-7 failure rate on this host with a wide margin. They do NOT prove the race is impossible, and this document does not claim they do. Two alternative readings survive and are named rather than left implicit. First, `settledSample` compares two samples taken 80ms apart, so a geometry that has not begun moving yet yields two identical stale reads and the poll returns on them; it narrows the window rather than closing it. Second, dropping the spec from the default config removes an execution path, which is not the same as fixing a race on the path that remains. So a rarer or runner-dependent recurrence is compatible with everything measured here. The claim is that the parked repair is no longer justified by a reproducing defect, not that the defect has been proven impossible.
+
 **Verdict: closed as subsumed.** `#954` (`2c5b718a4`) did two independent things, either of which bears on the flap:
 
 1. It wrapped four single-sample geometry reads in a new `settledSample` helper (`tests/e2e/popover-clip-fit.spec.ts:315`), which re-reads on an 80ms gap until two consecutive samples agree and throws at a 5s deadline. One of those four is `settled fit at 390x${height}` (`tests/e2e/popover-clip-fit.spec.ts:357`), the exact site this plan named as the failure.
-2. It removed `popover-clip-fit` from the `testMatch` in `playwright.config.ts`, so the spec no longer runs in the `desktop-chromium` project. It is standalone-only now, which halves the parameterized-cell adjacency a single invocation produces.
+2. It removed `popover-clip-fit` from the `testMatch` in `playwright.config.ts`, so the spec no longer runs in the `desktop-chromium` project. It is standalone-only now. That halves the aggregate execution across the two paths; it does NOT reduce cell adjacency within a single invocation, which still runs one complete 42-test sequence.
 
 ### What was measured
 
@@ -27,13 +29,13 @@ node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/
 
 Zero of the 26 shipping-tree runs produced the failure signature this plan was written against, and a grep for `vs available` across every run log returns nothing. The parked measurement was 3 failures in 7 full-file runs. Against that rate, 26 consecutive clean runs is not a quiet sample.
 
-**The causal probe is the part worth keeping.** Neutering `settledSample` to `return read()` restores the pre-#954 single-sample behaviour at all four sites. It did produce a failure, so the settle poll is doing real work. But the failure was **not this plan's defect**: it landed at `placement is RE-COMPUTED once the entrance settles` (`tests/e2e/popover-clip-fit.spec.ts:646`) with a delta of 15.375px, not at the `settled fit` loop with the constant 20px this plan traced to `CSS_CAP` minus the 390x667 room. The site this document diagnosed did not fire in 33 runs even with its settle removed.
+**The causal probe is the part worth keeping.** Neutering `settledSample` to `return read()` restores the pre-#954 single-sample behaviour at all four sites. It did produce a failure, so the settle poll is doing real work. But the failure was **not this plan's defect**: it landed at `placement is RE-COMPUTED once the entrance settles` (`tests/e2e/popover-clip-fit.spec.ts:656`, failing assertion at `tests/e2e/popover-clip-fit.spec.ts:693`) with a delta of 15.375px, not at the `settled fit` loop with the constant 20px this plan traced to `CSS_CAP` minus the 390x667 room. The site this document diagnosed did not fire in 33 runs even with its settle removed.
 
 ### Premise-by-premise
 
 | Premise as parked | Status against `8171e7bb0` |
 | --- | --- |
-| Failing site is `settled fit at 390x${height}` over `[844, 667, 560]` | Test still exists, now at `tests/e2e/popover-clip-fit.spec.ts:357`. **Refuted as a failing site**: 26 clean runs, and 33 more with its settle removed |
+| Failing site is `settled fit at 390x${height}` over `[844, 667, 560]` | Test still exists, now at `tests/e2e/popover-clip-fit.spec.ts:357`. **Not observed failing**: 26 clean runs, and 33 more with its settle removed. Not a proof of impossibility, per the note above |
 | `CSS_CAP` is a file constant of 384 | Holds, `tests/e2e/popover-clip-fit.spec.ts:143`, same line |
 | Five `page.goto` sites, 33 `page.setViewportSize` sites | Holds exactly |
 | `settledGeometry` carries an internal `waitForTimeout(80)` safe only under its `expect.poll` callers | Holds, `tests/e2e/popover-clip-fit.spec.ts:241`; the two poll callers are now `tests/e2e/popover-clip-fit.spec.ts:786` and `tests/e2e/popover-clip-fit.spec.ts:857` |
@@ -42,9 +44,11 @@ Zero of the 26 shipping-tree runs produced the failure signature this plan was w
 
 ### The surviving exposed read is a documented limit, not a defect
 
-The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1472`) still sets a viewport, sleeps a fixed 80ms, and takes a single `fittedGeometry` read. It is genuinely exposed to a stale viewport. **It cannot fail because of one.** The sweep runs `[844, 667, 560, 400]`, monotonically shrinking, so a stale read returns the previous and larger cell's room; and the oracle is a pair of lower bounds, `available > FLOOR` and `min(available) > FLOOR * 2` with `FLOOR = 48` (`tests/e2e/popover-clip-fit.spec.ts:145`). Staleness biases the measurement in the direction the assertion tolerates. The worst case is a silently wrong number in a census whose claim still holds.
+The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1472`) still sets a viewport, sleeps a fixed 80ms, and takes a single `fittedGeometry` read. It is genuinely exposed to a stale viewport, and its oracle is a pair of lower bounds: `available > FLOOR` and `min(available) > FLOOR * 2`, with `FLOOR = 48` (`tests/e2e/popover-clip-fit.spec.ts:145`).
 
-**Probed, not reasoned, 2026-08-30.** Removing the census sleep entirely still reads correctly on this host, so a stale read could not be provoked directly; the re-fit lands inside one round trip here. What the probe does give is the four real values, which settle the claim arithmetically. Measured with the sleep removed:
+**The exemption is bounded, and it rests on an assumption this arc did not manage to test.** If a stale read returns the previous cell's settled room, then because the sweep `[844, 667, 560, 400]` shrinks monotonically, staleness moves every value UP and away from both bounds. That is the argument, and it is only as good as its premise: that the stale value IS the previous cell's settled value, rather than some intermediate geometry sampled mid-resize. **That premise is not established here.** The probe below could not provoke a stale read at all, so it cannot map one.
+
+**What the probe did and did not establish, 2026-08-30.** Removing the census sleep entirely still produced correct values on this host, so no stale read could be provoked and the mapping above is untested. Note also that the probe records `available` only, and `available` can settle before the fitted scroller does, so this does not show the re-fit completes within one round trip. What the probe does give is the four settled values, and with them a margin. Measured with the sleep removed:
 
 ```
 CENSUSPROBE height=844 available=562.453125
@@ -53,13 +57,15 @@ CENSUSPROBE height=560 available=321.0625
 CENSUSPROBE height=400 available=185.0625
 ```
 
-A stale sweep is that list shifted by one, since each cell would read the previous cell's room: `562.45, 562.45, 412, 321.06`. Both lists clear `available > 48` at every cell, and the tightest value rises from 185.06 to 321.06, further above the `FLOOR * 2` bound rather than nearer it. So staleness cannot cross either threshold in the failing direction, on the numbers the surface actually produces.
+Under the shifted-by-one reading, a stale sweep would be `562.45, 562.45, 412, 321.06`; both lists clear every bound, and the tightest value rises from 185.06 to 321.06, further from `FLOOR * 2` rather than nearer.
+
+**The residual, stated rather than argued away.** A failure needs some cell to read at or under 96. The smallest settled value on this surface is 185.06, so it would take a transient below half the smallest settled geometry and below a sixth of the largest. Nothing measured here demonstrates such a transient exists, and nothing measured here excludes it either. That is the honest shape of this limit: the assertion has a wide margin in the direction staleness is believed to push, and the belief is untested. It is recorded as a limit for that reason, not retired as impossible.
 
 That is the same shape this plan itself used to scope away from `wizard-attention-menu.spec.ts`: a stale viewport there "yields a layout those assertions are indifferent to." The argument applies to the census too, and it files as a documented limit rather than a finding, per the 2026-08-04 filing bar.
 
 ### Why this does not come back as a guard
 
-The remaining implementable piece is AC-REFIT-COVER, the structural scan asserting no bare `page.goto(` or `page.setViewportSize(` outside the settle helper. It is still red against the tree, because it is a text scan and all 38 sites are unrouted. Shipping it now would mean a 38-site refactor plus a new recognizer to harden a defect that no longer reproduces, on a surface whose done condition is a property of the guard rather than a number outside the process. The 2026-08-25 mint freeze names that case directly, and `AGENTS.md` names the repair direction under same-axis recurrence as narrowing, not parser growth. The `2d9d0ba11`-style kill already happened when this was split; the recount is the second half of it.
+The remaining implementable piece is AC-REFIT-COVER, the structural scan asserting no bare `page.goto(` or `page.setViewportSize(` outside the settle helper. It is still red against the tree, because it is a text scan and all 38 sites are unrouted. Shipping it now would mean a 38-site refactor plus a new recognizer to harden a defect that does not reproduce, on a surface whose done condition is a property of the guard rather than a number outside the process. The 2026-08-25 mint freeze names that case directly, and `AGENTS.md` names the repair direction under same-axis recurrence as narrowing, not parser growth. The `2d9d0ba11`-style kill already happened when this was split; the recount is the second half of it.
 
 ## What does NOT come with it
 
@@ -67,11 +73,11 @@ The P-1 probe deletion stayed on the PRODUCT arc, which has since merged. Only t
 
 ## Ledger
 
-No row, and the recount does not create one. The defect was process-facing, and the 2026-08-25 mint freeze admits a process row only under `invariant` or `product-blocked`. Neither applies, and the defect is gone regardless. This document is the record.
+No row, and the recount does not create one. The defect was process-facing, and the 2026-08-25 mint freeze admits a process row only under `invariant` or `product-blocked`. Neither applies, and no reproducing defect remains to file against. This document is the record.
 
 ## Appendix — the parked design, recovered
 
-**Recovered 2026-08-30.** The original of this section lived in this branch's copy of `docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md`, which the PARKED note called its only home. Merging `origin/main` took main's deletion of that section, because the product branch had removed it and this branch never touched the file, so the merge was clean and the loss silent. It is restored here verbatim from `ee9f1fdb4`. Line numbers inside it are as-of 2026-08-29 and are superseded by the recount table above.
+**Recovered 2026-08-30.** The original of this section lived in this branch's copy of `docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md`, which the PARKED note called its only home. Merging `origin/main` took main's deletion of that section, because the product branch had removed it and this branch never touched the file, so the merge was clean and the loss silent. It is restored here from `ee9f1fdb4`, byte-identical except for the two fence delimiters wrapping its task marker, which are added here so specLint treats the marker as inert. Line numbers inside it are as-of 2026-08-29 and are superseded by the recount table above.
 
 ### Task 5 — the stale fitted cap that flaps popover-clip-fit on CI
 
