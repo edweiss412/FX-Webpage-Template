@@ -393,25 +393,49 @@ message empty). Three states, three ordered pairs.
 | pending | settled-silent | Instant, and invisible by definition. No call is made |
 | spoken | settled-silent | **Unreachable.** The spoken ref is set once and never cleared, so no transition out of either terminal state exists |
 
-**Compound transitions.** Two concurrent states matter, and the second is the
-one R1 found.
+**Compound transitions.** Three concurrent states matter. R1 found the second.
+R2 found that all three were written as OUTCOMES when only the rule that
+produces them is stable.
+
+After R1 nothing about a VALUE is permanent. Exactly three things latch: each
+half's `settled` flag and the spoken ref. Every count, and `degraded`, is
+re-read at announce time. So each case below states what the selector returns
+AT THAT INSTANT, never what an earlier event committed.
 
 1. **The bell panel opens while the bell half is still pending.** `zeroNow()`
-   commits `count = 0` (`useBellBadge.ts:138-144`), the bell latches settled, and
-   the selector returns `null`. The bell sentence is suppressed and the attention
-   sentence is unaffected. Correct: the operator is looking at the panel.
+   commits `count = 0` (`useBellBadge.ts:138-144`) and the bell latches settled.
+   If the count is still 0 when the announcement fires, the selector returns
+   `null`, the bell sentence is absent, and the attention sentence is
+   unaffected. Correct: the operator is looking at the panel.
 2. **The bell panel opens AFTER the bell half has settled but BEFORE attention
-   settles.** The latch stays set, but the announceable value is re-read at
-   announce time and is now `null`, so the bell sentence is suppressed here too.
-   This is the case a frozen report gets wrong, and the probe that found it
-   showed the join speaking "4 unseen notifications" against a control displaying
-   no badge.
-3. **The bell degrades between settling and announcing.** Same shape: the
-   selector returns `null` under `degraded`, so a retained-but-undisplayed count
-   is not spoken.
+   settles.** The latch stays set and the announceable value is re-read at
+   announce time, so a count zeroed and still zero yields no bell sentence here
+   either. This is the case a frozen report gets wrong: the probe that found it
+   showed the join speaking "4 unseen notifications" against a control
+   displaying no badge.
+3. **The bell degrades between settling and announcing.** If `degraded` is still
+   true at announce time the selector returns `null`, so a
+   retained-but-undisplayed count is not spoken.
 
-All three are the same rule seen three times: what is spoken is what the label
-says at the moment of speaking.
+**Zeroing and degrading are not terminal, and this spec does not claim they
+are.** Two live routes restore a positive count after `zeroNow()`: the original
+seed resolving into an already-claimed hook, which demotes to `runFetch()`
+(`useBellBadge.ts:205-210`) and commits at `useBellBadge.ts:111`; and the
+panel's own `onOpened={refetch}` (`NotifBell.tsx:112`). `degraded` likewise
+clears on any ok result (`useBellBadge.ts:112`).
+
+So the domain point "both halves pending, the operator opens the bell, zero
+commits, the demoted fetch commits 2, attention then settles at 3" announces
+"2 unseen notifications. 3 items need attention." That is the correct outcome
+rather than an escape: at that instant the badge displays 2 and the accessible
+name reads `"Notifications: 2 unseen"`, so the utterance matches the control it
+explains and the consequence bound holds. The ordering in which attention
+settles BEFORE the restoration announces no bell sentence, and both orderings
+are right for the same reason.
+
+All three cases and both orderings are one rule seen five times: what is spoken
+is what the label says at the moment of speaking. No case is a suppression that
+outlives the state that caused it.
 
 ### 3.9 Dimensional invariants
 
@@ -561,9 +585,10 @@ Filed here rather than as ledger rows, per the arc's no-new-rows rule.
   today: same accessible names, same badge, same panel behavior.
 - AC-10 No `role="log"`, `role="status"` or `aria-live` attribute is added to
   any file under `components/admin/nav/`.
-- AC-11 Opening the bell panel suppresses the bell sentence, whether it is
+- AC-11 Opening the bell panel drives the count to 0, and while it is still 0
+  when the announcement fires the bell sentence is absent, whether the panel is
   opened BEFORE the bell half settles or after it settles and before the
-  announcement, and the attention sentence is unaffected in both.
+  announcement. The attention sentence is unaffected in both.
 - AC-12 The onboarding chrome announces nothing.
 - AC-13 A bell in the retained-count-under-degraded state
   (`{count: n, degraded: true}`) announces no bell sentence, matching the
@@ -574,6 +599,16 @@ Filed here rather than as ledger rows, per the arc's no-new-rows rule.
 - AC-15 The row `NAV-BADGE-ARRIVAL-ANNOUNCE-1` is absent from `DEFERRED.md`,
   present in `DEFERRED-archive.md`, and carries no `**Status:** IN PROGRESS`
   field anywhere in the merged tree.
+- AC-16 When a restoration commits a positive count after `zeroNow()` and
+  before the announcement fires, the announcement carries the RESTORED count
+  and matches the accessible name at that instant. Both restoration routes are
+  covered: the demoted seed's refetch (`useBellBadge.ts:205-210` committing at
+  `useBellBadge.ts:111`) and the panel's `onOpened={refetch}`
+  (`NotifBell.tsx:112`). The reverse ordering, attention settling before the
+  restoration, announces no bell sentence.
+- AC-17 When `degraded` clears (`useBellBadge.ts:112`) between the bell
+  settling and the announcement, and the restored count is above zero, the bell
+  sentence is present and carries that count.
 
 ## 8. Out of scope
 
