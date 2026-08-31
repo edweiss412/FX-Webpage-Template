@@ -189,7 +189,7 @@ Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
 ### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
 
-**Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/nav-badge-arrival-announce · **Effort:** S
 
 Surfaced by the invariant-8 dual gate on branch `feat/admin-nav-badge-suspense`, by BOTH halves
 independently (critique P1, audit P2). Findings and dispositions are in §12 of
