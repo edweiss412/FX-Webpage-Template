@@ -53,257 +53,152 @@ to `DESIGN.md` §5.5 in the table's existing sort position, and re-run the SAME 
 The order matters and is the point: adding the row first would make the meta-test red for the
 opposite reason and would not prove the scanner sees the constant.
 
-## Task 2: the deciding suite, which judges the mechanism
+## Task 2: the gallery check-in, and the gallery half of the deciding races
 
-<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/retryCheckInRaces.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:126` why=`neither component has a check-in at all, so every case in the new file fails on the absent state before any mechanism exists to judge` ac=AC-15,AC-16,AC-18 -->
+<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/retryCheckInRaces.test.tsx tests/components/diagrams/gallery.retryCheckIn.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:126` why=`retrying is a ReadonlySet with no phase, so there is no checked-in state for the new cases to observe and every one of them fails on the absent copy and the absent no-op` ac=AC-1,AC-1b,AC-2,AC-3,AC-4,AC-14,AC-15,AC-16,AC-18 -->
 
-Spec §3.2a names TWO candidate mechanisms and ratifies neither, because prose has been wrong about
-this axis twice and the orchestrator ruled after the round cap that a test decides it rather than
-another round. This task writes that test FIRST, before either candidate is built, which is why it
-sits ahead of the implementation tasks rather than after them.
+**THE MECHANISM, decided and no longer open.** Spec §3.2a named two candidates. Plan review round 2
+REFUTED the primary on implementability rather than taste: the writer-side twin requires every
+`setRetrying` call site to update a mirror synchronously, and BOTH components call `setRetrying` in
+the RENDER body (`Gallery.tsx:392`, `GalleryLightbox.tsx:861`, the availability sweeps) where
+`react-hooks/refs` forbids a ref write. This repo documents that rule in its own registry
+(`perItemStateRegistry.ts:273`). A literal implementer would have had to break the pin, break lint,
+or keep a stale mirror.
 
-**The bound it enforces, quoted from the spec so the file carries its own contract:** any code that
-runs outside the render phase may observe a stale `retrying` snapshot, and the mechanism must make
-that harmless. The suite does not care WHICH candidate ships. It asserts observable outcomes, so the
-writer-side twin and the fire-time re-read are judged by the same cases, and a third mechanism
-nobody has thought of is judged by them too.
+So this plan ships the FALLBACK the spec already named, fire-time re-read, in the shape that makes
+it work. The orchestrator approved the switch on 2026-08-31.
 
-**Planted removal-during-pending-check-in, per surface, per removal source.** Drive an item into
-`retrying`, advance to just before `RETRY_CHECK_IN_MS`, remove it by one source with the timer
-callback pending, then advance past the deadline. Assert three things every time:
+**The shape: check-in folds INTO `retrying`, one value per item.**
 
-1. no check-in renders for that item
-2. nothing is announced for it
-3. a SUBSEQUENT retry of the same item waits a full `RETRY_CHECK_IN_MS` rather than checking in at
-   once. This is the one that catches a stale write, because a stale `checkedIn` entry is invisible
-   until the next entry inherits it
+```ts
+type RetryPhase = "pending" | "checked-in" | "restarting";
+const [retryPhase, setRetryPhase] = useState<ReadonlyMap<string, RetryPhase>>(() => new Map());
+```
 
-Removal sources, both surfaces unless noted: `onLoad`, `onError`, the availability sweep, Restart,
-unmount, the gallery's rendered-ID sweep (`Gallery.tsx:344`, gallery only), and the lightbox's Embla
-`select` handler (`GalleryLightbox.tsx:549`, lightbox only).
+`retrying` stops being a `ReadonlySet` and becomes this map. There is no separate `checkedIn` set,
+no `restarting` set, no mirror ref, and no intersection rule. Three consequences worth stating,
+because each deletes something an earlier draft had to defend:
+
+- the timer callback is ONE functional update on the single source of truth, and its `prev` argument
+  is live by React's own contract: `prev.get(id) === "pending"` decides, anything else returns `prev`
+  unchanged. It captures nothing and no-ops when the item is gone or already resolved
+- the disjointness invariant is GONE, not defended. One item cannot hold two phases, so the two
+  violations review found in the set-based design are unrepresentable
+- membership questions that needed an intersection are now `map.get(id)`
+
+**What ships in the gallery.** The map, the phase transitions, the `RETRY_CHECK_IN_MS` timer, the
+check-in copy of spec §5 rendered on the same `diagram-retrying-<i>` button, `aria-busy="true"` in
+every in-flight phase, `aria-disabled` present in `pending` and absent in `checked-in`, and the
+`ImageOff` icon dropped in `checked-in` only.
+
+**The announcement runs in a LAYOUT effect, not a passive one.** A commit that shows an item
+`checked-in` is proof it was checked in AT THAT COMMIT, and a layout effect runs synchronously in
+that commit before anything can interleave. A passive effect cannot make that claim: React flushes
+pending passive effects before the next render, so one scheduled by the check-in commit still runs
+after an `onLoad` that has been queued but not rendered, which is exactly what refuted the round-3
+mechanism. Announce once per entry, tracked by an `announcedCheckInRef` the phase transition clears.
+
+### The deciding races, gallery half
+
+Written in this task and GREEN in this task. An earlier draft made them a standalone Task 2 that was
+committed red and could only go green two tasks later, which review round 2 correctly called a
+per-task TDD violation.
+
+**Planted removal-during-pending-check-in.** For each removal source, drive the item to `pending`,
+advance to just before `RETRY_CHECK_IN_MS`, remove it, and then **fire the pending callback
+explicitly rather than advancing the clock and hoping.** Review round 2 caught why that matters: a
+normally flushed removal clears the timer before it fires, so advancing the clock never exercises an
+unconditional callback and the case passes against the broken mechanism it exists to catch. Capture
+the callback (`vi.useFakeTimers` plus the timer id, or a spy on `setTimeout`) and invoke it AFTER
+the removal, which is the only way to prove the no-op is doing work.
+
+Assert, per source: no check-in renders, nothing is announced, and a SUBSEQUENT retry of the same
+item waits a full `RETRY_CHECK_IN_MS`.
+
+Sources for the gallery: `onLoad`, `onError`, the availability sweep, the rendered-ID sweep
+(`Gallery.tsx:344`), and Restart. **UNMOUNT IS DELIBERATELY NOT A CASE HERE**, and its absence is
+the finding rather than an omission: unmounting destroys the map, so a stale write cannot poison a
+later retry and the third assertion is green against the broken mechanism too. A non-discriminating
+case in a deciding suite is worse than no case, because it reads as coverage. Unmount is covered
+instead by the timer-cleanup assertion in Task 5, where it is discriminating.
 
 **Late success during the check-in.** With the check-in on screen, fire `onLoad`. Assert the image
-wins with no intermediate frame, and that no "is still loading" announcement is emitted afterwards,
-including when the announcement effect was ALREADY SCHEDULED at the moment the image loaded. That
-last case is the one that refuted the round-3 mechanism, and it is the reason this assertion is on
-the announcement channel rather than on the rendered copy.
+wins with no intermediate frame and nothing is announced afterwards, including when the announcement
+would have been scheduled at the moment the image loaded.
 
-**Anti-tautology, and this suite needs it more than any other in the plan.** Every case must be able
-to FAIL on a mechanism that does nothing:
+**Anti-tautology.** Derive every advance from the imported `RETRY_CHECK_IN_MS`. Assert on the
+announcement CHANNEL (`routeAnnouncement`, `Gallery.tsx:405`) with a spy, never on rendered text: a
+DOM read cannot see an announcement that should not have happened. `premise` before each planted
+case that the item was `pending` with a callback captured. And run each case once against a
+deliberately broken mechanism during authoring, recorded in the commit: an unconditional functional
+write must red the third assertion, and a passive-effect announcement must red the late-success case.
 
-- derive every advance from the imported `RETRY_CHECK_IN_MS`, never a literal
-- assert on the announcement CHANNEL (`routeAnnouncement`, `Gallery.tsx:405`) with a spy, not on
-  rendered text, because the check-in copy and the announcement are different surfaces and a test
-  reading the DOM cannot see an announcement that should not have happened
-- `premise` before each planted case that the item WAS in `retrying` with a timer pending, since a
-  case whose retry never started satisfies every "nothing happened" assertion vacuously
-- run each case against a deliberately broken mechanism once during authoring, recorded in the
-  commit: a callback that writes unconditionally must red case 3, and an announcement without the
-  liveness check must red the late-success case. A case that stays green against both is measuring
-  nothing
+## Task 3: the lightbox, the same shape and the lightbox half of the races
 
-**What this task does NOT do.** It does not assert the SHAPE of a mechanism. It says what the
-product must do, and Task 6 pins the shape separately.
+<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/retryCheckInRaces.test.tsx tests/components/diagrams/galleryLightbox.retryCheckIn.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:333` why=`retrying is a ReadonlySet with no phase here either, so the lightbox cases fail on the absent checked-in state before the map lands` ac=AC-1,AC-2,AC-3,AC-4,AC-18 -->
 
-**But the plan does decide, and this task is red until Task 3 makes it green.** Review round 1 was
-right that a plan which writes an oracle and then defers both candidates has no task that can turn
-the oracle green, which is a TDD violation dressed as flexibility. So: **the writer-side twin is the
-mechanism this plan implements**, chosen by the orchestrator on 2026-08-31 from this arc's own
-filing. Task 3 implements it on the gallery and this suite's gallery cases go green there; Task 4
-does the lightbox and the rest go green.
+The same map, the same transitions, the same layout-effect announcement, on the `lightbox-retrying`
+overlay. Two differences, both from the shipped tree rather than from symmetry:
 
-The fire-time re-read remains a documented FALLBACK, not a branch in the task list. If the twin
-fails a case here during implementation, that is an ordinary TDD failure: switch to the fallback,
-record the switch and the failing case in the closeout, and Task 6's pin follows the mechanism that
-actually shipped. Naming a fallback is not the same as leaving the choice open, and this plan does
-not leave it open.
+- the overlay is gated on `isRetrying && isActive` (`GalleryLightbox.tsx:1062`), so an inactive slide
+  never RENDERS a check-in. It can ENTER one and then be swiped away, which the spec's first draft
+  denied and review refuted
+- the lightbox already has `retryingStateRef` (`GalleryLightbox.tsx:340`), a whole-set mirror the
+  Embla subscriber reads. It is NOT part of this mechanism and gains no new reader. It keeps
+  mirroring whatever `retrying` now is, and its registry row is updated for the new type rather than
+  repurposed. An earlier draft said the gallery should grow a twin of it; that twin is what round 2
+  refuted, and this task adds no mirror to either surface
 
-## Task 3: gallery: the check-in state, its timer, and its copy
+Lightbox removal sources for the races: `onLoad`, `onError`, the availability sweep, the Embla
+`select` handler (`GalleryLightbox.tsx:549`), and Restart.
 
-<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.retryCheckIn.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:126` why=`Gallery.tsx has no checkedIn set and no check-in timer, so advancing fake timers past RETRY_CHECK_IN_MS leaves the overlay showing Retrying and aria-disabled true` ac=AC-1,AC-1b,AC-2,AC-3,AC-4,AC-14,AC-15 -->
+## Task 4: Restart, on both surfaces
 
-Add to `components/diagrams/Gallery.tsx`, per spec §3.1 and §3.2:
+<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.retryCheckIn.test.tsx tests/components/diagrams/galleryLightbox.retryCheckIn.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:782` why=`the in-flight overlay onClick is a bare event.preventDefault, so pressing it in the checked-in phase changes no phase and mounts no second image` ac=AC-3,AC-4,AC-5,AC-8,AC-8b,AC-8c,AC-10 -->
 
-- a `checkedIn` `ReadonlySet<string>`, READ ONLY through its intersection with `sweptRetrying`.
-  Nothing renders from it directly
-- a `checkInTimersRef` `Map<string, ReturnType<typeof setTimeout>>`
-- an `announcedCheckInRef` `Set<string>`, so the announcement fires once per entry (§6.1)
-- TWO effects, per spec §3.2. A reconciler keyed on the swept `retrying` set, with NO cleanup
-  function: start a timer for any retrying id without one, clear and drop any timer whose id has
-  left, and drop those ids from `checkedIn` and from the announced set. Separately, a mount-scoped
-  effect with an empty dependency list whose cleanup clears every live timer.
-- an announcement effect keyed on the EFFECTIVE checked-in set, which announces for ids not yet in
-  `announcedCheckInRef` and records them. The timer callback never announces
+Set the item's phase to `restarting` in one update; render no `<Image>` in that phase; a
+`useLayoutEffect` keyed on the map moves every `restarting` id back to `pending` before paint, which
+mounts a fresh `<Image>` and starts a fresh window. The overlay's render condition covers every
+in-flight phase, so it is ONE element across `pending`, `checked-in` and `restarting` and focus never
+moves.
 
-No handler starts or stops a timer, and no removal site is edited to maintain `checkedIn`. That is
-the point of the design, and it is what round 1's second and third findings cost: the first draft
-edited handlers and missed two of the seven removal paths.
+AC-8c is now structural rather than asserted: one item holds one phase, so "both sets true" is
+unrepresentable. The case remains, asserting the phase sequence, because a regression that
+reintroduces a second set should fail loudly rather than silently.
 
-The timer callback writes `checkedIn` and checks nothing. A write for an id that has already left
-`retrying` is inert by the intersection, so the callback needs no live membership source, which the
-gallery does not have (no `retryingStateRef`).
+**AC-10's oracle, repaired.** A `MutationObserver` records mutation FACTS and LIVE node references,
+not a snapshot per commit, so reading `record.target.getAttribute(...)` yields the CURRENT value.
+Review round 2 reproduced this with four synchronous attribute mutations: every record read only the
+final value. So the observer is configured `{ childList: true, subtree: true, attributes: true,
+attributeOldValue: true }` and the assertions use only what is PRESERVED:
 
-**AC-1b is the case a timer COUNT cannot see, and it is why the effects are split.** Drive item A
-into `retrying`, advance 29 seconds, put item B into `retrying`, then take B out, then advance the
-remaining second and assert A checks in. On a single effect whose cleanup clears every timer, A's
-window restarts when B arrives and A checks in at about 59 seconds, while a count of A's live timers
-reads exactly one the whole way through. Derive both advances from `RETRY_CHECK_IN_MS`, never from
-literals, so the test moves with the constant.
+- element presence from `addedNodes`, which is a preserved node list: assert no added node is, or
+  contains, the failed control (`diagram-retry-<i>` at `Gallery.tsx:817`, `lightbox-retry` at
+  `GalleryLightbox.tsx:1571`)
+- attribute history from `record.oldValue`, asserting no record shows `aria-busy` leaving `"true"`
+- focus by sampling `document.activeElement` before the press and after the effect
 
-**AC-15 is the announcement's own anti-tautology case.** Assert that nothing is announced when the
-timer fires in the same tick as `onLoad`, and nothing when the item is swept. A test that only
-checks the happy path passes on a callback that announces directly, which is the design round 2
-refuted.
+The record count is the premise: a run that observed nothing satisfies every "no record" assertion
+vacuously.
 
-Render: the SAME `diagram-retrying-<i>` button, with the check-in copy of spec §5 when the id is in
-the EFFECTIVE checked-in set. `aria-busy="true"` in every in-flight state; `aria-disabled` present
-before the check-in and absent during it; drop the `ImageOff` icon in the check-in only.
-
-Announce once through `routeAnnouncement` (`Gallery.tsx:405`). `restarting` announces nothing
-(AC-14), because it would say `Retrying…` a second time.
-
-**Anti-tautology.** Assert `aria-busy` on the element returned by `getByTestId`, before and
-after `vi.advanceTimersByTime(RETRY_CHECK_IN_MS)`, comparing the SAME node, not a re-query
-that could match a different element. Derive the advance from the imported constant, never a
-hardcoded 30000, so a constant change moves the test with it. Scope the copy assertion to the
-overlay button, not to the cell, because the cell also renders the thumbnail button's
-accessible name and would satisfy a container-level text match.
-
-**Premise.** Above the post-advance assertions, `premise` that the id was in `retrying` and NOT
-in `checkedIn` immediately before the advance. Without it, a test whose retry never started
-passes vacuously: `Retrying…` absent and check-in copy absent are both "not the old state".
-
-**Four pre-dispatch mutants**, results recorded in the commit: (a) empty the check-in string;
-(b) append a suffix to it; (c) put the string in a comment and behind a false condition;
-(d) vary `RETRY_CHECK_IN_MS` and the item id in turn.
-
-## Task 4: lightbox: the same state, the same way
-
-<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/galleryLightbox.retryCheckIn.test.tsx` red-state=authored red-target=`components/diagrams/GalleryLightbox.tsx:333` why=`GalleryLightbox.tsx has no checkedIn set and no check-in timer, so the lightbox-retrying overlay keeps its inert Retrying label past RETRY_CHECK_IN_MS` ac=AC-1,AC-2,AC-3,AC-4 -->
-
-The same four members, the same two timer effects, the same announcement effect and the same render
-change, in `components/diagrams/GalleryLightbox.tsx`, on the `lightbox-retrying` overlay. The code
-is parallel by design; the tests are not copies, because two of the differences below are real.
-
-Three differences from Task 3, all from the shipped tree:
-
-- the lightbox overlay carries no icon in either sub-state, so nothing is dropped there
-- the lightbox already HAS a `retryingStateRef` (`GalleryLightbox.tsx:340`) and the gallery does
-  not. It stays unused by this work: §3.2's design makes a live membership source unnecessary on
-  both surfaces, and reaching for it here would make the two implementations diverge for no gain
-- the overlay is gated on `isRetrying && isActive` (`GalleryLightbox.tsx:1062`), so an inactive
-  slide never RENDERS a check-in. It can ENTER one and then be swiped away, which the first draft
-  of the spec denied and round 1 refuted; the Embla `select` handler
-  (`GalleryLightbox.tsx:549`) removes the departing id from `retrying`, and the intersection makes
-  its `checkedIn` entry inert on that same render. The test asserts the swipe-away case directly,
-  not just that an always-inactive slide stays quiet
-
-Same anti-tautology, premise and four-mutant discipline as Task 3.
-
-## Task 5: Restart, on both surfaces
-
-<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.retryCheckIn.test.tsx tests/components/diagrams/galleryLightbox.retryCheckIn.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:782` why=`the in-flight overlay onClick is a bare event.preventDefault, so pressing it after the check-in changes no state and mounts no second image` ac=AC-3,AC-4,AC-5,AC-8,AC-8b,AC-8c,AC-10 -->
-
-Implement spec §4.1 on both surfaces: a `restarting` `ReadonlySet<string>`, the one-commit write on
-press (`checkedIn` out, `restarting` in), a branch that renders the overlay with `Retrying…` and NO
-`<Image>`, and a `useLayoutEffect` keyed on `restarting` that moves every id in it to `retrying`.
-
-**The overlay's render condition must cover both states, or the "same element" claim is false.**
-Today the lightbox gates it on `isRetrying && isActive` (`GalleryLightbox.tsx:1062`) and the gallery
-on `isRetrying` alone. If `restarting` is a set disjoint from `retrying`, then entering it makes
-`isRetrying` false, the ternary unmounts the overlay, and focus drops. So both conditions become
-`(isRetrying || isRestarting)`, keeping ONE element across check-in, restarting and retrying.
-
-**There is a live mechanism that makes this observable rather than theoretical.**
-`GalleryLightbox.tsx:783` is a root-scoped focus rescue in a `useLayoutEffect` that fires on EVERY
-control-removal path, precisely because an unmounted control drops focus to `<body>` outside a
-trapping dialog. If the overlay unmounted during Restart, that rescue would fire and move focus.
-AC-10's assertion that focus does not move is therefore also an assertion that the element survived,
-which is why the two are one criterion and not two.
-
-**The layout effect is an established pattern in these exact files, not a new trick.** React is
-19.2.4 (`package.json`). `Gallery.tsx:283` and `Gallery.tsx:304` are already `useLayoutEffect`, and
-`GalleryLightbox.tsx:783` carries a comment reasoning about why it must be one rather than a passive
-effect. So the mechanism §4.1 specifies has precedent in the two files it lands in, and the
-implementer follows a local convention instead of inventing one.
-
-**Not the failed bounce the first draft specified.** Round 1 found it critical: the `failed`
-control's accessible name says the diagram could not be loaded, and the request is still pending,
-so the committed intermediate frame stated something false and the draft moved focus onto it.
-`restarting` says `Retrying…`, which is true at every instant it exists, and the overlay is the same
-element throughout so no focus moves at all.
-
-**The disjointness invariant is asserted, not assumed (AC-8c).** Spec §3 requires that `retrying`
-and `restarting` are never both true for an id, and never both false while the cell is in flight.
-Two violations of it have already been found in this arc, one by review and one by the sweep that
-followed, and both were silent: an id in both sets renders an inert `Retrying…` over no image
-forever. Assert it on every commit of a Restart rather than at the end, since the end state is
-correct in both defective designs.
-
-**AC-8b: the replacement request gets its own window.** After Restart, advance
-`RETRY_CHECK_IN_MS` from the RE-ENTRY and assert a second check-in appears. On the design round 2
-refuted, the id never left `retrying`, so the reconciler never retired the expired timer and no
-second check-in could ever fire. This is the assertion that would have caught it.
-
-**Three more assertions, and two of them are opposite on purpose.**
-
-- AC-8: capture the `<img>` before Restart and after the layout effect, assert they are DIFFERENT
-  nodes. A presence assertion passes on a design that never remounted and so never made a new
-  request, which is the defect this task exists to avoid.
-- AC-5: assert the element is the SAME node across the check-in itself. A repair satisfying one of
-  these by breaking the other is the failure mode, so one task owns both.
-- AC-10, as the spec now states it after round 2 sharpened it: across every commit of Restart, the
-  FAILED CONTROL is never rendered, the overlay keeps `aria-busy="true"`, and `document.activeElement`
-  does not change. Assert absence by testid, `diagram-retry-<i>` (`Gallery.tsx:817`) and
-  `lightbox-retry` (`GalleryLightbox.tsx:1571`), NOT by scanning for the phrase "could not be
-  loaded": the in-flight overlay's own accessible name legitimately contains that phrase
-  (`Gallery.tsx:836` is the failed control's, and the in-flight one reads the same way), so a phrase
-  scan would fail on correct behaviour. That imprecision is exactly what round 2's finding 4 caught
-  in the criterion itself.
-
-For AC-10, observe COMMITTED FRAMES, which means DOM mutations. Review round 1 refuted the first
-proposal here: a spy on rendered props records render ATTEMPTS, including renders React abandons,
-and cannot establish what was committed; the overlay is also a host `<button>` with no prop-spy seam
-to attach to.
-
-The oracle is a `MutationObserver` on the cell, connected before the Restart press and disconnected
-after the layout effect settles, with `subtree: true` and `attributes: true`. A mutation record IS a
-committed frame, which is exactly the thing AC-10 quantifies over. From the recorded sequence assert:
-
-- no record ever contains the failed control, by testid: `diagram-retry-<i>` (`Gallery.tsx:817`) or
-  `lightbox-retry` (`GalleryLightbox.tsx:1571`). Assert on the TESTID, never on the phrase "could not
-  be loaded", because the in-flight overlay's own accessible name legitimately contains it, which is
-  what round 2 of the spec review caught in the criterion itself
-- `aria-busy` is `"true"` on the overlay in every record that includes it
-- `document.activeElement` is the same node before the press and after the effect, sampled at both
-  ends rather than inferred
-
-Record the observer's record COUNT in the commit. A run that observed zero mutations proves nothing
-and would satisfy every "no record contains" assertion vacuously, so the count is the premise.
-
-The command carries NO `-t` filter, deliberately. A name filter that matches nothing exits 0 and
-reports green from the moment it is written, so a `red=` carrying one cannot express a red at all;
-`spec:lint` draws `RED_TEST_NAME_FILTER` on exactly this and review round 1 raised it here.
-
-## Task 6: the availability sweep, and the registry rows it forces
+## Task 5: the availability sweep, and the registry rows it forces
 
 <!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/perItemStateLifetime.probe.test.ts` red-state=authored red-target=`tests/components/diagrams/perItemStateRegistry.ts:47` why=`the scanner enumerates every useState and useRef in both components, so the four members Tasks 3 to 5 add across two files are unclassified and the registry check reds until each of the eight rows exists` ac=AC-1,AC-11,AC-12,AC-17 -->
 
-**AC-17: pin the writer set, unconditionally.** Task 2 names the writer-side twin as the mechanism
-this plan implements, so this pin is not a branch. Add a suite named `retryWriterSetPin` under
-`tests/components/diagrams/` (created here, so tracked only after it lands): walk both component
-sources for every `setRetrying` call site and assert each is paired with its synchronous mirror
-write in the same statement, so a call site added later without one fails. Derived from a filesystem
-walk over the two sources, never a hand list of call sites.
+**AC-17: the closed-set pin, transposed to the mechanism that shipped.** The writer-side twin is
+dead (Task 2), but its one good property was that the `setRetrying` writer set is CLOSED and
+greppable while the reader set is open. The orchestrator kept that and transposed it on 2026-08-31.
 
-The assertion is over the WRITER set because it is closed and greppable. Asserting over the reader
-set is the shape spec §3.2a deleted after three drafts of it were refuted, and a plan reintroducing
-it would have reintroduced the refuted surface.
+Add `retryWriterSetPin` under `tests/components/diagrams/` (created here, tracked only after it
+lands): walk both component sources for every write to the retry phase map and assert each either
+uses the FUNCTIONAL form, or carries a stated render-sweep exemption naming why it cannot. The two
+render-body writers (`Gallery.tsx:392`, `GalleryLightbox.tsx:861`) are the exemptions, and they are
+exempt for a reason the walker records rather than infers: they run in render, where the value they
+write is already derived from that render.
 
-**If the fallback shipped instead** (Task 2 records the switch), this pin is replaced by one that
-asserts the timer callback both captures nothing AND no-ops on a live-membership check. Review round
-1 caught that "captures no state" alone is satisfied by an unconditional functional write, which is
-precisely the defect the mechanism exists to prevent, so the capture assertion never ships alone.
+What the pin buys is not style. A later writer that captures state instead of reading `prev` is
+exactly the stale-capture shape three review rounds chased, and this makes it fail at CI time rather
+than at review time. Derived from a filesystem walk over the two sources, never a hand list.
 
 **The availability sweeps are NOT edited.** Spec §3.1 and §3.2 are what carry `checkedIn` and the
 timers, at every removal site including the two round 1 found. This task proves that, rather than
@@ -319,22 +214,22 @@ Assert AC-11 directly, on the two paths the first draft missed:
 Both are the anti-tautology case for the intersection: a test that only exercises `onLoad` and
 `onError` would pass on the enumerated design that round 1 refuted.
 
-Add one `PER_ITEM_STATE_REGISTRY` row per new member per file. The registry is keyed
-`<basename>:<declared name>` (`tests/components/diagrams/perItemStateRegistry.ts`). NINE rows, and
-the asymmetry is the point: the lightbox already ships the live-membership ref and already has its
-registry row, so only the gallery gains one.
+Registry work, and it is SMALLER than every earlier draft because the mechanism got smaller. The
+registry is keyed `<basename>:<declared name>` (`tests/components/diagrams/perItemStateRegistry.ts`).
+There is no `checkedIn` set, no `restarting` set and no new mirror ref to classify: those were the
+set-based design. What changes is that `retrying` becomes `retryPhase`, one row per file, plus one
+new ref per file for the announcement latch.
 
 | member | files | kind | sweep |
 |---|---|---|---|
-| `checkedIn` | both | per-item | `swept: true` |
-| `restarting` | both | per-item | `swept: true`, by the same predicates as `retrying` (spec §4.1 step 2) |
-| `checkInTimersRef` | both | per-item | `swept: false`, reason: reconciled by §3.2's effect against the live `retrying` set, not by the availability sweep, and `react-hooks/refs` forbids writing a ref in render anyway (`perItemStateRegistry.ts:272` states that rule for an existing row) |
-| `announcedCheckInRef` | both | per-item | `swept: false`, reason: §3.2's reconciler drops an id from it when the id leaves `retrying`, which is what lets a genuine second entry announce again |
-| `retryingStateRef` | GALLERY ONLY | not-per-item | n/a. It is a whole-set mirror, not a per-item slot, and its `why` copies the classification the lightbox's twin already carries at `perItemStateRegistry.ts:266` |
+| `retryPhase` | both | per-item | `swept: true`. Replaces the `retrying` row rather than joining it: same identity, new type, and its `clearedBy` names the phase transitions plus the sweeps |
+| `announcedCheckInRef` | both | per-item | `swept: false`, reason: the phase transition clears an id from it when the item leaves an in-flight phase, which is what lets a genuine second entry announce again. The availability sweep does not touch it, and `react-hooks/refs` forbids a ref write in render anyway, a rule this file already states for an existing row at `perItemStateRegistry.ts:273` |
+| `checkInTimersRef` | both | per-item | `swept: false`, same reason: the timer is retired by the phase transition, and the sweeps run in render |
+| `retryingStateRef` (lightbox key, existing row at `perItemStateRegistry.ts:266`) | lightbox, EXISTING | not-per-item | UNCHANGED classification, updated `why` for the new map type. It is the Embla subscriber's mirror and gains no reader from this work |
 
-Name the gallery's ref `retryingStateRef`, matching `GalleryLightbox.tsx:340` exactly. Spec §3.2a
-argues its entire case on adopting the sibling's shipped pattern, so giving it a different name
-would undercut the argument and leave two names for one mechanism.
+Four rows touched across two files, one of them an edit to an existing row rather than an addition.
+Earlier drafts of this table had nine rows for a mirror and two sets that the round-2 mechanism
+switch deleted.
 
 The suite's own premise requires at least five per-item rows before it asserts anything
 (`perItemStateLifetime.probe.test.ts:110`), and eight new rows keep that satisfied rather than
@@ -348,7 +243,7 @@ real reason is a supported shape, not a workaround.
 This task's red is the mechanism working as designed: adding state to a walked population reds
 the guard by default. Do not narrow the walk.
 
-## Task 7: transition audit
+## Task 6: transition audit
 
 <!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.transitions.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:760` why=`the compound cases this task adds are GREEN ON ARRIVAL once Tasks 3 to 5 have shipped, so the red is PLANTED: remove the check-in clear from the onLoad path, observe this command red, restore, observe green. Recorded per the discipline tests/e2e/diagram-retry-dimensions.spec.ts:9-16 already documents for its own sibling assertion` ac=AC-6,AC-7 -->
 
@@ -382,7 +277,7 @@ There is no `AnimatePresence` in either retry region; the audit records that, si
 animation is missing because there is no presence wrapper" is a finding waiting to be
 re-derived otherwise.
 
-## Task 8: layout dimensions, in a real browser
+## Task 7: layout dimensions, in a real browser
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/diagram-retry-dimensions.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:651` why=`the height assertion is GREEN ON ARRIVAL because the check-in button reuses the shipped overlay's absolute inset-0, so the red is PLANTED: remove that class from the overlay, observe this command red, restore, observe green. Same cycle the file's existing AC-7 case records at tests/e2e/diagram-retry-dimensions.spec.ts:9-16` ac=AC-13 -->
 
@@ -407,7 +302,7 @@ check-in button has the same exposure: it reuses the shipped overlay's `absolute
 height assertion on it may well pass on arrival. Run the same cycle, and record the observed red in
 the commit. A guard that cannot be observed failing is decorative, whatever its `red-state` says.
 
-## Task 9: the check-in appears, in a real browser
+## Task 8: the check-in appears, in a real browser
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/diagram-retry.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:760` why=`the AC-9 source scan is GREEN ON ARRIVAL, since no abort call is ever added, so the red is PLANTED for that half: add an AbortController line to one component, observe this command red, remove it, observe green. The browser half reds honestly against Tasks 3 and 5 only if this task runs before them, which it does not, so both halves are declared planted rather than one being claimed as a natural red` ac=AC-2,AC-8,AC-9,AC-D3 -->
 
@@ -460,7 +355,7 @@ action timeout is 30s, so the timeout is raised deliberately at the case rather 
 and read as a flake. The jsdom suites in Tasks 4 to 8 use fake timers and carry the fast coverage;
 this one case exists to prove the real clock drives it.
 
-## Task 10: gates, then the ledger
+## Task 9: gates, then the ledger
 
 <!-- task: red=`pnpm exec vitest run --project parallel tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:72` why=`the GRADUATED list does not contain DIAGRETRY-NO-RETRY-DEADLINE-1, so the graduation case this task adds finds the row still open in DEFERRED.md and fails until the row is archived and its id registered. The command below RUNS that file, which an earlier draft did not: its red named a case in _metaDeferralLedgerGraduation.test.ts while executing only _metaLedgerInProgress.test.ts` ac=AC-D4 -->
 
@@ -505,26 +400,26 @@ which is also what keeps every `ac=` above declared somewhere in this document:
 
 | criterion | discharged by |
 |---|---|
-| AC-1 one live timer per retrying item, none after ANY of the seven removal paths | Task 3, Task 4, Task 6 |
+| AC-1 one live timer per retrying item, none after ANY of the seven removal paths | Task 3, Task 4, Task 5 |
 | AC-1b a check-in fires `RETRY_CHECK_IN_MS` after ITS OWN entry, with another item entering and leaving in between | Task 3 |
-| AC-2 check-in copy and accessible name | Task 3, Task 4, Task 9 |
+| AC-2 check-in copy and accessible name | Task 3, Task 4, Task 8 |
 | AC-3 `aria-busy` true in all three in-flight states | Task 3, Task 4, Task 5 |
 | AC-4 `aria-disabled` present, absent, present again | Task 3, Task 4, Task 5 |
 | AC-5 image node identity unchanged across the check-in | Task 5 |
-| AC-6 `onLoad` during the check-in reaches idle | Task 7 |
-| AC-7 `onError` during the check-in reaches failed | Task 7 |
-| AC-8 Restart reaches retrying with a DIFFERENT image node | Task 5, Task 9 |
+| AC-6 `onLoad` during the check-in reaches idle | Task 6 |
+| AC-7 `onError` during the check-in reaches failed | Task 6 |
+| AC-8 Restart reaches retrying with a DIFFERENT image node | Task 5, Task 8 |
 | AC-8b the replacement request gets its OWN 30-second window | Task 5 |
 | AC-8c `retrying` and `restarting` are never both true, and never both false in flight | Task 5 |
-| AC-9 no abort call and no `src` clear anywhere | Task 9 |
+| AC-9 no abort call and no `src` clear anywhere | Task 8 |
 | AC-10 no committed frame during Restart says the diagram could not be loaded, and focus does not move | Task 5 |
-| AC-11 a stale `checkedIn` id renders nothing, for the rendered-ID sweep and the Embla swipe-away | Task 6 |
-| AC-12 every new member carries a registry row | Task 6 |
-| AC-13 real-browser check-in and its dimensions | Task 8 |
+| AC-11 a stale `checkedIn` id renders nothing, for the rendered-ID sweep and the Embla swipe-away | Task 5 |
+| AC-12 every new member carries a registry row | Task 5 |
+| AC-13 real-browser check-in and its dimensions | Task 7 |
 | AC-14 announced once per entry, and `restarting` announces nothing | Task 3 |
 | AC-15 nothing is announced for an id that has left `retrying` or resolved, including when the announcement effect was ALREADY SCHEDULED when the image loaded | Task 2 |
 | AC-16 a timer callback firing after its id left `retrying` writes nothing, asserted on the NEXT retry because that is the only place it surfaces | Task 2 |
-| AC-17 whichever mechanism ships is pinned structurally over the WRITER set, never the reader set | Task 6 |
+| AC-17 whichever mechanism ships is pinned structurally over the WRITER set, never the reader set | Task 5 |
 | AC-18 THE DECIDING CASE: planted removal-during-pending-check-in, per surface, per removal source | Task 2 |
 
 AC-5 and AC-8 are deliberately opposite and share Task 5: a repair that satisfies one by breaking
@@ -536,4 +431,4 @@ This plan declares three criteria of its own. It was four until the paired-chrom
 
 - AC-D2: `DESIGN.md` §5.5 lists `RETRY_CHECK_IN_MS` at 30000 in `components/diagrams/GalleryLightbox.tsx`
 - AC-D3: spec §1.2 records an observed answer for U-1, citing the e2e case that measured it
-- AC-D4: neither ledger row remains in `DEFERRED.md`, and neither carries an IN PROGRESS marker
+- AC-D4: `DIAGRETRY-NO-RETRY-DEADLINE-1` no longer appears in `DEFERRED.md` and carries no IN PROGRESS marker. ONE row, not two: the paired-chrome row split to `docs/paired-chrome-stale-text` and discharges its own criterion there. An earlier draft kept the two-row wording after the split, so this plan could not discharge the criterion it declared
