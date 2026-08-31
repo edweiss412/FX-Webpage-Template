@@ -73,8 +73,10 @@ A1/A2/A3 are unaffected: no `<AdminAnnounceProvider>` is added or moved.
 | `tests/components/admin/nav/notifBellFirstSettled.test.tsx (new)` | NEW, Task 2 |
 | `tests/components/admin/nav/navArrivalAnnounceIntegration.test.tsx (new)` | NEW, Task 3 |
 | `tests/components/_metaLiveRegionMounting.test.ts` | Task 4: the detector widens to `role="log"`, and a separate source assertion covers AC-10 |
+| `tests/docs/_metaDeferralLedgerGraduation.test.ts` | Task 5: the row id joins the `GRADUATED` registry |
+| `DEFERRED.md`, `DEFERRED-archive.md` | Task 5: the row graduates and its IN PROGRESS marker comes off |
+| `docs/superpowers/plans/2026-08-31-nav-badge-arrival-announce.md` | Task 5 writes this plan's own §12 closeout and its `impeccable-gate:` marker line |
 | `docs/superpowers/specs/2026-08-31-nav-badge-arrival-announce-design.md` | already repaired across spec rounds 1 to 4, in `f76848175`, `adc7057ca`, `1df419636` and `d54b5b8b7`. NO task in this plan edits the spec; an earlier draft called this "Task 0" and no such task exists |
-| `DEFERRED.md`, `DEFERRED-archive.md` | Task 5, graduation |
 
 ## Spec rounds 1 to 4, answered before this plan was dispatched
 
@@ -197,7 +199,7 @@ finding against the suite and is repaired before the task closes.
 
 ### Task 2: NotifBell reports its first definite answer
 
-<!-- task: red=`pnpm vitest run tests/components/admin/nav/notifBellFirstSettled.test.tsx` red-state=authored red-target=`components/admin/nav/NotifBell.tsx:25` why=`NotifBell accepts no onBellState prop, so every case that expects a report observes none, and its aria-label is still the inline ternary rather than bellAccessibleName. The prop-absent case is the exception and is a non-red regression pin, disclosed in this task` ac=AC-9,AC-11,AC-13,AC-16,AC-17 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/notifBellFirstSettled.test.tsx` red-state=authored red-target=`components/admin/nav/NotifBell.tsx:25` why=`NotifBell accepts no onBellState prop, so every case that expects a report observes none, and its aria-label is still the inline ternary rather than bellAccessibleName. The prop-absent case is the exception and is a non-red regression pin, disclosed in this task` ac=AC-9,AC-11,AC-13,AC-16,AC-17,AC-18 -->
 
 New suite, NOT an addition to `tests/components/notifBell.test.tsx`, because
 that file mocks `useBellBadge` at `tests/components/notifBell.test.tsx:25` and a mocked hook cannot exercise the
@@ -224,6 +226,9 @@ tuple and so report once.
 | resolves `{kind:"infra_error"}` (degraded), then a later fetch succeeds with 5 | THREE reports, `{false,null}`, `{true,null}` under degraded, `{true,5}` when `degraded` clears | a degraded latch, which would silence AC-17 forever (`useBellBadge.ts:112`) |
 | panel opened before the promise resolves | TWO reports, `{false,null}` then `{true,null}`. `zeroNow` commits 0 and `bellAnnounceableCount(0,false)` is `null`, so the ANNOUNCEABLE value is `null`, never the number `0` | reporting the raw count instead of the selector output, which would announce "0 unseen notifications" |
 | prop absent | no throw; every existing NotifBell behavior holds (AC-9) | a required-prop regression on the four existing call sites |
+| count 12, not degraded, rendering the REAL `NotifBell` | its `aria-label` is exactly `bellAccessibleName(12, false)`, compared by CALLING the imported selector rather than by a literal | the whole anti-drift construction being skipped. Round 3 found that every other case here passes if the callback is added while the inline ternary at `components/admin/nav/NotifBell.tsx:79-81` stays, which would leave §3.3's "one decision, two callers" as prose. Comparing against the selector's own output is what makes the refactor the only way to green |
+| count 0, not degraded | `aria-label` is exactly `bellAccessibleName(0, false)`, i.e. `"Notifications"` | the same drift on the other arm of the ternary |
+| count 4, degraded | `aria-label` is the degraded branch's name, NOT `bellAccessibleName`'s output | over-applying the selector to a branch spec §3.3 excludes (`components/admin/nav/NotifBell.tsx:56-74`) |
 
 **Reporting is continuous; ANNOUNCING is once.** These are different latches
 and the pre-staged draft of this plan conflated them, asserting a once-only
@@ -233,7 +238,8 @@ announce effect and is Task 3's AC-6, not this suite's. A suite that pins a
 once-only report would go green on an implementation that reinstates the R1
 staleness defect, which is the failure mode this note exists to prevent.
 
-**Premise, executable.** Before the "first report is 4" assertion,
+**Premise, executable.** Before asserting that the SECOND report is
+`{true,4}` (the first is the mount's `{false,null}`),
 `premiseHolds("the seed resolved and the badge shows 4", ...)` on the rendered
 badge text. Without it, a case where nothing ever arrived passes by never
 calling the callback and never reaching the assertion, which is the degenerate
@@ -265,6 +271,8 @@ bypassed.
 | AC-1 | both resolve nonzero | one entry, both sentences, bell first |
 | AC-2 | bell 3, attention 0 | a zero half appearing in the sentence |
 | AC-3 | both 0 | any entry at all |
+| AC-6 | both 0, region empty, THEN a later push takes the bell to 5 | STILL empty. This is the terminality case, and without it an implementation that sets `spokenRef` only when `message !== null` passes every other row here and then announces after a silent resolution. Spec §3.2's `(0, 0)` paragraph: silence is a resolution and the mount is marked spoken |
+| AC-6 | both halves settle as failed reads, region empty, THEN a successful refetch commits 4 | STILL empty. The same terminality through the failure path rather than the zero path, so the mutant cannot survive on one branch |
 | AC-4 | bell `infra_error`, attention 2 | a failed half suppressing the good one |
 | AC-4 | bell 4, attention promise settles NON-`ok` | the load-bearing direction, and the one the drafted table omitted. `useNeedsAttentionBadge` commits `null` on failure (`components/admin/nav/useNeedsAttentionBadge.ts:88`), which is also its pending value, so ONLY the promise can settle this half (spec §3.2). An implementation that never latches attention failure stalls here and announces nothing, while still passing the bell-failure row above |
 | AC-5 | both `infra_error` | any entry at all. Paired with the AC-4 attention-failure row above so it cannot pass accidentally: a join that never latches attention leaves the region empty here too, and only the AC-4 row distinguishes "correctly silent" from "stalled" |
@@ -281,8 +289,18 @@ bypassed.
 | AC-19 | both nonzero, rendered inside `<StrictMode>` | exactly ONE entry. React 19.2.4 replays effects without recreating the spoken ref (spec §6 limit 4), so a double entry means the latch was put in the wrong place |
 
 Plus both settle ORDERS, bell-then-attention and attention-then-bell, each
-asserting exactly one entry and never an early partial. This is the case a
-batching-dependent implementation fails.
+asserting exactly one entry and never an early partial.
+
+**One more ordering case, because the two above do not catch what they claimed
+to.** A parent that latches attention whenever its promise resolves, INCLUDING
+`kind:"ok"`, passes both orders, because React batches the hook's `setCount` and
+the parent's latch together so the wrong rule is unobservable. The case that
+separates them: resolve the attention promise `{kind:"ok", count:3}` while the
+hook's own commit is held off by keeping the component from processing it in the
+same tick, and assert the region is STILL EMPTY at that point. The announcement
+must wait for the observable `badgeCount` commit, never for the promise's
+success. Spec §3.2 scopes the promise to the attention FAILURE path only, and
+this is the case that pins that scope rather than assuming it.
 
 **The transition audit ships here, in this task, and the deviation is declared.**
 `docs/agents/writing-plans.md:9` makes a transition-audit TDD task mandatory
@@ -312,20 +330,46 @@ source branch fails. The inventory table the rule requires in the task body is
 | pending | settled-silent | Instant, and invisible by definition. No call is made |
 | spoken | settled-silent | Unreachable. The spoken ref is set once and never cleared, so no transition out of either terminal state exists |
 
-The audit reads the three touched files through `stripCommentsForFile`
-(`tests/_shared/stripComments.ts:215`), enumerates every conditional render and
-early return this arc adds under `components/admin/nav/`, and asserts each is
-accounted for in that table as instant, and that no `AnimatePresence`, `exit`,
-`initial` or `animate` prop appears. It asserts the enumeration MATCHES the
-table rather than that it is empty, so it cannot pass by finding nothing, and
-`premiseHolds("the audit found the announce branch", ...)`
-(`tests/_shared/premise.ts:36`) guards that directly.
+The rule requires the task to LIST every conditional site, so it does, and the
+list is derived rather than asserted: the audit takes the arc's own added lines
+from `git diff origin/main...HEAD -- components/admin/nav/`, strips comments
+with `stripCommentsForFile` (`tests/_shared/stripComments.ts:215`), and
+enumerates every ternary render, `&&` render, early return and `AnimatePresence`
+among them. Deriving from the diff rather than from a hand-written list is what
+makes a site added later fail by default instead of being silently outside a
+list nobody updated.
+
+The expected enumeration, which the audit asserts EXACTLY rather than as a
+lower bound:
+
+| Site | Kind | Treatment |
+|---|---|---|
+| `NotifBell`'s `aria-label`, degraded vs named | ternary | instant. Text swap on an existing element, no mount or unmount |
+| `NotifBell`'s badge pill, shown only above zero | conditional render | instant. Pre-existing shape, unchanged by this arc |
+| `AdminNav`'s announce effect, fires only when both halves are latched and the message is non-null | early return inside an effect | instant, and invisible: it appends to an `sr-only` region (`components/admin/announceLog.tsx:134`) |
+
+Three sites, zero animation props. The audit asserts the derived set EQUALS
+that table, so both a missing site and an unlisted extra site fail, and it
+asserts that no `exit`, `initial`, `animate` or `AnimatePresence` appears
+anywhere in the added lines. `premiseHolds("the audit enumerated the announce
+effect", ...)` (`tests/_shared/premise.ts:36`) fails loudly if the derivation
+returns an empty set, which is the vacuous pass this shape is most prone to.
 
 Every compound entry in §3.8 has a behavioral case in the table above: the panel
 opening while pending (AC-11), the panel opening after the bell settles
 (AC-11), the bell degrading between settling and announcing (AC-13), both
 restoration routes (AC-16), the degraded-clears path (AC-17), and both settle
-orderings. AC-20 declares the audit itself.
+orderings.
+
+The plan's own criterion, declared here as a list item so the recognizer sees a
+declaration rather than prose:
+
+- AC-20 The transition audit derives every conditional render, early return and
+  `AnimatePresence` in the lines this arc adds under `components/admin/nav/`
+  from the merge-base diff, and asserts that set EQUALS the three-row table
+  above and that no `exit`, `initial`, `animate` or `AnimatePresence` prop
+  appears among them. An added site that is not in the table fails it, and so
+  does a table row with no site.
 
 AC-12 is a source assertion rather than a render, because the onboarding branch
 is a server-component branch: read `app/admin/layout.tsx` through
@@ -345,8 +389,10 @@ on nothing else (`tests/components/_metaLiveRegionMounting.test.ts:461`), so a
 conditionally-mounted raw `<span role="log">` evades the guard whose entire
 subject is regions born populated.
 
-Repaired in this branch rather than deferred, per the class-sweep default. The
-finding is a defect in a shipped guard, not a peer of my own diff, and the
+To BE repaired in this branch rather than deferred, per the class-sweep default;
+nothing under these trees is edited yet, and `git diff --name-only
+origin/main...HEAD` shows only docs until Task 1 lands. The finding is a defect
+in a shipped guard, not a peer of my own diff, and the
 marginal cost while already holding this context is one line of detector plus
 one planted case.
 
@@ -407,6 +453,17 @@ added later is in scope by default. Comments are stripped with
 this plan's own prose names all three attributes and a future nav comment could
 too.
 
+**The AC-10 scan matches BOTH spellings of the attribute.** An earlier revision
+said an expression-form role never matches, which is false: `attrText` unwraps
+`role={"log"}` to the same literal as `role="log"`
+(`tests/components/_metaLiveRegionMounting.test.ts:303-315`), and the existing
+self-test expects exactly that
+(`tests/components/_metaLiveRegionMounting.test.ts:679`). So the AC-10 scan
+compares unwrapped literals, not raw source text, and an unconditional
+`<span role={"log"}>` under the nav fails it exactly as the quoted form does.
+That spelling is one ordinary edit away, so it is named rather than left to
+inference.
+
 **AC-10 is a NON-RED regression pin, and round 2 was right to reject the red I
 claimed for it.** The assertion passes on the pre-implementation tree, because
 no file under `components/admin/nav/` carries any of the three attributes today.
@@ -436,7 +493,13 @@ the directory from disk, so a nav file added later is in scope by default.
 Both halves of the v3 pair on the diff, invoked as the two `/impeccable`
 subcommands named in AGENTS.md rule 8, with the canonical v3 setup gates
 (`context.mjs (impeccable v3 setup)` context load, then the register reference
-read). P0 and P1 findings fixed, or deferred with a `DEFERRED.md` entry.
+read). P0 and P1 findings are FIXED in this branch. They are not deferred: this arc
+files no new `BL-`/`DEF-` row of any facing (global constraints above), and the
+one row it owns is graduating under AC-15, so there is no entry to defer into.
+An earlier revision copied the generic "fix or defer with a DEFERRED.md entry"
+wording from invariant 8 and contradicted its own constraint. If a P0 or P1
+turns out to be too large to fix in this branch, that is a message to the
+orchestrator, not a row and not a silent deferral.
 Dispositions into the closeout §12.
 
 **This plan carries NO `impeccable-gate:` marker, deliberately, and Task 5 adds
@@ -561,8 +624,10 @@ Three properties of the set, each checked rather than asserted:
   filter, not a shell command.
 - **Every command is an explicit FILE list, so none is a heavy phase.** Per the
   fleet rule, a directory-scoped vitest run is heavy and wraps; an explicit file
-  list does not. None of these six takes `pnpm heavy`. The readiness suite at
-  closeout does.
+  list does not. None of the FIVE red commands takes `pnpm heavy`. The
+  closeout's full-suite run does, and it is the only heavy phase this arc
+  starts: `pnpm heavy pnpm test` at the shipping head, once, per the arc's
+  readiness contract.
 
 No `red-state=live` marker appears in this plan, so `spec:lint --exec-red` has
 nothing to execute here: every red is `authored`, its failing case written by
@@ -584,14 +649,13 @@ rule here so the next plan on this branch does not rediscover it:
 | path plus line, tracked, line in range | LEGAL | the EOF check below it |
 | path plus line, untracked | illegal, "cited file not tracked" | the `!tracked.has` guard |
 
-The three repairs:
+The two repairs:
 
 1. Task 1's `components/admin/nav/navArrivalAnnounce.ts:1 (new)` lost its line number.
    The module does not exist yet, so path-only is the only legal form, and it is
    also the more honest one: the target DECLARES an absent production file
-   rather than pointing at a line in it.
-2. Task 4's target lost its line number for the same reason.
-3. Task 5 could not cite `DEFERRED.md` at all. A repo-root file has no slash, so
+   rather than pointing at a line in it. It is the only path-only target here.
+2. Task 5 could not cite `DEFERRED.md` at all. A repo-root file has no slash, so
    it is bare by construction and no marker may name it. The target is now
    `tests/docs/_metaDeferralLedgerGraduation.test.ts:72`, the `GRADUATED`
    registry row whose addition is what makes the archive-only assertion fail
@@ -599,5 +663,10 @@ The three repairs:
    `docs/superpowers/plans/2026-08-30-pill-size-draft-restored-note.md:341`
    uses for its own graduation task.
 
-The two tracked line targets were range-checked: `NotifBell.tsx:25` against a
-118-line file, `AdminNav.tsx:89` against a 275-line file, both in range.
+All FOUR tracked line targets were range-checked against the live files:
+`components/admin/nav/NotifBell.tsx:25` against 118 lines,
+`components/admin/nav/AdminNav.tsx:89` against 275,
+`tests/components/_metaLiveRegionMounting.test.ts:461` against 737, and
+`tests/docs/_metaDeferralLedgerGraduation.test.ts:72` against 1881. All in
+range. An earlier revision said two, counting only the production files and
+missing both test targets.
