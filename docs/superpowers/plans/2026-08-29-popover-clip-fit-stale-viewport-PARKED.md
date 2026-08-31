@@ -1,31 +1,133 @@
-# PARKED — the stale fitted cap that flaps popover-clip-fit on CI
+# PARKED, then recounted — the stale fitted cap that flapped popover-clip-fit on CI
 
-**Status:** parked 2026-08-29 by bl-orch ruling, split out of `fix/attention-autoopen-suppress-phone`. Nothing here is implemented; this branch preserves the diagnosis and the design so the work can be picked up on its own review budget.
+**Status:** parked 2026-08-29 by bl-orch ruling, split out of `fix/attention-autoopen-suppress-phone`. **Recounted 2026-08-30 against `origin/main` at `8171e7bb0`: the core premise is REFUTED. The defect no longer reproduces.** Nothing was implemented. This document is the arc's record, and §Appendix preserves the design so a later reader can see what was proposed and why it stopped being needed.
 
-## Why it was split
+## Stage 0 recount, 2026-08-30
 
-It rode along in a product arc as "Task 5" and accounted for **5 of that stage's 18 plan-review findings**, including two of the final round's four, on a plan whose actual design went uncontested across eight rounds. The reason is structural rather than sloppiness, and it is the thing to carry forward:
+The arc was parked before three merges landed on its own surface, so the first job was to check whether the plan still described reality. It does not.
 
-**This is a TEST-ONLY repair, so no production surface can be defective, and plan-wide invariant 1's red-then-green cycle does not reach it.** A red was argued three times before the honest answer surfaced. It depended on winning a race; then on an unresolved import, which `docs/agents/writing-plans.md:15` rejects because writing the test helper is what makes it green; then on a viewport-only settle contract that an implementation returning before the `ResizeObserver` re-fit still satisfies. Only one assertion is genuinely red against the tree — the structural cover, because every call site is unrouted today and that is a text scan, not a schedule. The other two are regression assertions and must be labelled as such.
+**Verdict: closed as subsumed.** `#954` (`2c5b718a4`) did two independent things, either of which bears on the flap:
 
-The repair direction is the documented one: `AGENTS.md`, the `2d9d0ba11`-style kill, split the hardening out of the shipping PR.
+1. It wrapped four single-sample geometry reads in a new `settledSample` helper (`tests/e2e/popover-clip-fit.spec.ts:315`), which re-reads on an 80ms gap until two consecutive samples agree and throws at a 5s deadline. One of those four is `settled fit at 390x${height}` (`tests/e2e/popover-clip-fit.spec.ts:357`), the exact site this plan named as the failure.
+2. It removed `popover-clip-fit` from the `testMatch` in `playwright.config.ts`, so the spec no longer runs in the `desktop-chromium` project. It is standalone-only now, which halves the parameterized-cell adjacency a single invocation produces.
 
-## Where the work is
+### What was measured
 
-The full diagnosis, the site census, the settle inventory, the class-form cover and the three acceptance criteria are in this branch's copy of `docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md`, under "Task 5 — the stale fitted cap that flaps popover-clip-fit on CI" and the AC-REFIT-* entries in §4. That section is DELETED on the product branch, so this branch is its only home.
+All runs are the full unfiltered file on the standalone config, which is compute-only and needs no database grant:
 
-## What was measured, in one place
+```
+node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts
+```
 
-- The failing site is `tests/e2e/popover-clip-fit.spec.ts:341`, in `settled fit at 390x${height}` over `[844, 667, 560]`.
-- The constant 20px is `CSS_CAP` (384, a file constant at `tests/e2e/popover-clip-fit.spec.ts:143`) minus the 390x667 room (364). A stale CAPPED cell judged by the UNCAPPED branch. Both numbers are fixed, which is why it never varies by runner.
-- Only TWO reads are exposed: the loop above, and the anchor-room census at `tests/e2e/popover-clip-fit.spec.ts:1400` with its bare `waitForTimeout(80)`. The two `expect.poll(settledGeometry)` sites already settle correctly.
-- Pass pattern: 3 failures in 7 full-file runs, 0 in 6 isolated runs, 0 in 3 under deliberate 8-core load. The trigger is cell adjacency, not load — which is why a `-g` filtered red cannot fire.
-- Scoping to this one file is probed, not assumed: `tests/e2e/wizard-attention-menu.spec.ts` has the same set-viewport-then-navigate shape but no cap constant, no room arithmetic and no fixed sleep, and that branch is what turns a stale viewport into a wrong NUMBER.
+| Tree | Runs | Result |
+| --- | --- | --- |
+| Shipping tree, idle machine | 13 | 42 passed, every run |
+| Shipping tree, under deliberate 8-core load on a 12-core host | 13 | 42 passed, every run |
+| `settledSample` neutered to a single read (pre-#954 behaviour) | 33 | 32 clean; **1 failure** |
+
+Zero of the 26 shipping-tree runs produced the failure signature this plan was written against, and a grep for `vs available` across every run log returns nothing. The parked measurement was 3 failures in 7 full-file runs. Against that rate, 26 consecutive clean runs is not a quiet sample.
+
+**The causal probe is the part worth keeping.** Neutering `settledSample` to `return read()` restores the pre-#954 single-sample behaviour at all four sites. It did produce a failure, so the settle poll is doing real work. But the failure was **not this plan's defect**: it landed at `placement is RE-COMPUTED once the entrance settles` (`tests/e2e/popover-clip-fit.spec.ts:646`) with a delta of 15.375px, not at the `settled fit` loop with the constant 20px this plan traced to `CSS_CAP` minus the 390x667 room. The site this document diagnosed did not fire in 33 runs even with its settle removed.
+
+### Premise-by-premise
+
+| Premise as parked | Status against `8171e7bb0` |
+| --- | --- |
+| Failing site is `settled fit at 390x${height}` over `[844, 667, 560]` | Test still exists, now at `tests/e2e/popover-clip-fit.spec.ts:357`. **Refuted as a failing site**: 26 clean runs, and 33 more with its settle removed |
+| `CSS_CAP` is a file constant of 384 | Holds, `tests/e2e/popover-clip-fit.spec.ts:143`, same line |
+| Five `page.goto` sites, 33 `page.setViewportSize` sites | Holds exactly |
+| `settledGeometry` carries an internal `waitForTimeout(80)` safe only under its `expect.poll` callers | Holds, `tests/e2e/popover-clip-fit.spec.ts:241`; the two poll callers are now `tests/e2e/popover-clip-fit.spec.ts:786` and `tests/e2e/popover-clip-fit.spec.ts:857` |
+| Two reads are exposed: the `settled fit` loop, and the anchor-room census | **Half refuted.** The loop is now polled. The census survives at `tests/e2e/popover-clip-fit.spec.ts:1472` with its bare `waitForTimeout(80)` |
+| `wizard-attention-menu.spec.ts` carries no cap constant, room arithmetic, or fixed sleep | Holds in substance, one clause refuted: that file now has four `waitForTimeout(250)` calls. It still has no `CSS_CAP`, no `available`, no `clientHeight`, so the capped-versus-uncapped branch that turns a stale viewport into a wrong number is still absent |
+
+### The surviving exposed read is a documented limit, not a defect
+
+The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1472`) still sets a viewport, sleeps a fixed 80ms, and takes a single `fittedGeometry` read. It is genuinely exposed to a stale viewport. **It cannot fail because of one.** The sweep runs `[844, 667, 560, 400]`, monotonically shrinking, so a stale read returns the previous and larger cell's room; and the oracle is a pair of lower bounds, `available > FLOOR` and `min(available) > FLOOR * 2` with `FLOOR = 48` (`tests/e2e/popover-clip-fit.spec.ts:145`). Staleness biases the measurement in the direction the assertion tolerates. The worst case is a silently wrong number in a census whose claim still holds.
+
+That is the same shape this plan itself used to scope away from `wizard-attention-menu.spec.ts`: a stale viewport there "yields a layout those assertions are indifferent to." The argument applies to the census too, and it files as a documented limit rather than a finding, per the 2026-08-04 filing bar.
+
+### Why this does not come back as a guard
+
+The remaining implementable piece is AC-REFIT-COVER, the structural scan asserting no bare `page.goto(` or `page.setViewportSize(` outside the settle helper. It is still red against the tree, because it is a text scan and all 38 sites are unrouted. Shipping it now would mean a 38-site refactor plus a new recognizer to harden a defect that no longer reproduces, on a surface whose done condition is a property of the guard rather than a number outside the process. The 2026-08-25 mint freeze names that case directly, and `AGENTS.md` names the repair direction under same-axis recurrence as narrowing, not parser growth. The `2d9d0ba11`-style kill already happened when this was split; the recount is the second half of it.
 
 ## What does NOT come with it
 
-The P-1 probe deletion stays on the PRODUCT arc. That probe asserts `aria-expanded="true"` on arrival at the three phone widths, and the product arc's suppression change is what makes it false, so the product arc must delete it or break its own gate. The `standalone-e2e` red it causes rides the product arc too. Only the popover-clip-fit FLAP rides this branch.
+The P-1 probe deletion stayed on the PRODUCT arc, which has since merged. Only the popover-clip-fit flap ever rode this branch.
 
 ## Ledger
 
-No row. The defect is process-facing and the 2026-08-25 mint freeze admits a process row only under `invariant` or `product-blocked`; neither applies. This document is the record.
+No row, and the recount does not create one. The defect was process-facing, and the 2026-08-25 mint freeze admits a process row only under `invariant` or `product-blocked`. Neither applies, and the defect is gone regardless. This document is the record.
+
+## Appendix — the parked design, recovered
+
+**Recovered 2026-08-30.** The original of this section lived in this branch's copy of `docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md`, which the PARKED note called its only home. Merging `origin/main` took main's deletion of that section, because the product branch had removed it and this branch never touched the file, so the merge was clean and the loss silent. It is restored here verbatim from `ee9f1fdb4`. Line numbers inside it are as-of 2026-08-29 and are superseded by the recount table above.
+
+### Task 5 — the stale fitted cap that flaps popover-clip-fit on CI
+
+```
+<!-- task: red=`node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/popover-clip-fit.spec.ts` red-state=authored red-target=`tests/e2e/popover-clip-fit.spec.ts:172` why=`the structural cover fails against the tree as it stands because all five page.goto sites and all 33 setViewportSize sites are unrouted; it is a text scan over this file, so it cannot pass on a lucky schedule` ac=AC-REFIT-COVER,AC-REFIT-AWAIT,AC-REFIT-CONTRACT -->
+```
+
+**In-arc repair of a defect this arc's investigation attributed** (bl-orch disposition, 2026-08-29). Not scope creep: `tests/e2e/popover-clip-fit.spec.ts` is a surface Task 2 already runs, and the defect was diagnosed here.
+
+**What it is.** `popover-clip-fit.spec.ts` was flapping on CI across branches whose diffs touch nothing in this path, at a constant 20px ("scroller 384 vs available 364"). Not a scrollbar (the band measures 0 on both axes under overlay scrollbars, and it would move width, not height) and not a row (rows are 45.3 and 64.8).
+
+**The failing site, and why 20 is a constant rather than a coincidence.** The message is `tests/e2e/popover-clip-fit.spec.ts:341`, in `settled fit at 390x${height} (reduced motion)`, parameterized over `[844, 667, 560]` in that order. The test branches on `CSS_CAP`, a FILE CONSTANT of 384 (`tests/e2e/popover-clip-fit.spec.ts:143`): where the room exceeds the cap it asserts the scroller is at or under it, and where the room is under the cap it asserts equality with the room. At 390x844 the room (~563) exceeds the cap, so the scroller is genuinely capped at 384. At 390x667 the room is ~364 and the equality branch runs. Run 667 against a stale 844 viewport and a scroller still holding the CSS cap is judged by the branch demanding it equal the room: 384 against 364, every time, because both numbers are fixed. That also explains the direction — only a shrink from a capped cell into an uncapped one produces it, which is why 560 after 667 is benign.
+
+My own earlier account said "the 375x844 cap measured against 375x667 room" and quoted a sweep of the CONTAINMENT loop at `tests/e2e/popover-clip-fit.spec.ts:388` (cells 390x560, 375x667, 375x844, 1280x800; healthy `clientHeight` 273, 364, 384, 384). Those are a different loop's cells at a different width, and 384 is not one of them measured — it is the constant the code applies whenever room allows. Correcting it because a plan that cites the wrong loop has not earned the diagnosis, even when the repair it reaches is right.
+
+**Why it flaps rather than failing outright.** `page.setViewportSize` returns before the renderer has necessarily applied the new size, so the freshly navigated document can run its first placement against the PREVIOUS cell's viewport; the `ResizeObserver` re-fit then lands after the assertion has already sampled. That is why the delta is a CONSTANT 20 (the difference between two fixed cells) rather than a varying magnitude, and why it flaps in both directions per runner. Local evidence: 3 failures in 7 full-file runs, 0 in 6 runs of the same cells in isolation, and 3 passes under deliberate 8-core load, so the trigger is cell ADJACENCY and not load.
+
+**The repair settles EVERY cell boundary, not the two observed pairs** (bl-orch, 2026-08-29), and putting the await in `openMenu` alone would NOT have been that. Counted in the file: 33 `page.setViewportSize` sites and 5 `page.goto` sites. FOUR of the five navigations are already inside helpers — `openMenu` (`tests/e2e/popover-clip-fit.spec.ts:172`), `openToggleBanner` (:284), `placeReplica` (:1166), `bootModal` (:1478) — and one is bare (:1752). My earlier count said two in helpers and three bare. It was wrong in both directions and is corrected here.
+
+The correction does not move the conclusion; it strengthens it. Four helpers each hand-rolling `goto` plus `fonts.ready` plus a `__hydrated` wait is exactly the duplication one entry point collapses. What it DOES move is the mechanism: **none of the four helpers sets the viewport.** The viewport is set at the test site and the helper navigates afterwards, so the race is between the test's `setViewportSize` and the helper's navigation, and awaiting inside the helpers could never have closed it. A correct conclusion reached from a wrong premise is still a premise to fix.
+
+**Only TWO reads are actually exposed, and saying "38 sites" overstates it.** Inventory of every geometry read in the file:
+
+| Site | How it settles | Exposed |
+| --- | --- | --- |
+| `tests/e2e/popover-clip-fit.spec.ts:726` and its sibling at line 797 | `expect.poll(() => settledGeometry(page))` | NO — poll retries until the two-sample check agrees, so a slow re-fit is waited out |
+| `tests/e2e/popover-clip-fit.spec.ts:307` , the `settled fit at 390x${height}` loop | nothing beyond `openMenu`; one `page.evaluate` | YES, and this is where CI failed |
+| `tests/e2e/popover-clip-fit.spec.ts:1400`, the anchor-room census | bare `waitForTimeout(80)`, single read | YES |
+
+`settledGeometry` carries a fixed `waitForTimeout(80)` internally (`tests/e2e/popover-clip-fit.spec.ts:241`), which is safe ONLY because both its callers wrap it in `expect.poll`; lifting it out of that wrapper would silently move it into the exposed column. So the repair's value is concentrated in two reads, and the structural cover's justification is not "38 sites race" but "two race today, and nothing stops a third being added." The new `settledFittedGeometry` also returns the geometry rather than `settledGeometry`'s booleans, which is why the census can adopt it at all — the boolean form swallows the numbers, which is exactly why that site hand-rolled a sleep.
+
+**A second shape, which is not a navigation at all.** The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1400`) sets 375x844, opens the menu, then sweeps `[844, 667, 560, 400]` calling `setViewportSize` and `await page.waitForTimeout(80)` before each read, never navigating. The 80ms is a sleep that the comment beside it calls a coalesced frame; a runner slower than 80ms reads the previous cell's cap for the same structural reason. So the entry point needs a resize-in-place path as well as a navigating one — the census sweeps four heights against ONE open menu, and re-navigating would destroy the thing it measures.
+
+So: one `settleAtViewport` entry point that owns setting the viewport, navigating, awaiting hydration, waiting until `window.innerWidth`/`innerHeight` actually equal the intended size, and polling the fitted geometry to two agreeing samples. Every test in the file routes through it. The file already carries `settledGeometry` for exactly this purpose; these assertions were the ones not using it.
+
+**Derived cover, not a longer list.** Routing today's sites is an enumeration that reopens the moment someone adds one, so the task also adds a narrow structural assertion over this one file: no `page.goto(` or `page.setViewportSize(` outside the two marked helper call sites. A new entry point then fails by default instead of silently inheriting the race. The assertion builds its needles by concatenation so its own source does not match them, and asserts the two marked sites EXIST, so an empty offender list cannot be satisfied by a file that deleted the helper.
+
+**The one-file scoping is probed, not assumed.** The obvious candidate to extend to is `tests/e2e/wizard-attention-menu.spec.ts`, which has the same SHAPE — `openModal` (`tests/e2e/wizard-attention-menu.spec.ts:137`) sets the viewport and then navigates, exactly the ordering that races here — and which Task 3 edits anyway. It does not carry the defect: `grep -n 'CSS_CAP\|384\|available\|clientHeight\|waitForTimeout'` over that file returns NOTHING. No cap constant, no room arithmetic, no fixed sleep, no capped-versus-uncapped branch. That branch is what turns a stale viewport into a wrong NUMBER rather than a different-but-valid geometry, and without it a stale viewport yields a layout those assertions are indifferent to. A repo-wide ban would be a recognizer this arc has no evidence to justify; a one-file cover is what the evidence supports.
+
+**The marker runs the UNFILTERED file, never a `-g` slice.** Round 2 was right that proving only the shrink case cannot judge a refactor of every site in the file — Task 2's full-file run happens before this refactor. Round 3 was right about the sharper version: a `-g` filter runs the new case in ISOLATION, which is precisely the condition under which the defect never reproduced (0 failures in 6 isolated runs). So the filter is gone entirely. The red is the helper's contract suite plus the whole file, both run unconditionally, and this task's commit is green on both.
+
+A tolerance widening is explicitly NOT the repair. The numbers are correct at every cell, and loosening the bound would hide a real cap regression.
+
+**The RED cannot be a race, and round 3 was right to reject the version that was.** My own evidence says the flap is 3 failures in 7 full-file runs and ZERO in 6 isolated runs, and a `-g` filter runs the new case in isolation — the condition under which it never failed. A red that depends on losing a race is a red that reports green most of the time, and "remove the await and it reads 384" was an assertion I had not earned: without a settle, the read is whatever the renderer happens to have applied, which on a fast machine is usually the NEW value. So the timing case was proving the opposite of what it claimed.
+
+**Round 4 then rejected my replacement, correctly, and the reason is worth stating because it is structural rather than a slip.** I made the red an unresolved import on a new contract suite. `docs/agents/writing-plans.md:15` rejects exactly that: an import that resolves once the task writes its own test helper is made green by writing test code, not by correcting anything. I had already handled this shape properly in Task 1 — land a stub so the failure is behavioural — and then reintroduced it three tasks later in the same document.
+
+**The deeper point: this task is a TEST-ONLY repair, so a production-defect red does not exist for it.** There is no production surface to be defective; the defect IS in the suite. Manufacturing a red by deleting a helper and watching an import fail is theatre. What the current tree genuinely fails is the structural cover: all five `page.goto` sites and all 33 `page.setViewportSize` sites are unrouted TODAY, so the cover is red on arrival, for a reason that is a text scan and therefore cannot pass on a lucky schedule. That is the red, it is `red-state=authored` against a real defect in the file named by `red-target`, and it is the only one of the three assertions honest enough to carry the marker.
+
+The other two are REGRESSION assertions in this plan's own vocabulary, and §4 now labels them so:
+
+1. **AC-REFIT-CONTRACT** (REGRESSION), a scoped unit suite over `settleAtViewport` against a fake page. **Round 4 was right that the first version of this pinned the wrong half.** Lagging only `innerWidth`/`innerHeight` is satisfied by an implementation that returns the instant the viewport matches — which is BEFORE the `ResizeObserver`-driven re-fit lands, and that gap is the entire defect. So the fake lags TWO things independently: the reported viewport, and the fitted geometry behind it. Four cases:
+
+   - viewport lags, geometry immediate: does not return until the viewport matches.
+   - viewport immediate, GEOMETRY lags: does not return until two consecutive geometry samples agree. **This is the case that kills the wrong implementation**, and the first version had no equivalent.
+   - both lag, by different amounts: returns only after the later of the two.
+   - a size that never arrives, and a geometry that never settles: throws in both, rather than returning a value the caller would trust.
+
+   Both lags are parameters, so every case is deterministic on every machine.
+2. **AC-REFIT-COVER**, the structural scan, which is red the moment it is authored because five call sites are unrouted, and green when they are routed. Pure text, zero timing.
+3. **AC-REFIT-AWAIT**, the settled-value case, kept but demoted to what it can honestly claim: after `settleAtViewport` to 375x844 with the menu open and then to 375x667 in place, the scroller settles to the 375x667 room and not to `CSS_CAP`. It runs in the FULL file, not under `-g`, because cell adjacency is the condition under which the defect was ever observed. It is a REGRESSION assertion in this plan's own vocabulary — green on arrival once the helper exists — and it is excluded from the red claim. Its job is to fail if a later edit removes the settle, which it does deterministically, because by then the helper's absence breaks the contract suite too.
+
+The three together are the closure: one pins the waiting, one pins the routing, one pins the value. None asks a reviewer or a runner to lose a race on cue.
+
+
+### The acceptance criteria, as declared in that plan
+
+- **AC-REFIT-CONTRACT** (REGRESSION; source: Task 5's in-arc repair of a pre-existing test defect, so no §2 row) — `settleAtViewport` returns only after BOTH the reported viewport matches the requested size AND two consecutive fitted-geometry samples agree, and throws rather than returning when either never settles. Driven against a fake page that lags the two independently, so the case where geometry lags behind an already-correct viewport is exercised on its own — that is the gap a viewport-only contract leaves open, and it is exactly where the real defect lives.
+- **AC-REFIT-AWAIT** (REGRESSION; source: Task 5's in-arc repair, so no §2 row) — with the menu opened at 375x844 and the viewport then shrunk to 375x667 without re-navigation, the scroller settles to the 375x667 cap (364) rather than holding the 375x844 cap (384). Fails if the re-fit await is removed. Derived from measured per-cell values, not hardcoded.
+- **AC-REFIT-COVER** (carries Task 5's RED; source: Task 5's in-arc repair, so no §2 row) — no bare `page.goto(` or `page.setViewportSize(` survives outside the single settle helper in `popover-clip-fit.spec.ts`. Fails by default when a new entry point is added, which is what makes this a derived cover rather than a list of the five sites that exist today.
