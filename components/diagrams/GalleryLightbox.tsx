@@ -129,6 +129,22 @@ const ZOOM_THRESHOLD = 1.01;
  */
 export const DEMOTE_CHIP_VISIBLE_MS = 6000;
 
+/**
+ * How long an unresolved retry runs before the in-flight control offers a way out.
+ *
+ * Ratified at 30 seconds by the product owner on 2026-08-31; the number is not
+ * re-derived. What it does NOT do is cancel anything: the request keeps running,
+ * because a 50MB original on venue wifi may be seconds from finishing and killing
+ * it is the dead end the originals-only override exists to avoid. See
+ * docs/superpowers/specs/2026-08-31-retry-check-in-design.md.
+ *
+ * Exported from THIS file and imported by Gallery.tsx because the dependency edge
+ * already runs that way and the reverse would be circular. Written without a
+ * numeric separator's absence being an accident: the timing scanner parses
+ * `30_000` fine, asserted at tests/docs/interactionTimingScan.test.ts:69.
+ */
+export const RETRY_CHECK_IN_MS = 30_000;
+
 function isZoomed(scale: number): boolean {
   return scale > ZOOM_THRESHOLD;
 }

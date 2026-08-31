@@ -759,6 +759,7 @@ realtime reconnect backoff.
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
 | `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
+| `RETRY_CHECK_IN_MS` | 30000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
 | `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |
