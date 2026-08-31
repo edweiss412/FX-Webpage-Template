@@ -436,7 +436,12 @@ export function useFinalizeRun({
       // Read synchronously from the refs the batch loop maintained: completedRef is
       // rows finished, grandTotalRef the grand total. Both are 0 when the loop was
       // skipped, which is what suppresses the receipt.
-      settledDone: completedRef.current,
+      // Clamped, like every peer count in these renderers. The two accumulators are fed
+      // by DIFFERENT events — grandTotalRef from `listed`, completedRef from each row
+      // event's own `total` — so a stream whose row events disagree with its listed
+      // total drives them apart and the receipt claims more work than it says was
+      // asked for. Reproduced as "5 of 1 show set up". Impeccable critique P2.
+      settledDone: Math.min(completedRef.current, grandTotalRef.current),
       settledTotal: grandTotalRef.current,
     });
     let casResponse: Response;
@@ -528,7 +533,15 @@ export function useFinalizeRun({
           // run before every sub-phase lands.
           state.casPhase
           ? CAS_ANNOUNCEMENT[state.casPhase]
-          : "Finishing setup"
+          : // CAS entry carries the settled count, ONCE. The visible receipt is
+            // aria-hidden like every other string in these renderers, so without this
+            // a screen-reader operator hears four verbs across this phase and never a
+            // number: the reassurance the receipt exists to give, sighted-only. Once
+            // rather than per sub-step, because four numbers where one is the
+            // reassurance is the chattiness this announcer is built against.
+            state.settledTotal > 0
+            ? `Finishing setup. ${state.settledDone} show${state.settledDone === 1 ? "" : "s"} set up.`
+            : "Finishing setup"
         : "Setting up your shows"
       : // Empty for every NON-RUNNING state, and that is load-bearing: a stale
         // sub-phase here is a screen reader announcing a step that already finished.

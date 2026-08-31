@@ -1639,7 +1639,12 @@ describe("FinalizeButton — every CAS sub-step is spoken", () => {
       // PREMISE: CAS entry announces once, before any sub-phase event. This is also the
       // null-phase branch of AC-8 — an implementation returning "" for a null casPhase
       // would pass every sub-phase case below while never announcing entry at all.
-      expect(announcerText(), "premise: CAS entry is announced once").toBe("Finishing setup");
+      // Containment, not equality: CAS entry also carries the settled count now
+      // ("Finishing setup. 2 shows set up."), because the visible receipt is
+      // aria-hidden and the number has to reach assistive tech somehow. The premise
+      // still discriminates — it fails if entry announces nothing, which is the
+      // null-phase defect this guards.
+      expect(announcerText(), "premise: CAS entry is announced once").toContain("Finishing setup");
       await act(async () => {
         cas.push({ type: "phase", phase });
       });
@@ -1671,5 +1676,89 @@ describe("FinalizeButton — every CAS sub-step is spoken", () => {
       announcerText(),
       "liveMessage must be empty for every non-running state — a stale sub-phase here is a screen reader announcing a step that already completed",
     ).toBe("");
+  });
+});
+
+describe("FinalizeButton — the receipt cannot claim more than the total", () => {
+  test("a settled count above the total is clamped, like every peer count", async () => {
+    // settledDone is authoritative (it accumulates from terminal batch bodies) but
+    // settledTotal comes from a STREAMED `listed` event, and unlike every other count
+    // in these renderers it carried no clamp. A dropped or short last-batch `listed`
+    // therefore rendered "14 of 12 shows set up" — a receipt that claims more work than
+    // it says was asked for, on the screen where the operator is deciding whether to
+    // trust the run. Impeccable critique P2, 2026-08-31.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      // `listed` under-reports: two rows arrive but the grand total says one.
+      batch.push({ type: "listed", total: 1 });
+      // The row events disagree with listed about the grand total. rowsProcessed is
+      // taken from the ROW event (msg.total) while grandTotalRef comes from LISTED, so
+      // the two accumulators diverge and the receipt reports more done than total.
+      batch.push({ type: "row", done: 1, total: 5, name: "A", driveFileId: "f1" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    const text = getByTestId("wizard-finalize-settled").textContent ?? "";
+    // PREMISE: the receipt rendered at all, so the assertion is about its VALUE and not
+    // about a missing element.
+    expect(text, "premise: a receipt is present").toContain("set up");
+    // Parsed rather than string-matched, so the assertion catches ANY done > total and
+    // not just the one pair this fixture happens to produce. The first draft asserted
+    // the literal "2 of 1" and passed against a render of "5 of 1".
+    const m = /(\d+) of (\d+) show/.exec(text);
+    expect(m, "premise: the receipt renders a fraction to check").not.toBeNull();
+    const [done, total] = [Number(m![1]), Number(m![2])];
+    expect(
+      done,
+      `the receipt must never claim more shows than the total (got "${text}")`,
+    ).toBeLessThanOrEqual(total);
+  });
+});
+
+describe("FinalizeButton — the settled count reaches assistive tech too", () => {
+  test("CAS entry announces the settled count once, not just the step", async () => {
+    // The receipt is aria-hidden, like every other visible string in these renderers,
+    // so a screen-reader operator heard four verbs across the CAS phase and never a
+    // number. The reassurance the receipt exists to give was sighted-only, which is
+    // the same gap FINALIZE-PROGRESS-AT-PERCEIVABILITY-1 is about, reintroduced by the
+    // commit that added the receipt. Impeccable critique P1, 2026-08-31.
+    //
+    // Folded into the CAS-ENTRY utterance only, once. Repeating it on each sub-step
+    // would be four numbers where one is the reassurance, and the announcer is
+    // deliberately built against chattiness.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 2, total: 2, name: "RPAS", driveFileId: "f2" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    const announcer = document.querySelector(".sr-only[role='status']");
+    // PREMISE: the visible receipt is present and hidden from AT, which is the whole
+    // reason the count has to reach the announcer separately.
+    expect(getByTestId("wizard-finalize-settled").getAttribute("aria-hidden")).toBe("true");
+    expect(announcer!.textContent).toContain("2 shows set up");
+
+    // A sub-step then replaces it: the count is reassurance at entry, not a running tally.
+    await act(async () => {
+      cas.push({ type: "phase", phase: "applying" });
+    });
+    expect(announcer!.textContent).toBe("Applying your edits");
   });
 });
