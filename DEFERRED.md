@@ -153,7 +153,7 @@ screen-reader user unable to tell a failed retry from a successful one on this p
 
 ### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips now read lighter than the control they sit beside (2026-08-16)
 
-**Effort:** S per site, M as a rule
+**Status:** IN PROGRESS · **Branch:** fix/lightbox-pair-and-retry-checkin · **Effort:** S per site, M as a rule
 
 Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P1,
 audit P2 — recorded at the higher call). Findings and dispositions are in §12 of
@@ -536,7 +536,7 @@ class-sweep exception (a): it needs a product decision this PR cannot settle.
 
 ### DIAGRETRY-NO-RETRY-DEADLINE-1 — impeccable P2: a hung request leaves `Retrying…` up forever (2026-08-29)
 
-**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a crew member stuck on
+**Status:** IN PROGRESS · **Branch:** fix/lightbox-pair-and-retry-checkin · **Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a crew member stuck on
 `Retrying…`, or any work that gives the asset route a client-visible status channel (which would also
 close documented limit 1 in the design spec).
 
