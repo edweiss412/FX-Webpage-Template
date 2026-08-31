@@ -29,27 +29,31 @@ including the demote chip's `DEMOTE_CHIP_VISIBLE_MS` visibility timer
 retry. This is the narrow, true form of the claim; the row records that an earlier wording
 of it was wrong and why.
 
-## 1.1 Resolved scope — do not relitigate
+### 1.1 Resolved scope — do not relitigate
 
 | decision | ratification |
 |---|---|
 | **The check-in fires at 30 seconds.** Not 10, not 60, not a measured p99. | Eric, 2026-08-31, relayed through bl-orch, taken as the product call the row was deferred for. The number is ratified; re-deriving it under review pressure is out of bounds. |
-| **The in-flight request is NEVER cancelled by the check-in.** No `AbortController`, no `src` clear, no unmount driven by the timer. | Eric, 2026-08-31 through bl-orch. It is the ratified §3.1 no-dead-ends posture applied to time: a 50 MB fetch on venue wifi may be seconds from finishing, and killing it is the failure the originals-only override exists to avoid. |
+| **The in-flight request is NEVER cancelled by the check-in.** No `AbortController`, no `src` clear, no unmount driven by the timer. | Eric, 2026-08-31 through bl-orch. It is the ratified 2026-08-29 §3.1 no-dead-ends posture applied to time: a 50 MB fetch on venue wifi may be seconds from finishing, and killing it is the failure the originals-only override exists to avoid. |
 | **`aria-busy` stays `true` during the check-in.** | The deferred row objected that "a timer would make `aria-busy` lie". That objection is against FAKING COMPLETION. It does not reach reporting a state that is still true: at second 31 the request genuinely is in flight, so `aria-busy="true"` is the honest value and dropping it would be the lie. §6 states this in full. |
-| **The check-in is a SUB-STATE of `retrying`, not a fifth branch that replaces it.** The `<Image>` stays mounted throughout. | §3. It is what makes a late success win (§9, resolve-during-check-in) and it is the mechanical form of "never cancelled". |
+| **The check-in is a SUB-STATE of `retrying`, not a fifth branch that replaces it.** The `<Image>` stays mounted throughout. | §3. It is what makes a late success win (§8.1, resolve-during-check-in) and it is the mechanical form of "never cancelled". |
 | **Restart is a second, deliberate user gesture, so it may cost a second request.** | §4.1. The 2026-08-29 §4.0.5 rule is "one tap is one request", a rule about not charging a crew member twice for ONE tap. A user pressing Restart is asking for a new attempt. |
-| **Restart does not re-add the `attempt` counter.** | 2026-08-29 §0 forbids it in those words. §4.1 gets its fresh request from the `failed` branch genuinely unmounting the `<Image>`, not from a changed `key`. |
-| **No client-visible status channel for the asset route.** The check-in cannot say WHY a request is slow. | Out of scope, and it is documented limit 1 of the 2026-08-29 spec. That limit's un-defer trigger fires for a future arc, not this one. §5.2 records the copy consequence. |
+| **Restart does not re-add the `attempt` counter.** | 2026-08-29 §0 forbids it in those words. §4.1 gets its fresh request from the one-commit `restarting` state genuinely unmounting the `<Image>`, not from a changed `key`. |
+| **No client-visible status channel for the asset route.** The check-in cannot say WHY a request is slow. | Out of scope, and it is documented limit 1 of the 2026-08-29 spec. That limit's un-defer trigger fires for a future arc, not this one. §5.1 records the copy consequence. |
 | **No automatic retry, no backoff.** The check-in offers a control; it never acts on its own. | 2026-08-29 §12, unchanged. The check-in is a UI state change and an offer, nothing else. |
 | No new design tokens. | §8. Every class used already ships in the two components. |
 
-## 1.2 UNRATIFIED — one claim this spec does not prove
+### 1.2 UNRATIFIED — one claim this spec does not prove
 
 **U-1: whether removing a mid-fetch `<img>` from the document causes the browser to abandon
-its request.** This spec never asserts either answer. What it asserts is narrower and is
-under our control: the CHECK-IN cancels nothing, and this code calls no abort API on any path.
-Restart unmounts the `<Image>` as a consequence of returning the item to `failed`, and what
-the browser then does with that request is the browser's business.
+its request.** This spec never asserts either answer. What it asserts is narrower and is under our
+control: the CHECK-IN cancels nothing, and this code calls no abort API on any path. Restart
+unmounts the `<Image>` as a consequence of the one-commit `restarting` state (§4.1), and what the
+browser then does with that request is the browser's business.
+
+What IS settled, and is not this claim: the old element's HANDLERS cannot fire into either
+component after that unmount, because React detaches them with the node. That is a fact about
+React, not about the network, and §4.1 records why it matters that the two are not confused.
 
 Settled by the probe in the plan's first task, whose only job is to record the observed answer
 in this section. No behavior below branches on it, so the answer changes the documentation and
@@ -57,20 +61,23 @@ nothing else.
 
 ## 2. What ships
 
-1. A per-item check-in timer, started when an item enters `retrying`, cleared on every exit.
-2. At `RETRY_CHECK_IN_MS`, the in-flight control changes copy, drops `aria-disabled`, gains a
+1. A per-item `checkedIn` set, read only through its intersection with `retrying` (§3.1), so no
+   removal path has to maintain it.
+2. One reconciling effect per component owning every check-in timer, derived from the live
+   `retrying` set rather than from a list of removal sites (§3.2).
+3. At `RETRY_CHECK_IN_MS`, the in-flight control changes copy, drops `aria-disabled`, gains a
    working `onClick`, and announces once. `aria-busy` does not change.
-3. Restart: returns the item to `failed` and immediately re-enters `retrying`, mounting a fresh
-   `<Image>`.
-4. Registry rows for every new `useState` / `useRef`, per 2026-08-29 §4.0.3.
-5. `DESIGN.md` §5.5 gains one timings row (§3.1).
+4. Restart: a one-commit `restarting` state that unmounts the `<Image>`, followed by a layout
+   effect that re-enters `retrying` before paint and mounts a fresh one (§4.1).
+5. Registry rows for every new `useState` / `useRef`, per 2026-08-29 §4.0.3.
+6. `DESIGN.md` §5.5 gains one timings row (§3.3).
 
 Both surfaces get all of it, the same way.
 
 ## 3. The check-in is a sub-state, not a branch
 
-The 2026-08-29 state machine has four render states (§4). This adds a boolean DIMENSION to one
-of them rather than a fifth branch:
+The 2026-08-29 state machine has four render states, in its own §4. This adds a boolean DIMENSION to
+one of them plus one single-commit staging state, rather than a fifth branch:
 
 ```
                 tap retry                      30s
@@ -81,259 +88,344 @@ of them rather than a fifth branch:
                    │                idle ◀───────────────────idle
                    │                  │                        │
                    └───onError────────┴────────onError─────────┘
-                   ▲                                           │
-                   └──────────────── Restart ──────────────────┘
-                                  (then re-enter retrying)
+                                                               │ Restart
+                                                               ▼
+                                                          restarting
+                                                               │ layout effect, same commit cycle
+                                                               ▼
+                                                           retrying
 ```
 
 | state | membership test | renders |
 |---|---|---|
 | `retrying` | `item.available && retrying.has(id) && !checkedIn.has(id)` | the `<Image>` plus the in-flight overlay, `Retrying…`, inert |
 | `retrying+checked-in` | `item.available && retrying.has(id) && checkedIn.has(id)` | the SAME `<Image>`, same node, plus the same overlay element carrying check-in copy and a working Restart handler |
-
-`checkedIn` is a second `ReadonlySet<string>`, mirroring the `failedKeys` / `retrying` idiom
-already in both files. It is a SUBSET of `retrying` by construction: nothing writes it except a
-timer that only a `retrying` entry starts, and every exit from `retrying` clears it in the same
-update.
+| `restarting` | `item.available && restarting.has(id)` | the same overlay element, `Retrying…`, inert, and NO `<Image>`. Lives for one commit cycle and is never painted (§4.1) |
 
 **Why a sub-state and not a branch.** A fifth branch would have to decide what happens to the
-`<Image>`, and every answer except "leave it exactly where it is" cancels a request the ruling
-says is never cancelled. Keeping the image mounted is not an optimization; it is the mechanism.
+`<Image>`, and every answer except "leave it exactly where it is" cancels a request the ruling says
+is never cancelled. Keeping the image mounted is not an optimization; it is the mechanism.
 
-## 3.1 The constant, and where it lives
+### 3.1 `checkedIn` is intersected with `retrying` at READ time, not maintained by every writer
+
+`checkedIn` is a `ReadonlySet<string>` like `failedKeys` and `retrying`, and it is read ONLY as
 
 ```ts
-export const RETRY_CHECK_IN_MS = 30000;
+const effectiveCheckedIn = intersect(checkedIn, sweptRetrying);
 ```
 
-Written without a numeric separator on purpose. `DESIGN.md` §5.5's timing population is
-DERIVED by `scripts/scan-interaction-timings.ts`, which reads numeric literals out of
-`components/**`, and `30_000` is a spelling that scanner has never been asked to parse. The
-shipped precedent in the same file is `DEMOTE_CHIP_VISIBLE_MS = 6000`
-(`components/diagrams/GalleryLightbox.tsx:130`).
+Nothing renders from `checkedIn` directly, and no code path is asked to remember to clear it.
+
+**This is the repair for a class review round 1 found, and it is deliberately a derivation rather
+than a longer list.** The first draft required every path that removes an id from `retrying` to
+clear `checkedIn` and its timer in the same handler, and then named four such paths. There are at
+least
+seven, and the two the draft missed are the interesting ones:
+
+| removal path | where |
+|---|---|
+| `onLoad` | `handleRetrySuccess` (`Gallery.tsx:508`), the lightbox's active-image `onLoad` (`GalleryLightbox.tsx:1319`) |
+| `onError` | `handleRetryFailure` (`Gallery.tsx:477`) and the lightbox equivalent |
+| the availability sweep | `Gallery.tsx` `sweep`, `GalleryLightbox.tsx` `sweepSet` |
+| **the gallery's RENDERED-ID sweep** | `Gallery.tsx:344`. "Show fewer", or a reorder past the twelve-item cutoff, unmounts the cell and abandons the request. It keys on `renderedIds`, not availability |
+| **the lightbox's Embla `select` handler** | `GalleryLightbox.tsx:549`. Swiping away from an active slide abandons its retry and hands the id back to `failedKeys` |
+| Restart | §4.1 |
+| component unmount | React |
+
+An enumeration is wrong the moment someone adds the eighth. The intersection is correct for all
+seven and for the eighth, because a `checkedIn` id that is not in `retrying` renders nothing and
+means nothing. A stale entry is inert rather than dangerous, which is the only property worth
+guaranteeing.
+
+The set is still swept, so it does not grow without bound: the reconciling effect in §3.2 drops
+ids that have left `retrying`. But nothing CORRECT depends on that sweep having run.
+
+### 3.2 One reconciling effect owns every timer
+
+Per component, one effect keyed on the swept `retrying` set:
+
+- for each id in `retrying` with no timer, start one for `RETRY_CHECK_IN_MS`
+- for each timer whose id is no longer in `retrying`, clear it and drop the handle
+- drop the same ids from `checkedIn`
+- on unmount, clear every timer
+
+**Why an effect and not the removal sites.** Two reasons, both from the live tree rather than from
+principle. Both availability sweeps run in the RENDER phase — `Gallery.tsx` computes `sweptRetrying`
+and calls `setRetrying` during render, and `GalleryLightbox.tsx` does the same through `sweepSet` —
+and those bodies must not mutate a ref. And the enumeration argument of §3.1 applies to timers
+exactly as it applies to membership: the effect derives what should be running from what IS
+retrying, so a removal path nobody has written yet is already covered.
+
+**The timer callback needs no membership check, and that is the point.** It writes `checkedIn` and
+nothing else. If its id has already left `retrying` — including in the same tick as an `onLoad` —
+the write is inert by §3.1, and the effect drops it on the next commit. The first draft specified a
+callback that "returns early on the membership test", which the gallery cannot do: it has no
+`retryingStateRef` (the lightbox has one, `GalleryLightbox.tsx:340`), and the closure a timer
+started in `handleRetry` captures predates the id being added. Making the stale write harmless is
+simpler than making it impossible, and it does not need a ref either component lacks.
+
+### 3.3 The constant, and where it lives
+
+```ts
+export const RETRY_CHECK_IN_MS = 30_000;
+```
 
 Declared and exported from `components/diagrams/GalleryLightbox.tsx`, imported by
-`components/diagrams/Gallery.tsx`. Two reasons, so a reviewer does not read it as an accident:
-the dependency edge already runs that way (`Gallery.tsx:38` imports `GalleryLightbox`, and the
-reverse would be circular), and it matches the shipped precedent for a shared diagram timing,
-`DEMOTE_CHIP_VISIBLE_MS` (`GalleryLightbox.tsx:130`), which is exported from the same file and
-asserted by value in `tests/components/diagrams/galleryLightbox.zoomGate.test.tsx:990`.
+`components/diagrams/Gallery.tsx`. The dependency edge already runs that way (`Gallery.tsx:38`
+imports `GalleryLightbox`, and the reverse would be circular), and it matches the shipped precedent
+for a shared diagram timing, `DEMOTE_CHIP_VISIBLE_MS` (`GalleryLightbox.tsx:130`), asserted by value
+at `tests/components/diagrams/galleryLightbox.zoomGate.test.tsx:990`.
+
+The numeric separator is safe and is not a matter of opinion:
+`tests/docs/interactionTimingScan.test.ts:69` asserts that `scan("setTimeout(f, 30_000);")[0].value`
+is `30000`. An earlier draft of this section claimed the scanner had never been asked to parse that
+spelling, which was false; review round 1 caught it, and the corrected claim is the one above.
 
 A new `components/diagrams/` module for one number would add a file to save nobody a step.
 
 `DESIGN.md` §5.5 gains one row: `RETRY_CHECK_IN_MS` | 30000 |
 `components/diagrams/GalleryLightbox.tsx`. That table is derived rather than hand-listed, and
-`tests/docs/_metaInteractionTimingInventory.test.ts` compares §5.5 against the scanner's reading
-of the source, so the row is not optional bookkeeping: the meta-test reds until it is there.
+`tests/docs/_metaInteractionTimingInventory.test.ts` compares §5.5 against the scanner's reading of
+the source, so the row is not optional bookkeeping: the meta-test reds until it is there.
 
 ## 4. Transitions, exactly
 
-- **`failed` → `retrying`**: unchanged from 2026-08-29, plus start the check-in timer for that
-  id. The timer handle goes in `checkInTimersRef`, keyed by item id.
-- **`retrying` → `retrying+checked-in`** (the timer fires): add the id to `checkedIn`. Nothing
-  else changes. The `<Image>`, its `srcSet`, its handlers and its position are untouched.
-- **`retrying` → `idle`** (`onLoad`): remove the id from `retrying` AND from `checkedIn`, and
-  clear its timer. Reached from both sub-states; from the checked-in one it is the
-  resolve-during-check-in case, and the image wins.
-- **`retrying` → `failed`** (`onError`): remove the id from `retrying` and `checkedIn`, clear
-  its timer, add it back to `failedKeys`. Reached from both sub-states.
-- **`retrying+checked-in` → `failed` → `retrying`** (Restart): §4.1.
-- **any session state → `unavailable`**: the availability sweep of 2026-08-29 §9.1 gains
-  `checkedIn` and `checkInTimersRef`. A slide that goes unavailable mid-check-in must not come
-  back holding one.
+- **`failed` → `retrying`**: unchanged from 2026-08-29. The §3.2 effect starts the timer on the
+  commit that adds the id; `handleRetry` itself gains nothing.
+- **`retrying` → `retrying+checked-in`** (the timer fires): add the id to `checkedIn`. Nothing else
+  changes. The `<Image>`, its `srcSet`, its handlers and its position are untouched.
+- **`retrying` → `idle`** (`onLoad`): remove the id from `retrying`. Reached from both sub-states;
+  from the checked-in one it is the resolve-during-check-in case, and the image wins. `checkedIn`
+  and the timer follow from §3.1 and §3.2 rather than from this handler.
+- **`retrying` → `failed`** (`onError`): remove the id from `retrying`, add it back to `failedKeys`.
+  Reached from both sub-states.
+- **`retrying+checked-in` → `restarting` → `retrying`** (Restart): §4.1.
+- **any session state → `unavailable`**: the availability sweep of 2026-08-29 §9.1 is unchanged.
+  It sweeps `retrying`, and §3.1 and §3.2 carry `checkedIn` and the timer with it.
 
-**Timer clearing is unconditional and lives with the state write.** Every path that removes an
-id from `retrying` clears that id's timer in the same handler. A timer that survives its item
-would fire into a component that no longer has the state it describes.
+### 4.1 Restart
 
-## 4.1 Restart
+Restart is the only new user gesture, and it never renders a state that contradicts what is true.
 
-Restart is the only new user gesture. It does exactly this:
+1. **One commit.** Remove the id from `checkedIn`, add it to `restarting`. The `<Image>` unmounts,
+   because `restarting` renders none. The overlay stays: it is the same element, in the same
+   position, so the browser keeps focus on it with no hand-off.
+2. **A `useLayoutEffect`** keyed on `restarting` moves every id in it to `retrying`. A layout effect
+   runs before the browser paints, so the imageless commit is never painted.
+3. The `retrying` commit mounts a NEW `<Image>`, which is a new request. That is where the fresh
+   attempt comes from.
 
-1. Remove the id from `retrying` and `checkedIn`; clear its timer; add it to `failedKeys`.
-   That is the existing `retrying` → `failed` transition, reused unchanged.
-2. Record the id in `restartPendingRef`.
-3. On the NEXT commit, an effect consumes `restartPendingRef` and runs the existing
-   `failed` → `retrying` transition for that id.
+**Why not a bounce through `failed`, which is what the first draft specified.** Review round 1 was
+right to call that critical. `failed` renders a control whose accessible name says the diagram
+"could not be loaded", and the request is still pending, so the committed intermediate frame stated
+something false — and the draft moved focus onto it, which is the one way to guarantee it is
+announced. That is precisely the lie §6 says this design never tells. `restarting` says
+`Retrying…`, which is true at every instant it exists, and no focus moves at all.
 
-Step 1 unmounts the `<Image>`, because the `failed` branch renders none — in the gallery via
-the `available` conjunct, in the lightbox via the same. Step 3 mounts a new one, which is a new
-request. That is where the fresh attempt comes from.
+**Why a layout effect and not a passive one.** A passive effect permits the intermediate frame to
+paint. Nothing false would be painted now that the copy is honest, but a visible flash of an
+imageless overlay is still a flicker with no purpose, and `useLayoutEffect` costs nothing here: the
+work is one set-to-set move with no layout read.
 
-**Two commits, deliberately.** Setting both states inside one handler batches into a single
-commit, React reconciles the same element, and nothing remounts — so the user would get a new
-label and the same hung fetch. The effect is what makes the unmount real.
+**This is not the `attempt` counter.** No `key` changes and no counter exists. The remount is the
+branch actually changing, which is the ordinary behavior of the state machine that already ships.
 
-**This is not the `attempt` counter.** No `key` changes and no counter exists. The remount is
-the branch actually changing, which is the ordinary behavior of the state machine that already
-shipped.
+**This is not a violation of "one tap is one request".** That rule (2026-08-29 §4.0.5) exists so a
+crew member is not billed twice for one gesture. Restart is a second gesture, freely chosen, whose
+entire meaning is "try again".
 
-**This is not a violation of "one tap is one request".** That rule (2026-08-29 §4.0.5) exists
-so a crew member is not billed twice for one gesture. Restart is a second gesture, freely
-chosen, whose entire meaning is "try again".
+**What happens to the ORIGINAL request.** Nothing, by us. We call no abort. React removes the old
+`<img>` from the document on the `restarting` commit and detaches its listeners with it, so its
+`onLoad` and `onError` can no longer reach either component. That is the mechanism, and it is
+React's, not ours.
 
-**Focus.** Restart is pressed on the in-flight overlay, which step 1 unmounts. The hand-off is
-the one that already exists for this transition: `focusFailedRef` in the gallery
-(`Gallery.tsx`), `focusRetryTargetRef` in the lightbox (`GalleryLightbox.tsx`). Step 3 then runs
-the `failed` → `retrying` hand-off, so focus lands on the new in-flight overlay. The user
-finishes where they started, on a control that is now honestly inert again. Never the native
-`disabled` attribute, per 2026-08-29 §7.1.
+An earlier draft credited this to "the connectedness guard" of 2026-08-29 §4.1. Review round 1
+established that no such guard ships on either success path: `handleRetrySuccess`
+(`Gallery.tsx:508`) removes state and announces without a connectivity check, and the lightbox's
+active-image `onLoad` (`GalleryLightbox.tsx:1319`) checks only a render-captured `retrying` set.
+The sibling spec asked for one and its §0 does not record the removal. Recorded here so the
+citation is not re-derived: the guard is absent, the unmount is sufficient, and this spec adds no
+guard because none is needed.
 
-**A late `onLoad` between step 1 and step 3 is impossible to observe wrongly.** Step 1 unmounts
-the node, so its handlers are dropped by the connectedness guard already specified in
-2026-08-29 §4.1.
-
-## 4.2 Guard conditions for every input
+### 4.2 Guard conditions for every input
 
 | input | null / empty / zero / boundary | behavior |
 |---|---|---|
 | `item.alt` empty | — | `nameOf(item, i)` already falls back to the 1-based visible position; the check-in accessible name uses the same helper, so it cannot be nameless |
-| `item.available` flips false mid-check-in | — | the sweep (§4, 2026-08-29 §9.1) clears `retrying`, `checkedIn` and the timer on the way IN to unavailable, per that spec's ordering rule |
-| item leaves `items` mid-check-in | — | same sweep; the timer is cleared before the handle is dropped, so it cannot fire into a dead item |
-| the component unmounts mid-check-in | — | every live timer is cleared in the cleanup of the effect that owns the map |
-| Restart double-pressed | — | the second press lands on a control that step 1 already unmounted. If a press somehow arrives while the id is not in `retrying`, the handler returns early on that membership test |
-| `RETRY_CHECK_IN_MS` reached with the tab backgrounded | timers throttle | the check-in appears late rather than never. A throttled timer is a conservative outcome and a documented limit (§10.2), not a defect |
-| two items checked in at once | — | the state is per item and so is the timer map; nothing is shared. Both overlays show their own copy |
+| `item.available` flips false mid-check-in | — | the availability sweep clears `retrying`; §3.1 makes the retained `checkedIn` id inert on the same render and §3.2 drops it and its timer on the next commit |
+| the item leaves `renderedIds` mid-check-in | "Show fewer", or a reorder past the twelve-item cutoff | the gallery's rendered-ID sweep (`Gallery.tsx:344`) removes it from `retrying` and hands the failure back. Same two mechanisms carry `checkedIn` and the timer |
+| an active lightbox slide is swiped away mid-check-in | — | the Embla `select` handler (`GalleryLightbox.tsx:549`) removes it from `retrying` and restores `failedKeys`. Same two mechanisms again. This is why §6 says an inactive slide cannot RENDER a check-in rather than that it can never enter one |
+| the component unmounts mid-check-in | — | the §3.2 effect's cleanup clears every live timer |
+| Restart double-pressed | — | the second press lands on the `restarting` overlay, whose handler is inert. If a press arrives while the id is in neither `retrying` nor `restarting`, the handler returns early |
+| `RETRY_CHECK_IN_MS` reached with the tab backgrounded | timers throttle | the check-in appears late rather than never. A throttled timer is a conservative outcome and a documented limit (§9.2), not a defect |
+| the timer fires in the same tick as `onLoad` | — | the write lands on an id that has left `retrying`, so it is inert by §3.1 and dropped by §3.2. No ordering guarantee is required, which is why none is specified |
+| two items checked in at once | — | the state is per item and so are the timers; nothing is shared |
 
 ## 5. Copy
 
 `DESIGN.md` §9 house rules: no em dashes (enforced by `tests/styles/_metaEmDashCopy.test.ts`),
 straight apostrophes, plain words. The register is the product's calm one, named at `DESIGN.md:605`
-against `PRODUCT.md`'s "not techie" anti-reference. Identical strings
-on both surfaces, matching the 2026-08-29 §5.1 ruling that the in-flight copy does not branch by
-surface.
+against `PRODUCT.md`'s "not techie" anti-reference. Identical strings on both surfaces, matching the
+2026-08-29 §5.1 ruling that the in-flight copy does not branch by surface.
 
 | slot | text |
 |---|---|
 | in-flight, before the check-in, visible | `Retrying…` (unchanged) |
+| `restarting`, visible | `Retrying…`. The same string, because it is the same truth |
 | check-in, visible line 1 | `Still loading` |
 | check-in, visible line 2 | `Restart` |
 | check-in, accessible name | `<name> is still loading. Restart.` |
 | announcement when the check-in fires | `<name> is still loading.` |
 
-**The gallery check-in drops the `ImageOff` icon its in-flight overlay carries.** Two short
-lines and no icon fit the ~117px cell at `30vw` on a 390px viewport without a third row of
-content, and the icon was carrying "something is wrong", which the two lines now say in words.
-The lightbox overlay has no icon in either sub-state — it is a text pill today
-(`data-testid="lightbox-retrying"`) — so nothing is dropped there and the two surfaces end up
-with the same content for the first time.
+**The gallery check-in drops the `ImageOff` icon its in-flight overlay carries.** Two short lines
+and no icon fit the ~117px cell at `30vw` on a 390px viewport without a third row of content, and
+the icon was carrying "something is wrong", which the two lines now say in words. The lightbox
+overlay has no icon in either sub-state — it is a text pill today
+(`data-testid="lightbox-retrying"`) — so nothing is dropped there and the two surfaces end up with
+the same content for the first time.
 
-### 5.2 Why the copy does not name a cause
+### 5.1 Why the copy does not name a cause
 
 The mockup this decision was taken against read `Still loading. Slow connection.` The second
-sentence does not ship, and the reason is the one 2026-08-29 §5.1 already gave for refusing to
-put a byte count on the gallery cell: the app cannot know it. An `<img>` `onError` and a pending
-`<img>` load expose no status, no timing and no transport state, which is documented limit 1 of
-the 2026-08-29 spec. A slow response can be venue wifi, a 50 MB original, or a slow route. Naming
-one of them is inventing a diagnosis, and a wrong diagnosis sends a crew member to fix the wrong
-thing. `Still loading` is the whole of what we know, and it is true.
+sentence does not ship, and the reason is the one 2026-08-29 §5.1 already gave for refusing to put a
+byte count on the gallery cell: the app cannot know it. An `<img>` `onError` and a pending `<img>`
+load expose no status, no timing and no transport state, which is documented limit 1 of the
+2026-08-29 spec. A slow response can be venue wifi, a 50 MB original, or a slow route. Naming one of
+them is inventing a diagnosis, and a wrong diagnosis sends a crew member to fix the wrong thing.
+`Still loading` is the whole of what we know, and it is true.
 
-Re-file trigger for the fuller copy: the asset route gaining a client-visible status channel,
-which is the same trigger that closes documented limit 1 there.
+Re-file trigger for the fuller copy: the asset route gaining a client-visible status channel, which
+is the same trigger that closes documented limit 1 there.
 
 ## 6. Accessibility, and the `aria-busy` question the row raised
 
-| attribute | `retrying` | `retrying+checked-in` | why |
+| attribute | `retrying` | `retrying+checked-in` | `restarting` |
 |---|---|---|---|
-| `aria-busy` | `"true"` | `"true"` | The request is still in flight. This is the honest value at second 31 exactly as it was at second 1. Dropping it would announce a completion that has not happened, which is the lie the deferred row was guarding against |
-| `aria-disabled` | `"true"` | ABSENT | The control does something now. An `aria-disabled` control that acts is the actual contradiction |
-| native `disabled` | never | never | It ejects focus to `<body>`, outside the lightbox's `aria-modal` dialog. 2026-08-29 §7.1 |
-| accessible name | `<name> could not be loaded. Retrying…` | `<name> is still loading. Restart.` | The name says what the control does, per §5 |
+| `aria-busy` | `"true"` | `"true"` | `"true"` |
+| `aria-disabled` | `"true"` | ABSENT | `"true"` |
+| native `disabled` | never | never | never |
+| accessible name | `<name> could not be loaded. Retrying…` | `<name> is still loading. Restart.` | `<name> could not be loaded. Retrying…` |
 
-**The row's objection, answered directly.** It said a timer would make `aria-busy` lie. It would,
-if the timer changed `aria-busy` — declaring a request finished because a clock said so. This
-design never touches `aria-busy`. What the timer changes is what the UI OFFERS, and offering an
-exit from a wait is not a claim about the wait ending.
+`aria-busy` is `"true"` in all three because in all three a request is in flight. This is the honest
+value at second 31 exactly as it was at second 1. Dropping it would announce a completion that has
+not happened, which is the lie the deferred row was guarding against. `aria-disabled` is absent only
+in the check-in, because that is the only state whose control does something. The native `disabled`
+attribute is never used on any of them: it ejects focus to `<body>`, outside the lightbox's
+`aria-modal` dialog (2026-08-29 §7.1).
+
+**The row's objection, answered directly.** It said a timer would make `aria-busy` lie. It would, if
+the timer changed `aria-busy` — declaring a request finished because a clock said so. This design
+never touches `aria-busy`. What the timer changes is what the UI OFFERS, and offering an exit from a
+wait is not a claim about the wait ending.
 
 The check-in announces once per entry, through the existing channel router (`routeAnnouncement`,
 `Gallery.tsx:405`), so a check-in inside an open lightbox reaches the dialog-local region and one
-during the exit window is buffered, exactly as failures and retry outcomes already are.
+during the exit window is buffered, exactly as failures and retry outcomes already are. `restarting`
+announces nothing: it is a sub-frame staging state, and announcing it would say `Retrying…` twice.
 
-Inactive lightbox slides carry no retry control, so they can never check in (2026-08-29 §2, §6).
+**An inactive lightbox slide cannot RENDER a check-in.** The overlay is gated on
+`isRetrying && isActive` (`GalleryLightbox.tsx:1062`), and the Embla `select` handler
+(`GalleryLightbox.tsx:549`) removes a departing slide's id from `retrying` and restores its failure.
+An earlier draft said an inactive slide "can never check in", which review round 1 showed was false:
+a slide can check in while active and then be swiped away. The corrected claim is the one that
+matters and the one that is true — nothing inactive paints a check-in or speaks one — and it holds
+because of the gate and the handler, not because the state is unreachable.
 
 ## 7. Dimensional invariants
 
-The check-in re-renders the SAME element as the in-flight overlay, so every relationship
-2026-08-29 §8 pinned still holds by construction. What changes is the content, and content is
-where a fixed-aspect parent breaks.
+The check-in re-renders the SAME element as the in-flight overlay, so every relationship 2026-08-29
+§8 pinned still holds by construction. What changes is the content, and content is where a
+fixed-aspect parent breaks.
 
 | parent | child | guarantee |
 |---|---|---|
-| gallery `<li>` `aspect-square overflow-hidden` | in-flight / check-in `<button>` | `absolute inset-0`, unchanged from the shipped overlay |
-| check-in `<button>` | its two text lines | `flex flex-col items-center justify-center gap-1`, the shipped overlay's own classes; the two lines are the icon-and-label pair's replacement, not an addition to it |
+| gallery `<li>` `aspect-square overflow-hidden` (`Gallery.tsx:651`) | in-flight / check-in / restarting `<button>` | `absolute inset-0`, unchanged from the shipped overlay |
+| check-in `<button>` | its two text lines | `flex flex-col items-center justify-center gap-1`, the shipped overlay's own classes; the two lines replace the icon-and-label pair rather than adding to it |
 | check-in `<button>` | tap target | `min-h-tap-min`, already on both overlays and load-bearing here for the first time, because this is the first state in which the overlay is pressable |
 
-The plan carries a real-browser `getBoundingClientRect` assertion that the check-in button's
-height equals the gallery cell's within 0.5px, and that both text lines are inside it. jsdom
-computes no layout and cannot establish either.
+The plan carries a real-browser `getBoundingClientRect` assertion that the check-in button's height
+equals the gallery cell's within 0.5px, and that both text lines are inside it. jsdom computes no
+layout and cannot establish either.
 
 ## 8. Transition inventory
 
-Five render states: `idle`, `failed`, `retrying`, `retrying+checked-in`, `unavailable`. That is
-`5*4/2 = 10` unordered pairs, and every row below states BOTH directions, because on this
-machine a pair is routinely reachable one way and unreachable the other.
+Six render states: `idle`, `failed`, `retrying`, `retrying+checked-in`, `restarting`,
+`unavailable`. That is `6*5/2 = 15` unordered pairs, and every row states BOTH directions, because
+on this machine a pair is routinely reachable one way and unreachable the other.
 
 | pair | A to B | B to A |
 |---|---|---|
 | idle / failed | `onError` on the image. Instant swap, unchanged from 2026-08-29 | `onLoad` never fires from `failed`, which renders no image. Reached only via `retrying` |
-| idle / retrying | unreachable: `retrying` is entered only from `failed`, and only by a tap on a control only `failed` renders | `onLoad`. Instant. The overlay unmounts in the same commit that reveals the image |
+| idle / retrying | unreachable: `retrying` is entered only from `failed` or `restarting`, and `failed` needs a tap on a control only it renders | `onLoad`. Instant. The overlay unmounts in the same commit that reveals the image |
 | idle / checked-in | unreachable: `checkedIn` is written only by a timer that only a `retrying` entry starts | `onLoad` during the check-in. Instant, and the image wins with no intermediate frame. This is the resolve-during-check-in case |
-| idle / unavailable | `item.available` flips false. Instant; the sweep clears nothing because `idle` holds no per-item state | flips true. Instant. The cell does not remount, so this is a real transition rather than a mount |
-| failed / retrying | tap the retry control, or Restart step 3. Instant | `onError`. Instant |
-| failed / checked-in | unreachable: no path writes `checkedIn` without first spending `RETRY_CHECK_IN_MS` in `retrying` | `onError` during the check-in, or Restart step 1. Instant. The check-in copy does not persist into the failed control |
-| failed / unavailable | flips false. Instant. The sweep clears `failedKeys` on the way in (2026-08-29 §9.1) | flips true. Instant, and the cell returns `idle`, because the sweep already cleared the id |
-| retrying / checked-in | the timer fires at `RETRY_CHECK_IN_MS`. Instant, and deliberately so: a fade would draw the eye to a control that has been sitting still for thirty seconds, and the change is a copy swap inside a node that does not move | unreachable: nothing removes an id from `checkedIn` while leaving it in `retrying`. Every clear of one clears the other |
-| retrying / unavailable | flips false. Instant. The sweep clears `retrying`, `checkedIn` and the timer | flips true. Instant, returning `idle`; the in-flight request is not resumed, because the sweep already dropped its state |
-| checked-in / unavailable | flips false. Instant. Same sweep, same three members | flips true. Instant, returning `idle` |
+| idle / restarting | unreachable: `restarting` is entered only by pressing Restart, which exists only in the check-in | unreachable: `restarting` leaves only to `retrying`, in a layout effect, before paint |
+| idle / unavailable | `item.available` flips false. Instant; `idle` holds no per-item state to sweep | flips true. Instant. The cell does not remount, so this is a real transition rather than a mount |
+| failed / retrying | tap the retry control. Instant | `onError`. Instant |
+| failed / checked-in | unreachable: no path writes `checkedIn` without first spending `RETRY_CHECK_IN_MS` in `retrying` | `onError` during the check-in. Instant. The check-in copy does not persist into the failed control |
+| failed / restarting | unreachable: Restart exists only in the check-in | unreachable: `restarting` leaves only to `retrying`. This is the pair the first draft got wrong, and §4.1 records why |
+| failed / unavailable | flips false. Instant. The availability sweep clears `failedKeys` on the way in (2026-08-29 §9.1) | flips true. Instant, and the cell returns `idle`, because the sweep already cleared the id |
+| retrying / checked-in | the timer fires at `RETRY_CHECK_IN_MS`. Instant, and deliberately so: a fade would draw the eye to a control that has been sitting still for thirty seconds, and the change is a copy swap inside a node that does not move | unreachable directly: nothing removes an id from `checkedIn` while leaving it in `retrying`, except Restart, which routes through `restarting` |
+| retrying / restarting | unreachable: Restart is offered only in the check-in | the layout effect of §4.1. One commit cycle, never painted |
+| retrying / unavailable | flips false. Instant. The sweep clears `retrying`; `checkedIn` and the timer follow by §3.1 and §3.2 | flips true. Instant, returning `idle`; the in-flight request is not resumed, because its state is gone |
+| checked-in / restarting | pressing Restart. Instant, one commit | unreachable: `restarting` leaves only to `retrying`, and a new check-in needs another 30 seconds there |
+| checked-in / unavailable | flips false. Instant. Same three members, same two mechanisms | flips true. Instant, returning `idle` |
+| restarting / unavailable | flips false. Instant. `restarting` requires `item.available`, so the branch is gone on the same render; the layout effect finds an id the sweep has dropped and does nothing | flips true. Instant, returning `idle` |
 
 ### 8.1 Compound transitions
 
 | compound case | behavior |
 |---|---|
-| the image LOADS while the check-in is on screen | the image wins, with no intermediate frame. `onLoad` removes the id from `retrying` and `checkedIn` in one update, so the overlay unmounts in the same commit that reveals the image. The user never sees `Still loading` over a loaded diagram |
-| the image ERRORS while the check-in is on screen | `failed`, announced `<name> still could not be loaded.` (the existing string). The check-in copy does not persist into the failed control |
-| the item goes unavailable while the check-in is on screen | the sweep clears both sets and the timer; the inert placeholder renders immediately, because `item.available` gates every session state |
-| Restart pressed, and the ORIGINAL request completes during the two-commit window | the original's handlers are on the unmounted node and are dropped by the connectedness guard. The new request decides the outcome |
-| the lightbox closes while a slide is checked in | its state dies with the component, which is the pre-existing asymmetry §1 records. The gallery's own copy of that item is independent and keeps its own timer |
-| a second item enters `retrying` while the first is checked in | independent. Per-item state, per-item timers, two overlays |
-| the check-in fires in the same tick as `onLoad` | the state update that removes the id from `retrying` also clears the timer, and a timer callback that runs anyway returns early on the membership test before writing `checkedIn` |
+| the image LOADS while the check-in is on screen | the image wins, with no intermediate frame. `onLoad` removes the id from `retrying`, which makes the `checkedIn` entry inert on that same render, so the overlay unmounts in the commit that reveals the image |
+| the image ERRORS while the check-in is on screen | `failed`, announced `<name> still could not be loaded.` — the string that already ships at `Gallery.tsx:503` and `GalleryLightbox.tsx:1358`. The check-in copy does not persist into the failed control |
+| the item goes unavailable while the check-in is on screen | the availability sweep clears `retrying`; the placeholder renders immediately, because `item.available` gates every session state |
+| the item leaves `renderedIds` while checked in | "Show fewer" or a reorder past the cutoff. The rendered-ID sweep abandons the retry and restores the failure; on re-expand the cell offers its retry control, never a resurrected check-in |
+| an active slide is swiped away while checked in | the Embla handler abandons the retry and restores the failure. Swiping back shows the failed control, not a check-in for a request nobody is waiting on |
+| Restart pressed, and the ORIGINAL request completes during the staging commit | the old `<img>` is out of the document and its listeners are detached, so neither handler fires. The new request decides the outcome |
+| Restart pressed, and the item goes unavailable in the same tick | the sweep drops the id, the `restarting` branch is gone on that render, and the layout effect moves nothing |
+| the timer fires in the same tick as `onLoad` | the `checkedIn` write is inert by §3.1. No ordering guarantee is needed |
+| two items checked in at once | independent. Per-item state, per-item timers, two overlays |
 
 ## 9. Documented limits
 
-Each is a conservative outcome plus a surfaced signal, never silent corruption, so each files
-here rather than as a finding.
+Each is a conservative outcome plus a surfaced signal, never silent corruption, so each files here
+rather than as a finding.
 
-1. **The check-in cannot say why a request is slow.** No status channel exists (§5.2). Re-file
-   trigger: the asset route gaining a client-visible status channel, which is documented limit 1
-   of the 2026-08-29 spec.
+1. **The check-in cannot say why a request is slow.** No status channel exists (§5.1). Re-file
+   trigger: the asset route gaining a client-visible status channel, which is documented limit 1 of
+   the 2026-08-29 spec.
 2. **A backgrounded tab throttles the timer, so the check-in can appear later than 30 seconds.**
-   Never earlier. The conservative direction: a user who is not looking at the tab is not
-   waiting on it, and when they return the check-in is there. Re-file trigger: a report of a
-   check-in appearing so late that a user gave up first.
+   Never earlier. The conservative direction: a user who is not looking at the tab is not waiting on
+   it, and when they return the check-in is there. Re-file trigger: a report of a check-in appearing
+   so late that a user gave up first.
 3. **Restart has no cap.** A user can Restart repeatedly. Each is user-paced and each is bounded
-   exactly as a tap already is: by the 1024 tier for a laddered entry, by the route's 50 MB cap
-   for an originals-only one. This is the same posture as limit 2 of the 2026-08-29 spec, on the
-   same grounds. Re-file trigger: telemetry showing a crew member hammering a dead diagram.
+   exactly as a tap already is: by the 1024 tier for a laddered entry, by the route's 50 MB cap for
+   an originals-only one. Same posture as limit 2 of the 2026-08-29 spec, on the same grounds.
+   Re-file trigger: telemetry showing a crew member hammering a dead diagram.
 4. **A request that hangs forever hangs forever.** Nothing here kills it, by ratification (§1.1).
    The user gets an exit; the socket is the browser's problem.
+5. **A `checkedIn` id can outlive its `retrying` entry for one commit.** By construction, since
+   §3.1 makes correctness independent of when the sweep runs. It renders nothing and means nothing
+   in that window, and §3.2 drops it. Recorded because "the set is not always minimal" is true and
+   should not read as an oversight.
 
 ## 10. Acceptance criteria
 
 | id | criterion |
 |---|---|
-| AC-1 | An item entering `retrying` starts exactly one check-in timer, keyed by its id |
+| AC-1 | An item entering `retrying` has exactly one live check-in timer, and an item leaving `retrying` by ANY of the seven paths in §3.1 has none |
 | AC-2 | At `RETRY_CHECK_IN_MS` the overlay shows `Still loading` and `Restart`, and its accessible name is `<name> is still loading. Restart.` |
-| AC-3 | `aria-busy` is `"true"` in BOTH sub-states, asserted on the same element before and after the check-in |
-| AC-4 | `aria-disabled` is present before the check-in and absent after it |
+| AC-3 | `aria-busy` is `"true"` in all three in-flight states, asserted on the same element across the transitions |
+| AC-4 | `aria-disabled` is present before the check-in, absent during it, and present again in `restarting` |
 | AC-5 | The `<Image>` element identity is UNCHANGED across the check-in, asserted by node identity rather than by presence |
-| AC-6 | `onLoad` during the check-in reaches `idle` with no intermediate frame, and clears both sets and the timer |
+| AC-6 | `onLoad` during the check-in reaches `idle` with no intermediate frame |
 | AC-7 | `onError` during the check-in reaches `failed` and announces the existing still-failed string |
-| AC-8 | Restart returns the item to `failed` and then to `retrying`, and the second `<Image>` is a DIFFERENT node from the first |
+| AC-8 | Restart reaches `retrying` and the second `<Image>` is a DIFFERENT node from the first |
 | AC-9 | No code path in either component calls `AbortController`, `abort()`, or clears an `<img>` `src` |
-| AC-10 | The availability sweep clears `checkedIn` and the timer, asserted for an item that goes unavailable while checked in |
-| AC-11 | Every new `useState` / `useRef` in both components has a `PER_ITEM_STATE_REGISTRY` row with a non-empty `clearedBy` and a sweep decision |
-| AC-12 | In a real browser, with the asset route held open, the check-in appears and the check-in button's height equals the gallery cell's within 0.5px |
-| AC-13 | The check-in announces once per entry through the existing channel router, and does not re-announce on re-render |
+| AC-10 | No committed frame between the check-in and the new request exposes a control whose accessible name says the diagram could not be loaded, and focus does not move during Restart |
+| AC-11 | A `checkedIn` id whose `retrying` entry is gone renders nothing, asserted directly for the rendered-ID sweep and for the Embla swipe-away |
+| AC-12 | Every new `useState` / `useRef` in both components has a `PER_ITEM_STATE_REGISTRY` row with a non-empty `clearedBy` and a sweep decision |
+| AC-13 | In a real browser, with the asset request held open, the check-in appears and the check-in button's height equals the gallery cell's within 0.5px |
+| AC-14 | The check-in announces once per entry through the existing channel router, and `restarting` announces nothing |
 
 ## 11. Out of scope
 
@@ -341,4 +433,6 @@ here rather than as a finding.
 - A client-visible status channel for the asset route. Documented limit 1 of the 2026-08-29 spec.
 - Automatic retry, backoff, or a retry cap. 2026-08-29 §12, unchanged.
 - A second check-in at a later deadline. One offer is an exit; two is nagging.
+- Adding the connectedness guard the 2026-08-29 spec asked for and did not ship (§4.1). It is a real
+  gap on the success paths and it is not this arc's; nothing here depends on it.
 - Changing anything about the demote path, the zoom gate, or the failed-state copy.
