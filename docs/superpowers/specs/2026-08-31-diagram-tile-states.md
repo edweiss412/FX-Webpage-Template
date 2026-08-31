@@ -104,12 +104,20 @@ it. The box keeps its exact geometry and its `data-testid`; the caption is a sib
 box, free to be as tall as its content.
 
 ```
-<span class="flex flex-col gap-1">        ← wrapper, the grid item, NO data-testid
+<span class="flex flex-col gap-1"       ← wrapper, the grid item
+      data-testid=…-diagram-cell-{i}>    ← its OWN handle; see §5.0
   <a|span data-testid={testId} …>         ← the box: aspect-4/3, chrome, image or icon
   <span class="text-xs …truncate">        ← the NAME line, every state, same position
   <span class="text-xs/relaxed …">        ← the MESSAGE, failed states only
 </span>
 ```
+
+**The wrapper carries `data-testid={`wizard-step3-card-${dfid}-diagram-cell-${i}`}`.**
+An earlier draft of this diagram said it carried none, which contradicted §5.0 and AC-9;
+the concern behind that note was a wrapper id colliding with the `-diagram-tile-` prefix
+selectors, and the `-diagram-cell-` segment resolves it without the wrapper going
+unaddressable. (Corrected 2026-08-31 per bl-orch ruling; §5.0 and AC-9 were always the
+operative statements.)
 
 Why the name line comes first and is present in every state: that position is the scanning fix. A
 reader running down the grid finds every tile's name at the same offset, and a failed tile's
