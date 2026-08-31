@@ -44,6 +44,17 @@ Zero of the 26 shipping-tree runs produced the failure signature this plan was w
 
 The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1472`) still sets a viewport, sleeps a fixed 80ms, and takes a single `fittedGeometry` read. It is genuinely exposed to a stale viewport. **It cannot fail because of one.** The sweep runs `[844, 667, 560, 400]`, monotonically shrinking, so a stale read returns the previous and larger cell's room; and the oracle is a pair of lower bounds, `available > FLOOR` and `min(available) > FLOOR * 2` with `FLOOR = 48` (`tests/e2e/popover-clip-fit.spec.ts:145`). Staleness biases the measurement in the direction the assertion tolerates. The worst case is a silently wrong number in a census whose claim still holds.
 
+**Probed, not reasoned, 2026-08-30.** Removing the census sleep entirely still reads correctly on this host, so a stale read could not be provoked directly; the re-fit lands inside one round trip here. What the probe does give is the four real values, which settle the claim arithmetically. Measured with the sleep removed:
+
+```
+CENSUSPROBE height=844 available=562.453125
+CENSUSPROBE height=667 available=412
+CENSUSPROBE height=560 available=321.0625
+CENSUSPROBE height=400 available=185.0625
+```
+
+A stale sweep is that list shifted by one, since each cell would read the previous cell's room: `562.45, 562.45, 412, 321.06`. Both lists clear `available > 48` at every cell, and the tightest value rises from 185.06 to 321.06, further above the `FLOOR * 2` bound rather than nearer it. So staleness cannot cross either threshold in the failing direction, on the numbers the surface actually produces.
+
 That is the same shape this plan itself used to scope away from `wizard-attention-menu.spec.ts`: a stale viewport there "yields a layout those assertions are indifferent to." The argument applies to the census too, and it files as a documented limit rather than a finding, per the 2026-08-04 filing bar.
 
 ### Why this does not come back as a guard
