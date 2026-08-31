@@ -271,20 +271,6 @@ exempted, and the gap is recorded here where deferrals are actually reviewed.
 passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
 Register the mutation as an adversary at that point and confirm it reds.
 
-### SHARELINK-CUE-FOCUS-OBSCURED-1 — the scroll cue may push the focused rotate control out of view (2026-08-07, arc A)
-
-**Effort:** S
-
-**Reachability:** INFERRED, NOT PROBED.
-
-From the impeccable audit of `feat/a11y-privacy-cluster` (P2). The new rotation cue scrolls the crew-URL row into view inside the share hub's `overflow-y-auto` popover. The URL row sits ABOVE the rotate control, so the scroll moves the viewport up and can push the just-activated control — which still holds focus — below the visible band. WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum, AA).
-
-**Not fixed, because the obvious repair fights the feature.** The cue exists precisely to move the view off the rotate control and onto the link that changed; scrolling the focused control back into view would undo it. `block: "nearest"` already minimizes the movement, and does nothing at all when the row is already visible. Whether the residual case is a real 2.4.11 failure also turns on a question this arc did not settle: 2.4.11 is written about author-created content covering the focused element (sticky headers, overlays), and an author-initiated scroll within a scroll container is a greyer reading.
-
-**The probe that settles it, and the first scheduled step if this is promoted:** at 390x560, drive the rotate flow in a real browser (the harness exists — `tests/e2e/admin-lifecycle-layout.spec.ts` already seeds a published show and drives arm+confirm), then read `document.activeElement`'s rect against the popover's client rect after the glide settles. If the focused element is fully outside, it is a confirmed failure and the fix is to scroll the active element back into view AFTER the cue rather than instead of it.
-
-**Un-defer trigger:** that probe, or any a11y pass over the share hub.
-
 ### TRAVEL-SUPPRESSION-PARTIAL-EXPLANATION-1 — a partly-suppressed Travel section explains nothing (2026-08-07, arc A)
 
 **Effort:** M
