@@ -2,16 +2,19 @@
  * Non-interactive chrome that shares a frame with a control.
  *
  * WHY THIS EXISTS. The 2026-08-16 swap moved 21 CONTROLS to `border-text-faint`
- * and DESIGN §1.2a keeps `--color-border-strong` for non-interactive chrome, so
- * two elements that shared a recipe with a swapped control correctly stayed
- * put — and became the quieter half of a pair a reader sees in one glance. The
- * lightbox's demote chip sits in the same frame as its Reset chip; the
- * staged-preview banner's `aria-current` chip sits in a row of picker links
- * that moved. `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` filed it.
+ * while DESIGN §1.2a kept `--color-border-strong` for non-interactive chrome, so
+ * two elements that shared a recipe with a swapped control stayed put and became
+ * the quieter half of a pair a reader sees in one glance. The lightbox's demote
+ * chip sits in the same frame as its Reset chip; the staged-preview banner's
+ * `aria-current` chip sits in a row of picker links that moved.
+ * `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` filed it, and that row is CLOSED:
+ * archived at `BACKLOG-archive.md:1288` on 2026-08-25, resolved by the pairing
+ * clause this file pins, with both chips moved in `e6408222c`. The paragraph
+ * above is the state this guard was BUILT for, not the state of the tree.
  *
  * IT IS HIERARCHY, NOT ACCESSIBILITY. Neither element is interactive, so SC
- * 1.4.11 does not reach either one and there is no contrast failure here to
- * argue about (`BACKLOG.md`, the row's own text). What was wrong is that the
+ * 1.4.11 does not reach either one and there was never a contrast failure here
+ * to argue about (`BACKLOG-archive.md`, the row's own text). What was wrong is that the
  * chip a reader is meant to read as the CURRENT state read lighter than the
  * control beside it, which inverts the hierarchy the swap was making.
  *
@@ -139,5 +142,40 @@ describe("chrome in a frame with a control takes that control's outline weight",
     // the sentence wraps is a property of the formatter, not of the rule.
     const design = readFileSync(join(ROOT, "DESIGN.md"), "utf8").replace(/\s+/g, " ").toLowerCase();
     expect(design).toContain("chrome rendered in-frame with a control of the same recipe");
+  });
+
+  /**
+   * The predicate and the tree must agree, and for six days they did not.
+   *
+   * The clause shipped 2026-08-25 and both chips moved with it, while §1.2a kept
+   * a paragraph in the PRESENT TENSE saying they had stayed put and now read
+   * lighter. A reader who trusted the section was told the opposite of what the
+   * tree does, four lines above the clause that had already settled it.
+   *
+   * The load-bearing half of this assertion is the POSITIVE one. A negative
+   * phrase check goes quiet the moment someone rephrases the stale claim, so
+   * what is pinned is that the section RECORDS THE CLOSURE, with the archive
+   * anchor that makes it checkable. The negative half catches a straight revert.
+   */
+  it("records the closure rather than restating the pre-2026-08-25 state", () => {
+    const design = readFileSync(join(ROOT, "DESIGN.md"), "utf8").replace(/\s+/g, " ").toLowerCase();
+    // Premise: the section this asserts about is actually present. Without it a
+    // renamed or deleted §1.2a would satisfy every `not.toContain` below by
+    // containing nothing at all.
+    premiseHolds(
+      "DESIGN.md still carries the did-not-move record the closure attaches to",
+      design.includes("what did not move with the 21"),
+    );
+
+    expect(
+      design,
+      "the closure is recorded with its archive anchor, so the record cannot read as open",
+    ).toContain("backlog-archive.md:1288");
+
+    for (const stale of ["and now reads lighter beside it", "is now the quieter half"]) {
+      expect(design, `§1.2a still asserts the pre-2026-08-25 state: "${stale}"`).not.toContain(
+        stale,
+      );
+    }
   });
 });

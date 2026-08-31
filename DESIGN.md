@@ -267,17 +267,20 @@ carry a `switch-track` residue row citing this ruling, and the ruling itself is
 untouched. Becoming visible to a census is a registration duty, not a reopening:
 the tracks are out for the ON/OFF RELATIONSHIP, never for the ratio.
 
-**What did not move with the 21, and now reads lighter beside it** (2026-08-16
-invariant-8 gate). Two elements share a recipe with a swapped control and stayed
-put, so each is now the quieter half of a visible pair: the lightbox's
-`aria-hidden` demote chip (`components/diagrams/GalleryLightbox.tsx:773`, same
-`rounded-pill bg-surface-raised` as the Reset chip it can share a frame with) and
-the staged-preview banner's `aria-current` chip
-(`components/admin/StagedPreviewBanner.tsx:65`, standing in a row of picker links
-that moved). Both are non-interactive chrome, so the scope paragraph below made them
-correct in isolation — and the 2026-08-14 rationale for moving six controls was
-that a control they render WITH had already moved, which points the other way.
-That contradiction was filed as `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+**What did not move with the 21, and read lighter beside it until 2026-08-25** (2026-08-16
+invariant-8 gate). Two elements shared a recipe with a swapped control and stayed put, so each
+became the quieter half of a visible pair: the lightbox's `aria-hidden` demote chip
+(`data-testid="lightbox-demote-chip"` in `components/diagrams/GalleryLightbox.tsx`, same
+`rounded-pill bg-surface-raised` as the `lightbox-reset-chip` it can share a frame with) and the
+staged-preview banner's `aria-current` chip (`components/admin/StagedPreviewBanner.tsx`, standing in
+a row of picker links that moved). Measured 1.59/1.50 against the links' 3.35/3.53. Both were
+non-interactive chrome, so the scope paragraph below made them correct in isolation, while the
+2026-08-14 rationale for moving six controls was that a control they render WITH had already moved,
+which points the other way. That contradiction was filed as
+`BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`, and it is closed: the clause below settled it on
+2026-08-25, both chips moved in `e6408222c`, and the row is archived at `BACKLOG-archive.md:1288`.
+Kept as the record of why the clause exists rather than deleted, the same way the tinted-plate
+paragraph below keeps its own superseded did-not-move claim.
 
 **The pairing clause, ruled 2026-08-25.** Chrome rendered in-frame with a
 control of the same recipe takes that control's outline weight. A rule rather
