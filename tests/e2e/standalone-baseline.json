@@ -564,6 +564,11 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"03bb12fa6f36e061f8a9-9581d31951560910d103\",[\"statusStripToggleLayout.spec.ts\",\"CASP-2 inline toggle strip — 390px geometry (spec §8.10)\",\"finalize @390: sublabel in-flow, no chip, row stays one line\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"03bb12fa6f36e061f8a9-aff4ea26cbeee8572d32\",[\"statusStripToggleLayout.spec.ts\",\"CASP-2 inline toggle strip — 390px geometry (spec §8.10)\",\"(c) @>=sm: the finalize chip is a compact in-viewport pill right of the switch (not a full-strip banner)\"]]"
     ],
+    "tests/e2e/step3-finalize-progress.layout.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-052160e588fb50f3a33b\",[\"step3-finalize-progress.layout.spec.ts\",\"the finalize bar paints the FXAV accent, and its track follows the theme\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-ce2d7201b9a0d2c82661\",[\"step3-finalize-progress.layout.spec.ts\",\"engine: the reduced-motion override survives this engine's selector parser\"]]",
+      "[\"standalone-webkit-finalize-progress\",\"standalone-webkit-finalize-progress\",\"a2ce8e6f60a4ae4b5f0d-2549beb68014116026a0\",[\"step3-finalize-progress.layout.spec.ts\",\"engine: the reduced-motion override survives this engine's selector parser\"]]"
+    ],
     "tests/e2e/step3-review-modal.agenda.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"dc2846f800e4e4f097d4-240a137f4738646d63d9\",[\"step3-review-modal.agenda.spec.ts\",\"the 88-char unbreakable session title wraps inside the real wrapper @ 390px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"dc2846f800e4e4f097d4-7e380f3246605c8db049\",[\"step3-review-modal.agenda.spec.ts\",\"agenda breakdown is contained by the REAL modal wrapper @ 320px\"]]",
@@ -782,5 +787,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 681
+  "totalTests": 684
 }

@@ -24,6 +24,63 @@ import { activatedRunScalars } from "../_shared/workflowActivation";
 const ROOT = process.cwd();
 const PROJECT = "standalone-webkit-a11y";
 
+/**
+ * Every project the config resolves to WebKit, derived rather than listed.
+ *
+ * Added 2026-08-31. This file was pinned to ONE project by the PROJECT constant below,
+ * so `standalone-webkit-load-eligibility` had no wiring assertion at all and a third
+ * WebKit leg would have made two uncovered. A gate proves only what it is told to check.
+ *
+ * `browserName` is read before `defaultBrowserType` because it is an overridable worker
+ * option that merely DEFAULTS from the device spread, so an explicit override decides
+ * which engine launches — the same lesson the R5 escaping mutant below already paid for.
+ */
+function webkitProjects() {
+  return (standaloneConfig.projects ?? []).filter((p) => {
+    const use = (p.use ?? {}) as { browserName?: string; defaultBrowserType?: string };
+    return (use.browserName ?? use.defaultBrowserType) === "webkit";
+  });
+}
+
+describe("every standalone WebKit leg is wired", () => {
+  it("finds the WebKit projects at all", () => {
+    // Guards the walk. A filter that matched nothing would make the case below
+    // vacuously true, which is this file's own subject one level up.
+    expect(
+      webkitProjects()
+        .map((p) => p.name)
+        .sort(),
+    ).toEqual([
+      "standalone-webkit-a11y",
+      "standalone-webkit-finalize-progress",
+      "standalone-webkit-load-eligibility",
+    ]);
+  });
+
+  it.each(webkitProjects().map((p) => p.name as string))(
+    "%s resolves at least one test",
+    (name) => {
+      // A project whose testMatch or grep selects nothing reports green while running
+      // nothing. Measured when this walk was added: load-eligibility 5, a11y 1,
+      // finalize-progress 1.
+      const listed = execFileSync(
+        "npx",
+        [
+          "playwright",
+          "test",
+          "--config",
+          "tests/e2e/standalone.config.ts",
+          `--project=${name}`,
+          "--list",
+        ],
+        { cwd: ROOT, encoding: "utf8" },
+      );
+      const total = /Total: (\d+) test/.exec(listed)?.[1];
+      expect(Number(total ?? 0), `${name} selects no tests`).toBeGreaterThan(0);
+    },
+  );
+});
+
 describe("standalone WebKit a11y leg wiring", () => {
   it(`${PROJECT} actually runs on WebKit`, () => {
     // Whole-diff review R1 (HIGH) escaping mutant: swapping `devices["Desktop Safari"]` for

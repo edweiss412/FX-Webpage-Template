@@ -678,14 +678,16 @@
   }
 }
 
-/* Onboarding scan progress bar (wizard Step 2). A native <progress> is unthemed
-   by default (browser chrome blue / platform accent); paint it with the single
+/* Progress bars for BOTH wizard steps: the step-2 folder scan and the step-3
+   finalize run. A native <progress> is unthemed by default (browser chrome blue
+   / platform accent); paint it with the single
    FXAV accent on a raised track so it reads as the "this matters now" signal
    (DESIGN.md: one signature accent, no competing hue). The DETERMINATE fill
    updates instantly per the `value` attribute (no custom transition). The
    INDETERMINATE state (connecting / finishing — no `value`) shimmers so it still
    reads as active; the shimmer is the only motion and is gated below. */
-progress[data-testid="wizard-step2-progressbar"] {
+progress[data-testid="wizard-step2-progressbar"],
+progress[data-testid="wizard-finalize-progressbar"] {
   appearance: none;
   -webkit-appearance: none;
   border: 1px solid var(--color-border);
@@ -693,15 +695,18 @@ progress[data-testid="wizard-step2-progressbar"] {
   overflow: hidden;
   background-color: var(--color-surface-raised);
 }
-progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-bar {
+progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-bar,
+progress[data-testid="wizard-finalize-progressbar"]::-webkit-progress-bar {
   background-color: var(--color-surface-raised);
   border-radius: 9999px;
 }
-progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-value {
+progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-value,
+progress[data-testid="wizard-finalize-progressbar"]::-webkit-progress-value {
   background-color: var(--color-accent);
   border-radius: 9999px;
 }
-progress[data-testid="wizard-step2-progressbar"]::-moz-progress-bar {
+progress[data-testid="wizard-step2-progressbar"]::-moz-progress-bar,
+progress[data-testid="wizard-finalize-progressbar"]::-moz-progress-bar {
   background-color: var(--color-accent);
   border-radius: 9999px;
 }
@@ -714,7 +719,8 @@ progress[data-testid="wizard-step2-progressbar"]::-moz-progress-bar {
    surfaces (bar pseudo-elements) fixes both. The determinate state (a `value`
    attribute → ::-webkit-progress-value / a filled ::-moz-progress-bar) is
    UNCHANGED — these rules only match `:indeterminate`. */
-progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar {
+progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
+progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar {
   background-color: var(--color-surface-raised);
   background-image: linear-gradient(
     90deg,
@@ -727,7 +733,8 @@ progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress
   background-position: -40% 0;
   animation: scan-progress-indeterminate 1.2s ease-in-out infinite;
 }
-progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar {
+progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar,
+progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-moz-progress-bar {
   /* Override the solid full-width accent Firefox paints on indeterminate so the
      moving shimmer shows instead of a misleading 100% bar. */
   background-color: transparent;
@@ -750,13 +757,30 @@ progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-ba
     background-position: 140% 0;
   }
 }
+/* The reduced-motion override is TWO rules, one per vendor pseudo-element, and
+   that is load-bearing rather than stylistic. A selector list is invalid AS A
+   WHOLE when any selector in it is invalid, and an unknown vendor pseudo-element
+   is invalid, so a list holding both ::-webkit-progress-bar and
+   ::-moz-progress-bar is dropped entirely by every engine that knows only one of
+   them. Measured on all three bundled engines: Chromium and WebKit drop it,
+   Firefox keeps it because it aliases the webkit form. Grouped, this override
+   reduced motion in Firefox alone, and Doug is on a phone. Pinned by
+   tests/styles/progressShimmerPseudoElements.test.ts, which asserts each of
+   these rules is single-vendor. */
 @media (prefers-reduced-motion: reduce) {
-  /* Kill the shimmer motion on the SAME track pseudo-elements, leaving a static
+  /* Kill the shimmer motion on the track pseudo-elements, leaving a static
      centered accent hint (not a solid bar). */
   progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
-  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar {
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar {
     animation: none;
     background-position: 50% 0; /* static centered accent hint */
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar,
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-moz-progress-bar {
+    animation: none;
+    background-position: 50% 0;
   }
 }
 
