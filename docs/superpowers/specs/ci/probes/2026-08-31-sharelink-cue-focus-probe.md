@@ -147,6 +147,45 @@ This is a different defect from the one the row predicted, on a different
 element, with a different cause, and it is out of this arc's fence. Recorded
 here rather than filed.
 
+## How wide the peer is
+
+Class-swept by derivation rather than by listing sites. The restore is gated on
+one flag, so the question is: which code paths WRITE that flag? Every writer in
+the repo:
+
+```
+$ grep -rn "restoreFocusRef.current = " app/ components/
+app/admin/settings/admins/RevokeRowButton.tsx:117    (inside closeConfirm)
+app/admin/settings/admins/RevokeRowButton.tsx:136    (the consuming effect, resets to false)
+app/admin/show/[slug]/RotateShareTokenButton.tsx:128 (inside closeConfirm)
+app/admin/show/[slug]/RotateShareTokenButton.tsx:147  (the consuming effect, resets to false)
+app/admin/show/[slug]/PickerResetControl.tsx:86      (inside closeConfirm)
+app/admin/show/[slug]/PickerResetControl.tsx:105     (the consuming effect, resets to false)
+app/admin/show/[slug]/ResetPickerEpochButton.tsx:81  (inside closeConfirm)
+app/admin/show/[slug]/ResetPickerEpochButton.tsx:100 (the consuming effect, resets to false)
+components/admin/ArchiveShowButton.tsx:203           (the consuming effect, resets to false)
+components/admin/ArchiveShowButton.tsx:341           (the Cancel button's own onClick)
+```
+
+Five two-tap destructive controls. In four of them the only setter is
+`closeConfirm()`, whose callers are Cancel's `onClick` and the arm-expiry timer.
+In the fifth the only setter is Cancel's `onClick` directly. **No confirm or
+submit handler in any of the five writes the flag.** So the restore is a
+Cancel-path feature across the whole class, by construction rather than by
+oversight in one file.
+
+Stated at the strength it was actually established: the derivation above is
+complete over the repo, and the focus outcome was MEASURED on the rotate control
+only. The other four are predicted by the same mechanism, not observed.
+
+One of them has already been through this code for a different reason and is
+worth reading before any repair. `RevokeRowButton.tsx:380-390` disables its
+confirm button on `isPending` rather than on the synchronous `isResolving`,
+because it is a form submitter and the synchronous disable cancelled the native
+submit outright. That fix moves WHEN the button is disabled by a tick; it does
+not keep it enabled, so the focus outcome is the same. Any repair here has to
+survive that constraint rather than undo it.
+
 ## Reproducing it
 
 The probe case is not committed. To re-run it, paste the body below into the
