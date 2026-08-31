@@ -67,16 +67,18 @@ describe("TelemetryRetryButton", () => {
     fireEvent.click(screen.getByTestId(TEST_ID));
     expect(statusText()).toContain(retryAnnouncement(WHAT));
     // Not decoration. Every string contains the empty string, so with the constant
-    // emptied `toContain` passes, and the parity space still separates attempt one from
-    // attempt two, so the repeat case passes too. Asserted on the RENDERED text rather
-    // than on the constant, so the constant alone cannot satisfy it.
+    // emptied `toContain` passes, and a second appended entry still separates attempt one
+    // from attempt two, so the repeat case passes too. Asserted on the RENDERED text
+    // rather than on the constant, so the constant alone cannot satisfy it.
     expect(statusText().trim().length).toBeGreaterThan(0);
   });
 
   // The case this file exists for. A second failed attempt that re-renders the identical
   // string into the region is SILENT to a screen reader, which is the same silence the
-  // ledger row exists to fix. Compared against the captured first value rather than a
-  // literal, so the case states the property and not today's encoding of it.
+  // ledger row exists to fix. Under the append channel the second attempt is a separate
+  // keyed addition, so the region's text grows rather than being rewritten; compared
+  // against the captured first value rather than a literal, so the case states the
+  // property and not today's encoding of it.
   test("a second activation is distinguishable from the first", () => {
     renderControl();
     fireEvent.click(screen.getByTestId(TEST_ID));
@@ -245,9 +247,9 @@ describe("TelemetryRetryButton", () => {
     expect(statusText()).toContain(retryOutcomeAnnouncement(WHAT));
   });
 
-  // The property AC-6 actually states, walked rather than predicted. Asserting parity
-  // arithmetic about a particular pair is a claim about the implementation and goes
-  // stale with it; this reads what rendered. Each step declares whether it should
+  // The property AC-6 actually states, walked rather than predicted. Asserting arithmetic
+  // about any particular pair is a claim about the implementation and goes stale with it,
+  // as the deleted parity counter did; this reads what rendered. Each step declares whether it should
   // SPEAK, and the two halves are asserted separately: a speaking step must change the
   // region text (an identical re-render is silence to a screen reader), and a silent
   // step must leave it exactly as it was. Recording only the changes would make the
@@ -269,8 +271,8 @@ describe("TelemetryRetryButton", () => {
       step(label, true, () => fireEvent.click(screen.getByTestId(TEST_ID)));
 
     tap("first tap");
-    // Two intents in a row carry identical text, so this is the one pair the parity
-    // separator alone can distinguish.
+    // Two intents in a row carry identical text, so this is the pair that separates an
+    // appending channel from a rewriting one.
     tap("second tap, same text as the first");
     step("the re-read that settled", true, () => rerenderAt(view, 2_000));
     tap("tap after an outcome");
@@ -343,6 +345,21 @@ describe("TelemetryRetryButton", () => {
   test("the intent and outcome strings differ", () => {
     expect(retryOutcomeAnnouncement(WHAT)).not.toBe(retryAnnouncement(WHAT));
     expect(retryOutcomeAnnouncement(WHAT)).toContain(WHAT);
+  });
+
+  // BOTH literals, pinned on the RENDERED text. Every other intent assertion in this file
+  // derives its expectation from `retryAnnouncement` itself, which is the right shape for
+  // asserting a property but pins no copy: rewriting the constant to `Retried ${what}`
+  // leaves all of them green while announcing a settled outcome before any server re-read
+  // has happened (whole-diff review round 1, finding 1). The outcome half already had its
+  // literal; this is the intent half of the same pin, and the two live together so a
+  // future reader cannot add a third string and miss the pattern.
+  test("both announcements say exactly what the copy decision settled", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    expect(lastAnnouncement()).toBe("Retrying scheduled-job health");
+    rerenderAt(view, 2_000);
+    expect(lastAnnouncement()).toBe("Still couldn’t load scheduled-job health");
   });
 
   // The prop pair exists so a call site cannot spell the label and the announcement
