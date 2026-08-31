@@ -241,47 +241,49 @@ and those bodies must not mutate a ref. And the enumeration argument of §3.1 ap
 exactly as it applies to membership: the effect derives what should be running from what IS
 retrying, so a removal path nobody has written yet is already covered.
 
-### 3.2a The live-membership rule, which is the whole repair for the snapshot vector
+### 3.2a The snapshot bound, which is the contract, and the mechanism, which is not
 
-```ts
-const retryingLiveRef = useRef<ReadonlySet<string>>(retrying);
-useEffect(() => { retryingLiveRef.current = sweptRetrying; });
-```
+**THE BOUND.** ANY code that runs outside the render phase may observe a STALE `retrying` snapshot.
+Not "the readers listed below", not "the readers we thought of": any. A `setTimeout` callback, a
+passive effect, a subscriber registered once, a handler added next month. **The mechanism must make
+that harmless.** An out-of-render reader acting on a stale snapshot must produce no state write for
+an item that has left `retrying`, and no announcement for one that has left or resolved.
 
-**Every reader that runs outside the render phase consults `retryingLiveRef.current` before acting,
-and returns early when the id is absent.** That is one rule over a class of readers, not a list of
-races, so a reader added later is covered by following it rather than by being enumerated here.
+This is stated as a bound rather than an inventory on the orchestrator's ruling of 2026-08-31, and
+the reason is measured rather than stylistic. Earlier drafts of this section listed the readers,
+first three and then five, and each list was the refutable surface: round 3 found readers the list of
+three had missed, and round 4 found four more the list of five had missed, including the Embla
+subscriber (`GalleryLightbox.tsx:559`) the same section cited as its pattern. An inventory over an
+open set fails open by construction, and a criterion scoped to "the readers named here" cannot see
+what the inventory missed. **A reader-census finding therefore files to
+`LIM-OUT-OF-RENDER-SNAPSHOT-READ`, not to a review round.** The bound above is the contract; naming a
+sixth reader does not weaken it, because the bound already ranges over all of them.
 
-The class as it stands has FIVE members, and every one is dispositioned rather than counted, because
-a class covered by a count is the shape that produced these findings in the first place:
+**THE MECHANISM IS A CANDIDATE, AND A TEST DECIDES IT.** Two are on the table. Neither is ratified
+here, because prose has now been wrong about this twice and the deciding suite is what settles it
+(§10, AC-16 and AC-18; the plan's planted-race tasks are the oracle).
 
-| out-of-render reader | disposition |
-|---|---|
-| the check-in timer callback | CONSULTS the ref. It is scheduled once and can run arbitrarily late |
-| the announcement effect (§6.1) | CONSULTS the ref, at execution time. A passive effect scheduled by an earlier render runs before the next render begins, so its snapshot can be stale by the time it speaks |
-| the reconciler (§3.2) | CONSULTS the ref. It is passive, so the same staleness applies; consulting costs nothing and removes the question |
-| the layout effect (§4.1 step 2) | EXEMPT, with a reason. A layout effect runs synchronously in the commit cycle that scheduled it, before paint, so nothing can intervene between its snapshot and its execution. It is the one reader whose snapshot is provably current |
-| the mount-scoped unmount guard (§3.2) | EXEMPT, with a reason. Its cleanup reads only the timer map, never `retrying`, and it runs exactly once |
+**Primary candidate: the writer-side twin.** Every call site that writes `retrying` updates a mirror
+SYNCHRONOUSLY in the same statement, so the mirror is current the instant the state change is
+queued rather than one passive effect later. Out-of-render readers consult the mirror. What makes
+this differ from the refuted version is WHO updates it: the writer set of `retrying` is CLOSED and
+greppable, where the reader set is open, so the pairing is pinnable by a structural meta-assert that
+walks the call sites and fails on one without its mirror write. State the writer set, never the
+consultation schedule.
 
-The two exemptions are stated because silence about them would be indistinguishable from having
-missed them, which is how a reader would have to read the earlier draft's "three members".
+**Fallback candidate: fire-time re-read.** The timer callback captures nothing and re-reads current
+state when it fires, through a functional state update whose `prev` argument is live by React's own
+contract, no-opping when the item is gone or resolved. Narrower than the primary, because it covers
+the timer and not the announcement, but it needs no mirror at all.
 
-**This is the sibling component's shipped pattern, adopted rather than invented.**
-`GalleryLightbox.tsx:340-342` already declares exactly this ref and updates it in an effect, and
-`GalleryLightbox.tsx:559` already reads it from an Embla subscriber that would otherwise hold a
-stale closure. The gallery gains the twin. An earlier draft argued the gallery should NOT need one
-because the intersection made writes inert; that argument was wrong for everything outside render,
-and the two components now share one mechanism instead of diverging on a claim that did not hold.
-
-**The timer callback therefore checks membership and does NOT announce.** It returns early when its
-id has left, so no stale write is ever made and there is nothing for a later retry to inherit.
-Announcing from the callback is separately forbidden (§6.1): a callback that speaks has already
-spoken by the time any guard could matter. If its id has already left `retrying` — including in the same tick as an `onLoad` —
-the write is inert by §3.1, and the effect drops it on the next commit. The first draft specified a
-callback that "returns early on the membership test", which the gallery cannot do: it has no
-`retryingStateRef` (the lightbox has one, `GalleryLightbox.tsx:340`), and the closure a timer
-started in `handleRetry` captures predates the id being added. Making the stale write harmless is
-simpler than making it impossible, and it does not need a ref either component lacks.
+**What the refuted repair got wrong, recorded so neither candidate repeats it.** Round 3's repair
+mirrored `retrying` into a ref synced by a PASSIVE effect. React flushes pending passive effects
+before the next render, so the mirror and the reader it protects were pending from the same commit
+and the mirror had not learned about a removal that was queued but not rendered. **A mechanism that
+learns about a removal on the same schedule as the reader it protects protects nothing.** Both
+candidates above avoid that by reading something that is current at the moment of use: the primary
+because the write is synchronous with the state change, the fallback because it re-reads rather than
+remembering.
 
 ### 3.3 The constant, and where it lives
 
@@ -472,7 +474,8 @@ is inert, and a callback that also speaks has already spoken by the time anythin
 inert. So:
 
 - an effect keyed on `effectiveCheckedIn` (§3.1) iterates the ids in it, and for each one **re-checks
-  `retryingLiveRef.current` at execution time (§3.2a)** before announcing, then records the id in
+  liveness at execution time, by whichever mechanism §3.2a's candidates resolve to** before
+  announcing, then records the id in
   `announcedCheckInRef`
 - the §3.2 reconciler drops an id from `announcedCheckInRef` when it leaves `retrying`, so a genuine
   second entry announces again and a re-render does not
@@ -598,9 +601,10 @@ rather than as a finding.
 | AC-12 | Every new `useState` / `useRef` in both components has a `PER_ITEM_STATE_REGISTRY` row with a non-empty `clearedBy` and a sweep decision |
 | AC-13 | In a real browser, with the asset request held open, the check-in appears and the check-in button's height equals the gallery cell's within 0.5px |
 | AC-14 | The check-in announces once per entry through the existing channel router, and `restarting` announces nothing |
-| AC-15 | No announcement is emitted for an id that has left `retrying`, asserted for the same-tick `onLoad` and for a swept item, AND for the case where the announcement effect was already scheduled when the image loaded. The last one is the execution-time re-check of §3.2a, and it is the case the intersection alone does not cover |
+| AC-15 | No announcement is emitted for an id that has left `retrying` or resolved, asserted for the same-tick `onLoad`, for a swept item, and for the case where the announcement effect was ALREADY SCHEDULED when the image loaded. The third is the one the intersection alone does not cover, and it is the case that refuted the round-3 mechanism |
 | AC-16 | A check-in timer callback that fires after its id has left `retrying` writes nothing. Asserted by driving an item out of `retrying` with the callback already queued, then re-entering `retrying` and asserting the new entry waits a full `RETRY_CHECK_IN_MS` rather than checking in at once. A stale write is invisible until the NEXT retry inherits it, so the assertion is on the next retry |
-| AC-17 | Every out-of-render reader named in §3.2a either consults `retryingLiveRef` or is one of the two exempt readers. Asserted structurally over both component sources, so a sixth reader added later fails rather than being silently exempt |
+| AC-18 | THE DECIDING CASE, planted per surface. With a check-in timer pending, remove the item from `retrying` by each removal source in turn, and assert the observable outcome: no `checkedIn` write, no announcement, and a subsequent retry that waits its full window. This is what settles §3.2a's candidates; prose has been wrong about this twice and a test has not been asked yet |
+| AC-17 | Whichever mechanism §3.2a resolves to is PINNED structurally. If the writer-side twin ships, a walker over every `setRetrying` call site in both components asserts each is paired with its synchronous mirror write, and a call site added later without one fails. The assertion is over the WRITER set, which is closed, never over the reader set, which is open and whose enumeration is the refuted surface |
 
 ## 11. Out of scope
 
