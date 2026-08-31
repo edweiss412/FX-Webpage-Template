@@ -38,10 +38,25 @@
  * trailing-U+00A0 parity trick this control used to carry, whose reliability varies by
  * assistive technology.
  *
- * The owner-stability half of that rule is knowingly excepted here. The region unmounts
- * with the fallback branch, which is the settled success-path silence: every message
- * this control sends is sent while the branch is still standing, so no announcement is
- * ever racing the flip that destroys it.
+ * The owner-stability half of that rule is knowingly excepted here, and the exception is
+ * narrower than "nothing races the unmount". What §15 actually names is a region
+ * destroyed and REPLACED BY AN ALREADY-POPULATED ONE, which cannot happen here: on
+ * success the control unmounts and nothing takes its place. A successful refresh can
+ * still remove the intent announcement before an assistive technology has spoken it;
+ * that is the success path, whose silence is settled.
+ *
+ * The channel is pruned at the CYCLE BOUNDARY, from the click handler, not by a TTL.
+ * Two reasons, and the second is the subtle one. A TTL would make the render-phase
+ * `announce` below schedule a timer and mutate a ref mid-render, which a discarded
+ * concurrent render would orphan; the click handler is where a side effect belongs.
+ * And pruning on EVERY tap would be wrong: two taps with no settlement between them
+ * carry identical text, and collapsing them to one node would hand a text-diffing
+ * assistive technology the very silence the parity trick used to work around. So the
+ * reset fires only when no retry is in flight (`baseline === null`), which means any
+ * entries still showing belong to a cycle that already ended. A run of impatient taps
+ * accumulates within its own cycle and stays distinguishable; a settled cycle is
+ * cleared by the next tap, so the region holds an intent and its outcome, not a visit's
+ * worth of them.
  *
  * The OUTCOME half (TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1). `router.refresh()` hands
  * back no completion signal, so the only honest one is a value the SERVER render
@@ -87,7 +102,7 @@ export function TelemetryRetryButton({
   renderedAt: number;
 }) {
   const router = useRouter();
-  const { announce, entries } = useAnnounceLog();
+  const { announce, entries, reset } = useAnnounceLog();
   const [baseline, setBaseline] = useState<number | null>(null);
 
   // Adjusted DURING render rather than in an effect, so the outcome text and the
@@ -105,6 +120,7 @@ export function TelemetryRetryButton({
         data-testid={testId}
         aria-label={retryLabel(what)}
         onClick={() => {
+          if (baseline === null) reset();
           announce(retryAnnouncement(what));
           if (Number.isFinite(renderedAt)) setBaseline(renderedAt);
           router.refresh();
@@ -124,7 +140,15 @@ export function TelemetryRetryButton({
         <RotateCw className="size-4" aria-hidden />
         {TELEMETRY_RETRY_TEXT}
       </button>
-      <AnnounceLogRegion entries={entries} label={retryLabel(what)} testId={`${testId}-status`} />
+      {/* Named for its CONTENT, the shape every other consumer of this channel uses
+          ("Diagram updates", "Warning updates"). Naming it with the button's own command
+          string would read as a second control in browse mode and the rotor, and say the
+          same words twice to anyone arrowing past the button. */}
+      <AnnounceLogRegion
+        entries={entries}
+        label={`${what} retry updates`}
+        testId={`${testId}-status`}
+      />
     </>
   );
 }

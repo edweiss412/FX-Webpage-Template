@@ -296,6 +296,28 @@ describe("TelemetryRetryButton", () => {
     expect(new Set(ids).size).toBe(2);
   });
 
+  // The pruning rule, both halves. Impatient taps inside ONE cycle must accumulate, or a
+  // text-diffing assistive technology hears the second one as nothing (the silence the
+  // deleted parity trick used to work around); a settled cycle must be cleared by the
+  // next tap, or the region grows for the whole visit.
+  test("a settled cycle is cleared by the next tap; taps within one cycle accumulate", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    expect(announcements(), "taps with no settlement between them must accumulate").toHaveLength(2);
+
+    rerenderAt(view, 2_000);
+    expect(announcements()).toEqual([
+      retryAnnouncement(WHAT),
+      retryAnnouncement(WHAT),
+      retryOutcomeAnnouncement(WHAT),
+    ]);
+
+    // The cycle settled, so the next tap starts clean rather than adding a fourth.
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    expect(announcements()).toEqual([retryAnnouncement(WHAT)]);
+  });
+
   test("the region is the sanctioned log shape, not a hand-rolled status swap", () => {
     renderControl();
     const region = screen.getByTestId(`${TEST_ID}-status`);
@@ -305,6 +327,17 @@ describe("TelemetryRetryButton", () => {
     for (const attr of ["aria-live", "aria-atomic", "aria-relevant"]) {
       expect(region).not.toHaveAttribute(attr);
     }
+
+    // The region is named for its CONTENT, never with the button's command string. A log
+    // labelled "Try again to load X" reads as a second control in browse mode and the
+    // rotor, and says the same words twice to anyone arrowing past the button. Compared
+    // against the button's own rendered name rather than a literal, so the two cannot
+    // converge later without failing here.
+    const commandName = screen.getByTestId(TEST_ID).getAttribute("aria-label") ?? "";
+    premise("the button has an accessible name to collide with", commandName.length, 0);
+    const regionName = region.getAttribute("aria-label") ?? "";
+    expect(regionName).not.toBe(commandName);
+    expect(regionName).toContain(WHAT);
   });
 
   test("the intent and outcome strings differ", () => {
