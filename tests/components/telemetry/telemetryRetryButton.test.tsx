@@ -46,6 +46,11 @@ afterEach(() => {
 });
 
 const statusText = () => screen.getByTestId(`${TEST_ID}-status`).textContent ?? "";
+/** The channel is APPEND-shaped, so each announcement is its own keyed child. Read them
+ *  as a list wherever the case is about one utterance rather than the whole log. */
+const announcements = () =>
+  Array.from(screen.getByTestId(`${TEST_ID}-status`).children).map((c) => c.textContent ?? "");
+const lastAnnouncement = () => announcements().at(-1) ?? "";
 
 describe("TelemetryRetryButton", () => {
   // Mounted-then-filled. A control that renders its region only once it has something to
@@ -156,17 +161,17 @@ describe("TelemetryRetryButton", () => {
     const view = renderControl(1_000);
     fireEvent.click(screen.getByTestId(TEST_ID));
     rerenderAt(view, 2_000);
-    // EXACT, against the literal copy with the parity separator stripped. `toContain`
-    // was the shape here first and a planted mutant walked straight through it: an
-    // appended suffix is still contained, so the shipped copy could drift by any
-    // amount of trailing text with the whole suite green.
-    expect(statusText().replace(/ $/, "")).toBe("Still couldn’t load scheduled-job health");
+    // EXACT, on the appended entry itself. `toContain` over the whole region was the
+    // shape here first and a planted mutant walked straight through it: an appended
+    // suffix is still contained, so the shipped copy could drift by any amount of
+    // trailing text with the whole suite green.
+    expect(lastAnnouncement()).toBe("Still couldn’t load scheduled-job health");
 
     // Once: the baseline cleared with the announcement, so a further changed value
-    // says nothing new until the next tap.
-    const settled = statusText();
+    // appends nothing until the next tap.
+    const settled = announcements();
     rerenderAt(view, 3_000);
-    expect(statusText()).toBe(settled);
+    expect(announcements()).toEqual(settled);
   });
 
   test("a changed timestamp with no tap in flight announces nothing", () => {
@@ -275,18 +280,31 @@ describe("TelemetryRetryButton", () => {
     step("a further render with no tap in flight", false, () => rerenderAt(view, 4_000));
   });
 
-  // The separator is U+00A0 specifically. An ordinary trailing space is textually
-  // distinct too, so an inequality-only check would accept it while abandoning the
-  // mechanism the sibling precedent uses (ShowRowActions.tsx:608).
-  test("the parity separator is a non-breaking space", () => {
+  // The recurrence property, and the reason this control takes the sanctioned APPEND
+  // channel rather than a text swap: an identical text change may not re-announce,
+  // while an identical addition always does (DESIGN.md section 15). Two taps in a row
+  // carry byte-identical copy, so they are the case that separates the two shapes.
+  test("two identical announcements are two appended entries, not one rewritten node", () => {
     renderControl();
     fireEvent.click(screen.getByTestId(TEST_ID));
-    const first = statusText();
     fireEvent.click(screen.getByTestId(TEST_ID));
-    const second = statusText();
-    const [plain, suffixed] = first.length <= second.length ? [first, second] : [second, first];
-    expect(plain).toBe(retryAnnouncement(WHAT));
-    expect(suffixed).toBe(`${retryAnnouncement(WHAT)} `);
+    expect(announcements()).toEqual([retryAnnouncement(WHAT), retryAnnouncement(WHAT)]);
+    // Distinctly keyed, so an assistive technology reading additions is handed two.
+    const ids = Array.from(screen.getByTestId(`${TEST_ID}-status`).children).map((c) =>
+      c.getAttribute("data-announce-id"),
+    );
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  test("the region is the sanctioned log shape, not a hand-rolled status swap", () => {
+    renderControl();
+    const region = screen.getByTestId(`${TEST_ID}-status`);
+    expect(region).toHaveAttribute("role", "log");
+    // No explicit aria-live / aria-atomic / aria-relevant: role="log" carries them, and
+    // writing them by hand is what the shared module exists to stop.
+    for (const attr of ["aria-live", "aria-atomic", "aria-relevant"]) {
+      expect(region).not.toHaveAttribute(attr);
+    }
   });
 
   test("the intent and outcome strings differ", () => {

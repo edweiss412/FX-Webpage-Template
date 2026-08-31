@@ -27,9 +27,21 @@
  * state that could strand a surface whose entire defect is having no recourse.
  *
  * The status region is mounted WITH the button and filled on activation. A live region
- * inserted together with its text is never announced. The parity toggle is why a SECOND
- * failed attempt is heard at all: repeating an identical string into a live region is
- * silence (`components/admin/ShowRowActions.tsx:608` uses the same trick).
+ * inserted together with its text is never announced.
+ *
+ * It is the SANCTIONED APPEND CHANNEL, not a hand-rolled text swap. Two message kinds
+ * now share one region and either can recur verbatim across taps, which is exactly the
+ * condition DESIGN.md §15 names for choosing `role="log"` over `role="status"`: an
+ * identical text change may not re-announce, while an identical addition always does.
+ * `components/admin/announceLog.tsx` is that implementation, and the same section says
+ * not to hand-roll a third copy. Taking it deletes the sequence counter and the
+ * trailing-U+00A0 parity trick this control used to carry, whose reliability varies by
+ * assistive technology.
+ *
+ * The owner-stability half of that rule is knowingly excepted here. The region unmounts
+ * with the fallback branch, which is the settled success-path silence: every message
+ * this control sends is sent while the branch is still standing, so no announcement is
+ * ever racing the flip that destroys it.
  *
  * The OUTCOME half (TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1). `router.refresh()` hands
  * back no completion signal, so the only honest one is a value the SERVER render
@@ -48,9 +60,11 @@
  * from it, so a call site cannot spell the label and the announcement differently.
  */
 import { RotateCw } from "lucide-react";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/ui/cn";
+import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
 import { SECONDARY_ACTION_ON_TINTED_CLASS } from "@/lib/ui/actionClass";
 
 /** The visible label, identical at every site: the button does the same thing everywhere,
@@ -73,10 +87,7 @@ export function TelemetryRetryButton({
   renderedAt: number;
 }) {
   const router = useRouter();
-  const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>({
-    text: "",
-    seq: 0,
-  });
+  const { announce, entries } = useAnnounceLog();
   const [baseline, setBaseline] = useState<number | null>(null);
 
   // Adjusted DURING render rather than in an effect, so the outcome text and the
@@ -84,7 +95,7 @@ export function TelemetryRetryButton({
   // inequality guard is what makes it terminate: the very update clears the baseline.
   if (baseline !== null && Number.isFinite(renderedAt) && renderedAt !== baseline) {
     setBaseline(null);
-    setAnnouncement((prev) => ({ text: retryOutcomeAnnouncement(what), seq: prev.seq + 1 }));
+    announce(retryOutcomeAnnouncement(what));
   }
 
   return (
@@ -94,7 +105,7 @@ export function TelemetryRetryButton({
         data-testid={testId}
         aria-label={retryLabel(what)}
         onClick={() => {
-          setAnnouncement((prev) => ({ text: retryAnnouncement(what), seq: prev.seq + 1 }));
+          announce(retryAnnouncement(what));
           if (Number.isFinite(renderedAt)) setBaseline(renderedAt);
           router.refresh();
         }}
@@ -113,13 +124,7 @@ export function TelemetryRetryButton({
         <RotateCw className="size-4" aria-hidden />
         {TELEMETRY_RETRY_TEXT}
       </button>
-      <span role="status" aria-live="polite" className="sr-only" data-testid={`${testId}-status`}>
-        {announcement.seq === 0
-          ? ""
-          : announcement.seq % 2 === 1
-            ? announcement.text
-            : `${announcement.text}\u00A0`}
-      </span>
+      <AnnounceLogRegion entries={entries} label={retryLabel(what)} testId={`${testId}-status`} />
     </>
   );
 }
