@@ -9,8 +9,9 @@ Row: `DEFERRED.md` › `NAV-BADGE-ARRIVAL-ANNOUNCE-1`. Branch
 - Invariant 1, TDD per task: every task is red then green on the SAME command.
 - Invariant 6, one commit per task, conventional style, scope `admin`.
 - Invariant 8, UI quality gate: `components/admin/nav/**` is a UI surface, so
-  the impeccable critique and audit pair runs before the whole-diff review and
-  the closeout carries the `impeccable-gate:` marker line.
+  the invariant-8 dual gate (both halves of the v3 pair) runs before the
+  whole-diff review, and the CLOSEOUT commit carries the `impeccable-gate:`
+  marker line with the values that run reported. See Task 5.
 - Invariant 12: the IN PROGRESS marker comes off in the PR's LAST commit, in the
   same commit that archives the row.
 - No new `BL-`/`DEF-` row of any facing. Peers are repaired in-branch or
@@ -39,8 +40,11 @@ not a description of checks to perform later.
 
 ## Meta-test inventory
 
-**Creates:** one, `tests/components/admin/nav/_metaNavArrivalReport.test.ts (new)`
-(Task 4).
+**Creates:** none. Task 4 EXTENDS the existing
+`tests/components/_metaLiveRegionMounting.test.ts` and adds one assertion to the
+Task 3 suite; it creates no meta-test file. An earlier draft of this plan named
+a `_metaNavArrivalReport.test.ts (removed)` that no task builds, and that name is removed
+everywhere rather than left as a file nobody creates.
 
 **Extends:** none.
 
@@ -60,12 +64,12 @@ A1/A2/A3 are unaffected: no `<AdminAnnounceProvider>` is added or moved.
 | File | Change |
 |---|---|
 | `components/admin/nav/navArrivalAnnounce.ts (new)` | NEW. `navBadgeArrivalAnnouncement(bell, attention)` and the two sentence builders |
-| `components/admin/nav/NotifBell.tsx` | one optional prop `onFirstSettled`, one ref-guarded effect |
+| `components/admin/nav/NotifBell.tsx` | one optional prop `onBellState`, reporting `{settled, announceable}` on every change of that tuple, and an `aria-label` derived from `bellAccessibleName` |
 | `components/admin/nav/AdminNav.tsx` | the join: two settle slots, one effect, one `useContext(UndoAnnounceContext)` |
 | `tests/components/admin/nav/navArrivalAnnounce.test.ts (new)` | NEW, Task 1 |
 | `tests/components/admin/nav/notifBellFirstSettled.test.tsx (new)` | NEW, Task 2 |
 | `tests/components/admin/nav/navArrivalAnnounceIntegration.test.tsx (new)` | NEW, Task 3 |
-| `tests/components/admin/nav/_metaNavArrivalReport.test.ts (new)` | NEW, Task 4 |
+| `tests/components/_metaLiveRegionMounting.test.ts` | Task 4: the detector widens to `role="log"`, and a separate source assertion covers AC-10 |
 | `docs/superpowers/specs/2026-08-31-nav-badge-arrival-announce-design.md` | the three self-found repairs, Task 0 |
 | `DEFERRED.md`, `DEFERRED-archive.md` | Task 5, graduation |
 
@@ -119,16 +123,23 @@ heading whose content BEGINS with the id.
 
 ### Task 1: the shared selectors and the copy builder
 
-<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter and with bellAnnounceableCount ignoring its degraded argument, so the guard cases and the degraded case fail while the two happy-path cases pass` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17,AC-18 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter, with HARDCODED PLURAL nouns, and with bellAnnounceableCount ignoring its degraded argument, so the guard cases, the singular case and the degraded case all fail while only the (3,2) case passes` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17,AC-18 -->
 
 **What is red and why.** The module lands in the RED step as an unconditional
-joiner: it builds both sentences from whatever it is handed. The suite's
-happy-path cases pass immediately; the guard cases (`0`, `null`, `NaN`,
+joiner with hardcoded plural nouns: it builds both sentences from whatever it is
+handed. Only the `(3, 2)` case passes. The guard cases (`0`, `null`, `NaN`,
 negative, `Infinity`, both-empty) fail, because a zero is spoken as
-`"0 unseen notifications."` and a `null` throws or renders `"null"`. The GREEN
-step adds the `Number.isFinite(n) && n > 0` filter and the `null` return for the
-empty case. Same command both times, and the red discriminates the FILTER rather
-than the file's existence.
+`"0 unseen notifications."` and a `null` throws or renders `"null"`; the `(1, 1)`
+case fails on the hardcoded plural; the non-integer case fails if the scaffold
+reaches for `Number.isInteger`; and the `bellAnnounceableCount` degraded case
+fails because the scaffold ignores that argument. The GREEN step adds the
+`Number.isFinite(n) && n > 0` filter, the per-half singular/plural choice, the
+`null` return for the empty case, and the degraded arm. Same command both times,
+and the red discriminates each BEHAVIOR rather than the file's existence.
+
+The plural hardcoding is deliberate and load-bearing: a scaffold that already
+pluralized correctly would leave AC-7 with no case that can fail before the
+implementation, which is a coverage claim the map could not support.
 
 This shape is chosen over the "module absent, import unresolvable" red that
 `docs/superpowers/plans/2026-08-30-pill-size-draft-restored-note.md:190` uses,
@@ -145,6 +156,7 @@ Cases, each with the concrete failure mode it catches:
 | `(3, 0)` | `"3 unseen notifications."` | a zero leaking into the sentence (R3) |
 | `(0, 2)` | `"2 items need attention."` | same, other half |
 | `(0, 0)` | `null` | announcing an empty or whitespace sentence |
+| `(2.5, null)` | `"2.5 unseen notifications."` | `Number.isInteger(n) && n > 0` substituted for `Number.isFinite`, which passes every other positive case here and violates the total contract at spec §3.6. Neither loader can produce a fraction; the function is specified total, so the case pins totality |
 | `(null, null)` | `null` | pending read as zero |
 | `(NaN, 2)` | `"2 items need attention."` | `Number.isFinite` omitted |
 | `(-1, 2)` | `"2 items need attention."` | `> 0` written as `>= 0` |
@@ -153,6 +165,7 @@ Cases, each with the concrete failure mode it catches:
 | `(null, 12)` | `"12 items need attention."` | the same cap on the ATTENTION half. R3 made AC-8 range over both, and only this case pins the second |
 | `bellAnnounceableCount(4, true)` | `null` | a retained count spoken while the degraded branch displays no number (AC-13) |
 | `bellAnnounceableCount(4, false)` | `4` | a selector that returns `null` unconditionally, which would pass every other degraded case vacuously |
+| `bellAnnounceableCount(2.5, false)` | `2.5` | the same integer-only mutant on the selector rather than the builder (spec §3.6's `count` finite and above zero row) |
 | `bellAccessibleName(12, false)` | `"Notifications: 12 unseen"` | the label and the sentence disagreeing at a capped count; this is the selector half of AC-18 |
 | `bellAccessibleName(0, false)` | `"Notifications"` | a name that interpolates a zero |
 
@@ -161,14 +174,21 @@ own numbers would mean the test reimplementing the function, which is the
 tautology the anti-tautology rule forbids. The copy IS the contract here, so a
 literal is the assertion.
 
-**Four pre-dispatch mutants**, run before the plan is dispatched and each result
-recorded in the commit: (a) the return value emptied; (b) the sentence plus an
-appended suffix; (c) the sentence present but behind a `false` condition; (d)
-each of the two parameters varied in turn.
+**Four mutants, run against the GREEN suite as Task 1's exit condition, not
+before dispatch.** An earlier draft of this plan claimed they had already run
+and that their results were recorded in the plan's commit. They had not: at plan
+time neither the module nor its suite exists, so there was nothing to mutate.
+The claim is withdrawn and restated as the obligation it should have been. Task 1
+is not complete until each of these is applied to the GREEN module, observed to
+turn the suite red, and reverted, with the four results recorded in Task 1's own
+commit message: (a) the return value emptied; (b) the sentence plus an appended
+suffix; (c) the sentence present but behind a `false` condition; (d) each of the
+two parameters varied in turn. A mutant that does NOT turn the suite red is a
+finding against the suite and is repaired before the task closes.
 
 ### Task 2: NotifBell reports its first definite answer
 
-<!-- task: red=`pnpm vitest run tests/components/admin/nav/notifBellFirstSettled.test.tsx` red-state=authored red-target=`components/admin/nav/NotifBell.tsx:25` why=`NotifBell accepts no onBellState prop, so every case observes zero calls against an expected one, and its aria-label is still the inline ternary rather than bellAccessibleName` ac=AC-9,AC-11,AC-13,AC-16,AC-17 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/notifBellFirstSettled.test.tsx` red-state=authored red-target=`components/admin/nav/NotifBell.tsx:25` why=`NotifBell accepts no onBellState prop, so every case that expects a report observes none, and its aria-label is still the inline ternary rather than bellAccessibleName. The prop-absent case is the exception and is a non-red regression pin, disclosed in this task` ac=AC-9,AC-11,AC-13,AC-16,AC-17 -->
 
 New suite, NOT an addition to `tests/components/notifBell.test.tsx`, because
 that file mocks `useBellBadge` at `tests/components/notifBell.test.tsx:24` and a mocked hook cannot exercise the
@@ -177,14 +197,14 @@ never-resolving promise so only the seam under test moves.
 
 | Case | Expects | Catches |
 |---|---|---|
-| `countPromise` resolves `{kind:"ok",count:4}` | called once, with `4` | the callback never wired |
-| resolves `{kind:"infra_error"}`, no initial | called once, with `null` | a failed read stalling the join forever |
-| neither `initialCount` nor `countPromise` | called once, with `null` | the "nothing will ever arrive" case stalling the join |
-| `initialCount` `{kind:"ok",count:2}`, no promise | called once, with `2` | a synchronous count treated as pending |
-| resolves 4, then a pathname change refetches to `7` | called AGAIN, with `7` | a once-only report, which is the R1 defect exactly: the parent then holds a frozen pair and announces a count the badge has moved off. Spec §3.6 prop table: "Not once-only" |
-| resolves 4, panel opened (`zeroNow` commits 0), demoted seed refetch commits 2 | reports `4`, then `0`, then `2`; the LAST pair is `{settled:true, announceable:2}` | a report that stops after the first settle, which would leave AC-16 unsatisfiable from the parent (`useBellBadge.ts:205-210` to `useBellBadge.ts:111`) |
-| resolves `{kind:"infra_error"}` (degraded), then a later fetch succeeds with 5 | reports `null` under degraded, then `5` when `degraded` clears | a degraded latch, which would silence AC-17 forever (`useBellBadge.ts:112`) |
-| panel opened before the promise resolves | called once, with `0` | announcing a count `zeroNow()` had just cleared |
+| `countPromise` resolves `{kind:"ok",count:4}` | one report, `{settled:true, announceable:4}` | the callback never wired |
+| resolves `{kind:"infra_error"}`, no initial | one report, `{settled:true, announceable:null}` | a failed read stalling the join forever |
+| neither `initialCount` nor `countPromise` | one report, `{settled:true, announceable:null}` | the "nothing will ever arrive" case stalling the join |
+| `initialCount` `{kind:"ok",count:2}`, no promise | one report, `{settled:true, announceable:2}` | a synchronous count treated as pending |
+| resolves 4, then a pathname change refetches to `7` | a SECOND report, `{settled:true, announceable:7}` | a once-only report, which is the R1 defect exactly: the parent then holds a frozen pair and announces a count the badge has moved off. Spec §3.6 prop table: "Not once-only" |
+| resolves 4, panel opened (`zeroNow` commits 0), demoted seed refetch commits 2 | three reports, `{true,4}` then `{true,null}` then `{true,2}`; the LAST pair is `{settled:true, announceable:2}` | a report that stops after the first settle, which would leave AC-16 unsatisfiable from the parent (`useBellBadge.ts:205-210` to `useBellBadge.ts:111`) |
+| resolves `{kind:"infra_error"}` (degraded), then a later fetch succeeds with 5 | `{true,null}` under degraded, then `{true,5}` when `degraded` clears | a degraded latch, which would silence AC-17 forever (`useBellBadge.ts:112`) |
+| panel opened before the promise resolves | one report, `{settled:true, announceable:null}`. `zeroNow` commits 0 and `bellAnnounceableCount(0,false)` is `null`, so the ANNOUNCEABLE value is `null`, never the number `0` | reporting the raw count instead of the selector output, which would announce "0 unseen notifications" |
 | prop absent | no throw; every existing NotifBell behavior holds (AC-9) | a required-prop regression on the four existing call sites |
 
 **Reporting is continuous; ANNOUNCING is once.** These are different latches
@@ -228,12 +248,15 @@ bypassed.
 | AC-2 | bell 3, attention 0 | a zero half appearing in the sentence |
 | AC-3 | both 0 | any entry at all |
 | AC-4 | bell `infra_error`, attention 2 | a failed half suppressing the good one |
-| AC-5 | both `infra_error` | any entry at all |
+| AC-4 | bell 4, attention promise settles NON-`ok` | the load-bearing direction, and the one the drafted table omitted. `useNeedsAttentionBadge` commits `null` on failure (`components/admin/nav/useNeedsAttentionBadge.ts:88`), which is also its pending value, so ONLY the promise can settle this half (spec §3.2). An implementation that never latches attention failure stalls here and announces nothing, while still passing the bell-failure row above |
+| AC-5 | both `infra_error` | any entry at all. Paired with the AC-4 attention-failure row above so it cannot pass accidentally: a join that never latches attention leaves the region empty here too, and only the AC-4 row distinguishes "correctly silent" from "stalled" |
 | AC-6 | after AC-1, a pathname change refetches both to new counts | a re-announce on later change, the likeliest slip |
 | AC-11 | bell panel opened mid-pending, then both resolve | the bell sentence surviving a `zeroNow()` |
+| AC-11 | bell settles 4, THEN the panel opens (count stays 0), THEN attention settles 3 | the second of AC-11's two required timings. The drafted table carried only the mid-pending one while the plan claimed both, so this row is what makes that claim true |
 | AC-12 | source assertion on the onboarding branch | the onboarding chrome gaining a nav |
 | AC-16 | both pending, panel opened (`zeroNow` commits 0), the demoted seed refetch commits 2, THEN attention settles 3 | a frozen bell value: the entry must read "2 unseen notifications. 3 items need attention.", not 0 and not the pre-zero seed |
 | AC-16 | the reverse order, attention settles 3 BEFORE the restoration commits | one entry with the attention sentence only. Pins that the outcome follows the value at announce time rather than the interaction |
+| AC-16 | the panel's OWN `onOpened={refetch}` route in isolation: panel opens, `zeroNow` commits 0, that refetch commits 6, then attention settles | the second restoration route (`components/admin/nav/NotifBell.tsx:112`). The demoted-seed row above exercises `useBellBadge.ts:205-210`; without this row "both restoration routes" is an unsupported claim, since one code path would carry the whole criterion |
 | AC-17 | bell settles degraded, `degraded` clears to a count of 5, then attention settles | the bell sentence present with 5. A degraded latch fails this |
 | AC-18 | attention 12, bell absent | the rendered attention `aria-label` reads `"Needs attention, 12 items"` AND the entry says "12 items need attention.", neither showing `9+` |
 | AC-19 | both nonzero, rendered inside `<StrictMode>` | exactly ONE entry. React 19.2.4 replays effects without recreating the spoken ref (spec §6 limit 4), so a double entry means the latch was put in the wrong place |
@@ -306,33 +329,66 @@ third finding and §3.11. The drift it watched for is unrepresentable once
 `bellAccessibleName` is defined on `bellAnnounceableCount`: one decision, two
 callers. Deleting the mechanism beats guarding it.
 
-AC-10 (no live-region attribute added under `components/admin/nav/`) is
-discharged by this same widened walk, which covers `components/` from disk, so
-the nav is in scope by default rather than by a row naming it.
+**AC-10 needs its own assertion, and the drafted claim that the widened walk
+discharges it was false.** The walk pushes a hit only when `gated(el)` is true
+(`tests/components/_metaLiveRegionMounting.test.ts:461`), because its subject is
+regions born populated. An UNCONDITIONAL `<span role="log">` added under the nav
+is exactly what AC-10 forbids and exactly what that walk ignores, so the map row
+claimed a protection the mechanism does not give.
+
+Task 4 therefore adds a SECOND, independent assertion, in the same file and run
+by the same command: a source scan over `components/admin/nav/**` asserting that
+no file there carries `role="log"`, `role="status"`, or `aria-live`, gated or
+not. It reads the directory from disk rather than a file list, so a nav file
+added later is in scope by default. Comments are stripped with
+`stripCommentsForFile` (`tests/_shared/stripComments.ts:215`) first, because
+this plan's own prose names all three attributes and a future nav comment could
+too.
+
+**Its red is real and is not the widening's red.** Planting an unconditional
+`<span role="log">` in a scratch fixture under the scanned tree makes the new
+assertion fail while the widened-detector assertion still passes, which is the
+proof the two are independent rather than one assertion counted twice. The
+planted fixture is reverted before the task closes.
 
 ### Task 5: the impeccable pair, graduation and closeout
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:72` why=`the row is still in DEFERRED.md carrying its IN PROGRESS marker, so the archive-only assertion fails on that id` ac=AC-15 -->
 
-`/impeccable critique` and `/impeccable audit` on the diff, canonical v3 setup
-gates (`context.mjs (impeccable v3 setup)` context load, then the register reference read). P0 and P1
-findings fixed or deferred with a `DEFERRED.md` entry. Dispositions into the
-closeout, with the `impeccable-gate:` marker line.
+Both halves of the v3 pair on the diff, invoked as the two `/impeccable`
+subcommands named in AGENTS.md rule 8, with the canonical v3 setup gates
+(`context.mjs (impeccable v3 setup)` context load, then the register reference
+read). P0 and P1 findings fixed, or deferred with a `DEFERRED.md` entry.
+Dispositions into the closeout §12.
 
-**The marker below is PROVISIONAL and Task 5 owns its real values.** The
-invariant-8 guard (`tests/docs/_metaInvariant8Closeout.test.ts`) requires any
-plan unit naming both gate halves to carry a well-formed marker, and the only
-two valid forms both assert an outcome: the RAN form and
-`impeccable-gate: N/A — no UI surface`. This arc IS a UI surface, so N/A would
-be false, and the pair cannot run before the components it critiques exist. The
-line is therefore carried in its well-formed shape with zeroed counts, and
-Task 5's definition of done is to overwrite `critique=`, `audit=`, `p0=`, `p1=`
-and `dispositions=` with what the run actually reported, in the closeout commit.
-Until that commit lands, read this line as scheduled, not as reported. Nobody
-should cite it as evidence the gate ran; the evidence is the §12 dispositions
-Task 5 writes beside it.
+**This plan carries NO `impeccable-gate:` marker, deliberately, and Task 5 adds
+one.** An earlier revision carried the RAN form with zeroed counts plus a
+paragraph calling it provisional. Plan round 1 rejected that, correctly: the
+marker is machine-readable and asserts `critique=RAN audit=RAN` to its consumer
+no matter what the prose beside it says, so a disclosure cannot make it true.
+The two valid forms both assert an outcome, and this arc has no outcome yet,
+because the pair cannot run before the components it critiques exist.
 
-impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
+So the plan states the obligation instead of pre-claiming its result, and the
+guard (`tests/docs/_metaInvariant8Closeout.test.ts`) arms when Task 5 writes
+BOTH the marker and the closeout §12 that names the two halves. That is a real
+weakening for exactly as long as Task 5 is open: between now and that commit,
+nothing mechanical forces the gate to run. It is recorded here rather than
+hidden, and it is the reason Task 5 is not complete until all four of these
+land in ONE commit:
+
+1. the closeout §12 naming both halves and their dispositions,
+2. the `impeccable-gate:` line in the RAN form carrying the OBSERVED
+   `critique=`, `audit=`, `p0=`, `p1=` and `dispositions=` values,
+3. `pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` green on the
+   result, which it can only be once 1 and 2 are both present,
+4. the row graduation and marker removal this task already owns.
+
+Writing a number into that line that the run did not report is a fabricated
+gate claim, which is the finding this revision exists to answer. Escalated to
+the orchestrator as a process question, since every UI arc in this repo meets
+the same wall: a closeout guard cannot be satisfied truthfully by a plan that
+has not reached closeout.
 
 **Tell the gate what the surface is.** This arc adds no rendered element, so the
 critique surface is the COPY and the announcement's TIMING, not layout or
@@ -344,6 +400,51 @@ Then, in the PR's LAST commit and nowhere earlier: archive the row into
 `**Status:** IN PROGRESS · **Branch:** ...` marker off in that same commit. A
 marker that reaches `main` names a branch the merge just deleted and reds
 `tests/docs/_metaLedgerInProgress.test.ts` on `main` until someone clears it.
+
+### Task 6: the transition audit
+
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/navTransitionAudit.test.ts` red-state=authored red-target=`components/admin/nav/AdminNav.tsx:89` why=`the audit enumerates every conditional render reachable from the announcer and asserts each is either deliberately instant or carries exit/initial/animate; before the join exists the enumeration finds no announce branch at all and the count assertion fails` ac=AC-20 -->
+
+Mandatory because spec §3.8 is a Transition Inventory
+(`docs/agents/writing-plans.md:9`). The rule requires the task body to carry the
+spec's inventory table, so here it is, as §3.8 states it after rounds 2 and 4:
+
+| From | To | Treatment |
+|---|---|---|
+| pending | spoken | Instant. One `announce()` appends one keyed child to the existing `role="log"` region. No animation: the region is `sr-only` (`components/admin/announceLog.tsx:134`) and has no visual presence |
+| pending | settled-silent | Instant, and invisible by definition. No call is made |
+| spoken | settled-silent | Unreachable. The spoken ref is set once and never cleared, so no transition out of either terminal state exists |
+
+Compound entries, all three, per §3.8: the panel opening while the bell half is
+pending; the panel opening after the bell settles and before attention does; and
+the bell degrading between settling and announcing. Plus the two settle
+orderings, and the two restoration routes rounds 2 and 4 added.
+
+**What this task asserts, and why it is not Task 3 again.** Task 3 asserts
+BEHAVIOR through the region. This asserts the SOURCE shape, which is what the
+rule asks for and what behavior cannot show: that every conditional render and
+early return introduced by this arc under `components/admin/nav/` is either
+deliberately instant or carries the animation props, and that the count of such
+branches matches the inventory. A branch added later without an inventory row
+fails here even if every Task 3 case still passes, which is the failure mode
+that justifies a separate task.
+
+The audit reads the three touched files from disk through
+`stripCommentsForFile` (`tests/_shared/stripComments.ts:215`), enumerates
+conditional renders and early returns, and asserts each is accounted for. The
+expected outcome is "every entry instant, no animation surface added" and the
+assertion is that the enumeration MATCHES the table rather than that it is
+empty, so the task cannot pass by finding nothing.
+
+**Guard premise, executable.** `premiseHolds("the audit found the announce
+branch", ...)` before the per-branch assertions, so a version that enumerates
+nothing fails loudly instead of passing vacuously
+(`tests/_shared/premise.ts:36`).
+
+AC-20 is declared by this plan: **the transition audit enumerates every
+conditional render and early return this arc adds under
+`components/admin/nav/`, and every one is accounted for in the §3.8 inventory as
+instant or as carrying animation props.**
 
 <!-- tasks: end -->
 
@@ -370,24 +471,26 @@ marker that reaches `main` names a branch the merge just deleted and reds
 | AC-17 | 1, 2, 3 |
 | AC-18 | 1, 3 |
 | AC-19 | 3 |
+| AC-20 | 6 |
 
 ## Layout-dimensions and transition-audit tasks
 
-**Neither applies, declared rather than omitted.** The layout-dimensions task is
-mandatory for a fixed-dimension parent with flex or grid children; this arc adds
+**The layout-dimensions task does not apply; the transition-audit task DOES and
+is Task 6.** The drafted plan declined both. Declining the transition-audit task
+was wrong: `docs/agents/writing-plans.md:9` makes it mandatory whenever the spec
+carries a Transition Inventory, and requires the task body to include that
+inventory table. Spec §3.8 is one. Behavioral cases in Task 3 cover the
+compound transitions but are not the source audit the rule separately requires,
+so they do not substitute for it.
+
+The layout-dimensions task genuinely does not apply: it is mandatory for a
+fixed-dimension parent with flex or grid children, and this arc adds
 no element and no class, so there is no parent-to-child dimension relationship to
 assert. The transition-audit task is mandatory for a component with a Transition
 Inventory. Spec §3.8's inventory still has three states and three ordered pairs,
 its one non-instant entry is unreachable, and this arc adds no
-`AnimatePresence`, no ternary render and no conditional block, so no audit task
-is warranted. What R2 and R4 changed is the COMPOUND list, which grew from one
-entry to three plus two orderings, and those are carried as executable cases
-rather than as an audit: the panel opening mid-pending and after settling
-(AC-11, Task 3), both restoration routes (AC-16, Tasks 2 and 3), the
-degraded-clears path (AC-17, Tasks 1 to 3), and both settle orderings. The
-inventory is therefore covered by tests, which is the stronger form; the audit
-task is declined because there is no animation surface to audit, not because the
-compound cases are few.
+`AnimatePresence`. That is the audit's likely OUTCOME, and Task 6 is what turns
+it from an assertion in a plan into a check that runs.
 
 ## Red-command validation record
 
