@@ -60,7 +60,7 @@ Every visible string in both progress renderers carries `aria-hidden="true"` (Fi
 
 ### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27)
 
-**Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.
+**Effort:** S-M · **Status:** IN PROGRESS · **Branch:** fix/diagram-tile-states · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.
 
 `DiagramTile` renders one string, "Preview unavailable" (`components/admin/wizard/step3ReviewSections.tsx:3896`), for two states the component already distinguishes INTERNALLY: not in the snapshot (`useState(!hasPreviewSource)` seeds `failed` true, no image element ever mounts) and the image failed to load (`onError` sets it true after a real request). They are merged at render.
 
@@ -482,7 +482,7 @@ both are recorded here rather than in `BACKLOG.md` because each has a concrete t
 
 ### DIAGRAMTILE-LIVE-TILE-UNLABELLED-1 — impeccable P1: only the FAILED tile says which diagram it is (2026-08-28)
 
-**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that adds a visible label, caption or tooltip
+**Effort:** S · **Status:** IN PROGRESS · **Branch:** fix/diagram-tile-states · **Facing:** product · **Un-defer trigger:** any work that adds a visible label, caption or tooltip
 to `DiagramTile`, or the first report of Doug opening tiles one by one to identify a diagram.
 
 The failed branch renders the diagram's name as visible text, truncated with a `title`
@@ -507,7 +507,7 @@ tuned, and it is not one a chrome-relocation PR should take.
 
 ### DIAGRAMTILE-OBJECT-COVER-CROPS-1 — impeccable P1: `object-cover` crops stage plots to their middle third (2026-08-28)
 
-**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that changes `DiagramTile`'s image fit or the
+**Effort:** S · **Status:** IN PROGRESS · **Branch:** fix/diagram-tile-states · **Facing:** product · **Un-defer trigger:** any work that changes `DiagramTile`'s image fit or the
 tile's aspect box, or the first report of a diagram thumbnail looking blank.
 
 The tile is `aspect-4/3` and the image is `object-cover`, so a wide stage plot or a tall floor plan is cropped to
