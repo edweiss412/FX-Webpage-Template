@@ -50,7 +50,9 @@ it("signal guard: nowDate returns a fresh instant per call under an advancing cl
 
 (The expected delta derives from `ADVANCE_MS`, the same constant that drives the clock, so the assertion cannot pass on a stale pair; no separate `premise` call is needed because the fixture's own arithmetic is the premise.)
 
-Mutant-red proof (recorded in the commit message): plant `let cached: Date | undefined;` + `if (cached) return cached; cached = new Date(); return cached;` at the head of `nowDate`, run the command, observe this case red while the frozen-header cases stay green (they import fresh modules per test via `vi.resetModules`, so the plant must be observed on THIS case specifically); revert, observe green. Failure mode caught: a cross-render memoization of the display clock, which would make `renderedAt` stable and the outcome announcement silently dead (the row's stated fragility).
+Mutant-red proof (recorded in the commit message): plant a module-level cache in `nowDate`, run the command, observe the new case red, revert, observe green. Failure mode caught: a cross-render memoization of the display clock, which would make `renderedAt` stable and the outcome announcement silently dead (the row's stated fragility).
+
+**Where the plant goes, corrected against what execution measured.** This step was drafted saying a cache at the HEAD of `nowDate` would red this case while the frozen-header cases stayed green. That is false and the arc proved it false: a cache at the head bypasses the frozen-header branch entirely and redded SEVEN cases (`c045d703f`), which is a strawman mutant, since no plausible memoization lands where it disables the test-auth path. Re-planted on the production path alone (`__mutantCache ??= new Date()` behind the `ENABLE_TEST_AUTH` guard), exactly one case reds: the new one, 20 passed. That is the shape the defect would actually take.
 
 GREEN: no production change (the guard pins current behavior). Commit: `test(admin): guard nowDate freshness — the outcome announcement's signal`.
 
