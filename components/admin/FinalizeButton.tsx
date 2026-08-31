@@ -951,9 +951,11 @@ export function FinalizeButton({ panelPlacement = "below", ...props }: FinalizeB
 /**
  * D2/D3 inline progress panel — replaces the button while the publish runs. Batch phase: a
  * determinate native `<progress>` bar + "X of Y shows" + the current sheet name. CAS phase: the
- * distinct "Finishing setup…" step with a phase sub-label. Mirrors <Step2Verify>'s scan panel
- * (same tokens, same native bar) so the two wizard progress surfaces read as siblings. All motion
- * is the native bar's value change; state swaps are instant (no animation).
+ * distinct "Finishing setup…" step with a phase sub-label. Shares the BAR's styling with
+ * <Step2Verify>'s scan panel through `app/globals.css`, which paints both wizard progress bars
+ * from one selector set, so the two surfaces read as siblings; this panel's own container tokens
+ * (`bg-surface-sunken`, `p-tile-pad`) are its own and the scan panel does not carry them. All
+ * motion is the native bar's value change; state swaps are instant (no animation).
  */
 const ProgressPanel = forwardRef<
   HTMLDivElement,

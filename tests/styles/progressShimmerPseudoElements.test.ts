@@ -228,3 +228,39 @@ describe("the shimmer itself is unchanged", () => {
     );
   });
 });
+
+describe("the panel docstring claims only what the code actually shares", () => {
+  it("makes no unqualified same-tokens claim", () => {
+    const src = readFileSync("components/admin/FinalizeButton.tsx", "utf8");
+    // Scoped to the ProgressPanel docstring. A comment elsewhere in this 1200-line
+    // file mentioning tokens must neither satisfy nor trip this.
+    // Tolerates line comments between the docstring and the symbol: a `//` note added
+    // there is ordinary, and the guard should keep reading the docstring rather than
+    // failing its own premise (found by planting exactly that as mutant (c)).
+    const doc =
+      /\/\*\*([\s\S]*?)\*\/(?:\s*\/\/[^\n]*\n)*\s*const ProgressPanel/.exec(src)?.[1] ?? "";
+    // PREMISE: the docstring was actually found. Without it an empty string satisfies
+    // every "does not contain" assertion below and the case passes vacuously.
+    expect(doc, "premise: the ProgressPanel docstring is locatable").not.toBe("");
+    expect(doc.length, "premise: and is a real docstring, not a stray match").toBeGreaterThan(80);
+
+    // The panel sits on bg-surface-sunken with p-tile-pad; <Step2Verify>'s scan panel
+    // does not. The two share the BAR's styling through app/globals.css and nothing
+    // else, so an unqualified same-tokens claim is false — before this arc and after it.
+    expect(
+      doc,
+      "the two panels differ in container tokens, so a same-tokens claim is false",
+    ).not.toMatch(/same tokens/i);
+
+    // The half that IS true must be earned: a shared-bar claim is only honest while the
+    // stylesheet actually paints both testids from one rule set.
+    if (/shares? the bar|bar's styling/i.test(doc)) {
+      for (const id of TESTIDS) {
+        expect(
+          ruleFor(sel(id, "::-webkit-progress-value")),
+          `the docstring claims a shared bar; the stylesheet must style ${id}`,
+        ).not.toBeNull();
+      }
+    }
+  });
+});
