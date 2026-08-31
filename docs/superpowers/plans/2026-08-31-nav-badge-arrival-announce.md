@@ -130,15 +130,19 @@ heading whose content BEGINS with the id.
 
 ### Task 1: the shared selectors and the copy builder
 
-<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter, with HARDCODED PLURAL nouns, and with bellAnnounceableCount ignoring its degraded argument, so the guard cases, the singular case, the non-integer case and the degraded selector case all fail; (3,2) and the two positive selector rows pass, which is stated in the task body rather than claimed away` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter, with HARDCODED PLURAL nouns, and with bellAnnounceableCount ignoring its degraded argument, so the guard cases, the singular cases, the cross-wiring cases, the non-integer case and the degraded selector case all fail; measured 15 failed 4 passed, the four being (3,2), both positive bellAnnounceableCount rows and bellAccessibleName(12,false)` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17 -->
 
 **What is red and why.** The module lands in the RED step as an unconditional
 joiner with hardcoded plural nouns: it builds both sentences from whatever it is
-handed. The cases that PASS against that scaffold are `(3, 2)`, and the two positive
-selector rows `bellAnnounceableCount(4, false)` and
-`bellAnnounceableCount(2.5, false)`, because a selector that merely ignores its
-`degraded` argument still returns a positive count unchanged. Round 2 caught an
-earlier revision claiming only `(3, 2)` passed. The guard cases (`0`, `null`, `NaN`,
+handed. The cases that PASS against that scaffold are FOUR, observed rather than
+predicted when the scaffold was run: `(3, 2)`; the two positive selector rows
+`bellAnnounceableCount(4, false)` and `bellAnnounceableCount(2.5, false)`,
+because a selector that merely ignores its `degraded` argument still returns a
+positive count unchanged; and `bellAccessibleName(12, false)`, because the
+scaffold's hardcoded `Notifications: ${n} unseen` happens to be right at a
+positive count. Round 2 caught an earlier revision claiming only `(3, 2)`
+passed, round 4 caught the revision that claimed three, and this is the measured
+answer: 15 failed, 4 passed. The guard cases (`0`, `null`, `NaN`,
 negative, `Infinity`, both-empty) fail, because a zero is spoken as
 `"0 unseen notifications."` and a `null` throws or renders `"null"`; the `(1, 1)`
 case fails on the hardcoded plural; the non-integer case fails if the scaffold
