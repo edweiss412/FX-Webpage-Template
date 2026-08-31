@@ -1,0 +1,8 @@
+next@16.3.0  (get-img-props line numbers are version-scoped)
+
+object-cover           backgroundSize="cover"  (next saw no objectFit)
+object-contain         backgroundSize="cover"  (next saw no objectFit)
+(style prop instead)   backgroundSize="contain"  (next saw objectFit=contain)
+
+OK: the class-only fit change is inert for the blur placeholder ("cover" -> "cover")
+OK: the style-prop control does move the value ("cover" -> "contain"), so an inert class change is a real finding about className and not a dead read

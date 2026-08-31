@@ -217,7 +217,7 @@ it moves `DIAGRAM_TILE_SIZES` and `diagramTileWidthAt`
 (`components/admin/wizard/diagramTileGeometry.ts:33` and
 `components/admin/wizard/diagramTileGeometry.ts:51`), re-tiers the srcset oracle at
 `tests/e2e/published-review-modal.layout.spec.ts:2079`, and is a density decision this row did not
-buy. It is §6's first peer.
+buy. It is §6's `grid-density` peer.
 
 ## 4. The three-state value
 
@@ -261,7 +261,7 @@ Compound transitions:
 | --- | --- |
 | A state flip while the tile's `title` tooltip is open | The browser owns the tooltip and no component state is involved. Whether it CLOSES is not guaranteed: the name line occupies the same child position in every state, so React may reconcile it in place and only the box is necessarily replaced. Stated as unguaranteed rather than asserted; nothing depends on it and no test asserts it. |
 | `live → load-failed` while the anchor HOLDS focus | Existing, unchanged: `onFailure` hands the grid the anchor BEFORE the flip (`components/admin/wizard/step3ReviewSections.tsx:4245-4253`), and `handleTileFailure` moves focus forward, then backward, then to the grid (`components/admin/wizard/step3ReviewSections.tsx:4336-4348`). Ordering is load-bearing and this arc does not touch it. |
-| `live → absent` while the anchor holds focus | Focus is LOST to `<body>` — the reconcile path never calls `onFailure`. Pre-existing, not repaired here, §6 peer 2. |
+| `live → absent` while the anchor holds focus | Focus is LOST to `<body>` — the reconcile path never calls `onFailure`. Pre-existing, not repaired here; §6's `absent-reconcile-focus` peer. |
 | A flip while another tile in the same row is mid-flip | No shared state; each tile owns its own, so neither can observe the other's intermediate value. Two separate `onError` events may commit in separate renders and the row height may therefore re-solve twice; a single batched frame is NOT guaranteed and is not asserted. What IS asserted is the end state: both tiles land on `load-failed` and every box in the row is still 4:3 (§3.3). |
 
 ## 5. What proves it
@@ -443,28 +443,32 @@ Declared rather than omitted, so a reviewer does not read silence as an oversigh
 
 ## 6. Peers this arc does not repair
 
-Reported to bl-orch. No ledger row is filed.
+Reported to bl-orch. No ledger row is filed. Each peer carries a slug on its first line, and every
+cross-reference elsewhere in this document uses the slug. Round 3 caught a reference that counted to
+the wrong item; a count silently rots when the list is reordered, and a slug cannot.
 
-1. **The 12-tile grid is 3 columns below 640px**, which is what forces a six-line message at 320px
-   (§3.4). Fixing it is a density decision plus a geometry-module change; it is not what either row
-   bought.
-2. **A reconcile to `absent` while the anchor holds focus drops focus to `<body>`.** The
-   `onFailure` → `handleTileFailure` path is wired only to `onError` (`components/admin/wizard/step3ReviewSections.tsx:4245-4253`). Repairing it
+1. `grid-density` — **The 12-tile grid is 3 columns below 640px**, which is what forces a
+   six-line message at 320px (§3.4). Fixing it is a density decision plus a geometry-module change;
+   it is not what either row bought.
+2. `absent-reconcile-focus` — **A reconcile to `absent` while the anchor holds focus drops focus
+   to `<body>`.** The `onFailure` → `handleTileFailure` path is wired only to `onError`
+   (`components/admin/wizard/step3ReviewSections.tsx:4245-4253`). Repairing it
    means announcing the absent case too, and `handleTileFailure` announces
    `${name} could not be loaded.` (`components/admin/wizard/step3ReviewSections.tsx:4350`), which is the WRONG sentence for a diagram that was never
    captured. That is a copy decision, which is exactly the class of thing this arc is not permitted
    to take.
-3. **next/image cannot see either surface's `object-fit`,** because both set it through a className
-   and next reads `style.objectFit` (§7, item 3). The consequence today is that the crew gallery's
-   blur placeholder paints at `background-size: cover` — next's default when it cannot read a fit —
-   rather than at whatever the image is actually using. After the ruling those disagree: the
-   placeholder covers, the image contains. The fit
-   ruling neither causes nor fixes this; it is visible only while a blurred thumbnail is loading,
+3. `next-object-fit` — **next/image cannot see either surface's `object-fit`,** because both set
+   it through a className and next reads `style.objectFit` (§7's blur-placeholder item, settled
+   there by an executed probe). The consequence today is that the crew gallery's blur placeholder
+   paints at `background-size: cover`, next's default when it cannot read a fit, rather than at
+   whatever the image is actually using. After the ruling those disagree: the placeholder covers,
+   the image contains. The fit ruling neither causes nor fixes this; it is visible only while a
+   blurred thumbnail is loading,
    and correcting it means moving `object-fit` from a class to an inline style on a surface this
    arc is otherwise only touching for one token.
-4. **The crew gallery's terminal failure branch says only `image unavailable`**, and says it
-   `sr-only` (`components/diagrams/Gallery.tsx:852`), so a sighted crew member gets a grey box and a
-   glyph with no words at all. Whether it ALSO merges an absent state the way this tile does is not
+4. `gallery-failure-copy` — **The crew gallery's terminal failure branch says only `image
+   unavailable`**, and says it `sr-only` (`components/diagrams/Gallery.tsx:852`), so a sighted crew
+   member gets a grey box and a glyph with no words at all. Whether it ALSO merges an absent state the way this tile does is not
    established here and would need its own read of that component; what is established is that its
    copy is unratified and consequence-free. Splitting or rewording it would take a second product
    decision this arc was not given, and §7 already ties that surface's other open question to Eric's
@@ -500,22 +504,42 @@ this arrangement. Note the two aspect boxes differ and that is not reconciled he
   thing they are controls for.
 - Nothing pins the gallery's fit class today, so AC-12 adds the first one.
 
-**Three things that look like they should move and do not, checked rather than assumed.**
+**Three things that look like they should move and do not.** Each one names what SETTLES it. Spec
+review rounds 2 and 3 both landed on the third, and both times the spec asserted a value derived by
+READING a module nobody had called. So the standing rule for this section: a claim about
+third-party runtime behaviour is settled by a shipped assertion that runs, or by a committed probe
+that runs. Reasoning about a package's source is neither, however carefully it is done.
 
 1. `tests/e2e/step3-review-modal.layout.spec.ts:595` asserts the image's rect equals the anchor's
    padding box in both dimensions. `object-fit` changes how the BITMAP is painted inside the
-   element; a `fill` image's own element rect is unchanged. The assertion holds.
+   element; a `fill` image's own element rect is unchanged, so the assertion holds.
+   **Settled by:** that assertion itself, which runs against this diff and reds if the reasoning is
+   wrong.
 2. `tests/e2e/published-review-modal.layout.spec.ts:2079` reads `img.currentSrc` against the tile
-   width for the srcset-tier assertion. Tier selection is a function of the element's width, which
-   does not move.
+   width for the srcset-tier assertion. Tier selection is a function of the element's layout width,
+   which `object-fit` does not move.
+   **Settled by:** that assertion itself, on the same terms as item 1.
 3. The crew gallery's blur placeholder. next/image derives the placeholder's `background-size` from
-   `imgStyle.objectFit`, and `imgStyle` is the `style` PROP. Read in the installed `next` package,
-   under dist/shared/lib, in the get-img-props module, at the `backgroundSize` assignment; it is
-   untracked, so it is cited by description rather than as a repo path, and
-   `grep -rn backgroundSize node_modules/next/dist/shared/lib/get-img-props.js` reproduces it. Both surfaces set the fit through a className, which next never sees, so
-   `backgroundSize` is `undefined` today and stays `undefined` after. The change is inert for the
-   blur placeholder in both directions. (That next cannot see either value is a pre-existing quirk,
-   not something this change introduces; it is §6's fourth peer.)
+   `imgStyle.objectFit`, where `imgStyle` is the `style` PROP, and both surfaces set the fit through
+   a className that next never reads. **The placeholder paints at `cover` today and still paints at
+   `cover` after**, so the change is inert for it in both directions. Inert is NOT the same claim as
+   "next receives no value", which is what earlier drafts of this section said: `undefined` is
+   itself a member of next's `INVALID_BACKGROUND_SIZE_VALUES`, so an absent `objectFit` takes the
+   invalid arm and falls to the `'cover'` default rather than passing through absent. That list and
+   that default are lines 20-26 and 528 of the get-img-props module, under dist/shared/lib in the
+   installed `next` package, which is untracked and therefore cited by description rather than as a
+   repo path; the numbers are scoped to next@16.3.0, and
+   `grep -n 'INVALID_BACKGROUND_SIZE_VALUES\|const backgroundSize' node_modules/next/dist/shared/lib/get-img-props.js`
+   reproduces both at whatever version is installed. Nothing in this repo pins the resulting value,
+   which is exactly why the claim had no oracle and rotted twice.
+   **Settled by:** `docs/superpowers/specs/probes/2026-08-31-next-blur-background-size-probe.mjs`,
+   which CALLS `getImageProps` instead of reading it; committed report at
+   `docs/superpowers/specs/probes/2026-08-31-next-blur-background-size-probe.report.txt`, whose
+   first line records the installed next version so the line numbers above carry their own
+   provenance. It exits non-zero unless the two class readings agree AND a
+   `style={{ objectFit: "contain" }}` control moves the value, so two identical `cover` readings
+   cannot pass by next having stopped consulting `object-fit` at all. (That next cannot see either value is a pre-existing quirk this change does
+   not introduce; it is §6's `next-object-fit` peer.)
 
 The `DIAGRAMTILE-OBJECT-COVER-CROPS-1` row cites line 412 of the crew gallery for the class. That
 is STALE: `components/diagrams/Gallery.tsx:412` is `nameOf`, and the class is at
