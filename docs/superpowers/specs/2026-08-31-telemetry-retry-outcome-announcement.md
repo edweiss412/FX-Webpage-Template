@@ -118,6 +118,10 @@ Compound transitions: none — the region is the only stateful visual element in
 - AC-7: All three call sites pass `renderedAt={now.getTime()}` verbatim; the census's widened canonical form and totality bridge are green, and a site missing the prop reds.
 - AC-8: The signal guard reds when `nowDate()` returns a stable instant across calls under an advancing clock.
 - AC-9: Outcome copy carries no em dash and uses the curly apostrophe; intent and outcome strings differ for every non-empty `what`.
+- AC-10: The invariant-8 impeccable dual gate runs on the affected diff and the sibling closeout carries the `impeccable-gate:` marker with dispositions recorded.
+- AC-11: The ledger row is graduated to the archive with its IN PROGRESS marker removed in the PR's last commit; the marker never reaches main.
+
+(AC-10 and AC-11 were added after spec round 1's APPROVE to give the plan's process tasks citable criteria; they restate standing repo invariants — AGENTS.md invariant 8 and invariant 12 — rather than new design, and the plan-stage review covers them.)
 
 ## 10. Test-surface inventory (files this diff touches)
 
