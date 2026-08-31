@@ -273,7 +273,7 @@ Register the mutation as an adversary at that point and confirm it reds.
 
 ### SHARELINK-CUE-FOCUS-OBSCURED-1 — the scroll cue may push the focused rotate control out of view (2026-08-07, arc A)
 
-**Effort:** S
+**Status:** IN PROGRESS · **Branch:** fix/sharelink-cue-focus · **Effort:** S
 
 **Reachability:** INFERRED, NOT PROBED.
 
