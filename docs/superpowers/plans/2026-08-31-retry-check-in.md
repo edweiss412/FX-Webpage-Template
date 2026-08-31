@@ -102,9 +102,21 @@ to FAIL on a mechanism that does nothing:
   liveness check must red the late-success case. A case that stays green against both is measuring
   nothing
 
-**What this task does NOT do.** It does not pick a mechanism, and it does not assert the shape of
-one. Task 6 pins whichever ships with a structural walker over the writer set; this task only says
-what the product must do.
+**What this task does NOT do.** It does not assert the SHAPE of a mechanism. It says what the
+product must do, and Task 6 pins the shape separately.
+
+**But the plan does decide, and this task is red until Task 3 makes it green.** Review round 1 was
+right that a plan which writes an oracle and then defers both candidates has no task that can turn
+the oracle green, which is a TDD violation dressed as flexibility. So: **the writer-side twin is the
+mechanism this plan implements**, chosen by the orchestrator on 2026-08-31 from this arc's own
+filing. Task 3 implements it on the gallery and this suite's gallery cases go green there; Task 4
+does the lightbox and the rest go green.
+
+The fire-time re-read remains a documented FALLBACK, not a branch in the task list. If the twin
+fails a case here during implementation, that is an ordinary TDD failure: switch to the fallback,
+record the switch and the failing case in the closeout, and Task 6's pin follows the mechanism that
+actually shipped. Naming a fallback is not the same as leaving the choice open, and this plan does
+not leave it open.
 
 ## Task 3: gallery: the check-in state, its timer, and its copy
 
@@ -190,7 +202,7 @@ Same anti-tautology, premise and four-mutant discipline as Task 3.
 
 ## Task 5: Restart, on both surfaces
 
-<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.retryCheckIn.test.tsx tests/components/diagrams/galleryLightbox.retryCheckIn.test.tsx -t restart` red-state=authored red-target=`components/diagrams/Gallery.tsx:782` why=`the in-flight overlay onClick is a bare event.preventDefault, so pressing it after the check-in changes no state and mounts no second image` ac=AC-3,AC-4,AC-5,AC-8,AC-8b,AC-8c,AC-10 -->
+<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.retryCheckIn.test.tsx tests/components/diagrams/galleryLightbox.retryCheckIn.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:782` why=`the in-flight overlay onClick is a bare event.preventDefault, so pressing it after the check-in changes no state and mounts no second image` ac=AC-3,AC-4,AC-5,AC-8,AC-8b,AC-8c,AC-10 -->
 
 Implement spec §4.1 on both surfaces: a `restarting` `ReadonlySet<string>`, the one-commit write on
 press (`checkedIn` out, `restarting` in), a branch that renders the overlay with `Retrying…` and NO
@@ -249,26 +261,49 @@ second check-in could ever fire. This is the assertion that would have caught it
   scan would fail on correct behaviour. That imprecision is exactly what round 2's finding 4 caught
   in the criterion itself.
 
-For AC-10, scan the states the component actually commits rather than only the settled one: render,
-press Restart, and assert on the commit the layout effect produces AND on what was committed before
-it, using a spy on the overlay's rendered props rather than a post-hoc query that can only see the
-end state.
+For AC-10, observe COMMITTED FRAMES, which means DOM mutations. Review round 1 refuted the first
+proposal here: a spy on rendered props records render ATTEMPTS, including renders React abandons,
+and cannot establish what was committed; the overlay is also a host `<button>` with no prop-spy seam
+to attach to.
 
-Note for the reviewer: the `-t restart` filter is a report filter. The plan-time check runs the
-two files unfiltered so a filter matching nothing cannot read as green.
+The oracle is a `MutationObserver` on the cell, connected before the Restart press and disconnected
+after the layout effect settles, with `subtree: true` and `attributes: true`. A mutation record IS a
+committed frame, which is exactly the thing AC-10 quantifies over. From the recorded sequence assert:
+
+- no record ever contains the failed control, by testid: `diagram-retry-<i>` (`Gallery.tsx:817`) or
+  `lightbox-retry` (`GalleryLightbox.tsx:1571`). Assert on the TESTID, never on the phrase "could not
+  be loaded", because the in-flight overlay's own accessible name legitimately contains it, which is
+  what round 2 of the spec review caught in the criterion itself
+- `aria-busy` is `"true"` on the overlay in every record that includes it
+- `document.activeElement` is the same node before the press and after the effect, sampled at both
+  ends rather than inferred
+
+Record the observer's record COUNT in the commit. A run that observed zero mutations proves nothing
+and would satisfy every "no record contains" assertion vacuously, so the count is the premise.
+
+The command carries NO `-t` filter, deliberately. A name filter that matches nothing exits 0 and
+reports green from the moment it is written, so a `red=` carrying one cannot express a red at all;
+`spec:lint` draws `RED_TEST_NAME_FILTER` on exactly this and review round 1 raised it here.
 
 ## Task 6: the availability sweep, and the registry rows it forces
 
 <!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/perItemStateLifetime.probe.test.ts` red-state=authored red-target=`tests/components/diagrams/perItemStateRegistry.ts:47` why=`the scanner enumerates every useState and useRef in both components, so the four members Tasks 3 to 5 add across two files are unclassified and the registry check reds until each of the eight rows exists` ac=AC-1,AC-11,AC-12,AC-17 -->
 
-**AC-17: pin whichever mechanism Task 2 selects, over the WRITER set.** If the writer-side twin
-ships, add a new suite at `tests/components/diagrams/` named `retryWriterSetPin` (created by this task, so it is tracked only after it lands): walk both component sources for
-every `setRetrying` call site and assert each is paired with its synchronous mirror write, so a call
-site added later without one fails. The assertion is over the writer set BECAUSE it is closed and
-greppable; asserting over the reader set is the shape spec §3.2a deleted, and a plan that
-reintroduces it has reintroduced the refuted surface. If Task 2 selects the fire-time re-read
-instead, this pin becomes an assertion that the timer callback captures no state, and the walker is
-not written. Either way the pin is structural and derived from a filesystem walk, never a hand list.
+**AC-17: pin the writer set, unconditionally.** Task 2 names the writer-side twin as the mechanism
+this plan implements, so this pin is not a branch. Add a suite named `retryWriterSetPin` under
+`tests/components/diagrams/` (created here, so tracked only after it lands): walk both component
+sources for every `setRetrying` call site and assert each is paired with its synchronous mirror
+write in the same statement, so a call site added later without one fails. Derived from a filesystem
+walk over the two sources, never a hand list of call sites.
+
+The assertion is over the WRITER set because it is closed and greppable. Asserting over the reader
+set is the shape spec §3.2a deleted after three drafts of it were refuted, and a plan reintroducing
+it would have reintroduced the refuted surface.
+
+**If the fallback shipped instead** (Task 2 records the switch), this pin is replaced by one that
+asserts the timer callback both captures nothing AND no-ops on a live-membership check. Review round
+1 caught that "captures no state" alone is satisfied by an unconditional functional write, which is
+precisely the defect the mechanism exists to prevent, so the capture assertion never ships alone.
 
 **The availability sweeps are NOT edited.** Spec §3.1 and §3.2 are what carry `checkedIn` and the
 timers, at every removal site including the two round 1 found. This task proves that, rather than
@@ -315,17 +350,20 @@ the guard by default. Do not narrow the walk.
 
 ## Task 7: transition audit
 
-<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.transitions.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:760` why=`no compound-transition case exists today, so a late onLoad arriving during the check-in is unasserted on both surfaces` ac=AC-6,AC-7 -->
+<!-- task: red=`pnpm exec vitest run --project parallel tests/components/diagrams/gallery.transitions.test.tsx` red-state=authored red-target=`components/diagrams/Gallery.tsx:760` why=`the compound cases this task adds are GREEN ON ARRIVAL once Tasks 3 to 5 have shipped, so the red is PLANTED: remove the check-in clear from the onLoad path, observe this command red, restore, observe green. Recorded per the discipline tests/e2e/diagram-retry-dimensions.spec.ts:9-16 already documents for its own sibling assertion` ac=AC-6,AC-7 -->
 
 EXTENDS the shipped `tests/components/diagrams/gallery.transitions.test.tsx` rather than adding
 a sibling suite; that file already owns this class for these components.
 
 The spec's §8 inventory is FIFTEEN unordered pairs across six states (`idle`, `failed`, `retrying`,
-`retrying+checked-in`, `restarting`, `unavailable`), plus §8.1's nine compound cases. It was ten
+`retrying+checked-in`, `restarting`, `unavailable`), plus §8.1's TEN compound cases. It was ten
 over five until round 1's redesign added `restarting`.
 
 This task enumerates every ternary render and conditional block in the two components' retry regions
-and asserts each is deliberately instant, then tests all nine compound cases:
+and asserts each is deliberately instant, then tests all TEN compound cases. An earlier draft
+claimed nine and listed nine, which review round 1 caught against the spec: the case it omitted is
+the last row below, and an audit declaring itself exhaustive while missing one is worse than an
+audit that declares nothing:
 
 - image loads while the check-in is on screen: reaches `idle`, no intermediate frame
 - image errors while the check-in is on screen: reaches `failed`, announces the existing
@@ -337,6 +375,8 @@ and asserts each is deliberately instant, then tests all nine compound cases:
 - Restart pressed, and the item goes unavailable in the same tick
 - the timer firing in the same tick as `onLoad`
 - two items checked in at once, independently
+- Restart pressed while ANOTHER item is 29 seconds into its own wait, asserting that item's window is
+  untouched. This is AC-1b at the compound level, and it is the case a timer COUNT cannot see
 
 There is no `AnimatePresence` in either retry region; the audit records that, since "no exit
 animation is missing because there is no presence wrapper" is a finding waiting to be
@@ -344,7 +384,7 @@ re-derived otherwise.
 
 ## Task 8: layout dimensions, in a real browser
 
-<!-- task: red=`pnpm heavy pnpm exec playwright test tests/e2e/diagram-retry-dimensions.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:651` why=`the check-in sub-state does not render, so the added case cannot find a check-in button to measure and fails on the locator` ac=AC-13 -->
+<!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/diagram-retry-dimensions.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:651` why=`the height assertion is GREEN ON ARRIVAL because the check-in button reuses the shipped overlay's absolute inset-0, so the red is PLANTED: remove that class from the overlay, observe this command red, restore, observe green. Same cycle the file's existing AC-7 case records at tests/e2e/diagram-retry-dimensions.spec.ts:9-16` ac=AC-13 -->
 
 jsdom computes no layout, so this is Playwright. EXTENDS the shipped
 `tests/e2e/diagram-retry-dimensions.spec.ts`. With the asset request held open, drive an item
@@ -369,7 +409,7 @@ the commit. A guard that cannot be observed failing is decorative, whatever its 
 
 ## Task 9: the check-in appears, in a real browser
 
-<!-- task: red=`pnpm heavy pnpm exec playwright test tests/e2e/diagram-retry.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:760` why=`no check-in state exists, so the overlay still reads Retrying after the wait and the Restart control is absent` ac=AC-2,AC-8,AC-9,AC-D3 -->
+<!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/diagram-retry.spec.ts` red-state=authored red-target=`components/diagrams/Gallery.tsx:760` why=`the AC-9 source scan is GREEN ON ARRIVAL, since no abort call is ever added, so the red is PLANTED for that half: add an AbortController line to one component, observe this command red, remove it, observe green. The browser half reds honestly against Tasks 3 and 5 only if this task runs before them, which it does not, so both halves are declared planted rather than one being claimed as a natural red` ac=AC-2,AC-8,AC-9,AC-D3 -->
 
 EXTENDS the shipped `tests/e2e/diagram-retry.spec.ts` and its harness.
 
@@ -422,24 +462,30 @@ this one case exists to prove the real clock drives it.
 
 ## Task 10: gates, then the ledger
 
-<!-- task: red=`pnpm exec vitest run --project parallel tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:72` why=`the GRADUATED list does not contain DIAGRETRY-NO-RETRY-DEADLINE-1, so the graduation case this task adds finds the row still open in DEFERRED.md and fails until the row is archived and its id registered` ac=AC-D4 -->
+<!-- task: red=`pnpm exec vitest run --project parallel tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:72` why=`the GRADUATED list does not contain DIAGRETRY-NO-RETRY-DEADLINE-1, so the graduation case this task adds finds the row still open in DEFERRED.md and fails until the row is archived and its id registered. The command below RUNS that file, which an earlier draft did not: its red named a case in _metaDeferralLedgerGraduation.test.ts while executing only _metaLedgerInProgress.test.ts` ac=AC-D4 -->
 
 In order, each as its own command, never chained into a commit: `pnpm heavy pnpm test`,
 `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
 
 Then the invariant-8 dual gate over the diff, since `DESIGN.md` and two `components/` files are
-UI surface. Findings at P0 and P1 are fixed or deferred with a `DEFERRED.md` entry. The gate's
+UI surface. Findings at P0 and P1 are FIXED. This arc files no new ledger row, of any facing,
+under any exception clause, so deferring one with a `DEFERRED.md` entry is not available here and an
+earlier draft of this line was wrong to offer it; anything unfixable goes in the PR body under
+"Unfixed peers" and the orchestrator decides whether it earns a row. The gate's
 own closeout marker line and its dispositions land in the gate-run commit, not before: a
 marker written ahead of the run names halves that have not run.
 
 The ledger graduation is the PR's LAST commit, and it is three edits in that one commit:
 
-1. move both row bodies from `DEFERRED.md` to `DEFERRED-archive.md`
-2. add both ids to the `GRADUATED` list in `tests/docs/_metaDeferralLedgerGraduation.test.ts`,
-   with a dated comment naming this branch and how each graduated. `CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1`
-   graduated by the decision it was blocked on being taken and the repair already having shipped
-   in `e6408222c`; `DIAGRETRY-NO-RETRY-DEADLINE-1` graduated by this branch
-3. remove both IN PROGRESS markers, in this same commit
+1. move the `DIAGRETRY-NO-RETRY-DEADLINE-1` row body from `DEFERRED.md` to `DEFERRED-archive.md`.
+   ONE row, not two: the paired-chrome row split to `docs/paired-chrome-stale-text` on 2026-08-31
+   and graduates there. An earlier draft archived both, which review round 1 caught as a
+   half-applied split; a literal implementer would have archived a row whose prose repair lives on
+   another branch
+2. add that ONE id to the `GRADUATED` list in `tests/docs/_metaDeferralLedgerGraduation.test.ts`,
+   with a dated comment naming this branch and how it graduated: the product decision it was blocked
+   on was taken on 2026-08-31, and the check-in ships here
+3. remove its IN PROGRESS marker, in this same commit
 
 The marker removal cannot be a later commit. A marker that reaches main names a branch the merge
 deleted and reds `tests/docs/_metaLedgerInProgress.test.ts` on main. It cannot be an earlier one
@@ -485,7 +531,8 @@ AC-5 and AC-8 are deliberately opposite and share Task 5: a repair that satisfie
 the other is the failure mode, so one task owns both. AC-10 is round 1's critical finding turned
 into an assertion, and it also lives in Task 5 because the mechanism it constrains is Restart's.
 
-This plan declares four criteria of its own:
+This plan declares three criteria of its own. It was four until the paired-chrome row split off on
+2026-08-31 and took AC-D1 with it:
 
 - AC-D2: `DESIGN.md` §5.5 lists `RETRY_CHECK_IN_MS` at 30000 in `components/diagrams/GalleryLightbox.tsx`
 - AC-D3: spec §1.2 records an observed answer for U-1, citing the e2e case that measured it
