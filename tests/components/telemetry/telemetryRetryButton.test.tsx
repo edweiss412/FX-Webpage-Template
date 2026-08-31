@@ -156,7 +156,11 @@ describe("TelemetryRetryButton", () => {
     const view = renderControl(1_000);
     fireEvent.click(screen.getByTestId(TEST_ID));
     rerenderAt(view, 2_000);
-    expect(statusText()).toContain("Still couldn’t load scheduled-job health");
+    // EXACT, against the literal copy with the parity separator stripped. `toContain`
+    // was the shape here first and a planted mutant walked straight through it: an
+    // appended suffix is still contained, so the shipped copy could drift by any
+    // amount of trailing text with the whole suite green.
+    expect(statusText().replace(/ $/, "")).toBe("Still couldn’t load scheduled-job health");
 
     // Once: the baseline cleared with the announcement, so a further changed value
     // says nothing new until the next tap.
