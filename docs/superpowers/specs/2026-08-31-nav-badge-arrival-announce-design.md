@@ -213,10 +213,25 @@ halves are latched, and reads the ref at that instant.
 The value is therefore current as of the announcement, and an interaction after
 the announcement cannot falsify a sentence that was true when it was spoken.
 
-**Not keyed on promise settlement**, deliberately: a settled latch requires the
-hook to have actually committed, so the effect can never read a count that has
-not landed, and the design does not rest on React's auto-batching of two `.then`
-callbacks.
+**What the promise is and is not used for, stated precisely, because an earlier
+draft over-generalized it into a contradiction.** The promise NEVER supplies an
+announced value. It supplies a settlement signal on exactly one path: the
+attention half's FAILURE. It has to, and the asymmetry is forced by the hooks
+rather than chosen. `useNeedsAttentionBadge` commits `setCount(null)` on a
+failed read (`useNeedsAttentionBadge.ts:88`, ratified fail-quiet D-4), and
+`null` is its pending value too, so the component cannot tell failure from
+pending from its own return (§2.2). The promise settling non-`ok` is the only
+observable that distinguishes them.
+
+Everywhere else the latch requires an observable hook COMMIT: both bell paths,
+and the attention success path, where `typeof badgeCount === "number"` is
+already decisive. So the effect can never read a count that has not landed, and
+the design does not rest on React's auto-batching of two `.then` callbacks.
+
+Read the table above with that scope: row 2's middle clause is the attention
+failure path and nothing else. Without the promise on that one path, domain
+point `(bell = 4, attention = failed)` would leave attention pending forever and
+suppress a bell sentence that AC-4 requires.
 
 Once it fires, a ref marks the mount spoken and nothing announces again,
 **including when the computed message is empty.** Silence is a resolution, and
@@ -271,6 +286,16 @@ utterance explains the ACCESSIBLE NAME of a control, never the glyph rendered
 in its pill. Where the two disagree the name wins, because the name is what a
 screen-reader user actually receives and the announcement exists to repair a
 name that changed unheard.
+
+**Scope, because the invariant is not total and R3's statement of it was.**
+It ranges over the utterance's BELL half at every width, and over its ATTENTION
+half at widths where the attention tab is in the accessibility tree
+(`< 840px`; the bar is `min-[840px]:hidden` at `AdminNav.tsx:216-219`). At
+desktop widths the attention control is not in the tree at all, so there is no
+accessible name for that half to explain and the invariant is silent rather than
+satisfied. §3.4 keeps announcing there deliberately, on the separate ground that
+the sentence is about STATE rather than a control, and §6 limit 7 now records
+what that costs.
 
 They disagree in exactly one place, by design: the pill caps at `9+`
 (`NotifBell.tsx:93`, `AdminNav.tsx:230`) and the names do not
@@ -478,12 +503,32 @@ reusing an existing setter, nor a changed argument, nor any edit to the settle
 predicate itself. It was also a recognizer bounded by a NUMBER, the shape
 `docs/agents/writing-plans.md` names under repair economy.
 
-The class is closed by construction instead, which is why no guard replaces it.
-The drift the census was watching for is "the announcement and the accessible
-name disagree", and §3.3 makes that unrepresentable: `bellAccessibleName` is
-DEFINED on `bellAnnounceableCount`, so there is one decision with two callers
-rather than two implementations of one rule. Deleting the mechanism beats
-guarding it.
+No guard replaces it, and the honest reason is narrower than an earlier draft
+claimed. What §3.3 makes unrepresentable is BELL value drift, and only that:
+`bellAccessibleName` is DEFINED on `bellAnnounceableCount`, so there is one
+decision with two callers rather than two implementations of one rule. The
+deleted census was a lexical `setCount` count, which never covered even that,
+so deleting it is right on its own terms.
+
+Two instances of the wider class remain representable, and the spec states them
+rather than claiming a closure it does not have.
+
+1. **The attention label and the announcement are two implementations.** The
+   accessible name at `AdminNav.tsx:240` interpolates `badgeCount`, while
+   `navBadgeArrivalAnnouncement` independently applies
+   `Number.isFinite(n) && n > 0`. They agree today. One ordinary edit, swapping
+   the label onto the `badgeDisplay` value that already sits beside it at
+   `AdminNav.tsx:230`, would make a count of 12 read `9+` in the name while the
+   utterance says 12, which is a referent-invariant violation a contributor
+   could introduce without touching this arc's files. This is inside the threat
+   fence, so it is stated, not waved off. It is NOT repaired by extending the
+   bell's construction to attention, because the attention name is owned by a
+   control this arc does not restructure; AC-18 pins the pair instead, which is
+   the deciding-suite form rather than a new recognizer.
+2. **Settlement is independent of the selector.** A future bell `null` commit,
+   or an attention success path that commits no number, stalls the join. §5
+   already carries both as assumption rows; they are the same class seen at the
+   settlement layer, and the assumption rows are where they stay.
 
 **Extends:** one, and it is a repair rather than an addition.
 `tests/components/_metaLiveRegionMounting.test.ts` does NOT today recognize
@@ -568,10 +613,31 @@ Filed here rather than as ledger rows, per the arc's no-new-rows rule.
    `badgeCount` stays `null` while the promise settled `ok`, so the attention
    half never latches. Requires a navigation inside the pending window followed
    by a failing fetch.
-4. **Dev-mode double announcement.** React StrictMode unmounts and remounts on
-   mount in development, creating a fresh spoken ref. Development only; not
-   present in any production build or in any test environment that does not
-   opt into StrictMode.
+4. **StrictMode does NOT double-announce, and an earlier draft said it did.**
+   Corrected against the installed runtime, React 19.2.4. StrictMode replays
+   effects; it does not remount the component or recreate refs, so the spoken
+   ref set by the first pass is still set on the replay and the second pass
+   announces nothing. The repository's existing StrictMode coverage describes
+   the same effect-replay shape at
+   `tests/components/admin/nav/badgeSeedInterleavings.test.tsx:171-183`. Recorded
+   here as a corrected claim rather than deleted, so the next reader does not
+   re-derive it. AC-19 pins it.
+7. **At desktop widths the attention sentence explains no control, and its
+   number is a second snapshot.** Above 840px the attention tab is out of the
+   accessibility tree, so the referent invariant (§3.3) is silent for that half
+   and §3.4's state-not-control argument is what carries it. The dashboard's own
+   "Needs attention" panel is not a guarantee of agreement either: the layout
+   reads the count through `loadNeedsAttentionCount()` (`app/admin/layout.tsx:195`)
+   while the dashboard reads through `loadNeedsAttention({ cap, supabase })`
+   (`components/admin/Dashboard.tsx:468`), two independent calls at two
+   instants, so an item changing between them can leave a spoken 2 beside a
+   panel showing 1. The worst case is one true-when-spoken sentence next to a
+   fresher number, which is silence-plus-status-quo territory rather than a
+   wrong announcement, and closing it would mean sharing a snapshot across two
+   subtrees that this arc does not otherwise touch. Recorded, not repaired.
+   §3.4's congruence argument is narrowed accordingly: the desktop panel makes
+   the count RELEVANT at that width, not identical.
+
 5. **The utterance is polite, so a screen reader may drop it** if it lands while
    something higher-priority is speaking. Inherent to `role="log"`; the same
    limit every announcement on this channel carries.
@@ -625,6 +691,15 @@ Filed here rather than as ledger rows, per the arc's no-new-rows rule.
   `useBellBadge.ts:111`) and the panel's `onOpened={refetch}`
   (`NotifBell.tsx:112`). The reverse ordering, attention settling before the
   restoration, announces no bell sentence.
+- AC-18 The attention accessible name and the attention sentence carry the
+  SAME number at a count above nine: with `badgeCount = 12` the name reads
+  `"Needs attention, 12 items"` (`AdminNav.tsx:240`) and the utterance says
+  `"12 items need attention."`, neither showing `9+`. This is the deciding case
+  for §3.11 instance 1, and it fails if the label is ever moved onto
+  `badgeDisplay` (`AdminNav.tsx:230`).
+- AC-19 Under `<StrictMode>` with both counts nonzero, exactly ONE announcement
+  is appended, not two. React 19.2.4 replays effects without recreating the
+  spoken ref (§6 limit 4).
 - AC-17 When `degraded` clears (`useBellBadge.ts:112`) between the bell
   settling and the announcement, and the restored count is above zero, the bell
   sentence is present and carries that count.
