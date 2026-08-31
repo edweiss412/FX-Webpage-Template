@@ -4,7 +4,9 @@
 
 **Why this file exists at all.** The original lived inside `docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md`, and the parked note named that section as its only home. When this branch merged `origin/main`, the merge took main's deletion of that section: the product branch had removed it, this branch had never touched the file, so there was no conflict and the loss was silent. A referenced document quietly disappearing under a clean merge is worth repairing on its own, which is why the recovery is a file rather than a footnote.
 
-**Re-file trigger.** See the subsumption record's trigger section, and `LIM-E2E-1280-CONTAINMENT-FLAKE` in `docs/review-rounds/LIMITS.md`. If a placement read in `tests/e2e/popover-clip-fit.spec.ts` is found outside the settle poll, or the flake recurs after `#954`, this design un-parks with its work already done.
+**Re-file trigger.** See the subsumption record's trigger section, and `LIM-E2E-1280-CONTAINMENT-FLAKE` in `docs/review-rounds/LIMITS.md`. This design un-parks if the flake recurs after `#954`, or if a placement read in `tests/e2e/popover-clip-fit.spec.ts` outside the settle poll is shown to produce a value its oracle rejects.
+
+**The second arm is deliberately narrower than the trigger `LIM-E2E-1280-CONTAINMENT-FLAKE` states**, and the reason matters: one such read is already known. The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1472`) is unrouted and in-class, so the LIMITS entry's trigger as literally worded is ALREADY satisfied, while this design stays parked. That is not an oversight in either document. An unrouted read only justifies building the cover if it can actually fail, and the census has never been observed to, with a wide gap to its bound — a margin rather than a proof, resting on a premise the record marks untested. So the known site is named instead of triggering, and a NEW unrouted read, or evidence that the census can cross its bound, is what moves this.
 
 ## Provenance
 

@@ -75,7 +75,7 @@ Two things this arc contributes to it.
 
 **The reproduction that entry says it never obtained.** It records "No reproduction was obtained, and none is claimed," resting the repair on the defect shape and on `components/admin/showpage/AttentionMenu.tsx:479`. The neuter probe here is that reproduction: with `settledSample` reduced to a single read, 33 full-file runs produced a failure at `placement is RE-COMPUTED once the entrance settles`, which is one of the two cases that entry names by symptom. The mechanism it inferred is the mechanism that fires when the poll is removed. The repair was right, and now something observed says so.
 
-**One in-class site the sweep missed.** That entry derived its population from the mechanism rather than from known symptoms, which is the right method, and it reached six cases across four reads. The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1472`) also opens the menu and asserts on placement-derived geometry from a single sample, so it is in-class by that definition, and it is NOT routed through `settledSample`; it still carries a bare `waitForTimeout(80)`. It is not among the entry's two stated exclusions. It is in-class and, on the margin argued above, harmless — which is why it is recorded here rather than filed. It also literally satisfies that entry's re-file trigger ("a placement read in that file that does not go through the settle poll"), so it is named explicitly rather than left for someone to trip over.
+**One in-class site the sweep missed.** That entry derived its population from the mechanism rather than from known symptoms, which is the right method, and it reached six cases across four reads. The anchor-room census (`tests/e2e/popover-clip-fit.spec.ts:1472`) also opens the menu and asserts on placement-derived geometry from a single sample, so it is in-class by that definition, and it is NOT routed through `settledSample`; it still carries a bare `waitForTimeout(80)`. It is not among the entry's two stated exclusions. It is in-class, and on the margin argued above it has never been observed to fail and has a wide gap to its bound — which is why it is recorded here rather than filed. That is a margin, not immunity: the same margin rests on the untested mapping named above. It also literally satisfies that entry's re-file trigger ("a placement read in that file that does not go through the settle poll"), so it is named explicitly rather than left for someone to trip over.
 
 ## Re-file trigger: the procedure, not a description
 
@@ -89,7 +89,12 @@ The design un-parks if the defect reproduces. That is testable rather than a mat
    ```
 3. Restore the file. Do not commit the neutered form.
 
-**What each outcome means.** A failure at `settled fit at 390x${height}` with a delta of exactly 20px is the parked defect, and the design un-parks with its work already written. A failure elsewhere in the file is the broader class, which belongs to `LIM-E2E-1280-CONTAINMENT-FLAKE`. No failure across a comparable number of runs reproduces what this arc measured, and the parking stands.
+**What each outcome means.** Four outcomes, and the third is the one an earlier draft of this list omitted.
+
+- **A failure at `settled fit at 390x${height}` with a delta of exactly 20px** is the parked defect. The design un-parks with its work already written.
+- **A failure elsewhere in the file** is the broader class, which belongs to `LIM-E2E-1280-CONTAINMENT-FLAKE`.
+- **A failure at `settled fit` with a delta OTHER than 20px** is neither. It is what this document's own intermediate-geometry alternative predicts: a stale read that is not the previous cell's settled value. It refutes the shifted-by-one mapping the census margin rests on, so it un-parks the design AND sends the margin argument back to be redone, in that order.
+- **No failure across a comparable number of runs** reproduces what this arc measured, and the parking stands.
 
 **And the trigger that does not need the neuter at all:** the flake recurring on the SHIPPING tree, with `settledSample` intact. That would mean the poll narrows the window rather than closing it, which this document already names as a live possibility rather than excluding.
 
