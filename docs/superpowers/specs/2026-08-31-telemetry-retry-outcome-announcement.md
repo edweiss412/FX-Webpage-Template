@@ -35,10 +35,10 @@ Let `finite(x)` mean `Number.isFinite(x)`.
 
 1. **Mount:** status region rendered with the button, empty. Unchanged (`TelemetryRetryButton.tsx:80`, pinned by `telemetryRetryButton.test.tsx` case 1).
 2. **Tap:** announce intent `Retrying {what}` (`retryAnnouncement`, `TelemetryRetryButton.tsx:49`, unchanged); if `finite(renderedAt)`, record `baseline = renderedAt`. If not finite, record nothing.
-3. **Render while baseline recorded and `finite(renderedAt)` and `renderedAt !== baseline`:** announce outcome `Still couldn’t load {what}`; clear the baseline. This is the new behavior.
+3. **Render while baseline recorded and `finite(renderedAt)` and `renderedAt !== baseline`:** the rule is ANY difference, in either direction, never an ordering test, because a server clock correction can move the value backwards and that render still settled a re-read. Announce outcome `Still couldn’t load {what}`; clear the baseline. This is the new behavior.
 4. **Render while baseline recorded and `renderedAt === baseline`:** no change to the region (the RSC payload has not arrived yet, or arrived within the same millisecond — see Documented limits).
 5. **Render with no baseline recorded** (auto-refresh with no tap in flight): silent, whatever `renderedAt` does. Matches today's auto-refresh silence.
-6. **Repeats distinguishable:** any two consecutive announcements, identical text or not, must be perceivable as separate utterances by a screen reader. Mechanism: a sequence counter drives the trailing ` ` parity, subsuming the current `attempts % 2` toggle (`TelemetryRetryButton.tsx:81-85`; precedent `components/admin/ShowRowActions.tsx:608`). The existing pinned contract "a second activation is distinguishable from the first" (`telemetryRetryButton.test.tsx`, case 3) must keep passing.
+6. **Repeats distinguishable:** any two consecutive announcements, identical text or not, must be perceivable as separate utterances by a screen reader. Mechanism: a sequence counter drives a trailing U+00A0 NO-BREAK SPACE as the parity suffix (the code point specifically, not any whitespace: an ordinary space is textually distinct and would satisfy a naive inequality check while abandoning the mechanism), subsuming the current `attempts % 2` toggle (`TelemetryRetryButton.tsx:81-85`; precedent `components/admin/ShowRowActions.tsx:608`). The existing pinned contract "a second activation is distinguishable from the first" (`telemetryRetryButton.test.tsx`, case 3) must keep passing.
 7. **Tap while an outcome is pending** (double-tap before the refresh lands): announce intent again (parity makes it heard), re-record `baseline` from the current `renderedAt`. One outcome per settled re-read, not one per tap.
 8. **State adjustment happens during render** (React's adjust-state-when-props-change idiom), not in an effect, so the announcement text and the clearing of the baseline land in the same committed render as the new prop. The plan carries the exact shape.
 
@@ -74,7 +74,7 @@ with `renderedAt={now.getTime()}` a fixed literal expression, identical at all t
 | --- | --- | --- | --- | --- |
 | `what` | TS-required; census rejects empty (`telemetryRetryButtonSites.test.ts`, "none is empty") | n/a | n/a | census reds |
 | `testId` | TS-required; census uniqueness | n/a | n/a | census reds |
-| `renderedAt` (new) | TS-required; census pins presence at every site | never recorded as baseline; outcome never announced; intent behavior unchanged (§3.2) | valid epoch; normal comparison | n/a |
+| `renderedAt` (new) | TS-required; census pins presence at every site | the whole non-finite domain (NaN and ±Infinity alike, which is why the guard is `Number.isFinite` and never an `isNaN` test): never recorded as baseline, outcome never announced, intent behavior unchanged (§3.2) | a valid epoch on both sides of the comparison, so neither guard may be a truthiness test | n/a |
 
 A non-finite `renderedAt` degrades to exactly the shipped intent-only behavior: conservative, silent on the new half, never a wrong announcement.
 
