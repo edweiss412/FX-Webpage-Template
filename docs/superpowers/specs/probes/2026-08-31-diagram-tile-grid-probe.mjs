@@ -126,5 +126,14 @@ for (const r of rows) {
   );
 }
 const bad = rows.filter((r) => Math.abs(r.ratio - 4 / 3) > 0.01 || r.msgClipped);
-console.log(`\n${bad.length === 0 ? "OK" : "FAIL"}: ${bad.length} tile(s) off 4:3 or with clipped copy`);
+console.log(
+  `\n${bad.length === 0 ? "OK" : "FAIL"}: ${bad.length} tile(s) off 4:3 or with clipped copy`,
+);
+for (const r of bad) {
+  console.log(`  ${r.viewport}px tile ${r.i} ${r.state}: ratio ${r.ratio}, clipped ${r.msgClipped}`);
+}
 await page.context().browser().close();
+// THE EXIT IS THE CLAIM. Printing "FAIL" and exiting 0 is a gate that gates
+// nothing, which is what spec review round 2 caught here: two spec sections
+// cited this file as failing its process on a bad ratio and it never did.
+process.exitCode = bad.length === 0 ? 0 : 1;

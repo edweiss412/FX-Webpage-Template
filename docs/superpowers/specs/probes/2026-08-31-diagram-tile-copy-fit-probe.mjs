@@ -4,6 +4,11 @@
  * widths `diagramTileWidthAt` produces, in Inter at --text-xs, and reports the
  * laid-out height of each against the height of the 4:3 box it would have to
  * fit inside.
+ *
+ * MEASUREMENT ONLY: it reports the laid-out height of each string and makes no pass/fail claim, so it
+ * always exits 0. The probe that GATES is
+ * docs/superpowers/specs/probes/2026-08-31-diagram-tile-grid-probe.mjs, which sets a
+ * non-zero exit code on a bad ratio or clipped copy.
  */
 import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";

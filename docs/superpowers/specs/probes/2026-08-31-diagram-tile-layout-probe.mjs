@@ -2,6 +2,11 @@
  * Second half of the DiagramTile spike: (A) does TODAY's placeholder already
  * clip its own content, and (B) how tall is the proposed caption-below-the-box
  * layout. Same font, same tile widths as measure-tile-copy.mjs.
+ *
+ * MEASUREMENT ONLY: it reports today's clipping and the proposed layout's heights and makes no pass/fail claim, so it
+ * always exits 0. The probe that GATES is
+ * docs/superpowers/specs/probes/2026-08-31-diagram-tile-grid-probe.mjs, which sets a
+ * non-zero exit code on a bad ratio or clipped copy.
  */
 import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";

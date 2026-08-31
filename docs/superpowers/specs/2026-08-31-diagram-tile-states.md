@@ -152,7 +152,7 @@ explanation hangs below rather than displacing it.
 | --- | --- | --- |
 | `alt` | `""` or whitespace after `stripNewTabSuffix` | **No name line at all**, in every state — the existing behaviour at `components/admin/wizard/step3ReviewSections.tsx:4174-4177`, preserved. The anchor's `aria-label` falls back to `Staged diagram (opens in a new tab)` (`components/admin/wizard/step3ReviewSections.tsx:4200`). The message still renders in the failed states. |
 | `hasPreviewSource` | `false` | `absent`. No `<img>` mounts, so `onError` cannot fire. |
-| `href`, `sourceKey` | `""` | **Unreachable from either caller, and the gate that makes it so is named.** The staged resolvers build fixed-prefix template literals that cannot be empty (`components/admin/wizard/step3ReviewSections.tsx:4356`, `components/admin/wizard/step3ReviewSections.tsx:4360`). The published path injects its own, and its `previewSourceFor` returns FALSE for exactly the degenerate row (`components/admin/wizard/step3ReviewSections.tsx:4583-4589`, whose comment states the reason: a malformed row has no fetchable bytes at any width and building a URL for it doubles a slash), so the tile takes the `absent` branch BEFORE any URL is built and no `<img>` ever mounts. Inside `DiagramTile` they are compared by identity only (`components/admin/wizard/step3ReviewSections.tsx:4143-4147`). **Documented limit:** a future caller that injects an empty builder WITHOUT a matching `previewSourceFor` gate would render a nominally live tile with an empty `src`, which never fires `onError`, so the tile would show an empty box and no message. The gate and the builders must move together; that pairing is the contract, and it is the caller's, not this component's. |
+| `href`, `sourceKey` | `""` | **Unreachable from either caller, and the gate that makes it so is named.** The staged resolvers build fixed-prefix template literals that cannot be empty (`components/admin/wizard/step3ReviewSections.tsx:4356`, `components/admin/wizard/step3ReviewSections.tsx:4360`). The published path injects its own, and its `previewSourceFor` returns FALSE for exactly the degenerate row (`components/admin/wizard/step3ReviewSections.tsx:4583-4589`, whose comment states the reason: a malformed row has no fetchable bytes at any width and building a URL for it doubles a slash), so the tile takes the `absent` branch and no `<img>` ever mounts. **The string IS built, and saying otherwise was wrong.** `DiagramsBreakdown` evaluates `resolveSrc(stub)` and `resolveSourceKey(stub)` while constructing the props (`components/admin/wizard/step3ReviewSections.tsx:4407-4408`), which happens before `DiagramTile` can branch on anything. So a degenerate published row does construct its doubled-slash string; what the gate guarantees is that the string is never RENDERED into an `href` that resolves or REQUESTED as an image source, because the branch that would have used it does not run. Inside `DiagramTile` they are compared by identity only (`components/admin/wizard/step3ReviewSections.tsx:4143-4147`). **Documented limit:** a future caller that injects an empty builder WITHOUT a matching `previewSourceFor` gate would render a nominally live tile with an empty `src`, which never fires `onError`, so the tile would show an empty box and no message. The gate and the builders must move together; that pairing is the contract, and it is the caller's, not this component's. |
 | `onFailure`, `anchorRef` | omitted | Optional today (`components/admin/wizard/step3ReviewSections.tsx:4113-4118`) and still optional. |
 | `testId` | — | Always on the BOX, never on the wrapper or caption. Non-negotiable: see §4. |
 
@@ -373,13 +373,27 @@ New coverage this spec owes, each stating the failure mode it catches:
 7. **Real-browser READABILITY, in the same spec.** A DOM assertion that the message is present
    passes just as well when the message is `display:none` at a breakpoint, clipped by an ancestor,
    `line-clamp`ed, or laid out at zero height, and every one of those is one responsive class away.
-   So for each of the two failure states, at each of the four viewports, assert: the message's
-   `getBoundingClientRect().height` is greater than one line-height; its `scrollHeight` does not
-   exceed its `clientHeight` (nothing is clipped); its computed `display` is not `none` and its
-   `-webkit-line-clamp` is `none`; and its rect is inside the scrolling container's. The probe at
-   `docs/superpowers/specs/probes/2026-08-31-diagram-tile-grid-probe.mjs` is the shape of this
-   assertion and exits non-zero on any clipped message or any box off 4:3, so the check is already
-   written down executably before the task starts.
+   So for each of the two failure states, at each of the four viewports, assert all five:
+   1. the message's `getBoundingClientRect().height` exceeds one line-height;
+   2. its own `scrollHeight` does not exceed its own `clientHeight`;
+   3. its computed `display` is not `none` and its `-webkit-line-clamp` is `none`;
+   4. **it is not a descendant of the box.** `element.contains()` against the `-diagram-tile-`
+      element, asserted false. The box is `overflow-hidden` and `aspect-4/3`, so an implementation
+      that leaves the message inside it satisfies 1, 2 and 3 while the box clips the copy — the
+      message's OWN scroll box is not the one overflowing. This is the wrong implementation the
+      design most invites, and 1-3 alone do not catch it;
+   5. **and no ancestor clips it either.** Walk from the message to the scroll container, and for
+      every ancestor whose computed `overflow-x` or `overflow-y` is not `visible`, assert the
+      message's rect is contained in that ancestor's rect. That is the general form; 4 is the
+      specific instance worth naming because it is the likely one.
+
+   The name line is exempt from 2 and 5 by design: it is `truncate`, so it is SUPPOSED to clip, and
+   its full value stays in the `title`. The assertion for it is that its `title` equals the
+   untruncated name.
+
+   `docs/superpowers/specs/probes/2026-08-31-diagram-tile-grid-probe.mjs` is the shape of 1-3 and
+   sets a non-zero exit code on a clipped message or a box off 4:3, verified by mutating its
+   threshold (exit 1) and running it unmutated (exit 0).
 8. **The placeholder box carries `border-text-faint` and not `border-border`.** Catches the P2 being
    dropped in a later repair round.
 9. **`data-testid` is on the box; the wrapper carries the `-diagram-cell-` id**, and the
@@ -410,7 +424,7 @@ varied) recorded in its commit.
 - **AC-5** — With `alt` empty or whitespace, no name line renders in any state, and the anchor's `aria-label` still falls back to `Staged diagram (opens in a new tab)`.
 - **AC-6** — All five reachable ordered transitions of §4.1 land on the correct state under a stable React key, and `absent → load-failed` is unreachable directly.
 - **AC-7** — Every dimension relationship in §3.3 holds in a real browser within 0.5px at 320, 390, 640 and 1072px, with a failed tile beside a live tile in the same grid row.
-- **AC-7b** — In that same real browser, at each viewport and for each failure state, the message renders at more than one line-height, is not clipped (`scrollHeight <= clientHeight`), and is neither `display:none` nor line-clamped.
+- **AC-7b** — In that same real browser, at each viewport and for each failure state, the message renders at more than one line-height, is not clipped by its own scroll box, is neither `display:none` nor line-clamped, is NOT a descendant of the `overflow-hidden` box, and its rect is contained in every ancestor whose computed overflow is not `visible`.
 - **AC-8** — The placeholder box carries `border-text-faint` and does not carry `border-border`.
 - **AC-9** — `data-testid` is on the box element in every state, the wrapper carries a `-diagram-cell-` id, and the `-diagram-tile-` prefix count over a full grid equals `DIAGRAM_TILE_CAP`.
 - **AC-10** — No user-visible string this arc adds contains an em dash, and `tests/styles/_metaEmDashCopy.test.ts` is green.
@@ -442,7 +456,9 @@ Reported to bl-orch. No ledger row is filed.
    to take.
 3. **next/image cannot see either surface's `object-fit`,** because both set it through a className
    and next reads `style.objectFit` (§7, item 3). The consequence today is that the crew gallery's
-   blur placeholder paints with `background-size` unset rather than matching the image. The fit
+   blur placeholder paints at `background-size: cover` — next's default when it cannot read a fit —
+   rather than at whatever the image is actually using. After the ruling those disagree: the
+   placeholder covers, the image contains. The fit
    ruling neither causes nor fixes this; it is visible only while a blurred thumbnail is loading,
    and correcting it means moving `object-fit` from a class to an inline style on a surface this
    arc is otherwise only touching for one token.
