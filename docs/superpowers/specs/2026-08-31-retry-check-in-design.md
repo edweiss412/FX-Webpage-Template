@@ -102,13 +102,33 @@ one of them plus one single-commit staging state, rather than a fifth branch:
 
 | state | membership test | renders |
 |---|---|---|
-| `retrying` | `item.available && retrying.has(id) && !checkedIn.has(id)` | the `<Image>` plus the in-flight overlay, `Retrying…`, inert |
-| `retrying+checked-in` | `item.available && retrying.has(id) && checkedIn.has(id)` | the SAME `<Image>`, same node, plus the same overlay element carrying check-in copy and a working Restart handler |
-| `restarting` | `item.available && restarting.has(id)` — and the id is NOT in `retrying` | the same overlay element, `Retrying…`, inert, and NO `<Image>`. Lives for one commit cycle and is never painted (§4.1) |
+| `retrying` | `item.available && retrying.has(id) && !effectiveCheckedIn.has(id)` | the `<Image>` plus the in-flight overlay, `Retrying…`, inert |
+| `retrying+checked-in` | `item.available && effectiveCheckedIn.has(id)` | the SAME `<Image>`, same node, plus the same overlay element carrying check-in copy and a working Restart handler |
+| `restarting` | `item.available && restarting.has(id)` | the same overlay element, `Retrying…`, inert, and NO `<Image>`. Lives for one commit cycle and is never painted (§4.1) |
 
-**INVARIANT: `retrying` and `restarting` are disjoint, and every write that adds an id to one
-removes it from the other in the SAME update.** Stated once, as an invariant, because review round 2
-found one violation of it and the sweep that followed found a second. Both had the same consequence
+Every row reads `checkedIn` ONLY as `effectiveCheckedIn` (§3.1), and the checked-in row needs no
+separate `retrying` conjunct because the intersection already carries it. An earlier draft wrote
+`checkedIn.has(id)` raw in both rows, which was inert in those particular expressions but
+contradicted the rule two paragraphs below them; review round 3 caught the contradiction in the
+normative table rather than in behaviour, which is exactly where a spec should be held to it.
+`restarting` needs no "and not in `retrying`" qualifier either: the invariant below establishes it,
+and repeating it in the predicate invites the two statements to drift apart.
+
+**INVARIANT: `retrying` and `restarting` are disjoint.** The two writes that can put an id into
+either set from the other are Restart's entry and the layout effect's exit, and each removes from
+one set and adds to the other in the SAME update (§4.1). No other transition touches `restarting`:
+`failed → retrying` cannot, because an id in `restarting` is by construction not in `failedKeys` and
+so renders no retry control to press.
+
+An earlier draft stated this as a universal rule over EVERY write, which review round 3 correctly
+called internally inconsistent: it would have obliged the two shipped `failed → retrying` handlers
+(`Gallery.tsx:449`, `GalleryLightbox.tsx:391`) to remove from a set they can never contain the id
+in. The narrower statement is the true one and is what AC-8c asserts. The same round also caught the
+draft claiming that membership in NEITHER set yields an inert overlay over no image; the render
+predicates below say otherwise and they are right — an id in neither set is `idle` or `failed` by
+the ordinary rules, and there is no overlay at all.
+
+Stated as an invariant because review round 2 Both had the same consequence
 and neither was visible as a missing line: an id in both sets, or in neither, leaves the cell
 showing an inert `Retrying…` over no image, permanently. The two sites were Restart's entry (which
 added to `restarting` without leaving `retrying`, so the replacement request inherited no deadline)
@@ -168,9 +188,24 @@ seven, and the two the draft missed are the interesting ones:
 | component unmount | React |
 
 An enumeration is wrong the moment someone adds the eighth. The intersection is correct for all
-seven and for the eighth, because a `checkedIn` id that is not in `retrying` renders nothing and
-means nothing. A stale entry is inert rather than dangerous, which is the only property worth
-guaranteeing.
+seven and for the eighth, because a `checkedIn` id that is not in `retrying` RENDERS nothing.
+
+**And rendering is the only thing it makes safe. That limit is stated here because getting it wrong
+cost three review rounds.** Drafts of this section claimed a stale `checkedIn` entry was inert
+"by construction", full stop. It is not. The intersection is evaluated during render, so it governs
+what the render produces and nothing else. Code that runs OUTSIDE the render phase reads a snapshot
+of `retrying` taken when it was scheduled, and three separate findings were instances of exactly
+that:
+
+| reader | what it saw | round |
+|---|---|---|
+| the timer callback | the closure from `handleRetry`, which predates the id entering `retrying` | 1 |
+| the timer callback, already queued when the id left | a set that no longer contains the id, so its write to `checkedIn` outlives the reconciler's clear and poisons the NEXT retry | 3 |
+| the announcement effect | the pre-`onLoad` intersection, so it can announce "is still loading" after the image succeeded | 3 |
+
+Patching each race separately is what the first three rounds did, and the finding rate did not move
+(5, 4, 5). §3.2 states the structural repair instead, and it is not a new invention: it is the
+mechanism the lightbox already ships.
 
 The set is still swept, so it does not grow without bound: the reconciling effect in §3.2 drops
 ids that have left `retrying`. But nothing CORRECT depends on that sweep having run.
@@ -206,12 +241,42 @@ and those bodies must not mutate a ref. And the enumeration argument of §3.1 ap
 exactly as it applies to membership: the effect derives what should be running from what IS
 retrying, so a removal path nobody has written yet is already covered.
 
-**The timer callback needs no membership check, and that is the point.** It writes `checkedIn` and
-nothing else. In particular it does NOT announce: review round 2 established that announcing from
-the callback destroys the inert-write guarantee, because the admitted same-tick `onLoad` case would
-say "is still loading" after the image had already succeeded, and a swept item would speak for a
-cell that is no longer shown. The announcement has its own source in §6, derived from the effective
-set rather than from the clock. If its id has already left `retrying` — including in the same tick as an `onLoad` —
+### 3.2a The live-membership rule, which is the whole repair for the snapshot vector
+
+```ts
+const retryingLiveRef = useRef<ReadonlySet<string>>(retrying);
+useEffect(() => { retryingLiveRef.current = sweptRetrying; });
+```
+
+**Every reader that runs outside the render phase consults `retryingLiveRef.current` before acting,
+and returns early when the id is absent.** That is one rule over a class of readers, not a list of
+races, so a reader added later is covered by following it rather than by being enumerated here.
+
+The class as it stands has FIVE members, and every one is dispositioned rather than counted, because
+a class covered by a count is the shape that produced these findings in the first place:
+
+| out-of-render reader | disposition |
+|---|---|
+| the check-in timer callback | CONSULTS the ref. It is scheduled once and can run arbitrarily late |
+| the announcement effect (§6.1) | CONSULTS the ref, at execution time. A passive effect scheduled by an earlier render runs before the next render begins, so its snapshot can be stale by the time it speaks |
+| the reconciler (§3.2) | CONSULTS the ref. It is passive, so the same staleness applies; consulting costs nothing and removes the question |
+| the layout effect (§4.1 step 2) | EXEMPT, with a reason. A layout effect runs synchronously in the commit cycle that scheduled it, before paint, so nothing can intervene between its snapshot and its execution. It is the one reader whose snapshot is provably current |
+| the mount-scoped unmount guard (§3.2) | EXEMPT, with a reason. Its cleanup reads only the timer map, never `retrying`, and it runs exactly once |
+
+The two exemptions are stated because silence about them would be indistinguishable from having
+missed them, which is how a reader would have to read the earlier draft's "three members".
+
+**This is the sibling component's shipped pattern, adopted rather than invented.**
+`GalleryLightbox.tsx:340-342` already declares exactly this ref and updates it in an effect, and
+`GalleryLightbox.tsx:559` already reads it from an Embla subscriber that would otherwise hold a
+stale closure. The gallery gains the twin. An earlier draft argued the gallery should NOT need one
+because the intersection made writes inert; that argument was wrong for everything outside render,
+and the two components now share one mechanism instead of diverging on a claim that did not hold.
+
+**The timer callback therefore checks membership and does NOT announce.** It returns early when its
+id has left, so no stale write is ever made and there is nothing for a later retry to inherit.
+Announcing from the callback is separately forbidden (§6.1): a callback that speaks has already
+spoken by the time any guard could matter. If its id has already left `retrying` — including in the same tick as an `onLoad` —
 the write is inert by §3.1, and the effect drops it on the next commit. The first draft specified a
 callback that "returns early on the membership test", which the gallery cannot do: it has no
 `retryingStateRef` (the lightbox has one, `GalleryLightbox.tsx:340`), and the closure a timer
@@ -319,7 +384,7 @@ guard because none is needed.
 
 | input | null / empty / zero / boundary | behavior |
 |---|---|---|
-| `item.alt` empty | — | `nameOf(item, i)` already falls back to the 1-based visible position; the check-in accessible name uses the same helper, so it cannot be nameless |
+| `item.alt` empty | — | Neither surface can produce a nameless control, but they get there by DIFFERENT shapes and this row said otherwise until review round 3. The gallery has a `nameOf` helper (`Gallery.tsx:401`) that falls back to the 1-based visible position, and the check-in name uses it. `GalleryLightbox.tsx` has no such helper — zero occurrences — and repeats an inline `` item.alt || `Diagram ${i + 1}` `` fallback at each site; the check-in name follows that local shape. Unifying them is not this arc's work, and claiming a shared symbol that does not exist was the defect |
 | `item.available` flips false mid-check-in | — | the availability sweep clears `retrying`; §3.1 makes the retained `checkedIn` id inert on the same render and §3.2 drops it and its timer on the next commit |
 | the item leaves `renderedIds` mid-check-in | "Show fewer", or a reorder past the twelve-item cutoff | the gallery's rendered-ID sweep (`Gallery.tsx:344`) removes it from `retrying` and hands the failure back. Same two mechanisms carry `checkedIn` and the timer |
 | an active lightbox slide is swiped away mid-check-in | — | the Embla `select` handler (`GalleryLightbox.tsx:549`) removes it from `retrying` and restores `failedKeys`. Same two mechanisms again. This is why §6 says an inactive slide cannot RENDER a check-in rather than that it can never enter one |
@@ -406,15 +471,22 @@ Review round 2 was right that the two cannot both hold otherwise: §3.2 promises
 is inert, and a callback that also speaks has already spoken by the time anything could make it
 inert. So:
 
-- an effect keyed on `effectiveCheckedIn` (§3.1) announces for each id present in it that is not in
-  `announcedCheckInRef`, then records the id
+- an effect keyed on `effectiveCheckedIn` (§3.1) iterates the ids in it, and for each one **re-checks
+  `retryingLiveRef.current` at execution time (§3.2a)** before announcing, then records the id in
+  `announcedCheckInRef`
 - the §3.2 reconciler drops an id from `announcedCheckInRef` when it leaves `retrying`, so a genuine
   second entry announces again and a re-render does not
 
-Both admitted races fall out rather than needing their own rule. On the same-tick `onLoad`, the id
-has already left `retrying`, so it is absent from `effectiveCheckedIn` on that render and the effect
-never sees it. On any sweep, likewise. The intersection is doing the work in both cases, which is
-why the announcement reads from it rather than from the set the timer writes.
+**The execution-time re-check is not belt-and-braces; without it the effect is wrong.** A passive
+effect closes over the render that scheduled it, and React flushes pending passive effects before
+starting the next render. So an effect scheduled by the check-in commit still holds the pre-`onLoad`
+intersection and will run even though the image has since loaded. An earlier draft claimed the
+intersection alone settled this, and review round 3 refuted it: the intersection can stop an effect
+created by a LATER render from speaking, but it cannot invalidate one already scheduled. The ref is
+read when the effect actually runs, which is the only moment that answers the question.
+
+The same re-check covers every sweep case for the same reason, so the two admitted races share one
+mechanism rather than one rule each.
 
 `restarting` announces nothing. It is a staging state that says `Retrying…`, which the entry already
 announced, and saying it twice is noise rather than information.
@@ -526,7 +598,9 @@ rather than as a finding.
 | AC-12 | Every new `useState` / `useRef` in both components has a `PER_ITEM_STATE_REGISTRY` row with a non-empty `clearedBy` and a sweep decision |
 | AC-13 | In a real browser, with the asset request held open, the check-in appears and the check-in button's height equals the gallery cell's within 0.5px |
 | AC-14 | The check-in announces once per entry through the existing channel router, and `restarting` announces nothing |
-| AC-15 | No announcement is emitted for an id that has left `retrying`, asserted for the same-tick `onLoad` and for a swept item. This is the criterion that pins the announcement to the effective set rather than to the timer |
+| AC-15 | No announcement is emitted for an id that has left `retrying`, asserted for the same-tick `onLoad` and for a swept item, AND for the case where the announcement effect was already scheduled when the image loaded. The last one is the execution-time re-check of §3.2a, and it is the case the intersection alone does not cover |
+| AC-16 | A check-in timer callback that fires after its id has left `retrying` writes nothing. Asserted by driving an item out of `retrying` with the callback already queued, then re-entering `retrying` and asserting the new entry waits a full `RETRY_CHECK_IN_MS` rather than checking in at once. A stale write is invisible until the NEXT retry inherits it, so the assertion is on the next retry |
+| AC-17 | Every out-of-render reader named in §3.2a either consults `retryingLiveRef` or is one of the two exempt readers. Asserted structurally over both component sources, so a sixth reader added later fails rather than being silently exempt |
 
 ## 11. Out of scope
 
