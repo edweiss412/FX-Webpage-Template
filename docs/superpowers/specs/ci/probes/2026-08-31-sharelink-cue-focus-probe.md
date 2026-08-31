@@ -144,8 +144,11 @@ layout's live region), so the outcome is not silent, but the focus position is
 lost.
 
 This is a different defect from the one the row predicted, on a different
-element, with a different cause, and it is out of this arc's fence. Recorded
-here rather than filed.
+element, with a different cause, and it is out of this arc's fence. Filed as
+`BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS` (BACKLOG.md, product-facing) on
+bl-orch's 2026-08-31 ruling. The repair spans all five controls in one PR on a
+fresh branch, and its first step is extending this probe to the four sites that
+were derived rather than measured.
 
 ## How wide the peer is
 
