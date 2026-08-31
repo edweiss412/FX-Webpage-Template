@@ -130,7 +130,7 @@ heading whose content BEGINS with the id.
 
 ### Task 1: the shared selectors and the copy builder
 
-<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter, with HARDCODED PLURAL nouns, and with bellAnnounceableCount ignoring its degraded argument, so the guard cases, the singular case, the non-integer case and the degraded selector case all fail; (3,2) and the two positive selector rows pass, which is stated in the task body rather than claimed away` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17,AC-18 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter, with HARDCODED PLURAL nouns, and with bellAnnounceableCount ignoring its degraded argument, so the guard cases, the singular case, the non-integer case and the degraded selector case all fail; (3,2) and the two positive selector rows pass, which is stated in the task body rather than claimed away` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17 -->
 
 **What is red and why.** The module lands in the RED step as an unconditional
 joiner with hardcoded plural nouns: it builds both sentences from whatever it is
@@ -164,6 +164,8 @@ Cases, each with the concrete failure mode it catches:
 |---|---|---|
 | `(3, 2)` | `"3 unseen notifications. 2 items need attention."` | wrong order, wrong join, a missing half |
 | `(1, 1)` | `"1 unseen notification. 1 item needs attention."` | a plural-only implementation |
+| `(1, 2)` | `"1 unseen notification. 2 items need attention."` | each half choosing its noun from the OTHER argument. Round 4 probed the cross-wired mutant against the then-current table and all 12 builder cases passed, because `(1,1)` and `(3,2)` agree under cross-wiring |
+| `(3, 1)` | `"3 unseen notifications. 1 item needs attention."` | the same mutant in the other direction, so neither half can borrow the other's grammar |
 | `(3, 0)` | `"3 unseen notifications."` | a zero leaking into the sentence (R3) |
 | `(0, 2)` | `"2 items need attention."` | same, other half |
 | `(0, 0)` | `null` | announcing an empty or whitespace sentence |
@@ -177,7 +179,7 @@ Cases, each with the concrete failure mode it catches:
 | `bellAnnounceableCount(4, true)` | `null` | a retained count spoken while the degraded branch displays no number (AC-13) |
 | `bellAnnounceableCount(4, false)` | `4` | a selector that returns `null` unconditionally, which would pass every other degraded case vacuously |
 | `bellAnnounceableCount(2.5, false)` | `2.5` | the same integer-only mutant on the selector rather than the builder (spec §3.6's `count` finite and above zero row) |
-| `bellAccessibleName(12, false)` | `"Notifications: 12 unseen"` | the label and the sentence disagreeing at a capped count; this is the selector half of AC-18 |
+| `bellAccessibleName(12, false)` | `"Notifications: 12 unseen"` | the BELL label dropping to `9+` at a capped count. Not AC-18, which is specifically the ATTENTION link name against the attention sentence (spec AC-18); this row is the bell analogue and belongs to AC-8 |
 | `bellAccessibleName(0, false)` | `"Notifications"` | a name that interpolates a zero |
 
 **Expected strings are literals, deliberately.** Deriving them from the case's
@@ -199,7 +201,7 @@ finding against the suite and is repaired before the task closes.
 
 ### Task 2: NotifBell reports its first definite answer
 
-<!-- task: red=`pnpm vitest run tests/components/admin/nav/notifBellFirstSettled.test.tsx` red-state=authored red-target=`components/admin/nav/NotifBell.tsx:25` why=`NotifBell accepts no onBellState prop, so every case that expects a report observes none, and its aria-label is still the inline ternary rather than bellAccessibleName. The prop-absent case is the exception and is a non-red regression pin, disclosed in this task` ac=AC-9,AC-11,AC-13,AC-16,AC-17,AC-18 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/notifBellFirstSettled.test.tsx` red-state=authored red-target=`components/admin/nav/NotifBell.tsx:25` why=`NotifBell accepts no onBellState prop, so every case that expects a report observes none, and its aria-label is still the inline ternary rather than bellAccessibleName. The prop-absent case is the exception and is a non-red regression pin, disclosed in this task` ac=AC-9,AC-11,AC-13,AC-16,AC-17 -->
 
 New suite, NOT an addition to `tests/components/notifBell.test.tsx`, because
 that file mocks `useBellBadge` at `tests/components/notifBell.test.tsx:25` and a mocked hook cannot exercise the
@@ -226,9 +228,36 @@ tuple and so report once.
 | resolves `{kind:"infra_error"}` (degraded), then a later fetch succeeds with 5 | THREE reports, `{false,null}`, `{true,null}` under degraded, `{true,5}` when `degraded` clears | a degraded latch, which would silence AC-17 forever (`useBellBadge.ts:112`) |
 | panel opened before the promise resolves | TWO reports, `{false,null}` then `{true,null}`. `zeroNow` commits 0 and `bellAnnounceableCount(0,false)` is `null`, so the ANNOUNCEABLE value is `null`, never the number `0` | reporting the raw count instead of the selector output, which would announce "0 unseen notifications" |
 | prop absent | no throw; every existing NotifBell behavior holds (AC-9) | a required-prop regression on the four existing call sites |
-| count 12, not degraded, rendering the REAL `NotifBell` | its `aria-label` is exactly `bellAccessibleName(12, false)`, compared by CALLING the imported selector rather than by a literal | the whole anti-drift construction being skipped. Round 3 found that every other case here passes if the callback is added while the inline ternary at `components/admin/nav/NotifBell.tsx:79-81` stays, which would leave §3.3's "one decision, two callers" as prose. Comparing against the selector's own output is what makes the refactor the only way to green |
-| count 0, not degraded | `aria-label` is exactly `bellAccessibleName(0, false)`, i.e. `"Notifications"` | the same drift on the other arm of the ternary |
+| count 12, not degraded, rendering the REAL `NotifBell` | its `aria-label` equals `bellAccessibleName(12, false)`, compared by CALLING the imported selector rather than by a literal | the label and the selector disagreeing at a capped count, in either direction |
+| count 0, not degraded | `aria-label` equals `bellAccessibleName(0, false)`, i.e. `"Notifications"` | the same on the other arm |
 | count 4, degraded | `aria-label` is the degraded branch's name, NOT `bellAccessibleName`'s output | over-applying the selector to a branch spec §3.3 excludes (`components/admin/nav/NotifBell.tsx:56-74`) |
+| SOURCE: `components/admin/nav/NotifBell.tsx` after comment-stripping | it imports `bellAccessibleName` and its `aria-label` expression references that identifier; no `Notifications: ${` template literal remains in the file | the refactor being skipped entirely, which no behavioural case can catch (see below) |
+
+**Why one of those cases is a SOURCE assertion, stated rather than smuggled.**
+Round 3 asked for a case forcing the `bellAccessibleName` refactor, and round 4
+proved the case I wrote does not force it. The inline ternary at
+`components/admin/nav/NotifBell.tsx:79-81` ALREADY returns exactly what the
+selector is specified to return, verified by that round's probe:
+
+```text
+count=12 inline="Notifications: 12 unseen" selector="Notifications: 12 unseen" equal=true
+count=0  inline="Notifications"           selector="Notifications"            equal=true
+```
+
+That is not a gap in the test, it is the nature of the property. The refactor is
+BEHAVIOUR-PRESERVING by construction: §3.3's whole claim is that the label and
+the sentence are two callers of one decision, and two implementations that agree
+today are exactly what it removes. No behavioural assertion can distinguish them,
+because there is nothing behavioural to distinguish. So the property is asserted
+where it lives, in the source, and the three behavioural rows above stay because
+they pin the AGREEMENT the structure is supposed to guarantee.
+
+Its red is real and is implementation-driven, unlike AC-10's: today `NotifBell`
+does not import `bellAccessibleName` at all, and the file does contain the
+template literal the assertion forbids. Task 2's implementation is what makes
+both halves true. The assertion is scoped to the one file and reads it through
+`stripCommentsForFile` (`tests/_shared/stripComments.ts:215`), so a comment
+quoting the old label cannot green or red it.
 
 **Reporting is continuous; ANNOUNCING is once.** These are different latches
 and the pre-staged draft of this plan conflated them, asserting a once-only
@@ -340,18 +369,32 @@ makes a site added later fail by default instead of being silently outside a
 list nobody updated.
 
 The expected enumeration, which the audit asserts EXACTLY rather than as a
-lower bound:
+lower bound. Round 4 refuted the previous table on both readings at once: it
+listed `NotifBell`'s badge pill and called it pre-existing and unchanged, which
+cannot appear in an ADDED-line set (`git blame` puts those lines before this
+branch), while a whole-FILE scan would sweep in the degraded trigger, the open
+panel and three `AdminNav` conditions the table omitted. Neither reading gave
+the asserted equality, so the task's red could never have gone green.
+
+The derivation is added lines, and the table is now only what this arc adds:
 
 | Site | Kind | Treatment |
 |---|---|---|
-| `NotifBell`'s `aria-label`, degraded vs named | ternary | instant. Text swap on an existing element, no mount or unmount |
-| `NotifBell`'s badge pill, shown only above zero | conditional render | instant. Pre-existing shape, unchanged by this arc |
-| `AdminNav`'s announce effect, fires only when both halves are latched and the message is non-null | early return inside an effect | instant, and invisible: it appends to an `sr-only` region (`components/admin/announceLog.tsx:134`) |
+| `AdminNav`'s announce effect: returns early unless both halves are latched, the mount is unspoken, and the message is non-null | early return inside an effect | instant, and invisible. It appends to an `sr-only` region (`components/admin/announceLog.tsx:134`), so there is nothing to animate |
+| `NotifBell`'s `onBellState` effect: reports only when the tuple changed | early return inside an effect | instant. No render, no DOM |
 
-Three sites, zero animation props. The audit asserts the derived set EQUALS
-that table, so both a missing site and an unlisted extra site fail, and it
-asserts that no `exit`, `initial`, `animate` or `AnimatePresence` appears
-anywhere in the added lines. `premiseHolds("the audit enumerated the announce
+Two sites, both effect guards, ZERO conditional renders and zero animation
+props. That is the honest shape of an arc that adds no visual branch: the one
+JSX conditional it touches, `NotifBell`'s `aria-label` ternary, is REMOVED
+rather than added, replaced by a `bellAccessibleName` call, so it leaves the
+added set rather than joining it.
+
+The audit asserts the derived set EQUALS that table, so both a missing site and
+an unlisted extra fail, and asserts that no `exit`, `initial`, `animate` or
+`AnimatePresence` appears anywhere in the added lines. Pre-existing conditionals
+in the same files are deliberately OUT of scope: they are not this arc's
+transitions, the inventory does not describe them, and pulling them in is how a
+scoped audit turns into an unbounded one. `premiseHolds("the audit enumerated the announce
 effect", ...)` (`tests/_shared/premise.ts:36`) fails loudly if the derivation
 returns an empty set, which is the vacuous pass this shape is most prone to.
 
@@ -365,11 +408,12 @@ The plan's own criterion, declared here as a list item so the recognizer sees a
 declaration rather than prose:
 
 - AC-20 The transition audit derives every conditional render, early return and
-  `AnimatePresence` in the lines this arc adds under `components/admin/nav/`
-  from the merge-base diff, and asserts that set EQUALS the three-row table
-  above and that no `exit`, `initial`, `animate` or `AnimatePresence` prop
-  appears among them. An added site that is not in the table fails it, and so
-  does a table row with no site.
+  `AnimatePresence` in the lines this arc ADDS under `components/admin/nav/`
+  from the merge-base diff, and asserts that set EQUALS the two-row table above,
+  and that no `exit`, `initial`, `animate` or `AnimatePresence` prop appears
+  among them. An added site absent from the table fails it, and so does a table
+  row with no site. Pre-existing conditionals in the touched files are out of
+  scope by construction, since they are not in the added-line set.
 
 AC-12 is a source assertion rather than a render, because the onboarding branch
 is a server-component branch: read `app/admin/layout.tsx` through
@@ -565,7 +609,7 @@ marker that reaches `main` names a branch the merge just deleted and reds
 | AC-15 | 5 |
 | AC-16 | 2, 3 |
 | AC-17 | 1, 2, 3 |
-| AC-18 | 1, 3 |
+| AC-18 | 3 |
 | AC-19 | 3 |
 | AC-20 | 3 |
 
