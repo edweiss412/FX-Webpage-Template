@@ -105,9 +105,9 @@ Mandatory per `docs/agents/writing-plans.md`, which accepts "none applies" only 
 
 **This plan creates no structural meta-test. It EXTENDS two registries and REWRITES one guard's claim.**
 
-1. `tests/docs/_metaDeferralLedgerGraduation.test.ts:72` holds `GRADUATED`, the DEFERRED-side registry. Task 10 adds each of the four rows. Row 3 spans tasks 6, 7 and 8, so it graduates only when all three have shipped: archiving a row whose receipt or bar is unresolved is the ledger asserting a completion the code contradicts.
-2. `tests/docs/designSevenAEmptyHiddenSites.test.ts` walks `components/**` for `empty:hidden` and fails when DESIGN.md §7a's "Current sites" list does not name every component using it. Task 8 adds `empty:hidden` to two components, so §7a's list gains both names in the same commit. It is a COMPANION assertion there, not the red: keying the red on it would be green before the change, red only after adding the class, and green again through a documentation edit, which is implementation-before-red.
-3. `tests/styles/progressShimmerPseudoElements.test.ts` is REWRITTEN by task 2 and comes out strictly stronger. Case `(c)` today requires the comma-grouped reduced-motion rule BY NAME, so it asserts the defect; the rewrite requires two single-vendor rules instead. Beyond that it gains what the original never had: both testids required in every one of the eight rules, closing a hole where deleting the finalize selector from the Mozilla rules survives every assertion AND is invisible to a Chromium-only Playwright run. Its `firstBlock` helper becomes selector-list aware rather than the cases being loosened, proved by a planted mutant. This is the one place in the plan where a test changes shape, and it changes because its claim about browsers is false.
+1. `tests/docs/_metaDeferralLedgerGraduation.test.ts:72` holds `GRADUATED`, the DEFERRED-side registry. Task 9 adds each of the four rows. Row 3 spans tasks 5, 6 and 7, so it graduates only when all three have shipped: archiving a row whose receipt or bar is unresolved is the ledger asserting a completion the code contradicts.
+2. `tests/docs/designSevenAEmptyHiddenSites.test.ts` walks `components/**` for `empty:hidden` and fails when DESIGN.md §7a's "Current sites" list does not name every component using it. Task 7 adds `empty:hidden` to two components, so §7a's list gains both names in the same commit. It is a COMPANION assertion there, not the red: keying the red on it would be green before the change, red only after adding the class, and green again through a documentation edit, which is implementation-before-red.
+3. `tests/styles/progressShimmerPseudoElements.test.ts` is REWRITTEN by task 1 and comes out strictly stronger. Case `(c)` today requires the comma-grouped reduced-motion rule BY NAME, so it asserts the defect; the rewrite requires two single-vendor rules instead. Beyond that it gains what the original never had: both testids required at every one of the eight selector occurrences, closing a hole where deleting the finalize selector from the Mozilla rules survives every assertion AND is invisible to a Chromium-only Playwright run. Its `firstBlock` helper becomes selector-list aware rather than the cases being loosened, proved by a planted mutant. This is the one place in the plan where a test changes shape, and it changes because its claim about browsers is false.
 
 The five registries the writing-plans rule names are Supabase call boundaries (`tests/auth/_metaInfraContract.test.ts`), sentinel hiding (`tests/components/tiles/_metaSentinelHidingContract.test.ts`), `admin_alerts.upsert` completeness (`tests/messages/_metaAdminAlertCatalog.test.ts`), advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) and no-inline-email-normalization (`tests/admin/no-inline-email-normalization.test.ts`). This diff touches no Supabase call, no DB write, no advisory lock, no `admin_alerts` row and no email path, so none gains a member.
 
@@ -162,14 +162,15 @@ The rulings make CAS three states rather than two text lines. **A** batch (deter
 | C to C | Instant text swap inside one persistent node, as the sub-phase advances. |
 | A to C | Does not occur directly: CAS is always entered before the first phase event, so A reaches C through B. |
 
-Compound: a phase event arriving in the same commit as the batch-to-CAS transition passes through B within one commit rather than painting it, so the element is never painted empty even for a frame. There is no `AnimatePresence` and no `motion.*` in either renderer and none is added; `tests/components/admin/finalizeTransitionAudit.test.tsx` walks both renderers times both phases and gains the B-to-C pair in task 8.
+Compound: a phase event arriving in the same commit as the batch-to-CAS transition passes through B within one commit rather than painting it, so the element is never painted empty even for a frame. There is no `AnimatePresence` and no `motion.*` in either renderer and none is added; `tests/components/admin/finalizeTransitionAudit.test.tsx` walks both renderers times both phases and gains the B-to-C pair in task 7.
 
 ## Guard conditions
 
 | Input | Rendered |
 | --- | --- |
-| `casPhase: null` | No phase-label element at all (`element:empty` matches, `empty:hidden` applies, task 8). The receipt and the bar still render. |
+| `casPhase: null` | No phase-label element at all (`element:empty` matches, `empty:hidden` applies, task 7). The receipt and the bar still render. |
 | `settledTotal: 0` | No receipt. Reached by the non-stream path (`components/admin/FinalizeButton.tsx:201-204`, which returns zero rows processed and never sets either ref) and by a zero-row finish. The bar still renders; it reports activity, not a count. |
+| Finish mode (checkpoint resume) | No receipt, and this is the case that matters. `runLoop` resets both accumulators every attempt (`components/admin/FinalizeButton.tsx:325-326`) and `mode === "finish"` skips the batch loop entirely (`components/admin/FinalizeButton.tsx:330`), so CAS is reached with both refs at zero. Correct, since there is no batch in THIS session to report, but deliberate rather than incidental: this is the flow an operator lands in after reloading mid-finalize, which is the outcome the row exists to prevent. Its own case, because an implementation seeding the receipt from a checkpoint would pass every other case and print a count for work this run did not do. |
 | `settledTotal: 1` | `1 of 1 show set up`, singular, per `components/admin/FinalizeButton.tsx:1006`. |
 | `total: 0` in the batch phase | No count and no noun. The existing `state.total > 0` guard (`components/admin/wizard/Step3ReviewWithFinalize.tsx:263`) is unchanged, so task 5 adds no new empty-string case. |
 | `total: 1` in the batch phase | `1 of 1 show`, singular. Covered by its own case, because a suite testing only the plural lets `1 of 1 shows` regress silently. |
@@ -186,7 +187,7 @@ Compound: a phase event arriving in the same commit as the batch-to-CAS transiti
 | 2 Advisory lock | Untouched. No lock acquired, released or nested. |
 | 5 No raw error codes in UI | No new codes, no `lib/messages` change. |
 | 7 Spec is canonical | The 2026-08-29 spec's §3.2 unchanged-list, §3.3 dimensional table and §5's "No Playwright task" line all move with the code, in the commits that move it. |
-| 8 UI quality gate | `components/**` and `app/globals.css` touched, so the impeccable pair runs before the whole-diff review and the closeout marker line is written by task 10. |
+| 8 UI quality gate | `components/**` and `app/globals.css` touched, so the impeccable pair runs before the whole-diff review and the closeout marker line is written by task 9. |
 | 9 Supabase call boundary | No new Supabase call sites. |
 | 10 Mutation-surface observability | No mutating route or action on the diff. |
 | 11 Worktree | `/Users/ericweiss/FX-worktrees/finalizeprog`, branched off `origin/main` at `47e9544e6`. |
@@ -199,15 +200,15 @@ The 2026-08-29 spec is canonical, so every claim this arc falsifies moves in the
 | Section | What goes stale | Lands with |
 | --- | --- | --- |
 | §1.1, the resolved-scope row reading "The `N of M` count, the progress bar, the CAS-phase copy, and the idle button label are unchanged" | Three of its four clauses. The bar is themed (task 1) and gains a CAS instance (task 7); the count gains a noun (task 5); CAS copy gains a receipt (task 6) and its assistive copy changes (task 9). The idle button label is genuinely untouched. | Each clause with its own task; the row is rewritten once, in task 1, then narrowed as each lands |
-| §3.2's "Unchanged:" line | The `N of M` count (task 5); the CAS sub-label's ELEMENT, though the `casPhaseLabel` function really is untouched (task 8); the progress bar geometry in the CAS phase (task 7) | Tasks 5, 7, 8 |
-| §3.2's "No client state is added" | False from task 6: the CAS state variant gains `settledDone` and `settledTotal`. The sentence is about the SUBLINE reading `state.lastName` alone, which stays true, so the amendment narrows it to that claim rather than deleting it | Task 6 |
-| §3.3's dimensional table | Gains the heading-row relationship and the `min-w-0 truncate` that guarantees it | Task 4 |
-| §3.3's "No element is added or removed; only the text content of existing nodes changes" | False from tasks 6 to 8: a receipt and a progress element are added, and a phase element is suppressed. This is the sentence the whole footer-height proof rests on, so the amendment restates the proof over the new children rather than striking the line | Tasks 6, 7, 8 |
-| §3.4's transition inventory | CAS becomes three states; the inventory is restated over them | Task 7, extended by task 8 |
+| §3.2's "Unchanged:" line | The `N of M` count (task 4); the CAS sub-label's ELEMENT, though the `casPhaseLabel` function really is untouched (task 7); the progress bar geometry in the CAS phase (task 6) | Tasks 4, 6, 7 |
+| §3.2's "No client state is added" | False from task 5: the CAS state variant gains `settledDone` and `settledTotal`. The sentence is about the SUBLINE reading `state.lastName` alone, which stays true, so the amendment narrows it to that claim rather than deleting it | Task 5 |
+| §3.3's dimensional table | Gains the heading-row relationship and the `min-w-0 truncate` that guarantees it | Task 3 |
+| §3.3's "No element is added or removed; only the text content of existing nodes changes" | False from tasks 5 to 7: a receipt and a progress element are added, and a phase element is suppressed. This is the sentence the whole footer-height proof rests on, so the amendment restates the proof over the new children rather than striking the line | Tasks 5, 6, 7 |
+| §3.4's transition inventory | CAS becomes three states; the inventory is restated over them | Task 6, extended by task 7 |
 | §5's test plan, including "No Playwright task" | This arc introduces exactly what that sentence said did not exist: a geometry claim not carried by an unchanged `truncate`. The sentence is superseded and dated, not deleted, so the original judgement stays legible | Task 1 |
-| §7's out-of-scope fence | Records Eric's 2026-08-31 lift for the settled receipt, with the publish-count fence otherwise intact. Both halves, because a fence recording only its lift reads as repealed | Task 6 |
+| §7's out-of-scope fence | Records Eric's 2026-08-31 lift for the settled receipt, with the publish-count fence otherwise intact. Both halves, because a fence recording only its lift reads as repealed | Task 5 |
 
-Line anchors in §3.2 drift as tasks 5 through 9 edit `components/admin/FinalizeButton.tsx` above them. Per `docs/agents/spec-self-review.md` a drifted anchor on an otherwise-correct claim is not a finding and no refresh commit is owed; anchors are re-verified only where this arc puts the CLAIM in question, which is the rows above.
+Line anchors in §3.2 drift as tasks 4 through 8 edit `components/admin/FinalizeButton.tsx` above them. Per `docs/agents/spec-self-review.md` a drifted anchor on an otherwise-correct claim is not a finding and no refresh commit is owed; anchors are re-verified only where this arc puts the CLAIM in question, which is the rows above.
 
 ## Do not relitigate
 
@@ -223,77 +224,89 @@ Line anchors in §3.2 drift as tasks 5 through 9 edit `components/admin/Finalize
 
 ## Red coverage matrix
 
-**This section is the class-level repair for the defect that has now appeared in five findings across two review rounds** (r1 finding 1; r2 findings 1, 3, 4, 8): a task's `red=` command does not transitively execute every assertion the task body promises. Patching each instance was not converging, so the rule is stated once and checked mechanically.
+**This is the class-level repair for the defect behind nine of the twenty-two findings across three review rounds** (r1 finding 1; r2 findings 1, 3, 4, 8; r3 all four): a task's `red=` command does not transitively execute every assertion the task body promises. Patching instances was not converging, so the rule is stated once and the table is DERIVED from the markers rather than transcribed.
 
-**Rule: every assertion a task promises must live in a suite the task's own `red=` command runs.** Derived from the markers rather than transcribed, by extracting each `red=` and listing the suite paths inside it:
+**Rule one: every assertion a task promises lives in a suite that task's own `red=` runs.**
 
-| Task | red-state | Suites the command runs | Why that set, and not a smaller one |
+**Rule two: a command naming more than one suite must run all of them.** Round 3 executed task 9's command and found it exited before Vitest ever started, because an `&&` after a failing shell gate short-circuits. `spec:lint` emits `RED_CONJUNCTION` as an advisory for exactly this; under this plan's own closed criterion it is blocking. Every multi-suite command therefore collects each result and decides the exit only after all have run:
+
+```
+sh -c 'a=0; b=0; <first> || a=1; <second> || b=1; echo "first=$a second=$b"; [ "$a" = 0 ] && [ "$b" = 0 ]'
+```
+
+Verified: with the first failing and the second passing it still runs the second and reports `first=1 second=0`, exit 1. A multi-file `vitest run` needs no wrapper, since Vitest runs every named file and fails if any does.
+
+| Task | red-state | Suites the command runs | Why that set |
 | --- | --- | --- | --- |
-| 1 | authored | `tests/styles/progressShimmerPseudoElements.test.ts` | Source-level and engine-independent. All eight selector occurrences including the Mozilla rules, which NO engine the standalone suite runs can observe. |
-| 2 | authored | tests/e2e/step3-finalize-progress.layout.spec.ts | Rendered paint and parsed CSSOM. Chromium plus the WebKit project this task adds. |
-| 3 | authored | `tests/styles/progressShimmerPseudoElements.test.ts` | The docstring assertion pairs a comment with the stylesheet, so it sits beside the stylesheet's other assertions. |
-| 4 | authored | tests/e2e/step3-finalize-progress.layout.spec.ts | Real layout. jsdom computes none. |
-| 5 | authored | `tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx` | The count is rendered by the compact renderer only; the panel's own noun already ships. |
-| 6 | authored | `FinalizeButton.test.tsx` + `Step3ReviewWithFinalize.test.tsx` | **Two suites, because the receipt is implemented twice.** A command running one leaves the other branch with no red at all. |
-| 7 | authored | `FinalizeButton.test.tsx` + `Step3ReviewWithFinalize.test.tsx` | Same: the CAS bar is added to both renderers. |
-| 8 | authored | tests/e2e/step3-finalize-progress.layout.spec.ts | The oracle is a parent-geometry comparison, which needs real layout. |
-| 9 | authored | `tests/components/admin/FinalizeButton.test.tsx` | **One suite is correct here, and the asymmetry with tasks 6 and 7 is the point.** `liveMessage` is computed once in `useFinalizeRun` and both renderers mount the SAME `FinalizeAnnouncer`; the string is shared, not duplicated, so there is no second branch to cover. The receipt and the bar are duplicated MARKUP and therefore need both. |
-| 10 | live | `_metaDeferralLedgerGraduation.test.ts` + `_metaLedgerInProgress.test.ts` | The shell gate alone passes if the four rows are DELETED rather than archived. |
+| 1 | authored | shimmer guard, e2e spec, `_metaSpecRegistration`, webkit wiring | Source, browser, and BOTH registration guards. A stale standalone baseline or an unwired WebKit project otherwise passes silently while AC-3 promises two engines. |
+| 2 | authored | shimmer guard | The docstring assertion pairs a comment with the stylesheet, so it sits beside the stylesheet's other assertions. |
+| 3 | authored | e2e spec | Real layout. jsdom computes none. |
+| 4 | authored | `Step3ReviewWithFinalize.test.tsx` | The count is rendered by the compact renderer only. |
+| 5 | authored | `FinalizeButton` + `Step3ReviewWithFinalize` | **Two suites: the receipt is implemented twice.** |
+| 6 | authored | `FinalizeButton` + `Step3ReviewWithFinalize` | Same: the CAS bar is added to both renderers. |
+| 7 | authored | e2e spec, transition audit, DESIGN.md sites guard | Three, because this task promises assertions in all three. The geometry oracle needs real layout; the audit gains the B-to-C pair; §7a's list gains two names. |
+| 8 | authored | `FinalizeButton.test.tsx` | **One is correct, and the asymmetry with 5 and 6 is the point.** `liveMessage` is computed once in `useFinalizeRun` and both renderers mount the SAME announcer, so the string is shared, not duplicated. Duplicated MARKUP needs both suites; a shared computed value needs one. |
+| 9 | live | graduation + in-progress ledger suites | The shell gate alone passes if the four rows are DELETED rather than archived. |
 
-Two things this matrix caught while being written, neither of them from a reviewer:
+Three defects this matrix caught with no reviewer involved, across the rounds it has existed:
 
-- **Task 3 declared `red-state=live` for a suite that passes today.** `pnpm vitest run tests/styles/progressShimmerPseudoElements.test.ts` reports 6 passed on this base, so the claim was false and the marker now reads `authored`.
-- **The one-suite versus two-suite question has a principled answer**, recorded in the table's last two rows: duplicated markup needs both suites, a shared computed value needs one. Before stating it, the choice was being made per task by eye, which is how task 6 ended up running only half its promise.
+- **A `red-state=live` claim on a suite that passes today.** `pnpm vitest run tests/styles/progressShimmerPseudoElements.test.ts` reports 6 passed on this base, so the claim was false; that marker now reads `authored`.
+- **The one-suite-versus-two question had a principled answer**, recorded in the table: duplicated markup needs both, a shared computed value needs one. Before stating it the choice was being made per task by eye, which is how a task ended up running half its promise.
+- **A task with no valid red at all.** Round 3 found that a separately-numbered harness task could never be red, since a newly authored spec passes the moment the production code is already correct. Tasks 1 and 2 merged: the two halves prove different things about the same defect, so they share its cycle.
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1 — every rule styles both bars, and the reduced-motion override is split
+## Task 1 — both wizard bars are themed, proved at the source and in two engines
 
-<!-- task: red=`pnpm vitest run tests/styles/progressShimmerPseudoElements.test.ts` red-state=authored red-target=`app/globals.css:688` why=`the rewritten guard requires BOTH testids in each of the eight selector occurrences and requires the reduced-motion override to be two single-vendor rules; app/globals.css names only wizard-step2-progressbar and holds one comma-grouped mixed-vendor list, so the new cases fail on the production stylesheet; the SAME command greens when the CSS change lands. Source-level and engine-independent, which is why it comes FIRST: the Mozilla rules are unobservable from any engine the standalone suite runs, so a browser test can never be their RED` ac=AC-2,AC-3 -->
+<!-- task: red=`sh -c 'g=0; b=0; pnpm vitest run tests/styles/progressShimmerPseudoElements.test.ts || g=1; pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-finalize-progress.layout.spec.ts || b=1; pnpm vitest run tests/ci/_metaSpecRegistration.test.ts tests/ci/standalone-webkit-a11y-wiring.test.ts || b=1; echo "guard=$g browser_and_wiring=$b"; [ "$g" = 0 ] && [ "$b" = 0 ]'` red-state=authored red-target=`app/globals.css:688` why=`app/globals.css styles wizard-step2-progressbar alone and holds one comma-grouped mixed-vendor reduced-motion list, so BOTH halves fail on the production stylesheet: the rewritten source guard because no rule carries the finalize testid and the override is not two single-vendor rules, and the browser spec because the finalize bar paints the UA default. Every conjunct RUNS and reports before any decides the exit, so both are observed reds rather than one short-circuiting the other. The SAME command greens when the CSS change lands` ac=AC-1,AC-2,AC-3 -->
 
-**This task is first, and that ordering is the repair for a real defect in the previous draft.** An earlier version widened all eight selectors in a task whose only assertion ran in Chromium, which cannot observe `progress::-moz-progress-bar` at all. Four of the eight widenings had no red anywhere. The source guard covers all eight in one engine-independent cycle, so it leads and the browser confirms afterwards.
+**Why the source guard and the browser harness are ONE task.** An earlier draft split them, and review round 3 was right that the second half then had no valid red: once the CSS is correct and both components already emit the testid, a newly authored browser spec passes the moment it exists. A missing test file is not a production failure. The two halves prove different things about the SAME defect, so they share its cycle: the guard proves the stylesheet says it (including the Mozilla rules, which no engine the standalone suite runs can observe), the browser proves an engine agrees and that the shipped elements wear it.
 
-**RED — rewrite `tests/styles/progressShimmerPseudoElements.test.ts`.** It comes out strictly stronger in four ways, because a rewrite that only relaxes is how a guard quietly stops guarding:
+**The red command runs every suite this task promises, and none short-circuits.** Three earlier drafts named suites in prose that the command never executed, which is the class round 3 closed. The shell form collects each result and decides the exit only after all have run, so a failure in the first does not hide the third.
 
-1. A CSS scanner replaces the per-assertion regexes. The old `firstBlock` matched a selector immediately followed by `{`, so appending a second selector breaks cases `(a)`, `(b)` and the determinate coverage while the CSS is correct. Making the helper selector-list aware fixes the fragility in one place instead of loosening it in eight.
+### RED, part one: rewrite `tests/styles/progressShimmerPseudoElements.test.ts`
+
+Strictly stronger in four ways, because a rewrite that only relaxes is how a guard stops guarding:
+
+1. A CSS scanner replaces the per-assertion regexes. The old `firstBlock` matched a selector immediately followed by `{`, so appending a second selector breaks cases `(a)`, `(b)` and the determinate coverage while the CSS is correct.
 2. Every rule must carry BOTH testids. The old regexes were built from a constant naming only the step-2 form, so deleting the finalize selector from the Mozilla rules survived every assertion.
-3. Case `(c)` inverts. It required the comma-grouped reduced-motion rule BY NAME, which is the defect: a selector list is invalid as a whole when any selector in it is, so a list holding both vendor track pseudo-elements is dropped by every engine knowing only one. It now requires two single-vendor rules, each in a reduce block, each setting `animation: none`, and asserts neither carries the other vendor's pseudo.
-4. The scanner gets its own cases. It strips comments from the WHOLE source before scanning, because a CSS comment can contain a comma and a per-selector strip runs after the split has already torn it in half; and it counts selector OCCURRENCES, not rules, because the block is seven rules holding eight occurrences. Both were bugs in the first draft of this file, found by running the scanner against the real stylesheet. A count case pins that the scanner reaches the block at all, so a later `@layer` wrapper cannot make every assertion vacuous.
+3. Case `(c)` inverts. It required the comma-grouped reduced-motion rule BY NAME, which is the defect: a selector list is invalid as a whole when any selector in it is, so a list holding both vendor track pseudo-elements is dropped by every engine knowing only one. It now requires two single-vendor rules and asserts neither carries the other vendor's pseudo.
+4. The scanner gets its own cases. It strips comments from the WHOLE source before scanning, because a CSS comment can contain a comma and a per-selector strip runs after the split has already torn it in half; and it counts selector OCCURRENCES, not rules. Both were bugs in the first draft of this file, found by running the scanner against the real stylesheet. A count case pins that the scanner reaches the block at all, so a later `@layer` wrapper cannot make every assertion vacuous.
 
-**GREEN — the CSS change**, pre-computed and validated with that same scanner:
+### RED, part two: the live-entry harness
+
+Create tests/e2e/_step3FinalizeProgressLiveEntry.tsx and tests/e2e/step3-finalize-progress.layout.spec.ts per `tests/e2e/blocked-row-resolver-transitions.spec.ts:65-125`. `test` and `expect` come from `./helpers/fontFidelityFixture`.
+
+**One renderer per page load**, selected by a query parameter: both renderers emit `data-testid="wizard-finalize-progressbar"` (`components/admin/FinalizeButton.tsx:983`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:270`), so mounting both makes every locator for it ambiguous, and both would POST the finalize route against a `ReadableStream` that is read once.
+
+**Readiness gate**: the host awaits the bundle's window hook, then the renderer's testid, then after each stream push the element whose text it changes. Never `networkidle`.
+
+**A bundle-free page** carries four bare progress elements with unique ids, two per testid, one determinate and one indeterminate, sized by a style attribute rather than Tailwind utilities so it does not depend on which files the compiler was told to scan.
+
+**AC-1 and what the theme dimension discriminates.** `--color-accent-runtime` is identical in all three theme blocks (`app/globals.css:388`, `app/globals.css:450`, `app/globals.css:502`), so asserting the fill twice proves nothing about theming. The TRACK varies (`app/globals.css:368`, `app/globals.css:439`, `app/globals.css:491`), and that is what the row complained about. The fill must equal the accent and NOT change across themes; the track MUST change. Each compared property carries its own premise that the value is not the UA default.
+
+**AC-3 through the CSSOM, in two engines.** Computed style is vacuous here: Chromium reports `animation-name: none` on the webkit track pseudo even while the shimmer is applied, and WebKit exposes neither pseudo. The spec walks the parsed stylesheet for a reduce rule whose `selectorText` carries the webkit track pseudo and the finalize testid, and asserts it carries no Mozilla pseudo. The premise ranges over the WHOLE sheet, never over the progress rules, or it swallows the red it guards.
+
+**A WebKit project, scoped to this spec**, following `standalone-webkit-load-eligibility` (`tests/e2e/standalone.config.ts:115`) and its reasoning: the evidence would otherwise be Chromium-only for a claim that is empirical per engine, on the engine Doug uses.
+
+**The WebKit wiring guard is generalized, and that closes a gap this arc did not open.** `tests/ci/standalone-webkit-a11y-wiring.test.ts:25` pins ONE project by name, so `standalone-webkit-load-eligibility` is unguarded today and a third project would make two. The walk asserts the general property over every project resolving to WebKit: it launches WebKit, and it resolves at least one test. Verified feasible before adopting it, by listing both existing projects (5 tests and 1 test respectively), so the generalization drags in no pre-existing breakage. The a11y project KEEPS its exactly-one-test case, which is a specific claim about the joined-title grep trap; replacing it with the general property would be a relaxation dressed as a generalization.
+
+Registration, all three or the unit suite reds: add the escaped alternative for this spec's stem to the `testMatch` alternation at `tests/e2e/standalone.config.ts:86`; regenerate the standalone baseline with `node scripts/check-standalone-baseline.mjs --write` and commit it; no workflow edit, since `.github/workflows/standalone-e2e.yml:70-71` runs the whole config. **Both registration guards are in this task's red command**, because a stale baseline or an unwired project otherwise passes silently.
+
+The entry must live inside the repo: esbuild resolves `node_modules` from the entry file's directory. Bundle with the `next/navigation` and `node:crypto` aliases. Compile the CSS into the served workDir, because the helper appends the Inter face with a bare sibling src and `fontFidelityFixture` fails a page that falls off Inter.
+
+### GREEN: the CSS change
+
+Pre-computed and validated with the same scanner the guard ships:
 
 ```
 before: 7 rules,  8 selector occurrences, one mixed-vendor reduced-motion list
 after:  8 rules, 16 selector occurrences, two single-vendor reduced-motion rules
 ```
 
-Widen all eight occurrences (`app/globals.css:688`, `app/globals.css:696`, `app/globals.css:700`, `app/globals.css:704`, `app/globals.css:717`, `app/globals.css:730`, `app/globals.css:756`, `app/globals.css:757`) so each rule's list carries both testids, and split the reduce block into one webkit rule and one Mozilla rule with the same declarations. Update the block's leading comment, which says "wizard Step 2" and now covers both surfaces, and record why the split is load-bearing rather than stylistic.
+Widen all eight occurrences (`app/globals.css:688`, `app/globals.css:696`, `app/globals.css:700`, `app/globals.css:704`, `app/globals.css:717`, `app/globals.css:730`, `app/globals.css:756`, `app/globals.css:757`) so each rule's list carries both testids, and split the reduce block into one webkit rule and one Mozilla rule with the same declarations. Update the block's leading comment and record why the split is load-bearing rather than stylistic.
 
-## Task 2 — the browser confirms what the source pinned
-
-<!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-finalize-progress.layout.spec.ts` red-state=authored red-target=`components/admin/wizard/Step3ReviewWithFinalize.tsx:270` why=`the new spec drives BOTH renderers to their running state through the real reducer and asserts the finalize bar paints the accent and that its track follows the theme; the spec file does not exist, and the assertions it will carry are behavioural claims about rendered output that no current test makes. The harness, its registration and every browser assertion land together and the SAME command greens once they do. Task 1 has already made the CSS correct, so this task's job is to prove it reaches the shipped elements rather than to fix it` ac=AC-1,AC-3 -->
-
-Task 1 proved the stylesheet says the right thing. This proves the shipped components wear it and that an engine agrees.
-
-Create tests/e2e/_step3FinalizeProgressLiveEntry.tsx and tests/e2e/step3-finalize-progress.layout.spec.ts, following `tests/e2e/blocked-row-resolver-transitions.spec.ts:65-125`. `test` and `expect` come from `./helpers/fontFidelityFixture`.
-
-**ONE renderer per page load**, selected by a query parameter. Both renderers emit `data-testid="wizard-finalize-progressbar"` (`components/admin/FinalizeButton.tsx:983`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:270`), so mounting both puts two elements with one testid on a page and every locator for it is ambiguous; they would also both POST the finalize route, and a `ReadableStream` is read once, so the second mount consumes a spent response and never reaches the running state.
-
-**Readiness gate**, as the e2e harness checklist requires: the host awaits the bundle's window hook, then the renderer's testid, then after each stream push the element whose text it changes. Never `networkidle`, which says nothing about hydration on a page that makes no further requests.
-
-**A second page with no bundle** carries four bare progress elements, each with a UNIQUE id, two per testid, one determinate and one indeterminate, sized by a style attribute rather than Tailwind utilities so it does not depend on which files the compiler was told to scan. The components' own emission of these testids is pinned in jsdom (`tests/components/admin/FinalizeButton.test.tsx:970`), so this page proves the selector paints and that suite proves the component wears it.
-
-**AC-1 and what the theme dimension discriminates.** `--color-accent-runtime` is the same value in the light block, the `prefers-color-scheme` dark block and the `[data-theme="dark"]` block (`app/globals.css:388`, `app/globals.css:450`, `app/globals.css:502`), so asserting the fill under two themes is one assertion run twice. `--color-surface-raised-runtime`, the TRACK, does vary (`app/globals.css:368`, `app/globals.css:439`, `app/globals.css:491`), and that is what the row complained about: a UA bar responds to neither theme. So the fill must equal the accent and NOT change across themes, while the track MUST change. Each compared property carries its own premise that the value is not the UA default, because sibling equality between the two testids is tautological on its own.
-
-**AC-3 through the CSSOM, in two engines.** Probe 3: Chromium reports `animation-name: none` on the webkit track pseudo even while the shimmer is applied, and WebKit exposes neither pseudo, so computed style is vacuous in exactly the engines this repair is for. The spec walks the parsed stylesheet and asserts a reduce rule exists whose `selectorText` carries the webkit track pseudo and the finalize testid, and that it carries no Mozilla pseudo. Probe 4 confirmed the shape discriminates: zero hits on the grouped rule, one on the split, in both engines. The premise ranges over the WHOLE sheet (`parsed.length > 0`), never over the progress rules, or it swallows the red it guards.
-
-**A WebKit project, scoped to this spec.** `tests/e2e/standalone.config.ts:98` runs Chromium; its two WebKit projects carry narrower overriding `testMatch` values, so a new spec joining the main project is Chromium-only. That is not good enough for a per-engine claim on the engine Doug actually uses. Add a third scoped project following `standalone-webkit-load-eligibility` (`tests/e2e/standalone.config.ts:115`), whose comment states the same reasoning: the evidence would otherwise be Chromium-only for a claim that is empirical per engine. Check whether `tests/ci/standalone-webkit-a11y-wiring.test.ts` generalises to a wiring assertion for this project too.
-
-Registration, all three or the unit suite reds: add the escaped alternative for this spec's stem to the `testMatch` alternation at `tests/e2e/standalone.config.ts:86`, the dot escaped as in every existing member and with no spec suffix, since the regex already carries one; regenerate the standalone baseline with `node scripts/check-standalone-baseline.mjs --write` and commit it (`tests/ci/_metaSpecRegistration.test.ts:82-84`); no workflow edit, since `.github/workflows/standalone-e2e.yml:70-71` runs the whole config.
-
-The entry must live inside the repo: esbuild resolves `node_modules` from the entry file's directory. Bundle with the `next/navigation` and `node:crypto` aliases; every other server-tree edge terminates on a server-directive module the bundler's plugin cuts. Compile the CSS into the served workDir, because the helper appends the Inter face with a bare sibling src and `fontFidelityFixture` fails a page that falls off Inter.
-
-## Task 3 — the panel docstring claims something the code contradicts
+## Task 2 — the panel docstring claims something the code contradicts
 
 <!-- task: red=`pnpm vitest run tests/styles/progressShimmerPseudoElements.test.ts` red-state=authored red-target=`components/admin/FinalizeButton.tsx:955` why=`the case does not exist yet, so this is authored rather than live: the suite passes today (6 passed, run at plan time). The new case asserts the ProgressPanel docstring makes no unqualified same-tokens claim, and :955 says the panel "mirrors <Step2Verify>'s scan panel (same tokens, same native bar)" while the two panels demonstrably differ in padding and surface tokens; that is false before this arc and still false after it, so the case fails on the shipped comment independently of what any other task did to the stylesheet; the SAME command greens when the sentence is rewritten to claim only the shared bar` ac=AC-4 -->
 
@@ -303,7 +316,7 @@ Rewrite the sentence to say what is true: the two wizard progress surfaces share
 
 **Four pre-dispatch mutants, because this is a string-presence guard.** Record each result in the commit: (a) the sentence emptied; (b) the sentence with an appended suffix; (c) the sentence present but not live, moved into a neighbouring comment block so it exists in the file and not on the symbol the assertion reads; (d) the assertion's discriminating parameter varied, asserted against a different symbol's docstring. A guard that survives (c) or (d) is reading the file rather than the symbol.
 
-## Task 4 — the compact heading holds one line at ANY count, not just measured ones
+## Task 3 — the compact heading holds one line at ANY count, not just measured ones
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-finalize-progress.layout.spec.ts` red-state=authored red-target=`components/admin/wizard/Step3ReviewWithFinalize.tsx:256` why=`the new case renders the compact tracking at 375px with a deliberately extreme count and asserts the heading occupies exactly one line; the heading span at :256 carries neither min-w-0 nor truncate, so it is the flexible item in a justify-between row and it wraps, failing on the production markup; the SAME command greens when the span gains min-w-0 and truncate` ac=AC-5 -->
 
@@ -315,7 +328,7 @@ So the one-line guarantee becomes STRUCTURAL. The heading span gains `min-w-0` a
 
 **Premises, on each case's own inputs.** The sample must be in the running batch phase with a total above zero, and the bare and noun-bearing texts must actually DIFFER. Without the second, a harness bug that renders the bare count twice reports equal heights and passes; asserting it once up front would not do, because each rung must prove its own render.
 
-## Task 5 — the count says what it counts
+## Task 4 — the count says what it counts
 
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx` red-state=authored red-target=`components/admin/wizard/Step3ReviewWithFinalize.tsx:265` why=`the new cases assert the compact count reads "1 of 2 shows" at a total of two and "1 of 1 show" at a total of one, while :265 renders the bare form with no noun at either total, so both fail on the production render; the SAME command greens when the noun lands with the singular rule. The existing case at :322-335 asserting the noun is absent is REPLACED here and its ratification comment rewritten to cite task 4` ac=AC-6 -->
 
@@ -325,7 +338,7 @@ Append the noun at `components/admin/wizard/Step3ReviewWithFinalize.tsx:265`, ma
 
 `tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx:322-335` pins the bare form and its body is a ratification record, so the replacement states what changed: the plan settled the bare form without a measurement because that worktree could not start a dev server, this arc took the measurement AND made the guarantee structural, and here are the numbers. A test comment that records a decision is rewritten when the decision changes, never quietly deleted.
 
-## Task 6 — the settled batch count persists into CAS as a receipt
+## Task 5 — the settled batch count persists into CAS as a receipt
 
 <!-- task: red=`pnpm vitest run tests/components/admin/FinalizeButton.test.tsx tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx` red-state=authored red-target=`components/admin/FinalizeButton.tsx:108` why=`the new cases drive BOTH renderers into the CAS phase and assert a receipt naming the settled counts, at zero, one and many; the CAS state variant at :108 carries no counts at all, so neither render has a source for them and both suites fail on the production reducer; the SAME command greens when the variant carries settledDone and settledTotal and both branches render them. BOTH suites are named because the receipt is implemented twice, in two components, and a command running only the panel suite leaves the compact branch with no red at all` ac=AC-7 -->
 
@@ -341,7 +354,7 @@ The counts are already tracked and readable synchronously at the transition: `co
 
 The compact receipt inherits task 4's structural one-line guarantee, since it sits in the same heading-row shape.
 
-## Task 7 — the CAS phase reads as working
+## Task 6 — the CAS phase reads as working
 
 <!-- task: red=`pnpm vitest run tests/components/admin/FinalizeButton.test.tsx tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx` red-state=authored red-target=`components/admin/FinalizeButton.tsx:1017` why=`the new cases drive both renderers into the CAS phase and assert a progressbar element is present and indeterminate there; the CAS branch at :1017-1023 renders two text elements and no progress element at all, so both fail on the production markup; the SAME command greens when each branch renders an indeterminate bar` ac=AC-7 -->
 
@@ -349,9 +362,9 @@ The bar carries no `value` attribute, which is what makes it indeterminate, and 
 
 **This is what makes task 2 a prerequisite rather than a tidy-up.** The CAS bar is indeterminate, so it takes the shimmer path, and the shimmer's reduced-motion override is exactly the rule probe 1 showed is dead in Chromium and WebKit. Without task 2 this ruling ships an unstoppable animation on the highest-stakes screen.
 
-## Task 8 — no element is rendered while its label is empty
+## Task 7 — no element is rendered while its label is empty
 
-<!-- task: red=`pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-finalize-progress.layout.spec.ts` red-state=authored red-target=`components/admin/FinalizeButton.tsx:1021` why=`the new case enters the CAS phase with no phase event yet and compares the PARENT column's height against its height with the phase element removed from the DOM entirely; today those differ by one gap because an empty in-flow item still charges its parent's gap, so the case fails on the production markup; the SAME command greens when empty:hidden takes the element out of flow. Asserting the child contributes no extent would NOT be red: an empty block already has zero height, and the defect lives in the parent spacing rather than the child rectangle` ac=AC-7 -->
+<!-- task: red=`sh -c 'a=0; b=0; pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-finalize-progress.layout.spec.ts || a=1; pnpm vitest run tests/components/admin/finalizeTransitionAudit.test.tsx tests/docs/designSevenAEmptyHiddenSites.test.ts || b=1; echo "geometry=$a audit_and_sites=$b"; [ "$a" = 0 ] && [ "$b" = 0 ]'` red-state=authored red-target=`components/admin/FinalizeButton.tsx:1021` why=`the geometry case compares the PARENT column's height against its height with the phase element removed from the DOM; today they differ by one gap because a zero-height in-flow item still charges its parent's gap, so it fails on the production markup. Asserting the CHILD contributes no extent would NOT be red: an empty block already has zero height. The transition audit and the DESIGN.md sites guard are in the SAME command because this task promises assertions in both and a command running only Playwright leaves them unexecuted; every conjunct runs before any decides the exit` ac=AC-7 -->
 
 The behavioural assertion is the red, per the marker contract: keying it on `tests/docs/designSevenAEmptyHiddenSites.test.ts` would be green before the change, red only after adding the class, and green again through a documentation edit, which is implementation-before-red.
 
@@ -363,7 +376,7 @@ The behavioural assertion is the red, per the marker contract: keying it on `tes
 
 **Transition-audit obligation.** `tests/components/admin/finalizeTransitionAudit.test.tsx` already walks both renderers times both phases and is this plan's transition-audit task. It gains the pair from the inventory: with CAS entered and no phase event, the element is suppressed; when the first event arrives it paints, instant on both sides. Its two documented limits are unchanged and not reopened.
 
-## Task 9 — every CAS sub-step is spoken
+## Task 8 — every CAS sub-step is spoken
 
 <!-- task: red=`pnpm vitest run tests/components/admin/FinalizeButton.test.tsx` red-state=authored red-target=`components/admin/FinalizeButton.tsx:481` why=`the new cases drive the CAS phase to applying, then publishing, then subscribing and assert the announcer names each one, while liveMessage at :481 keys on phase alone and returns the constant "Finishing setup" for all three, so all three fail on the production reducer; the SAME command greens when the sub-phases fold in` ac=AC-8 -->
 
@@ -382,9 +395,9 @@ Fold the sub-phase into `liveMessage` (`components/admin/FinalizeButton.tsx:481-
 
 Two fences: completion goes through the channel and never the local announcer (`components/admin/FinalizeButton.tsx:459-469`), and the batch phase's split stays as it is.
 
-## Task 10 — close out, BEFORE the whole-diff review
+## Task 9 — close out, BEFORE the whole-diff review
 
-<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-31-finalize-progress-polish.md; a=0; b=0; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" "$P" || a=1; grep -qE "^\\*\\*Status:\\*\\* IN PROGRESS" DEFERRED.md && b=1; echo "marker_missing=$a in_progress_present=$b"; [ "$a" = 0 ] && [ "$b" = 0 ]' && pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts tests/docs/_metaLedgerInProgress.test.ts` red-state=live red-target=`docs/superpowers/plans/2026-08-31-finalize-progress-polish.md:1` why=`the shell gate EVALUATES and PRINTS both conditions before either decides the exit, so neither short-circuits the other: the plan carries no impeccable-gate marker line and DEFERRED.md carries four IN PROGRESS markers. The two suites are conjoined because the gate ALONE passes if the four entries are simply DELETED rather than archived: _metaDeferralLedgerGraduation is what requires each graduated id to be archive-only and to name this branch in its own archived section, and _metaLedgerInProgress is what requires a live branch behind any surviving marker. The conjunction is the GREEN criterion and the shell gate is the observed red` ac=AC-9 -->
+<!-- task: red=`sh -c 'P=docs/superpowers/plans/2026-08-31-finalize-progress-polish.md; a=0; b=0; c=0; grep -qE "^impeccable-gate: critique=(RAN|RAN-DEGRADED) audit=(RAN|RAN-DEGRADED) p0=(0|[1-9][0-9]*) p1=(0|[1-9][0-9]*) dispositions=(recorded|none)$" "$P" || a=1; grep -qE "^\\*\\*Status:\\*\\* IN PROGRESS" DEFERRED.md && b=1; pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts tests/docs/_metaLedgerInProgress.test.ts || c=1; echo "marker_missing=$a in_progress_present=$b ledger_suites_failed=$c"; [ "$a" = 0 ] && [ "$b" = 0 ] && [ "$c" = 0 ]'` red-state=live red-target=`docs/superpowers/plans/2026-08-31-finalize-progress-polish.md:1` why=`all THREE conditions are evaluated and printed before any decides the exit. An earlier form conjoined the vitest run with && after the shell gate, so the gate's own non-zero exit meant the suites never ran at all: review round 3 executed the command and confirmed it exited before Vitest started. The shell gate alone passes if the four rows are DELETED rather than archived, which is what the two ledger suites are here to catch, so they must actually execute` ac=AC-9 -->
 
 **Order, and why it is not the usual one.** This task runs after the impeccable pair and BEFORE the whole-diff Codex review. An earlier draft put it after, which would have meant the reviewed diff and the merged diff were different documents: this commit edits the plan, archives ledger rows and extends a registry. The handoff rule is that the diff the final review examined is the diff that merges, so closeout comes first and the review sees everything.
 
@@ -400,7 +413,7 @@ The `impeccable-gate:` marker line is written here and nowhere earlier: `tests/d
 
 ## Impeccable dispositions
 
-Written by task 10. The pair runs on the whole diff, before the closeout commit, which in turn precedes the whole-diff Codex review.
+Written by task 9. The pair runs on the whole diff, before the closeout commit, which in turn precedes the whole-diff Codex review.
 
 ## Round economy
 
@@ -410,13 +423,15 @@ Rounds restart at 1 on this branch, keyed by `git merge-base origin/main HEAD`. 
 
 ### Round 1 findings and their dispositions
 
+**Task numbers in this table and the next are as of THAT round.** Tasks have since been merged and renumbered twice, and these are dated records of what a finding referred to when it was raised. Correcting them would make each finding cite a task it was not about.
+
 Codex returned BLOCKING with 10 findings. **All ten are accepted; none is disputed.** Four were repairs to claims this plan made about itself, which is the expensive kind.
 
 | # | Finding | Disposition |
 | --- | --- | --- |
 | 1 | Four RED contracts invalid | Task 3's red re-keyed onto the docstring's false "same tokens" claim, which is wrong before AND after task 1 and so is order-independent. Task 4's placeholder expectation deleted; its red is now the structural one-line assertion against a real production line. Task 8's red moved from the docs guard to the behavioural browser assertion. Task 10's gate rewritten to evaluate and print BOTH conditions before either decides the exit. |
 | 2 | Premises do not close all tautologies | AC-2 now carries a per-property premise rather than one covering the filled track alone. Task 4 additionally asserts the bare and noun-bearing texts DIFFER, without which a harness bug rendering the bare count twice reports equal heights and passes. |
-| 3 | AC-2 and the guard do not prove all eight widenings | The structural guard now requires both testids in all eight rules, which is the engine-independent half; the browser proves only what an engine will report, and the plan says so. `firstBlock` made selector-list aware with a planted mutant, since appending a selector breaks cases `(a)`, `(b)` and the determinate coverage while the CSS is correct. |
+| 3 | AC-2 and the guard do not prove all eight widenings | The structural guard now requires both testids at all eight selector occurrences, which is the engine-independent half; the browser proves only what an engine will report, and the plan says so. `firstBlock` made selector-list aware with a planted mutant, since appending a selector breaks cases `(a)`, `(b)` and the determinate coverage while the CSS is correct. |
 | 4 | The sweep record is factually wrong | Corrected: 24 lines, not 10, across two files; three comment lines, not four. The old numbers were a filtered count reported as an unfiltered one. The conclusion survives; the record did not. |
 | 5 | The ladder does not bound the input it authorizes | Accepted in full, and it changed the design rather than the prose. `total` is unbounded, so five rungs authorize nothing about the sixth. Task 4 now makes the one-line guarantee STRUCTURAL (`min-w-0 truncate`), the ladder becomes evidence, and task 5 stops being measurement-gated. |
 | 6 | Two declared branches lack coverage | Singular totals covered in tasks 5 and 6; all three CAS sub-phases covered in task 9, plus a fourth case pinning silence after the run. |
@@ -441,6 +456,19 @@ Codex returned BLOCKING with 8 findings. **All eight accepted; none disputed.**
 | 8 | Task 10's red passes if the rows are merely deleted | The graduation and in-progress suites are conjoined into its command; the shell gate alone could never see the difference between archived and deleted. |
 
 **Five of the thirteen findings across two rounds are one class**, so it gets a class-level repair rather than a sixth patch: see the "Red coverage matrix" section, which states the rule, derives the table from the markers, and records the two defects writing it caught on its own.
+
+### Round 3 findings and their dispositions
+
+Codex returned BLOCKING with 4 findings, down from 10 and 8. **All four accepted.** It also confirmed two axes closed: no unnamed canonical assertion remains in the amendment table, no false `red-state=live` classification remains, and the parent-geometry oracle is valid.
+
+All four were the SAME class the Red coverage matrix was written for, which is the finding that matters most: the matrix stated the rule and the commands did not implement it.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | The harness task had no valid RED at all | Correct, and structural. Once the CSS is right and both components already emit the testid, a newly authored spec passes the moment it exists; a missing test file is not a production failure. Merged into task 1, whose two halves prove different things about the same defect and therefore share its cycle. |
+| 2 | That task did not execute its WebKit wiring or baseline-registration assertions | Both are now in its command. A stale standalone baseline or an unwired WebKit project otherwise passes silently while AC-3 promises two engines. |
+| 3 | The `empty:hidden` task omitted two promised suites | The transition audit and the DESIGN.md sites guard are now in its command alongside the geometry spec. |
+| 4 | The closeout command short-circuited before its suites ran | The reviewer EXECUTED it and reported `marker_missing=1 in_progress_present=1` with Vitest never starting. `spec:lint` emits `RED_CONJUNCTION` as an advisory for exactly this shape; under this plan's own closed criterion it is blocking. Every multi-suite command now collects each result before deciding the exit, verified on a three-way case. |
 
 ### What this pass caught on its own
 
