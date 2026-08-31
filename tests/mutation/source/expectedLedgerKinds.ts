@@ -22,6 +22,14 @@
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // Enrolled 2026-08-29 with an EMPTY accepted set: the surface was hardened
+  // against plan review R4's four fail-open edits before enrolment, so it starts
+  // with nothing to accept. An entry appearing here later means a survivor was
+  // ledgered rather than killed, which is the decision this file makes visible.
+  // One equivalent, minted BY the loop bound and kept deliberately: the fixtures
+  // derive their depth from the exported ceiling, so the literal's value is
+  // unobservable. Reasoning in the registry row.
+  perItemStateScanner: { equivalent: 1 },
   // The transport observer, enrolled 2026-08-25. Declares an EMPTY ledger: every mutant of it is
   // killed, with no proven equivalence and no accepted gap. A row appearing here later is the
   // surface's first and owes its own argument — the module is 60 lines of straight-line transport
@@ -108,6 +116,24 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // If a scored run leaves a survivor, the repair is a deciding case or a written
   // equivalence argument landing HERE with it, never a quiet floor edit.
   captureRenderFault: {},
+  // reportDraftStore, enrolled 2026-08-29 by fix/wizard-report-draft-escape.
+  // ONE equivalence argument and no accepted gap.
+  //
+  // The equivalent is capDraft's `value.length <= REPORT_MESSAGE_MAX_CHARS`
+  // early return. Weakened to `<`, a value of exactly the cap falls through to
+  // `slice(0, CAP)` instead, which on a string of exactly CAP units returns an
+  // identical string; the surrogate branch then reads the same final code unit
+  // and reaches the same verdict. No input distinguishes the two forms, so no
+  // test can kill it.
+  //
+  // It is here rather than fixed because it was PROVED equivalent before it was
+  // accepted: the same edit was the row's first candidate CONTROL, planted, and
+  // the full suite stayed green — which is why it was rejected as a control and
+  // recorded as an equivalence instead. A second row appearing here later owes
+  // its own argument; the module is 115 lines of straight-line storage handling
+  // and its other five survivors all turned out to be real test gaps, not
+  // equivalences.
+  reportDraftStore: { equivalent: 1 },
   // psqlStartupScan: THIRTY equivalence arguments and NO accepted gap. FOUR arrived
   // 2026-08-21 with BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION, and they are
   // ONE argument at four sites rather than four stories: a character-indexing loop's
@@ -538,4 +564,10 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // not hold, which is why the two REACH signals are killed rather than accepted, each by
   // its own chain fixture. A third row appearing here owes its own written argument.
   connectionCensus: { equivalent: 2 },
+  // Enrolled 2026-08-30. Four equivalents, every one of them a resource bound in
+  // the child-process spawn options, argued individually in the registry. The
+  // first run returned SEVEN survivors; the other three were real defects in the
+  // output parsing and were killed rather than ledgered, which is the split this
+  // count exists to make visible. A fifth row appearing here owes its own argument.
+  configBranchProbe: { equivalent: 4 },
 };

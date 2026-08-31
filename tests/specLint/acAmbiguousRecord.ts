@@ -81,6 +81,21 @@ export const AC_AMBIGUOUS_RECORD: AmbiguousRow[] = [
     ids: ["AC-7", "AC-8"],
   },
   {
+    plan: "docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md",
+    line: 164,
+    ids: ["AC-OPEN-DESKTOP", "AC-SUPPRESS-PHONE"],
+  },
+  {
+    plan: "docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md",
+    line: 256,
+    ids: ["AC-OPEN-DESKTOP", "AC-SUPPRESS-PHONE"],
+  },
+  {
+    plan: "docs/superpowers/plans/2026-08-29-attention-auto-open-phone-suppression.md",
+    line: 269,
+    ids: ["AC-ANCHOR-PANEL-HANGS-BELOW", "AC-ANCHOR-WRAPPER", "AC-TOGGLE-OPERABLE"],
+  },
+  {
     plan: "docs/superpowers/plans/ci/2026-08-24-mutation-scratch-fs-event-storm.md",
     line: 84,
     ids: ["AC-1", "AC-1b", "AC-1c"],

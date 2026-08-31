@@ -37,7 +37,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import type { ParseResult } from "@/lib/parser/types";
+import type { ParseResult, ParseWarning } from "@/lib/parser/types";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
@@ -80,6 +81,46 @@ afterEach(() => {
 });
 
 describe("§4.5 transition audit — only the review modal animates; checkbox/count are instant", () => {
+  // Spec docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md §10: the cell
+  // line has two states, C0 absent and C1 present, and both directions are instant.
+  it("the cell line mounts and unmounts instantly with the anchor (C0 to C1 and back, spec §10)", () => {
+    const dfid = "df-tr-cell";
+    const row = (sc: SourceAnchor | null): Step3Row => ({
+      ...stagedRow(dfid, "Tr"),
+      parseResult: {
+        ...parseResult("Tr"),
+        warnings: [
+          {
+            severity: "warn",
+            code: "REF_ERROR_LITERAL",
+            message: "m",
+            blockRef: { kind: "section" },
+            rawSnippet: "\\#REF\\!",
+            sourceCell: sc,
+          } satisfies ParseWarning,
+        ],
+      } as unknown as ParseResult,
+    });
+    const { getByTestId, queryByTestId, rerender } = render(
+      <Step3SheetCard row={row(null)} wizardSessionId={WSID} />,
+    );
+    // Open the review modal once; rerenders keep component state, so it stays open.
+    fireEvent.click(getByTestId(`wizard-step3-card-${dfid}-more`));
+    const id = `wizard-step3-card-${dfid}-warning-0-cell`;
+    expect(queryByTestId(id)).toBeNull();
+    rerender(
+      <Step3SheetCard
+        row={row({ title: "VENUE", gid: 5, a1: "A1", scope: "cell" })}
+        wizardSessionId={WSID}
+      />,
+    );
+    // Synchronous, no waitFor: the span is a bare conditional with no motion wrapper.
+    const el = getByTestId(id);
+    expect(el.closest("[data-motion]")).toBeNull();
+    rerender(<Step3SheetCard row={row(null)} wizardSessionId={WSID} />);
+    expect(queryByTestId(id)).toBeNull();
+  });
+
   it("neither the card, the review, nor the modal imports framer-motion / AnimatePresence", () => {
     for (const src of [CARD_SRC, REVIEW_SRC, MODAL_SRC]) {
       expect(src).not.toMatch(/framer-motion/);

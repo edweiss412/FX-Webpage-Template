@@ -76,4 +76,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-28-speclint-expect-n-exit-status.md`](./2026-08-28-speclint-expect-n-exit-status.md) | 2026-08-28 |
 | [`2026-08-28-table-provenance.md`](./2026-08-28-table-provenance.md) | 2026-08-28 |
 | [`2026-08-28-local-e2e-webserver-validation-pooler.md`](./2026-08-28-local-e2e-webserver-validation-pooler.md) | 2026-08-28 |
+| [`2026-08-30-e2e-declared-vs-resolved.md`](./2026-08-30-e2e-declared-vs-resolved.md) | 2026-08-30 |
 | [`probes`](./probes) | 2026-08-04 |

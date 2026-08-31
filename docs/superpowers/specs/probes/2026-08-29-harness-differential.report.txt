@@ -1,0 +1,40 @@
+shard 0: vitest=74 extracted=74 summary=SAME drift=SAME
+  branch summary: [mutation shard 0/8] DONE 12712 mutants <duration> — alarms=177 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 0/8] DONE 12712 mutants <duration> — alarms=177 cosmeticViolations=0 noOps=0
+shard 1: vitest=77 extracted=77 summary=SAME drift=SAME
+  branch summary: [mutation shard 1/8] DONE 12712 mutants <duration> — alarms=78 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 1/8] DONE 12712 mutants <duration> — alarms=78 cosmeticViolations=0 noOps=0
+shard 2: vitest=162 extracted=162 summary=SAME drift=SAME
+  branch summary: [mutation shard 2/8] DONE 12709 mutants <duration> — alarms=165 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 2/8] DONE 12709 mutants <duration> — alarms=165 cosmeticViolations=0 noOps=0
+shard 3: vitest=80 extracted=80 summary=SAME drift=SAME
+  branch summary: [mutation shard 3/8] DONE 12711 mutants <duration> — alarms=88 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 3/8] DONE 12711 mutants <duration> — alarms=88 cosmeticViolations=0 noOps=0
+shard 4: vitest=105 extracted=105 summary=SAME drift=SAME
+  branch summary: [mutation shard 4/8] DONE 12708 mutants <duration> — alarms=109 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 4/8] DONE 12708 mutants <duration> — alarms=109 cosmeticViolations=0 noOps=0
+shard 5: vitest=70 extracted=70 summary=SAME drift=SAME
+  branch summary: [mutation shard 5/8] DONE 12708 mutants <duration> — alarms=74 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 5/8] DONE 12708 mutants <duration> — alarms=74 cosmeticViolations=0 noOps=0
+shard 6: vitest=80 extracted=80 summary=SAME drift=SAME
+  branch summary: [mutation shard 6/8] DONE 12713 mutants <duration> — alarms=182 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 6/8] DONE 12713 mutants <duration> — alarms=182 cosmeticViolations=0 noOps=0
+shard 7: vitest=143 extracted=143 summary=SAME drift=SAME
+  branch summary: [mutation shard 7/8] DONE 12708 mutants <duration> — alarms=146 cosmeticViolations=0 noOps=0
+  main   summary: [mutation shard 7/8] DONE 12708 mutants <duration> — alarms=146 cosmeticViolations=0 noOps=0
+
+pooled: 791 records, branch-vs-main SAME (equals the summed declared lengths)
+
+operator breakdown, branch | main:
+  blank-row        489 | 489
+  column-shift     11 | 11
+  header-typo      121 | 121
+  merged-cell      116 | 116
+  section-reorder  54 | 54
+
+kind breakdown, branch | main:
+  signal_loss      4 | 4
+  text_drift       13 | 13
+  wrong            774 | 774
+
+VERDICT: IDENTICAL - the diff moved nothing the harness measures

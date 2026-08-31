@@ -70,6 +70,20 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // fix/pill-size-draft-restored-note (2026-08-30). Eric ruled both on the
+  // 2026-08-29 decision board: the pill's type moves one size up at phone
+  // widths (decision 5B, both segments kept), and a transient note ships
+  // instead of a rail count (decision 6B), leaving the spec §D2 no-status-dot
+  // contract intact in both directions.
+  "ATTENTION-PILL-PHONE-LEGIBILITY-1",
+  "WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE-1",
+  // fix/help-tour-grid-and-settings-card (2026-08-29). The first shipped by the
+  // larger of the two repairs its entry named — the grids lifted out of the 70ch
+  // cap rather than the second grid dropped to two columns. The second graduated
+  // because the product decision it was waiting on was made: Eric chose the card
+  // over softening the intro copy.
+  "HELPTOUR-CARD-GRID-MEASURE-1",
+  "HELPTOUR-SETTINGS-CARD-MISSING-1",
   // feat/a11y-privacy-cluster (2026-08-07, arc A): the share-link scroll cue.
   // Un-deferred by the user into an arc that could own both requirements the
   // deferral named — a transition inventory for the new motion surface and a
@@ -81,6 +95,11 @@ const GRADUATED = [
   // fixed, which is still a graduation — it left the open queue.
   "SHAREHUB-ARM-VIEWPORT-REVEAL-1",
   "SHAREHUB-ARCHIVE-GRAVITY-CUE-1",
+  // feat/diagram-failure-retry (2026-08-29). Graduated by the product decision
+  // it was blocked on being taken: Eric chose the clamped tier, the copy, and an
+  // explicit in-flight state, then overrode the withhold so originals-only cells
+  // get the control too. Class-sweep exception (a) discharged, not waived.
+  "DIAGRAM-FAILURE-RECOVERY-1",
 ] as const;
 
 /**
@@ -98,6 +117,16 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/attention-autoopen-suppress-phone (2026-08-29, PR #947): the attention
+  // menu auto-opened on arrival at every width, and inside the review modal's clip
+  // at 375 the open panel covered the published toggle — probed as pointer events
+  // intercepted, not merely overlapping. Eric ratified suppressing the auto-open
+  // below `sm` rather than moving the panel: the pill still carries the count and
+  // still opens on tap, and the menu is an INDEX whose items also render as inline
+  // banners and nav badges, so nothing is only reachable through it. The change
+  // never CLOSES a menu — an operator-opened panel survives a resize in both
+  // directions, which is the fence the design rests on.
+  { id: "BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE", provenance: "fix/attention-autoopen-suppress-phone" },
   // fix/attention-panel-left-overflow (2026-08-29, PR #941): the attention menu
   // panel was sized against the VIEWPORT while right-anchored inside the review
   // modal's clip, so its left edge landed 36px outside that clip on BOTH review

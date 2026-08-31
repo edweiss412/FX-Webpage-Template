@@ -136,6 +136,7 @@ import { avatarColor } from "@/lib/crew/avatarColor";
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
 import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
@@ -176,6 +177,13 @@ import {
   AGENDA_CLIENT_QUEUE_BUDGET_MS,
 } from "@/lib/agenda/constants";
 import { cn } from "@/lib/ui/cn";
+import {
+  clearStoredDraftIfUnchanged,
+  readStoredDraft,
+  REPORT_MESSAGE_MAX_CHARS,
+  reportDraftStorageKey,
+  writeStoredDraft,
+} from "@/lib/admin/reportDraftStore";
 
 // ── §4.3 caps (single source of truth — values unchanged, spec §13) ──
 export const CREW_CAP = 30;
@@ -3230,18 +3238,61 @@ export function WarningsBreakdown({
                         // which noticed the first version of this comment under-claimed.
                         const rowLabel =
                           w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
+                        // The SHEET CELL coordinate (spec 2026-08-29 §3). Four identical
+                        // "#REF!" rows are unreadable without it: the panel above says
+                        // "Edit the cell" and, until this line, nothing on any row said
+                        // which cell or which tab. Mutually exclusive with the row label by
+                        // construction — one line, one per-row discriminator, same slot.
+                        // `rowLabel === null` is belt-and-braces here (the early return
+                        // below already short-circuits), and it is kept so the guard reads
+                        // identically to the published card's, where it is load-bearing.
+                        //
+                        // A colon in `a1` is the LEGACY block-range shape (the one
+                        // `stripLegacyUnknownFieldAnchors` neutralizes), so it is a region,
+                        // not a coordinate to type into the name box; `scope: "tab"` names
+                        // a tab and not a cell. Neither renders.
+                        const cellRef =
+                          rowLabel === null &&
+                          w.sourceCell?.scope === "cell" &&
+                          typeof w.sourceCell.a1 === "string" &&
+                          w.sourceCell.a1.trim().length > 0 &&
+                          !w.sourceCell.a1.includes(":") &&
+                          typeof w.sourceCell.title === "string" &&
+                          w.sourceCell.title.trim().length > 0
+                            ? sheetCellReference(w.sourceCell.title.trim(), w.sourceCell.a1.trim())
+                            : null;
                         // The lead-in is not decoration: with the candidate line below
                         // carrying one, this was the only unlabeled line on the row, and it is
                         // the MORE important of the two facts (it is the string Doug searches
                         // his sheet for). Same information grammar as the per-show band, in
                         // this surface's flatter type ramp. The value keeps its own span so a
                         // by-text query still matches the label alone.
-                        return rowLabel ? (
+                        if (rowLabel) {
+                          return (
+                            <span
+                              data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
+                              className="wrap-break-word text-xs text-text-subtle"
+                            >
+                              Sheet row <span className="font-mono text-text">{rowLabel}</span>
+                            </span>
+                          );
+                        }
+                        // Same slot, same type ramp, same information grammar as the row
+                        // label above: unlike the FIELD_UNREADABLE band this is not junk to
+                        // reproduce, it is a coordinate to type into the name box, so it
+                        // carries no quotes.
+                        return cellRef ? (
                           <span
-                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
+                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-cell`}
                             className="wrap-break-word text-xs text-text-subtle"
                           >
-                            Sheet row <span className="font-mono text-text">{rowLabel}</span>
+                            Sheet cell{" "}
+                            <span
+                              data-testid={`wizard-step3-card-${dfid}-warning-${i}-cell-value`}
+                              className="font-mono text-text"
+                            >
+                              {cellRef}
+                            </span>
                           </span>
                         ) : null;
                       })()}
@@ -4545,7 +4596,11 @@ export function PublishedDiagramsBreakdown({
 }
 
 /** Report message textarea cap (spec §D3). */
-export const REPORT_MESSAGE_MAX_CHARS = 2000;
+/** Re-exported so the existing importers of this module keep working; the cap
+ *  and the draft store now live in `lib/admin/reportDraftStore.ts`, extracted
+ *  so the source-mutation harness can overlay them (it overlays only modules a
+ *  Vitest suite imports, and these were module-private in a component file). */
+export { REPORT_MESSAGE_MAX_CHARS } from "@/lib/admin/reportDraftStore";
 /** Payload parse-warnings cap (spec §D3). */
 export const REPORT_PARSE_WARNINGS_CAP = 50;
 /** Rendered whenever a failure code resolves to no usable dougFacing copy —
@@ -4605,8 +4660,11 @@ function reportErrorCopy(code: string | null): string {
  * `viewerVisibleSection` is read from the chrome context's `getActiveSection`
  * AT SUBMIT TIME (§D3a); outside the chrome context the field is omitted.
  * Modal unmount mid-flight is fire-and-forget by construction — the persisted
- * key makes a retry after reopen a duplicate → success (§D3 guards). Draft
- * persistence is mount-local only (spec-accepted).
+ * key makes a retry after reopen a duplicate → success (§D3 guards). The draft
+ * itself is persisted per (wizard session, drive file) in sessionStorage and
+ * restored on mount, so a modal close no longer destroys it
+ * (BL-WIZARD-REPORT-DRAFT-LOST-ON-ESCAPE, spec 2026-08-29). That supersedes
+ * the earlier mount-local-only posture.
  *
  * Follow-ups-b2 §D: the form is collapsed by default behind a disclosure
  * trigger. `draft`/`status`/`handleSubmit` live HERE (component level), NOT in
@@ -4618,7 +4676,11 @@ function reportErrorCopy(code: string | null): string {
 export function ReportIssueSection({ data }: { data: StagedSectionData }) {
   const { dfid, wizardSessionId, row, warnings } = data;
   const chrome = useContext(Step3SectionChromeContext);
-  const [draft, setDraft] = useState("");
+  const draftStorageKey = reportDraftStorageKey(wizardSessionId, dfid);
+  // Lazy initialiser, not an effect: the restored value is present on the FIRST
+  // rendered frame, so there is no empty-then-populate flash and no transition
+  // to describe (spec §4 R3).
+  const [draft, setDraft] = useState(() => readStoredDraft(draftStorageKey));
   const [status, setStatus] = useState<ReportSectionStatus>({ kind: "idle" });
   const [expanded, setExpanded] = useState(false);
   const textareaId = useId();
@@ -4636,6 +4698,9 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
     event.preventDefault();
     const message = draft.trim();
     if (message.length === 0 || status.kind === "pending") return;
+    // Captured BEFORE the awaits: what this submit is responsible for clearing.
+    // A newer mount may own the key by the time the success branch runs.
+    const submittedDraft = draft;
     setStatus({ kind: "pending" });
     const storageKey = reportAttemptStorageKey(wizardSessionId, dfid);
     const idempotency_key = mintOrReuseAttemptKey(storageKey);
@@ -4674,6 +4739,11 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
       if (res.ok && parsed.ok === true) {
         // created / duplicate / recovered all count as success (spec §D3).
         rotateAttemptKey(storageKey);
+        // A sent report must not come back as a ghost draft (spec §2.2, AC-4).
+        // setDraft("") alone would not do it: the store is written from the
+        // textarea's onChange, and this is not one. Conditional on the stored
+        // text still being ours — see clearStoredDraftIfUnchanged (AC-15).
+        clearStoredDraftIfUnchanged(draftStorageKey, submittedDraft);
         setDraft("");
         setStatus({ kind: "success" });
         return;
@@ -4710,8 +4780,30 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
            button below (never the accent CTA; that belongs to Publish). */
         className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
-        Write a report
+        {draft.trim() === "" ? "Write a report" : "Continue your report"}
       </button>
+      {/* §D2: instant — deliberate (absent↔present with the draft).
+
+          TRIMMED, like the submit guard and the disabled state above it, and
+          unlike the first draft of this code which tested `draft === ""`.
+          A single typed space is not a report: untrimmed, the trigger promised
+          one to continue while `Send report` sat disabled with nothing on
+          screen explaining the contradiction (impeccable audit P3).
+
+          The persistence guarantee, stated. Impeccable critique P1: the repair
+          keeps the draft and told nobody, so an operator who does not already
+          know it exists retypes rather than reopening, and a silent success is
+          indistinguishable from a silent failure of the store. Rendered
+          whenever there IS a draft, in both disclosure states: collapsed it is
+          the only thing on screen that says the text is safe, and expanded it
+          sits beside the text it is describing. `sr-only`-adjacent quiet, not a
+          live region — it is ambient reassurance, not an announcement, and it
+          must not interrupt a screen reader mid-typing. */}
+      {draft.trim() === "" ? null : (
+        <p className="text-xs/relaxed text-text-subtle">
+          Kept on this device until you close the tab.
+        </p>
+      )}
       {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too)
 
           BL-LIVE-REGION-AST-WALK-RESIDUE. The `expanded` disclosure is NOT an
@@ -4744,7 +4836,10 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
               ref={textareaRef}
               data-testid={`wizard-step3-card-${dfid}-report-textarea`}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                writeStoredDraft(draftStorageKey, e.target.value);
+              }}
               maxLength={REPORT_MESSAGE_MAX_CHARS}
               rows={3}
               /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text

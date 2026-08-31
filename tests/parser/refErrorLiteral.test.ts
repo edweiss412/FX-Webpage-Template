@@ -14,10 +14,21 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { parseSheet } from "@/lib/parser";
+import { detectRefErrorLiterals, scanRefErrorLiterals } from "@/lib/parser/refErrorDetector";
 import { premiseHolds } from "@/tests/_shared/premise";
 
 const refWarnings = (md: string, name: string) =>
   parseSheet(md, name).warnings.filter((w) => w.code === "REF_ERROR_LITERAL");
+
+/** Per-fixture counts, pinned once and read by BOTH the emitter case below and the
+ *  scanner case: one table pins the emitter and the scanner together (probe §13.A). */
+const PINNED_COUNTS: Record<string, number> = {
+  "fixtures/shows/exporter-xlsx/consultants.md": 6,
+  "fixtures/shows/exporter-xlsx/fintech.md": 5,
+  "fixtures/shows/exporter-xlsx/fixed-income.md": 5,
+  "fixtures/shows/exporter-xlsx/rpas.md": 5,
+  "fixtures/shows/raw/2025-10-consultants-roundtable.md": 3,
+};
 
 describe("REF_ERROR_LITERAL (spec §4)", () => {
   it("premise: the corpus carries the escaped form", () => {
@@ -44,14 +55,7 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
   });
 
   it("detects the ESCAPED corpus form - per-fixture counts pinned (probe §13.A)", () => {
-    const expected: Record<string, number> = {
-      "fixtures/shows/exporter-xlsx/consultants.md": 6,
-      "fixtures/shows/exporter-xlsx/fintech.md": 5,
-      "fixtures/shows/exporter-xlsx/fixed-income.md": 5,
-      "fixtures/shows/exporter-xlsx/rpas.md": 5,
-      "fixtures/shows/raw/2025-10-consultants-roundtable.md": 3,
-    };
-    for (const [path, n] of Object.entries(expected)) {
+    for (const [path, n] of Object.entries(PINNED_COUNTS)) {
       expect(refWarnings(readFileSync(path, "utf8"), path), path).toHaveLength(n);
     }
   });
@@ -86,5 +90,38 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
     const md = readFileSync("fixtures/shows/exporter-xlsx/consultants.md", "utf8");
     const clean = parseSheet(md.replaceAll("\\#REF\\!", "placeholder"), "consultants.md");
     expect(parseSheet(md, "consultants.md").hardErrors).toEqual(clean.hardErrors);
+  });
+});
+
+describe("scanRefErrorLiterals reports the line and cell of every hit; the emitter maps it (spec 2026-08-29 §2.3)", () => {
+  const md = [
+    "| CREW | A | B |",
+    "| :---: | :---: | :---: |",
+    "| Alice | #REF! | x |",
+    "| Bob | y | #REF!/z |",
+    "",
+    "| #REF! | q |",
+  ].join("\n");
+
+  it("positions", () => {
+    expect(scanRefErrorLiterals(md).map(({ line, cell, kind }) => [line, cell, kind])).toEqual([
+      [2, 1, "crew"],
+      [3, 2, "crew"],
+      [5, 0, "section"],
+    ]);
+  });
+
+  it("the emitter is the scanner mapped: same order, same kind, same snippet", () => {
+    const hits = scanRefErrorLiterals(md);
+    const warnings = detectRefErrorLiterals(md);
+    expect(warnings.map((w) => [w.blockRef?.kind, w.rawSnippet])).toEqual(
+      hits.map((h) => [h.kind, h.snippet]),
+    );
+  });
+
+  it("corpus fixtures: the scanner's hit count equals the pinned per-fixture warning count", () => {
+    for (const [path, n] of Object.entries(PINNED_COUNTS)) {
+      expect(scanRefErrorLiterals(readFileSync(path, "utf8")), path).toHaveLength(n);
+    }
   });
 });

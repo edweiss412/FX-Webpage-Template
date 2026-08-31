@@ -752,12 +752,19 @@ export function scanCandidates(): Candidate[] {
       if (jsx === null) continue;
       const guard = conditional.getCondition();
       const form = classifyExpression(guard, predicates);
+      // 745 -> 747 on 2026-08-30 by fix/pill-size-draft-restored-note: the
+      // attention pill's per-segment marks add one guarded conditional each,
+      // published and wizard. RE-DERIVED by running the probe, never
+      // incremented -- an incremented pin is right the day it is written and
+      // unverifiable afterwards, and this figure has gone stale before.
+      // The 78 is unchanged; the meta-test compares BOTH against the tree.
+      //
       // ASYMMETRY, DECLINED AND DOCUMENTED rather than closed. The IfStatement
       // arm above falls back to a vocabulary probe and reports an unclassifiable
       // guard as `unknown` residue. This arm drops it, deliberately.
       //
-      // Probed: 740 such ternaries under the derived roots, 77 on a
-      // fault-vocabulary guard and unclassifiable. 68 of those 77 sit in
+      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
       // fault. The screenshot harness captures server-rendered output, so a
@@ -768,7 +775,7 @@ export function scanCandidates(): Candidate[] {
       //
       // So the vocabulary probe is the WRONG FILTER on this arm, which answers
       // the question BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY left open. Adding
-      // the fallback would hand the registry 77 hand-written reasons to carry
+      // the fallback would hand the registry 78 hand-written reasons to carry
       // roughly three new server-render fault sites, and the IfStatement arm's
       // comment above already records why that trade is bad: a false candidate
       // dilutes exactly the signal the residue exists to carry.

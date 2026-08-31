@@ -25,6 +25,12 @@ on:
       - "tests/e2e/_step3ReviewModalLiveEntry.tsx"
       - "tests/e2e/_step3ReviewModalHarness.tsx"
       - "components/admin/wizard/Step3ReviewModal.tsx"
+      # Whole-diff R2 P1: this workflow RUNS the draft-restored note cases
+      # (T-NOTE-GEOM, T-NOTE-SCROLLED, the AC-17 compound matrix) inside
+      # step3-review-modal.interactions.spec.ts, but the component they
+      # exercise was not a trigger. A later edit touching only the note
+      # would have received no Chromium coverage while this gate sat green.
+      - "components/admin/wizard/DraftRestoredNote.tsx"
       # Geometry owners of the attention spec: a later edit to the menu, the
       # shared frame or the placement stack must re-run this gate.
       - "components/admin/wizard/WizardAttentionMenu.tsx"

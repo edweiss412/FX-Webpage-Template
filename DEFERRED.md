@@ -8,6 +8,56 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### FINALIZE-COMPACT-COUNT-NOUN-1 — impeccable P1: the compact count says "1 of 2" without saying of what (2026-08-30)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens the step-3 sticky footer's layout, or a real-browser measurement of the footer at 375px confirming the noun fits on one line.
+
+The panel renders `1 of 2 shows`; the compact readout in the sticky footer renders `1 of 2`. The impeccable critique called the divergence a P1, and the reasoning is good: the compact readout is the surface Doug actually uses, and a count with no noun sitting under a heading that had just stopped saying "publishing" is the of-what ambiguity this arc set out to remove.
+
+**It was fixed, then reverted, and the revert is the correct state.** The plan already settled the bare form DELIBERATELY: the compact readout lives in a sticky bar whose height is load-bearing, and the spec's dimensional proof of "footer height, before vs after: identical" rests on the only changed text sitting inside a `truncate`d node. This count is not truncated. Adding `show`/`shows` therefore changes the width of an untruncated node inside the one element whose height the spec proves invariant, and no measurement was taken because this worktree cannot start a dev server.
+
+**Why deferred rather than carried.** Class-sweep exception (a): it needs a product decision backed by a real-browser measurement, not a copy edit. Whoever takes it should measure the footer at 375px with the longest realistic count before committing, and update the spec's §3.2 unchanged-list and its dimensional table in the same change — the invariant-7 violation that this revert closes is exactly what happens when the code moves and the spec does not.
+
+---
+
+### FINALIZE-CAS-PROGRESS-AFFORDANCE-1 — impeccable P1: the highest-stakes phase has the weakest feedback (2026-08-30)
+
+**Effort:** M · **Facing:** product · **Un-defer trigger:** the first report of an operator reloading mid-finalize, or any arc that opens the finalize progress panel's structure rather than its copy.
+
+`fix/step3-publish-progress-scope` corrects what the batch phase CLAIMS: it creates every show Held, so "Publishing your shows…" was false and now reads "Setting up your shows…". That change is copy-only and shipped. What the critique found is structural and predates it: at the batch-to-CAS boundary the determinate `<progress>` and the `N of M` count both DISAPPEAR, leaving two text lines, one of which is empty until the first phase event arrives. The empty STRING is deliberate — `casPhaseLabel(null)` returns `""` with a comment explaining it avoids a redundant second line under the heading — but the empty `<p>` is still rendered, so a `gap-2` column pays for a line that shows nothing. The choice is sound; the artifact is that nothing suppresses the element when the label it holds is empty.
+
+**Why it matters for Doug specifically.** The CAS phase is the one that actually puts shows live. PRODUCT.md has him on a venue floor, one-handed, glancing. The phase with the highest stakes currently gives him the least evidence anything is happening, and the two phases read as a REPLACEMENT rather than a sequence: there is no completion beat for the batch he just watched finish. A project manager who sees a bar vanish reads it as failure and reloads, and reloading mid-run lands him in the `in_progress` checkpoint path — a real bad outcome produced by a display gap rather than by any fault in the run.
+
+**The recommendation from the critique**, kept because it is concrete: keep the settled batch line ("12 of 12 shows set up"), render an indeterminate `<progress>` for the CAS phase so the surface still reads as working, and drop the `<p>` entirely when the phase label is empty rather than rendering a blank one.
+
+**Why deferred rather than fixed in this arc.** Class-sweep exception (a): it is a product and design decision, not a bug fix. Whether the batch line persists into CAS, and whether an indeterminate bar reassures or misleads when no percentage is knowable, are calls about what Doug should be told at the moment of the live flip. This arc's mandate was to stop the surface making a false claim; it is strictly subtractive on copy and touches no phase structure. Adding a new progress element and a persisted completion line is new design on a surface this change does not otherwise open.
+
+**What this arc DID close** rather than leave here: the compact readout's heading, subline and accessible names, which is the false-claim repair this deferral sits beside. (An earlier draft of this line claimed both renderers now name what they count. That repair was reverted — see `FINALIZE-COMPACT-COUNT-NOUN-1` above — and the claim went stale with it; whole-diff R4 finding 5. The ledger may not assert a completion the code contradicts.)
+
+---
+
+### FINALIZE-PROGRESSBAR-UNTHEMED-1 — impeccable P1: the finalize progress bar ships raw browser chrome in both themes (2026-08-30)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any arc that opens `app/globals.css`'s progress-element block, or the first screenshot review of the finalize surface in dark mode.
+
+`app/globals.css` styles the step-2 scan bar across six selectors (`:688-758`) and styles the finalize bar with none: `wizard-finalize-progressbar` appears nowhere in the stylesheet. Both renderers therefore paint the native UA bar, which is platform-accent blue on macOS, in light AND dark mode. DESIGN.md permits exactly one accent, FXAV orange, and says dark is first-class rather than derived; an OS-blue bar is neither. `ProgressPanel`'s own docstring claims it uses "same tokens, same native bar" as step 2, which is false today.
+
+**Why deferred rather than fixed in this arc.** Class-sweep exception (c): it is a visual restyle of a surface this PR does not otherwise open. The change is small in bytes — widen the six step-2 selectors to match both testids — but its output is a VISUAL change, and this arc has no way to verify it: the worktree is under a heavy-phase restriction that forbids starting a dev server or running a build, so no screenshot or contrast measurement could be taken. Shipping an unverified repaint of the element the operator watches during the highest-stakes action, inside a copy-only change, trades a known-wrong appearance for an unmeasured one. It is also strictly pre-existing: this arc changed the bar's accessible name and never its styling.
+
+---
+
+### FINALIZE-PROGRESS-AT-PERCEIVABILITY-1 — impeccable P1: the CAS phase is a focused group whose every child is hidden from assistive tech (2026-08-30)
+
+**Effort:** M · **Facing:** product · **Un-defer trigger:** the VoiceOver spot-check owed under VOICEOVER-ANNOUNCER-SPOTCHECK, or any arc that changes `liveMessage`.
+
+Every visible string in both progress renderers carries `aria-hidden="true"` (FinalizeButton.tsx:976, 993, 1004, 1016, 1022; Step3ReviewWithFinalize.tsx:259, 264, 281, 289, 292). In the BATCH phase that is sound: the native `<progress>` carries the machine-readable state and `FinalizeAnnouncer` carries the words, so hiding the visual copy is what stops a screen reader saying everything twice. In the CAS phase there is no `<progress>` at all, so a focused group named "Show setup progress" contains nothing perceivable, and the three sub-phases `casPhaseLabel` renders — "Applying your edits…", "Making shows live…", "Connecting your folder…" — are never announced, because `liveMessage` keys on phase alone and says only "Finishing setup".
+
+**Not silent, which is why this is deferred rather than urgent:** the live region does announce the phase change, so a screen-reader operator is told the run moved on. What they lose is the sub-phase detail a sighted operator can read.
+
+**Why deferred rather than fixed in this arc.** Class-sweep exception (a): the fix is a product decision about announcement cadence, not a defect repair. Folding `casPhaseLabel` into `liveMessage` is two lines, but it changes a screen-reader operator's experience from one utterance per phase to up to four, and the announcer was deliberately built to avoid chattiness — the same file already declines to double-announce completion. Whether the extra detail is worth the extra speech is a call about how Doug works, and this arc's mandate was to stop the batch phase making a false claim.
+
+---
+
 ### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27)
 
 **Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.
@@ -137,100 +187,6 @@ disagree while this sits open.
 follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
 Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
-### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure (2026-08-11)
-
-**Effort:** M
-
-Surfaced by the invariant-8 dual gate on branch `fix/help-tour-hydration` (PR #778), by BOTH halves
-independently (critique P1, audit P1). Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md`.
-
-**The finding.** `.help-prose` caps its column at `max-width: 70ch` (`app/globals.css:1148`), and
-the tour page puts two card grids inside it — `md:grid-cols-2` (`app/help/tour/page.mdx:7`) and
-`md:grid-cols-3` (`app/help/tour/page.mdx:53`). The three-column grid therefore divides a reading
-measure three ways.
-
-**Probed live 2026-08-11**, admin-signed-in, real render, three-column grid, body `<p>` at 16px:
-
-| viewport | card width | body width | measure | card height |
-| -------- | ---------- | ---------- | ------- | ----------- |
-| 768px    | 146.7px    | 104.7px    | 10.5ch  | 811.3px     |
-| 900px    | 190.7px    | 148.7px    | 14.9ch  | 617.2px     |
-| 1024px+  | 224.1px    | 182.1px    | 18.2ch  | 513.2px     |
-
-It does not improve past 1024px because the 70ch cap binds, not the viewport. `DESIGN.md` §2.5 caps
-measure at 65-75ch; 10.5ch is a seventh of the floor, and the 768px card is 811px tall for 45 words.
-Mobile (390px, one column) is unaffected and reads well.
-
-**Why deferred rather than repaired in-branch — reason (b), a ratified scope decision already fences
-it.** The arc's spec §1.1 states that any finding proposing copy or layout changes is out of scope;
-the diff converts text children only, changing no class and no layout. The finding is PRE-EXISTING
-on `origin/main` and survives the branch unchanged.
-
-**Un-defer trigger.** The next arc that touches `/help` layout or `.help-prose`, or any report that
-the tour page is hard to read on a laptop. **Two candidate repairs, and choosing between them is the
-work:** drop the second grid to `md:grid-cols-2` (cheap, keeps the grid inside the prose column), or
-lift both grids out of the 70ch cap with a full-bleed wrapper. The second is the better answer and
-the larger change — it touches `.help-prose`, which every `/help/*` page renders through, so it owes
-a sweep of the other twelve help pages for grids in the same position.
-
-### HELPTOUR-SETTINGS-CARD-MISSING-1 — impeccable P1: /help/tour claims to cover every admin screen and omits one (2026-08-11)
-
-**Effort:** S, but DESIGN-GATED
-
-Surfaced by the invariant-8 dual gate on branch `fix/help-tour-hydration` (PR #778), critique P1.
-Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md`.
-
-**The finding.** The page opens "Below is every admin screen, grouped by when you use it"
-(`app/help/tour/page.mdx:3`) and then renders **seven** cards. `app/help/_nav.ts` declares **eight**
-`admin-surface` entries (`_nav.ts:22-29`); `/help/admin/settings` ("Settings") has no card. The
-claim is false by one, on the one page whose job is to be exhaustive.
-
-**Why deferred rather than repaired in-branch — reasons (a) and (b).** (a) The fix is a product
-decision: adding a Settings card means choosing its group — Settings is neither daily nor per-show,
-so it lands under "Once per environment" beside the onboarding wizard, which would make that group a
-two-card grid and change the page's rhythm. Softening the intro instead ("the screens you will use
-most") keeps the layout and gives up the completeness promise. Both are defensible; the page's
-author should pick. (b) The arc's spec §1.1 fences copy changes out, and AC-2 requires the page's
-text be preserved up to whitespace normalization.
-
-**Not caught by any existing guard.** `tests/e2e/help-pages.spec.ts` asserts every NAV route renders;
-nothing asserts the tour page LINKS to every admin-surface route.
-
-**Un-defer trigger.** The next content pass on `/help/tour`, or a new `/help/admin/*` page being
-added (which would widen the gap silently). Whichever repair is chosen, it should land with a
-derived guard — the tour's card hrefs must cover the `admin-surface` slugs — so the class closes
-rather than the instance.
-
-### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session (2026-08-11)
-
-**Effort:** S
-
-Surfaced by the invariant-8 dual gate on branch `feat/diagram-viewing-polish`, by the critique half
-(P1). Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md`.
-
-**The finding.** A runtime image failure is terminal per item: `failedKeys` is never cleared in
-either `components/diagrams/Gallery.tsx` or `components/diagrams/GalleryLightbox.tsx`, so one
-dropped request on ballroom wifi costs that diagram until a full page reload the crew member has no
-reason to attempt. The branch's repair makes the failure legible — focus relocates, and the event is
-announced by name — but the announcement offers no next step, and the replacement cell is a
-non-interactive `<div>`. Heuristic 9 (recover from errors) scored 2/4 on that account.
-
-**Why deferred rather than repaired in-branch — reason (a), it needs a product decision this PR
-cannot settle.** The obvious repair is to make the placeholder a "Retry" control, and the obvious
-copy is "<name> could not be loaded. Tap to retry." Both are product calls this arc's ratified scope
-(spec §1.1: the repair is focus relocation plus announcement) does not cover, and the mechanism has
-a real cost: the asset route sends `private, max-age=0, must-revalidate` with no ETag
-(`app/api/asset/diagram/[show]/[rev]/[key]/route.ts`), so a retry on a 1-5 MB original is a full
-re-download, and a crew member tapping a dead tile twice pays for it twice. Whether the affordance
-should exist at all, whether it should retry the clamped tier rather than the original, and what it
-says while in flight are one decision, not three independent ones.
-
-**Un-defer trigger.** A product decision on failure recovery for diagrams — either taken directly,
-or forced by the first support report of a diagram that "just disappeared" on venue wifi.
-
 ### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
 
 **Effort:** S
@@ -270,14 +226,15 @@ unreachable at any point.
 
 The warning-announcer-copy bundle's manual assistive-technology half (spec §8
 F10 mitigation): owner runs VoiceOver over ignore / bulk-ignore / pointer
-reveal on the published Sheet-warnings panel (titled "Parse warnings" until
-`feat/warning-trim-undefer`) and confirms one polite utterance
-per action, silence on background refreshes, and the reveal focus move. The
+reveal on the Sheet warnings panel and confirms one polite utterance per
+action, silence on background refreshes, and the reveal focus move. The
 automated halves (impeccable audit a11y dimension; role/mutation structural
 tests) shipped pre-merge. Un-defer trigger: owner performs and records the
 pass.
 
 screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is not a hypothetical filing at all — it is a manual pass only the owner can perform ("owner runs VoiceOver over ignore / bulk-ignore / pointer reveal"; un-defer trigger "owner performs and records the pass"), so the filing bar's probe-or-reachability test is satisfied by the surfaces themselves. **Stale parenthetical corrected:** the body dates the warnings panel as "titled 'Parse warnings' until `feat/warning-trim-undefer`" — that branch merged (PR #568, `6da2139e7`), `components/admin/showpage/WarningsBreakdown.tsx` no longer exists, and "Parse warnings" survives only in prose and comments (`components/admin/showpage/OverviewSection.tsx:18,65`; `components/admin/wizard/step3ReviewSections.tsx:570,615,698`). The pass should be run against the surfaces as they are now.
+
+**Pass kit (2026-08-29, `docs/voiceover-spotcheck-kit`):** `docs/agents/voiceover-spotcheck-kit.md` carries the step script, every expected utterance quoted from the shipped code with a verified `file:line`, and a fill-in recording form whose completed copy IS the evidence this row's un-defer trigger asks for. It settles three things the body did not. First, the panel is titled **Sheet warnings** (`components/admin/wizard/step3ReviewSections.tsx:5004`); "Parse warnings" survives only in code comments and in the jump-button copy, so the body's stale parenthetical is now removed rather than annotated. (The 2026-08-04 note above stays as the dated record it is. Its citations have partly drifted since: `OverviewSection.tsx:18,65` still resolve, `step3ReviewSections.tsx:615` still lands on a Parse-warnings comment, and `:570` and `:698` no longer do. Read it as history, not as a map.) Second, there are now TWO surfaces to run, not one: PR #943 (`feat/wizard-warning-ignore-controls`) put Ignore and Un-ignore on the onboarding wizard's step-3 panel and gave every surface mount the real announce channel (`components/admin/review/ShowReviewSurface.tsx:873-880`), so a silent state change there is an a11y defect too. Third, the pass cannot be run on `/admin/dev/attention-gallery`: that page answers every mutating call with a synthetic 403 (`components/admin/dev/GalleryWriteGuard.tsx:118-119`) and its bulk-ignore script admits only partial, fail, and pending outcomes (`lib/dev/attentionScenarios/types.ts:180`). The fetch-success branch every announcement fires on is unreachable there, so the silence would mean nothing. Row stays OPEN; the pass itself is still the owner's to perform.
 
 ### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
 
@@ -569,3 +526,44 @@ every diagram in the product reads, on both the admin grid and — by the consis
 makes — the crew gallery, which uses `object-cover` too (`components/diagrams/Gallery.tsx:412`). Taking it
 unilaterally inside a PR whose stated scope is which ELEMENT carries the border would be exactly the
 "spending a ratified design claim on a preference" that `BL-DIAGRAM-TILE-CHROME-CONSISTENCY` was filed to avoid.
+
+## Diagram failure retry — impeccable dual-gate deferrals (2026-08-29)
+
+From the invariant-8 dual gate on `feat/diagram-failure-retry`. The gate's three critique P0s and its
+audit P0 were all FIXED in-branch; dispositions and the refuted findings are recorded in
+`docs/superpowers/plans/2026-08-29-diagram-failure-retry/closeout.md`. One finding is deferred, under
+class-sweep exception (a): it needs a product decision this PR cannot settle.
+
+### DIAGRETRY-NO-RETRY-DEADLINE-1 — impeccable P2: a hung request leaves `Retrying…` up forever (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a crew member stuck on
+`Retrying…`, or any work that gives the asset route a client-visible status channel (which would also
+close documented limit 1 in the design spec).
+
+No retry carries a DEADLINE, so a request that never resolves leaves the in-flight state permanent:
+`Retrying…` on screen, `aria-busy="true"` announced, and the control inert because its `onClick` is a
+bare `preventDefault`. Venue wifi is precisely where a request hangs rather than fails.
+
+**The original wording of this paragraph was wrong twice, and diff review R2 caught both.** It said
+there is no `setTimeout` anywhere in either component; the lightbox has several, including the demote
+chip's own visibility timer. The true claim is narrower and is the one that matters: none of them is a
+retry deadline. It also said closing the lightbox cannot reset a hung retry and a page reload is the
+only exit. That is true of the GALLERY, whose state outlives the dialog, and false of the LIGHTBOX,
+whose retry state is local and dies when the dialog unmounts. So the worst case is real but belongs to
+one surface, not both: a crew member with a hung retry in the lightbox can close it, and one hung in
+the gallery cannot get out without reloading.
+
+Recorded rather than quietly narrowed, because the decision below rests on this evidence and a reader
+checking it should find the corrected version and the reason it changed.
+
+**Why it is a product decision and not a fix.** Every repair needs a number and a sentence nobody has
+chosen: how long before a retry is declared hung (10s? 30s? long enough for 50MB on bad wifi?), what the
+control says when it gives up, and whether a timeout should offer a second retry or fall back to the
+failed state. Guessing a deadline is worse than the current behaviour: too short and a slow-but-working
+50MB fetch is killed on the venue floor, which is the exact failure the originals-only path was ratified
+to allow. §3.1 ratified "no dead ends" with the 50MB ceiling stated, and a wrong deadline reintroduces
+one.
+
+**What holds the line meanwhile.** The state is per item, so a hung retry strands one diagram rather than
+the page; every other tile stays live and openable. The announcement on entry says what is happening, so
+nothing is silent.

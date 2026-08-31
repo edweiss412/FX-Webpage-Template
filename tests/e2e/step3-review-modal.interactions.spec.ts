@@ -82,6 +82,9 @@ const TOL = 0.5;
 // NOT imported from the harness/component (see header): duplicated here and
 // cross-checked against the harness JSON so the two can never drift silently.
 const HARNESS_DFID = "drive-abc-123";
+/** Mirrors HARNESS_WSID in _step3ReviewModalHarness.tsx; parity asserted in
+ *  beforeAll, because this spec deliberately does not import that module. */
+const HARNESS_WSID = "00000000-1111-4222-8333-444444444444";
 
 // Spec-literal interaction constants (§6.3a / §10). Deliberately NOT imported
 // from Step3ReviewModal.tsx (spec-importing the component .tsx is the exact
@@ -124,8 +127,16 @@ test.beforeAll(async () => {
     [join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalHarness.tsx"), pagesJson],
     { cwd: REPO_ROOT, stdio: "pipe", timeout: 120_000 },
   );
-  const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as { dfid: string; normal: string };
+  const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as {
+    dfid: string;
+    wsid: string;
+    normal: string;
+  };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
+  // Same parity check for the wizard session id, which the draft-restored
+  // note's storage key is built from: a second literal that can drift from the
+  // harness is the census error this arc kept finding.
+  expect(pages.wsid, "spec-local wsid matches the harness fixture").toBe(HARNESS_WSID);
   writeFileSync(
     join(workDir, "harness.html"),
     `<!doctype html><html data-theme="light"><head><meta charset="utf-8"></head><body class="bg-bg">${pages.normal}</body></html>`,
@@ -1259,4 +1270,247 @@ test.describe("MODAL-CLOSE-EXIT-ANIM-1 — exit window (motion enabled)", () => 
     await page.waitForTimeout(250);
     expect((await counters(page)).closeCount, "late resolution must not close again").toBe(1);
   });
+});
+
+/**
+ * The draft-restored note in a real browser (spec 2026-08-30 §3.2, §3.6, §3.7).
+ *
+ * These live HERE rather than in step3-review-modal.layout.spec.ts because that
+ * spec emits only static harness*.html pages; the live page and its esbuild
+ * bundle exist in this file, and this spec is already in CI.
+ */
+test.describe("draft-restored note (spec 2026-08-30)", () => {
+  const NOTE = `[data-testid="wizard-step3-card-${HARNESS_DFID}-draft-restored-note"]`;
+  const PANE = `[data-testid="wizard-step3-card-${HARNESS_DFID}-review-content"]`;
+  const DRAFT_KEY = `fxav-report-draft-wizard-${HARNESS_WSID}-${HARNESS_DFID}`;
+
+  /** Seeds the draft BEFORE hydration. The note decides its state in a mount
+   *  initializer, so a seed after `goto` is one the component never sees. */
+  async function openLiveWithDraft(page: Page, draft: string | null) {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.addInitScript(
+      ([k, v]) => {
+        if (v === null) window.sessionStorage.removeItem(k);
+        else window.sessionStorage.setItem(k, v);
+      },
+      [DRAFT_KEY, draft] as const,
+    );
+    await page.goto(baseUrl + "live.html");
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator(PANE)).toBeVisible();
+  }
+
+  test("T-NOTE-GEOM @375x812: spans the pane, has real height, sits above the fold", async ({
+    page,
+  }) => {
+    await openLiveWithDraft(page, "half a sentence");
+    await expect(page.locator(NOTE)).toHaveCount(1);
+
+    const g = await page.evaluate(
+      ([noteSel, paneSel]) => {
+        const n = document.querySelector(noteSel)!.getBoundingClientRect();
+        const p = document.querySelector(paneSel)!;
+        const pr = p.getBoundingClientRect();
+        const cs = getComputedStyle(p);
+        return {
+          nW: n.width,
+          nH: n.height,
+          nTop: n.top,
+          nBottom: n.bottom,
+          contentW: pr.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+          pTop: pr.top,
+          pBottom: pr.bottom,
+          gap: parseFloat(cs.rowGap || cs.gap),
+          display: cs.display,
+        };
+      },
+      [NOTE, PANE] as const,
+    );
+
+    // DI-8. The scroller is a flex column, so this is the class doing the work.
+    expect(g.display, "premise: the pane is the flex column DI-8 is about").toContain("flex");
+    expect(
+      Math.abs(g.nW - g.contentW),
+      "DI-8: note spans the pane's content width",
+    ).toBeLessThanOrEqual(0.5);
+    // DI-9: never a zero-height in-flow child.
+    expect(g.nH, "DI-9: the note has real height").toBeGreaterThan(0);
+    // AC-8: the whole point. Reachable without scrolling.
+    expect(g.nTop, "AC-8: starts inside the pane's viewport").toBeGreaterThanOrEqual(g.pTop - 0.5);
+    expect(g.nBottom, "AC-8: ends inside it too").toBeLessThanOrEqual(g.pBottom + 0.5);
+    // DI-10's term, read rather than assumed.
+    expect(g.gap, "premise: the scroller's row gap is a real number").toBeGreaterThan(0);
+  });
+
+  test("T-NOTE-ABSENT @375x812: no draft, no note (DI-11)", async ({ page }) => {
+    await openLiveWithDraft(page, null);
+    await expect(page.locator(PANE)).toBeVisible();
+    await expect(page.locator(NOTE)).toHaveCount(0);
+  });
+
+  test("T-NOTE-SHIFT @375x812: dismissal raises the follower by the note plus the gap", async ({
+    page,
+  }) => {
+    await openLiveWithDraft(page, "half a sentence");
+    const before = await page.evaluate(
+      ([noteSel, paneSel]) => {
+        const note = document.querySelector(noteSel)!;
+        const p = document.querySelector(paneSel) as HTMLElement;
+        const cs = getComputedStyle(p);
+        const next = note.nextElementSibling!;
+        next.setAttribute("data-note-follower", "1");
+        return {
+          noteH: note.getBoundingClientRect().height,
+          gap: parseFloat(cs.rowGap || cs.gap),
+          followerTop: next.getBoundingClientRect().top,
+          scrollTop: p.scrollTop,
+        };
+      },
+      [NOTE, PANE] as const,
+    );
+    expect(before.scrollTop, "premise: this case starts at the top").toBe(0);
+
+    await expect(page.locator(NOTE), "the note actually goes").toHaveCount(0, { timeout: 9_000 });
+
+    const after = await page.evaluate(
+      (paneSel) => ({
+        scrollTop: (document.querySelector(paneSel) as HTMLElement).scrollTop,
+        followerTop: document.querySelector("[data-note-follower]")!.getBoundingClientRect().top,
+      }),
+      PANE,
+    );
+
+    // The real consequence, derived from measurement. `scrollTop` unchanged is
+    // asserted AS WELL AS, never INSTEAD OF: an in-flow node vanishing above
+    // the fold leaves scrollTop untouched WHILE everything below it moves, so
+    // that assertion alone passes in exactly the case it should catch.
+    expect(after.scrollTop, "pane stays at the top").toBe(before.scrollTop);
+    expect(
+      Math.abs(before.followerTop - after.followerTop - (before.noteH + before.gap)),
+      `follower rose ${before.followerTop - after.followerTop}, expected ${before.noteH + before.gap}`,
+    ).toBeLessThanOrEqual(1);
+  });
+
+  test("T-NOTE-SCROLLED @375x812: dismissal while scrolled moves nothing visible (AC-16)", async ({
+    page,
+  }) => {
+    await openLiveWithDraft(page, "half a sentence");
+    await expect(page.locator(NOTE), "present BEFORE").toHaveCount(1);
+
+    const ref = await page.evaluate((paneSel) => {
+      const p = document.querySelector(paneSel) as HTMLElement;
+      p.scrollTop = 400;
+      const box = p.getBoundingClientRect();
+      const el = document.elementFromPoint(box.left + 20, box.top + 200)!;
+      el.setAttribute("data-note-ref", "1");
+      return { scrollTop: p.scrollTop, top: el.getBoundingClientRect().top };
+    }, PANE);
+    expect(ref.scrollTop, "premise: the pane really scrolled past the note").toBeGreaterThan(0);
+
+    // Present-before / absent-after is what makes this non-vacuous: without it
+    // an implementation whose timer is cancelled by scrolling passes trivially,
+    // because a note that never leaves cannot move anything.
+    await expect(page.locator(NOTE), "absent AFTER").toHaveCount(0, { timeout: 9_000 });
+
+    const top = await page.evaluate(
+      () => document.querySelector("[data-note-ref]")!.getBoundingClientRect().top,
+    );
+    expect(Math.abs(top - ref.top), "visible content moved under the operator").toBeLessThanOrEqual(
+      1,
+    );
+  });
+
+  for (const dir of ["expand", "collapse"] as const) {
+    for (const start of ["top", "scrolled"] as const) {
+      test(`T-NOTE-COMPOUND ${dir} from ${start} @375x812: toggling while the note is live (AC-17)`, async ({
+        page,
+      }) => {
+        await openLiveWithDraft(page, "half a sentence");
+        await expect(page.locator(NOTE)).toHaveCount(1);
+
+        const trigger = page.locator(`${PANE} [aria-expanded]`).first();
+        await expect(trigger, "premise: the pane offers a toggle").toHaveCount(1);
+        const was = await trigger.getAttribute("aria-expanded");
+        // Put the section into the state this direction can move OUT of.
+        if ((dir === "collapse") !== (was === "true")) await trigger.click();
+        const from = dir === "collapse" ? "true" : "false";
+        await expect(trigger, `premise: set up to ${dir}`).toHaveAttribute("aria-expanded", from);
+
+        // Toggle FIRST, and prove on this case's own inputs that the section
+        // moved. Doing it before the reference is captured is deliberate:
+        // `click()` scrolls the target into view, so a reference measured
+        // beforehand is compared across the toggle's own reflow AND the
+        // auto-scroll, and the case then fails for a reason that has nothing
+        // to do with the note.
+        await trigger.click();
+        await expect(trigger, `the section did not ${dir}`).toHaveAttribute(
+          "aria-expanded",
+          dir === "collapse" ? "false" : "true",
+        );
+
+        const before = await page.evaluate(
+          ([noteSel, paneSel, scrolled]) => {
+            const p = document.querySelector(paneSel) as HTMLElement;
+            // Establish the starting scroll state AFTER the click, for the same
+            // reason.
+            p.scrollTop = scrolled ? 400 : 0;
+            const note = document.querySelector(noteSel)!;
+            const cs = getComputedStyle(p);
+            let refTop: number;
+            if (scrolled) {
+              const box = p.getBoundingClientRect();
+              const el = document.elementFromPoint(box.left + 20, box.top + 200)!;
+              el.setAttribute("data-note-ref", "1");
+              refTop = el.getBoundingClientRect().top;
+            } else {
+              const next = note.nextElementSibling!;
+              next.setAttribute("data-note-ref", "1");
+              refTop = next.getBoundingClientRect().top;
+            }
+            return {
+              scrollTop: p.scrollTop,
+              refTop,
+              noteH: note.getBoundingClientRect().height,
+              gap: parseFloat(cs.rowGap || cs.gap),
+            };
+          },
+          [NOTE, PANE, start === "scrolled"] as const,
+        );
+        if (start === "scrolled")
+          expect(before.scrollTop, "premise: really scrolled").toBeGreaterThan(0);
+        else expect(before.scrollTop, "premise: really at the top").toBe(0);
+        // The note must still be up at the moment the reference is taken, or
+        // the dismissal this case measures already happened.
+        await expect(page.locator(NOTE), "note still live when the reference is taken").toHaveCount(
+          1,
+        );
+
+        await expect(page.locator(NOTE)).toHaveCount(0, { timeout: 9_000 });
+
+        const after = await page.evaluate(
+          (paneSel) => ({
+            scrollTop: (document.querySelector(paneSel) as HTMLElement).scrollTop,
+            refTop: document.querySelector("[data-note-ref]")!.getBoundingClientRect().top,
+          }),
+          PANE,
+        );
+
+        if (start === "scrolled") {
+          // AC-16's oracle: what the operator is looking at must not move.
+          expect(
+            Math.abs(after.refTop - before.refTop),
+            "visible content moved",
+          ).toBeLessThanOrEqual(1);
+        } else {
+          // AC-11's oracle: the measured shift equation, not "scrollTop unchanged".
+          expect(after.scrollTop, "pane stays at the top").toBe(before.scrollTop);
+          expect(
+            Math.abs(before.refTop - after.refTop - (before.noteH + before.gap)),
+            `follower rose ${before.refTop - after.refTop}, expected ${before.noteH + before.gap}`,
+          ).toBeLessThanOrEqual(1);
+        }
+      });
+    }
+  }
 });

@@ -1,3 +1,120 @@
+### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session — CLOSED 2026-08-29 (`feat/diagram-failure-retry`, SHIPPED)
+
+**Resolution: SHIPPED.** The entry deferred under class-sweep exception (a) — it needed a
+product decision this repo could not settle — and it graduated by that decision being taken,
+not by the requirement being waived. Eric ratified the clamped tier, the copy shape
+`"<name> could not be loaded. Tap to retry."`, and an explicit in-flight state; he then
+overrode the draft's withhold so originals-only cells get the control too, at original cost up
+to the route's 50 MB cap. His reason is the one the entry could not supply for itself: no dead
+ends.
+
+**The defect, as measured.** `failedKeys` was add-only in both gallery surfaces, so one dropped
+request on venue wifi cost that diagram until a page reload the crew member had no reason to
+attempt. The cell left behind was a non-interactive `<div>`. A probe suite pinned the
+terminality before any repair: a DOM-derived interactive-element query returned empty against a
+healthy sibling that returned non-empty, a re-render with identical props left the cell failed,
+and only a fresh mount restored it.
+
+**The cost the entry flagged is the reason the mechanism is what it is.** The entry was right
+that the asset route sends `private, max-age=0, must-revalidate` with no validator, so a retry
+that remounts the image is a second unconditional GET. The design therefore does NOT remount:
+the `<Image>` mounts once, in its final position, and survives `retrying → idle` untouched,
+with an overlay above it carrying the in-flight control. Measured, not assumed — the remount
+shape issued one further request and the surviving element zero
+(`tests/e2e/image-remount-request-count.probe.spec.ts`). An earlier draft's `attempt` counter,
+whose only purpose was to force that remount, was specifying the defect and does not ship.
+
+**A second probe removed a requirement instead of adding one.** A draft specified
+`loading="eager"` while retrying, on the theory that the overlay could defer a covered image
+indefinitely. Task P3 refuted the mechanism in Chromium and WebKit: covering is not what defers,
+being off-screen is, and the retry is reached by a tap, so the cell is in the viewport. The
+attribute was dropped.
+
+**Spec §0 records six mechanisms specified during design that did not survive implementation.**
+The spec is canonical under invariant 7, so the divergence is stated at the top of the file
+rather than in footnotes: an implementer following the superseded normative text literally
+would reintroduce defects this branch removed.
+
+**Review cost, recorded because it is the arc's real lesson.** Six counted diff rounds across
+three merge bases, plus three spec and five plan rounds. The code was clean from round 3 on;
+rounds 3, 4 and 5 were all documentation, and all three were the same defect in my own method —
+I derived over identifier names while the class lived equally in prose, so each repair's term
+list missed the rest. Round 5's narrow bound (does any mention outside §0 state a LIVE
+requirement) plus an exhaustive read over six named files finally closed it, and sweeping the
+shape myself before repairing found three sites the round had not named. Filed in full at
+`docs/review-rounds/feat/diagram-failure-retry/6bfb58e4f66b.md`, including the accepted
+documented limit: prose-form mentions converge by read plus sweep, never by regex.
+
+### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure — CLOSED 2026-08-29 (`fix/help-tour-grid-and-settings-card`, SHIPPED)
+
+**Resolution: SHIPPED, by the larger of the two repairs the entry named.** The un-defer trigger
+fired on its first clause — an arc touching `/help` layout and `.help-prose` — and the entry left
+the choice of repair open: drop the second grid to `md:grid-cols-2`, or lift both grids out of the
+cap. It called the second "the better answer and the larger change", and that is what shipped.
+
+**The named mechanism was not enough, and the measurement is why.** The entry proposed lifting the
+grids out of the 70ch cap. A 4px sweep from 320 to 1440 (spec §2.3) found that cap binding in only
+two narrow intervals, 740-767 and 1004 upward, so the bleed alone cannot reach 768px — where the
+measure is worst, and where the entry's own probe recorded 10.5ch. The column count was the other
+half: `md:grid-cols-3` gives THREE columns at 1016 and ONE at 752, because `md` has not engaged
+below 768. Both grids now carry `grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]`, so the
+count is derived from the container rather than asserted against a breakpoint, and `help-bleed`
+lifts them out of the cap. bl-orch ratified going beyond the entry's mechanism on 2026-08-29: the
+owner ratified the outcome, and a better mechanism for the same outcome is the arc's call.
+
+**The cap moved rather than lifted.** `.help-prose` no longer carries `max-width: 70ch`; its direct
+children do, through an `@property`-registered length. The registration is load-bearing and was
+found by probe, not by reasoning: `ch` is font-relative, so a plain per-child `max-width: 70ch`
+resolves in each child's own font and the headings escape the column (measured at 705.47px against
+900px). Container units were the cheaper-looking option and were rejected with their cost recorded
+— `container-type: inline-size` applies `contain: layout`, which would relocate the `focus:absolute`
+skip link in `app/help/errors/page.tsx`, a WCAG 2.4.1 regression traded for a CSS convenience.
+
+**The sweep the entry owed was run, and it found a peer.** The entry noted that touching
+`.help-prose` obliges a sweep of the other help pages. `/help/errors`'s jump list was the one other
+grid whose column count was asserted rather than derived; it wraps 5 of 7 items at 768. It ships
+with its own `min(18rem,100%)` minimum and no bleed, in branch — one class, one repair, nothing
+deferred.
+
+**Guarded in a real browser, because jsdom computes no layout.**
+`tests/e2e/help-tour-layout-dimensions.spec.ts` asserts the measured column sequences as COUNTS
+(2 at 752, 1 at 768, 2 at 1016), every card body against a 28ch floor and DESIGN.md §2.5's 75ch
+ceiling, the bleed against a capped sibling and against §4's 856px absolute at 1280, every track
+against its container, and a direct overflow read on both pages. The counts are the criterion that
+matters most: a permanently single-column page clears the floor at 65.8ch, never crosses it, cannot
+overflow and never wraps, so every other criterion passes on a change that did not happen.
+
+---
+
+### HELPTOUR-SETTINGS-CARD-MISSING-1 — impeccable P1: /help/tour claims to cover every admin screen and omits one — CLOSED 2026-08-29 (`fix/help-tour-grid-and-settings-card`, SHIPPED)
+
+**Resolution: SHIPPED. The product decision the entry was waiting on was made.** The entry deferred
+under reason (a): adding a Settings card means choosing its group, and softening the intro instead
+keeps the layout but gives up the completeness promise. Both were defensible and the page's author
+had to pick. Eric picked the card, relayed by bl-orch on 2026-08-29. `/help/admin/settings` now has
+one, in "Once per environment" beside the onboarding wizard, and the page's claim to cover every
+admin screen is true: eight cards for the eight `admin-surface` entries in `app/help/_nav.ts`.
+
+**It is a standard card, not an accent card.** The wizard carries `border-accent` because it marks
+the one thing you do once and never again; giving the new card the same treatment would spend that
+emphasis on two of two, which is the same as having none. The contrast is the hierarchy.
+
+**The guard is derived, which is what the entry asked for.** The entry's un-defer trigger required
+that whichever repair shipped, it land with a guard on the CLASS rather than the instance — "the
+tour's card hrefs must cover the `admin-surface` slugs". `tests/help/page-tour.test.tsx` previously
+held a hardcoded list of seven URLs, which is the instance: it could only ever have failed by the
+one page it already knew about. It now reads the expectation from `NAV` itself and asserts set
+equality in both directions plus cardinality, over `a[data-tour-card][href]`. A ninth
+`admin-surface` page added without a card fails by name, and so does a card pointing at a route
+absent from that group. The cardinality arm is not redundant with the set: set equality alone is
+blind to a duplicated href covering a slug twice while another goes uncarded.
+
+**Coverage is read from the card anchors, deliberately.** A prose link to an admin route neither
+satisfies the guard nor breaks it, so the criterion stays about what the page's job actually is —
+being an exhaustive index of cards, not of mentions.
+
+---
+
 ### THEMENOTE-BUBBLE-DISMISS-1 — impeccable P1: the persist-failure bubble has no dismiss — CLOSED 2026-08-26 (`fix/theme-note-polish`, SHIPPED BY REMOVAL)
 
 **Resolution: the un-defer trigger fired, and the product decision went the other way.** The stated
@@ -2084,3 +2201,39 @@ The swap also CAUSED a hover inversion at 21 controls, which this entry could no
 Queue row `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` is archived RESOLVED in `BACKLOG-archive.md`.
 
 **Why this sat stale until whole-diff review round 4.** The arc archived the BACKLOG row and never checked DEFERRED, and the set-arithmetic verify could not see the gap: it reconciles `BL-`/`DEF-` headings, and this entry's id is neither. **A ledger check that keys on an id format cannot see an entry that does not use it** — the same fail-open shape this arc filed twice elsewhere, now in its own reconciliation step.
+
+---
+
+### ATTENTION-PILL-PHONE-LEGIBILITY-1 — impeccable P1: the pill now carries discovery alone at phone widths, at 12px in ~108px (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a missed actionable item on a phone, or any arc that opens the review-modal header's action cluster.
+
+`fix/attention-autoopen-suppress-phone` stops the attention menu auto-opening below `sm`, because the panel covered the published toggle at 375 and, on the wizard, the entire chip rail. That change is right and shipped. What it also does is promote the pill from a redundant summary to the ONLY zero-scroll signal that actionable items exist — and the pill was built for the redundant job.
+
+**The measurement.** The pill is `text-xs` (12px semibold) inside the shared header action cluster, which is capped at `max-sm:max-w-40` (160px) by `HEADER_ACTION_CAP` (`components/admin/review/headerActionCap.ts:21`, applied at `components/admin/showpage/PublishedReviewModal.tsx:1096`). The cluster also holds a 44px Close at `gap-2`, leaving roughly 108px for the pill. With both segments populated, "20 issues · 10 monitoring" wraps to two 12px lines under `max-sm:flex-wrap` (`:1128`). Measured live at 375x667 during the arc: the pill renders **84.4px tall**, because it has wrapped.
+
+**Why it matters for Doug specifically.** PRODUCT.md puts him on the venue floor, one-handed, glancing, in variable lighting. A two-line 12px count 8px from a Close button that discards the modal is the wrong shape for that context, and it is now the first and only thing telling him anything is wrong.
+
+**The recommendation from the critique**, kept because it is concrete: below `sm`, demote the monitoring segment to `sr-only` and let the urgent count own the full width at `text-sm`. Monitoring items are by definition the ones that do not need him now.
+
+**Why deferred rather than fixed in that arc.** Class-sweep exception (a): it is a product decision, not a bug fix. Hiding the monitoring count on phones changes what Doug is told at a glance, and "the monitoring segment is not worth 12px of a 108px budget" is a call about his workflow that the arc that removed an auto-open cannot settle. The arc's own change is strictly subtractive and leaves the pill exactly as it was; this asks to make it louder, which is new design on a surface that arc does not otherwise touch.
+
+**What that arc DID close** rather than leave with this: the sibling P1, that its occlusion assertion filtered pill-band interceptions out as "pre-existing", which would have stayed green while an invisible 12px band ate taps on the publish control. The assertion now covers every interceptor.
+
+**GRADUATED 2026-08-30** by `fix/pill-size-draft-restored-note`. Eric's decision 5B: the pill's type moves one size up below `sm` (`text-sm sm:text-xs`) and both segments stay visible; the `sr-only` demotion of the monitoring segment was declined. Shipped at four capped, wrapping sites: `components/admin/showpage/PublishedReviewModal.tsx:1131`, `components/admin/showpage/PublishedReviewModal.tsx:1311`, `components/admin/showpage/PublishedReviewModal.tsx:1344` and `components/admin/wizard/Step3ReviewModal.tsx:600`. `components/admin/wizard/Step3ReviewModal.tsx:575` and `components/admin/wizard/Step3ReviewModal.tsx:678` are OUT of class on the same-shape test, being `whitespace-nowrap` chips in an uncapped cluster where the wrapped-12px defect cannot occur, so nothing is owed for them. The three-segment geometry this row could not measure is now measured. Both of the first numbers taken, **123.98px at `text-xs` and 141.48px at `text-sm`, are PRE-repair** and neither describes what shipped: at that point every count phrase was a bare wrap unit, so `max-sm:flex-wrap` broke them mid-phrase and the pill rendered as an ellipse with copy outside its fill. The `max-sm:whitespace-nowrap` repair took it to **82.9px**, which was itself superseded hours later on the same branch: Decision 7's counts-only copy took the SHIPPED three-segment height to **48.297px**. 82.9px was never a shipped number either, only a longer-lived intermediate than the two before it. Direction confirmed independently by the anchor heights measured during the MID-ENTRANCE work: 84.4px with both components at `origin/main` against 74.6px here. Bigger type, shorter pill. Spec `docs/superpowers/specs/2026-08-30-pill-size-draft-restored-note-design.md`, plan `docs/superpowers/plans/2026-08-30-pill-size-draft-restored-note.md`.
+
+---
+
+### WIZARD-REPORT-DRAFT-RESTORE-UNDISCOVERABLE-1 — impeccable P1: the restored report draft is off-screen, so the operator retypes it (2026-08-29)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that reopens the §D2 rail contract for the report section, or the first report of an operator retyping a draft that had in fact been kept.
+
+`fix/wizard-report-draft-escape` made a half-typed report draft survive the modal close, and the only cue that it survived is the disclosure trigger reading "Continue your report" instead of "Write a report". That cue is nowhere near the operator when they reopen. The report section is ALWAYS last, the modal reopens scrolled to the top, and the section's rail entry is the one entry that shows no status at all: `railCount: null` and `hideDot: true` (`components/admin/wizard/step3ReviewSections.tsx:5211-5212`), commented "spec §D2 — the only section without a status dot". So nothing in the rail changes when a draft is waiting, and the label change sits roughly twelve sections below the fold.
+
+**Reachability:** live surface, verified by citation rather than by a running browser (the fleet was in a DB quiet period for that arc and this surface needs DB-backed staged rows). Type into the wizard report field, press Escape, reopen the card: the draft is restored and every element that says so is off-screen.
+
+**Why it matters most to Doug on the floor.** PRODUCT.md has him one-handed on a phone at a venue. Recovery means thumb-scrolling past the whole section list to notice a two-word label change, then tapping to expand. He will retype instead.
+
+**Why it was deferred rather than fixed in that arc.** Class-sweep exception (a): the repair has to reopen a ratified §D2 contract, which the filing arc could not settle. The critique proposed `railCount: 1` while the draft is non-empty, leaving `hideDot: true` intact, so the rail gains a count without gaining a status dot. That is plausible and cheap, and it is exactly the thing this row cannot settle alone — §D2 ratified this section as the one with no status, and a pending draft arguably IS status. A second candidate the critique raised and the spec declined on a weaker ground is expanding the disclosure on mount when a draft was restored. The arc shipped the guarantee in copy ("Kept on this device until you close the tab."), which helps the operator who navigates back to Report on purpose; what is left is the operator who does not.
+
+**GRADUATED 2026-08-30** by `fix/pill-size-draft-restored-note`. Eric's decision 6B: a transient note ships instead of the critique's `railCount: 1`, so the §D2 contract is untouched in both directions — the report section still shows no status dot, and the operator is still told. `components/admin/wizard/DraftRestoredNote.tsx`, mounted first in the step-3 content pane so it is visible without scrolling, announced through the shell's existing `AdminAnnounceProvider` rather than a new live region. The copy is past tense on purpose: the operator can clear or submit inside the five-second window, and a note claiming the draft is waiting would then be false on screen with nothing to correct it. Spec and plan as above.

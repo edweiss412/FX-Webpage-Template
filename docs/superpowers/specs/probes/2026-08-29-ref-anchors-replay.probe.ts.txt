@@ -1,0 +1,71 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import * as XLSX from "xlsx";
+import { synthesizeMarkdownFromXlsx, synthesizeBlocksFromXlsx, renderRow } from "@/lib/drive/exportSheetToMarkdown";
+import { parseSheet } from "@/lib/parser";
+import { detectRefErrorLiterals } from "@/lib/parser/refErrorDetector";
+import { detectFusedRows } from "@/lib/parser/rowWidthDiscriminator";
+import { clean } from "@/lib/parser/blocks/_helpers";
+import { normalizeCellKey } from "@/lib/drive/unknownFieldAnchors";
+
+const CODES = new Set(["REF_ERROR_LITERAL", "ROW_CELLS_FUSED", "LEADING_COLUMN_AUTOCORRECTED"]);
+const DIR = "fixtures/shows/exporter-xlsx";
+const files = readdirSync(DIR).filter((f) => f.endsWith(".xlsx")).sort();
+for (const f of files) {
+  const buf = readFileSync(join(DIR, f));
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  const { markdown } = synthesizeMarkdownFromXlsx(ab);
+  const parsed = parseSheet(markdown, f);
+  const hits = parsed.warnings.filter((w) => CODES.has(w.code));
+  console.log(`\n=== ${f}: ${hits.length} class warnings (of ${parsed.warnings.length} total)`);
+  const multiplicity = new Map<string, number>();
+  for (const w of hits) {
+    const key = `${w.code}|${w.blockRef?.kind}|${normalizeCellKey(w.rawSnippet ?? "")}`;
+    multiplicity.set(key, (multiplicity.get(key) ?? 0) + 1);
+    console.log(`  ${w.code} kind=${w.blockRef?.kind} snippet=${JSON.stringify((w.rawSnippet ?? "").slice(0, 70))} sourceCell=${JSON.stringify(w.sourceCell ?? null)}`);
+  }
+  const dup = [...multiplicity.entries()].filter(([, n]) => n > 1);
+  console.log(`  multiplicity>1 keys: ${dup.length}`, dup.map(([k, n]) => `${n}x ${k.slice(0, 60)}`).join(" ; "));
+
+  // Raw grid cells holding #REF!
+  const wb = XLSX.read(ab, { type: "array", cellText: true, cellDates: false });
+  for (const name of wb.SheetNames) {
+    const sh = wb.Sheets[name]!; const ref = sh["!ref"]; if (!ref) continue;
+    const r = XLSX.utils.decode_range(ref);
+    for (let R = r.s.r; R <= r.e.r; R++) for (let C = r.s.c; C <= r.e.c; C++) {
+      const c = sh[XLSX.utils.encode_cell({ r: R, c: C })]; if (!c) continue;
+      const t = String((c as any).w ?? (c as any).v ?? "");
+      if (t.includes("#REF!")) console.log(`  RAW ${name}!${XLSX.utils.encode_cell({ r: R, c: C })} = ${JSON.stringify(t.slice(0, 50))}`);
+    }
+  }
+
+  // Per-block detector run == whole-doc detector run? (behavior-identity claim)
+  const { blocks } = synthesizeBlocksFromXlsx(ab);
+  const perBlock: string[] = [];
+  const blockHits: string[] = [];
+  for (const b of blocks) {
+    if (b.kind !== "grid") continue;
+    const width = b.rows.reduce((m, r) => Math.max(m, r.cells.length), 0);
+    const delim = `| ${Array.from({ length: width }, () => ":---:").join(" | ")} |`;
+    const md = [renderRow(b.rows[0]?.cells ?? [], width), delim, ...b.rows.slice(1).map((r) => renderRow(r.cells, width))].join("\n");
+    for (const w of detectRefErrorLiterals(md)) perBlock.push(`${w.blockRef?.kind}|${w.rawSnippet}`);
+    for (const w of detectFusedRows(md)) perBlock.push(`F|${w.blockRef?.kind}|${w.rawSnippet}`);
+    b.rows.forEach((row, i) => row.cells.forEach((cell, j) => {
+      if (clean(cell).includes("#REF!")) blockHits.push(`${b.sheetName}!${row.absRow === null ? "null" : XLSX.utils.encode_cell({ r: row.absRow, c: b.absCol0 + j })} opener=${JSON.stringify(b.rows[0]?.cells[0]?.slice(0, 20))} rowIdx=${i}`);
+    }));
+  }
+  const whole = [
+    ...detectRefErrorLiterals(markdown).map((w) => `${w.blockRef?.kind}|${w.rawSnippet}`),
+    ...detectFusedRows(markdown).map((w) => `F|${w.blockRef?.kind}|${w.rawSnippet}`),
+  ];
+  // SEQUENCE equality per code (round-1 finding 4: a sorted comparison proves only the multiset).
+  // The parser pushes every REF warning, then every FUSED warning (lib/parser/index.ts Step 2.6),
+  // so the per-block stream is compared per code, in emission order, unsorted.
+  const byCode = (xs: string[], fused: boolean) => xs.filter((x) => x.startsWith("F|") === fused);
+  const eq =
+    JSON.stringify(byCode(perBlock, false)) === JSON.stringify(byCode(whole, false)) &&
+    JSON.stringify(byCode(perBlock, true)) === JSON.stringify(byCode(whole, true));
+  console.log(`  per-block==whole-doc (per-code SEQUENCE, unsorted): ${eq} (perBlock ${perBlock.length}, whole ${whole.length})`);
+  if (!eq) { console.log("   perBlock-only:", perBlock.filter((x) => !whole.includes(x))); console.log("   whole-only:", whole.filter((x) => !perBlock.includes(x))); }
+  for (const h of blockHits) console.log(`  BLOCK-CELL ${h}`);
+}

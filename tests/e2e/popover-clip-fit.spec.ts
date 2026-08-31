@@ -267,7 +267,16 @@ async function fittedGeometry(page: Page) {
       // 1px, and it is a completion of the arithmetic rather than a loosened
       // tolerance — the 0.5px bound below is unchanged.
       const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
-      const available = Math.floor(p.bottom - sc.top - (gutter as number) - menuBorderBottom);
+      // NOT floored. The room below the scroller is a real quantity, and the
+      // engine gives the scroller a fractional height to match it (measured
+      // 283.61 and 273.20 at two different anchor heights, each equal to the
+      // unfloored room to the hundredth). Flooring injects up to 1px of
+      // artificial error into a comparison whose whole tolerance is 0.5px, so
+      // the assertion below decided on the fractional part of the room rather
+      // than on the fit: it accepted a scroller sitting 0.61px SHORT of its
+      // room while rejecting one that filled it exactly. Dropping the floor is
+      // therefore a strengthening. Kept in step at all three sites.
+      const available = p.bottom - sc.top - (gutter as number) - menuBorderBottom;
       return {
         contained: m.bottom <= p.bottom + 0.5,
         fitted: Math.abs(sc.height - available) <= 0.5,
@@ -276,6 +285,47 @@ async function fittedGeometry(page: Page) {
       };
     },
     [PANEL, MENU, SCROLLER, GUTTER] as const,
+  );
+}
+
+/**
+ * One geometry read, resampled until two consecutive reads agree on every value.
+ *
+ * WHY THE CALLERS NEEDED IT. Each opened the menu and then measured ONCE. The
+ * settled placement takes a SECOND pass: `AttentionMenu.tsx:479` states that
+ * `entered` is the only re-place signal and that "the mount measurement runs
+ * before the entrance rAF", so a single sample can land on the frame before the
+ * re-apply. Reduced motion does not remove that pass, and `openMenu` waits only
+ * for visibility, so waiting on the entrance `scale` is a partial mitigation
+ * rather than a discriminator — which is why the first draft of this repair,
+ * derived from the scale wait, missed the three `settled fit` cases entirely.
+ *
+ * `settledGeometry` exists for this same reason and says so, but it derives two
+ * booleans for `expect.poll`, so it cannot serve a caller that asserts on the
+ * numbers themselves.
+ *
+ * Compares the WHOLE sample, not a verdict derived from it: a correct
+ * intermediate that a later observer callback moves would otherwise satisfy the
+ * caller and return before the regression appeared.
+ *
+ * THROWS rather than returning an unsettled sample. Returning the last read on
+ * timeout would reintroduce the defect this removes, silently, at the one moment
+ * it matters.
+ */
+async function settledSample<T>(page: Page, label: string, read: () => Promise<T>): Promise<T> {
+  const DEADLINE_MS = 5_000;
+  const GAP_MS = 80;
+  const started = Date.now();
+  let previous = await read();
+  while (Date.now() - started < DEADLINE_MS) {
+    await page.waitForTimeout(GAP_MS);
+    const next = await read();
+    if (JSON.stringify(previous) === JSON.stringify(next)) return next;
+    previous = next;
+  }
+  throw new Error(
+    `settledSample(${label}): geometry still moving after ${DEADLINE_MS}ms; last sample ` +
+      JSON.stringify(previous),
   );
 }
 
@@ -309,27 +359,30 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       await page.setViewportSize({ width: 390, height });
       await openMenu(page, 10, 10, 10);
 
-      const m = await page.evaluate(
-        ([panelSel, menuSel, scrollerSel, gutter, cap]) => {
-          const panel = document.querySelector(panelSel as string)!;
-          const menu = document.querySelector(menuSel as string)!;
-          const scroller = document.querySelector(scrollerSel as string)!;
-          const p = panel.getBoundingClientRect();
-          const s = scroller.getBoundingClientRect();
-          // See fittedGeometry: the menu panel's bottom border is between the
-          // scroller and the clip edge now that the fitted cap lands on the
-          // panel. Same completion, same 0.5px bound.
-          const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
-          const available = Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom);
-          return {
-            height: s.height,
-            available,
-            capped: available >= (cap as number),
-            scrollHeight: scroller.scrollHeight,
-            clientHeight: scroller.clientHeight,
-          };
-        },
-        [PANEL, MENU, SCROLLER, GUTTER, CSS_CAP] as const,
+      const m = await settledSample(page, "settled-fit-reduced-motion", () =>
+        page.evaluate(
+          ([panelSel, menuSel, scrollerSel, gutter, cap]) => {
+            const panel = document.querySelector(panelSel as string)!;
+            const menu = document.querySelector(menuSel as string)!;
+            const scroller = document.querySelector(scrollerSel as string)!;
+            const p = panel.getBoundingClientRect();
+            const s = scroller.getBoundingClientRect();
+            // See fittedGeometry: the menu panel's bottom border is between the
+            // scroller and the clip edge now that the fitted cap lands on the
+            // panel. Same completion, same 0.5px bound.
+            const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
+            // Unfloored, per the rationale on fittedGeometry's `available`.
+            const available = p.bottom - s.top - (gutter as number) - menuBorderBottom;
+            return {
+              height: s.height,
+              available,
+              capped: available >= (cap as number),
+              scrollHeight: scroller.scrollHeight,
+              clientHeight: scroller.clientHeight,
+            };
+          },
+          [PANEL, MENU, SCROLLER, GUTTER, CSS_CAP] as const,
+        ),
       );
 
       expect(m.scrollHeight, "fixture must overflow the scroller").toBeGreaterThan(m.clientHeight);
@@ -368,7 +421,8 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
         const menuBorderBottom = parseFloat(getComputedStyle(menu).borderBottomWidth) || 0;
         return {
           height: s.height,
-          available: Math.floor(p.bottom - s.top - (gutter as number) - menuBorderBottom),
+          // Unfloored, per the rationale on fittedGeometry's `available`.
+          available: p.bottom - s.top - (gutter as number) - menuBorderBottom,
         };
       },
       [PANEL, MENU, SCROLLER, GUTTER] as const,
@@ -409,18 +463,20 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
         MENU,
         { timeout: 5_000 },
       );
-      const m = await page.evaluate(
-        ([panelSel, menuSel, pillSel]) => {
-          const p = document.querySelector(panelSel as string)!.getBoundingClientRect();
-          const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
-          const pill = document.querySelector(pillSel as string)!.getBoundingClientRect();
-          return {
-            panel: { left: p.left, right: p.right, bottom: p.bottom },
-            menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width },
-            pill: { right: pill.right },
-          };
-        },
-        [PANEL, MENU, PILL] as const,
+      const m = await settledSample(page, "containment", () =>
+        page.evaluate(
+          ([panelSel, menuSel, pillSel]) => {
+            const p = document.querySelector(panelSel as string)!.getBoundingClientRect();
+            const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
+            const pill = document.querySelector(pillSel as string)!.getBoundingClientRect();
+            return {
+              panel: { left: p.left, right: p.right, bottom: p.bottom },
+              menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width },
+              pill: { right: pill.right },
+            };
+          },
+          [PANEL, MENU, PILL] as const,
+        ),
       );
       const TOL = 0.5;
       // First: a menu that failed to open reports a zero rect, which satisfies
@@ -559,23 +615,25 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
       MENU,
       { timeout: 5_000 },
     );
-    const d = await page.evaluate(
-      ([menuSel, scrollerSel]) => {
-        const panel = document.querySelector(menuSel as string)!;
-        const scroller = document.querySelector(scrollerSel as string)!;
-        const pr = panel.getBoundingClientRect();
-        const sr = scroller.getBoundingClientRect();
-        return {
-          panelRect: pr.height,
-          panelClient: (panel as HTMLElement).clientHeight,
-          scrollerRect: sr.height,
-          scrollerBottom: sr.bottom,
-          panelBottom: pr.bottom,
-          scrollHeight: scroller.scrollHeight,
-          childSum: [...panel.children].reduce((n, c) => n + c.getBoundingClientRect().height, 0),
-        };
-      },
-      [MENU, SCROLLER] as const,
+    const d = await settledSample(page, "dimensional-invariants", () =>
+      page.evaluate(
+        ([menuSel, scrollerSel]) => {
+          const panel = document.querySelector(menuSel as string)!;
+          const scroller = document.querySelector(scrollerSel as string)!;
+          const pr = panel.getBoundingClientRect();
+          const sr = scroller.getBoundingClientRect();
+          return {
+            panelRect: pr.height,
+            panelClient: (panel as HTMLElement).clientHeight,
+            scrollerRect: sr.height,
+            scrollerBottom: sr.bottom,
+            panelBottom: pr.bottom,
+            scrollHeight: scroller.scrollHeight,
+            childSum: [...panel.children].reduce((n, c) => n + c.getBoundingClientRect().height, 0),
+          };
+        },
+        [MENU, SCROLLER] as const,
+      ),
     );
     const TOL = 0.5;
     // PREMISE: the cap binds. Without this the case is vacuous, and a vacuous
@@ -620,13 +678,15 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
         MENU,
         { timeout: 5_000 },
       );
-      const g = await page.evaluate(
-        ([menuSel, pillSel]) => {
-          const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
-          const pill = document.querySelector(pillSel as string)!.getBoundingClientRect();
-          return { left: menu.left, width: menu.width, pillRight: pill.right };
-        },
-        [MENU, PILL] as const,
+      const g = await settledSample(page, "recomputed-placement", () =>
+        page.evaluate(
+          ([menuSel, pillSel]) => {
+            const menu = document.querySelector(menuSel as string)!.getBoundingClientRect();
+            const pill = document.querySelector(pillSel as string)!.getBoundingClientRect();
+            return { left: menu.left, width: menu.width, pillRight: pill.right };
+          },
+          [MENU, PILL] as const,
+        ),
       );
       // A placement frozen at the scale-95 measurement sits 5% of the panel's
       // width to the RIGHT of the settled answer. Derived, not hardcoded.
@@ -1588,8 +1648,25 @@ test.describe("§3.0 — the header is bounded, so the dock can hold", () => {
             `PREMISE: load 30 must render a saturated attention state; pill reads ${JSON.stringify(signature)}`,
           ).toBeGreaterThanOrEqual(10);
         }
+        // ONE-SIDED, and the change is deliberate (Decision 7, 2026-08-30).
+        //
+        // This was `Math.abs(...) <= 0.5`, which asserts the header is INVARIANT
+        // with load rather than non-growing. That equality held for a reason
+        // nobody chose: at `text-sm` the composite pill wrapped at every load,
+        // and the wrapped pill happened to make the loaded header exactly as
+        // tall as the load-0 header, whose "In sync" arm is a different element
+        // entirely. Counts-only copy unwraps the pill, so load 2 now measures
+        // 143.891 against a 164.188 baseline -- the header SHRANK, and the
+        // symmetric bound failed on an improvement.
+        //
+        // The contract this case states in its own name, message and comment is
+        // growth: "the header does not grow with attention load", because a
+        // growing header pushes the strip and switch out of the panel. A shorter
+        // header serves that consequence strictly better, and the two containment
+        // assertions below still prove the consequence directly rather than by
+        // proxy. Narrowed to what was always meant, not loosened to admit a diff.
         expect(
-          Math.abs(m.headerHeight! - base.headerHeight!),
+          m.headerHeight! - base.headerHeight!,
           `header grew at load ${load.label}: ${m.headerHeight} vs the ${vp.w}px baseline ${base.headerHeight}`,
         ).toBeLessThanOrEqual(0.5);
 

@@ -82,6 +82,21 @@ export function harnessAttentionItems(count: number): AttentionItem[] {
   }));
 }
 
+/** N self-healing items: the pill renders "N monitoring" (published-show-alerts
+ *  §3.1). Distinct from `harnessAttentionItems`, whose items are all
+ *  `actionable: true`, which is why no committed page rendered a monitoring
+ *  segment before spec 2026-08-30 AC-1 needed one. */
+export function harnessMonitoringItems(count: number): AttentionItem[] {
+  const base = harnessAttentionItems(1)[0]!;
+  return Array.from({ length: count }, (_, i) => ({
+    ...base,
+    id: `alert:harness-mon-${i}`,
+    actionable: false,
+    clearingKind: "self_heal" as const,
+    menuTitle: `Harness monitoring item ${i + 1}`,
+  }));
+}
+
 /** Testid prefix for every surface node (`wizard-step3-card-<dfid>-review-*`). */
 export const MODAL_DFID = "drive-pubmodal-1";
 export const MODAL_SLUG = "published-modal-layout-show";
@@ -262,6 +277,8 @@ export type HarnessStateOverrides = {
    *  lib/parser/dataGaps.ts:409-435) plus the unmatched "Ghost Crew" fallback.
    *  false ≡ omitted; takes precedence over withCrewWarnings when both are set. */
   withCappedCrewWarnings?: boolean;
+  /** Render exactly N crew warnings, for the two-digit cap measurement. */
+  wideCrewWarningCount?: number;
   /** review-modal-strip-dock §7: lets a probe drive a REFUSAL through the REAL
    *  modal. Until this existed the refusal banner was unreachable from the
    *  shared harness at all — `setPublished` was hardcoded to NOOP_OK, so every
@@ -291,6 +308,19 @@ function crewWarningFixtures(): ParseWarning[] {
       blockRef: { kind: "crew", index: 8, name: "Ghost Crew" },
     },
   ];
+}
+
+/** N distinct crew warnings, for the two-digit worst case the per-segment mark
+ *  had to clear against the 160px cap. `cappedCrewWarningFixtures` is a capped
+ *  STACK (4 rows), not a large COUNT, which is a different fixture entirely. */
+function wideCrewWarningFixtures(count: number): ParseWarning[] {
+  return Array.from({ length: count }, (_, i) => ({
+    severity: "warn" as const,
+    code: "FIELD_UNREADABLE" as const,
+    message: `Crew phone for row ${i + 1} couldn't be read ("N/A") - check the sheet.`,
+    rawSnippet: "N/A",
+    blockRef: { kind: "crew" as const, index: i, name: `Crew Member ${i + 1}` },
+  }));
 }
 
 function cappedCrewWarningFixtures(): ParseWarning[] {
@@ -362,9 +392,11 @@ export function modalElement(
     ? buildSectionWarningModel({
         slug: MODAL_SLUG,
         warnings:
-          state.withCappedCrewWarnings === true
-            ? cappedCrewWarningFixtures()
-            : crewWarningFixtures(),
+          state.wideCrewWarningCount !== undefined
+            ? wideCrewWarningFixtures(state.wideCrewWarningCount)
+            : state.withCappedCrewWarnings === true
+              ? cappedCrewWarningFixtures()
+              : crewWarningFixtures(),
         ignoredFingerprints: new Set(),
         renderedSectionIds: new Set(
           renderedSectionIds({ mode: "published", agendaBaseline: [] } as never) as SectionId[],
@@ -508,6 +540,37 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
         withCappedCrewWarnings: true,
         attentionItems: [...harnessAttentionItems(HARNESS_ALERT_COUNT), crewCappedAttentionItem()],
       }),
+      // spec 2026-08-30 AC-1: the ONLY page with all three segments populated
+      // at once. Every other page's items are actionable, so the monitoring
+      // branch never rendered and the three-segment geometry was unmeasured.
+      threeSegment: renderModalHtml(HARNESS_ALERT_COUNT, {
+        attentionItems: [...harnessAttentionItems(2), ...harnessMonitoringItems(2)],
+        withCrewWarnings: true,
+      }),
+      // Whole-diff R3 P0 (T-MARK-GEOMETRY): one page per LEADING-MARK state, so
+      // the three marks can be measured against each other in a real browser.
+      // `normal` already supplies the issues-led case. These two do not exist
+      // anywhere else: every other page has actionable items, which is exactly
+      // why the warnings-only and monitoring-only marks went three review rounds
+      // without a single rendered measurement of either.
+      markWarningsOnly: renderModalHtml(0, {
+        attentionItems: [],
+        withCrewWarnings: true,
+      }),
+      markMonitoringOnly: renderModalHtml(0, {
+        attentionItems: harnessMonitoringItems(2),
+      }),
+      // The WORST realistic three-segment load, for the cap measurement the
+      // per-segment mark had to clear: two-digit issues, an over-cap warnings
+      // count ("99+", the widest that segment renders), two-digit monitoring.
+      markWorstCase: renderModalHtml(99, {
+        attentionItems: [...harnessAttentionItems(99), ...harnessMonitoringItems(99)],
+        withCrewWarnings: true,
+        wideCrewWarningCount: 99,
+      }),
+      // spec 2026-08-30 AC-3: the degraded branch. Reachable only with every
+      // count at zero, because `interactive` is tested first (§2.8).
+      degraded: renderModalHtml(0, { attentionItems: [], alertsDegraded: true }),
       // sheet-icon-link spec §7.7: saturated title fills the header's flex-1
       // block at every measured width, pushing the sheet link to the cluster
       // gap so the action-side intersection cases measure the real worst case.

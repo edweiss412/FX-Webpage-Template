@@ -52,12 +52,17 @@ test.describe("/help prose typography layer", () => {
 
       // Reading measure of the prose column in CSS `ch` units (the `ch` unit is
       // the advance of the "0" glyph — the same unit `max-width: 70ch` uses).
+      // Measured on a PARAGRAPH, not on the wrapper. The measure moved to the
+      // wrapper's CHILDREN when .help-bleed landed (an element has to be able to
+      // opt out, and nothing can exceed a cap on its own parent), so the wrapper
+      // is now full-width by design. A paragraph is also the element this
+      // contract was always about: it is rendered text rather than a container.
       const prose = document.querySelector("main .help-prose") as HTMLElement | null;
       const pcs = getComputedStyle(p);
       const ctx = document.createElement("canvas").getContext("2d")!;
       ctx.font = `${pcs.fontWeight} ${pcs.fontSize} ${pcs.fontFamily}`;
       const chWidth = ctx.measureText("0".repeat(50)).width / 50;
-      const measureCh = prose ? prose.getBoundingClientRect().width / chWidth : -1;
+      const measureCh = p.getBoundingClientRect().width / chWidth;
 
       return {
         hasProseWrapper: !!prose,

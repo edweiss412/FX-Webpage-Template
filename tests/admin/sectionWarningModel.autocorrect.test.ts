@@ -130,3 +130,31 @@ describe("buildSectionWarningModel — blockRef-crew keying (crew-warning-attach
     expect(Object.values(record.crew!.warningsByCrewKey).flat()).toHaveLength(2);
   });
 });
+
+// Spec docs/superpowers/specs/2026-08-29-ref-error-cell-anchors-design.md §5 T8: the
+// published review modal applies NO dedup, so five #REF! rows are five before and after
+// this arc. `section` is absent from KIND_TO_SECTION, so warningsBySection files them
+// under `warnings`. Green on arrival.
+describe("five distinct REF_ERROR_LITERAL cells yield five active items (spec §5 T8)", () => {
+  const five: ParseWarning[] = [1, 2, 3, 4, 5].map(
+    (gid) =>
+      ({
+        severity: "warn",
+        code: "REF_ERROR_LITERAL",
+        message: "m",
+        blockRef: { kind: "section" },
+        rawSnippet: "\\#REF\\!",
+        sourceCell: { title: `T${gid}`, gid, a1: "A1", scope: "cell" },
+      }) as ParseWarning,
+  );
+
+  it("buildSectionWarningModel keeps all five active", () => {
+    const record = buildSectionWarningModel({
+      slug: "s",
+      warnings: five,
+      ignoredFingerprints: new Set(),
+      renderedSectionIds: new Set(["crew"]),
+    });
+    expect(record.warnings!.active).toHaveLength(5);
+  });
+});

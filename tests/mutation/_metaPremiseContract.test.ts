@@ -30,6 +30,15 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The per-item state scanner's deciding suite, enrolled 2026-08-29. MEASURED
+  // with classifyTests against this tree: 7 classified, 0 environment-touching,
+  // every verdict `environment-free`. It reads component sources through
+  // `readFileSync` and plants mutations into STRINGS in memory, never touching
+  // `process.env` and never writing the tree, which is the two things the
+  // classifier counts. The planted-declaration cases are generated inside a
+  // `for` loop and so are not among the 7 the scanner names, which is the
+  // classifier's own grain rather than a gap in the suite.
+  "tests/components/diagrams/perItemStateLifetime.probe.test.ts": 0,
   // BL-ADMIN-LOADER-CI-TRANSIENT (2026-08-24). Counts MEASURED with classifyTests
   // against this tree, not estimated. The two wrapper suites drive an INJECTED stub
   // transport with injected sleep/random and touch nothing real; every case in them
@@ -222,6 +231,15 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // ALREADY environment-touching on a DIRECT import; the barrel hid it, so the
   // three refusal cases that emit through `log.warn` read free. The number is
   // re-derived, not adjusted: the reach was always there.
+  // fix/wizard-report-draft-escape (2026-08-29): the draft-store suite, enrolled
+  // as the deciding suite for the `reportDraftStore` mutation row. ZERO
+  // environment-touching tests, and that is the honest number rather than an
+  // omission: every case drives `capDraft` / `readStoredDraft` /
+  // `writeStoredDraft` / `clearStoredDraftIfUnchanged` through jsdom's own
+  // `window.sessionStorage`, or through a spy on `Storage.prototype`, or through
+  // a redefined accessor that is restored in a `finally`. Nothing reaches a
+  // filesystem, a network, a process or a clock.
+  "tests/admin/reportDraftStore.test.ts": 0,
   "tests/auth/sameOriginServerAction.test.ts": 10,
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
   // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as
@@ -486,6 +504,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // with no `process` and no I/O -- that separation is why it is enrollable at
   // all -- and the suite drives literal record arrays through it.
   "tests/ci/shardBudget.test.ts": 0,
+  // The config-to-disk staleness guard, enrolled 2026-08-30. TWO env-touching
+  // cases, both of which read the live tree: one walks the repo for Playwright
+  // configs and probes each in a child process, the other resolves every declared
+  // branch against the filesystem. Both carry a premise, because both have a
+  // vacuous shape available to them — a walk that reaches nothing, or a probe that
+  // declares nothing, makes "no dead branches" true of an empty set and would pass
+  // forever. The five reader cases are pure and touch nothing.
+  "tests/ci/_metaConfigBranchStaleness.test.ts": 2,
   // shardPartition's 0 is a SCANNER-RULE 0 and a known under-count, recorded
   // rather than papered over. The suite imports no member of
   // ENVIRONMENT_SOURCES directly, which is what the scanner classifies on, but

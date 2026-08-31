@@ -1,6 +1,7 @@
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { sheetCellReference } from "@/lib/sheet-links/sheetCellReference";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { candidateLabel } from "@/lib/parser/candidateLabel";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
@@ -316,6 +317,56 @@ export function PerShowActionableWarnings({
           </span>
         ) : null;
 
+        // The SHEET CELL coordinate (spec 2026-08-29 §3). Four identical "#REF!" cards are
+        // unreadable without it: the correction callout says "Edit the cell" and, until this
+        // band, nothing on any card said which cell or which tab. Same band grammar as
+        // `Sheet row` below, which is the shipped detail-band idiom, with its own testids.
+        //
+        // The two guards below make this band mutually exclusive with BOTH existing detail
+        // bands, so it can occupy the single-occupancy detail slot without ever suppressing
+        // one: `rowLabel === null` is the spec's guard, `fieldLabel === null` keeps the
+        // FIELD_UNREADABLE band's claim on the slot. A colon in `a1` is the LEGACY
+        // block-range shape (a region, not a coordinate to type into the name box) and
+        // `scope: "tab"` names a tab and not a cell; neither renders.
+        const cellRef =
+          rowLabel === null &&
+          fieldLabel === null &&
+          w.sourceCell?.scope === "cell" &&
+          typeof w.sourceCell.a1 === "string" &&
+          w.sourceCell.a1.trim().length > 0 &&
+          !w.sourceCell.a1.includes(":") &&
+          typeof w.sourceCell.title === "string" &&
+          w.sourceCell.title.trim().length > 0
+            ? sheetCellReference(w.sourceCell.title.trim(), w.sourceCell.a1.trim())
+            : null;
+
+        // Renders in BOTH modes: a condensed card sits under its crew row, where two #REF!
+        // cells in one member's row still need telling apart. Unlike `fieldBand`'s value
+        // this is not junk to reproduce, so it carries no quotes.
+        // `min-w-0` + `flex-wrap` + `wrap-break-word` rather than `detailBand`'s plainer
+        // wrapper: `${title}!${a1}` has no break opportunity at its join and a tab title is
+        // unbounded sheet data, so on a 390px condensed card the value would overflow. Same
+        // treatment `fieldBand` and `candidateBand` already carry, and the same
+        // `wrap-break-word` as the wizard twin, so one value does not wrap two ways.
+        // `shrink-0` keeps the eyebrow off a second line. (impeccable critique P2#1,
+        // audit P3#2/#3.)
+        const cellBand: ReactNode = cellRef ? (
+          <span
+            className="inline-flex min-w-0 flex-wrap items-center gap-1.5"
+            data-testid="per-show-actionable-cell"
+          >
+            <span className="shrink-0 text-[10px] font-semibold tracking-wider text-warning-text uppercase">
+              Sheet cell
+            </span>
+            <span
+              className="min-w-0 font-mono text-xs wrap-break-word text-text"
+              data-testid="per-show-actionable-cell-value"
+            >
+              {cellRef}
+            </span>
+          </span>
+        ) : null;
+
         const detailBand: ReactNode = rowLabel ? (
           <span
             className="inline-flex items-center gap-1.5"
@@ -388,7 +439,11 @@ export function PerShowActionableWarnings({
         // NaN and [], over a comment saying adapters normalize), so the collapse belongs here.
         // Written as a conditional rather than `[a, b].filter(Boolean)`: an array of children
         // needs keys, and two literal children in a fragment do not.
-        const detail = detailBand ?? fieldBand;
+        // `cellBand` is first only so that dropping either of its two exclusivity guards
+        // CHANGES the output (and reds the UNKNOWN_FIELD / FIELD_UNREADABLE cases) rather
+        // than being masked by the ordering. With both guards it is null whenever either
+        // other band is present, so the three orderings are behaviorally identical.
+        const detail = cellBand ?? detailBand ?? fieldBand;
         const combinedDetail: ReactNode =
           detail && candidateBand ? (
             <>

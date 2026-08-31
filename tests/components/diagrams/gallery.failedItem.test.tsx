@@ -222,6 +222,9 @@ vi.mock("embla-carousel-react", async () => {
 });
 
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 beforeAll(() => {
@@ -427,9 +430,21 @@ describe("Gallery — browse-state failures announce on the gallery channel (AC-
 });
 
 describe("Gallery — focus relocation on failure (AC-3)", () => {
-  test("a focused failing thumbnail relocates to the NEXT available thumbnail", () => {
+  // ── §7.1's focus-destination table, rewritten by Task 4 ──────────────────
+  //
+  // Every case below used to assert a SIBLING as the destination, because a
+  // failed cell had nothing focusable of its own. It does now, and under the
+  // ratified §3.1 it has one for EVERY entry -- `variants: []` is an
+  // originals-only item, which is offered the retry at full size rather than
+  // withheld from. So the destination is the cell's own control, and relocating
+  // away from it would move a user off the one element that can fix the problem
+  // they were just told about.
+  //
+  // These are kept and inverted rather than deleted: the diff between the old
+  // expectation and the new one is what the row actually changed.
+  test("a focused failing thumbnail keeps focus ON ITS OWN retry control", () => {
     open([item(1), item(2), item(3)]);
-    const next = thumbButton(1);
+    const sibling = thumbButton(1);
     act(() => thumbButton(0).focus());
     premiseHolds(
       "the failing thumbnail holds focus before the failure",
@@ -438,21 +453,28 @@ describe("Gallery — focus relocation on failure (AC-3)", () => {
 
     failThumb(0);
 
-    expect(document.activeElement).toBe(next);
+    const control = screen.getByTestId("diagram-retry-0");
+    expect(document.activeElement, "focus lands on the cell's own next step").toBe(control);
+    // Named explicitly: the OLD destination must no longer win. Asserting only
+    // "focus is on the control" would also pass if the control happened to be
+    // the sibling under some future restructure.
+    expect(document.activeElement, "and not on the sibling it used to jump to").not.toBe(sibling);
   });
 
-  test("with no later thumbnail available it relocates to the PREVIOUS one", () => {
+  test("it does NOT jump backwards to a previous thumbnail either", () => {
     open([item(1), item(2), item(3, { available: false })]);
     const previous = thumbButton(0);
     act(() => thumbButton(1).focus());
 
     failThumb(1);
 
-    expect(document.activeElement).toBe(previous);
+    expect(document.activeElement).toBe(screen.getByTestId("diagram-retry-1"));
+    expect(document.activeElement).not.toBe(previous);
   });
 
-  test("with no sibling thumbnail available it relocates to the show-more control", () => {
-    // 13 entries, exactly one available: the toggle is the only control left.
+  test("the show-more control is not the destination when the cell has its own", () => {
+    // 13 entries, exactly one available: the toggle used to be the only control
+    // left. The failed cell now has one, so the toggle is no longer reached.
     const items = [
       item(1),
       ...Array.from({ length: 12 }, (_v, i) => item(i + 2, { available: false })),
@@ -463,18 +485,24 @@ describe("Gallery — focus relocation on failure (AC-3)", () => {
 
     failThumb(0);
 
-    expect(document.activeElement).toBe(toggle);
+    expect(document.activeElement).toBe(screen.getByTestId("diagram-retry-0"));
+    expect(document.activeElement).not.toBe(toggle);
   });
 
-  test("with no control at all it relocates to the gallery list itself", () => {
+  test("the single-item gallery keeps focus in the cell, not on the list", () => {
+    // This case used to assert the gallery LIST as a last resort, reached when a
+    // lone failing item left nothing focusable. That premise is now unreachable
+    // by construction -- a runtime-failed cell always has a control -- so the
+    // case is rewritten as the positive claim rather than deleted, which is what
+    // makes the unreachability visible instead of silent.
     open([item(1)]);
     const list = screen.getByRole("list", { name: /diagrams gallery thumbnails/i });
-    premiseHolds("the list is programmatically focusable for the purpose", list.tabIndex === -1);
     act(() => thumbButton(0).focus());
 
     failThumb(0);
 
-    expect(document.activeElement).toBe(list);
+    expect(document.activeElement).toBe(screen.getByTestId("diagram-retry-0"));
+    expect(document.activeElement, "the list fallback is no longer reachable").not.toBe(list);
   });
 
   test("focus NEVER lands on body in any relocation configuration", () => {
@@ -510,8 +538,17 @@ describe("Gallery — focus relocation on failure (AC-3)", () => {
         screen.getByTestId("diagram-slot-1").hasAttribute("data-unavailable"),
     );
 
+    // Task 4 removes the hazard rather than dodging it. The old destination was a
+    // SIBLING, so a sibling failing in the same tick could be handed focus and
+    // then unmount -- hence `isConnected` checks and same-tick batching concerns.
+    // The destination is now the failing cell's OWN control, which by
+    // construction exists precisely because that cell failed. Two tiles failing
+    // together cannot produce a stale target at all.
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toBe(survivor);
+    expect(document.activeElement, "the focused cell's own control").toBe(
+      screen.getByTestId("diagram-retry-0"),
+    );
+    expect(document.activeElement, "never a sibling, failing or surviving").not.toBe(survivor);
   });
 
   test("a failure of a thumbnail that did NOT hold focus relocates nothing", () => {
@@ -691,7 +728,7 @@ describe("Gallery — failures while the lightbox is OPEN route to its own chann
     act(() => thumbButton(0).focus());
     openLightboxFrom(0);
 
-    const successor = thumbButton(1);
+    const sibling = thumbButton(1);
     failThumb(0); // the trigger itself
 
     act(() => {
@@ -699,20 +736,75 @@ describe("Gallery — failures while the lightbox is OPEN route to its own chann
     });
     act(() => presence.flush?.());
 
+    // Task 4 moved the destination: the trigger hands its restore duty to its
+    // OWN control, not to a sibling. The `not.toBe(body)` claim is unchanged and
+    // is the one that matters -- it is about the failure mode rather than the
+    // target -- but the target is now the cell the user was actually looking at.
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toBe(successor);
+    expect(document.activeElement).toBe(screen.getByTestId("diagram-retry-0"));
+    expect(document.activeElement).not.toBe(sibling);
   });
 
-  test("SUCCESSION: A fails, B becomes the target, B fails, close lands on C", () => {
-    // The closure rule, not a one-shot retarget. A one-shot implementation
-    // restores to B — which is itself detached by then — and falls to body.
+  test("§7.1: a thumbnail failing BEHIND an open dialog never pulls focus out of it", () => {
+    // The guard this pins is one line -- the retarget is skipped while
+    // `lightboxOpenRef` is true -- and nothing else in the suite covers it. A
+    // mutation removing it survived every other case, which is how the gap was
+    // found rather than reasoned about.
+    //
+    // The hazard is specific: the dialog is `aria-modal`, so focus leaving it
+    // strands a keyboard user outside a modal that is still on screen and still
+    // trapping. That is strictly worse than the dead-end this arc repairs.
+    open([item(1), item(2), item(3)]);
+    act(() => thumbButton(0).focus());
+    openLightboxFrom(0);
+
+    const inDialog = document.activeElement;
+    premiseHolds(
+      "focus is inside the dialog before the background failure, or there is nothing to steal",
+      inDialog !== null && inDialog !== document.body,
+    );
+
+    // A DIFFERENT tile fails while the dialog owns focus.
+    failThumb(1);
+
+    expect(
+      document.activeElement,
+      "focus stays where the modal put it; the background cell does not grab it",
+    ).toBe(inDialog);
+  });
+
+  test("AC-15: `successorTo` is GONE from the source, not merely unused", () => {
+    // A behavioural test cannot make this claim. Every case above would pass
+    // just as well with the helper reintroduced and left uncalled, and a
+    // sibling-relocation helper sitting in the file is an invitation to wire it
+    // back up the next time someone reads the focus code. The claim is about the
+    // source, so the oracle reads the source.
+    const src = readFileSync(join(process.cwd(), "components/diagrams/Gallery.tsx"), "utf8");
+    // Premise: the file was actually read and is the one under test. Without it
+    // an empty string would satisfy the absence assertion below.
+    premiseHolds("the component source was read", src.includes("export function Gallery"));
+    expect(src, "the sibling-relocation helper is deleted, not orphaned").not.toContain(
+      "successorTo",
+    );
+  });
+
+  test("SUCCESSION is moot: the target is A's OWN control, so B failing cannot detach it", () => {
+    // This case used to chase a chain -- A fails, retarget B, B fails, retarget
+    // C -- because every destination was a sibling that could itself vanish. The
+    // closure rule existed to survive that.
+    //
+    // Task 4 removes the chain rather than lengthening it. The destination is
+    // the failed cell's own control, which no sibling's failure can detach, so
+    // the property to assert is that B failing changes nothing. Kept as a case
+    // because that INVARIANCE is the improvement, and a deleted test would say
+    // nothing about it.
     open([item(1), item(2), item(3)]);
     act(() => thumbButton(0).focus());
     openLightboxFrom(0);
 
     const c = thumbButton(2);
-    failThumb(0); // A → retarget B (slot 1)
-    failThumb(1); // B → retarget C (slot 2)
+    failThumb(0); // A, the trigger
+    failThumb(1); // B, an unrelated sibling
 
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
@@ -720,7 +812,10 @@ describe("Gallery — failures while the lightbox is OPEN route to its own chann
     act(() => presence.flush?.());
 
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toBe(c);
+    expect(document.activeElement, "A's own control, untouched by B's failure").toBe(
+      screen.getByTestId("diagram-retry-0"),
+    );
+    expect(document.activeElement, "the chain's old endpoint is not involved").not.toBe(c);
   });
 });
 
@@ -820,8 +915,13 @@ describe("Gallery — the lightbox announces the failure that DESTROYS, not only
     });
 
     premiseHolds(
+      // Task 5: a destroyed slide now lands on the retry offer rather than the
+      // inert placeholder (§3.1). The premise asks the same question it always
+      // did -- was this a DESTRUCTION and not a demote -- against the branch that
+      // now represents it. The demote case shows the chip and keeps the image, so
+      // the two remain distinguishable.
       "the slide really was destroyed, or this is the demote case in disguise",
-      dialog.textContent!.includes("Image unavailable"),
+      dialog.textContent!.includes("Tap to retry"),
     );
     expect(entriesOf(screen.getByTestId(LIGHTBOX_LOG))).toEqual(["Plot 1 could not be loaded."]);
   });
@@ -1078,13 +1178,18 @@ describe("Gallery — failures during the 220 ms exit window (three-phase oracle
     });
     premiseHolds("the exit window is open", presence.exiting);
 
-    const successor = thumbButton(1);
+    const sibling = thumbButton(1);
     failThumb(0); // the saved trigger, during the freeze
 
     act(() => presence.flush?.());
 
+    // Same retarget as the non-exiting case, and the mid-exit timing is what
+    // makes it worth a separate case: the restore duty is handed over while the
+    // dialog's props are frozen, so the hand-off cannot depend on anything the
+    // dialog does during the exit window.
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toBe(successor);
+    expect(document.activeElement).toBe(screen.getByTestId("diagram-retry-0"));
+    expect(document.activeElement).not.toBe(sibling);
   });
 });
 

@@ -47,7 +47,12 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // the live tree — still the bare `if (failed)` this reason describes — never by
   // adding a delta. This registry is line-keyed like the tests/styles censuses and
   // moves for the same reason: edits above it in the same component.
-  "components/admin/wizard/step3ReviewSections.tsx:4101":
+  // 4101 -> 4108 (2026-08-29, wizard-report-draft-escape): the draft-storage helpers
+  // moved out to lib/admin/reportDraftStore.ts and the component gained a seven-line
+  // import for them near the top, shifting every keyed row below it. Same identity
+  // check: 4108 is still the bare `if (failed)`, verified against origin/main's 4101.
+  // 4108 -> 4152 on the ref-error-cell-anchors merge of main; still the bare `if (failed)`.
+  "components/admin/wizard/step3ReviewSections.tsx:4152":
     "a bare boolean named `failed`, one hop from no resolvable infra source.",
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
@@ -402,7 +407,18 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Nothing joined or left: the count assertion above still reads 35, the file set is
     // unchanged, and every `form` and `marked` value is unchanged. A membership change
     // would have shown up as a differing file or form, not a moved line.
-    expect(digest).toBe("62a1c86bfcc709c8ea46c8c307f4dcfcabb5005228456aae05839f138d6f2d8a");
+    //
+    // Regenerated again 2026-08-29 (wizard-report-draft-escape), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one component this arc edits:
+    //   components/admin/wizard/step3ReviewSections.tsx 4101 -> 4108 (+7, the import
+    //   block added when the draft-storage helpers moved to lib/admin/reportDraftStore.ts)
+    // Nothing joined or left: the count assertion above still reads 35, the file set is
+    // unchanged, every `form` and `marked` value is unchanged, and 4108 was verified to
+    // be the same bare `if (failed)` that origin/main carries at 4101.
+    // Regenerated on the ref-error-cell-anchors merge of main. Both parents had moved lines in
+    // step3ReviewSections.tsx, so neither parent digest describes the merged tree; membership
+    // is unchanged and its assertion passed on the same run that produced this hash.
+    expect(digest).toBe("71f14e841ebb8085aa25a60d56438ccb805bdc0bc1b254200989fb690ee1eff3");
   });
 });
 

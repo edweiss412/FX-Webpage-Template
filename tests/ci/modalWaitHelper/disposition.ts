@@ -458,8 +458,8 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a standalone harness page (mkdtemp workdir or the dev gallery route), not the /admin loader",
     },
-    // 73 -> 74 -> 75 -> 76, by three independent arcs, which is what a declared
-    // population claim looks like when it is doing its job.
+    // 73 -> 74 -> 75 -> 76 -> 78 -> 80 -> 81, by six independent arcs, which is
+    // what a declared population claim looks like when it is doing its job.
     //
     // feat/review-modal-strip-dock added two: the §7 anchor-room measurement,
     // which drives a refusal through the real modal at `baseUrl` and is the case
@@ -468,6 +468,12 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // at load 0 with `alertsDegraded` to reach the branch where the 160px cap was
     // unenforceable.
     //
+    // feat/diagram-failure-retry added two, both standalone live-entry harnesses
+    // on a mkdtemp workdir: `diagram-retry` (AC-1 node identity and AC-2's
+    // one-request count, which jsdom structurally cannot measure) and
+    // `diagram-retry-dimensions` (AC-7's real-browser geometry against the
+    // aspect-square cell).
+    //
     // fix/control-outline-cover adds two more, both in
     // `tests/e2e/control-outline-contrast.live.spec.ts`: it serves the real
     // <Step3ReviewModal> tree from a mkdtemp workdir over node:http to measure
@@ -475,11 +481,28 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // the three AC-13 surfaces that render outside that tree. Both gotos are
     // harness navigations and neither is ever the /admin loader.
     //
+    // fix/attention-autoopen-suppress-phone adds two more, one per new
+    // standalone spec. `tests/e2e/occlusion-probe.spec.ts` serves a STATIC
+    // four-case fixture over node:http to self-test the shared occlusion helper
+    // (absolutely positioned boxes, nothing hydrates, so the geometry is exact).
+    // `tests/e2e/attention-autoopen-suppress.spec.ts` serves the real
+    // <PublishedReviewModal> tree from a mkdtemp workdir to measure what a
+    // finger hits once the menu no longer opens itself below `sm`. Both gotos
+    // are harness navigations; neither is ever the /admin loader.
+    //
+    // fix/pill-size-draft-restored-note adds one, in
+    // `tests/e2e/published-review-modal.layout.spec.ts`: the T-PILL fixture case
+    // boots a SECOND harness page from the same mkdtemp server, so the
+    // three-segment and degraded pill branches can be measured on one stylesheet
+    // without the `/admin` loader. The note cases in
+    // `step3-review-modal.interactions.spec.ts` add none, because they reuse the
+    // goto that spec already had.
+    //
     // A declared count is a population claim, so growing the population is an
     // edit here by design — and this rule is a SUBJECT of
     // _metaScratchRootCleanup, so a stale count here fails that suite's premise
     // downstream, which is how the strip-dock bump was found.
-    expectedCount: 76,
+    expectedCount: 81,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {

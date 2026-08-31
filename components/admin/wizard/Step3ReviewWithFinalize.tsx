@@ -155,7 +155,7 @@ export function Step3ReviewWithFinalize({
               <FinalizeAnnouncer run={run} />
               {showCleanup ? <CleanupAbandonedFinalizeButton sessionId={wizardSessionId} /> : null}
               {/* The Publish button stays mounted while publishing — it steps into
-                  a disabled "Publishing…" spinner state (FinalizeTrigger) instead
+                  a disabled "Setting up…" spinner state (FinalizeTrigger) instead
                   of vanishing (owner decision 2026-07-06). The footer center still
                   carries the detailed per-sheet tracking alongside it. */}
               <FinalizeTrigger run={run} />
@@ -246,15 +246,19 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
       ref={trackingRef}
       tabIndex={-1}
       role="group"
-      aria-label="Publish progress"
+      aria-label="Show setup progress"
       data-testid="wizard-step3-tracking"
       className="flex w-full flex-col gap-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
       {state.phase === "batch" ? (
         <>
           <div className="flex items-baseline justify-between gap-2">
-            <span className="font-semibold text-text-strong" aria-hidden="true">
-              Publishing your shows…
+            <span
+              className="font-semibold text-text-strong"
+              data-testid="wizard-step3-tracking-heading"
+              aria-hidden="true"
+            >
+              Setting up your shows…
             </span>
             {state.total > 0 ? (
               <span className="shrink-0 tabular-nums text-text-subtle" aria-hidden="true">
@@ -267,11 +271,16 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
             className="h-1.5 w-full"
             max={state.total > 0 ? state.total : undefined}
             value={state.total > 0 ? Math.min(state.done, state.total) : undefined}
-            aria-label="Publish progress"
+            aria-label="Show setup progress"
           />
           {state.lastName ? (
-            <span className="truncate text-text-subtle" title={state.lastName} aria-hidden="true">
-              Publishing: {state.lastName}
+            <span
+              className="truncate text-text-subtle"
+              data-testid="wizard-step3-tracking-current"
+              title={state.lastName}
+              aria-hidden="true"
+            >
+              {state.lastName}
             </span>
           ) : null}
         </>

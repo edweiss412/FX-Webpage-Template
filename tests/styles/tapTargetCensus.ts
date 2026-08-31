@@ -203,9 +203,28 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/Step3ReviewModal.tsx",
-    // :783 until 2026-08-27 — the attention pill's state block and its effects
-    // (spec §3.2/§3.5) sit above the resolution radios.
-    line: 979,
+    // :783 until 2026-08-27, :979 until 2026-08-29, :1003 until 2026-08-30 — the
+    // attention pill's state block and its effects (spec §3.2/§3.5) sit above the
+    // resolution radios, so every edit to them moves this row. The 2026-08-30 move
+    // was a one-line import plus an eight-line comment and mount for the
+    // draft-restored note, none of which touched this checkbox or its label row.
+    // LIM-LINE-KEYED-SITEID, EIGHTH recurrence, all eight inside one arc: the
+    // census keys a site by line number, and a line number is not an identity.
+    // The fifth was the wizard twin taking Decision 7 (counts-only), which added
+    // 18 lines above this row. The eighth (:1050 -> :1065) is whole-diff R3's
+    // ring-contrast repair, which widened this file's leading-mark comment by 15
+    // lines and touched neither this input nor its label.
+    // Re-keyed by matching the element's own identity across revisions -- here
+    // the radio's `name={`resolution-${item.id}`}`, unique in the file, and the
+    // `<input>` two lines above it -- never by adding the delta. The delta
+    // happened to be right here and is wrong the moment two edits land at
+    // different depths in the same file. NINTH re-key (:1065 -> :1067) when the
+    // impeccable gate reverted the ring change above it. TENTH (:1067 -> :1098)
+    // when R4's P0 added the judgment segment's own mark above it, and an
+    // ELEVENTH (:1098 -> :1099) for the one comment line that marked it, and a
+    // TWELFTH (:1099 -> :1084) when the mark logic moved into its own module and
+    // took fifteen lines of comment out of this file.
+    line: 1084,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -325,7 +344,16 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // is that same `<a>`.
     // 4121 -> 4134 on the R1 repair commit; same `<a>`, located by the scanner.
     // 4134 -> 4140 on the R2 repair; same `<a>`, located by the scanner.
-    line: 4140,
+    // Then +7 on fix/wizard-report-draft-escape: the draft-storage helpers moved to
+    // lib/admin/reportDraftStore.ts and the component gained a seven-line import for
+    // them near the top, so EVERY line-keyed row below that import shifted. Located
+    // on the live tree by this row's own element, never by applying the delta —
+    // rows above the import did not move at all.
+    // Relocated again on feat/ref-error-cell-anchors' merge of main: BOTH sides had moved
+    // this row, so neither number described the merged tree. Located by the scanner on the
+    // merged tree, never by composing the two deltas.
+    // The scanner reports this file's one unclassified site as 4191, that same `<a>`.
+    line: 4191,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -333,14 +361,27 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/diagrams/Gallery.tsx",
-    line: 354,
+    // 354 -> 530 on the diagram-failure-retry arc (availability sweep + retry
+    // branches inserted above), then 530 -> 547 when it folded origin/main, then
+    // 547 -> 572 when whole-diff review R1 added the success focus hand-off above
+    // it. The ELEMENT and its reason are unchanged at every key. Verified at this
+    // key by enumeration rather than by offset: 572 is the ONLY `<button>` between
+    // 560 and 615, and its `block size-full cursor-zoom-in` className is 41 lines
+    // below the tag, which is why reading the tag line alone looks wrong.
+    // 572 -> 633 on the R2 repairs; still the only button in its span.
+    line: 655,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
   },
   {
     file: "components/diagrams/GalleryLightbox.tsx",
-    line: 622,
+    // 622 -> 715 on the same arc, then 715 -> 728 on its fold of origin/main,
+    // then 728 -> 822 on the R1 repairs. Element and reason unchanged at every
+    // key: still the `motion.div` carrying `fixed inset-0 z-overlay flex`,
+    // confirmed by reading that className at the new key.
+    // 822 -> 864 on the R2 repairs; still the `fixed inset-0 z-overlay` surface.
+    line: 882,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",

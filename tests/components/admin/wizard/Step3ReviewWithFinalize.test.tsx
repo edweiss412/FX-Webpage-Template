@@ -22,6 +22,7 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import type { ParseResult } from "@/lib/parser/types";
 import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
+import { controllableNdjson } from "../_finalizeStreamHarness";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -226,7 +227,7 @@ describe("WizardFooter — step-3 publish footer (tracking-in-center redesign 20
     expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  test("clicking Publish keeps the button MOUNTED in a disabled 'Publishing…' state (no vanish)", async () => {
+  test("clicking Publish keeps the button MOUNTED in a disabled 'Setting up…' state (no vanish)", async () => {
     // Hang the finalize request so the run stays in flight (never resolves).
     fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
     const { getByTestId } = render(
@@ -245,11 +246,17 @@ describe("WizardFooter — step-3 publish footer (tracking-in-center redesign 20
       fireEvent.click(btn());
     });
     // Owner decision 2026-07-06: the button does NOT unmount on click — it steps
-    // into a disabled, aria-busy "Publishing…" intermediary (was: removed).
+    // into a disabled, aria-busy intermediary (was: removed). The label reads
+    // "Setting up…" as of 2026-08-29: the batch phase creates every show Held and
+    // the Live flip belongs to /finalize-cas, so the old "Publishing…" was false.
+    // Retargeted, not weakened — this still pins a disabled, aria-busy button
+    // carrying a specific label, and still fails if that label goes missing.
     const b = btn();
     expect(b.disabled).toBe(true);
     expect(b.getAttribute("aria-busy")).toBe("true");
-    expect(b.textContent ?? "").toMatch(/Publishing/i);
+    // Exact, not a case-insensitive substring: /Setting up/i also passes on an appended
+    // suffix or a contradictory sentence containing the phrase (whole-diff R1 finding 6).
+    expect((b.textContent ?? "").trim()).toBe("Setting up…");
     // The detailed per-sheet tracking still renders alongside it in the center.
     expect(getByTestId("wizard-step3-tracking")).toBeTruthy();
   });
@@ -273,5 +280,91 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(last.selectedCount).toBe(1); // only 'a' applied/checked
     expect(last.publishCount).toBe(1); // unchanged (over publishRows)
     expect(last.uncheckedCleanCount).toBe(2); // unchanged: 'b' + demoted 'c'
+  });
+  // ---------------------------------------------------------------------------
+  // Task 2 (spec 2026-08-29-step3-finalize-progress-scope): the SAME batch-phase
+  // claim on the second renderer. Not a duplicate of the FinalizeButton suite —
+  // these are two components that independently render the same sentence, which
+  // is exactly how one surface gets fixed and the other silently keeps the old
+  // copy. Feeding real row events needs the extracted harness: this suite's other
+  // running-state test hangs fetch forever and so receives NO row events, which
+  // would make a subline assertion pass against an element that never renders.
+  // ---------------------------------------------------------------------------
+  async function runningCompactTracking() {
+    const batch = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
+    });
+    return { ...view, batch };
+  }
+
+  test("compact tracking reports setup, and the publish verb is gone from the batch phase", async () => {
+    const { getByTestId } = await runningCompactTracking();
+    const tracking = getByTestId("wizard-step3-tracking");
+    expect(getByTestId("wizard-step3-tracking-heading").textContent).toBe("Setting up your shows…");
+    expect(tracking.textContent ?? "").not.toContain("Publishing your shows");
+    expect(tracking.textContent ?? "").not.toContain("Publishing: ");
+  });
+
+  test("the compact count stays bare, as the plan deliberately settled", async () => {
+    // Whole-diff R3 P0. An impeccable critique called the divergence from the panel's
+    // "1 of 2 shows" a defect, and this suite briefly asserted the noun. That was wrong:
+    // the plan RECORDS the bare form as deliberate — the compact readout lives in a
+    // sticky bar whose height is load-bearing — and the spec's dimensional proof assumes
+    // the only text that changes sits inside a truncated node, which this count is not.
+    // A critique finding does not outrank a ratified decision; the check is to read the
+    // plan before repairing, which is what the two surviving "publish" strings got and
+    // this did not.
+    const { getByTestId } = await runningCompactTracking();
+    const text = getByTestId("wizard-step3-tracking").textContent ?? "";
+    expect(text).toContain("1 of 2");
+    expect(text).not.toContain("1 of 2 shows");
+  });
+
+  test("compact subline names the completed row and makes no claim about its outcome", async () => {
+    const { getByTestId } = await runningCompactTracking();
+    // Premise: the row event actually populated lastName. Without it this suite
+    // renders no subline at all and the assertion below would prove nothing.
+    const line = getByTestId("wizard-step3-tracking-current");
+    expect(line.textContent).toBe("East Coast");
+  });
+
+  test("every accessible name in the compact batch phase reads Show setup progress", async () => {
+    const { getByTestId } = await runningCompactTracking();
+    const group = getByTestId("wizard-step3-tracking");
+    // querySelectorAll is DESCENDANT-only and the aria-label sits on the SAME
+    // element as the testid, so the group's own label must be added explicitly.
+    const labelled = [group, ...Array.from(group.querySelectorAll("[aria-label]"))].filter((el) =>
+      el.hasAttribute("aria-label"),
+    );
+    expect(labelled.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(labelled.map((el) => el.getAttribute("aria-label")))).toEqual(
+      new Set(["Show setup progress"]),
+    );
+    // The RAW attribute is not the accessible name. `aria-labelledby` WINS over
+    // `aria-label`, so a labelledby pointing at stale copy leaves this set reading
+    // "Show setup progress" while a screen reader announces something else — probed
+    // and confirmed in whole-diff R2 finding 6. Two assertions, because each catches
+    // what the other cannot: the set pins the attribute VALUE, and this pins that the
+    // attribute is what the name is actually computed FROM.
+    const overridden = labelled.filter((el) => el.hasAttribute("aria-labelledby"));
+    expect(
+      overridden.map((el) => el.getAttribute("data-testid") ?? el.tagName),
+      "aria-labelledby would override the aria-label these assertions pin",
+    ).toEqual([]);
   });
 });

@@ -164,7 +164,9 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     expect(config).toContain(
       "testMatch: /(deep-link-walker|help-auth|help-mobile|help-typography)\\.spec\\.ts/",
     );
-    expect(config).toContain("testMatch: /(deep-link-walker|help-typography)\\.spec\\.ts/");
+    expect(config).toContain(
+      "testMatch: /(deep-link-walker|help-typography|help-tour-layout-dimensions)\\.spec\\.ts/",
+    );
   });
 
   it("splits help-docs setup into a wizard-active seed state", () => {

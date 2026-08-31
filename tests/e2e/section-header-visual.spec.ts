@@ -20,6 +20,20 @@
  * subprocess (Playwright's loader would rewrite its JSX otherwise), the real
  * token CSS is compiled from app/globals.css, and both are served from a
  * local static server. No dev server, no Supabase.
+ *
+ * BLAST RADIUS, and why it is narrower than it looks. The idle capture is
+ * `toHaveScreenshot(..., { fullPage: true })` -- NOT scoped to a cell -- so this
+ * gate compares every pixel the served page paints. What keeps unrelated
+ * component work out of it is not a selector but the PAGE: this harness builds
+ * its own `composite-<width>.html` from the section-header matrix and imports no
+ * other product surface, so a diff elsewhere cannot move these bytes.
+ *
+ * That is a property of the harness, not a guarantee of the gate. Widen this
+ * page to render real app chrome -- a modal header cluster, a nav, a status
+ * strip -- and every markup change anywhere inside it starts failing here, with
+ * a diff image that points at the pixels rather than at the cause. Measured on
+ * 2026-08-30: an attention-pill change landed with this gate green, and the
+ * reason was exactly this and not a scoped capture.
  */
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";

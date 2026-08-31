@@ -140,7 +140,20 @@ async function openModal(page: Page, width: number, height: number) {
   await page.goto(`${baseUrl}?attention=1`);
   const chip = page.locator(CHIP);
   await chip.waitFor();
-  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  // WIDTH-AWARE since BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE. Below
+  // `sm` the auto-open is suppressed, because the panel covers the modal's
+  // navigation chips and both routes to the spreadsheet at phone widths
+  // (measured, spec 2026-08-29-attention-auto-open-phone-suppression §5.1). At
+  // those widths the panel is reached by TAPPING the chip, which is the same
+  // tolerant shape popover-clip-fit.spec.ts's openMenu already uses.
+  //
+  // The assertion is kept in BOTH branches rather than dropped: at ≥`sm` the
+  // arrival must still auto-open, and below it the arrival must NOT, so this
+  // helper pins the boundary behaviour every case downstream depends on instead
+  // of quietly tolerating either.
+  const autoOpens = width >= 640;
+  await expect(chip).toHaveAttribute("aria-expanded", autoOpens ? "true" : "false");
+  if (!autoOpens) await chip.click();
   await page.locator(MENU).waitFor({ state: "visible" });
   // Dismissed by PRESSING the pill, not by Escape. Since the §3.5 scoping
   // amendment an auto-opened panel is Escape-transparent until engaged, so
@@ -149,6 +162,27 @@ async function openModal(page: Page, width: number, height: number) {
   await chip.click();
   await expect(chip).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(MENU)).toHaveCount(0);
+}
+
+/**
+ * Boot at a DESKTOP width and leave the auto-opened panel OPEN.
+ *
+ * `openModal` dismisses it by design, and dismissing is a CLICK, which sets
+ * `menuAutoOpened` false (Step3ReviewModal.tsx:594-597). Re-clicking to reopen
+ * therefore produces a TAP-opened menu, not an auto-opened one — so a defect
+ * conditional on `menuAutoOpened` would survive a case that called itself
+ * "auto-opened". Round 4 of whole-diff review caught exactly that in the first
+ * version of the resize block below.
+ */
+async function bootAutoOpened(page: Page, width: number, height: number) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width, height });
+  await page.goto(`${baseUrl}?attention=1`);
+  const chip = page.locator(CHIP);
+  await chip.waitFor();
+  // Never clicked, so `menuAutoOpened` is still true.
+  await expect(chip).toHaveAttribute("aria-expanded", "true");
+  await page.locator(MENU).waitFor({ state: "visible" });
 }
 
 test.describe("wizard attention pill + menu geometry (spec §9)", () => {
@@ -335,6 +369,375 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(probe.inView).toBe(true);
   });
 
+  // Decision 7 (Eric, ratified 2026-08-30) applies to THIS pill too, and the
+  // impeccable audit is what caught that it had been left behind. The wizard
+  // twin ships the identical recipe as the published pill -- `text-sm sm:text-xs`,
+  // the same 160px HEADER_ACTION_CAP, `max-sm:flex-wrap`, the same hit band --
+  // and its nouns are LONGER ("need a look", "judgment calls" against "issues").
+  // Same cap, more text: it wraps at 375 where the published pill no longer does.
+  /**
+   * The wizard's marks, grounded by MEASUREMENT rather than by the argument the
+   * call site passes.
+   *
+   * This pill is where the plate parameter actually varies: `judgment` resolves
+   * to `text-subtle` on the attention plate and `text-faint` on the quiet one,
+   * because the same ink is 2.793:1 on one and 3.02:1 on the other. Whole-diff
+   * R5's probe was to pass `sunken` for the composite segment, which paints on
+   * `warning-bg` -- it type-checks, it satisfies the structural contrast arm
+   * (which believes the argument), and it ships an invisible ring.
+   *
+   * Reading the ink and the ground off the rendered element cannot be fooled
+   * that way, because it never reads the argument. The mark COUNT is asserted
+   * in the same pass: the judgment-only state is one of the three R5 found with
+   * no count guard, where a suppression predicate can regress to two marks.
+   */
+  test("T-WIZ-GROUND @375: the wizard's marks clear 3:1 on the surface they really paint on", async ({
+    page,
+  }) => {
+    const read = async () =>
+      page.locator(CHIP).evaluate((pill) => {
+        const parse = (c: string): [number, number, number, number] | null => {
+          const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/.exec(c);
+          return m === null
+            ? null
+            : [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+        };
+        const out: { ink: number[]; ground: number[]; opacity: number }[] = [];
+        for (const el of Array.from(
+          pill.querySelectorAll<HTMLElement>('span[aria-hidden="true"]'),
+        )) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          const cs = getComputedStyle(el);
+          const ink = parse(
+            parseFloat(cs.borderTopWidth) > 0 ? cs.borderTopColor : cs.backgroundColor,
+          );
+          if (ink === null || ink[3] === 0) continue;
+          let ground: number[] | null = null;
+          for (let a: HTMLElement | null = el.parentElement; a !== null; a = a.parentElement) {
+            const c = parse(getComputedStyle(a).backgroundColor);
+            if (c !== null && c[3]! > 0) {
+              ground = c;
+              break;
+            }
+          }
+          if (ground === null) continue;
+          let opacity = 1;
+          for (let a: HTMLElement | null = el; a !== null; a = a.parentElement) {
+            opacity *= parseFloat(getComputedStyle(a).opacity);
+          }
+          out.push({ ink, ground, opacity });
+        }
+        return out;
+      });
+
+    const hex = (c: number[]) =>
+      `#${c
+        .slice(0, 3)
+        .map((v) => v.toString(16).padStart(2, "0"))
+        .join("")}`;
+
+    // Token tables read from the LIVE stylesheet, both dark blocks separately:
+    // this project themes dark twice, once for first paint and once for the
+    // explicit toggle, and a viewer sees one or the other.
+    const css = readFileSync(join(REPO_ROOT, "app/globals.css"), "utf8");
+    const mediaAt = css.indexOf("@media (prefers-color-scheme: dark)");
+    const attrAt = css.indexOf('[data-theme="dark"] {');
+    const readTable = (slice: string) => {
+      const out: Record<string, string> = {};
+      for (const m of slice.matchAll(/--color-([a-z-]+)-runtime:\s*(#[0-9a-fA-F]{6})/g)) {
+        if (out[m[1]!] === undefined) out[m[1]!] = m[2]!.toLowerCase();
+      }
+      return out;
+    };
+    const [lo, hi] = mediaAt < attrAt ? [mediaAt, attrAt] : [attrAt, mediaAt];
+    const TOK = {
+      light: readTable(css.slice(0, lo)),
+      darkA: readTable(css.slice(lo, hi)),
+      darkB: readTable(css.slice(hi)),
+    };
+    expect(Object.keys(TOK.light).length, "premise: the light token table parsed").toBeGreaterThan(
+      5,
+    );
+
+    const invert = (names: readonly string[]) =>
+      Object.fromEntries(names.map((n) => [TOK.light[n]!, n])) as Record<string, string>;
+    const PLATE_BY_LIGHT_HEX = invert(["warning-bg", "surface-sunken"]);
+    const INK_BY_LIGHT_HEX = invert([
+      "status-review",
+      "status-positive",
+      "text-faint",
+      "text-subtle",
+    ]);
+
+    const lum = (h: string) => {
+      const ch = [1, 3, 5].map((i) => {
+        const s = parseInt(h.slice(i, i + 2), 16) / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
+    };
+    /** Worst of the two dark blocks, so neither can hide behind the other. */
+    const tokenContrast = (ink: string, plate: string, mode: "light" | "dark") => {
+      const tables = mode === "light" ? [TOK.light] : [TOK.darkA, TOK.darkB];
+      return Math.min(
+        ...tables.map((tb) => {
+          const [x, y] = [lum(tb[ink]!), lum(tb[plate]!)];
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        }),
+      );
+    };
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    for (const [fixture, expected, what] of [
+      ["attention=1", 2, "composite (needs-look leads, judgment follows)"],
+      ["judgmentOnly=1", 1, "judgment-only"],
+    ] as const) {
+      await page.goto(`${baseUrl}?${fixture}`);
+      await expect(page.locator(CHIP)).toBeVisible();
+      {
+        const marks = await read();
+        expect(marks.length, `${what}: exactly ${expected} mark(s), one per visible segment`).toBe(
+          expected,
+        );
+
+        for (const [i, m] of marks.entries()) {
+          // WHICH PLATE IS THIS, REALLY. The call site declares one; this reads
+          // the rendered ground and names it from the live token values, so a
+          // wrong argument is caught by the colour on screen rather than
+          // believed. That is R5's finding 2 exactly: passing `sunken` for a
+          // mark that paints on `warning-bg` type-checks and satisfies every
+          // check that trusts the argument.
+          const groundHex = hex(m.ground);
+          const plate = PLATE_BY_LIGHT_HEX[groundHex];
+          expect(
+            plate,
+            `${what} mark ${i}: painted on ${groundHex}, which is neither warning-bg nor surface-sunken -- the mark has moved to a surface this guard does not know`,
+          ).toBeDefined();
+
+          const inkHex = hex(m.ink);
+          const ink = INK_BY_LIGHT_HEX[inkHex];
+          expect(
+            ink,
+            `${what} mark ${i}: ink ${inkHex} is not a known token; a mark must be painted with one`,
+          ).toBeDefined();
+
+          expect(m.opacity, `${what} mark ${i} is faded to ${m.opacity}`).toBe(1);
+
+          // ...and now BOTH modes, from the stylesheet rather than the fixture.
+          // The fixtures paint light, so a rendered-only dark check would depend
+          // on the harness expressing dark mode; the token tables do not.
+          for (const mode of ["light", "dark"] as const) {
+            const r = tokenContrast(ink!, plate!, mode);
+            expect(
+              r,
+              `${what} mark ${i}: ${ink} on ${plate} is ${r.toFixed(3)}:1 in ${mode} mode, under the 3:1 non-text floor (WCAG 1.4.11)`,
+            ).toBeGreaterThanOrEqual(3);
+          }
+        }
+      }
+    }
+  });
+
+  test("T-WIZ-COUNTS @375: the wizard pill shows counts without nouns, and still ANNOUNCES them", async ({
+    page,
+  }) => {
+    await openModal(page, 375, 812);
+    const chip = page.locator(CHIP);
+    await expect(chip).toHaveCount(1);
+
+    const seen = await chip.evaluate((el) => {
+      const hiddenAncestor = (n: Node): boolean => {
+        for (
+          let e: HTMLElement | null = n.parentElement;
+          e && e !== el.parentElement;
+          e = e.parentElement
+        ) {
+          if (
+            (() => {
+              const cs = getComputedStyle(e);
+              // Whole-diff R2 P1: the old predicate recognised ONLY the sr-only
+              // shape (`position:absolute` + hairline width), so an ordinary
+              // `max-sm:opacity-0`, `invisible`, or `hidden` on a count wrapper
+              // stayed INCLUDED -- the rendered count could vanish while the guard
+              // still observed a digit and passed. Every ordinary way to hide a
+              // box is checked now, computed rather than inferred from classes.
+              if (cs.display === "none" || cs.visibility === "hidden") return true;
+              if (parseFloat(cs.opacity) === 0) return true;
+              // Whole-diff R3 P1: same defect as the two published-modal
+              // walkers. `display: contents` generates no box, so the rects
+              // below read 0x0 on an element that hides nothing, and the noun
+              // would be dropped while it renders. `return false` is this
+              // IIFE's "this ancestor hides nothing"; the remaining ancestors
+              // are still checked by the enclosing loop.
+              if (cs.display === "contents") return false;
+              const r = e.getBoundingClientRect();
+              if (cs.position === "absolute" && r.width <= 2) return true;
+              if (r.width === 0 || r.height === 0) return true;
+              return false;
+            })()
+          )
+            return true;
+        }
+        return false;
+      };
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let visible = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!hiddenAncestor(n)) visible += n.textContent ?? "";
+      }
+      return { visible: visible.replace(/\s+/g, " ").trim() };
+    });
+
+    for (const noun of ["need a look", "needs a look", "judgment call", "judgment calls"]) {
+      expect(seen.visible, `"${noun}" must not be visible below sm`).not.toContain(noun);
+    }
+    expect(seen.visible, "the counts themselves stay visible").toMatch(/\d/);
+    // The nouns survive in the COMPUTED accessible name, not merely in
+    // textContent: an aria-label override would satisfy textContent silently.
+    // BOTH nouns, never an alternation. Whole-diff R4 hid each in turn and the
+    // alternation stayed green both times: "2·1 judgment call" satisfied it with
+    // the needs-look noun gone, and "2 need a look·1" satisfied it with judgment
+    // gone. One `|` made a two-segment claim into a one-segment claim.
+    for (const noun of [/need a look/, /judgment call/]) {
+      await expect(chip, `the accessible name must keep ${noun}`).toHaveAccessibleName(noun);
+    }
+
+    // The composite pill's LATER segment carries its own mark, which is the
+    // published twin's repair swept here -- R4 found it missing as a P0. The
+    // leading mark describes needs-look; without this the judgment count was a
+    // bare integer separated from it by position alone.
+    const wizMarks = await chip.evaluate((el) => {
+      const px = (v: string) => parseFloat(v) || 0;
+      const marks = Array.from(el.querySelectorAll<HTMLElement>('span[aria-hidden="true"]'))
+        .filter((m) => m.getBoundingClientRect().width > 0)
+        .map((m) => {
+          const cs = getComputedStyle(m);
+          return {
+            filled: cs.backgroundColor !== "rgba(0, 0, 0, 0)",
+            ringed: px(cs.borderTopWidth) > 0,
+          };
+        });
+      return marks;
+    });
+    // Two segments visible, so two marks, and they are DIFFERENT shapes.
+    expect(wizMarks.length, "the composite pill renders one mark per segment").toBe(2);
+    expect(wizMarks[0], "needs-look leads as a filled mark").toEqual({
+      filled: true,
+      ringed: false,
+    });
+    expect(wizMarks[1], "judgment carries its own hollow ring").toEqual({
+      filled: false,
+      ringed: true,
+    });
+    // The regex above passes on a GLUED name ("2need a look" still contains
+    // "need a look"), which is how this shipped defective. Below `sm` the noun
+    // is `position:absolute` and so is not a flex item, and the separating
+    // space is a whitespace-only text run inside an `inline-flex` -- which
+    // generates no box (CSS Flexbox: an anonymous flex item containing only
+    // white space is not rendered). The published twin escapes this by wrapping
+    // the count and the space in a PLAIN span first; this pill did not.
+    // Assert the boundary itself, not the substring.
+    // Playwright's OWN accessible-name computation, not `innerText` and not
+    // `textContent`. The first draft of this read `innerText`, which excludes
+    // the `sr-only` noun entirely and so could never contain a digit-letter
+    // boundary -- it passed against the defect it was written to catch.
+    // `textContent` fails the other way: it concatenates the whitespace text
+    // node whether or not flex rendered it, so it never sees the gluing either.
+    // Only the computed name sees what a screen reader would say.
+    await expect(
+      chip,
+      "a digit is glued to its noun in the accessible name",
+    ).not.toHaveAccessibleName(/\d(?=[A-Za-z])/);
+  });
+
+  // Whole-diff R1 P0 (2026-08-30). The SAME defect the published twin already
+  // had, missed on this one: Decision 7 hides the nouns below `sm`, and the
+  // wizard's leading dot is SOLID in both states with only its colour changing
+  // (`n > 0 ? bg-status-review : bg-text-faint`). So an equal-count needs-look
+  // pill and judgment-only pill share dot, count and chevron entirely, leaving
+  // meaning on palette alone against DESIGN.md's colour-blind floor.
+  //
+  // The judgment-only state needed a fixture to be testable at all: the
+  // `attention=1` fixture is composite by design, which is exactly why this
+  // shipped uncaught.
+  test("T-WIZ-MARK @375: needs-look and judgment-only do not share one silhouette", async ({
+    page,
+  }) => {
+    // SHAPE, not hue. A first version of this compared backgroundColor and
+    // PASSED against the defect, because the two states already differ in
+    // colour (`bg-status-review` vs `bg-text-faint`) -- which is precisely the
+    // finding: meaning carried by palette alone. The oracle has to survive
+    // colour being removed, so it reduces each mark to whether it is FILLED and
+    // whether it is RINGED, and compares those booleans.
+    const markOf = async () =>
+      page.locator(CHIP).evaluate((el) => {
+        const dot = el.querySelector('span[aria-hidden="true"]') as HTMLElement | null;
+        if (!dot) return null;
+        const cs = getComputedStyle(dot);
+        const transparent = (c: string) =>
+          c === "transparent" || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(c);
+        return {
+          filled: !transparent(cs.backgroundColor),
+          ringed: parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== "none",
+        };
+      });
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    await page.goto(`${baseUrl}?attention=1`);
+    await page.locator(CHIP).waitFor();
+    const composite = await markOf();
+
+    await page.goto(`${baseUrl}?judgmentOnly=1`);
+    await page.locator(CHIP).waitFor();
+    const judgmentOnly = await markOf();
+
+    expect(composite, "PREMISE: the composite pill rendered a mark").not.toBeNull();
+    expect(judgmentOnly, "PREMISE: the judgment-only pill rendered a mark").not.toBeNull();
+
+    // PREMISE that the fixtures really are two states, asserted positively so a
+    // flag that silently did nothing fails HERE rather than satisfying the
+    // comparison below by rendering the same page twice.
+    const seg = async () =>
+      page
+        .locator(CHIP)
+        .evaluate(
+          (el) => !!el.querySelector('[data-testid="wizard-attention-pill-judgment-segment"]'),
+        );
+    const judgmentSeg = await seg();
+    await page.goto(`${baseUrl}?attention=1`);
+    await page.locator(CHIP).waitFor();
+    const compositeSeg = await seg();
+    expect(
+      { composite: compositeSeg, judgmentOnly: judgmentSeg },
+      "PREMISE: both fixtures render a judgment segment, so the two differ by the needs-look segment rather than by nothing",
+    ).toEqual({ composite: true, judgmentOnly: true });
+
+    expect(
+      judgmentOnly!.filled === composite!.filled && judgmentOnly!.ringed === composite!.ringed,
+      `both wizard states paint the same SHAPE (${JSON.stringify(composite)}); they may differ in hue, but a colour-blind reader sees one pill`,
+    ).toBe(false);
+  });
+
+  test("T-WIZ-COUNTS @1280: the wizard pill's full wording is BACK at sm and up", async ({
+    page,
+  }) => {
+    await openModal(page, 1280, 812);
+    const visible = await page.locator(CHIP).evaluate((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let out = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const e = n.parentElement as HTMLElement | null;
+        const r = e?.getBoundingClientRect();
+        if (r && r.width > 1 && r.height > 1) out += n.textContent ?? "";
+      }
+      return out.replace(/\s+/g, " ").trim();
+    });
+    expect(visible, "the noun returns above the breakpoint").toMatch(/need a look|judgment call/);
+  });
+
   test("the composite pill leaves the show title legible at 375 (spec §9, PRODUCT.md persona)", async ({
     page,
   }) => {
@@ -370,6 +773,77 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(m.titleW).toBeGreaterThanOrEqual(m.headerW * 0.15);
     // And none of this is bought with a horizontal scrollbar.
     expect(m.docScrollW).toBe(m.docClientW);
+  });
+
+  // ── Resize contracts (BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE) ──────
+  //
+  // The wizard inherits the published surface's whole resize obligation, and
+  // whole-diff review round 3 was right that none of it was covered here: the
+  // unit suite only changes width before the reveal or while the menu stays
+  // suppressed, and every case in this file set the viewport before navigating
+  // and never again. A width-change handler that closed the menu, or that made a
+  // tap-opened menu Escape-transparent, would have passed the entire wizard
+  // suite. There is no such handler today; the point is that nothing said so.
+  //
+  // The rule the whole design rests on: this change never CLOSES a menu.
+
+  test("AUTO-opened at desktop, then shrunk below sm: the menu stays open", async ({ page }) => {
+    // Genuinely auto-opened: never clicked, so `menuAutoOpened` is still true
+    // and a defect conditional on it is reachable here.
+    await bootAutoOpened(page, 1280, 800);
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.waitForTimeout(250);
+    await expect(page.locator(MENU), "shrinking closed an auto-opened menu").toBeVisible();
+    // And it is still the AUTO-opened one: shrinking must not quietly convert
+    // it into an operator-opened panel, which would flip Escape ownership.
+    await expect(page.locator(CHIP)).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("tap-opened at a phone width, then widened past sm: the menu stays open", async ({
+    page,
+  }) => {
+    await openModal(page, 375, 667);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(250);
+    await expect(page.locator(MENU), "widening closed an operator-opened menu").toBeVisible();
+  });
+
+  test("a tap-opened menu keeps its Escape after SHRINKING past the boundary", async ({ page }) => {
+    // The other direction. Round 4 was right that "either direction" named two
+    // and exercised one, so a shrink-only corruption of Escape ownership would
+    // have passed.
+    await openModal(page, 1280, 800);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.waitForTimeout(250);
+    await page.locator(CHIP).press("Escape");
+
+    await expect(page.locator(MENU), "Escape did not close the menu").toHaveCount(0);
+    await expect(page.locator(PANEL), "Escape closed the MODAL, not the menu").toBeVisible();
+  });
+
+  test("a tap-opened menu keeps its Escape after WIDENING past the boundary", async ({ page }) => {
+    // Escape OWNERSHIP is the wizard-only half. `menuAutoOpened` drives
+    // `escTransparentUntilEngaged`, so a menu the operator opened must swallow
+    // Escape and close ITSELF, leaving the modal up. If a width change ever set
+    // that flag, Escape would start closing the whole modal instead, and only
+    // these two cases assert otherwise.
+    await openModal(page, 375, 667);
+    await page.locator(CHIP).click();
+    await expect(page.locator(MENU)).toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(250);
+    await page.locator(CHIP).press("Escape");
+
+    await expect(page.locator(MENU), "Escape did not close the menu").toHaveCount(0);
+    await expect(page.locator(PANEL), "Escape closed the MODAL, not the menu").toBeVisible();
   });
 
   test("the menu's scroller is a nameable, focusable region", async ({ page }) => {

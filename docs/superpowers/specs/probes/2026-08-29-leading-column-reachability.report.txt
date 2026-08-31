@@ -1,0 +1,66 @@
+# 2026-08-29 leading-column reachability probe (pnpm exec tsx, worktree at ae778ba6e + this probe)
+
+### plan(c): VENUE unshifted then shifted HOTEL, no blank row
+blocks: 2 grid@col0 rows=2, grid@col1 rows=3
+| VENUE | Marriott | NYC |
+| :---: | :---: | :---: |
+| Address | 1 Main |  |
+
+| HOTEL | x |
+| :---: | :---: |
+| \#REF\! | y |
+| Room | z |
+warnings: [["REF_ERROR_LITERAL","hotels","\\#REF\\!"]]
+### shifted HOTEL block-initial, then unshifted CLIENT
+blocks: 1 grid@col0 rows=5
+|  | HOTEL | x |
+| :---: | :---: | :---: |
+|  | \#REF\! | y |
+|  | Room | z |
+| CLIENT | Acme |  |
+| Contact | Bob |  |
+warnings: [["REF_ERROR_LITERAL","section","\\#REF\\!"]]
+### shifted HOTEL block-initial, then unshifted Venue (mixed case)
+blocks: 1 grid@col0 rows=4
+|  | HOTEL | x |
+| :---: | :---: | :---: |
+|  | \#REF\! | y |
+| Venue | Marriott |  |
+| Address | 1 Main |  |
+warnings: [["REF_ERROR_LITERAL","section","\\#REF\\!"]]
+### shifted HOTEL block-initial, then unshifted DRESS
+blocks: 2 grid@col1 rows=2, grid@col0 rows=2
+| HOTEL | x |
+| :---: | :---: |
+| \#REF\! | y |
+
+| DRESS | Black |
+| :---: | :---: |
+| Notes | n |
+warnings: [["REF_ERROR_LITERAL","hotels","\\#REF\\!"]]
+### shifted HOTEL block-initial, then unshifted VENUE (uppercase known)
+blocks: 2 grid@col1 rows=2, grid@col0 rows=2
+| HOTEL | x |
+| :---: | :---: |
+| \#REF\! | y |
+
+| VENUE | Marriott |
+| :---: | :---: |
+| Address | 1 Main |
+warnings: [["REF_ERROR_LITERAL","hotels","\\#REF\\!"]]
+### typo TRANSPORTATON unshifted with #REF!
+blocks: 1 grid@col0 rows=3
+| TRANSPORTATON |  |
+| :---: | :---: |
+| Driver | \#REF\! |
+| Van | v |
+warnings: [["SECTION_HEADER_AUTOCORRECTED","transportation","TRANSPORTATON"],["REF_ERROR_LITERAL","transportation","\\#REF\\!"]]
+### shifted HOTEL block-initial two REF one after pipe, then CLIENT
+blocks: 1 grid@col0 rows=3
+|  | HOTEL | x | w |
+| :---: | :---: | :---: | :---: |
+|  | a\|b | \#REF\! | \#REF\! |
+| CLIENT | Acme |  |  |
+warnings: [["REF_ERROR_LITERAL","section","\\#REF\\!"],["REF_ERROR_LITERAL","section","\\#REF\\!"]]
+isMidBlockSectionStart: HOTEL=true CLIENT=false Venue=false DRESS=true VENUE=true DATES=true EVENT DETAILS=true TRANSPORTATON=false
+canonicalSectionKind: HOTEL=hotels CLIENT=client Venue=venue DRESS=dress VENUE=venue DATES=dates EVENT DETAILS=event_details TRANSPORTATON=null

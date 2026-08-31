@@ -199,11 +199,21 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Re-file trigger:** a product arc actually blocked by an over-claiming sweep (stated in the filing)
 
+## LIM-REMOVAL-ONLY-VIOLATION-SET
+
+**Shape:** A violation inventory whose staged perturbations are uniform in DIRECTION — every one removes a carrier (a declaration, a class, a wrapper, an element) and none alters a value — so it cannot catch a criterion's value being wrong rather than absent. Distinct from LIM-SWEEP-POSITIVE-CONTROL, where the instrument was never shown to find a known member at all: here every row IS such a demonstration, which is why the gap survives a rigorous-looking table. Measured: seventeen staged violations, all removals, and a one-line `70ch` to `69ch` edit passed every one of them while moving every capped child on every help page. The mechanical form of the repair is that any criterion naming a VALUE owes two violations, one removing the carrier and one altering the value; the arc that named it also demonstrated the pair is irreducible, staging one override against both guards and observing the effect assertion red while the token pins stayed green.
+
+**Named by:** 1 arc — fix/help-tour-grid-and-settings-card/066c034c9a3e.md (diff)
+
+**Owning record:** the filing is the documented limit; the worked pair (token pin plus cascade-proof effect equality) is committed in `tests/help/help-prose-layer.test.ts`, `tests/help/page-tour.test.tsx` and `tests/e2e/help-tour-layout-dimensions.spec.ts`, with both staged violations transcribed in that arc's violation inventory
+
+**Re-file trigger:** named by a 2nd distinct arc, or a product arc blocked by a wrong-value regression a removal-only inventory passed
+
 ## LIM-NONDISCRIMINATING-FIXTURE
 
 **Shape:** An assertion whose extraction is narrower than the property in its own test name, so it passes for a reason unrelated to the behaviour: eight instances across two rounds, three proven by mutant. The general repair is to give the assertion a contest it can lose, a negative control, a premise on the fixture, or a bound derived from the same quantity the implementation uses; the sketched guard fails any case whose fixture cannot discriminate.
 
-**Named by:** 4 arcs — feat/review-modal-strip-dock/75b8f7a3ec76.md (diff); fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks); fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it); fix/attention-autoopen-suppress-phone/e7751f61de2c.md (spec: seven instances across all four rounds of one stage, and the arc that extends this shape from a WRITTEN fixture to a SPECIFIED one — an oracle described in a spec fails the same way and is cheaper to fix there). The two 2026-08-27 arcs each bumped this count from 1 to 2 on the same day without seeing the other, and their edits conflicted on this line; whichever an auto-merge had taken, the number would have read 2 with three arcs listed underneath it. Recorded because this index's counts are hand-maintained and that is the shape in which they go wrong.
+**Named by:** 7 arcs — feat/diagram-failure-retry/6bfb58e4f66b.md (diff: FIVE instances in one arc, and the instructive part is that not one was caught by re-reading the assertion — a `tabIndex >= 0` filter that excluded the very element under test, nine call sites passing a prop name the component does not take so it received no revision at all, four focus guards that focused a control on the item that SURVIVES while removing a different one, a modal-close test measuring mid-exit-animation state, and a hook test passing an options-object argument positionally so the override under test was never set. Two were caught by typecheck, one by the reviewer, two by negative controls. The narrow mechanizable form: an assertion that focus is not on `<body>` must also assert the previously focused node actually LEFT the document, since without that premise it passes on any test that removed the wrong element); fix/help-tour-grid-and-settings-card/066c034c9a3e.md (diff; three instances in one arc — a grid element compared to its container, an assertion sampled only where padding kept it under its own bound, and a value pin matching any integer — all three caught by staging the violation, one of them written three commits after the finding that taught the class); feat/ref-error-cell-anchors/e7751f61de2c.md (diff: a committed comparison script with no premises, so two empty sets — a missing extractor or a failed log download — would have compared equal and reported SAME inside AC-2 evidence; repaired with five per-shard premises plus a negative control proving the abort fires); feat/review-modal-strip-dock/75b8f7a3ec76.md (diff); fix/nearmiss-non-field-blocks/31beee5de40e.md (spec; an emission check reading a field the emitter does not set, so every case read "not emitted", and an injected label that was itself a corpus label and so ambiguous in nine blocks); fix/published-attention-escape-race/60dece4d5722.md (diff: four findings across three consecutive rounds, every one an assertion aimed at a branch reachable only in a state jsdom cannot stage. Its repair is the one to copy and it is not a test change: the decision moved into a pure function so the branch became reachable, after three rounds spent writing better proxies for it); fix/attention-autoopen-suppress-phone/e7751f61de2c.md (spec: seven instances across all four rounds of one stage, and the arc that extends this shape from a WRITTEN fixture to a SPECIFIED one — an oracle described in a spec fails the same way and is cheaper to fix there). The two 2026-08-27 arcs each bumped this count from 1 to 2 on the same day without seeing the other, and their edits conflicted on this line; whichever an auto-merge had taken, the number would have read 2 with three arcs listed underneath it. Recorded because this index's counts are hand-maintained and that is the shape in which they go wrong. **It has now happened three times in one day** — 2 against 2 on 2026-08-27, then 4 against 4 and 5 against 5 on 2026-08-29, each time two arcs landing different namings while both sides displayed the SAME total. The number agreeing is what makes it dangerous: an auto-merge or a hurried resolver takes one side, the count looks deliberate, and a naming is silently lost. The union is the only safe resolution on this line.
 
 **Owning record:** none — this index is the record (the filing notes the done condition ranges over an open space of test shapes, so it is refutable once per round forever)
 
@@ -332,6 +342,44 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Re-file trigger:** a 3rd distinct arc naming it, or a product-facing arc blocked by a probe that moved its own subject
 
+## LIM-UNSCORED-GUARD-OFFERED-AS-CLOSURE
+
+**Shape:** A structural guard is built mid-arc as the closure for a recurring finding class,
+presented to review as a cover, and never mutation-scored first. Its own fail-open cases then
+surface as review findings — the reviewer doing by hand, at a paid round, what
+`pnpm mutation:guards` does in about ninety seconds. Distinct from a guard that is simply
+absent: here one exists, is asserted to close a class, and is weaker than its claim.
+
+**Named by:** 1 arc — `feat/diagram-failure-retry/e7751f61de2c.md` (plan), where a
+registry-plus-scanner built in round 2 to close a per-item-state class was found in round 4 to
+miss parenthesized, `as`-cast, non-null-asserted and computed-property hook declarations, plus
+a key-alias hole where two declarations sharing a name inherit one row.
+
+**Owning record:** AGENTS.md's convergence criterion, bullet 4 — enrolment precedes review for
+a guard surface — which already prescribes the fix. This slug exists so recurrence is one grep
+rather than a re-derivation, not because a new rule is needed.
+
+**Re-file trigger:** a second arc losing a review round to fail-open cases in a guard it
+offered as a class closure.
+
+## LIM-PLACEHOLDER-SNIPPET-BODY
+
+**Shape:** A plan's fenced `ts`/`tsx` snippet carries a function or test body that is only a comment (`{ /* same shape as above */ }`, `it("...", () => { /* the two arms, verbatim */ })`). It compiles, it passes against the current tree, and a reviewer reads the test name as coverage. Decidable from the document alone: a fenced block whose statement list is empty apart from comments, or a non-void function with no `return`. Distinct from LIM-NONDISCRIMINATING-FIXTURE, where the assertion exists and is too narrow: here there is no assertion.
+
+**Named by:** 1 arc — feat/ref-error-cell-anchors/e7751f61de2c.md (plan), four findings in one round.
+
+**Owning record:** the anti-tautology rule in `docs/agents/writing-plans.md` (every test task states the failure mode it catches), plus this index.
+
+**Re-file trigger:** default (three distinct arcs).
+## LIM-SNIPPET-IMPORTS-UNRESOLVED
+
+**Shape:** A plan snippet destined for an EXISTING test file uses identifiers that file does not import (`join`, `premise`, a helper from a sibling suite), and the pre-dispatch snippet typecheck, run on the snippet in a scratch harness, resolves them there and never sees the target file's import block. The RED then fails on a test-local `ReferenceError` instead of the production absence the marker names, and GREEN cannot pass. Distinct from LIM-PLACEHOLDER-SNIPPET-BODY: the code is real, its context is not.
+
+**Named by:** 1 arc — feat/ref-error-cell-anchors/e7751f61de2c.md (plan), one finding, swept over every RED step.
+
+**Owning record:** the snippet-typecheck sentence of `docs/agents/writing-plans.md`, plus this index. The repair that held was an explicit imports sentence at every RED step, checked against the file's current import block at HEAD.
+
+**Re-file trigger:** default (three distinct arcs).
 ## LIM-CLAIM-WITHOUT-ORACLE
 
 **Shape:** A document states a property, calls it load-bearing in as many words, and its test plan does not mention the property at all. Distinct from LIM-NONDISCRIMINATING-FIXTURE, where an assertion exists and is too weak: here there is nothing to weaken. Five instances in one spec stage, and the last one is the shape's argument for existing — the spec said explicitly that a probe must not "fix" an occlusion by re-anchoring the panel to its trigger, the source file records that exact attempt and the measured breakage it caused, and no assertion covered it, so the arc's own defect stayed reachable by a second route through a fully green suite. Not mechanizable as stated: deciding which sentences of a spec are load-bearing claims ranges over an open grammar, which is the recognizer-growth shape this repo has already measured. The repair that held is structural, an obligations table mapping every claim to the assertion that settles it, which turns the next instance into a visibly missing row rather than a paid review round.
@@ -354,3 +402,123 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Re-file trigger:** named by a 2nd distinct arc, OR a product-facing arc measurably blocked by a defect whose arm existed and was dormant. Note what would NOT settle it: promoting every advisory to a failure trades this shape for a louder one, and the repo has already measured advisory promotion producing noise that authors route around. A candidate repair has to make opting IN the default, or make the arm's region-gating unnecessary, rather than raise its severity.
 
+---
+
+## LIM-E2E-SPEC-DISCOVERY-GAP
+
+**STATUS: the headline finding was REFUTED 2026-08-30 by `test/e2e-spec-discovery-wiring`. There were never 48 dark specs. The gap was in the census, not in the specs.** The entry is kept, corrected in place rather than deleted, because the wrong version is what an unchecked census looks like and this file is where the next arc will look for the shape.
+
+**What the original entry claimed.** That a spec matching no project's `testMatch` runs nowhere and looks exactly like a spec that passes; that nothing compares the set of spec files on disk against the set any project discovers; and, measured, that **118 spec files exist under `tests/e2e` while 70 are discovered**.
+
+**What is actually true.** The first claim is sound and is the useful part of this entry. The second was already false when it was written. The third measured one config and reported the difference as darkness.
+
+- **All 118 spec files are discovered.** Four configs resolve spec files here, and the original count came from `npx playwright test --list` against `playwright.config.ts` alone. The union partitions cleanly: 61 files in `playwright.config.ts` only, 42 in `tests/e2e/standalone.config.ts` only, 8 in both, 4 in `playwright.config.ts` + `playwright.screenshots.config.ts`, 2 in the screenshots config only, 1 in `tests/e2e/visual.config.ts` only, and **0 in nothing**.
+- **The 42 standalone-only files were never dark.** `.github/workflows/standalone-e2e.yml:71` runs the whole standalone config on an unfiltered `pull_request` trigger, and has since `c7c5625c2` (2026-07-26).
+- **Every one of the four specs this entry named as its evidence had been executing on every PR.** `step3-review-modal.layout` entered `standalone.config.ts` on 2026-07-03 (`e870595a4`), `attention-pill-focus` on 2026-07-21 (`a794c4124`), `popover-clip-fit` on 2026-08-02 (`434deaf7f`). The fourth, `attention-autoopen-suppress`, was created BY `19716fcd9` (2026-08-29), which added it to the config and regenerated the baseline in the same commit — so it ran from the moment it existed. The evidence set is 0 for 4. The first correction of this entry still allowed that one a day of darkness; that was the same one-sided reading applied to a commit nobody had opened, and diff review round 1 caught it.
+- **So the sentence "that assertion has therefore never executed" was wrong for all four**, including `attention-autoopen-suppress`, which ran from the commit that created it.
+- **The comparison this entry says nothing performs was already shipped.** `tests/ci/_metaSpecRegistration.test.ts:952` asserts that every test-shaped file under `tests/e2e` resolves in some config, over the same four configs, with `DARK_SPEC_ALLOWLIST` empty (`tests/ci/_metaSpecRegistration.test.ts:184`). `tests/ci/_metaE2eWorkflowCoverage.test.ts:262` asserts the stronger property that every spec is PR-covered, with a reasoned row for every exception.
+
+**The instrument failed twice, in the same direction, and the entry warned about it once.** Its own "measurement caveat" paragraph records a first bad census — a grep returning zero for every spec, "which is indistinguishable from a real finding of total darkness" — and says the numbers were re-measured "against playwright's own `--list` output". They were. Against one config. Checking the instrument is not the same as checking that it ranges over the population, and the second error survived precisely because the first had been caught and the author felt measured.
+
+**What the arc found instead, in the direction nobody had asked about.** The comparison runs disk-to-config and never config-to-disk, and the reverse was broken: `playwright.config.ts` named **nine spec files that do not exist**, each duplicated across `mobile-safari` and `desktop-chromium`, eighteen occurrences.
+
+```
+$ ls tests/e2e/ | grep -E "apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|alert-identity-banner-layout|alert-banner-autoresolve-layout|bootstrap"
+$ echo $?
+1
+```
+
+A dead branch is invisible to `--list` by construction — the resolved set is identical whether or not it is there — which is why both existing guards were blind to it, and it is a hazard rather than litter: these matchers are unanchored alternations of bare stems, so a name outliving its file keeps matching by substring and adopts the next file whose name contains it. `playwright.config.ts:77-78` already records that exact fear about a name chosen carelessly. Repaired and guarded in `db27d5ebf` (`tests/ci/_metaConfigBranchStaleness.test.ts`); the deletion is behavior-neutral, proved by identical `file::project::case` resolution before and after.
+
+**A third variant, mechanism proved and no live instance, recorded here rather than guarded.** Playwright silently drops a positional path whose selected project cannot match it — probed as `--project=desktop-chromium` over one matching and one non-matching file, reporting `Total: 33 tests in 1 file` at exit 0, with no warning and no "no tests found" error because the run is non-empty. All 62 (path, project-set) pairs across `.github/workflows/*.yml` currently resolve, and no instance has ever been observed live. Under the 2026-08-25 process mint freeze that is a documented limit with its probe, not a guard arm and not a row.
+
+**Owning record:** this index, plus `docs/superpowers/specs/ci/2026-08-30-e2e-declared-vs-resolved.md`.
+
+**Re-file trigger:** a spec file that resolves in no config (which `_metaSpecRegistration` now fails on, so this would mean that guard is broken), or a second independent arc finding a config naming files that do not exist. What would NOT settle it, and is the correction this entry most wants carried forward: **a census that enumerates one member of a population and reports the remainder as a finding.** Before believing a count like "118 versus 70", establish what the population of the denominator is, and check that the instrument ranges over all of it.
+
+---
+## LIM-SPEC-QUOTES-UNRECONCILED-MEASUREMENT
+
+**What:** A spec quotes a pixel figure for a surface whose ledger row already carries an independently measured one, and nothing compares them. Both numbers sit in the same repository, about the same element, and disagree.
+
+**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`: the spec's first measurement table reported the two-segment attention pill at **66.39px**, from a probe that rebuilt the pill's markup by hand. `DEFERRED.md` had recorded **84.4px** for the same pill on the same surface. The real render measures **84.39px**. Round 1 of spec review caught the reconstruction; nothing mechanical would have.
+
+**Owning record:** this index, plus the spec section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+
+**Re-file trigger:** a second independent arc shipping a spec figure contradicted by its own ledger row. What would NOT settle it: requiring every spec figure to cite a probe, since the defective probe here DID cite one and was quoted faithfully.
+
+---
+
+## LIM-CITATION-WELLFORMED-BUT-WRONG
+
+**What:** `spec:lint` catches a malformed or out-of-range `file:line` citation and cannot see one that is well-formed and points at the wrong line. The residual risk in a heavily cited document is concentrated entirely in claims that look right.
+
+**Measured 2026-08-30** across five spec rounds on `fix/pill-size-draft-restored-note`, where every other finding class decayed to nothing and this one produced in all five: seven bad anchors in round 1; in round 4, a `T-LAYOUT` equation repeated three times that omitted the sheet-mode grab-strip term, a phantom-gap guard named as protection for a note it cannot render because it drives a different modal, and a clearing-behaviour row attributing a textarea clear to the submit-path helper. `pnpm spec:lint` passed clean on all of them. The `CITATION_SYMBOL_UNMATCHED` advisory fired on four of the seven round-1 anchors, but as an advisory among twenty-plus it does not separate signal from noise.
+
+**Owning record:** this index, plus the spec section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+
+**Re-file trigger:** a second independent arc measuring the same class as its non-decaying one. What would NOT settle it: promoting `CITATION_SYMBOL_UNMATCHED` to a failure, which this corpus has already measured producing noise authors route around. The one mitigation that did work here is procedural and is recorded in the filing: verify from the code side, opening the cited line and asking whether the sentence is true of it, rather than reading the sentence and looking for confirmation.
+
+---
+
+## LIM-E2E-1280-CONTAINMENT-FLAKE
+
+**What:** `tests/e2e/popover-clip-fit.spec.ts`'s `containment at 1280x800: the menu never crosses the panel's clip edge` fails intermittently, at `menu.right` 1068.625 against `pill.right` 1084, whenever the whole file runs. It passes reliably when run alone.
+
+**Why it is not a geometry defect.** 1068.625 IS the correct placement for that viewport, and the case's own comment says so: `CI measured menu.right 1068.16 against pill.right 1084`. At 1280 the pill extends past the inset bounds, so the core correctly pulls the panel left instead of leaving it flush. The assertion is guarded to skip exactly that situation. What varies between runs is therefore the guard, or the moment of measurement relative to a placement re-pass, not where the menu ends up.
+
+**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`, full-file runs under `tests/e2e/standalone.config.ts`:
+
+| tree | full-file runs | failures |
+|---|---|---|
+| this head | 7 | 1 |
+| control, both modal components at `origin/main` | 7 | 1 |
+
+**Inherited, not caused.** The same rate on both sides is the whole point of the measurement: the first failure appeared on a head run and looked like this arc's, and it took running the control the same number of times to show it is not. One observation is not a rate.
+
+**Why a limit and not a row (2026-08-25 process mint freeze):** the repair is test-infrastructure, its done condition is a property of the suite, and no product surface is blocked. It costs arc wall-clock and, worse, costs credibility: an intermittent red trains readers to retry rather than to read.
+
+**Cross-reference:** [[LIM-E2E-SPEC-DISCOVERY-GAP]]. The two are the same story from opposite ends. This flake lives in a spec that ran under `standalone.config.ts` on every PR from 2026-08-02, so it has been flaking in a CI-visible suite for as long as the file has existed; what the earlier account called darkness was the census's, not the spec's. A second independent arc hitting either slug is the `**Mint-exception:** product-blocked` evidence a row would need.
+
+**Owning record:** this index, plus the diff section of `docs/review-rounds/fix/pill-size-draft-restored-note/53a1fc82fb36.md`.
+
+**It is a CLASS in that file, not one case.** Measured later the same night: `popover-clip-fit.spec.ts:609`, "placement is RE-COMPUTED once the entrance settles (no-preference)", failed once in a full-file run and then passed 5 of 5 in isolation, having already passed 5 consecutive full-file runs at the same commit. Same shape as the 1280 case: a placement measured once, without polling for settle, in a file whose own `settledGeometry` helper exists precisely because "a single sample taken right after a structural change can land on the frame BEFORE the re-apply". Two cases share the defect; the file has more that sample once.
+
+**REPAIRED 2026-08-30 by `test/e2e-spec-discovery-wiring`, in the swept form this trigger asked for.** The population was derived from the mechanism rather than from the two known cases: `components/admin/showpage/AttentionMenu.tsx:479` states that `entered` is the only re-place signal and that the mount measurement runs before the entrance rAF, so any case that opens the menu and asserts on placement-derived geometry from a single sample is in the class. That is SIX cases across four reads, including the three `settled fit` cases which never waited on the entrance scale at all and which a symptom-derived population missed. All four reads now go through `settledSample`, which resamples until two consecutive reads agree on every value and THROWS rather than returning an unsettled sample. Excluded with reasons: the animated case awaits `transitionend` explicitly, and the DOM-descendant case asserts node containment rather than geometry.
+
+**No reproduction was obtained, and none is claimed.** Six full-file runs before the repair were 6 of 6 green, consistent with the ~1 in 7 measured above; six after were also green at 42 passing each. The repair rests on the defect shape and on the component's own comment, not on a red this arc observed.
+
+**Re-file trigger:** a placement read in that file that does not go through the settle poll, or the flake recurring after this repair — which would mean the mechanism is not the one named here.
+
+---
+
+## LIM-ORACLE-ROUND-BEFORE-SUBPIXEL-TOLERANCE
+
+**STATUS: CLOSED. Zero open instances.** Indexed here so the next arc finds the shape by one grep rather than by re-deriving it, per the class-sweep order that produced it.
+
+**The shape:** a geometry oracle that rounds, floors, or ceils a measured quantity and THEN compares it under a sub-pixel tolerance. `Math.floor` discards up to 1px; a 0.5px tolerance cannot absorb that. The assertion stops deciding on the fit and starts deciding on the fractional part of the measurement, which no implementation controls.
+
+**Why it is worse than a flake:** it fails in both directions. The floored form accepts a scroller sitting 0.61px SHORT of its room, comparing it against the floored value at zero error, while rejecting a scroller that fills its room exactly. It is simultaneously too loose for the defect it exists to catch and too strict for correct code.
+
+**Measured 2026-08-30** on `fix/pill-size-draft-restored-note`: three instances, all in `tests/e2e/popover-clip-fit.spec.ts`, all repaired in `9e0a9c9e4`. The file's own comment already called the third one "Third site of the same arithmetic", so the duplication was known and the defect in it was not.
+
+**What it cost before it was named:** a reverted repair on an unrelated component, a refuted diagnosis, a discriminating probe, and most of a hold window. It presented as a production regression, and it was not one.
+
+**Sweep, derived rather than enumerated.** For every `Math.floor|round|ceil` in `tests/`, bind the name it assigns and require that name to appear in a sub-pixel assertion (`<= 0.5`, `toBeLessThanOrEqual(0.5)`, `toBeCloseTo(x, 0|1)`) within the next 45 lines. Outside `tests/e2e`: zero. Inside: the three repaired sites plus three matches that are NOT the shape, recorded so a later sweep does not re-raise them:
+
+- `tests/e2e/popover-clip-fit.spec.ts:1274` and `tests/e2e/popover-clip-fit.spec.ts:1289` round to CONSTRUCT the fixture (`Math.ceil(h + 44)` sizing a spacer). The compared values are measured and unrounded, and `spaceAbove`/`spaceBelow` are computed unfloored at `tests/e2e/popover-clip-fit.spec.ts:1200`, mirroring `lib/popover/position.ts:113`.
+- `tests/e2e/section-header-layout.layout.spec.ts:849` uses `Math.round(h * 100) / 100`, a two-decimal display round whose 0.005 worst case is two orders below the 0.5 tolerance.
+
+**Re-file trigger:** any new instance. The durable repair is not another sweep but a lint over the shape; that was NOT filed as a row, because the freeze's admission test asks for a number outside the process and a lint's done condition is a property of the lint.
+
+## LIM-WORKFLOW-PATHS-TEST-IMPORT-GAP
+
+**Shape:** A CI workflow carrying a `paths:` filter RUNS a set of specs, but the filter names only some of the components those specs exercise. An edit to an unnamed component then triggers nothing, and the gate reports green having executed none of the cases written for it. The dark half is invisible from either side: the workflow looks complete because it lists real paths, and the spec looks covered because a job with its name exists and passes. The derivable form is the fix -- for each workflow with a `paths:` filter, every component transitively imported by the specs it runs must appear in that filter -- which is a static import walk, not an enumeration.
+
+**Named by:** 1 arc — fix/pill-size-draft-restored-note/1789e76bb82f.md (diff, R2: `.github/workflows/step3-live-bundle.yml` ran the draft-restored-note cases while its filter omitted `components/admin/wizard/DraftRestoredNote.tsx`, so a note-only edit would have got no Chromium coverage; the path was added, the class was not closed)
+
+**Owning record:** this index. The instance repair is in that arc's diff; nothing else pins the class.
+
+**Not filed as a row, deliberately.** Process-facing under the 2026-08-25 freeze, and it fails the admission test on its own terms: the done condition would be a property of the walker (does it resolve every import edge), which is refutable once per review round and finishes never. It earns a row when it blocks a product arc — a component edit that reached `main` with its gate green and its cases unrun — and the `**Incident:**` then names that arc.
+
+**Re-file trigger:** a second arc naming it, OR one measured instance of a component edit merging with its workflow green and its specs unexecuted. A workflow filter merely LOOKING incomplete is not the trigger; the filter legitimately omits paths whose specs it does not run.

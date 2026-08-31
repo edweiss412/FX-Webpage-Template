@@ -187,6 +187,103 @@ export function validateSurface(surface: GuardSurface): string[] {
  * an unreviewed surface.
  */
 export const GUARD_SURFACES: GuardSurface[] = [
+  {
+    id: "configBranchProbe",
+    // MEASURED, three consecutive runs of the deciding suite: 2314ms, 1976ms,
+    // 1905ms real. Median, not mean, so one cold start does not price every shard.
+    millisPerBoot: 1976,
+    sourcePath: "tests/ci/_configBranchProbe.ts",
+    suitePaths: ["tests/ci/_metaConfigBranchStaleness.test.ts"],
+    // The full declared set. This surface is a RECOGNIZER over Playwright
+    // `testMatch` sources, and scoping the operator subset would leave the
+    // excluded operators' sites unscored — the exact gap enrolment exists to
+    // close. Spec: docs/superpowers/specs/ci/2026-08-30-e2e-declared-vs-resolved.md.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "regex-quantifier-bound",
+      "statement-removal",
+    ],
+    scoreFloor: 0.9,
+    // RUNNING THIS SURFACE ALONE IS NOT POSSIBLE with `-t`. Mutants execute during
+    // COLLECTION, not inside the filtered `it` bodies, so `-t configBranchProbe`
+    // skips the other surfaces' assertions while still running all of their
+    // mutants: measured 2026-08-30 by reading MUTATION_SUITE off the live overlay
+    // child, which named a different surface's suite entirely while the filter was
+    // set. Budget for the WHOLE shard's weight (~40min modelled, ~60min real here),
+    // and if the class-mutation lock is grant-managed, declare that scope when you
+    // ask for it.
+    // Enrolled BEFORE the diff review, per AGENTS.md's convergence criterion:
+    // this surface is a guard whose defect class is "reports OK while the output
+    // moved", which is what the registry expresses, and review is worst at
+    // absence. Round 1 of spec review had already found this module's population
+    // hand-listed in two places that agreed with each other, so the surface has
+    // a demonstrated history of failing in exactly the direction a score
+    // measures.
+    //
+    // Control: blinds the alternation split, so the reader yields NOTHING for
+    // every matcher. Chosen over a narrower blind deliberately — a control that
+    // disables one branch can pass on a reader that has stopped working
+    // altogether, and a reader yielding [] makes the staleness assertion
+    // vacuously green, which is this guard's worst failure mode. Verified unique
+    // on the current source (`grep -c -F` = 1).
+    control: {
+      from: 'const stems = (group ?? single)!.split("|");',
+      to: "const stems: string[] = [];",
+    },
+    // Four equivalents, all in the child-process spawn OPTIONS, and all the same
+    // argument: these numbers bound a resource, and the bound's exact value has no
+    // observable consequence inside this surface's threat fence (ordinary authoring
+    // mistakes; four config files totalling a few kilobytes of matcher text).
+    //
+    // The first scoring run returned SEVEN survivors here, and only these four were
+    // equivalent. The other three were real and are now killed by
+    // `parseProbeOutput`'s own cases: a mutant that accepted a MISSING marker, and
+    // both offsets of the diagnostic quote — one dropping the leading character of
+    // whatever the child actually printed, which is the part that says why it died.
+    // That is the difference this ledger has to keep visible: a survivor is not
+    // evidence of equivalence, it is a question, and three of these seven answered
+    // the other way.
+    accepted: [
+      {
+        siteId: "integer-literal:179:14:300000>300001",
+        kind: "equivalent",
+        reason:
+          "The child-process timeout in milliseconds. It exists so a wedged `tsx` cannot hang " +
+          "the suite forever, and it is set two orders of magnitude above the real cost " +
+          "(the whole four-config probe runs in about two seconds). 300000 and 300001 differ " +
+          "only for a child that hangs for exactly 300 seconds and then completes within one " +
+          "millisecond, which no input reaches. The bound's EXISTENCE is what matters and is " +
+          "pinned by the option being present at all.",
+      },
+      {
+        siteId: "integer-literal:180:16:64>65",
+        kind: "equivalent",
+        reason:
+          "The megabyte term of the stdout buffer ceiling. The probe's real payload is the " +
+          "matcher sources of four config files, measured well under one megabyte, so 64MiB " +
+          "and 65MiB are both unreachably far above it. Raising the ceiling cannot change any " +
+          "output; only LOWERING it below the payload could, and no operator produces that.",
+      },
+      {
+        siteId: "integer-literal:180:21:1024>1025",
+        kind: "equivalent",
+        reason:
+          "The first kibibyte term of the same ceiling, equivalent for the same reason: the " +
+          "product moves by 64KiB against a payload three orders of magnitude smaller.",
+      },
+      {
+        siteId: "integer-literal:180:28:1024>1025",
+        kind: "equivalent",
+        reason:
+          "The second kibibyte term of the same ceiling. Same argument as the term above; the " +
+          "two are one expression and are accepted together rather than one being left to " +
+          "look like an oversight.",
+      },
+    ],
+  },
   /**
    * The render-fault detector, enrolled 2026-08-24 before its first diff review.
    *
@@ -211,6 +308,49 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * assertions above -- a budget decision, not a claim their mutants would be
    * uninteresting, and widening is a registry change carrying its own numbers.
    */
+  {
+    id: "reportDraftStore",
+    // Measured, three consecutive runs of the deciding suite: 0.96s, 0.97s,
+    // 0.97s wall clock. Not estimated.
+    millisPerBoot: 970,
+    sourcePath: "lib/admin/reportDraftStore.ts",
+    suitePaths: ["tests/admin/reportDraftStore.test.ts"],
+    operators: ["relational-boundary", "equality-flip", "integer-literal", "statement-removal"],
+    scoreFloor: 1,
+    // Blinds the surrogate-orphan drop, so a cap landing between the two code
+    // units of an astral character emits a lone high surrogate — malformed
+    // text rather than truncated text. The suite asserts no unpaired surrogate
+    // survives, so a live overlay kills it deterministically.
+    //
+    // The FIRST control considered was `<=` -> `<` on the length guard, and
+    // planting it showed the suite green: slicing a value of exactly the cap to
+    // the cap is a no-op, so that edit is equivalent on every input the guard
+    // can see. Recorded because it is the whole argument for proving a control
+    // instead of asserting one (`grep -c -F` = 1 on the text below).
+    control: {
+      from: "isLoneHighSurrogate ? cut.slice(0, -1) : cut",
+      to: "isLoneHighSurrogate ? cut : cut",
+    },
+    accepted: [
+      {
+        // The same edit that was REJECTED as this row's control, for the same
+        // reason, now recorded where an unkillable mutant belongs.
+        //
+        // `capDraft` returns early when `value.length <= CAP`. Weaken that to
+        // `<` and a value of EXACTLY the cap falls through to
+        // `value.slice(0, CAP)` instead — which, on a string of exactly CAP
+        // units, returns an identical string. The surrogate branch then reads
+        // the same final code unit and reaches the same verdict. There is no
+        // input on which the two forms differ, so no test can kill it: it is
+        // equivalent, not a gap. Proved by planting it (2026-08-29): the full
+        // 21-case suite stayed green.
+        siteId: "relational-boundary:51:20:<=><",
+        kind: "equivalent",
+        reason:
+          "capDraft's early return; slicing a value of exactly REPORT_MESSAGE_MAX_CHARS to that length is the identity, so `<=` and `<` agree on every input (lib/admin/reportDraftStore.ts capDraft)",
+      },
+    ],
+  },
   {
     id: "captureRenderFault",
     millisPerBoot: 935,
@@ -243,6 +383,67 @@ export const GUARD_SURFACES: GuardSurface[] = [
    * that is a budget, not a claim their mutants are uninteresting; widening is a
    * registry change carrying its own numbers.
    */
+  {
+    id: "perItemStateScanner",
+    // MEASURED, three consecutive runs of the deciding suite: 1.30s, 1.10s,
+    // 1.10s real. Taken as the median rather than the mean so one cold start
+    // does not price every shard.
+    millisPerBoot: 1100,
+    sourcePath: "tests/components/diagrams/perItemStateScanner.ts",
+    suitePaths: ["tests/components/diagrams/perItemStateLifetime.probe.test.ts"],
+    // The full declared set. This surface is a RECOGNIZER, and plan review R4
+    // showed it failing open on four ordinary edits precisely because nobody had
+    // scored it — so scoping the operator subset here would reintroduce the gap
+    // the enrolment exists to close, on the operators left out.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "regex-quantifier-bound",
+      "statement-removal",
+    ],
+    scoreFloor: 0.9,
+    // Enrolled because it is offered as a CLASS CLOSURE: spec §4.0.3 of the
+    // 2026-08-29 diagram-failure-retry design says every per-item useState and
+    // useRef is enumerated so a member added later fails by default. A guard
+    // making that claim is exactly what AGENTS.md's convergence criterion says
+    // to score BEFORE review, and this arc measured the cost of not doing so —
+    // plan review round 4 ran executed mutants by hand and found parenthesized,
+    // as-cast, non-null-asserted and computed-property declarations all escaping.
+    // Filed as LIM-UNSCORED-GUARD-OFFERED-AS-CLOSURE.
+    //
+    // Control: blinds the hook recognizer entirely, so NOTHING is enumerated and
+    // every planted-declaration case fails at once. Verified unique on the
+    // current source (`grep -c -F` = 1). Chosen over a narrower blind precisely
+    // because a control that only disables one branch could pass on a scanner
+    // that had stopped working altogether.
+    control: {
+      from: 'hookName === "useState" || hookName === "useRef"',
+      to: 'hookName === "NEVERMATCHES"',
+    },
+    accepted: [
+      {
+        // Keyed by the mutated EXPRESSION and its 1-based column, not by the line
+        // alone, per the precedent above: prettier and any later edit move lines.
+        siteId: "integer-literal:33:33:32>33",
+        kind: "equivalent",
+        reason:
+          "The ceiling's exact VALUE has no observable consequence, and that is the contract: " +
+          "the bound exists so a broken advance TERMINATES and is rejected by an assertion " +
+          "instead of by the harness wall clock, and it is specified as sitting far above any " +
+          "nesting a person writes. 32 and 33 differ only for source nested exactly 33 wrappers " +
+          "deep, which no parseable input inside this surface's threat fence -- ordinary " +
+          "authoring mistakes, corpus-shaped input -- reaches. The boundary itself IS pinned from " +
+          "both sides: a call nested exactly MAX_UNWRAP_DEPTH deep still resolves, one layer past " +
+          "it declines, and both cases DERIVE their depth from the exported constant. That " +
+          "derivation is what leaves this mutant alive, and deliberately so -- hardcoding 32 in " +
+          "the fixtures would kill it while breaking both cases the moment anyone legitimately " +
+          "retunes the ceiling, trading a real regression signal for a scoreboard point. The two " +
+          "sites that DO carry behaviour, the comparison and the step, are both killed.",
+      },
+    ],
+  },
   {
     id: "premiseScan",
     millisPerBoot: 3206,

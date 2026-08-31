@@ -132,10 +132,19 @@ function kindOfFirstCell(rawCol0: string): string | null {
   return resolved;
 }
 
-type Row = { line: string; cells: number; alignment: boolean; header: boolean };
+type Row = { line: string; index: number; cells: number; alignment: boolean; header: boolean };
 
-export function detectFusedRows(markdown: string): ParseWarning[] {
-  const warnings: ParseWarning[] = [];
+/** One fused-row hit, with the line index the emitter deliberately does not carry
+ *  (spec 2026-08-29 §2.3; the NO POSITIONAL ORDINAL note below). */
+export type FusedRowHit = { line: number; kind: string; snippet: string };
+
+/**
+ * The walker under `detectFusedRows`: same traversal, same abstentions, same order, plus
+ * the line index of every hit for the anchor replay in `lib/drive/` to consume. The
+ * position never reaches the emitted warning.
+ */
+export function scanFusedRows(markdown: string): FusedRowHit[] {
+  const hits: FusedRowHit[] = [];
   const lines = markdown.split("\n");
 
   let section: Row[] = [];
@@ -153,12 +162,12 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
   // Measured cost on real input: ZERO. Across the 17 registry fixtures there are 514 pipe
   // runs and NONE contains two delimiter-shaped rows — real sheets separate their tables
   // with a blank line, which starts a new run. This is a §5.3 abstention, not a gap.
-  let runWarnings: ParseWarning[] = [];
+  let runHits: FusedRowHit[] = [];
   let runDelimiters = 0;
   let runAmbiguous = false;
   const closeRun = (): void => {
-    if (!runAmbiguous) warnings.push(...runWarnings);
-    runWarnings = [];
+    if (!runAmbiguous) hits.push(...runHits);
+    runHits = [];
     runDelimiters = 0;
     runAmbiguous = false;
   };
@@ -187,18 +196,12 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
     for (const r of data) {
       if (r.cells !== modal - 1) continue;
-      runWarnings.push({
-        severity: "warn",
-        code: "ROW_CELLS_FUSED",
-        message:
-          "A row in this section has one fewer column than its neighbors, which is how a merged cell exports.",
-        blockRef: { kind: sectionKind },
-        rawSnippet: r.line.trim(),
-      });
+      runHits.push({ line: r.index, kind: sectionKind, snippet: r.line.trim() });
     }
   };
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]!;
     const start = firstNonSpace(line);
     const isRow = start !== -1 && line.charCodeAt(start) === 124; /* "|" */
 
@@ -230,7 +233,13 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
       }
       if (section.length === 0)
         sectionKind = kindOfFirstCell(firstCell(line)) ?? GENERIC_SECTION_KIND;
-      section.push({ line, cells: info.cells, alignment: info.alignment, header: false });
+      section.push({
+        line,
+        index: lineIndex,
+        cells: info.cells,
+        alignment: info.alignment,
+        header: false,
+      });
       continue;
     }
 
@@ -252,5 +261,16 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
   }
   flush();
   closeRun();
-  return warnings;
+  return hits;
+}
+
+export function detectFusedRows(markdown: string): ParseWarning[] {
+  return scanFusedRows(markdown).map((h) => ({
+    severity: "warn",
+    code: "ROW_CELLS_FUSED",
+    message:
+      "A row in this section has one fewer column than its neighbors, which is how a merged cell exports.",
+    blockRef: { kind: h.kind },
+    rawSnippet: h.snippet,
+  }));
 }

@@ -143,7 +143,13 @@ const PAGE_COMPONENT_COUNTS: Record<string, number> = {
   // separator, and its own 99+ sr-only cap expansion — the same three shapes the
   // issues and monitoring segments already carry. All follow derived counts; no
   // AnimatePresence, no enter/exit. MEASURED by running the scanner.
-  "components/admin/showpage/PublishedReviewModal.tsx": 11,
+  // 11 -> 12 (fix/pill-size-draft-restored-note, the invariant-8 gate's P0): the
+  // sheet-warnings segment gains its OWN leading mark, guarded on
+  // `needsYou.length > 0` so it never doubles the pill's leading mark. One more
+  // instant omit/mount following a derived count, the same shape as the
+  // monitoring segment's mark it mirrors. No AnimatePresence, no enter/exit.
+  // MEASURED by running the scanner, not predicted.
+  "components/admin/showpage/PublishedReviewModal.tsx": 12,
   // attention split 2026-07-21 §8: AttentionMenu enters the audit registry with
   // its new clearing groups (needs-a-look rows: subtitle, hint, action anchor,
   // external arrow; monitoring summary; group wrappers). Every site is an

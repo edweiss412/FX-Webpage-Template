@@ -118,10 +118,30 @@ function App() {
   const overrides: HarnessStateOverrides = {
     attentionItems: buildItems(state.a, state.n, state.s, state.longTitles),
     alertsDegraded: state.degraded,
-    // Passed ONLY when a code is set, so the DEFAULT tree is byte-identical
-    // (AC-10). The other two consumers of this entry — attention-pill-focus.spec.ts
-    // and sheetIconLinkContainment.test.ts — never call __setRefusal, so they
-    // see exactly the tree they saw before this field existed.
+    // Passed ONLY when set, so the DEFAULT tree is byte-identical (AC-10).
+    // The consumer census, taken from disk on 2026-08-30 rather than from
+    // memory: TWO other e2e suites bundle and DRIVE this entry --
+    // attention-pill-focus.spec.ts and popover-clip-fit.spec.ts -- and neither
+    // calls __setRefusal or __setCrewWarnings, so both see exactly the tree
+    // they saw before these fields existed. A third consumer,
+    // tests/components/admin/sheetIconLinkContainment.test.ts, does not render
+    // this entry at all: it SCANS this file's source and pins the count of the
+    // Google Sheets URL literal, so it is sensitive to that literal rather
+    // than to the rendered tree. An earlier version of this comment named two
+    // consumers when three existed, and miscategorised one of them.
+    //
+    // DOCUMENTED LIMIT (spec 2026-08-30 AC-2b, probed 2026-08-30): this entry
+    // CANNOT render the pill's sheet-warnings segment, so the pill's
+    // three-segment worst case is unreachable here. `withCrewWarnings` makes
+    // the harness build the real section warning model, which reaches
+    // `node:crypto` through report surface ids and is subprocess-only; a
+    // browser bundle throws and the whole modal fails to render. Probed by
+    // adding the opt-in setter and watching all seven cases in
+    // attention-autoopen-suppress.spec.ts fail with the panel absent. The
+    // occlusion cases therefore run at the tallest load this entry CAN reach,
+    // `6 issues · 3 monitoring`. Re-file trigger: the next arc touching the
+    // attention pill's hit band, or any change that makes the warning model
+    // bundle-safe.
     ...(refusalCode !== null
       ? { setPublished: async () => ({ ok: false as const, code: refusalCode }) }
       : {}),
