@@ -24,6 +24,7 @@ import {
   TelemetryRetryButton,
   TELEMETRY_RETRY_TEXT,
   retryAnnouncement,
+  retryOutcomeAnnouncement,
   retryLabel,
 } from "@/components/admin/telemetry/TelemetryRetryButton";
 
@@ -31,7 +32,11 @@ import {
 // this file owns the control's contract, which is the same at every site.
 const WHAT = "scheduled-job health";
 const TEST_ID = "cron-health-retry";
-const renderControl = () => render(<TelemetryRetryButton what={WHAT} testId={TEST_ID} />);
+// An arbitrary finite instant for the cases that do not care about the value. The
+// outcome cases name their own, because for them the value IS the subject.
+const RENDERED_AT = 1_000;
+const renderControl = (renderedAt: number = RENDERED_AT) =>
+  render(<TelemetryRetryButton what={WHAT} testId={TEST_ID} renderedAt={renderedAt} />);
 
 afterEach(() => {
   cleanup();
@@ -135,6 +140,154 @@ describe("TelemetryRetryButton", () => {
     for (const ns of ["window", "location", "history", "document"]) {
       expect(new RegExp(`\\b${ns}\\b`).test(src), `${rel} reaches for ${ns}`).toBe(false);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // The outcome half (TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1). A tap records the
+  // timestamp it saw; a later render carrying a DIFFERENT one means a server re-read
+  // completed and this branch still failed, which is a settled outcome worth saying.
+  // Success needs no case here: it unmounts the control with its branch.
+  // ---------------------------------------------------------------------------
+
+  const rerenderAt = (view: ReturnType<typeof render>, renderedAt: number) =>
+    view.rerender(<TelemetryRetryButton what={WHAT} testId={TEST_ID} renderedAt={renderedAt} />);
+
+  test("a changed timestamp after a tap announces the outcome, once", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 2_000);
+    expect(statusText()).toContain("Still couldn’t load scheduled-job health");
+
+    // Once: the baseline cleared with the announcement, so a further changed value
+    // says nothing new until the next tap.
+    const settled = statusText();
+    rerenderAt(view, 3_000);
+    expect(statusText()).toBe(settled);
+  });
+
+  test("a changed timestamp with no tap in flight announces nothing", () => {
+    const view = renderControl(1_000);
+    rerenderAt(view, 2_000);
+    expect(statusText()).toBe("");
+  });
+
+  test("an unchanged timestamp after a tap leaves the intent standing", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    const intent = statusText();
+    premise("the tap announced the intent", intent.length, 0);
+    rerenderAt(view, 1_000);
+    expect(statusText()).toBe(intent);
+  });
+
+  // Zero is a valid instant on BOTH sides of the comparison. A truthiness test in
+  // place of either finite check compiles, passes every other case here, and
+  // silently drops the announcement for an epoch-zero render.
+  test("zero is a valid instant at the tap", () => {
+    const view = renderControl(0);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 1_000);
+    expect(statusText()).toContain(retryOutcomeAnnouncement(WHAT));
+  });
+
+  test("zero is a valid instant at the settlement", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 0);
+    expect(statusText()).toContain(retryOutcomeAnnouncement(WHAT));
+  });
+
+  // The whole non-finite domain, not NaN alone: `!Number.isNaN(x)` is strict-clean,
+  // passes a NaN-only case, and accepts ±Infinity as a completed server render.
+  const NON_FINITE = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+
+  test("a non-finite timestamp at the tap records no baseline", () => {
+    for (const value of NON_FINITE) {
+      const view = renderControl(value);
+      fireEvent.click(screen.getByTestId(TEST_ID));
+      expect(statusText()).toContain(retryAnnouncement(WHAT));
+      rerenderAt(view, 5_000);
+      expect(statusText(), `${String(value)} recorded a baseline`).not.toContain(
+        retryOutcomeAnnouncement(WHAT),
+      );
+      cleanup();
+    }
+  });
+
+  test("a non-finite timestamp arriving never settles the outcome", () => {
+    for (const value of NON_FINITE) {
+      const view = renderControl(1_000);
+      fireEvent.click(screen.getByTestId(TEST_ID));
+      rerenderAt(view, value);
+      expect(statusText(), `${String(value)} settled the outcome`).not.toContain(
+        retryOutcomeAnnouncement(WHAT),
+      );
+      cleanup();
+    }
+  });
+
+  // The rule is ANY difference, never an ordering test: a server clock correction
+  // moves the value backwards and that render still settled a re-read. A fixture
+  // that only ever moves forward cannot see `renderedAt > baseline`.
+  test("a decreasing timestamp settles the outcome too", () => {
+    const view = renderControl(2_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 1_000);
+    expect(statusText()).toContain(retryOutcomeAnnouncement(WHAT));
+  });
+
+  // The property AC-6 actually states, walked rather than predicted. Asserting parity
+  // arithmetic about a particular pair is a claim about the implementation and goes
+  // stale with it; this reads what rendered. Each step declares whether it should
+  // SPEAK, and the two halves are asserted separately: a speaking step must change the
+  // region text (an identical re-render is silence to a screen reader), and a silent
+  // step must leave it exactly as it was. Recording only the changes would make the
+  // first half true by construction.
+  test("every announcement in a mixed sequence differs from the one before it", () => {
+    const view = renderControl(1_000);
+    let previous = statusText();
+    const step = (label: string, speaks: boolean, act: () => void) => {
+      act();
+      const current = statusText();
+      if (speaks) {
+        expect(current, `${label} repeated its predecessor verbatim`).not.toBe(previous);
+      } else {
+        expect(current, `${label} spoke when it should have been silent`).toBe(previous);
+      }
+      previous = current;
+    };
+    const tap = (label: string) =>
+      step(label, true, () => fireEvent.click(screen.getByTestId(TEST_ID)));
+
+    tap("first tap");
+    // Two intents in a row carry identical text, so this is the one pair the parity
+    // separator alone can distinguish.
+    tap("second tap, same text as the first");
+    step("the re-read that settled", true, () => rerenderAt(view, 2_000));
+    tap("tap after an outcome");
+    step("the second re-read that settled", true, () => rerenderAt(view, 3_000));
+    // The baseline cleared with the previous announcement, so this one has nothing to
+    // report and must not re-speak the outcome.
+    step("a further render with no tap in flight", false, () => rerenderAt(view, 4_000));
+  });
+
+  // The separator is U+00A0 specifically. An ordinary trailing space is textually
+  // distinct too, so an inequality-only check would accept it while abandoning the
+  // mechanism the sibling precedent uses (ShowRowActions.tsx:608).
+  test("the parity separator is a non-breaking space", () => {
+    renderControl();
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    const first = statusText();
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    const second = statusText();
+    const [plain, suffixed] = first.length <= second.length ? [first, second] : [second, first];
+    expect(plain).toBe(retryAnnouncement(WHAT));
+    expect(suffixed).toBe(`${retryAnnouncement(WHAT)} `);
+  });
+
+  test("the intent and outcome strings differ", () => {
+    expect(retryOutcomeAnnouncement(WHAT)).not.toBe(retryAnnouncement(WHAT));
+    expect(retryOutcomeAnnouncement(WHAT)).toContain(WHAT);
   });
 
   // The prop pair exists so a call site cannot spell the label and the announcement

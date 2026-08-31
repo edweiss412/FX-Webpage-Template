@@ -31,6 +31,19 @@
  * failed attempt is heard at all: repeating an identical string into a live region is
  * silence (`components/admin/ShowRowActions.tsx:608` uses the same trick).
  *
+ * The OUTCOME half (TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1). `router.refresh()` hands
+ * back no completion signal, so the only honest one is a value the SERVER render
+ * changes: `renderedAt` is the timestamp of the render that produced this fallback. A
+ * tap records what it saw; a later render carrying a different value means a server
+ * re-read completed and this branch STILL failed, which is a settled outcome. The
+ * baseline clears with the announcement, so later renders stay quiet until the next tap.
+ * Success needs nothing here, since it unmounts this control with its branch.
+ *
+ * Any difference settles it, in either direction, never an ordering test: a clock
+ * correction can move the value backwards and that render still re-read. Both guards
+ * are `Number.isFinite` rather than truthiness or an `isNaN` test, because zero is a
+ * valid instant and ±Infinity is not a completed render.
+ *
  * `what` is a noun phrase naming the thing being re-read, and all three strings derive
  * from it, so a call site cannot spell the label and the announcement differently.
  */
@@ -47,10 +60,32 @@ export const TELEMETRY_RETRY_TEXT = "Try again";
  *  retried, for someone who lands on the control out of context. */
 export const retryLabel = (what: string) => `${TELEMETRY_RETRY_TEXT} to load ${what}`;
 export const retryAnnouncement = (what: string) => `Retrying ${what}`;
+/** Said when a re-read completed and the fallback is still standing. */
+export const retryOutcomeAnnouncement = (what: string) => `Still couldn\u2019t load ${what}`;
 
-export function TelemetryRetryButton({ what, testId }: { what: string; testId: string }) {
+export function TelemetryRetryButton({
+  what,
+  testId,
+  renderedAt,
+}: {
+  what: string;
+  testId: string;
+  renderedAt: number;
+}) {
   const router = useRouter();
-  const [attempts, setAttempts] = useState(0);
+  const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>({
+    text: "",
+    seq: 0,
+  });
+  const [baseline, setBaseline] = useState<number | null>(null);
+
+  // Adjusted DURING render rather than in an effect, so the outcome text and the
+  // cleared baseline land in the same commit as the prop that settled them. The
+  // inequality guard is what makes it terminate: the very update clears the baseline.
+  if (baseline !== null && Number.isFinite(renderedAt) && renderedAt !== baseline) {
+    setBaseline(null);
+    setAnnouncement((prev) => ({ text: retryOutcomeAnnouncement(what), seq: prev.seq + 1 }));
+  }
 
   return (
     <>
@@ -59,7 +94,8 @@ export function TelemetryRetryButton({ what, testId }: { what: string; testId: s
         data-testid={testId}
         aria-label={retryLabel(what)}
         onClick={() => {
-          setAttempts((n) => n + 1);
+          setAnnouncement((prev) => ({ text: retryAnnouncement(what), seq: prev.seq + 1 }));
+          if (Number.isFinite(renderedAt)) setBaseline(renderedAt);
           router.refresh();
         }}
         className={cn(
@@ -78,11 +114,11 @@ export function TelemetryRetryButton({ what, testId }: { what: string; testId: s
         {TELEMETRY_RETRY_TEXT}
       </button>
       <span role="status" aria-live="polite" className="sr-only" data-testid={`${testId}-status`}>
-        {attempts === 0
+        {announcement.seq === 0
           ? ""
-          : attempts % 2 === 1
-            ? retryAnnouncement(what)
-            : `${retryAnnouncement(what)}\u00A0`}
+          : announcement.seq % 2 === 1
+            ? announcement.text
+            : `${announcement.text}\u00A0`}
       </span>
     </>
   );
