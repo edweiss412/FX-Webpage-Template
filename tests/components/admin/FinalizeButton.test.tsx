@@ -1593,3 +1593,83 @@ describe("FinalizeButton — the CAS phase reads as working", () => {
     expect(casBar.getAttribute("aria-label")).toBe("Show setup progress");
   });
 });
+
+describe("FinalizeButton — every CAS sub-step is spoken", () => {
+  // Eric's ruling, 2026-08-31: announce each sub-step. Up to four utterances per run —
+  // CAS entry plus the three sub-phases. Not exactly four: the non-stream path and an
+  // early terminal state both end a run before every sub-phase arrives, so a floor of
+  // four would be asserting something the code does not provide.
+  //
+  // The strings are STATED here rather than derived from casPhaseLabel. The precedent
+  // is two lines from liveMessage itself: the batch heading reads "Setting up your
+  // shows…" while its announcement is "Setting up your shows". The ellipsis is a visual
+  // in-progress affordance, not speech.
+  const SPOKEN = {
+    applying: "Applying your edits",
+    publishing: "Making shows live",
+    subscribing: "Connecting your folder",
+  } as const;
+
+  const announcerText = () =>
+    (document.querySelector(".sr-only[role='status']")?.textContent ?? "").trim();
+
+  async function toCasEntry() {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />);
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 2, total: 2, name: "RPAS", driveFileId: "f2" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    return { ...view, cas };
+  }
+
+  // DERIVED from the phase union rather than written out, so a fourth FinalizeCasPhase
+  // added later fails here instead of arriving uncovered.
+  test.each(Object.keys(SPOKEN) as (keyof typeof SPOKEN)[])(
+    "the CAS sub-phase %s is announced",
+    async (phase) => {
+      const { cas } = await toCasEntry();
+      // PREMISE: CAS entry announces once, before any sub-phase event. This is also the
+      // null-phase branch of AC-8 — an implementation returning "" for a null casPhase
+      // would pass every sub-phase case below while never announcing entry at all.
+      expect(announcerText(), "premise: CAS entry is announced once").toBe("Finishing setup");
+      await act(async () => {
+        cas.push({ type: "phase", phase });
+      });
+      expect(announcerText()).toBe(SPOKEN[phase]);
+    },
+  );
+
+  test("the announcer says nothing once the run ends", async () => {
+    // This case does not exist elsewhere and the repair is exactly what would introduce
+    // the defect it catches. The shipped completion assertion only forbids the
+    // COMPLETION SENTENCE in the local announcer, so a fold that returned a stale
+    // sub-phase after the run would pass it while a screen reader announced a step that
+    // had already finished.
+    const { cas } = await toCasEntry();
+    await act(async () => {
+      cas.push({ type: "phase", phase: "subscribing" });
+    });
+    expect(announcerText(), "premise: a sub-phase was being announced").toBe(
+      "Connecting your folder",
+    );
+    await act(async () => {
+      cas.push({
+        type: "result",
+        body: { status: "complete", wizard_session_id: WIZARD_SESSION_ID },
+      });
+      cas.close();
+    });
+    expect(
+      announcerText(),
+      "liveMessage must be empty for every non-running state — a stale sub-phase here is a screen reader announcing a step that already completed",
+    ).toBe("");
+  });
+});

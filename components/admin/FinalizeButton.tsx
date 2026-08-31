@@ -143,6 +143,21 @@ export function casPhaseLabel(phase: FinalizeCasPhase | null): string {
   }
 }
 
+/**
+ * What a screen reader SAYS for each CAS sub-step.
+ *
+ * Stated, not derived from `casPhaseLabel`. The precedent is two lines from
+ * `liveMessage` itself: the batch phase's visible heading is "Setting up your shows…"
+ * while its announcement is "Setting up your shows". The ellipsis is a visual
+ * in-progress affordance, not speech. Deriving one from the other with a regex would
+ * break the next time someone edits either, and the two are allowed to diverge.
+ */
+const CAS_ANNOUNCEMENT: Record<FinalizeCasPhase, string> = {
+  applying: "Applying your edits",
+  publishing: "Making shows live",
+  subscribing: "Connecting your folder",
+};
+
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
   if (!(code in MESSAGE_CATALOG)) return null;
@@ -507,9 +522,19 @@ export function useFinalizeRun({
   const liveMessage =
     state.kind === "running"
       ? state.phase === "cas"
-        ? "Finishing setup"
+        ? // Null phase = CAS entry, before the first phase event: announce the step
+          // once, then each sub-step as it arrives. UP TO four utterances per run, not
+          // exactly four — the non-stream path and an early terminal state both end a
+          // run before every sub-phase lands.
+          state.casPhase
+          ? CAS_ANNOUNCEMENT[state.casPhase]
+          : "Finishing setup"
         : "Setting up your shows"
-      : "";
+      : // Empty for every NON-RUNNING state, and that is load-bearing: a stale
+        // sub-phase here is a screen reader announcing a step that already finished.
+        // Completion itself goes through the announce channel, never this region
+        // (see the header above), so keeping both would speak one sentence twice.
+        "";
 
   // The in-flight button label: while running, the Publish trigger stays put but
   // steps into a disabled "Setting up…" (or "Finishing setup…" during the CAS
