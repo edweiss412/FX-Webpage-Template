@@ -35,7 +35,7 @@ import {
   AnnounceLogRegion,
   useAnnounceLog,
 } from "@/components/admin/announceLog";
-import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
+import { GalleryLightbox, type RetryPhase } from "@/components/diagrams/GalleryLightbox";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
@@ -123,7 +123,7 @@ export function Gallery({
   // Task 2 (spec §4). `failedKeys` stops being the whole story: an item is now
   // idle, failed, or retrying, and `item.available` is a conjunct of all three
   // so none can overlap the parse-time `unavailable` branch.
-  const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
+  const [retryPhase, setRetryPhase] = useState<ReadonlyMap<string, RetryPhase>>(() => new Map());
   // The in-flight controls, so focus can be handed to one. The failed control
   // UNMOUNTS as the overlay mounts, so without this hand-off focus falls to
   // `<body>` -- outside anything -- which is precisely the §7.1 defect this arc
@@ -260,7 +260,7 @@ export function Gallery({
     if (id === null) return;
     focusRetryingRef.current = null;
     retryingRefs.current.get(id)?.focus();
-  }, [retrying]);
+  }, [retryPhase]);
 
   // ── The focus rescue, ONE mechanism for EVERY removal path (R2 finding 1) ──
   //
@@ -306,7 +306,7 @@ export function Gallery({
     if (id === null) return;
     focusThumbRef.current = null;
     thumbRefs.current.get(id)?.focus();
-  }, [retrying]);
+  }, [retryPhase]);
 
   // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
   //
@@ -364,17 +364,17 @@ export function Gallery({
   // one site. Stated here rather than left implicit, because repairing this
   // class per site is exactly what produced this finding.
   const abandoned: string[] = [];
-  const sweptRetrying = (() => {
+  const sweptRetryPhase = (() => {
     let changed = false;
-    const next = new Set<string>();
-    for (const id of retrying) {
-      if (renderedIds.has(id)) next.add(id);
+    const next = new Map<string, RetryPhase>();
+    for (const [id, phase] of retryPhase) {
+      if (renderedIds.has(id)) next.set(id, phase);
       else {
         changed = true;
         if (liveIds.has(id)) abandoned.push(id);
       }
     }
-    return changed ? next : retrying;
+    return changed ? next : retryPhase;
   })();
   // The two writes are ordered and the order matters: `sweptFailed` drops ids
   // whose items are gone, and the abandoned ids are then added back on top. An
@@ -389,7 +389,7 @@ export function Gallery({
           return next;
         })();
   if (restoredFailed !== failedKeys) setFailedKeys(restoredFailed);
-  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
+  if (sweptRetryPhase !== retryPhase) setRetryPhase(sweptRetryPhase);
   if (items.length === 0) return null;
 
   const showAll = expanded || items.length <= INITIAL_VISIBLE;
@@ -459,10 +459,10 @@ export function Gallery({
       next.delete(item.id);
       return next;
     });
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (prev.has(item.id)) return prev;
-      const next = new Set(prev);
-      next.add(item.id);
+      const next = new Map(prev);
+      next.set(item.id, "pending");
       return next;
     });
   };
@@ -488,9 +488,9 @@ export function Gallery({
     if (overlay && document.activeElement === overlay) {
       focusFailedRef.current = item.id;
     }
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (!prev.has(item.id)) return prev;
-      const next = new Set(prev);
+      const next = new Map(prev);
       next.delete(item.id);
       return next;
     });
@@ -518,9 +518,9 @@ export function Gallery({
     if (overlay !== null && document.activeElement === overlay) {
       focusThumbRef.current = item.id;
     }
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (!prev.has(item.id)) return prev;
-      const next = new Set(prev);
+      const next = new Map(prev);
       next.delete(item.id);
       return next;
     });
@@ -620,7 +620,7 @@ export function Gallery({
         aria-label="Diagrams gallery thumbnails"
       >
         {visible.map((item, i) => {
-          const isRetrying = sweptRetrying.has(item.id);
+          const isRetrying = sweptRetryPhase.has(item.id);
           // `failed` excludes `retrying` (spec §4): the states are disjoint, so
           // the render picks exactly one branch.
           const runtimeFailed = sweptFailed.has(item.id) && !isRetrying;

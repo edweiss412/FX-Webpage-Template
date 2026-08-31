@@ -272,13 +272,17 @@ stays, asserting the phase sequence, so a regression that reintroduces a second 
 gesture is reachable: press Restart with the check-in on screen, then invoke the already-fired
 callback's successor, and assert the fresh `pending` window is a full `RETRY_CHECK_IN_MS`.
 
-**AC-17, the transposed closed-set pin.** Add a new suite `retryWriterSetPin` under `tests/components/diagrams/`, created by this task and so
-tracked only after it lands, named here and RUN by this task's command, which an earlier draft did
-neither. It walks both
-component sources for every write to the phase map and asserts each either
+**AC-17, the transposed closed-set pin, EXTENDED here rather than created.** Task 2 creates
+`retryWriterSetPin` alongside the shape change, because that is where both its red and its green
+live. This task extends it, and the split is not bookkeeping: at Task 2 the writers exist but only
+some CONDITION on the current phase, so a blanket `prev.get` requirement would fail writers that
+legitimately need nothing but `.has`. Restart's writer is the first that must read the phase before
+acting, so the guard assertion lands with it.
 
-- uses the functional form AND its body reads `prev.get(...)` before writing, or
-- carries a stated render-sweep exemption naming why it cannot
+Task 2 asserts the functional `new Map(prev)` form and the enumerated writer count. This task adds:
+
+- every writer that CONDITIONS on the current phase reads it from `prev`, never from a captured value
+- the two render-body writers (`Gallery.tsx:392`, `GalleryLightbox.tsx:861`) carry a stated exemption
 
 The `prev.get` requirement is not decoration. Review round 3 showed that "any functional update"
 accepts `setRetryPhase(prev => new Map(prev).set(id, "checked-in"))`, which omits the guard entirely

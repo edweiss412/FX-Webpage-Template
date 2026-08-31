@@ -145,6 +145,22 @@ export const DEMOTE_CHIP_VISIBLE_MS = 6000;
  */
 export const RETRY_CHECK_IN_MS = 30_000;
 
+/**
+ * A retry's phase, per item.
+ *
+ * ONE value per item rather than several parallel sets, and that is the whole
+ * design. Earlier drafts of this arc carried `retrying`, `checkedIn` and
+ * `restarting` as three `ReadonlySet<string>` and then had to defend an invariant
+ * saying no id appears in two of them. Review found two violations of it, both
+ * silent. A single value makes the invariant unrepresentable instead of guarded.
+ *
+ * It also gives the check-in timer somewhere honest to read from: its callback is
+ * one functional update whose `prev` is live by React's contract, so it can ask
+ * `prev.get(id) === "pending"` and no-op when the item is gone or already
+ * resolved. Spec: docs/superpowers/specs/2026-08-31-retry-check-in-design.md.
+ */
+export type RetryPhase = "pending" | "checked-in" | "restarting";
+
 function isZoomed(scale: number): boolean {
   return scale > ZOOM_THRESHOLD;
 }
