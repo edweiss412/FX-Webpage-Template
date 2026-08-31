@@ -298,6 +298,20 @@ describe("TelemetryRetryButton", () => {
     expect(new Set(ids).size).toBe(2);
   });
 
+  // The cadence spec section 3.7 states, which is one outcome per settled CYCLE and not
+  // one per tap or one per server response. A double tap arms one baseline; the first
+  // differing render answers it and disarms, so a second response has nothing
+  // outstanding to answer and is silent. Its answer would be the same answer.
+  test("a double tap that provokes two responses hears one outcome, not two", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 2_000);
+    rerenderAt(view, 3_000);
+    const outcomes = announcements().filter((t) => t === retryOutcomeAnnouncement(WHAT));
+    expect(outcomes).toHaveLength(1);
+  });
+
   // The pruning rule, both halves. Impatient taps inside ONE cycle must accumulate, or a
   // text-diffing assistive technology hears the second one as nothing (the silence the
   // deleted parity trick used to work around); a settled cycle must be cleared by the
