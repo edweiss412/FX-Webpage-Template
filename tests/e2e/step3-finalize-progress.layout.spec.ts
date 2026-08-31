@@ -308,3 +308,145 @@ test("engine: the reduced-motion override survives this engine's selector parser
     expect(s, "the parsed rule must be single-vendor").not.toContain("-moz-progress-bar");
   }
 });
+
+const FOOTER_CENTER = '[data-testid="wizard-step3-footer-center"]';
+const TRACKING = '[data-testid="wizard-step3-tracking"]';
+const HEADING = '[data-testid="wizard-step3-tracking-heading"]';
+
+/**
+ * Drive the compact renderer into the running batch phase and wait for it, per the
+ * harness readiness gate: the window hook first, then the renderer's own testid, then
+ * the element each push mutates.
+ */
+async function runningCompact(page: Page, done: number, total: number) {
+  await page.goto(baseUrl + "live.html?r=compact");
+  await page.waitForFunction(() => typeof window.__setCounts === "function");
+  await page.getByTestId("wizard-finalize-button").click();
+  await page.evaluate(([d, t]) => window.__setCounts?.(d as number, t as number), [done, total]);
+  await page.locator(HEADING).waitFor();
+  // Wait for the element the PUSH creates, not just the one the phase change does.
+  // The heading renders in the running state whether or not any row event has landed,
+  // so awaiting it alone returns before `state.total > 0` and the count element does
+  // not exist yet — which surfaced as "no count element beside the heading", and only
+  // in the full-file run, where the timing differed from running this test alone.
+  await page.locator(`${TRACKING} .shrink-0`).waitFor();
+}
+
+test("the compact tracking reaches its running state", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 720 });
+  await runningCompact(page, 1, 2);
+  await expect(page.locator(TRACKING)).toBeVisible();
+  await expect(page.locator(FOOTER_CENTER)).toBeVisible();
+  expect(await page.locator(HEADING).textContent()).toContain("Setting up your shows");
+});
+
+/**
+ * One evaluate per sample. Two Locator reads would let actionability scroll between
+ * them, and a scrolled read is a different rect.
+ *
+ * `oneLineHeight` is measured on THIS page from a probe span carrying the heading's own
+ * computed font, so the single-line test compares against a measured baseline rather
+ * than a hardcoded pixel value.
+ *
+ * NOT getClientRects().length. Measured while designing this: a wrapped heading in this
+ * flex row reports ONE rect while standing 34px tall, because the span is a flex item
+ * and its rect is the border box, not a line box. A rect-count assertion reads 1 for a
+ * two-line heading and passes exactly where it must fail.
+ */
+async function sampleFooter(page: Page, countText: string | null) {
+  return page.evaluate((text) => {
+    const footer = document.querySelector('[data-testid="wizard-step3-footer-center"]');
+    const tracking = document.querySelector('[data-testid="wizard-step3-tracking"]');
+    const heading = document.querySelector('[data-testid="wizard-step3-tracking-heading"]');
+    if (!footer || !tracking || !heading) throw new Error("compact tracking is not mounted");
+
+    if (text !== null) {
+      // The count is the heading row's only shrink-0 node; the shipped element carries
+      // no testid of its own. Selected within the heading's own row, so a shrink-0
+      // elsewhere in the footer cannot be picked up by mistake.
+      const count = heading.parentElement?.querySelector(".shrink-0");
+      if (!count) throw new Error("no count element beside the heading");
+      count.textContent = text;
+    }
+
+    const cs = getComputedStyle(heading);
+    const probe = document.createElement("span");
+    probe.textContent = "Mg";
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${cs.font}`;
+    document.body.appendChild(probe);
+    const oneLineHeight = probe.getBoundingClientRect().height;
+    probe.remove();
+
+    const h = (el: Element) => el.getBoundingClientRect().height;
+    return {
+      footerHeight: h(footer),
+      trackingHeight: h(tracking),
+      headingHeight: h(heading),
+      oneLineHeight,
+      countText: (heading.parentElement?.querySelector(".shrink-0")?.textContent ?? "").trim(),
+    };
+  }, countText);
+}
+
+const LADDER = [
+  { done: 1, total: 2 },
+  { done: 9, total: 12 },
+  { done: 12, total: 12 },
+  { done: 99, total: 120 },
+  { done: 120, total: 120 },
+  // Deliberately past any plausible folder: state.total is unbounded (it accumulates
+  // across batches), so the ladder must probe beyond the realistic range to say
+  // anything about the guarantee rather than about the counts that happened to be
+  // sampled.
+  // MEASURED 2026-08-31, at 375px against the real footer: every rung above holds one
+  // line WITHOUT the truncate fix, and so does 999/9999/99999. The heading only wraps at
+  // six digits. So the noun fits at every count anyone will ever see, and this last rung
+  // is the only one that can be red — it exists because `state.total` is unbounded
+  // (it accumulates across batches from the Drive folder's file count), and a ladder of
+  // reachable values authorizes nothing about the value above it. The fix converts a
+  // measured property into a structural one; this rung is what proves it did.
+  { done: 999999, total: 999999 },
+] as const;
+
+test("the compact heading holds one line at 375px at any count", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 720 });
+  await runningCompact(page, 1, 2);
+
+  const rows: string[] = [];
+  for (const { done, total } of LADDER) {
+    const bare = `${done} of ${total}`;
+    const withNoun = `${bare} show${total === 1 ? "" : "s"}`;
+
+    const b = await sampleFooter(page, bare);
+    // PREMISE, on this rung's OWN inputs: the bare form must render one line before the
+    // noun is added, or the comparison below is between two already-broken states.
+    expect(b.headingHeight, `premise: ${bare} renders a one-line heading`).toBeLessThanOrEqual(
+      b.oneLineHeight + 0.5,
+    );
+    expect(b.countText, `premise: the bare count actually rendered`).toBe(bare);
+
+    const n = await sampleFooter(page, withNoun);
+    // PREMISE: the two samples must differ in text. Without this a harness bug that
+    // rendered the bare count twice reports equal heights and passes.
+    expect(n.countText, `premise: the noun-bearing count differs from the bare one`).toBe(withNoun);
+
+    rows.push(
+      `| ${withNoun} | ${b.footerHeight.toFixed(1)} | ${n.footerHeight.toFixed(1)} | ` +
+        `${b.headingHeight.toFixed(1)} | ${n.headingHeight.toFixed(1)} | ${n.oneLineHeight.toFixed(1)} |`,
+    );
+
+    expect(
+      n.headingHeight,
+      `the heading must hold ONE line with the noun at ${withNoun}`,
+    ).toBeLessThanOrEqual(n.oneLineHeight + 0.5);
+    expect(n.footerHeight, `the footer height must not move at ${withNoun}`).toBe(b.footerHeight);
+  }
+
+  console.log(
+    [
+      "| count | footer bare | footer + noun | heading bare | heading + noun | one line |",
+      "| --- | --- | --- | --- | --- | --- |",
+      ...rows,
+    ].join("\n"),
+  );
+});

@@ -254,7 +254,17 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
         <>
           <div className="flex items-baseline justify-between gap-2">
             <span
-              className="font-semibold text-text-strong"
+              // min-w-0 + truncate: a flex item defaults to min-width:auto and will not
+              // shrink below its content, so without these the heading is the item that
+              // yields when the count grows, and it yields by WRAPPING — which grows the
+              // sticky footer whose height the 2026-08-29 spec proves invariant. The
+              // heading is fixed copy and the count is the variable one, so the heading
+              // is the correct thing to truncate. Measured at 375px: this never engages
+              // below a six-digit count, so it changes nothing anyone will see; it makes
+              // the one-line guarantee structural instead of a property of the counts
+              // that happened to be sampled, which matters because state.total is
+              // unbounded.
+              className="min-w-0 truncate font-semibold text-text-strong"
               data-testid="wizard-step3-tracking-heading"
               aria-hidden="true"
             >
