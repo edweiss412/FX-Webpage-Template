@@ -475,3 +475,60 @@ describe("Step3 compact tracking — the settled batch receipt in the CAS phase"
     expect(view.queryByTestId("wizard-step3-tracking-settled")).toBeNull();
   });
 });
+
+describe("Step3 compact tracking — the focused group answers 'is it still working?'", () => {
+  // Whole-diff review R1 finding 6, and the class the panel's own P3 fix left half
+  // repaired. Both renderers put focus on a named role="group" whose every visible
+  // string is aria-hidden; the panel gained aria-busy and the compact footer did not,
+  // so a virtual-cursor operator re-reading THIS group between announcements still
+  // found a named group with no perceivable state. Asserted in both phases because the
+  // group is one element spanning them and the CAS bar carries no value either.
+  test.each([
+    { phase: "batch", cas: false },
+    { phase: "cas", cas: true },
+  ])("the compact group reports busy in the $phase phase", async ({ cas: intoCas }) => {
+    const batch = controllableNdjson();
+    const casStream = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(casStream.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 1 });
+      batch.push({ type: "row", done: 1, total: 1, name: "Show 1", driveFileId: "f1" });
+    });
+    if (intoCas) {
+      await act(async () => {
+        batch.push({
+          type: "result",
+          body: {
+            status: "all_batches_complete",
+            wizard_session_id: WIZARD_SESSION_ID,
+            remaining_count: 0,
+            unresolved_manifest_count: 0,
+            per_row: [],
+          },
+        });
+        batch.close();
+      });
+    }
+    const group = view.getByTestId("wizard-step3-tracking");
+    // PREMISE: this case is reading the phase it names. Both phases render the same
+    // group element, so without this the cas row could assert against the batch phase
+    // and pass while proving nothing about the phase it is named for.
+    expect(
+      (group.textContent ?? "").includes("Finishing setup"),
+      "premise: the case must be reading the phase it names",
+    ).toBe(intoCas);
+    expect(group.getAttribute("aria-busy")).toBe("true");
+  });
+});

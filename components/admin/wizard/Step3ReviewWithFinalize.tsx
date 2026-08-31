@@ -247,6 +247,11 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
       tabIndex={-1}
       role="group"
       aria-label="Show setup progress"
+      // Same reason as the panel group's: every visible string in here is aria-hidden
+      // and the CAS bar carries no value, so a virtual-cursor operator re-reading the
+      // focused group between announcements found a named group with no perceivable
+      // state. Unconditional because this element only renders while the run is live.
+      aria-busy="true"
       data-testid="wizard-step3-tracking"
       className="flex w-full flex-col gap-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
