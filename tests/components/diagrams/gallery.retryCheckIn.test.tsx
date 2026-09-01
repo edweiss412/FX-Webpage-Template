@@ -229,6 +229,33 @@ describe("the gallery check-in at RETRY_CHECK_IN_MS", () => {
     expect(inFlight(0).textContent).toContain("Still loading");
   });
 
+  test("the check-in after Restart announces AGAIN, because it is a new window", () => {
+    renderGallery();
+    enterPending(0);
+    crossDeadline();
+    const spoken = () => announcements().filter((m) => m.includes("is still loading")).length;
+    premiseHolds(
+      "the first check-in announced, so a second one has something to differ from",
+      spoken() === 1,
+    );
+
+    act(() => {
+      fireEvent.click(inFlight(0));
+    });
+    crossDeadline();
+
+    // AC-8b already pins that the replacement gets its OWN full window. A window
+    // of its own ends in a check-in of its own, and a check-in nobody is told
+    // about is a control that silently becomes actionable: the sighted user
+    // watches the copy change, the screen-reader user hears nothing. The
+    // announced-set is keyed to the CURRENT checked-in occupancy, not to the
+    // lifetime of the id, which is why passing through `restarting` clears it.
+    expect(inFlight(0).textContent, "the second window really did check in").toContain(
+      "Still loading",
+    );
+    expect(spoken(), "and it was announced, exactly once more").toBe(2);
+  });
+
   test("AC-10: no committed frame during Restart shows the failed control, and focus never moves", () => {
     renderGallery();
     enterPending(0);

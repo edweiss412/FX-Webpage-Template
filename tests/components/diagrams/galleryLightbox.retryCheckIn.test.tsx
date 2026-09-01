@@ -253,6 +253,36 @@ describe("the lightbox check-in", () => {
     ).toHaveLength(1);
   });
 
+  test("the check-in after Restart announces AGAIN on the active slide", () => {
+    vi.useFakeTimers();
+    const said: string[] = [];
+    const { container } = open([item(1), item(2)], (m) => said.push(m));
+    failActive(container);
+    tapRetry(container);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    const spoken = () => said.filter((m) => m.includes("still loading")).length;
+    premiseHolds("the first check-in announced", spoken() === 1);
+
+    const control = overlay(container);
+    premiseHolds("the check-in is on screen, so Restart is reachable", control !== null);
+    act(() => {
+      fireEvent.click(control as HTMLElement);
+    });
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+
+    // The gallery's twin, and the same defect: the id never leaves the phase map
+    // across Restart, so an announced-set keyed on presence kept it marked and
+    // the replacement's own window ended in a silent check-in.
+    expect(overlay(container)?.textContent, "the second window really did check in").toContain(
+      "Still loading",
+    );
+    expect(spoken(), "and it was announced, exactly once more").toBe(2);
+  });
+
   test("a callback firing after the slide resolved writes nothing", async () => {
     captureCheckIns();
     const { container } = open([item(1), item(2)]);

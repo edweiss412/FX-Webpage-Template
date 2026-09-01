@@ -461,8 +461,17 @@ export function Gallery({
       clearTimeout(handle);
       timers.delete(id);
     }
+    // Keyed to the CURRENT checked-in occupancy, not to the lifetime of the id.
+    // An id that left the map is the obvious case; an id that is still HERE but
+    // no longer `checked-in` is the one that cost an accessibility gap. Restart
+    // moves it to `restarting` and a layout effect returns it to `pending`, so
+    // it never leaves the map, and an announced-set keyed on presence kept it
+    // marked. The replacement's own window then ended in a check-in nobody was
+    // told about: the sighted user watched the copy change and the
+    // screen-reader user heard nothing. AC-8b already says the replacement gets
+    // its own full window; a window of its own ends in a check-in of its own.
     for (const id of announcedCheckInRef.current) {
-      if (!sweptRetryPhase.has(id)) announcedCheckInRef.current.delete(id);
+      if (sweptRetryPhase.get(id) !== "checked-in") announcedCheckInRef.current.delete(id);
     }
   }, [sweptRetryPhase]);
 
