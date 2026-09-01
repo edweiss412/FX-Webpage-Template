@@ -228,7 +228,7 @@ tuple and so report once.
 | neither `initialCount` nor `countPromise` | ONE report, `{true,null}`: nothing will ever arrive, so the half is settled from the first render and no unsettled tuple exists | the "nothing will ever arrive" case stalling the join |
 | `initialCount` `{kind:"ok",count:2}`, no promise | ONE report, `{true,2}`: settled from the first render | a synchronous count treated as pending |
 | resolves 4, then a pathname change refetches to `7` | THREE reports, `{false,null}`, `{true,4}`, `{true,7}` | a once-only report, which is the R1 defect exactly: the parent then holds a frozen pair and announces a count the badge has moved off. Spec §3.6 prop table: "Not once-only" |
-| resolves 4, panel opened (`zeroNow` commits 0), demoted seed refetch commits 2 | FOUR reports, `{false,null}`, `{true,4}`, `{true,null}`, `{true,2}`; the LAST pair is `{settled:true, announceable:2}` | a report that stops after the first settle, which would leave AC-16 unsatisfiable from the parent (`useBellBadge.ts:205-210` to `useBellBadge.ts:111`) |
+| resolves 4, panel opened (`zeroNow` commits 0), the panel's `onOpened` refetch commits 2 | FOUR reports, `{false,null}`, `{true,4}`, `{true,null}`, `{true,2}`; the LAST pair is `{settled:true, announceable:2}` | a report that stops after the first settle, which would leave AC-16 unsatisfiable from the parent. Named as the ONOPENED route, not the demoted-seed one: a seed that already resolved cannot also demote, so the row as first written described a mechanism its own ordering excluded. The demoted-seed route is Task 3's, where the seed is still in flight when the panel opens |
 | resolves `{kind:"infra_error"}` (degraded), then a later fetch succeeds with 5 | THREE reports, `{false,null}`, `{true,null}` under degraded, `{true,5}` when `degraded` clears | a degraded latch, which would silence AC-17 forever (`useBellBadge.ts:112`) |
 | panel opened before the promise resolves | TWO reports, `{false,null}` then `{true,null}`. `zeroNow` commits 0 and `bellAnnounceableCount(0,false)` is `null`, so the ANNOUNCEABLE value is `null`, never the number `0` | reporting the raw count instead of the selector output, which would announce "0 unseen notifications" |
 | prop absent | no throw; every existing NotifBell behavior holds (AC-9) | a required-prop regression on the four existing call sites |
@@ -313,7 +313,7 @@ bypassed.
 | AC-11 | bell panel opened mid-pending, then both resolve | the bell sentence surviving a `zeroNow()` |
 | AC-11 | bell settles 4, THEN the panel opens (count stays 0), THEN attention settles 3 | the second of AC-11's two required timings. The drafted table carried only the mid-pending one while the plan claimed both, so this row is what makes that claim true |
 | AC-12 | source assertion on the onboarding branch | the onboarding chrome gaining a nav |
-| AC-16 | both pending, panel opened (`zeroNow` commits 0), the demoted seed refetch commits 2, THEN attention settles 3 | a frozen bell value: the entry must read "2 unseen notifications. 3 items need attention.", not 0 and not the pre-zero seed |
+| AC-16 | both pending, panel opened (`zeroNow` commits 0) while the seed is STILL IN FLIGHT, the panel refetch lands 7, the seed then resolves into the claimed hook and DEMOTES to a second fetch landing 2, THEN attention settles 3 | a frozen bell value, and separately a dead demote branch. Successive fetches return different values so 2 is reachable only through the demote path: deleting `useBellBadge.ts`'s `claimedRef` branch leaves 7 and reds this case. The entry must read "2 unseen notifications. 3 items need attention." |
 | AC-16 | the reverse order, attention settles 3 BEFORE the restoration commits | one entry with the attention sentence only. Pins that the outcome follows the value at announce time rather than the interaction |
 | AC-16 | the panel's OWN `onOpened={refetch}` route in isolation: panel opens, `zeroNow` commits 0, that refetch commits 6, then attention settles | the second restoration route (`components/admin/nav/NotifBell.tsx:112`). The demoted-seed row above exercises `useBellBadge.ts:205-210`; without this row "both restoration routes" is an unsupported claim, since one code path would carry the whole criterion |
 | AC-17 | bell settles degraded, `degraded` clears to a count of 5, then attention settles | the bell sentence present with 5. A degraded latch fails this |
@@ -418,13 +418,14 @@ orderings.
 The plan's own criterion, declared here as a list item so the recognizer sees a
 declaration rather than prose:
 
-- AC-20 The transition audit derives every conditional render, early return and
-  `AnimatePresence` in the lines this arc ADDS under `components/admin/nav/`
-  from the merge-base diff, and asserts that set EQUALS the two-row table above,
-  and that no `exit`, `initial`, `animate` or `AnimatePresence` prop appears
-  among them. An added site absent from the table fails it, and so does a table
-  row with no site. Pre-existing conditionals in the touched files are out of
-  scope by construction, since they are not in the added-line set.
+- AC-20 The transition audit walks the AST of the three files this arc touches
+  and pins the IDENTITY of every conditional render and early return in them, as
+  normalised condition texts, together with an empty animation-prop set. An
+  added guard fails it wherever it sits in its block, and a SUBSTITUTED
+  condition fails it even though the count is unchanged. It reads the tree, not
+  the merge-base diff: a diff-derived population is empty on a push to main and
+  on any later branch that does not touch these files, which is why the
+  first version went red in CI while passing locally.
 
 AC-12 is a source assertion rather than a render, because the onboarding branch
 is a server-component branch: read `app/admin/layout.tsx` through

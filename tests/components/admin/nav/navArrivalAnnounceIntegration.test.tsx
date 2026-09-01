@@ -17,7 +17,7 @@ import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { join } from "node:path";
-import { StrictMode } from "react";
+import { StrictMode, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
@@ -34,8 +34,16 @@ vi.mock("@/lib/supabase/browser", () => ({
 }));
 vi.mock("@/lib/realtime/subscribeToBell", () => ({ subscribeToBell: vi.fn() }));
 vi.mock("@/components/admin/BellPanel", () => ({
+  // Fires onOpened ONCE per mount, from an effect. The first version called it
+  // during render, so it fired on every re-render and issued a fetch each time:
+  // a case counting fetch calls to tell the two restoration routes apart saw
+  // the panel's own refetch run twice and never reached the demoted seed's.
+  // Once-per-mount is also what the real panel does.
   BellPanel: ({ onOpened }: { onOpened: () => void }) => {
-    onOpened();
+    useEffect(() => {
+      onOpened();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     return <div data-testid="bell-panel-stub" />;
   },
 }));
@@ -623,22 +631,37 @@ describe("compound transitions (spec §3.8)", () => {
 });
 
 describe("AC-16: a restoration before the announcement is spoken", () => {
-  it("the demoted seed's refetch restores a count, and THAT count is announced", async () => {
-    // Both halves pending, the operator opens the bell, zeroNow commits 0, the
-    // original seed resolves into an already-claimed hook and demotes to a
-    // fetch that commits 2, then attention settles at 3. The utterance carries
-    // 2, matching the badge and the accessible name at that instant.
+  it("the DEMOTED SEED restores the count, distinguishably from the panel refetch", async () => {
+    // Diff R3 showed the first version of this case could not tell the two
+    // restoration routes apart: the panel stub fires onOpened on mount and the
+    // fetch returned a single value, so deleting useBellBadge's demote branch
+    // (:205) left the assertion green. The panel's own refetch was supplying the
+    // number the demoted seed was supposed to supply.
+    //
+    // Successive fetches now return DIFFERENT values, so only the second call
+    // can produce the asserted count, and only the demote path makes a second
+    // call: the panel refetch is call 1, the demoted seed is call 2.
+    let countCalls = 0;
+    fetchSpy.mockImplementation((url: string) => {
+      if (url !== COUNT_ENDPOINT) return new Promise(() => {});
+      countCalls += 1;
+      return Promise.resolve(okResponse({ count: countCalls === 1 ? 7 : 2 }));
+    });
+
     const bell = deferred<BellCountResult>();
     const attention = deferred<NeedsAttentionCountResult>();
     renderNav({ bellCountPromise: bell.promise, attentionCountPromise: attention.promise });
 
-    fetchSpy.mockImplementation((url: string) =>
-      url === COUNT_ENDPOINT ? Promise.resolve(okResponse({ count: 2 })) : new Promise(() => {}),
-    );
-
+    // Open while the seed is STILL PENDING: zeroNow claims the hook, and the
+    // panel's onOpened refetch lands 7.
     await act(async () => {
       fireEvent.click(screen.getByTestId("admin-notif-bell"));
     });
+    await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("7"));
+    premiseHolds("the panel refetch landed first, at 7", countCalls === 1);
+
+    // NOW the seed resolves into a claimed hook. It must demote to a fresh
+    // fetch rather than paint its own stale 9, and that fetch returns 2.
     await act(async () => {
       bell.resolve({ kind: "ok", count: 9 });
       await bell.promise;
@@ -651,7 +674,8 @@ describe("AC-16: a restoration before the announcement is spoken", () => {
     });
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    // Not 9 (the seed the hook refused) and not 0 (the zero it passed through).
+    // 2 is reachable ONLY through the demote path. Not 9 (the seed the claimed
+    // hook refuses to paint) and not 7 (the panel refetch alone).
     expect(entries()[0]).toBe("2 unseen notifications. 3 items need attention.");
   });
 
@@ -674,7 +698,7 @@ describe("AC-16: a restoration before the announcement is spoken", () => {
     expect(entries()[0]).toBe("3 items need attention.");
   });
 
-  it("the panel's own onOpened refetch is the second restoration route", async () => {
+  it("the PANEL REFETCH restores the count on its own, with no seed in flight", async () => {
     // The route through NotifBell.tsx's onOpened={refetch}, isolated from the
     // demoted-seed route above: no seed is in flight here at all, so only the
     // panel's own refetch can restore the count.
@@ -833,14 +857,20 @@ describe("AC-20: the transition audit", () => {
       "components/admin/nav/navArrivalAnnounce.ts",
     ];
 
-    const census: Record<string, { jsxConditionals: number; earlyReturns: number }> = {};
+    const census: Record<string, { jsxConditionals: string[]; earlyReturns: string[] }> = {};
     const animationProps: string[] = [];
 
     for (const rel of files) {
       const src = readFileSync(join(process.cwd(), rel), "utf8");
       const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-      let jsxConditionals = 0;
-      let earlyReturns = 0;
+      // IDENTITIES, not counts. Diff R3 probed two mutants that a count-only
+      // census admits: an added conditional return placed after one statement
+      // in a block, and a SUBSTITUTED condition on a named guard, which changes
+      // what the code does while the tally stays 3. A set of normalised
+      // condition texts fails on both.
+      const jsxConditionals: string[] = [];
+      const earlyReturns: string[] = [];
+      const norm = (n: ts.Node): string => n.getText().replace(/\s+/g, " ").trim();
 
       const visit = (node: ts.Node): void => {
         // A conditional RENDER: a ternary or `&&` whose branches produce JSX,
@@ -862,23 +892,25 @@ describe("AC-20: the transition audit", () => {
           ts.isConditionalExpression(node) &&
           (producesJsx(node.whenTrue) || producesJsx(node.whenFalse))
         ) {
-          jsxConditionals += 1;
+          jsxConditionals.push(norm(node.condition));
         }
         if (
           ts.isBinaryExpression(node) &&
           node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
           producesJsx(node.right)
         ) {
-          jsxConditionals += 1;
+          jsxConditionals.push(norm(node.left));
         }
         // An early return under a condition, in BOTH spellings: `if (c) return;`
         // and `if (c) { return; }`, and whether it returns a value or not.
         if (ts.isIfStatement(node)) {
           const branch = node.thenStatement;
+          // A return ANYWHERE in the block, not only as its first statement.
+          // The first version required position 0, so a guard that logged and
+          // then returned was invisible (diff R3).
           const isReturn = (s: ts.Statement): boolean =>
-            ts.isReturnStatement(s) ||
-            (ts.isBlock(s) && s.statements.length > 0 && ts.isReturnStatement(s.statements[0]!));
-          if (isReturn(branch)) earlyReturns += 1;
+            ts.isReturnStatement(s) || (ts.isBlock(s) && s.statements.some(ts.isReturnStatement));
+          if (isReturn(branch)) earlyReturns.push(norm(node.expression));
         }
         // The animation surface, which must stay empty.
         if (ts.isJsxAttribute(node)) {
@@ -893,12 +925,12 @@ describe("AC-20: the transition audit", () => {
         ts.forEachChild(node, visit);
       };
       visit(sf);
-      census[rel] = { jsxConditionals, earlyReturns };
+      census[rel] = { jsxConditionals: jsxConditionals.sort(), earlyReturns: earlyReturns.sort() };
     }
 
     premiseHolds(
       "the walk parsed the components and found their conditionals",
-      Object.values(census).some((c) => c.jsxConditionals + c.earlyReturns > 0),
+      Object.values(census).some((c) => c.jsxConditionals.length + c.earlyReturns.length > 0),
     );
 
     // No animation surface anywhere in the three files. Spec §3.8's inventory is
@@ -911,30 +943,43 @@ describe("AC-20: the transition audit", () => {
     // an effect or selector guard that renders nothing. A change to any number
     // here is a real change to the component's branching and must be read
     // against §3.8 before this table is updated.
-    // Each number was verified against the source, not copied from a first run.
+    // Each identity was verified against the source. They are CONDITION TEXTS,
+    // so a substituted guard fails even though the tally is unchanged, and an
+    // added guard fails wherever it sits in its block.
     //
-    //   AdminNav, 3 renders: the health indicator (`healthRollup ? ... : null`,
-    //     AdminNav.tsx:269), the attention badge (`showBadge && ...`, :319), and
-    //     the overflow tab (`overflow && ...`, :333). All three are pre-existing
-    //     and this arc changes none of them. 3 early returns, all added here:
-    //     the attention-promise subscription's bail and the announce effect's
-    //     two guards.
-    //   NotifBell, 3 renders: the degraded/normal trigger ternary assigned to
-    //     `const trigger`, the badge pill, and the panel. 2 early returns, both
-    //     added here: the report effect's `!onBellState` bail and its dedup.
-    //   navArrivalAnnounce, 0 renders (no JSX) and 3 early returns: the pure
-    //     selector's degraded and not-finite guards (:19, :20), plus the
-    //     both-halves-present composition (:67). The third arrived when the
-    //     array join was removed, and this census is what caught the change,
-    //     which is the behaviour a pinned population is for.
+    //   AdminNav renders: the health indicator, the overflow tab and the
+    //     attention badge, all pre-existing and untouched by this arc.
+    //   AdminNav returns: the attention-promise subscription's bail, the
+    //     terminality guard and the both-halves guard, all added here.
+    //   NotifBell renders: the degraded/normal trigger, the panel, the badge
+    //     pill. Returns: the report effect's bail and its dedup, added here.
+    //   navArrivalAnnounce: no JSX; the selector's two guards plus the
+    //     both-halves composition that replaced the array join.
     //
-    // Every entry is instant: the renders are swaps on already-mounted chrome,
-    // and no early return renders anything. §3.8's three states have no
-    // animated transition, which the empty animation set above is the proof of.
+    // Every entry is instant. The renders are swaps on already-mounted chrome
+    // and no early return renders anything, which is why §3.8's three states
+    // have no animated transition and the animation set above is empty.
     expect(census).toEqual({
-      "components/admin/nav/AdminNav.tsx": { jsxConditionals: 3, earlyReturns: 3 },
-      "components/admin/nav/NotifBell.tsx": { jsxConditionals: 3, earlyReturns: 2 },
-      "components/admin/nav/navArrivalAnnounce.ts": { jsxConditionals: 0, earlyReturns: 3 },
+      "components/admin/nav/AdminNav.tsx": {
+        jsxConditionals: ["healthRollup", "overflow", "showBadge"],
+        earlyReturns: [
+          "!attentionCountPromise",
+          "!bellSettled || !attentionSettled",
+          "spokenRef.current",
+        ],
+      },
+      "components/admin/nav/NotifBell.tsx": {
+        jsxConditionals: ["degraded", 'typeof count === "number" && count > 0', "open"].sort(),
+        earlyReturns: ["!onBellState", "lastReport.current === key"],
+      },
+      "components/admin/nav/navArrivalAnnounce.ts": {
+        jsxConditionals: [],
+        earlyReturns: [
+          "bellSentence && attentionSentence",
+          "degraded",
+          'typeof count !== "number" || !Number.isFinite(count) || count <= 0',
+        ],
+      },
     });
   });
 });

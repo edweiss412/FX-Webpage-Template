@@ -227,7 +227,12 @@ describe("NotifBell onBellState reporting", () => {
     expect(reports[2]).toEqual({ settled: true, announceable: 5 });
   });
 
-  it("reports the FULL four-step sequence across a post-zero restoration", async () => {
+  it("reports the FULL four-step sequence across a panel-refetch restoration", async () => {
+    // This is the ONOPENED route, not the demoted-seed one: the seed resolves
+    // before the panel opens, so it cannot also demote. The demoted-seed route
+    // needs the seed still in flight at the moment of opening, and lives in the
+    // integration suite where the distinction is observable.
+    //
     // The plan's row is a SEQUENCE, and an earlier version of this case opened
     // the panel while still pending and asserted only the last report. It never
     // produced {true,4} at all, and would have accepted duplicates or a missing

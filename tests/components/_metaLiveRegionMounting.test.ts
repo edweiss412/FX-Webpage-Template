@@ -310,8 +310,13 @@ function conditionalStatusRegions(
         // `role={"status"}` is the same attribute written differently (R2). Strip
         // the quotes a string literal keeps in `getText()` so both spellings
         // compare equal; anything non-literal falls through as its own text.
+        // The TEMPLATE spelling was missed until diff R3 probed it: `getText()`
+        // returns the backticks, so `` `log` `` never equalled `log` and a
+        // template-spelled region escaped this scanner entirely.
         const e = init.expression;
-        return ts.isStringLiteral(e) ? e.text : e.getText();
+        if (ts.isStringLiteral(e)) return e.text;
+        if (ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+        return e.getText();
       }
       return "";
     }
@@ -500,15 +505,19 @@ function hidingStatusRegions(text: string, file: string): Array<{ line: number; 
         if (!ts.isJsxAttribute(a)) continue;
         const name = a.name.getText();
         const init = a.initializer;
+        // All three spellings. This scanner recognised only StringLiteral, so a
+        // hidden `` role={`log`} `` region was invisible to the guard whose
+        // whole subject is a region nobody can hear (diff R3 finding 3).
+        const initExpr =
+          init && ts.isJsxExpression(init) && init.expression ? init.expression : null;
         const literal =
           init && ts.isStringLiteral(init)
             ? init.text
-            : init &&
-                ts.isJsxExpression(init) &&
-                init.expression &&
-                ts.isStringLiteral(init.expression)
-              ? init.expression.text
-              : null;
+            : initExpr && ts.isStringLiteral(initExpr)
+              ? initExpr.text
+              : initExpr && ts.isNoSubstitutionTemplateLiteral(initExpr)
+                ? initExpr.text
+                : null;
         // `role="log"` is a live region exactly as `role="status"` is, and the
         // HIDDEN-region scanner was still status-only after the conditional-mount
         // scanner learned `log`. The consequence the review probed: changing the
@@ -694,6 +703,9 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     expect(gated('const C = () => <div>{a && <p role="log">{m}</p>}</div>;')).toBe(1);
     expect(gated('const C = () => <div>{a ? <p role="log">{m}</p> : null}</div>;')).toBe(1);
     expect(gated('const C = () => <div>{a ? <p role={"log"}>{m}</p> : null}</div>;')).toBe(1);
+    // The template spelling, which diff R3 found escaping both scanners.
+    expect(gated("const C = () => <div>{a ? <p role={`log`}>{m}</p> : null}</div>;")).toBe(1);
+    expect(gated("const C = () => <div>{a ? <p role={`status`}>{m}</p> : null}</div>;")).toBe(1);
     // ...and the same not-a-false-positive rule the other spellings carry.
     expect(
       gated('function C(){ if(!ok) return null; return <p role="log">{a ? m : ""}</p>; }'),
