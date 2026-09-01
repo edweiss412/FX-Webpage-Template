@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  MEASURED_AFTER_ANCHOR,
   SPLIT_SOURCE,
   type Anchor,
   anchorProblems,
@@ -82,6 +83,19 @@ describe("the figures anchor reconciles its rate table against its millisecond t
 
   it("accepts the committed anchor, so every refusal below is the mutation and not the fixture", () => {
     expect(anchorProblems(base, SPLIT_TEXT)).toEqual([]);
+  });
+
+  // The unmeasured check is the one condition here whose passing can be bought by
+  // editing a list rather than by measuring something, so the list is pinned and an
+  // addition is a deliberate edit that shows up in review. Without this the exemption
+  // fails OPEN: the next surface that cannot be priced is one append away from
+  // silence, which is the same shape as the anchor row that is legitimately absent.
+  it("exempts exactly the post-anchor surfaces it declares, each naming the run that measured it", () => {
+    expect(MEASURED_AFTER_ANCHOR.map((e) => e.id).sort()).toEqual(["forcedColorsScan"]);
+    const unattributed = MEASURED_AFTER_ANCHOR.filter((e) => e.measuredByRun.trim().length < 8).map(
+      (e) => e.id,
+    );
+    expect(unattributed, "an exemption that names no run is an unmeasured surface").toEqual([]);
   });
 
   it("records a boot count for exactly the surfaces it records rates for", () => {

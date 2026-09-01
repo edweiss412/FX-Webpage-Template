@@ -86,6 +86,28 @@ export type Anchor = {
 };
 
 export const SPLIT_SURFACE = "controlOutlineResidue";
+
+/**
+ * Surfaces enrolled AFTER the anchor run, each with the run that DID measure it.
+ *
+ * The anchor is a frozen measurement of one run, so a surface enrolled later can
+ * never appear in it and no later branch may append to it. The split halves were
+ * already exempt for exactly this reason, by a prefix test on their shared id.
+ * That test only works because the two of them happen to share a prefix, which is
+ * a property of one historical event and not a rule, so a third post-anchor
+ * surface had nowhere to go and read as "the anchor cannot price the partition".
+ *
+ * Naming them individually keeps the exemption auditable: an entry states which
+ * run measured that surface, so "we never measured it" and "we measured it
+ * elsewhere" stay distinguishable. An id added here without a real run is the
+ * failure this list exists to make visible rather than easy.
+ */
+export const MEASURED_AFTER_ANCHOR: ReadonlyArray<{ id: string; measuredByRun: string }> = [
+  // Enrolled by feat/forced-colors-pass. Scored 32/32 with zero unaccepted
+  // survivors on its enrolment run, which is where its declared 1472 ms/boot
+  // comes from; that run postdates the anchor and is not part of it.
+  { id: "forcedColorsScan", measuredByRun: "enrolment run, feat/forced-colors-pass" },
+];
 export const SPLIT_SOURCE = "tests/styles/controlOutlineResidue.ts";
 export const ANCHOR_PATH = join(__dirname, "2026-09-01-mutation-shard-figures-input.json");
 
@@ -236,7 +258,10 @@ export function anchorProblems(A: Anchor, text: string): string[] {
 
   // Every live surface the split did not create must have a measurement. Without this the
   // `!` below turns a newly enrolled surface into a crash on an undefined rate.
-  const unmeasured = GUARD_SURFACES.filter((s) => !s.id.startsWith(SPLIT_SURFACE))
+  const exemptAfterAnchor = new Set(MEASURED_AFTER_ANCHOR.map((e) => e.id));
+  const unmeasured = GUARD_SURFACES.filter(
+    (s) => !s.id.startsWith(SPLIT_SURFACE) && !exemptAfterAnchor.has(s.id),
+  )
     .filter((s) => A.rates[s.id] === undefined)
     .map((s) => s.id);
   if (unmeasured.length > 0) {

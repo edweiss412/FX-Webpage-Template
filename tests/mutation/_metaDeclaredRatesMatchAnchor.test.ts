@@ -58,6 +58,15 @@ describe("declared millisPerBoot matches the committed measurement anchor", () =
     const uncovered = GUARD_SURFACES.filter((s) => ANCHOR.rates[s.id] === undefined)
       .map((s) => s.id)
       .sort();
-    expect(uncovered).toEqual(["controlOutlineResidueBoundaries", "controlOutlineResidueRewrites"]);
+    // `forcedColorsScan` joins them for the same reason: it was enrolled by
+    // feat/forced-colors-pass, long after the anchor run, so the anchor has no row
+    // for it and cannot. Its declared rate is measured, not guessed -- the enrolment
+    // run scored it 32/32 -- but that measurement is not THIS anchor, and the anchor
+    // is a frozen artifact rather than something a later branch may append to.
+    expect(uncovered).toEqual([
+      "controlOutlineResidueBoundaries",
+      "controlOutlineResidueRewrites",
+      "forcedColorsScan",
+    ]);
   });
 });

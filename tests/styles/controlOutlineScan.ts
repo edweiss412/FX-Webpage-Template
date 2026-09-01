@@ -322,7 +322,10 @@ export const CENSUS: readonly CensusRow[] = [
   // :1083 until fix/attention-autoopen-suppress-phone, whose suppression
   // predicate and comment sit above the pill button.
   { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 1133 },
-  { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
+  // :119 until feat/forced-colors-pass, which added a `data-fc-skip` opt-out
+  // and its comment to the toggle button above this one (the manual-refresh
+  // button, `data-testid="autorefresh-manual"`).
+  { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 127 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
   { file: "components/agenda/AgendaPdfViewer.tsx", line: 198 },
