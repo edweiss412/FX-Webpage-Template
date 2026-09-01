@@ -147,9 +147,16 @@ explanation hangs below rather than displacing it.
   commit, `rg -c 'text-xs/relaxed' components app | awk -F: '{n+=$2} END {print n}'`; 34 of them are
   under `components/`. Example: `components/diagrams/GalleryLightbox.tsx:1568`. The name line uses plain `text-xs` and is
   clamped to TWO lines. It was one truncated line in the original design, which the impeccable gate
-  then measured as unreadable: the grid probe reports `name truncated` at 320 and 390, and the
-  copy-fit probe puts a realistic 21-character name at two lines even at 640. A cut-off name cannot
-  answer which diagram is dark, and `title` recovers it only on hover. Two lines, bounded, so one
+  then measured as unreadable: the grid probe reports `name truncated` at 320 and 390. A cut-off name
+  cannot answer which diagram is dark, and `title` recovers it only on hover.
+
+  **The evidence is 320 and 390, and not 640, and an earlier draft of this paragraph overreached.**
+  It cited the copy-fit probe for a 21-character name needing two lines at 640, but that probe
+  measures the name INSIDE the old box, with its 4px horizontal padding and its icon; the shipped
+  caption is outside that box and has neither constraint. Measured against the real wrapper the name
+  is 119.44px inside 121.5px at 640, so it fits on one line there. `T-DIAGRAM-NAME` says the same
+  thing independently and said it first: authored against `truncate` it failed at 320 and 390 and
+  PASSED at 640 and 1072. Two lines, bounded, so one
   pathological name still cannot push the grid around.
 - **The placeholder's border becomes `border-text-faint`**, matching the live box: 1.22-1.27:1 light
   becomes 3.02:1 light, over the 3:1 non-text floor. This is the P2 restyle the

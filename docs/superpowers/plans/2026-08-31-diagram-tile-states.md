@@ -209,7 +209,7 @@ path is a lint failure, and a plan that dodges it by not naming the file is wors
 | `tests/components/admin/wizard/step3DiagramTile.published.test.tsx` | census re-scope; one live-negative | 2 |
 | `tests/components/admin/wizard/step3ReviewSections.test.tsx` | census re-scope; one live-negative; the cap count | 2 |
 | `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` | census re-scope (the `.textContent` site) | 2 |
-| `tests/e2e/step3-review-modal.layout.spec.ts` | AC-7 dimensional invariants (Task 2); AC-7b's `absent` arm, authored in 2 and green in 3 | 2, 3 |
+| `tests/e2e/step3-review-modal.layout.spec.ts` | AC-7 dimensional invariants (Task 2); AC-7b's `absent` arm, authored and green in Task 3 | 2, 3 |
 | `tests/e2e/step3-review-modal.interactions.spec.ts` | AC-7b's `load-failed` arm, which needs hydration; authored in 2, green in 3 | 2, 3 |
 | `tests/styles/tapTargetCensus.ts`, `tests/styles/subtleInteractiveExemptions.ts` | three line-keyed rows relocated by running their scanners | 2, 3 |
 | `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx` | the fit expectation and its negative controls; the border pin | 4, 5 |
@@ -268,13 +268,13 @@ is already outside the box, so an AC-7b authored later could never be red.
 - [ ] **Step 5: Clause 1 depends on the font gate.** Both openers await `document.fonts.ready`; a fallback font resolves to a different line-height, so measuring early fails in the direction that passes. Reduced-motion emulation is what makes the geometry final on load in both.
 - [ ] **Step 6: One `page.evaluate` per viewport**, resolving every element and returning plain numbers. Never a sequence of `locator.evaluate` calls: a re-render between two compares rects from two layout frames, and auto-wait hangs on a node that has unmounted. Expected widths derive from `diagramTileWidthAt` (`components/admin/wizard/diagramTileGeometry.ts:51`), never hardcoded.
 - [ ] **Step 7: Observed red.** `components/admin/wizard/step3ReviewSections.tsx:4174` is `{strippedAlt ? (` inside the failed branch that returns at `components/admin/wizard/step3ReviewSections.tsx:4152`, so the live tile has no name node; and the message renders inside the `overflow-hidden aspect-4/3` box, so clause 4 fails and clause 5 finds that box clipping it.
-- [ ] **Step 8: The name line and the message, once, outside the box.** The message carries `data-diagram-message`; the name line is addressed by its `title`, as the corpus already does at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:196`. The name line, in every state: Plain `text-xs`, `truncate`, `title={strippedAlt}`. `aria-hidden="true"` in the live state only, because there the anchor already carries the name (`components/admin/wizard/step3ReviewSections.tsx:4199-4201`); in the two failed states there is no anchor, so the caption is the only accessible text and must stay announced. Same argument that emptied the image's `alt` at `components/admin/wizard/step3ReviewSections.tsx:4242`. The message moves out with it.
+- [ ] **Step 8: The name line and the message, once, outside the box.** The message carries `data-diagram-message`; the name line is addressed by its `title`, as the corpus already does at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:196`. The name line, in every state: Plain `text-xs`, `line-clamp-2`, `wrap-break-word`, `title={strippedAlt}`. It shipped as `truncate` and the impeccable gate then measured a single ellipsised line as unreadable at the two narrow widths; the repair is recorded in §12 and in `847d882d8`. `aria-hidden="true"` in the live state only, because there the anchor already carries the name (`components/admin/wizard/step3ReviewSections.tsx:4199-4201`); in the two failed states there is no anchor, so the caption is the only accessible text and must stay announced. Same argument that emptied the image's `alt` at `components/admin/wizard/step3ReviewSections.tsx:4242`. The message moves out with it.
 - [ ] **Step 9: The loud red, same commit.** Moving the caption reds thirteen existing sites at once: the ten positive `getByText` sites, the `.textContent` site at `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx:903`, the premise at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:188-191`, and the `[title]` lookup at `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:196-199`. All thirteen re-point from the box to the cell. Two carry non-standard scopes and are NOT uniform: `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:221` uses a custom `noname-tile` testid (it IS the box, so it re-points), and `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:157` is scoped to a `reconcile-loader` wrapper rather than a tile.
 - [ ] **Step 10: AC-11, and what it actually requires, which is less than the spec claims.** Spec §5.0 says the five live-negatives "pass SILENTLY and become vacuous". Read one at a time, that is true of none of them: each already carries an assertion that fails on a placeholder — `container.querySelectorAll("img").length` is 1 at `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:84` and `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:118`, the same plus a variant `src` at `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:157`, a non-null tile-scoped `img` plus the full srcset ladder at `tests/components/admin/wizard/step3DiagramTile.published.test.tsx:275`, and `tagName === "A"` plus a non-null `img` at `tests/components/admin/wizard/step3ReviewSections.test.tsx:841`. What goes vacuous is the single `queryByText` LINE inside each, not the test. **So this task does NOT add discriminators.** It re-scopes each `queryByText` line to the cell so it keeps meaning, and scopes the two that count images on `container` rather than on the tile, which is a real if small improvement. **This diverges from spec §5.0 and AC-11's framing, deliberately and on the record**; the spec is canonical and is not being edited, and the divergence goes to the orchestrator rather than being silently absorbed.
 - [ ] **Step 11: The verification that replaces the mutant proof round 2 refuted.** Pinning the component's failed branch kills all five, but on their PRE-EXISTING assertions, which is why a mutant count settles nothing about any new discriminator. The property AC-11 actually names is "each of the five fails when the tile is a placeholder", and the evidence is the enumeration in step 10, each read at its cited line. Record that reading, not a mutant tally.
 - [ ] **Step 12: Four pre-dispatch mutants** on every string-presence assertion this task adds: the value emptied; the expected content plus an appended suffix; the content present but not live (the name in an attribute only); each discriminating parameter varied in turn.
 - [ ] **Step 13: Relocate three line-keyed census rows.** This task and Task 3 both move lines in `components/admin/wizard/step3ReviewSections.tsx`. Three rows are line-keyed and shift: `tests/styles/tapTargetCensus.ts:325`, `tests/styles/subtleInteractiveExemptions.ts:79` and `tests/styles/subtleInteractiveExemptions.ts:112`. `tests/styles/controlOutlineResidue.ts:1038` is keyed by `{file, tag, paint, category, reason}` and does not move. **Relocate by running each scanner and confirming identity, never by adding a delta** — the tap-target row's own comment is a chain of eight relocations saying exactly that, and two of the three name their identity handle already (the `<a>` for the tap-target row, a unique `data-testid` for the ignored-summary row).
-- [ ] **Step 14: Observed green**, on the new suite, the five census suites, both e2e specs, and the three census suites touched in step 13.
+- [ ] **Step 14: Observed green**, on the new suite, the five census suites, the three census suites touched in step 13, and the AC-7 cases in `tests/e2e/step3-review-modal.layout.spec.ts`. **AC-7b is NOT part of this task's green, and step 4 above says why it cannot be:** its first clause needs the ratified copy, which Task 3 ships. AC-7b is authored AND turned green in Task 3, which is also where both e2e specs are re-run. An earlier draft of this step claimed both specs green here, which Task 2 cannot reach and which contradicted its own step 4.
 
 ### Task 3: Three states, two sentences, two glyphs, and every transition
 
@@ -314,7 +314,7 @@ coverage, not the red, and the task does not pretend otherwise.
 - [ ] **Step 9: The census re-TEXT, twelve positives, split by the state each one sets up.** After step 7 the string these name no longer renders, so each moves to the sentence its own fixture earns. **Eight absent-state positives** take `Not captured. Won't appear on the crew page.`: `tests/components/admin/wizard/step3DiagramTile.published.test.tsx:210` and `tests/components/admin/wizard/step3DiagramTile.published.test.tsx:226`, `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:95`, `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:176`, `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:190` (the `premiseHolds`) and `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:221`, `tests/components/admin/wizard/step3ReviewSections.test.tsx:815` and `tests/components/admin/wizard/step3ReviewSections.test.tsx:843`. **Four load-failed positives** take `Preview couldn't load. The diagram will still publish.`: `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:181`, `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:233` and `tests/components/admin/wizard/step3DiagramTile.staged.test.tsx:254`, `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx:903`. The state of each is read off what its test SETS UP, never off the string it currently asserts.
 - [ ] **Step 10: The five live-negatives, which would otherwise pass forever on a string that can never render.** `tests/components/admin/wizard/step3DiagramTile.published.test.tsx:275`, `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:84`, `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:118` and `tests/components/admin/wizard/step3DiagramTile.reconcile.test.tsx:157`, and `tests/components/admin/wizard/step3ReviewSections.test.tsx:841` each assert `Preview unavailable` is ABSENT. After this task that is true of every tile in every state, so the assertion stops discriminating in a second, worse way than Task 2 addressed. Each becomes "neither sentence renders", which keeps the both-directions discipline the copy cases use. Their existing positive discriminators (Task 2 step 10) are untouched and still carry the real weight.
 - [ ] **Step 11: Four pre-dispatch mutants per sentence.**
-- [ ] **Step 12: AC-7b, claimed here because the copy is what makes its first clause true.** Task 2 authored the five clauses and left them red on clause 1: the shared string sits on one line inside the 121.5px tile at 640 and the 169.5px tile at 1072. The two ratified sentences, at 44 and 53 characters, wrap at every one of the four tile widths, which is what the six-line wrap recorded in spec §3.4 is the extreme of. Both e2e specs are re-run here — the `absent` arm in the static layout spec, the `load-failed` arm in the hydrated interactions spec, per harness readiness (d) — and this is where AC-7b goes green. Clauses 2 to 5 were already satisfied by Task 2's caption move and must STAY satisfied; re-running both specs is what proves the longer copy did not push the message back into a clipping ancestor.
+- [ ] **Step 12: AC-7b, claimed here because the copy is what makes its first clause true.** Task 2 authored the five clauses and left them red on clause 1: the shared string sits on one line inside the 121.5px tile at 640 and the 169.5px tile at 1072. The two ratified sentences, at 44 and 54 characters, wrap at every one of the four tile widths, which is what the six-line wrap recorded in spec §3.4 is the extreme of. Both e2e specs are re-run here — the `absent` arm in the static layout spec, the `load-failed` arm in the hydrated interactions spec, per harness readiness (d) — and this is where AC-7b goes green. Clauses 2 to 5 were already satisfied by Task 2's caption move and must STAY satisfied; re-running both specs is what proves the longer copy did not push the message back into a clipping ancestor.
 - [ ] **Step 13: Observed green**, on the states suite, all five census suites, both e2e specs, plus `pnpm vitest run tests/styles/_metaEmDashCopy.test.ts` for AC-10. That guard walks `components` from the filesystem, and the file's `SENTINEL_ANCHORS` entry (`tests/styles/_metaEmDashCopy.test.ts:211`) is keyed by an expression's own source text rather than by file, so the allowance cannot be inherited by new copy and the two sentences are genuinely scanned. Do not disturb the three registered anchors; a stale allowance is itself a failure.
 
 ### Task 4: Shrink to fit, on both surfaces
@@ -406,8 +406,9 @@ domain-specific in a way generated copy is not: "Won't appear on the crew page" 
 still publish" name this product's consequence, where the reflex is "Image unavailable".
 
 **Deterministic scan.** `detect.mjs --json` over both changed files: 4 findings, all
-`broken-image` (severity warning), at `step3ReviewSections.tsx:4118` and `:4260` and
-`Gallery.tsx:63` and `:882`. **All four are false positives, and all four the same one:** each is the
+`broken-image` (severity warning), at `components/admin/wizard/step3ReviewSections.tsx:4118`,
+`components/admin/wizard/step3ReviewSections.tsx:4260`, `components/diagrams/Gallery.tsx:63` and
+`components/diagrams/Gallery.tsx:882`. **All four are false positives, and all four the same one:** each is the
 literal string `<img>` inside a code comment, matched by a text scan. None is a rendered element and
 none is in this diff. Zero true findings.
 
@@ -426,7 +427,7 @@ oracles under `tests/e2e/standalone.config.ts`: `T-DIAGRAM-CELL` (five dimension
 | 3 | User control and freedom | 2 | `absent` reports a problem and offers no route to fix it |
 | 4 | Consistency and standards | 3 | Strong internally; the crew counterpart is a list and this grid is a div of spans |
 | 5 | Error prevention | 3 | The servability predicate is shared with the serving route, so tile and route cannot disagree |
-| 6 | Recognition rather than recall | 2 | The name line was cut off at three of four widths — **P1, fixed in `847d882d8`** |
+| 6 | Recognition rather than recall | 2 | The name line was cut off at 320 and 390 — **P1, fixed in `847d882d8`** |
 | 7 | Flexibility and efficiency | 3 | No bulk affordance, but the grid is capped at 12 and this is a review surface |
 | 8 | Aesthetic and minimalist design | 4 | The caption move is a structural solution, not a font-size hack |
 | 9 | Error recovery | 2 | `load-failed` reassures correctly; `absent` is the actionable one and has no next step |
@@ -507,6 +508,75 @@ fills.
 predicate, so the tile and the serving route cannot disagree. Every geometric claim pinned by
 measurement in a real browser rather than by a class assertion.
 
+### The two assessments delivered late, and they changed this record
+
+Assessment A and Assessment B both returned after the report above was written from the parent's own
+evidence. They are folded in here rather than left as a footnote, because one corrects a number above
+and the other found a P1 the parent's pass missed.
+
+**B's correction, accepted.** The caption and the message do NOT sit on `bg-surface-sunken`. They are
+siblings of the plate inside the cell, and the `BreakdownSection` card is `bg-surface`
+(`components/admin/wizard/step3ReviewSections.tsx:1077`). Only the GLYPH is on the sunken plate. The
+audit table above judged the caption against the wrong ground. Both readings pass AA and no verdict
+moves, but the corrected row is `text-subtle` on `surface` at **6.76 light / 6.35 dark**, and the
+6.09 / 6.94 figure applies to the glyph alone. B also confirmed the detector's four hits independently
+and reached the same triage: all four are the literal string `<img>` in prose, none a rendered element.
+
+**A scored the surface 23/40 against this report's 30/40, and A is closer.** The gap is one axis:
+A judged `user control`, `error prevention`, `error recovery` and `help` at 2 where this report gave
+2, 3, 2, 3. A's reasoning is that this screen IS the pre-publish gate, which raises the cost of every
+missing next step. That is right, and the 30 is not defended.
+
+**A's P1, found independently: the name line.** A reached it from the persona rather than the probes
+(the primary user cannot hover, so `title` recovers nothing) and proposed the same repair,
+`line-clamp-2`. It was already fixed in `847d882d8` before A reported. Two independent passes
+converging on one repair is the strongest evidence this gate produced.
+
+**A's P1: the blocking state is as quiet as the benign one. DEFERRED, on a measured blocker.**
+`absent` means Doug must act before publishing; `load-failed` means he need do nothing. Both render a
+grey glyph on the same grey plate under the same grey sentence, so the one that costs him a reprint
+reads exactly like the one that costs nothing. The finding is correct, and it is this arc's own
+thesis turned back on it.
+
+A's proposed repair is the `--color-warning-bg` plate, which `DESIGN.md` §1.1 documents for precisely
+this case ("'Couldn't parse' / 'needs Doug' admin states"). Applied naively it REGRESSES DARK MODE:
+the box's own stroke, `border-text-faint` against a `warning-bg` fill, is **2.79:1 in dark** against
+the 3:1 non-text floor. That is the identical failure Task 5 exists to repair, reintroduced on the
+other side of the theme toggle. A's 6.1 / 4.7 figures are for the glyph and text on the wash and are
+right; the stroke against the new fill is the pairing nobody checked.
+
+So the repair is not one className. It needs a stroke-and-fill pairing designed for the warning
+ground and pinned in `DESIGN.md` with a contrast meta-test, which is the pre-code mechanical UI gate's
+own rule for a new or repurposed token. That is a design-system decision and it goes to the
+orchestrator.
+
+**A's P1: the caption stack below 640px. DECLINED, on a ratification.** A proposes dropping the
+per-tile sentence below `sm` for one aggregate line, or falling to two columns when any tile is
+non-live. Spec §2 considered a breakpoint-conditional arrangement and declined it in terms: "One
+arrangement, not a breakpoint-conditional one: a layout that reorganises itself at 640px would need
+every assertion in §5 written twice, and the 320px case would still be the one nobody had looked at."
+A's underlying observation — that at 320px the caption is two to three times the height of the box it
+explains — is true and recorded here; the remedy is the one the spec ruled out.
+
+**A's P2: one failure, two surfaces, two behaviours.** The crew gallery offers a retry on a runtime
+image failure (`components/diagrams/Gallery.tsx`); the admin tile offers nothing, and Doug's only
+recovery is reloading the modal. Product decision about what an admin affordance would target, so it
+goes to the orchestrator.
+
+**New, and the ratification did not cover it.** `PublishedDiagramsBreakdown` renders the same
+`DiagramsBreakdown`, so the same tile and the same copy reach an ALREADY-PUBLISHED show's panel
+(`components/admin/wizard/step3ReviewSections.tsx:4650`). There, "Not captured. Won't appear on the
+crew page." is future tense about a publish that has already happened. The copy was ratified for the
+step-3 pre-publish review and nobody was asked whether it also reads correctly post-publish. This is
+NOT a proposal to change the ratified string; it is a surface the decision did not consider.
+
+**A's minor, recorded not fixed.** The caption stack mixes leadings: the name line is `text-xs`
+(1.4) and the message `text-xs/relaxed` (1.625), in one vertical stack. Real, and more visible now
+that the name runs to two lines. Not changed here: the name line carried `text-xs` before this arc
+and still does, so it is not a regression this diff introduces, and moving type leading on a ratified
+surface would re-run the whole four-viewport browser matrix to settle a nit.
+
+
 - [ ] **Graduate all three rows** into DEFERRED-archive.md and remove the `**Status:** IN PROGRESS` markers, in the PR's LAST commit. An archive categorically rejects an in-flight entry, so the marker comes off in the same commit that archives the row, and a marker that reaches main names a branch the merge just deleted.
 - [ ] **Unfixed peers** into the PR body and the readiness message. No new ledger row, of any facing.
 - [ ] **Readiness to bl-orch** at pane wP:p28. The arc never merges.
@@ -516,7 +586,7 @@ measurement in a real browser rather than by a class assertion.
 Round 1 returned BLOCKING with six findings, round 2 BLOCKING with three. Every one was accepted;
 none was disputed. This records the plan after both.
 
-- **What round 2 actually found, and it was structural.** Round 1's repair fixed the commands and the claims but left the DECOMPOSITION wrong: all production change sat in the first four tasks, so the two browser tasks had nothing left to make red. A task whose files are all tests, scheduled after the implementation its assertions need, goes green the moment it is authored. The plan is now decomposed by PRODUCTION INCREMENT — five tasks, each owning one change to shipped code and carrying every assertion that change turns green, unit and browser alike. That is why AC-7 and AC-7b sit in Task 2 beside the caption move rather than in tasks of their own.
+- **What round 2 actually found, and it was structural.** Round 1's repair fixed the commands and the claims but left the DECOMPOSITION wrong: all production change sat in the first four tasks, so the two browser tasks had nothing left to make red. A task whose files are all tests, scheduled after the implementation its assertions need, goes green the moment it is authored. The plan is now decomposed by PRODUCTION INCREMENT — five tasks, each owning one change to shipped code and carrying every assertion that change turns green, unit and browser alike. That is why AC-7 sits in Task 2 beside the caption move rather than in a task of its own, and why AC-7b sits in Task 3, whose ratified copy is what makes its first clause reachable at all.
 - **The other two findings were overclaims, and both are now stated precisely.** Task 3's transition table has a "red before the union?" column, because only the cases naming a FAILED landing state are red; the ones landing on `live` and the unreachable `absent → load-failed` case pass throughout and are coverage, not the red. And Task 4 now flips the admin EXPECTATION before touching production, because its existing `object-cover` assertion passes and without that step only the gallery half of AC-12 is red.
 - **AC-11, twice corrected.** Round 2 showed that pinning the failed branch kills all five live-negatives on their PRE-EXISTING assertions, so no mutant count can establish anything about a new discriminator. Combined with what the code shows — every one of the five already fails on a placeholder, via an `img` count, a `tagName`, or a full srcset ladder — the answer is that AC-11 needs no new discriminators at all. Task 2 step 10 re-scopes the `queryByText` lines and enumerates the existing evidence per site; step 11 records that reading instead of a mutant tally. **This diverges from spec §5.0, which overstates the exposure**, and the divergence is declared rather than absorbed. The spec is canonical and is not edited.
 - **RED validity.** Each `red-target=` names a production line verified on the live tree by opening it and asking whether the `why=` sentence is true OF it, and then whether it is still true when that task RUNS: `components/admin/wizard/step3ReviewSections.tsx:4152`, both branches returning the box unwrapped (Task 1); `components/admin/wizard/step3ReviewSections.tsx:4174`, the name line only in the failed branch (Task 2); `components/admin/wizard/step3ReviewSections.tsx:4159`, one string for two states (Task 3); `components/diagrams/Gallery.tsx:757`, the unpinned thumbnail, plus a scheduled expectation flip on the admin side (Task 4); and `components/admin/wizard/step3ReviewSections.tsx:4156`, the shipped `border-border` (Task 5).
