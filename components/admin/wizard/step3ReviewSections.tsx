@@ -4210,8 +4210,8 @@ export function DiagramTile({
    * allowed to grow, so it was ellipsised to a single line. Out here growth is
    * the whole point of the move, and a single line does not fit the names this
    * surface actually carries: the grid probe reports `name truncated` at 320
-   * and 390, and the copy-fit probe measures a realistic 21-character name
-   * needing two lines at 640 as well — three of the four widths. A cut-off name
+   * and 390, which is where this matters and is also where Doug's phone is. A
+   * cut-off name
    * does not answer WHICH diagram is dark, which is the entire job of the line,
    * and `title` recovers it only on hover, which the venue floor does not have.
    *
@@ -4679,6 +4679,19 @@ export function PublishedDiagramsBreakdown({
           // tile takes the placeholder branch instead of asking.
           rev !== "" &&
           (stub as PersistedEmbeddedImage).snapshotPath !== null &&
+          // The derived KEY must be non-empty too, and the revision check above
+          // does not imply it: a `snapshotPath` ending in a separator derives
+          // "" from `diagramAssetKeyFromPath`, giving
+          // `/api/asset/diagram/<show>/<rev>/` — the same malformed shape the
+          // comment above refuses, one path component over.
+          //
+          // Ungated it is worse than a 404. `next/image` handed an empty `src`
+          // emits an <img> with no src, issues no request, and therefore never
+          // fires `onError`, so the tile stays on the LIVE branch rendering
+          // nothing at all: no image, no glyph, no sentence. Silently wrong is
+          // the one outcome the consequence bound forbids, and every other
+          // unservable shape on this surface is signalled.
+          keyOf(stub) !== "" &&
           isAllowedDiagramMime(stub.mimeType)
         }
       />

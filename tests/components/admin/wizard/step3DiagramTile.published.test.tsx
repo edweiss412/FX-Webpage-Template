@@ -212,6 +212,15 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
   test.each([
     ["a null snapshotPath", { snapshotPath: null }],
     ["a MIME outside the allowed set", { mimeType: "application/pdf" }],
+    // A path that ENDS in a separator derives an empty asset key, and an empty
+    // key is the same malformed-URL class the revision case below already
+    // refuses: `/api/asset/diagram/<show>/<rev>/` addresses no bytes. Left
+    // ungated it is WORSE than a 404, because `next/image` given an empty `src`
+    // emits an <img> with no src, makes no request, and therefore never fires
+    // `onError` — so the tile sits on the LIVE branch showing nothing, with no
+    // glyph and no sentence. That is the one outcome the consequence bound
+    // forbids outright: silently wrong rather than correct or signalled.
+    ["a snapshotPath that derives an empty key", { snapshotPath: "snapshots/rev/" }],
   ])("published servability gate (%s): placeholder, and NO image element", (_label, over) => {
     const { scoped, container } = renderPublished(over);
     expect(within(scoped.getByTestId(CELL0)).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();

@@ -33,7 +33,10 @@ Two more defects on the same component, both from the same impeccable pass:
   filled `bg-surface-sunken`, so that is the ground the pins are read against: `DESIGN.md:191`
   measures `--color-border` as an outline on the four neutral grounds at 1.22-1.27:1 light and
   1.19-1.38:1 dark, and `DESIGN.md:184` measures `--color-text-faint` on `--color-surface-sunken`
-  at 3.02:1 light and 4.11:1 dark. The state that most needs to be noticed has the edge that cannot
+  at 3.02:1 light and 4.11:1 dark. Those border figures are a RANGE ACROSS the four grounds; on the
+  one ground this box actually has, `--color-surface-sunken`, the pair computes 1.15:1 light and
+  1.38:1 dark. The range is what `DESIGN.md` records and the single value is what this tile is,
+  and an earlier draft quoted the range where only the tile's own ground was in question. The state that most needs to be noticed has the edge that cannot
   be seen. (`DESIGN.md` §1.2a's 3.16:1 / 4.22:1 figures are the same token against `--color-bg` and
   are the WRONG ground for this element; the row body's 3.02:1 is the right one.)
 
@@ -158,8 +161,9 @@ explanation hangs below rather than displacing it.
   thing independently and said it first: authored against `truncate` it failed at 320 and 390 and
   PASSED at 640 and 1072. Two lines, bounded, so one
   pathological name still cannot push the grid around.
-- **The placeholder's border becomes `border-text-faint`**, matching the live box: 1.22-1.27:1 light
-  becomes 3.02:1 light, over the 3:1 non-text floor. This is the P2 restyle the
+- **The placeholder's border becomes `border-text-faint`**, matching the live box: against its own
+  `bg-surface-sunken` fill, 1.15:1 light and 1.38:1 dark become 3.02:1 light and 4.11:1 dark, over
+  the 3:1 non-text floor. This is the P2 restyle the
   `DIAGRAMTILE-FAILURE-STATE-COPY-1` row folds in, and `DESIGN.md` §1.2a is the rule: a box filled
   with one of the four neutral grounds carries no visual weight of its own, so its stroke IS its
   boundary and takes the text ramp. No NEW token pairing is introduced, so no new contrast row is
@@ -178,7 +182,7 @@ explanation hangs below rather than displacing it.
 ### 3.3 Dimensional invariants
 
 Tailwind v4 does not default `.flex` to `align-items: stretch`, and grid items DO stretch, so every
-relationship here is stated rather than assumed. All are verified in a real browser (§5, Task 6),
+relationship here is stated rather than assumed. All are verified in a real browser (§5, Task 2),
 never in jsdom.
 
 | Parent | Child | Relationship | What guarantees it |

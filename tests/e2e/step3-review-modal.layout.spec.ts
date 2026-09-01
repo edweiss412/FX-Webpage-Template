@@ -1446,6 +1446,28 @@ for (const { w, h } of TILE_VIEWPORTS) {
         // display, visibility, line-clamp, clipping and containment all stay
         // true of a fully transparent element, and Playwright's own
         // `toBeVisible()` does not read opacity either.
+        // PAINTED, asked of the engine rather than enumerated by me. Round 1
+        // added an opacity clause; round 2 walked straight past it with
+        // `text-transparent`, which is alpha in `color`, not `opacity`. Adding
+        // an eighth mechanism by hand invites a ninth, so this delegates the
+        // question: `checkVisibility` is Chromium's own answer and covers
+        // display, visibility, opacity and content-visibility in one call.
+        // Colour alpha is the one thing it does NOT model, so it is read
+        // separately, and that pair is the whole check rather than a growing
+        // list of ways to be invisible.
+        const cs2 = getComputedStyle(msg);
+        const alpha = (() => {
+          const m2 = /^rgba?\(([^)]+)\)$/.exec(cs2.color.trim());
+          if (!m2) return 1;
+          const parts = (m2[1] ?? "").split(",").map((x) => parseFloat(x));
+          const a3 = parts[3];
+          return parts.length < 4 || a3 === undefined ? 1 : a3;
+        })();
+        const engineVisible = (msg as HTMLElement).checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+          contentVisibilityAuto: true,
+        });
         let effectiveOpacity = 1;
         for (let n: Element | null = msg; n; n = n.parentElement) {
           const o = parseFloat(getComputedStyle(n).opacity);
@@ -1453,6 +1475,9 @@ for (const { w, h } of TILE_VIEWPORTS) {
           if (getComputedStyle(n).position === "fixed") break;
         }
         return {
+          engineVisible,
+          colorAlpha: alpha,
+          checkVisibilitySupported: typeof (msg as HTMLElement).checkVisibility === "function",
           effectiveOpacity,
           text: (msg.textContent ?? "").trim(),
           insideBox: box.contains(msg),
@@ -1503,6 +1528,18 @@ for (const { w, h } of TILE_VIEWPORTS) {
     expect(
       d.effectiveOpacity,
       `the message is not transparent (effective opacity ${d.effectiveOpacity}) @ ${w}px`,
+    ).toBeGreaterThan(0);
+    // The engine's own visibility answer, plus the one thing it does not model.
+    // A premise first, because a browser without `checkVisibility` would make
+    // the clause below vacuously true.
+    expect(
+      d.checkVisibilitySupported,
+      `this browser answers checkVisibility @ ${w}px (premise)`,
+    ).toBe(true);
+    expect(d.engineVisible, `the engine considers the message visible @ ${w}px`).toBe(true);
+    expect(
+      d.colorAlpha,
+      `the message's text colour is not transparent (alpha ${d.colorAlpha}) @ ${w}px`,
     ).toBeGreaterThan(0);
     // Clause 3: rendered, and not clamped to a line count.
     expect(d.display, `the message is not display:none @ ${w}px`).not.toBe("none");
@@ -1578,7 +1615,25 @@ for (const { w, h } of TILE_VIEWPORTS) {
           const name = cell?.querySelector<HTMLElement>("[title]") ?? null;
           if (!name) return null;
           const cs = getComputedStyle(name);
+          const alpha = (() => {
+            const m2 = /^rgba?\(([^)]+)\)$/.exec(cs.color.trim());
+            if (!m2) return 1;
+            const parts = (m2[1] ?? "").split(",").map((x) => parseFloat(x));
+            const a3 = parts[3];
+            return parts.length < 4 || a3 === undefined ? 1 : a3;
+          })();
           return {
+            // Same delegation as the message oracle: a hidden name satisfies
+            // BOTH clipping checks trivially, because `0 - 0` is not greater
+            // than the tolerance. Round 2 walked in with `hidden` on the
+            // caption and passed at all four widths.
+            engineVisible: name.checkVisibility({
+              opacityProperty: true,
+              visibilityProperty: true,
+              contentVisibilityAuto: true,
+            }),
+            checkVisibilitySupported: typeof name.checkVisibility === "function",
+            colorAlpha: alpha,
             title: name.getAttribute("title") ?? "",
             text: (name.textContent ?? "").trim(),
             scrollW: name.scrollWidth,
@@ -1613,6 +1668,25 @@ for (const { w, h } of TILE_VIEWPORTS) {
       // browser and never enters textContent, so this alone would pass under
       // `truncate` — which is why the clipping checks below carry the weight.
       expect(d.text, `the ${label} tile renders its whole name @ ${w}px`).toBe(d.title);
+
+      // The name is actually ON SCREEN before "not cut off" means anything: a
+      // display:none name reports 0 for every dimension, so both clipping
+      // checks below pass on `0 - 0` and the oracle certifies an invisible
+      // caption. The collected height and line-height were read and never
+      // asserted; they are asserted now.
+      expect(
+        d.checkVisibilitySupported,
+        `this browser answers checkVisibility @ ${w}px (premise)`,
+      ).toBe(true);
+      expect(d.engineVisible, `the ${label} name is visible to the engine @ ${w}px`).toBe(true);
+      expect(
+        d.colorAlpha,
+        `the ${label} name's colour is not transparent (alpha ${d.colorAlpha}) @ ${w}px`,
+      ).toBeGreaterThan(0);
+      expect(
+        d.height,
+        `the ${label} name occupies at least one line (${d.height} vs line-height ${d.lineHeight}) @ ${w}px`,
+      ).toBeGreaterThanOrEqual(d.lineHeight - TOL);
 
       expect(
         d.scrollW - d.clientW,

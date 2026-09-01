@@ -44,7 +44,15 @@ body{font-family:"Inter",ui-sans-serif,system-ui,sans-serif;font-optical-sizing:
 .icon{width:16px;height:16px}
 .trunc{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The PROPOSED arm ships a two-line clamp, not a single ellipsised line. Arm (A)
-   below keeps .trunc because it models TODAY, which really was one line. */
+   below keeps .trunc because it models TODAY, which really was one line.
+   NO inline display:block on the name span: an inline declaration beats this
+   rule's display:-webkit-box, and with the box display lost the
+   -webkit-line-clamp does nothing at all. The first version of this repair
+   added the class and left the inline style, so the probe still modelled one
+   line while claiming to model two. Diff review round 2 caught it.
+   (No backticks in this comment: the whole stylesheet is a JS template literal
+   and a backtick inside it ends the string. That is the second time this file's
+   sibling probe turned into a syntax error the same way.) */
 .nameNew{max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;
   -webkit-line-clamp:2;overflow-wrap:break-word}
 .wrap{display:flex;flex-direction:column;gap:4px}
@@ -91,7 +99,7 @@ const rows = await page.evaluate(
       ]) {
         const el = mk(
           `<div class="wrap"><span class="boxNew"><span class="icon"></span></span>` +
-            `<span class="xs nameNew" style="display:block">${NAME}</span>` +
+            `<span class="xs nameNew">${NAME}</span>` +
             (msg ? `<span class="xsr" style="display:block">${msg}</span>` : "")+
             `</div>`,
           w,

@@ -1629,6 +1629,28 @@ for (const { w, h } of MESSAGE_VIEWPORTS) {
         // display, visibility, line-clamp, clipping and containment all stay
         // true of a fully transparent element, and Playwright's own
         // `toBeVisible()` does not read opacity either.
+        // PAINTED, asked of the engine rather than enumerated by me. Round 1
+        // added an opacity clause; round 2 walked straight past it with
+        // `text-transparent`, which is alpha in `color`, not `opacity`. Adding
+        // an eighth mechanism by hand invites a ninth, so this delegates the
+        // question: `checkVisibility` is Chromium's own answer and covers
+        // display, visibility, opacity and content-visibility in one call.
+        // Colour alpha is the one thing it does NOT model, so it is read
+        // separately, and that pair is the whole check rather than a growing
+        // list of ways to be invisible.
+        const cs2 = getComputedStyle(msg);
+        const alpha = (() => {
+          const m2 = /^rgba?\(([^)]+)\)$/.exec(cs2.color.trim());
+          if (!m2) return 1;
+          const parts = (m2[1] ?? "").split(",").map((x) => parseFloat(x));
+          const a3 = parts[3];
+          return parts.length < 4 || a3 === undefined ? 1 : a3;
+        })();
+        const engineVisible = (msg as HTMLElement).checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+          contentVisibilityAuto: true,
+        });
         let effectiveOpacity = 1;
         for (let n: Element | null = msg; n; n = n.parentElement) {
           const o = parseFloat(getComputedStyle(n).opacity);
@@ -1636,6 +1658,9 @@ for (const { w, h } of MESSAGE_VIEWPORTS) {
           if (getComputedStyle(n).position === "fixed") break;
         }
         return {
+          engineVisible,
+          colorAlpha: alpha,
+          checkVisibilitySupported: typeof (msg as HTMLElement).checkVisibility === "function",
           effectiveOpacity,
           text: (msg.textContent ?? "").trim(),
           hasImg: box.querySelector("img") !== null,
@@ -1688,6 +1713,18 @@ for (const { w, h } of MESSAGE_VIEWPORTS) {
     expect(
       d.effectiveOpacity,
       `the message is not transparent (effective opacity ${d.effectiveOpacity}) @ ${w}px`,
+    ).toBeGreaterThan(0);
+    // The engine's own visibility answer, plus the one thing it does not model.
+    // A premise first, because a browser without `checkVisibility` would make
+    // the clause below vacuously true.
+    expect(
+      d.checkVisibilitySupported,
+      `this browser answers checkVisibility @ ${w}px (premise)`,
+    ).toBe(true);
+    expect(d.engineVisible, `the engine considers the message visible @ ${w}px`).toBe(true);
+    expect(
+      d.colorAlpha,
+      `the message's text colour is not transparent (alpha ${d.colorAlpha}) @ ${w}px`,
     ).toBeGreaterThan(0);
     // Clause 3.
     expect(d.display, `the message is not display:none @ ${w}px`).not.toBe("none");

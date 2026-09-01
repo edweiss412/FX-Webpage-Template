@@ -349,7 +349,7 @@ is not edited, and the divergence is declared here rather than absorbed.
 
 - [ ] **Step 1: A POSITIVE pin on each, because neither suite has one.** `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:157`, `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:186-192` and `tests/components/admin/wizard/step3DiagramTile.chrome.test.tsx:219-225` assert the placeholder's chrome SHAPE without pinning which border token, so the restyle is unguarded in both directions today; the gallery has no border pin at all. Add both arms on both surfaces: carries `border-text-faint`, does not carry `border-border`.
 - [ ] **Step 2: Observed red** against `components/admin/wizard/step3ReviewSections.tsx:4156` and `components/diagrams/Gallery.tsx:651`.
-- [ ] **Step 3: One token, twice.** `border-border` becomes `border-text-faint` on both: 1.22-1.27:1 light becomes 3.02:1 light, over the 3:1 non-text floor. `DESIGN.md` §1.2a is the rule — a box filled with one of the four neutral grounds carries no visual weight of its own, so its stroke IS its boundary and takes the text ramp. No NEW token pairing is introduced on either surface, so no new `DESIGN.md` contrast row is owed; the pair is already pinned at `DESIGN.md:184`.
+- [ ] **Step 3: One token, twice.** `border-border` becomes `border-text-faint` on both: against this box's own `bg-surface-sunken` fill that is 1.15:1 light and 1.38:1 dark becoming 3.02:1 light and 4.11:1 dark, over the 3:1 non-text floor. `DESIGN.md` §1.2a is the rule — a box filled with one of the four neutral grounds carries no visual weight of its own, so its stroke IS its boundary and takes the text ramp. No NEW token pairing is introduced on either surface, so no new `DESIGN.md` contrast row is owed; the pair is already pinned at `DESIGN.md:184`.
 - [ ] **Step 4: Check the crew cell against the control rows before assuming the admin argument transfers.** The gallery cell wraps a `<button>` and carries `has-[button:focus-visible]:ring-2` (`components/diagrams/Gallery.tsx:651`), so it may sit on a different `DESIGN.md` row than the admin placeholder. The ruling settles that it changes; it does not settle which row justifies it, and the plan should not pretend otherwise. Confirm against `DESIGN.md` §1.2a and record which row applies.
 - [ ] **Step 5: The remaining peer, checked and NOT swept in.** `components/admin/wizard/step3ReviewSections.tsx:2415` is a callout box with the same `bg-surface-sunken border border-border` paint. It is not a diagram surface, this arc does not otherwise open it, and no ruling covers it. `tests/styles/controlOutlineResidue.ts:1038` censuses the pack-case count PILL, a different element again, and does not move. Both stay, and both go in the PR body under "Unfixed peers".
 - [ ] **Step 6: Observed green**, both suites, plus `pnpm vitest run tests/styles/_metaControlOutlineResidue.test.ts` and `tests/styles/tintedPlateOutline.test.ts` to confirm no census row was owed by either edit.
@@ -450,7 +450,7 @@ makes the box's 4:3 exact, pinned in a real browser.
 
 **Priority issues.**
 
-- **[P1] The name line was cut off at 320, 390 and 640.** Why it matters: the line exists to answer
+- **[P1] The name line was cut off at 320 and 390.** Why it matters: the line exists to answer
   which diagram is dark, and two sheet tabs sharing a prefix rendered identically; `title` recovers it
   only on hover, and the venue floor has none. **FIXED in `847d882d8`** — `truncate` to a bounded
   two-line clamp, red-first against a real-browser clipping oracle.
@@ -463,8 +463,8 @@ makes the box's 4:3 exact, pinned in a real browser.
 
 **Persona red flags.** *Doug, venue floor, phone (primary, from PRODUCT.md):* at 390px every name
 truncated and `title` needs hover — the exact question he opened the modal to answer was unanswerable.
-Fixed. *Doug, desk:* at 640px a 21-character name still wrapped to two lines and truncated; better,
-not solved. Fixed. *Jordan (first-timer):* reads "Not captured. Won't appear on the crew page." with no
+Fixed. *Doug, desk:* unaffected — the name fits on one line from 640 up, which the repaired spec
+records and `T-DIAGRAM-NAME` confirms by passing at 640 and 1072 against the shipped `truncate`. *Jordan (first-timer):* reads "Not captured. Won't appear on the crew page." with no
 link, button, or hint where capturing happens (issue 2). *Alex (power user):* no keyboard path to a
 failed tile — correct today, since there is no action, but it also means there is nothing to reach if
 one were added.
