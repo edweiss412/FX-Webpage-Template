@@ -121,7 +121,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   // carries that exception forward for this project.
   {
     file: "app/admin/settings/admins/RevokeRowButton.tsx",
-    line: 284,
+    // 284 -> 317 on the 2026-08-31 confirm-focus arc: the couldnt_confirm
+    // restore target gave this button a `ref` and moved the restore effect
+    // below the `effectiveUi` derivation, both above this line. Re-MEASURED by
+    // identity (data-testid admin-allowlist-couldnt-confirm-refresh).
+    line: 317,
     tag: "button",
     category: "inline-prose-link",
     reason:
