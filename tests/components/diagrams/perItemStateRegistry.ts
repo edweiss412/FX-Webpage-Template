@@ -52,11 +52,29 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     clearedBy: "entering `retrying`; the item going unavailable or leaving `items` (spec §9.1)",
     sweep: { swept: true },
   },
-  "Gallery.tsx:retrying": {
+  "Gallery.tsx:retryPhase": {
     kind: "per-item",
     clearedBy:
-      "`onLoad` (retrying -> idle) and `onError` (retrying -> failed), both per item; and the availability sweep, since a slide that goes unavailable mid-flight must not return holding an overlay (spec §4, §9.1)",
+      "the phase transitions themselves: `onLoad` (any in-flight phase -> idle) and `onError` (-> failed), both per item; the rendered-ID sweep, which abandons a retry whose cell stopped rendering; and the availability sweep, so a cell that goes unavailable mid-flight cannot return holding an overlay (spec §4, §9.1). ONE value per item, not several parallel sets: the earlier three-set shape needed an invariant saying no id appeared in two of them, and review found two silent violations of it",
     sweep: { swept: true },
+  },
+  "Gallery.tsx:checkInTimersRef": {
+    kind: "per-item",
+    clearedBy:
+      "the reconciling effect keyed on the swept phase map, which clears and drops any timer whose id is no longer `pending`. NOT the availability sweep: that runs during render, and `react-hooks/refs` forbids a ref write there. The mount-scoped effect beside it clears every live timer on unmount, and it is the ONLY place that clears all of them, because React runs an effect cleanup before every dependency-driven re-run and a clear-everything cleanup would restart every other item's window",
+    sweep: {
+      swept: false,
+      why: "reconciled against the live phase map in an effect, not by the render-phase sweep",
+    },
+  },
+  "Gallery.tsx:announcedCheckInRef": {
+    kind: "per-item",
+    clearedBy:
+      "the same reconciling effect, which drops an id once it leaves the phase map, so a genuine second entry announces again while a re-render does not",
+    sweep: {
+      swept: false,
+      why: "a latch reconciled in an effect beside the timers, for the same ref-write-in-render reason",
+    },
   },
   "Gallery.tsx:focusWasOursRef": {
     kind: "not-per-item",
@@ -183,11 +201,29 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
     clearedBy: "entering `retrying`; the item going unavailable or leaving `items` (spec §9.1)",
     sweep: { swept: true },
   },
-  "GalleryLightbox.tsx:retrying": {
+  "GalleryLightbox.tsx:retryPhase": {
     kind: "per-item",
     clearedBy:
-      "`onLoad` (retrying -> idle) and the retry-failure branch of `onError` (retrying -> failed), both per item; and the availability sweep, so a slide going unavailable mid-flight cannot return holding an overlay (spec §4, §9.1)",
+      "the phase transitions themselves: `onLoad` (any in-flight phase -> idle) and the retry-failure branch of `onError` (-> failed), both per item; the Embla `select` handler, which abandons a departing slide's retry; and the availability sweep via `sweepPhases`, so a slide going unavailable mid-flight cannot return holding an overlay (spec §4, §9.1). ONE value per item rather than parallel sets, so a phase disagreement is unrepresentable instead of guarded",
     sweep: { swept: true },
+  },
+  "GalleryLightbox.tsx:checkInTimersRef": {
+    kind: "per-item",
+    clearedBy:
+      "the reconciling effect keyed on the swept phase map, which clears and drops any timer whose id is no longer `pending`. NOT the availability sweep: that runs during render and `react-hooks/refs` forbids a ref write there. The mount-scoped effect beside it owns clear-everything, because React runs a cleanup before every dependency-driven re-run and a clear-all cleanup would restart every other slide's window",
+    sweep: {
+      swept: false,
+      why: "reconciled against the live phase map in an effect, not by the render-phase sweep",
+    },
+  },
+  "GalleryLightbox.tsx:announcedCheckInRef": {
+    kind: "per-item",
+    clearedBy:
+      "the same reconciling effect, which drops an id once it leaves the phase map, so a genuine second entry announces again while a re-render does not",
+    sweep: {
+      swept: false,
+      why: "a latch reconciled in an effect beside the timers, for the same ref-write-in-render reason",
+    },
   },
   "GalleryLightbox.tsx:retryingRefs": {
     kind: "per-item",
@@ -265,7 +301,7 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
   },
   "GalleryLightbox.tsx:retryingStateRef": {
     kind: "not-per-item",
-    why: "a whole-set mirror of `retrying`, not a per-item slot. It exists because the Embla `select` subscriber is registered once and would otherwise read the `retrying` of the render that subscribed; the sweep acts on `retrying` itself, and this follows it in an effect",
+    why: "a whole-map mirror of `retryPhase`, not a per-item slot. It exists because the Embla `select` subscriber is registered once and would otherwise read the phase map of the render that subscribed; the sweep acts on `retryPhase` itself and this follows it in an effect. Retyped from a Set to a Map when the retry state folded its check-in dimension in; its single consumer calls `.has`, which both containers share, so nothing about its logic moved",
   },
   "GalleryLightbox.tsx:requestedScaleRef": {
     kind: "per-item",

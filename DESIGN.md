@@ -160,6 +160,8 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-strong` on `--color-surface`         | 18.4:1 | 15.9:1 | AAA body — SheetIconLink pressed/hovered glyph on its `bg-surface` wash (section-header/bg site; the sunken wash measures ~1.03:1 against dark bg, so the bg site steps UP to surface); same pin |
 | `--color-accent` on `--color-bg` (text-on-bg use) | 2.23:1 | 8.16:1 | decorative-only in light — use `--color-accent-on-bg` for any load-bearing text/glyph |
 | `--color-accent-on-bg` on `--color-bg`            | 5.34:1 | 9.39:1 | AA body / AAA body                                       |
+| `--color-accent-on-bg` on `--color-surface-sunken` | 5.02:1 | 9.65:1 | AA body — the Restart action inside the gallery's in-flight retry overlay, and the `Tap to retry` control on the same sunken cell; pinned by tests/styles/status-token-contrast.test.ts |
+| `--color-accent-on-bg` on `--color-surface-raised` | 5.57:1 | 8.30:1 | AA body — the Restart action inside the lightbox's in-flight chip; same pin. Light is the binding mode for both rows, and both clear the body floor with room, which is why the action may carry accent rather than settling for a weight step |
 | `--color-accent-text` on `--color-accent`         | 8.23:1 | 8.23:1 | AA body both modes (same pair)                           |
 | `--color-accent-edge` vs `--color-accent`         | 3.61:1 | 1.15:1 | ≥3:1 non-text (light = the load-bearing 1.4.11 boundary; dark edge is decorative — the track itself is the boundary, next row) |
 | `--color-accent-edge` vs `--color-bg`             | 8.06:1 | 9.39:1 | ≥3:1 non-text (dark's toggle boundary is `--color-accent` vs bg, first accent row above) |
@@ -787,6 +789,7 @@ realtime reconnect backoff.
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
 | `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
+| `RETRY_CHECK_IN_MS` | 30000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
 | `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |

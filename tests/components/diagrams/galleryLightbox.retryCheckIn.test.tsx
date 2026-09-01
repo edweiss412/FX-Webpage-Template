@@ -1,0 +1,584 @@
+// @vitest-environment jsdom
+/**
+ * The LIGHTBOX's 30-second check-in, and its half of the deciding races.
+ *
+ * The harness below (the zoom mock, the CONTROLLED Embla, the item factory) is
+ * copied from lightboxSlideExposure.test.tsx rather than shared. Duplication is
+ * the house pattern for these suites and the reason is in that file: the real
+ * Embla only emits `select` after layout, which jsdom never provides, so a
+ * controlled emitter is the only way a swipe test asserts against a slide that
+ * actually changed.
+ *
+ * WHAT IS DIFFERENT FROM THE GALLERY, and it is not symmetry for its own sake:
+ *   - the overlay is gated on `isRetrying && isActive`, so an inactive slide
+ *     never RENDERS a check-in. It can ENTER one and then be swiped away, which
+ *     the spec's first draft denied and review refuted.
+ *   - the announcement is ACTIVE-SLIDE ONLY. Embla keeps every slide mounted, so
+ *     an inactive slide speaking would announce a diagram the user has not
+ *     swiped to, which is the same reason the shipped failure announcements are
+ *     active-only.
+ */
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { premiseHolds } from "@/tests/_shared/premise";
+
+// The zoom library is mocked to plain boxes: this file is about which element
+// renders with which URL, not about gestures.
+vi.mock("react-zoom-pan-pinch", async () => {
+  const React = await import("react");
+  return {
+    TransformWrapper: ({ children }: { children?: ReactNode }) =>
+      React.createElement("div", { "data-testid": "rzpp-wrapper" }, children),
+    TransformComponent: ({ children }: { children?: ReactNode }) =>
+      React.createElement("div", { "data-testid": "rzpp-component" }, children),
+    useTransformEffect: () => {},
+    useControls: () => ({
+      resetTransform: () => {},
+      centerView: () => {},
+      setTransform: () => {},
+      zoomIn: () => {},
+      zoomOut: () => {},
+    }),
+  };
+});
+
+// A CONTROLLED Embla: the real library only emits `select` after layout, which
+// jsdom never provides — so a swap test written against it silently asserts
+// against a slide that never changed (round-2 review finding). This mock exposes
+// the emitter, so the swap below is React actually re-rendering both branches.
+vi.mock("embla-carousel-react", async () => {
+  const React = await import("react");
+  // Named as a hook so the rules-of-hooks lint can see it is one.
+  function useEmblaCarouselMock() {
+    const listeners = React.useRef(new Map<string, Set<() => void>>());
+    const selected = React.useRef(0);
+    const api = React.useMemo(
+      () => ({
+        selectedScrollSnap: () => selected.current,
+        scrollTo: (index: number) => {
+          selected.current = index;
+          for (const cb of listeners.current.get("select") ?? []) cb();
+        },
+        scrollNext: () => api.scrollTo(selected.current + 1),
+        scrollPrev: () => api.scrollTo(Math.max(0, selected.current - 1)),
+        canScrollNext: () => true,
+        canScrollPrev: () => selected.current > 0,
+        on: (event: string, cb: () => void) => {
+          const set = listeners.current.get(event) ?? new Set<() => void>();
+          set.add(cb);
+          listeners.current.set(event, set);
+          return api;
+        },
+        off: (event: string, cb: () => void) => {
+          listeners.current.get(event)?.delete(cb);
+          return api;
+        },
+        reInit: () => {},
+        rootNode: () => document.createElement("div"),
+        internalEngine: () => ({}),
+      }),
+      [],
+    );
+    emblaApis.push(api);
+    return [() => {}, api] as const;
+  }
+  return { default: useEmblaCarouselMock };
+});
+
+/** Every Embla instance this file mounts, newest last. */
+const emblaApis: Array<{ scrollTo: (index: number) => void }> = [];
+
+import { GalleryLightbox, RETRY_CHECK_IN_MS } from "@/components/diagrams/GalleryLightbox";
+import type { GalleryItem } from "@/components/diagrams/Gallery";
+
+const SHOW_ID = "show-1";
+const REV = "rev-1";
+
+function item(i: number): GalleryItem {
+  const key = `embedded-obj-${i}.png`;
+  return {
+    id: `embedded:obj-${i}`,
+    key,
+    alt: `Diagram ${i}`,
+    available: true,
+    variants: [
+      { width: 256, key: `${key}@256.webp` },
+      { width: 512, key: `${key}@512.webp` },
+      { width: 1024, key: `${key}@1024.webp` },
+    ],
+  };
+}
+
+function open(items: GalleryItem[], onAnnounce?: (m: string) => void, startIndex = 0) {
+  // `exactOptionalPropertyTypes` is on, so passing `onAnnounce={undefined}` is a
+  // type error rather than an omission: spread the prop only when there is one.
+  return render(
+    <GalleryLightbox
+      showId={SHOW_ID}
+      snapshotRevisionId={REV}
+      items={items}
+      startIndex={startIndex}
+      onClose={() => {}}
+      {...(onAnnounce ? { onAnnounce } : {})}
+    />,
+  );
+}
+
+const overlay = (c: HTMLElement) => c.querySelector('[data-testid="lightbox-retrying"]');
+const failedControl = (c: HTMLElement) => c.querySelector('[data-testid="lightbox-retry"]');
+const activeImage = (c: HTMLElement): HTMLImageElement | null => {
+  const fig = [...c.querySelectorAll("figure")].find(
+    (f) => f.getAttribute("aria-hidden") !== "true",
+  );
+  return (fig?.querySelector("img") as HTMLImageElement | null) ?? null;
+};
+
+function failActive(c: HTMLElement): void {
+  const img = activeImage(c);
+  premiseHolds("the active slide renders an image, so there is an onError to fire", img !== null);
+  act(() => {
+    fireEvent.error(img as HTMLImageElement);
+  });
+}
+
+function tapRetry(c: HTMLElement): void {
+  const btn = failedControl(c);
+  premiseHolds("the failed slide offers a retry control to tap", btn !== null);
+  act(() => {
+    fireEvent.click(btn as Element);
+  });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  cleanup();
+  emblaApis.length = 0;
+});
+
+/** Check-in callbacks captured at schedule time, newest last. */
+let pendingCheckIns: Array<() => void> = [];
+/** Handles of the check-in timers only, so cleanup is asserted on identity. */
+let checkInHandles: unknown[] = [];
+
+/**
+ * Install a `setTimeout` spy that captures the check-in callbacks.
+ *
+ * ORDER MATTERS: `useFakeTimers` installs its own `setTimeout`, so the delegate
+ * is captured AFTER it. Delegating to the REAL one schedules on a clock
+ * `advanceTimersByTime` cannot reach, and every capture comes back empty.
+ */
+function captureCheckIns(): void {
+  vi.useFakeTimers();
+  pendingCheckIns = [];
+  checkInHandles = [];
+  const fake = globalThis.setTimeout;
+  vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+    fn: (...a: unknown[]) => void,
+    ms?: number,
+    ...rest: unknown[]
+  ) => {
+    const handle = (fake as unknown as (...a: unknown[]) => unknown)(fn, ms, ...rest);
+    if (ms === RETRY_CHECK_IN_MS) {
+      pendingCheckIns.push(() => fn());
+      checkInHandles.push(handle);
+    }
+    return handle as unknown as ReturnType<typeof globalThis.setTimeout>;
+  }) as unknown as typeof globalThis.setTimeout);
+}
+
+/**
+ * Fire EVERY captured callback. Not just the newest: React mounts effects more
+ * than once, so several are captured and only some are bound to the instance
+ * currently rendering. Firing one closed over a discarded instance updates
+ * nothing whatever the mechanism does, which is measured — the gallery's races
+ * file passed with its guard DELETED until this was fixed there.
+ */
+function fireCapturedCheckIns(): void {
+  premiseHolds("a check-in callback was captured", pendingCheckIns.length > 0);
+  act(() => {
+    for (const fire of pendingCheckIns) fire();
+  });
+}
+
+describe("the lightbox check-in", () => {
+  test("at the deadline the SAME overlay changes copy and un-inerts, keeping aria-busy", () => {
+    vi.useFakeTimers();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+
+    const before = overlay(container);
+    premiseHolds("the active slide is in flight", before !== null);
+    expect(before?.getAttribute("aria-disabled")).toBe("true");
+    expect(before?.textContent).toContain("Retrying");
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+
+    const after = overlay(container);
+    expect(after, "the check-in renders in the SAME element").toBe(before);
+    expect(after?.textContent).toContain("Still loading");
+    expect(
+      after?.getAttribute("aria-busy"),
+      "aria-busy stays true: the request is still in flight",
+    ).toBe("true");
+    expect(
+      after?.hasAttribute("aria-disabled"),
+      "aria-disabled is gone, because the control now does something",
+    ).toBe(false);
+  });
+
+  test("the active slide announces once; an inactive slide never renders a check-in", () => {
+    vi.useFakeTimers();
+    const said: string[] = [];
+    const { container } = open([item(1), item(2)], (m) => said.push(m));
+    failActive(container);
+    tapRetry(container);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    expect(said.filter((m) => m.includes("still loading"))).toHaveLength(1);
+
+    // Swipe away. Embla keeps the slide mounted, so this is the case where a
+    // naive implementation leaves a check-in rendered on a slide nobody is
+    // looking at, or speaks for it.
+    premiseHolds("the controlled Embla is available to swipe", emblaApis.length > 0);
+    act(() => {
+      emblaApis[emblaApis.length - 1]?.scrollTo(1);
+    });
+    expect(overlay(container), "no check-in overlay renders once the slide is inactive").toBeNull();
+    expect(
+      said.filter((m) => m.includes("still loading")),
+      "and nothing further is announced for it",
+    ).toHaveLength(1);
+  });
+
+  test("the lightbox's in-flight copy reads exactly as ratified, per phase", () => {
+    vi.useFakeTimers();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+
+    // The gallery's twin lives in retryCopyPin.test.tsx and cannot reach this
+    // surface: it renders <Gallery> and the lightbox needs a controlled Embla.
+    // Pinned HERE rather than deferred, because a copy guard on one of two
+    // surfaces is the enumeration this arc keeps being caught by, and the
+    // harness for the other one is already in this file.
+    //
+    // Strings, not banned words. U-1 (design spec §1.2) measured that Restart
+    // starts no new download, so the copy must not promise one; a deny-list
+    // over English fails OPEN on the first phrasing nobody thought of, and the
+    // closed form is the exact rendered set.
+    expect(overlay(container)?.textContent, "PENDING").toBe("Retrying…");
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    // The action is its own node now, so the text runs together. What matters is
+    // that both parts are present and the action is separately styled — asserted
+    // on the class, because a flat string is exactly the defect this repaired.
+    const control = overlay(container);
+    expect(control?.textContent, "CHECKED-IN").toBe("Still loading.Restart");
+    const action = control?.querySelector("span:last-child");
+    expect(action?.textContent, "the action is its own element").toBe("Restart");
+    expect(
+      action?.getAttribute("class"),
+      "and it carries the accent action treatment, not a bare weight step",
+    ).toContain("text-accent-on-bg");
+
+    act(() => {
+      fireEvent.click(control as HTMLElement);
+    });
+    expect(overlay(container)?.textContent, "RESTARTED — on the SAME request").toBe("Retrying…");
+  });
+
+  test("the check-in after Restart announces AGAIN on the active slide", () => {
+    vi.useFakeTimers();
+    const said: string[] = [];
+    const { container } = open([item(1), item(2)], (m) => said.push(m));
+    failActive(container);
+    tapRetry(container);
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    const spoken = () => said.filter((m) => m.includes("still loading")).length;
+    premiseHolds("the first check-in announced", spoken() === 1);
+
+    const control = overlay(container);
+    premiseHolds("the check-in is on screen, so Restart is reachable", control !== null);
+    act(() => {
+      fireEvent.click(control as HTMLElement);
+    });
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+
+    // The gallery's twin, and the same defect: the id never leaves the phase map
+    // across Restart, so an announced-set keyed on presence kept it marked and
+    // the replacement's own window ended in a silent check-in.
+    expect(overlay(container)?.textContent, "the second window really did check in").toContain(
+      "Still loading",
+    );
+    expect(spoken(), "and it was announced, exactly once more").toBe(2);
+  });
+
+  test("a callback firing after the slide resolved writes nothing", async () => {
+    captureCheckIns();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+    premiseHolds("a check-in callback was scheduled", pendingCheckIns.length > 0);
+
+    // Resolve the retry, then fire the pending callback. Advancing the clock
+    // instead proves nothing: the reconciler clears the timer on the removal, so
+    // the callback never runs and the case passes against an unconditional
+    // writer, which is exactly the mechanism it exists to catch.
+    const img = activeImage(container);
+    premiseHolds("the in-flight slide has an image to load", img !== null);
+    await act(async () => {
+      fireEvent.load(img as HTMLImageElement);
+      await Promise.resolve();
+    });
+    fireCapturedCheckIns();
+
+    expect(overlay(container), "a resolved slide shows no check-in").toBeNull();
+  });
+
+  test("a callback firing after the slide failed again writes nothing", () => {
+    captureCheckIns();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+    premiseHolds("a check-in callback was scheduled", pendingCheckIns.length > 0);
+
+    failActive(container); // the retry itself fails: pending -> failed
+    fireCapturedCheckIns();
+
+    expect(overlay(container), "a failed slide shows no check-in").toBeNull();
+    expect(failedControl(container), "it shows its retry control instead").not.toBeNull();
+  });
+
+  test("Restart remounts the image and gives the replacement its own window", () => {
+    captureCheckIns();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+    const duringPending = activeImage(container);
+    premiseHolds("the in-flight slide renders an image to identify", duringPending !== null);
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    // AC-5: the CHECK-IN must not remount. AC-8: RESTART must. Opposite on
+    // purpose, so a repair satisfying one by breaking the other fails here.
+    expect(activeImage(container), "the check-in keeps the same node").toBe(duringPending);
+
+    const control = overlay(container);
+    premiseHolds("the check-in offers a control to press", control !== null);
+    act(() => {
+      fireEvent.click(control as Element);
+    });
+
+    const afterRestart = activeImage(container);
+    expect(afterRestart, "Restart mounts an image again").not.toBeNull();
+    expect(
+      afterRestart,
+      "and it is a DIFFERENT node — node identity only, since U-1 measured that the remount " +
+        "does not issue a new request on an identical URL",
+    ).not.toBe(duringPending);
+    expect(overlay(container)?.textContent, "the phase reverted to pending").toContain("Retrying");
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS - 1);
+    });
+    expect(
+      overlay(container)?.textContent?.includes("Still loading"),
+      "the replacement waits a FULL window, not the remainder of the old one",
+    ).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(overlay(container)?.textContent).toContain("Still loading");
+  });
+
+  test("a RESOLVED retry retires its timer, so the NEXT retry gets a watchdog of its own", async () => {
+    // Whole-diff review r2 finding 1, and it is the case every other test in this
+    // file walked past. The reconciler retires a timer when its id stops being
+    // `pending`; mutate that to fire only when the id LEAVES THE MAP and the old
+    // handle is stranded instead of cleared. Nothing observable breaks at that
+    // moment — the stale callback no-ops on the live `prev` — so resolution,
+    // failure, reorder and swipe-away all stay green.
+    //
+    // The damage lands one retry LATER: `timers.has(id)` is still true, so the
+    // reconciler declines to schedule the replacement and that item never checks
+    // in again. The reviewer's probe named it exactly:
+    // SHIPPED newTimerScheduled: true / MUTANT newTimerScheduled: false.
+    //
+    // So the assertion is about the SECOND window, which is the first place the
+    // difference is visible at all. The repaired unmount case cannot see this:
+    // the mount-scoped cleanup eventually clears the stranded handle.
+    captureCheckIns();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+    premiseHolds("a first check-in timer was scheduled", checkInHandles.length === 1);
+
+    // ADVANCE FIRST, and this one second is the whole point of review round 3's
+    // High finding. Without it the retired timer and its replacement share a
+    // deadline on the fake clock, so a reconciler that calls `timers.delete(id)`
+    // WITHOUT `clearTimeout(handle)` is indistinguishable from a correct one:
+    // the stale callback fires at the same instant the new one would have, sees
+    // the later attempt as `pending`, and checks it in. All seven suites stayed
+    // green at 66/66 against that mutant until this line existed.
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    // Resolve it. The id leaves the phase map and its timer must be retired.
+    const img = activeImage(container);
+    premiseHolds("the in-flight slide has an image to load", img !== null);
+    await act(async () => {
+      fireEvent.load(img as HTMLImageElement);
+      await Promise.resolve();
+    });
+
+    // Fail and retry the SAME item again.
+    failActive(container);
+    tapRetry(container);
+    expect(
+      checkInHandles.length,
+      "the replacement retry scheduled a watchdog of its own; a stranded handle " +
+        "would make `timers.has(id)` decline to schedule one, silently and forever",
+    ).toBe(2);
+
+    // The replacement waits its OWN FULL WINDOW. One second short of it, nothing
+    // has checked in: an uncleared callback from the first attempt would fire
+    // here, a second early, because it was scheduled a second before this one.
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS - 1_000);
+    });
+    expect(
+      overlay(container)?.textContent?.includes("Still loading"),
+      "the next retry waits its own full window; a stale callback would check it in early",
+    ).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(overlay(container)?.textContent, "and then the second window checks in").toContain(
+      "Still loading",
+    );
+  });
+
+  test("unmount clears the lightbox's check-in timers, asserted on handle identity", () => {
+    // Whole-diff review finding 2, second half: the gallery had a cleanup case
+    // (weak, now repaired) and the LIGHTBOX had none at all, so its mount-scoped
+    // cleanup could be deleted with every suite green. Closing a lightbox with a
+    // retry in flight is the ordinary way out of this state, so an armed timer
+    // surviving it is a leak per open-and-close.
+    captureCheckIns();
+    const cleared: unknown[] = [];
+    const realClear = globalThis.clearTimeout;
+    vi.spyOn(globalThis, "clearTimeout").mockImplementation(((h: unknown) => {
+      cleared.push(h);
+      return (realClear as unknown as (h: unknown) => void)(h);
+    }) as unknown as typeof globalThis.clearTimeout);
+
+    const view = open([item(1), item(2)]);
+    failActive(view.container);
+    tapRetry(view.container);
+    premiseHolds("a check-in timer was scheduled to clear", checkInHandles.length > 0);
+
+    act(() => {
+      view.unmount();
+    });
+
+    // Identity, not a count: React silently ignores a post-unmount setState, so
+    // "fire it and assert nothing happened" passes either way. Only the CLEAR is
+    // observable, and only its handle says WHICH timer was cleared.
+    const missed = checkInHandles.filter((h) => !cleared.includes(h));
+    expect(
+      missed.length,
+      `unmount left ${missed.length} of ${checkInHandles.length} check-in timers armed`,
+    ).toBe(0);
+  });
+
+  test("a REORDER that makes the slide inactive abandons it too, with no Embla select", () => {
+    vi.useFakeTimers();
+    const said: string[] = [];
+    const a = item(1);
+    const b = item(2);
+    const view = open([a, b], (m) => said.push(m));
+    failActive(view.container);
+    tapRetry(view.container);
+    premiseHolds(
+      "the active slide is in flight before the reorder",
+      overlay(view.container) !== null,
+    );
+
+    // Whole-diff review finding 1, reproduced from its own probe. Reordering the
+    // props makes slide A inactive WITHOUT Embla emitting `select`, so an
+    // abandonment that lives only in the select handler never runs: A's timer
+    // stayed armed while A was invisible, and A came back checked-in and
+    // announced late. The repair derives abandonment from the RENDER — an id
+    // that is not the active slide's is abandoned however it got there — so this
+    // case does not depend on which event fired.
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[b, a]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={(m) => said.push(m)}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS * 2);
+    });
+    expect(
+      said.filter((m) => m.includes("still loading")),
+      "no check-in is announced for a slide nobody is looking at",
+    ).toEqual([]);
+
+    // And bringing it back offers the failed control, not a resurrected check-in
+    // for a request that was abandoned.
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[a, b]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={(m) => said.push(m)}
+      />,
+    );
+    expect(overlay(view.container), "no phantom in-flight overlay on return").toBeNull();
+    expect(failedControl(view.container), "the honest state is the failed control").not.toBeNull();
+  });
+
+  test("the swipe-away abandons the retry, so swiping back offers the control again", () => {
+    vi.useFakeTimers();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+    premiseHolds("the slide is in flight before the swipe", overlay(container) !== null);
+
+    act(() => {
+      emblaApis[emblaApis.length - 1]?.scrollTo(1);
+    });
+    act(() => {
+      emblaApis[emblaApis.length - 1]?.scrollTo(0);
+    });
+
+    // The Embla handler hands the id back to `failedKeys`, so the honest state
+    // on return is the failed slide with its retry control, never a resurrected
+    // check-in for a request nobody is waiting on.
+    expect(overlay(container), "no phantom in-flight overlay on return").toBeNull();
+    expect(failedControl(container), "the failure is restored with its control").not.toBeNull();
+  });
+});

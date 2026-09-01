@@ -35,7 +35,11 @@ import {
   AnnounceLogRegion,
   useAnnounceLog,
 } from "@/components/admin/announceLog";
-import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
+import {
+  GalleryLightbox,
+  RETRY_CHECK_IN_MS,
+  type RetryPhase,
+} from "@/components/diagrams/GalleryLightbox";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
@@ -123,7 +127,11 @@ export function Gallery({
   // Task 2 (spec §4). `failedKeys` stops being the whole story: an item is now
   // idle, failed, or retrying, and `item.available` is a conjunct of all three
   // so none can overlap the parse-time `unavailable` branch.
-  const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
+  const [retryPhase, setRetryPhase] = useState<ReadonlyMap<string, RetryPhase>>(() => new Map());
+  /** Live check-in timers, one per in-flight item. Owned by the reconciler below. */
+  const checkInTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** Ids whose check-in has been spoken, so a re-render does not speak twice. */
+  const announcedCheckInRef = useRef(new Set<string>());
   // The in-flight controls, so focus can be handed to one. The failed control
   // UNMOUNTS as the overlay mounts, so without this hand-off focus falls to
   // `<body>` -- outside anything -- which is precisely the §7.1 defect this arc
@@ -260,7 +268,7 @@ export function Gallery({
     if (id === null) return;
     focusRetryingRef.current = null;
     retryingRefs.current.get(id)?.focus();
-  }, [retrying]);
+  }, [retryPhase]);
 
   // ── The focus rescue, ONE mechanism for EVERY removal path (R2 finding 1) ──
   //
@@ -306,7 +314,7 @@ export function Gallery({
     if (id === null) return;
     focusThumbRef.current = null;
     thumbRefs.current.get(id)?.focus();
-  }, [retrying]);
+  }, [retryPhase]);
 
   // ── The availability sweep (spec §9.1, Task 7) ───────────────────────────
   //
@@ -314,7 +322,9 @@ export function Gallery({
   // member whose diagram is removed by one sync and restored by the next should
   // get the diagram back, not the wreckage of its last life -- a retry control
   // for a fault that no longer applies, or worse a `Retrying…` claiming a
-  // request that was abandoned when the cell unmounted.
+  // request the component has stopped tracking. (Stopped TRACKING, not
+  // abandoned: U-1 measured that the browser keeps a fetch whose element goes.
+  // The stale overlay is a lie about our state, not about the network.)
   //
   // KEYED ON THE RENDERED ID SET, not on `item.available`: an item dropped from
   // `items` never flips that prop, it simply stops being rendered, so a sweep
@@ -337,8 +347,10 @@ export function Gallery({
   // `retrying` is swept against what is RENDERED, not merely what is available.
   // The two sets answer different questions: `failedKeys` is a fact about the
   // DIAGRAM and rightly survives the cell scrolling out of the collapsed grid,
-  // while `retrying` describes a request belonging to a MOUNTED element -- and
-  // unmounting that element abandons the request. Keyed on `items` alone, a
+  // while `retrying` describes a request belonging to a MOUNTED element, and
+  // unmounting that element ends our ability to observe it. (The REQUEST may well
+  // continue — U-1, design spec §1.2 — which is exactly why the state must not
+  // outlive the element that could have reported on it.) Keyed on `items` alone, a
   // retry in flight when the user hits "Show fewer" came back on re-expand still
   // claiming `Retrying…` with `aria-busy`, for work that had stopped.
   const renderedIds = new Set(
@@ -364,17 +376,17 @@ export function Gallery({
   // one site. Stated here rather than left implicit, because repairing this
   // class per site is exactly what produced this finding.
   const abandoned: string[] = [];
-  const sweptRetrying = (() => {
+  const sweptRetryPhase = (() => {
     let changed = false;
-    const next = new Set<string>();
-    for (const id of retrying) {
-      if (renderedIds.has(id)) next.add(id);
+    const next = new Map<string, RetryPhase>();
+    for (const [id, phase] of retryPhase) {
+      if (renderedIds.has(id)) next.set(id, phase);
       else {
         changed = true;
         if (liveIds.has(id)) abandoned.push(id);
       }
     }
-    return changed ? next : retrying;
+    return changed ? next : retryPhase;
   })();
   // The two writes are ordered and the order matters: `sweptFailed` drops ids
   // whose items are gone, and the abandoned ids are then added back on top. An
@@ -389,15 +401,8 @@ export function Gallery({
           return next;
         })();
   if (restoredFailed !== failedKeys) setFailedKeys(restoredFailed);
-  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
-  if (items.length === 0) return null;
+  if (sweptRetryPhase !== retryPhase) setRetryPhase(sweptRetryPhase);
 
-  const showAll = expanded || items.length <= INITIAL_VISIBLE;
-  const visible = showAll ? items : items.slice(0, INITIAL_VISIBLE);
-  const hiddenCount = items.length - INITIAL_VISIBLE;
-  const needsToggle = items.length > INITIAL_VISIBLE;
-
-  /** The label scheme the thumbnail's own aria-label uses, so the two agree. */
   const nameOf = (item: GalleryItem, visibleIndex: number): string =>
     item.alt || `Diagram ${visibleIndex + 1}`;
 
@@ -419,6 +424,142 @@ export function Gallery({
     announceInGallery(message);
   };
 
+  // ── The check-in timers, and why they are TWO effects ────────────────────
+  //
+  // The reconciler has NO cleanup function. React runs a cleanup before every
+  // dependency-driven re-run, not only on unmount, so a single effect that
+  // cleared every timer in its cleanup would restart every OTHER item's window
+  // whenever any item entered or left an in-flight phase: item A waits 29
+  // seconds, item B arrives, A's timer is cleared and restarted, and A checks in
+  // at about 59. A count of live timers cannot see that, since A always has
+  // exactly one, which is why the deciding suite asserts the TIMING relative to
+  // A's own entry.
+  //
+  // So this one only touches the ids whose membership actually changed, and the
+  // clear-everything path belongs to the mount-scoped effect below, whose
+  // cleanup runs exactly once.
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "pending" || timers.has(id)) continue;
+      timers.set(
+        id,
+        setTimeout(() => {
+          // ONE functional update on the single source of truth. `prev` is live
+          // by React's own contract, so this reads the CURRENT phase rather than
+          // the one captured when the timer was scheduled, and no-ops when the
+          // item has gone or already resolved. That is the whole mechanism: the
+          // spec's bound is that any out-of-render reader may see a stale
+          // snapshot, and this one takes no snapshot at all.
+          setRetryPhase((prev) => {
+            if (prev.get(id) !== "pending") return prev;
+            const next = new Map(prev);
+            next.set(id, "checked-in");
+            return next;
+          });
+        }, RETRY_CHECK_IN_MS),
+      );
+    }
+    for (const [id, handle] of timers) {
+      if (sweptRetryPhase.get(id) === "pending") continue;
+      clearTimeout(handle);
+      timers.delete(id);
+    }
+    // Keyed to the CURRENT checked-in occupancy, not to the lifetime of the id.
+    // An id that left the map is the obvious case; an id that is still HERE but
+    // no longer `checked-in` is the one that cost an accessibility gap. Restart
+    // moves it to `restarting` and a layout effect returns it to `pending`, so
+    // it never leaves the map, and an announced-set keyed on presence kept it
+    // marked. The replacement's own window then ended in a check-in nobody was
+    // told about: the sighted user watched the copy change and the
+    // screen-reader user heard nothing. AC-8b already says the replacement gets
+    // its own full window; a window of its own ends in a check-in of its own.
+    for (const id of announcedCheckInRef.current) {
+      if (sweptRetryPhase.get(id) !== "checked-in") announcedCheckInRef.current.delete(id);
+    }
+  }, [sweptRetryPhase]);
+
+  // `restarting` -> `pending`, BEFORE PAINT.
+  //
+  // A layout effect, so the imageless commit is never painted. Two updates in one
+  // handler would batch into a single commit, React would reconcile the same
+  // element and nothing would remount at all. The two-commit sequence is what
+  // makes the unmount real.
+  //
+  // WHAT THE REMOUNT DOES AND DOES NOT BUY. This comment used to end "so the
+  // user would get a new label and the same hung fetch", implying the two-commit
+  // version avoids that. U-1 measured otherwise (design spec §1.2, 2026-09-01):
+  // the browser keeps the original request and serves the identical URL from it,
+  // so the user gets a re-armed watchdog and honest copy over the same fetch
+  // either way. The remount is still load-bearing — it makes the phase machine a
+  // real state change rather than a relabel — but it is not a new download.
+  //
+  // DOCUMENTED LIMIT: no test pins `useLayoutEffect` over `useEffect` here.
+  // Swapping them keeps every case in gallery.retryCheckIn.test.tsx green,
+  // measured rather than assumed. The difference is whether the imageless commit
+  // can PAINT, and jsdom does not paint, so the distinction is unobservable
+  // there; the two-commit remount that the suite DOES pin happens either way.
+  // Stated so a future reader does not mistake the green suite for a guarantee
+  // about flicker, and so nobody "simplifies" this to a passive effect believing
+  // the tests cover it.
+  useLayoutEffect(() => {
+    let hasRestarting = false;
+    for (const phase of sweptRetryPhase.values()) {
+      if (phase === "restarting") {
+        hasRestarting = true;
+        break;
+      }
+    }
+    if (!hasRestarting) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing SECOND RENDER, the same waiver shape ShowRowActions.tsx:247 carries: the imageless commit is the mechanism, not a derivation. Restart must unmount the <Image> and remount it, and two updates batched into one commit would reconcile the same element and remount nothing at all. (The remount is a new ELEMENT, not a new request: U-1 measured the browser coalescing the identical URL into the fetch already in flight, design spec section 1.2.) It cannot cascade: the updater only ever moves `restarting` to `pending`, and `pending` does not satisfy the guard above.
+    setRetryPhase((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const [id, phase] of prev) {
+        if (phase !== "restarting") continue;
+        next.set(id, "pending");
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [sweptRetryPhase]);
+
+  // Mount-scoped, and the ONLY place that clears everything.
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    return () => {
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, []);
+
+  // The check-in announcement, in a LAYOUT effect rather than a passive one.
+  //
+  // A commit that shows an item `checked-in` is proof it WAS checked in at that
+  // commit, and a layout effect runs synchronously in that commit before
+  // anything can interleave. A passive effect cannot make that claim: React
+  // flushes pending passive effects before the next render, so one scheduled by
+  // the check-in commit still runs after an `onLoad` that is queued but not yet
+  // rendered, and would announce "is still loading" about an image that had
+  // already succeeded.
+  useLayoutEffect(() => {
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "checked-in" || announcedCheckInRef.current.has(id)) continue;
+      announcedCheckInRef.current.add(id);
+      const visibleIndex = items.findIndex((entry) => entry.id === id);
+      const entry = items[visibleIndex];
+      if (entry) routeAnnouncement(`${nameOf(entry, visibleIndex)} is still loading.`);
+    }
+  });
+
+  if (items.length === 0) return null;
+
+  const showAll = expanded || items.length <= INITIAL_VISIBLE;
+  const visible = showAll ? items : items.slice(0, INITIAL_VISIBLE);
+  const hiddenCount = items.length - INITIAL_VISIBLE;
+  const needsToggle = items.length > INITIAL_VISIBLE;
+
+  /** The label scheme the thumbnail's own aria-label uses, so the two agree. */
   /**
    * Drain the exit buffer into `deliver`.
    *
@@ -459,10 +600,10 @@ export function Gallery({
       next.delete(item.id);
       return next;
     });
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (prev.has(item.id)) return prev;
-      const next = new Set(prev);
-      next.add(item.id);
+      const next = new Map(prev);
+      next.set(item.id, "pending");
       return next;
     });
   };
@@ -488,9 +629,9 @@ export function Gallery({
     if (overlay && document.activeElement === overlay) {
       focusFailedRef.current = item.id;
     }
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (!prev.has(item.id)) return prev;
-      const next = new Set(prev);
+      const next = new Map(prev);
       next.delete(item.id);
       return next;
     });
@@ -518,9 +659,9 @@ export function Gallery({
     if (overlay !== null && document.activeElement === overlay) {
       focusThumbRef.current = item.id;
     }
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (!prev.has(item.id)) return prev;
-      const next = new Set(prev);
+      const next = new Map(prev);
       next.delete(item.id);
       return next;
     });
@@ -620,7 +761,24 @@ export function Gallery({
         aria-label="Diagrams gallery thumbnails"
       >
         {visible.map((item, i) => {
-          const isRetrying = sweptRetrying.has(item.id);
+          const phase = sweptRetryPhase.get(item.id);
+          // Every in-flight phase renders the overlay, and that is what makes it
+          // ONE element across `pending`, `checked-in` and `restarting`: the node
+          // survives Restart, so the browser keeps focus on it and no hand-off is
+          // needed (AC-10).
+          const isRetrying = phase !== undefined;
+          // `restarting` is the one in-flight phase that renders NO image. The
+          // layout effect puts the id straight back to `pending`, which mounts a
+          // NEW <Image> element.
+          //
+          // A NEW ELEMENT, NOT A NEW REQUEST, and the distinction is measured
+          // rather than assumed. U-1 (design spec §1.2, 2026-09-01) found the
+          // browser does not abandon the original fetch when its element goes,
+          // and the replacement carries an identical URL, so Chromium serves it
+          // from the request already in flight: attemptsAfterRestart was 2, not
+          // 3. What the remount buys is the UI state — a re-armed watchdog and
+          // honest copy — over a fetch that never stopped.
+          const isRestarting = phase === "restarting";
           // `failed` excludes `retrying` (spec §4): the states are disjoint, so
           // the render picks exactly one branch.
           const runtimeFailed = sweptFailed.has(item.id) && !isRetrying;
@@ -732,30 +890,32 @@ export function Gallery({
                   back to the same unavailable placeholder branch as
                   parse-time-known-unavailable items.
                 */}
-                    <Image
-                      loader={makeDiagramLoader({
-                        showId,
-                        rev: snapshotRevisionId,
-                        key: item.key,
-                        variants: item.variants,
-                      })}
-                      src={item.key}
-                      alt={item.alt || `Diagram ${i + 1}`}
-                      fill
-                      sizes={sizes}
-                      {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
-                        ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
-                        : {})}
-                      onError={() =>
-                        isRetrying ? handleRetryFailure(item, i) : handleThumbnailFailure(item, i)
-                      }
-                      onLoad={() => {
-                        // Only meaningful while retrying; on an ordinary load the
-                        // set does not hold the id and the setter no-ops.
-                        if (isRetrying) handleRetrySuccess(item, i);
-                      }}
-                      className="object-contain"
-                    />
+                    {isRestarting ? null : (
+                      <Image
+                        loader={makeDiagramLoader({
+                          showId,
+                          rev: snapshotRevisionId,
+                          key: item.key,
+                          variants: item.variants,
+                        })}
+                        src={item.key}
+                        alt={item.alt || `Diagram ${i + 1}`}
+                        fill
+                        sizes={sizes}
+                        {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
+                          ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
+                          : {})}
+                        onError={() =>
+                          isRetrying ? handleRetryFailure(item, i) : handleThumbnailFailure(item, i)
+                        }
+                        onLoad={() => {
+                          // Only meaningful while retrying; on an ordinary load the
+                          // set does not hold the id and the setter no-ops.
+                          if (isRetrying) handleRetrySuccess(item, i);
+                        }}
+                        className="object-contain"
+                      />
+                    )}
                   </button>
                   {isRetrying ? (
                     /*
@@ -778,9 +938,38 @@ export function Gallery({
                         retryingRefs.current.set(item.id, node);
                       }}
                       aria-busy="true"
-                      aria-disabled="true"
-                      onClick={(event) => event.preventDefault()}
-                      aria-label={`${nameOf(item, i)} could not be loaded. Retrying…`}
+                      // `aria-disabled` only while the control does nothing. At
+                      // the check-in it does something, and an `aria-disabled`
+                      // control that acts is the real contradiction. `aria-busy`
+                      // stays true in BOTH: the request IS still in flight, and
+                      // dropping it would announce a completion that has not
+                      // happened, which is the objection the deferred row raised.
+                      {...(sweptRetryPhase.get(item.id) === "checked-in"
+                        ? {}
+                        : { "aria-disabled": "true" as const })}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        // Restart is offered ONLY in the check-in. One update:
+                        // the phase moves to `restarting`, which unmounts the
+                        // <Image>. The layout effect below puts it straight back
+                        // to `pending` before paint, and THAT mount is the fresh
+                        // ELEMENT — not, as measured, a fresh request: the URL is
+                        // identical and the browser coalesces it into the fetch
+                        // already in flight (U-1). No `key` changes and no counter exists: the
+                        // remount is the branch actually changing, which is the
+                        // ordinary behaviour of the state machine.
+                        setRetryPhase((prev) => {
+                          if (prev.get(item.id) !== "checked-in") return prev;
+                          const next = new Map(prev);
+                          next.set(item.id, "restarting");
+                          return next;
+                        });
+                      }}
+                      aria-label={
+                        sweptRetryPhase.get(item.id) === "checked-in"
+                          ? `${nameOf(item, i)} is still loading. Restart.`
+                          : `${nameOf(item, i)} could not be loaded. Retrying…`
+                      }
                       // OPAQUE, not `/80`: over a translucent ground the label
                       // composites against whatever the diagram happens to be, and
                       // the worst case measured 3.80:1 -- under the 4.5:1 floor, on
@@ -790,8 +979,34 @@ export function Gallery({
                       // but it is a button, and the rule's default is text or stronger.
                       className="absolute inset-0 flex min-h-tap-min flex-col items-center justify-center gap-1 bg-surface-sunken text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      <ImageOff aria-hidden="true" className="size-5" />
-                      <span className="text-xs/relaxed">Retrying…</span>
+                      {sweptRetryPhase.get(item.id) === "checked-in" ? (
+                        // No icon here, deliberately. The cell is ~117px at 30vw
+                        // on a 390px phone, and two short lines plus an icon
+                        // needs a third row it does not have. The icon was
+                        // carrying "something is wrong"; the two lines say it.
+                        <>
+                          <span className="text-xs/relaxed">Still loading</span>
+                          {/*
+                            `text-accent-on-bg`, the same treatment the failed
+                            control below uses for the same action. A weight step
+                            alone is not an affordance: at 12px in a 112px cell in
+                            venue light, "Restart" in the status colour reads as a
+                            second status word. This is the inconsistency the
+                            comment on that control says it just settled, and the
+                            check-in reintroduced it one phase later. Contrast is
+                            pinned in DESIGN.md §1.2 and asserted in
+                            tests/styles/status-token-contrast.test.ts.
+                          */}
+                          <span className="text-xs/relaxed font-medium text-accent-on-bg">
+                            Restart
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <ImageOff aria-hidden="true" className="size-5" />
+                          <span className="text-xs/relaxed">Retrying…</span>
+                        </>
+                      )}
                     </button>
                   ) : null}
                 </>
