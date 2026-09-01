@@ -5,7 +5,7 @@
 
 ## 1. What is wrong
 
-Confirming a destructive two-tap action drops `document.activeElement` to `<body>`. The operator is returned to the top of the document with no focus anywhere in the surface they were working in, so a keyboard or switch user has to tab back in from the start of the page. The action itself is announced through the admin layout's live region, so the outcome is not silent; the focus position is.
+Confirming a destructive two-tap action drops `document.activeElement` to `<body>`. The operator is returned to the top of the document with no focus anywhere in the surface they were working in, so a keyboard or switch user has to tab back in from the start of the page. Each control announces its outcome, so the outcome is not silent; the focus position is. The CHANNEL differs per control and this spec changes none of them: rotate calls `announce(...)` into the admin layout's region, picker reset owns an `sr-only role="status"` region inside the component (`app/admin/show/[slug]/PickerResetControl.tsx:193`), and revoke renders one hoisted string into both its visible card and its announcement (`app/admin/settings/admins/RevokeRowButton.tsx:56-63`).
 
 ## 1.1 Resolved scope — do not relitigate
 
@@ -98,19 +98,27 @@ two are not merged.
   on the announce channel and is not merged into the focus move.
 - **R3 (revoke admin, non-success).** On a refused `result.kind`, on
   `couldnt_confirm`, and on any branch where `effectiveUi` renders idle while
-  `ui` is still `resolving`, focus goes to whichever control that branch
-  actually renders. Each branch names its own target; "the trigger" is not a
-  universal answer here.
+  `ui` is still `resolving`, focus goes to the control that branch renders, named here rather than deferred: the REVOKE TRIGGER for a refused result and for the `effectiveUi`-renders-idle case (both re-render the idle row), and the REFRESH control for `couldnt_confirm`.
 - **R4.** The Cancel path is unchanged on all three.
 - **R5.** `RevokeRowButton`'s submit must still fire: no synchronous disable of
   the submitter in its own `onClick` (`app/admin/settings/admins/RevokeRowButton.tsx:381-389`).
 - **R6.** No change to `ArchiveShowButton` or to ShareHub's lifecycle effect.
-- **R7.** Every requirement above is proved by an executable assertion on the
-  FOCUSED ELEMENT — its testid, or at minimum `document.activeElement` not being
-  `<body>` — not by a reading count. The round-1 finding here was correct and is
-  a defect of the shipped probe, not only of the prose: `tests/e2e/confirm-focus-probe.spec.ts`
-  asserts `readings.length` and the presence of a sample whose label ends in `armed` and nothing
-  about focus, so it would pass today against every defect this spec describes.
+- **R7.** Requirements are proved by DIFFERENT evidence, and this spec says which
+  by which rather than claiming one assertion covers all:
+  - R1, R2 and R3 identity — an assertion on the focused element, against a
+    target captured from the DOM BEFORE the action
+    (`tests/e2e/helpers/confirmFocusProbe.ts`, decided without a browser by
+    `tests/e2e/helpers/confirmFocusProbe.decide.test.ts`).
+  - R2's `tabIndex={-1}` and nearest-only scroll — a rendered-attribute assertion
+    plus a scroll-position assertion; focus identity cannot show either.
+  - R2's announcement-channel separation — an assertion that the announcement
+    region's content is unchanged by the focus move.
+  - R4 (Cancel unchanged) — the exact trigger, not merely non-`BODY`.
+  - R5 (submit still fires) — evidence the action ran, not a focus reading.
+  - R6 (Archive and ShareHub untouched) — structural: those files absent from the
+    diff.
+  - The in-flight contract in §5 — a reading taken at the `confirm → resolving`
+    moment, which the settled reading cannot stand in for.
 
 ## 4. Guard conditions, per control
 
@@ -129,38 +137,40 @@ two are not merged.
 
 ## 5. Transition inventory
 
-No control in scope animates a state change; every transition below is
-**instant — no animation needed**, and the column that matters is focus.
+Nothing here animates: every transition is **instant — no animation needed**, so
+the column that carries meaning is focus. Pairs are UNORDERED, with both
+directions named in the row, because a directional list makes the count
+disagree with the rule.
 
-**rotate and picker reset** (3 states, 3 pairs):
-
-| pair | animation | focus |
-| --- | --- | --- |
-| idle → confirm | instant | Cancel focused (C3) — unchanged |
-| confirm → idle (cancel / arm expiry) | instant | trigger refocused — unchanged |
-| confirm → resolving | instant | **in scope**: the activated button is disabled in the same commit; focus must not be left on `<body>` |
-| resolving → idle | instant | **in scope**: trigger refocused (R1) |
-| idle → resolving | unreachable — only entered from `confirm` | — |
-
-**revoke admin** (4 states, 6 pairs):
+**rotate and picker reset** — 3 states, so 3 unordered pairs:
 
 | pair | animation | focus |
 | --- | --- | --- |
-| idle → confirm | instant | Cancel focused — unchanged |
-| confirm → idle | instant | trigger refocused — unchanged |
-| confirm → resolving | instant | **in scope**: the submitter is disabled one tick later, on `isPending` |
-| resolving → idle (success) | instant | **in scope**: row unmounts, R2 target |
-| resolving → couldnt_confirm (watchdog, 12s) | instant | **in scope**: Refresh control |
-| couldnt_confirm → idle (refresh completes) | instant | out of scope: a full refresh replaces the surface |
-| idle → couldnt_confirm | unreachable — only entered from `resolving` | — |
+| idle ↔ confirm | instant | → Cancel focused (C3). ← trigger refocused. Both unchanged |
+| confirm ↔ resolving | instant | → **in scope**: the activated button is disabled in the same commit, so focus must move to the trigger AT THAT MOMENT, not merely by the time the action resolves. ← unreachable |
+| idle ↔ resolving | instant | → unreachable (`resolving` is only entered from `confirm`). ← **in scope**: trigger refocused (R1) |
+
+**revoke admin** — 4 states, so 6 unordered pairs:
+
+| pair | animation | focus |
+| --- | --- | --- |
+| idle ↔ confirm | instant | → Cancel focused. ← trigger refocused. Both unchanged |
+| confirm ↔ resolving | instant | → **in scope**: the submitter is disabled one tick later, on `isPending`; focus must move to the trigger when that disable lands. ← unreachable |
+| confirm ↔ couldnt_confirm | instant | both directions unreachable: `couldnt_confirm` is entered only from `resolving` (`app/admin/settings/admins/RevokeRowButton.tsx:189`), and left only by a full refresh |
+| idle ↔ resolving | instant | → unreachable. ← **in scope, SUCCESS**: the row unmounts, so focus goes to the heading (R2) |
+| idle ↔ couldnt_confirm | instant | → unreachable. ← out of scope: a full refresh replaces the surface |
+| resolving ↔ couldnt_confirm | instant | → **in scope**: the 12s watchdog fires and the Refresh control is what that branch renders, so focus goes there. ← unreachable |
 
 Compound transitions:
 
 | compound | behavior |
 | --- | --- |
 | arm-expiry fires while resolving | `setUi` guard makes it a no-op; no focus movement |
-| late result arrives while `couldnt_confirm` is sticky | `couldnt_confirm` outranks; no focus movement |
-| `effectiveUi` renders idle while `ui` is `resolving` (non-OK result) | focus follows the RENDERED branch, not `ui` |
+| a late **non-OK** result arrives while `couldnt_confirm` is sticky | `couldnt_confirm` outranks; no focus movement |
+| a late **OK** result arrives while `couldnt_confirm` is sticky | distinct from the row above and NOT collapsed with it: the revoke succeeded, so the row will leave the list on the next refresh. Focus stays on the Refresh control; it must not chase the unmount |
+| the action THROWS on revoke | unknown and gate failures propagate to the route error boundary rather than a local catch, so no focus contract applies — the surface is replaced. Distinct from rotate and picker, which catch locally |
+| **refused, then retried** | after a refused revoke `result` stays non-OK, so re-entering `confirm` and pressing Confirm again must still not disable the submitter synchronously (R5). The retry path is where a naive repair re-introduces the submit cancellation |
+| `effectiveUi` renders idle while `ui` is `resolving` | focus follows the RENDERED branch, not `ui` |
 
 ## 5.1 Dimensional invariants
 
