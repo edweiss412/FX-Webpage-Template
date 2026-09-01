@@ -21,7 +21,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 // The zoom library is mocked to plain boxes: this file is about which element
 // renders with which URL, not about gestures.

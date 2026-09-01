@@ -26,25 +26,10 @@
  * over it were each refuted by the next review round, and the surviving contract
  * is a consequence bound rather than a list (design spec section 3.2a).
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { premiseHolds } from "../../_shared/premise";
-
-const ROOT = process.cwd();
-
-const COMPONENTS = [
-  "components/diagrams/Gallery.tsx",
-  "components/diagrams/GalleryLightbox.tsx",
-] as const;
-
-/**
- * The setter this arc converts to a Map. Named once: every assertion below keys
- * on it, and a rename that missed one of them would otherwise pass silently.
- */
-const PHASE_SETTER = "setRetryPhase";
+import { PHASE_COMPONENTS, PHASE_SETTER, phaseWriters } from "./phaseWriters";
 
 /**
  * Writers of the phase state, counted across BOTH components.
@@ -61,52 +46,18 @@ const PHASE_SETTER = "setRetryPhase";
  * restarting-to-pending promotion added two more (thirteen). The previous
  * revision of this comment predicted thirteen for exactly this reason and the
  * walk agreed, which is the count tracking real membership rather than being
- * retyped to match. A count that moves on its own is the failure this guards,
- * and the timer callback is the writer the pin exists for,
- * and it is the one this pin exists for. It reads `prev.get(id)` before writing,
- * which is what makes a callback that fires after its item has gone a no-op
- * rather than a stale write the next retry inherits. The count moved because a
- * writer was added on purpose; a count that moves on its own is the failure this
- * guards.
+ * retyped to match.
+ *
+ * The timer callback is the writer this pin exists for. It reads `prev.get(id)`
+ * before writing, which is what makes a callback that fires after its item has
+ * gone a no-op rather than a stale write the next retry inherits. The count
+ * moved because writers were added on purpose; a count that moves on its own is
+ * the failure this guards.
  */
 const EXPECTED_PHASE_WRITERS = 13;
 
-type Writer = { file: string; line: number; body: string };
-
-/** Every `setRetryPhase((prev) => { ... })` call, with its body. */
-function phaseWriters(file: string): Writer[] {
-  const src = readFileSync(join(ROOT, file), "utf8");
-  const out: Writer[] = [];
-  const opener = new RegExp(`${PHASE_SETTER}\\(\\s*\\(prev\\)\\s*=>`, "g");
-  for (const m of src.matchAll(opener)) {
-    const start = m.index ?? 0;
-    // Brace-match forward from the arrow so a nested object or closure inside the
-    // updater cannot truncate the body. A regex terminator cannot do this, and a
-    // truncated body would silently exempt whatever sits past the cut.
-    const braceAt = src.indexOf("{", start + m[0].length - 1);
-    let depth = 0;
-    let end = braceAt;
-    for (let i = braceAt; i < src.length; i += 1) {
-      if (src[i] === "{") depth += 1;
-      else if (src[i] === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    out.push({
-      file,
-      line: src.slice(0, start).split("\n").length,
-      body: src.slice(braceAt, end + 1),
-    });
-  }
-  return out;
-}
-
 describe("retry phase writers are a pinned, closed set", () => {
-  const writers = COMPONENTS.flatMap(phaseWriters);
+  const writers = PHASE_COMPONENTS.flatMap(phaseWriters);
 
   it("finds the writers at all, before asserting anything about them", () => {
     // THE PREMISE. Every assertion below is `for (const w of writers)`, which is
@@ -115,7 +66,7 @@ describe("retry phase writers are a pinned, closed set", () => {
     premiseHolds(`the walk found ${PHASE_SETTER} writers`, writers.length > 0);
     expect(
       writers.length,
-      `expected ${EXPECTED_PHASE_WRITERS} phase writers across ${COMPONENTS.length} components; ` +
+      `expected ${EXPECTED_PHASE_WRITERS} phase writers across ${PHASE_COMPONENTS.length} components; ` +
         `found ${writers.length} at ${writers.map((w) => `${w.file}:${w.line}`).join(", ")}. ` +
         "A new writer is not a test failure to route around: add it deliberately and say so.",
     ).toBe(EXPECTED_PHASE_WRITERS);
