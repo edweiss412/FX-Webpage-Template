@@ -1503,3 +1503,381 @@ describe("FinalizeButton — transition audit (Task 5)", () => {
     expect(getByTestId("wizard-finalize-cas-heading").textContent).toBe("Finishing setup…");
   });
 });
+
+describe("FinalizeButton — the settled batch receipt in the CAS phase", () => {
+  // Eric's ruling, 2026-08-31: the batch the operator just watched finish does not
+  // vanish at the phase boundary. It settles into a past-tense receipt, so the two
+  // phases read as a sequence rather than a replacement. A project manager who sees a
+  // bar disappear reads it as failure and reloads, and reloading mid-run lands in the
+  // in_progress checkpoint path — a bad outcome produced by a display gap.
+  //
+  // NOT a publish count. Spec 2026-08-29 §7 fences those, and this carries the batch
+  // phase's own ratified verb ("set up") forward over work the batch already did and
+  // already displayed. Nothing counts publishes during CAS. Ratified by bl-orch
+  // 2026-08-31 in reply to this arc's flag.
+  async function runToCas(rows: number) {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={rows} />);
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: rows });
+      for (let i = 1; i <= rows; i++) {
+        batch.push({ type: "row", done: i, total: rows, name: `Show ${i}`, driveFileId: `f${i}` });
+      }
+    });
+    await act(async () => {
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    return { ...view, cas };
+  }
+
+  test.each([
+    { rows: 2, expected: "2 of 2 shows set up" },
+    { rows: 1, expected: "1 of 1 show set up" },
+  ])("the CAS phase carries the settled count ($expected)", async ({ rows, expected }) => {
+    const { getByTestId } = await runToCas(rows);
+    // PREMISE: actually in the CAS phase on this case's own inputs. A run still in the
+    // batch phase renders its own live count, which contains the same digits.
+    expect(getByTestId("wizard-finalize-cas-heading").textContent).toContain("Finishing setup");
+    expect(getByTestId("wizard-finalize-settled").textContent).toContain(expected);
+  });
+
+  // The checkpoint-resume case (mode "finish", which reaches CAS with both
+  // accumulators at zero and therefore renders NO receipt) lives in the Step3 suite:
+  // `mode` is a useFinalizeRun prop and FinalizeButtonProps does not expose it, while
+  // Step3ReviewWithFinalize's `checkpointStatus` maps to it directly
+  // (Step3ReviewWithFinalize.tsx:100-104). That is also the real surface an operator
+  // reaches it through.
+});
+
+describe("FinalizeButton — the CAS phase reads as working", () => {
+  test("an INDETERMINATE progress bar renders during CAS", async () => {
+    // The highest-stakes phase had the weakest feedback: at the batch-to-CAS boundary
+    // the determinate bar disappeared and nothing replaced it, so the surface gave no
+    // evidence anything was happening during the step that actually puts shows live.
+    //
+    // Same testid as the batch bar: it is the same element in a later phase, which also
+    // means it inherits the themed selector set rather than needing a third one. No
+    // existing test asserts the bar is ABSENT during CAS (checked by grep), so nothing
+    // contradicts this.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 2, total: 2, name: "RPAS", driveFileId: "f2" });
+    });
+    // PREMISE: the batch bar is DETERMINATE first, so the assertion below distinguishes
+    // a phase change from a bar that was always indeterminate.
+    const batchBar = getByTestId("wizard-finalize-progressbar") as unknown as HTMLProgressElement;
+    expect(batchBar.getAttribute("value"), "premise: the batch bar carries a value").not.toBeNull();
+
+    await act(async () => {
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+
+    const casBar = getByTestId("wizard-finalize-progressbar") as unknown as HTMLProgressElement;
+    expect(casBar.getAttribute("value"), "the CAS bar must be INDETERMINATE").toBeNull();
+    expect(casBar.getAttribute("aria-label")).toBe("Show setup progress");
+  });
+});
+
+describe("FinalizeButton — every CAS sub-step is spoken", () => {
+  // Eric's ruling, 2026-08-31: announce each sub-step. Up to four utterances per run —
+  // CAS entry plus the three sub-phases. Not exactly four: the non-stream path and an
+  // early terminal state both end a run before every sub-phase arrives, so a floor of
+  // four would be asserting something the code does not provide.
+  //
+  // The strings are STATED here rather than derived from casPhaseLabel. The precedent
+  // is two lines from liveMessage itself: the batch heading reads "Setting up your
+  // shows…" while its announcement is "Setting up your shows". The ellipsis is a visual
+  // in-progress affordance, not speech.
+  const SPOKEN = {
+    applying: "Applying your edits",
+    publishing: "Making shows live",
+    subscribing: "Connecting your folder",
+  } as const;
+
+  const announcerText = () =>
+    (document.querySelector(".sr-only[role='status']")?.textContent ?? "").trim();
+
+  async function toCasEntry() {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />);
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 2, total: 2, name: "RPAS", driveFileId: "f2" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    return { ...view, cas };
+  }
+
+  // DERIVED from the phase union rather than written out, so a fourth FinalizeCasPhase
+  // added later fails here instead of arriving uncovered.
+  test.each(Object.keys(SPOKEN) as (keyof typeof SPOKEN)[])(
+    "the CAS sub-phase %s is announced",
+    async (phase) => {
+      const { cas } = await toCasEntry();
+      // PREMISE: CAS entry announces once, before any sub-phase event. This is also the
+      // null-phase branch of AC-8 — an implementation returning "" for a null casPhase
+      // would pass every sub-phase case below while never announcing entry at all.
+      // Containment, not equality: CAS entry also carries the settled count now
+      // ("Finishing setup. 2 shows set up."), because the visible receipt is
+      // aria-hidden and the number has to reach assistive tech somehow. The premise
+      // still discriminates — it fails if entry announces nothing, which is the
+      // null-phase defect this guards.
+      expect(announcerText(), "premise: CAS entry is announced once").toContain("Finishing setup");
+      await act(async () => {
+        cas.push({ type: "phase", phase });
+      });
+      expect(announcerText()).toBe(SPOKEN[phase]);
+    },
+  );
+
+  test("the announcer says nothing once the run ends", async () => {
+    // This case does not exist elsewhere and the repair is exactly what would introduce
+    // the defect it catches. The shipped completion assertion only forbids the
+    // COMPLETION SENTENCE in the local announcer, so a fold that returned a stale
+    // sub-phase after the run would pass it while a screen reader announced a step that
+    // had already finished.
+    const { cas } = await toCasEntry();
+    await act(async () => {
+      cas.push({ type: "phase", phase: "subscribing" });
+    });
+    expect(announcerText(), "premise: a sub-phase was being announced").toBe(
+      "Connecting your folder",
+    );
+    await act(async () => {
+      cas.push({
+        type: "result",
+        body: { status: "complete", wizard_session_id: WIZARD_SESSION_ID },
+      });
+      cas.close();
+    });
+    expect(
+      announcerText(),
+      "liveMessage must be empty for every non-running state — a stale sub-phase here is a screen reader announcing a step that already completed",
+    ).toBe("");
+  });
+});
+
+describe("FinalizeButton — the receipt cannot claim more than the total", () => {
+  test("a settled count above the total is clamped, like every peer count", async () => {
+    // settledDone is authoritative (it accumulates from terminal batch bodies) but
+    // settledTotal comes from a STREAMED `listed` event, and unlike every other count
+    // in these renderers it carried no clamp. A dropped or short last-batch `listed`
+    // therefore rendered "14 of 12 shows set up" — a receipt that claims more work than
+    // it says was asked for, on the screen where the operator is deciding whether to
+    // trust the run. Impeccable critique P2, 2026-08-31.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      // `listed` under-reports: two rows arrive but the grand total says one.
+      batch.push({ type: "listed", total: 1 });
+      // The row events disagree with listed about the grand total. rowsProcessed is
+      // taken from the ROW event (msg.total) while grandTotalRef comes from LISTED, so
+      // the two accumulators diverge and the receipt reports more done than total.
+      batch.push({ type: "row", done: 1, total: 5, name: "A", driveFileId: "f1" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    const text = getByTestId("wizard-finalize-settled").textContent ?? "";
+    // PREMISE: the receipt rendered at all, so the assertion is about its VALUE and not
+    // about a missing element.
+    expect(text, "premise: a receipt is present").toContain("set up");
+    // Parsed rather than string-matched, so the assertion catches ANY done > total and
+    // not just the one pair this fixture happens to produce. The first draft asserted
+    // the literal "2 of 1" and passed against a render of "5 of 1".
+    const m = /(\d+) of (\d+) show/.exec(text);
+    expect(m, "premise: the receipt renders a fraction to check").not.toBeNull();
+    const [done, total] = [Number(m![1]), Number(m![2])];
+    expect(
+      done,
+      `the receipt must never claim more shows than the total (got "${text}")`,
+    ).toBeLessThanOrEqual(total);
+  });
+});
+
+describe("FinalizeButton — the settled count reaches assistive tech too", () => {
+  test("CAS entry announces the settled count once, not just the step", async () => {
+    // The receipt is aria-hidden, like every other visible string in these renderers,
+    // so a screen-reader operator heard four verbs across the CAS phase and never a
+    // number. The reassurance the receipt exists to give was sighted-only, which is
+    // the same gap FINALIZE-PROGRESS-AT-PERCEIVABILITY-1 is about, reintroduced by the
+    // commit that added the receipt. Impeccable critique P1, 2026-08-31.
+    //
+    // Folded into the CAS-ENTRY utterance only, once. Repeating it on each sub-step
+    // would be four numbers where one is the reassurance, and the announcer is
+    // deliberately built against chattiness.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 2, total: 2, name: "RPAS", driveFileId: "f2" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    const announcer = document.querySelector(".sr-only[role='status']");
+    // PREMISE: the visible receipt is present and hidden from AT, which is the whole
+    // reason the count has to reach the announcer separately.
+    expect(getByTestId("wizard-finalize-settled").getAttribute("aria-hidden")).toBe("true");
+    expect(announcer!.textContent).toContain("2 shows set up");
+
+    // A sub-step then replaces it: the count is reassurance at entry, not a running tally.
+    await act(async () => {
+      cas.push({ type: "phase", phase: "applying" });
+    });
+    expect(announcer!.textContent).toBe("Applying your edits");
+  });
+});
+
+describe("FinalizeButton — the CAS group answers 'is it still working?'", () => {
+  test("the announced count keeps its denominator, and the group is aria-busy while running", async () => {
+    // Two audit findings, one case.
+    //
+    // P2: the screen said "2 of 3 shows set up" while the announcement said "2 shows
+    // set up". The clamp comment in this file documents that done and total genuinely
+    // diverge, so the partial case is real and a screen-reader operator lost the "of 3".
+    // Plural also keyed on settledDone in speech and settledTotal on screen.
+    //
+    // P3: every visible string here is aria-hidden and the CAS bar carries no value, so
+    // a virtual-cursor user re-reading the group between utterances found a named group
+    // with no perceivable state. aria-busy answers that without adding speech.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={3} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      // A PARTIAL settle: `listed` says three, but the batch reports two processed.
+      // completedRef takes the row event's own total, grandTotalRef takes listed's, so
+      // this is the shape that makes the denominator carry information. The first draft
+      // of this fixture used matching totals and its own premise caught it rendering
+      // "3 of 3", where the two forms would have agreed by accident.
+      batch.push({ type: "listed", total: 3 });
+      batch.push({ type: "row", done: 2, total: 2, name: "A", driveFileId: "f1" });
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+
+    const announcer = document.querySelector(".sr-only[role='status']");
+    const visible = getByTestId("wizard-finalize-settled").textContent ?? "";
+    // PREMISE: this run is genuinely PARTIAL, so the denominator carries information.
+    // A complete run would read "3 of 3" and the two forms would agree by accident.
+    expect(visible, "premise: the fixture is a partial settle").toContain("2 of 3");
+    expect(
+      announcer!.textContent,
+      "the announcement must carry the denominator the screen shows",
+    ).toContain("2 of 3");
+
+    expect(getByTestId("wizard-finalize-progress").getAttribute("aria-busy")).toBe("true");
+  });
+});
+
+describe("FinalizeButton — the settled receipt only claims counts it actually has", () => {
+  test("a streamed batch followed by a NON-STREAMED batch prints no receipt", async () => {
+    // Whole-diff review R1 finding 3. The two accumulators are fed only by stream
+    // events: `listed` sets grandTotalRef, each `row` event's own total feeds
+    // completedRef. `readFinalizeBatch`'s `!isStream` safety net returns
+    // `rowsProcessed: 0` and touches neither ref, so a run whose FIRST batch streamed
+    // 2 of 3 and whose SECOND came back as plain JSON reaching all_batches_complete
+    // arrives at CAS with the refs still reading the first batch's partial numbers.
+    // The receipt then says "2 of 3 shows set up" about a run that finished everything.
+    //
+    // Reachable: the non-stream path exists because a proxy can strip the Accept
+    // header, and nothing makes that decision once per run rather than per request.
+    // Retry after race_row / cas_per_row / error resets both refs, and the
+    // first-request non-stream, zero-row and mode:"finish" paths all resolve to zero
+    // honestly. This mixed-transport sequence is the one route that lands on a stale
+    // partial, so the fix is to stop claiming a count once any batch was unmeasurable
+    // rather than to guess at one.
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(cas.response);
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={3} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 3 });
+      batch.push({ type: "row", done: 2, total: 2, name: "A", driveFileId: "f1" });
+      batch.push({
+        type: "result",
+        body: {
+          status: "batch_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 1,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        },
+      });
+      batch.close();
+    });
+
+    // PREMISE: the run reached the CAS phase on this case's own inputs. Without it a
+    // run that errored out renders no receipt either and the assertion below would
+    // pass for the wrong reason.
+    expect(
+      getByTestId("wizard-finalize-progress").textContent,
+      "premise: the mixed-transport run must have reached the CAS phase",
+    ).toContain("Finishing setup");
+    expect(
+      queryByTestId("wizard-finalize-settled"),
+      "a run whose batch counts went unmeasured must print no receipt rather than the last measured pair",
+    ).toBeNull();
+    const announcer = document.querySelector(".sr-only[role='status']");
+    expect(
+      announcer!.textContent,
+      "and the announcement must not speak the stale pair either",
+    ).not.toContain("of 3");
+  });
+});

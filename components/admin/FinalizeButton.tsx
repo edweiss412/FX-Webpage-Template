@@ -105,7 +105,24 @@ type ButtonState =
   // batches (done = rows finished so far; total = the grand total). lastName is the current sheet.
   | { kind: "running"; phase: "batch"; done: number; total: number; lastName: string | null }
   // The distinct "Finishing setup…" step; casPhase drives the sub-label.
-  | { kind: "running"; phase: "cas"; casPhase: FinalizeCasPhase | null }
+  //
+  // `settledDone`/`settledTotal` are the batch phase's OWN counts, carried forward so
+  // the work the operator just watched finish settles into a receipt instead of
+  // vanishing at the phase boundary (Eric's ruling, 2026-08-31). Both are zero when
+  // this session ran no batch — the non-stream path, a zero-row finish, and mode
+  // "finish" after a checkpoint resume — and the receipt is then not rendered at all,
+  // because there is nothing this run did to report.
+  //
+  // NOT a publish count. Spec 2026-08-29 §7 fences those; this carries the batch
+  // phase's own ratified verb over work it already displayed, and nothing counts
+  // publishes during CAS.
+  | {
+      kind: "running";
+      phase: "cas";
+      casPhase: FinalizeCasPhase | null;
+      settledDone: number;
+      settledTotal: number;
+    }
   | { kind: "race_row"; failures: PerRowFailure[] }
   | { kind: "cas_per_row"; rows: CasPerRowEntry[] }
   | { kind: "error"; copy: string; code: string | null }
@@ -125,6 +142,21 @@ export function casPhaseLabel(phase: FinalizeCasPhase | null): string {
       return "";
   }
 }
+
+/**
+ * What a screen reader SAYS for each CAS sub-step.
+ *
+ * Stated, not derived from `casPhaseLabel`. The precedent is two lines from
+ * `liveMessage` itself: the batch phase's visible heading is "Setting up your shows…"
+ * while its announcement is "Setting up your shows". The ellipsis is a visual
+ * in-progress affordance, not speech. Deriving one from the other with a regex would
+ * break the next time someone edits either, and the two are allowed to diverge.
+ */
+const CAS_ANNOUNCEMENT: Record<FinalizeCasPhase, string> = {
+  applying: "Applying your edits",
+  publishing: "Making shows live",
+  subscribing: "Connecting your folder",
+};
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -183,6 +215,11 @@ export function useFinalizeRun({
   // the grand total (completed + the current batch's `listed` remaining). Reset each runLoop entry.
   const completedRef = useRef(0);
   const grandTotalRef = useRef(0);
+  // Both accumulators above are fed ONLY by stream events, so a batch read through the
+  // `!isStream` safety net advances neither while the run moves on. This flag records
+  // that the run's counts stopped being a measurement; the settled receipt reads it and
+  // says nothing rather than reporting the last pair it happened to see. Reset with them.
+  const countsExactRef = useRef(true);
   // A11y (WCAG 2.4.3) focus management on entering the running/terminal states
   // lives in the presentational pieces that own the DOM — <ProgressPanel> (via
   // its host in FinalizeButton), <FinalizeStatusRegion> (terminal alerts), and
@@ -196,12 +233,20 @@ export function useFinalizeRun({
   // response.json(). A stream that ends before its terminal `result` returns an interruption sentinel.
   async function readFinalizeBatch(
     response: Response,
-  ): Promise<{ body: FinalizeResponse; rowsProcessed: number } | { interrupted: true }> {
+  ): Promise<
+    { body: FinalizeResponse; rowsProcessed: number; streamed: boolean } | { interrupted: true }
+  > {
     const contentType = response.headers?.get?.("content-type") ?? "";
     const isStream =
       response.ok && contentType.includes(FINALIZE_STREAM_CONTENT_TYPE) && response.body != null;
     if (!isStream) {
-      return { body: (await response.json()) as FinalizeResponse, rowsProcessed: 0 };
+      // `streamed: false` is not the same claim as `rowsProcessed: 0`. This batch may have
+      // finished any number of rows; nothing on this path can say how many.
+      return {
+        body: (await response.json()) as FinalizeResponse,
+        rowsProcessed: 0,
+        streamed: false,
+      };
     }
     const baseline = completedRef.current;
     const reader = response.body!.getReader();
@@ -259,7 +304,7 @@ export function useFinalizeRun({
       if (tail) handle(tail);
     }
     if (!terminal) return { interrupted: true };
-    return { body: terminal, rowsProcessed };
+    return { body: terminal, rowsProcessed, streamed: true };
   }
 
   // Read the /finalize-cas response: phase events drive the "Finishing setup…" sub-label; returns
@@ -325,6 +370,7 @@ export function useFinalizeRun({
     // prior run's completed count (the server's `listed` reflects only the REMAINING finishable rows).
     completedRef.current = 0;
     grandTotalRef.current = 0;
+    countsExactRef.current = true;
 
     // mode:"finish" (spec §4.5) — the batch loop already ran in a prior session
     // (checkpoint all_batches_complete); go straight to the /finalize-cas flip.
@@ -380,6 +426,7 @@ export function useFinalizeRun({
         }
         // This batch's rows are now finished — fold them into the cross-batch baseline.
         completedRef.current += read.rowsProcessed;
+        if (!read.streamed) countsExactRef.current = false;
         if (batchBody.status === "batch_complete") continue;
         if (batchBody.status === "all_batches_complete") break;
         setState({ kind: "error", copy: GENERIC_ERROR, code: null });
@@ -397,7 +444,28 @@ export function useFinalizeRun({
       // inside the loop, so reaching here means the batches are clean to finish.
     }
 
-    setState({ kind: "running", phase: "cas", casPhase: null });
+    setState({
+      kind: "running",
+      phase: "cas",
+      casPhase: null,
+      // Read synchronously from the refs the batch loop maintained: completedRef is
+      // rows finished, grandTotalRef the grand total. Both are 0 when the loop was
+      // skipped, which is what suppresses the receipt.
+      // Clamped, like every peer count in these renderers. The two accumulators are fed
+      // by DIFFERENT events — grandTotalRef from `listed`, completedRef from each row
+      // event's own `total` — so a stream whose row events disagree with its listed
+      // total drives them apart and the receipt claims more work than it says was
+      // asked for. Reproduced as "5 of 1 show set up". Impeccable critique P2.
+      // countsExactRef: a mixed-transport run (one batch streamed, a later one read
+      // through the non-stream safety net) leaves the refs holding the last STREAMED
+      // batch's partial pair while the loop went on to finish everything. Suppressing
+      // the receipt there is the same posture as the checkpoint-resume path, which also
+      // has no batch of its own to report.
+      settledDone: countsExactRef.current
+        ? Math.min(completedRef.current, grandTotalRef.current)
+        : 0,
+      settledTotal: countsExactRef.current ? grandTotalRef.current : 0,
+    });
     let casResponse: Response;
     try {
       casResponse = await fetch("/api/admin/onboarding/finalize-cas", {
@@ -481,9 +549,34 @@ export function useFinalizeRun({
   const liveMessage =
     state.kind === "running"
       ? state.phase === "cas"
-        ? "Finishing setup"
+        ? // Null phase = CAS entry, before the first phase event: announce the step
+          // once, then each sub-step as it arrives. UP TO four utterances per run, not
+          // exactly four — the non-stream path and an early terminal state both end a
+          // run before every sub-phase lands.
+          state.casPhase
+          ? CAS_ANNOUNCEMENT[state.casPhase]
+          : // CAS entry carries the settled count, ONCE. The visible receipt is
+            // aria-hidden like every other string in these renderers, so without this
+            // a screen-reader operator hears four verbs across this phase and never a
+            // number: the reassurance the receipt exists to give, sighted-only. Once
+            // rather than per sub-step, because four numbers where one is the
+            // reassurance is the chattiness this announcer is built against.
+            state.settledTotal > 0
+            ? // The DENOMINATOR is carried, because the screen carries it: the visible
+              // receipt reads "2 of 3 shows set up", and the two accumulators genuinely
+              // diverge (see the clamp above), so dropping it loses information rather
+              // than trimming a formality. Plural keys on the TOTAL, matching the
+              // visible string, rather than on the done count.
+              `Finishing setup. ${state.settledDone} of ${state.settledTotal} show${
+                state.settledTotal === 1 ? "" : "s"
+              } set up.`
+            : "Finishing setup"
         : "Setting up your shows"
-      : "";
+      : // Empty for every NON-RUNNING state, and that is load-bearing: a stale
+        // sub-phase here is a screen reader announcing a step that already finished.
+        // Completion itself goes through the announce channel, never this region
+        // (see the header above), so keeping both would speak one sentence twice.
+        "";
 
   // The in-flight button label: while running, the Publish trigger stays put but
   // steps into a disabled "Setting up…" (or "Finishing setup…" during the CAS
@@ -951,9 +1044,17 @@ export function FinalizeButton({ panelPlacement = "below", ...props }: FinalizeB
 /**
  * D2/D3 inline progress panel — replaces the button while the publish runs. Batch phase: a
  * determinate native `<progress>` bar + "X of Y shows" + the current sheet name. CAS phase: the
- * distinct "Finishing setup…" step with a phase sub-label. Mirrors <Step2Verify>'s scan panel
- * (same tokens, same native bar) so the two wizard progress surfaces read as siblings. All motion
- * is the native bar's value change; state swaps are instant (no animation).
+ * distinct "Finishing setup…" step with a phase sub-label. Shares the BAR's styling with
+ * <Step2Verify>'s scan panel through `app/globals.css`, which paints both wizard progress bars
+ * from one selector set, so the two surfaces read as siblings; this panel's own container tokens
+ * (`bg-surface-sunken`, `p-tile-pad`) are its own and the scan panel does not carry them.
+ * MOTION: in the batch phase the only motion is the native bar's value change. The CAS
+ * phase's bar is indeterminate and the shared selector set gives it
+ * `scan-progress-indeterminate`, which Firefox runs; Chromium and WebKit do not run an
+ * animation on `::-webkit-progress-bar` at all, so there it rests at the static centred
+ * accent the stylesheet positions. State swaps between phases are instant either way.
+ * An earlier version of this line said "no animation" flatly, which the widened
+ * stylesheet had already falsified (whole-diff R1 finding 2).
  */
 const ProgressPanel = forwardRef<
   HTMLDivElement,
@@ -965,6 +1066,11 @@ const ProgressPanel = forwardRef<
       tabIndex={-1}
       role="group"
       aria-label="Show setup progress"
+      // Every visible string in here is aria-hidden and the CAS bar carries no value, so
+      // a virtual-cursor user re-reading the group between utterances found a named group
+      // with no perceivable state. This answers "is it still working?" without adding
+      // speech. Unconditional because the panel only mounts while the run is live.
+      aria-busy="true"
       data-testid="wizard-finalize-progress"
       className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
@@ -1016,8 +1122,35 @@ const ProgressPanel = forwardRef<
           >
             Finishing setup…
           </p>
+          {/* No `value` attribute, which is what makes it INDETERMINATE: the CAS phase
+              has no knowable percentage, so the bar reports activity rather than
+              progress. Same testid as the batch bar because it is the same element in a
+              later phase, so it inherits the themed selector set; same phase-neutral
+              accessible name so a screen reader does not re-announce the group at the
+              boundary (spec 2026-08-29 §3.2, ratified). */}
+          <progress
+            data-testid="wizard-finalize-progressbar"
+            className="h-2 w-full"
+            aria-label="Show setup progress"
+          />
+          {/* The batch the operator just watched finish, settled into a past-tense
+              receipt so the two phases read as a sequence rather than a replacement.
+              Suppressed when this session ran no batch (both accumulators zero), where
+              there is nothing this run did to report. */}
+          {state.settledTotal > 0 ? (
+            <p
+              className="tabular-nums text-text-subtle"
+              data-testid="wizard-finalize-settled"
+              aria-hidden="true"
+            >
+              {state.settledDone} of {state.settledTotal} show
+              {state.settledTotal === 1 ? "" : "s"} set up
+            </p>
+          ) : null}
+          {/* empty:hidden, not a conditional — see the compact renderer for the
+              reasoning; the same empty string charges this column's gap-2. */}
           <p
-            className="text-text-subtle"
+            className="text-text-subtle empty:hidden"
             data-testid="wizard-finalize-cas-phase"
             aria-hidden="true"
           >

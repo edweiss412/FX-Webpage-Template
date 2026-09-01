@@ -83,7 +83,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ??= DEMO_SERVICE;
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|step3-review-modal\.layout|step3-review-modal\.interactions|step3-review-modal\.agenda|wizard-attention-menu|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|stackedBandLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|pendingDiscardReflow\.layout|wifi-password-row\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout|resolve-label-layout|attention-anchor-placement|attention-pill-focus|hoverhelp-geometry|bulk-ignore-eyebrow\.layout|phantomGapHelper\.layout|share-link-flash|section-header-layout\.layout|section-header-reconcile\.layout|pusher-alignment\.layout|pendingDiscardReal\.layout|packlist-rescan-recovery|directive-form-action|popover-clip-fit|tap-target-floor\.layout|harness-font-face|fontFidelityFixture|censusWalkShadow|font-oracle-readiness|ui-polish-class-sweep|focus-disabled-eject\.probe|image-remount-request-count\.probe|covered-image-load-eligibility\.probe|srcset-candidate-stability\.probe|diagram-retry|diagram-retry-dimensions|occlusion-probe|attention-autoopen-suppress)\.spec\.ts/,
+    /(step3-review-page\.layout|step3-schedule-bookend-layout|agendaScheduleLayout|step3-review-modal\.layout|step3-review-modal\.interactions|step3-review-modal\.agenda|wizard-attention-menu|developer-toggle-layout|toggle-edge-layout|appHealthIndicator\.layout|dataQualityBadge\.layout|autoAppliedCardGrid\.layout|published-review-modal\.layout|skeletonBandParity|stackedBandLayout|statusStripToggleLayout|blocked-row-resolver-transitions|collapse-panel-morph|pendingDiscardReflow\.layout|wifi-password-row\.layout|wizard-blocker-modal\.layout|compact-alert-card-layout|resolve-label-layout|attention-anchor-placement|attention-pill-focus|hoverhelp-geometry|bulk-ignore-eyebrow\.layout|phantomGapHelper\.layout|share-link-flash|section-header-layout\.layout|section-header-reconcile\.layout|pusher-alignment\.layout|pendingDiscardReal\.layout|packlist-rescan-recovery|directive-form-action|popover-clip-fit|tap-target-floor\.layout|harness-font-face|fontFidelityFixture|censusWalkShadow|font-oracle-readiness|ui-polish-class-sweep|focus-disabled-eject\.probe|image-remount-request-count\.probe|covered-image-load-eligibility\.probe|srcset-candidate-stability\.probe|diagram-retry|diagram-retry-dimensions|occlusion-probe|attention-autoopen-suppress|step3-finalize-progress\.layout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,
@@ -114,6 +114,26 @@ export default defineConfig({
       // design does not generalise across engines the same way.
       name: "standalone-webkit-load-eligibility",
       testMatch: /covered-image-load-eligibility\.probe\.spec\.ts/,
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
+      // The reduced-motion claim this spec proves is EMPIRICAL PER ENGINE: a selector
+      // list mixing ::-webkit-progress-bar with ::-moz-progress-bar is invalid as a
+      // whole, so engines knowing only one of them drop the rule entirely. Measured on
+      // all three bundled engines — Chromium and WebKit drop it, Firefox keeps it
+      // because it aliases the webkit form. Chromium-only evidence would therefore say
+      // nothing about Safari, and Doug is on a phone.
+      //
+      // Scoped to this ONE spec, same posture as the load-eligibility leg above: the
+      // other assertions here (accent paint, footer geometry) are engine-general and
+      // stay chromium-only, since engine layout noise is why dimensional tests are.
+      name: "standalone-webkit-finalize-progress",
+      testMatch: /step3-finalize-progress\.layout\.spec\.ts/,
+      // UNANCHORED, like the a11y leg: Playwright matches grep against
+      // "<project> <file> <title>", so /^engine:/ would select ZERO tests. The
+      // colon-suffixed token cannot false-positive on this project's or file's
+      // name, neither of which contains "engine:".
+      grep: /engine:/,
       use: { ...devices["Desktop Safari"] },
     },
     {

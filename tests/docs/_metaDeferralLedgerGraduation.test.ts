@@ -90,6 +90,17 @@ const GRADUATED = [
   // pre-resolution state in the present tense, four lines above the clause that
   // settled it.
   "CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1",
+  // fix/finalize-progress-polish (2026-08-31). Four rows from ONE impeccable critique
+  // of the step-3 finalize surface, closed by one arc. Eric lifted both decision fences
+  // on 2026-08-31, taking the critique's CAS recommendation whole, so the two rows that
+  // were waiting on a product call shipped alongside the two that were not. The
+  // unthemed-bar row turned out to be hiding a dead prefers-reduced-motion rule: a
+  // selector list mixing both vendor progress pseudo-elements is invalid as a whole, so
+  // that override had never applied in Chromium or WebKit.
+  "FINALIZE-PROGRESSBAR-UNTHEMED-1",
+  "FINALIZE-COMPACT-COUNT-NOUN-1",
+  "FINALIZE-CAS-PROGRESS-AFFORDANCE-1",
+  "FINALIZE-PROGRESS-AT-PERCEIVABILITY-1",
   // fix/pill-size-draft-restored-note (2026-08-30). Eric ruled both on the
   // 2026-08-29 decision board: the pill's type moves one size up at phone
   // widths (decision 5B, both segments kept), and a transient note ships

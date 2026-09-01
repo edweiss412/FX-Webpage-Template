@@ -191,6 +191,58 @@ screen-reader user unable to tell a failed retry from a successful one on this p
 
 ---
 
+### FINALIZE-PROGRESSBAR-UNTHEMED-1 — impeccable P1: the finalize progress bar ships raw browser chrome in both themes — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish`. `app/globals.css` styled the step-2 scan bar and not the finalize bar, so both renderers painted the platform-accent UA bar in light AND dark. All eight selector occurrences now carry both testids.
+
+**The row said six selectors. There are eight**, and the two it missed were a dead rule. The `prefers-reduced-motion` override was ONE comma-grouped list mixing `::-webkit-progress-bar` with `::-moz-progress-bar`. A selector list is invalid as a whole when any selector in it is, so Chromium and WebKit dropped it entirely and Firefox kept it only because it aliases the webkit form. Step 2's reduced-motion override had therefore never applied on the engine Doug uses. Measured on all three bundled engines, then split into two single-vendor rules.
+
+That split turned out to be a prerequisite rather than a tidy-up: the CAS phase gained an INDETERMINATE bar in the same arc, which takes the shimmer path.
+
+**The guard asserted the defect.** `tests/styles/progressShimmerPseudoElements.test.ts` REQUIRED the comma-grouped form by name. Rewritten around a CSS scanner: both testids at every occurrence, each reduced-motion rule proved single-vendor, and its own cases pinning that the scanner reaches the block at all.
+
+**Computed style cannot verify any of this.** With an element red, its `::-webkit-progress-bar` green and its `::-webkit-progress-value` blue, Chromium reports RED for all three, for every property. Paint is asserted by sampling rendered pixels; rule existence by reading the parsed CSSOM. A WebKit project was added for the one engine-specific claim, and the wiring guard that was pinned to a single project now walks every WebKit leg.
+
+---
+
+### FINALIZE-COMPACT-COUNT-NOUN-1 — impeccable P1: the compact count says "1 of 2" without saying of what — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish`. The row was explicit that this needed a real-browser measurement before the noun could ship, and that the earlier fix-then-revert left the revert as the correct state. Both conditions were met rather than waived.
+
+Measured at 375px against the real footer: the heading holds ONE line at every count through `99999 of 99999` with the noun appended, footer flat at 54.6px. It wraps only at six digits, so the noun fits at every count anyone will see.
+
+The heading also gained `min-w-0 truncate`, which makes the one-line guarantee STRUCTURAL rather than a property of the counts that happened to be sampled. `state.total` is unbounded, so a ladder of reachable values authorizes nothing about the value above it, and that gap is what the measurement alone could not close.
+
+The oracle is measured height, not `getClientRects().length`: a wrapped heading in this flex row reports ONE rect while standing 40.6px tall, because the span is a flex item and its rect is the border box rather than a line box.
+
+---
+
+### FINALIZE-CAS-PROGRESS-AFFORDANCE-1 — impeccable P1: the highest-stakes phase has the weakest feedback — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish` in three commits, one per part of the critique's recommendation, which Eric ruled in whole on 2026-08-31.
+
+The settled batch count persists into CAS as a receipt; an indeterminate bar renders there, so the phase that actually puts shows live no longer goes blank; and the phase label no longer occupies space while `casPhaseLabel` returns the empty string, where it charged exactly 4px of its column's gap. The element stays attached and `empty:hidden` takes its BOX, not its node (`display: none`, 0px, still selectable) — the distinction the canonical spec and the transition audit both pin, and the one this sentence originally got wrong.
+
+The receipt needed a reducer change rather than markup: the CAS state variant carried no counts, so the render had no source for them. Its guard conditions each have a case, and the one that matters is `mode: "finish"` — a checkpoint resume skips the batch loop with both accumulators reset, so no receipt renders. That is the flow an operator lands in after reloading mid-finalize, which is the outcome this row exists to prevent.
+
+**Not a publish count.** Spec 2026-08-29 §7 fences those and the fence stands; the receipt carries the batch phase's own ratified set-up verb forward over work it already displayed. bl-orch ratified that reading on 2026-08-31 in reply to the arc's flag, and §7 records the lift for that line only.
+
+**Known peer, not filed as a row:** the bar now appears to rewind at the batch-to-CAS boundary, because React reconciles both ternary branches by position and type and reuses the same DOM node. The repair on offer is a monotonic bar, which contradicts the indeterminate ruling, so it went to bl-orch rather than being taken here.
+
+---
+
+### FINALIZE-PROGRESS-AT-PERCEIVABILITY-1 — impeccable P1: the CAS phase is a focused group whose every child is hidden from assistive tech — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish`. `liveMessage` keyed on phase alone and said only "Finishing setup", so the three CAS sub-steps a sighted operator could read were never spoken. Each is now announced, with the phase-alone message kept for CAS entry so the step still announces once: up to four utterances per run, not exactly four, since the non-stream path and an early terminal both end a run before every sub-phase lands.
+
+The spoken strings are stated beside `casPhaseLabel` rather than derived from it, following the precedent two lines away in the same reducer: the batch heading reads "Setting up your shows…" while its announcement drops the ellipsis.
+
+The invariant-8 critique then found the same gap reintroduced by this arc's own receipt, which is `aria-hidden` like every visible string here — so the count now rides the CAS-entry utterance, with its denominator, and the group carries `aria-busy` so a virtual-cursor user re-reading it finds state rather than a named empty group.
+
+**Known limit, not filed as a row:** polite live regions coalesce, so the entry utterance can be overwritten by the first phase event and "every sub-step is spoken" is queued rather than guaranteed. The repairs on offer are timing machinery in a reducer or a real-screen-reader verification the fleet hold forbade; the change is not worse than the silence it replaced, and the limit is stated rather than the claim overstated.
+
+---
+
 ### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session — CLOSED 2026-08-29 (`feat/diagram-failure-retry`, SHIPPED)
 
 **Resolution: SHIPPED.** The entry deferred under class-sweep exception (a) — it needed a

@@ -80,17 +80,26 @@ const REPORTED_RESIDUE: Record<string, string> = {
  * that reports an unclassifiable guard as `unknown` residue, and gives its
  * `ConditionalExpression` arm no fallback at all (`_renderFaultScan.ts:754`).
  * That arm's silent drop is a documented limit, not a gap left open: probed on
- * the live tree, 720 ternaries under the derived roots return JSX in `whenTrue`,
- * 79 of them carry a fault-vocabulary guard and are unclassifiable, and 70 of
- * those 79 sit in `"use client"` files -- interaction state, not a server-render
- * fault -- so the fallback would buy roughly three new server-side sites for 79
+ * the live tree, 744 ternaries under the derived roots return JSX in `whenTrue`,
+ * 78 of them carry a fault-vocabulary guard and are unclassifiable, and 69 of
+ * those 78 sit in `"use client"` files -- interaction state, not a server-render
+ * fault -- so the fallback would buy roughly three new server-side sites for 78
  * hand-written reasons.
+ *
+ * Those three figures went stale and nothing caught it (whole-diff R1 finding 3).
+ * The assertion below parses the SCANNER's comment and re-derives against the tree;
+ * it has never read this header, so the claim two paragraphs down that "the suite
+ * asserts that bound and re-derives both figures above" was true of the scanner's
+ * copy and false of this one. Corrected 2026-09-01 from 720/79/70, and the sentence
+ * is narrowed to say which copy is checked.
  *
  * RE-FILE TRIGGER for the decline, computed rather than promised: the count of
  * server-component ternaries that are unclassifiable, fault-vocabulary AND
  * unregistered rises above 7, its resting value today. The suite asserts that
- * bound and re-derives both figures above, so neither can go stale silently --
- * which is how the previous pair (714 and 91) did in eight days.
+ * bound, and re-derives the two figures the SCANNER's own comment declares, so
+ * neither of those can go stale silently -- which is how the pair before them
+ * (714 and 91) did in eight days. The copies in this header are prose and are
+ * checked by nobody; they are kept in step by hand.
  *
  * WHICH ARM holds the fault is deliberately not a cause. No AST predicate
  * decides it without a fault oracle this scanner does not have, so

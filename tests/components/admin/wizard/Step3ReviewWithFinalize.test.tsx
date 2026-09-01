@@ -290,7 +290,7 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
   // running-state test hangs fetch forever and so receives NO row events, which
   // would make a subline assertion pass against an element that never renders.
   // ---------------------------------------------------------------------------
-  async function runningCompactTracking() {
+  async function runningCompactTracking({ done = 1, total = 2 } = {}) {
     const batch = controllableNdjson();
     fetchMock.mockResolvedValueOnce(batch.response);
     const view = render(
@@ -306,8 +306,8 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
       fireEvent.click(view.getByTestId("wizard-finalize-button"));
     });
     await act(async () => {
-      batch.push({ type: "listed", total: 2 });
-      batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
+      batch.push({ type: "listed", total });
+      batch.push({ type: "row", done, total, name: "East Coast", driveFileId: "f1" });
     });
     return { ...view, batch };
   }
@@ -320,19 +320,28 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
     expect(tracking.textContent ?? "").not.toContain("Publishing: ");
   });
 
-  test("the compact count stays bare, as the plan deliberately settled", async () => {
-    // Whole-diff R3 P0. An impeccable critique called the divergence from the panel's
-    // "1 of 2 shows" a defect, and this suite briefly asserted the noun. That was wrong:
-    // the plan RECORDS the bare form as deliberate — the compact readout lives in a
-    // sticky bar whose height is load-bearing — and the spec's dimensional proof assumes
-    // the only text that changes sits inside a truncated node, which this count is not.
-    // A critique finding does not outrank a ratified decision; the check is to read the
-    // plan before repairing, which is what the two surviving "publish" strings got and
-    // this did not.
-    const { getByTestId } = await runningCompactTracking();
-    const text = getByTestId("wizard-step3-tracking").textContent ?? "";
-    expect(text).toContain("1 of 2");
-    expect(text).not.toContain("1 of 2 shows");
+  test.each([
+    { done: 1, total: 2, expected: "1 of 2 shows" },
+    { done: 1, total: 1, expected: "1 of 1 show" },
+  ])("the compact count names what it counts ($expected)", async ({ done, total, expected }) => {
+    // This suite used to pin the count BARE, and that was right at the time: the plan
+    // recorded the bare form as deliberate, because the compact readout lives in a
+    // sticky bar whose height is load-bearing and the spec's dimensional proof assumed
+    // the only changing text sat inside a truncated node, which this count did not.
+    // The measurement that would have settled it could not be taken in that worktree.
+    //
+    // It has been taken. At 375px against the real footer the heading holds ONE line at
+    // every rung through 99999 of 99999 with the noun appended, footer flat at 54.6px;
+    // it wraps only at six digits. And the heading now carries `min-w-0 truncate`, so
+    // the one-line guarantee is structural rather than a property of the counts anyone
+    // happened to sample — which matters because state.total is unbounded. The bare
+    // form is no longer the correct state, and the reason it WAS is recorded here
+    // rather than deleted.
+    //
+    // BOTH totals, because a suite testing only the plural lets "1 of 1 shows" regress
+    // silently.
+    const { getByTestId } = await runningCompactTracking({ done, total });
+    expect(getByTestId("wizard-step3-tracking").textContent ?? "").toContain(expected);
   });
 
   test("compact subline names the completed row and makes no claim about its outcome", async () => {
@@ -366,5 +375,160 @@ describe("Step3PublishCounts — selectable totals (Task 1)", () => {
       overridden.map((el) => el.getAttribute("data-testid") ?? el.tagName),
       "aria-labelledby would override the aria-label these assertions pin",
     ).toEqual([]);
+  });
+});
+
+describe("Step3 compact tracking — the settled batch receipt in the CAS phase", () => {
+  async function runToCas(rows: number) {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: rows });
+      for (let i = 1; i <= rows; i++) {
+        batch.push({ type: "row", done: i, total: rows, name: `Show ${i}`, driveFileId: `f${i}` });
+      }
+    });
+    await act(async () => {
+      batch.push({
+        type: "result",
+        body: {
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        },
+      });
+      batch.close();
+    });
+    return view;
+  }
+
+  test.each([
+    { rows: 2, expected: "2 of 2 shows set up" },
+    { rows: 1, expected: "1 of 1 show set up" },
+  ])("the compact CAS phase carries the settled count ($expected)", async ({ rows, expected }) => {
+    // The receipt carries the NOUN here as well as on the panel. A bare "2 of 2 set up"
+    // beside the panel's "2 of 2 shows set up" would recreate the exact divergence
+    // FINALIZE-COMPACT-COUNT-NOUN-1 is about, on the surface that row is about.
+    const view = await runToCas(rows);
+    // PREMISE: in the CAS phase on this case's own inputs. The batch phase renders a
+    // live count containing the same digits, so without this the assertion could match
+    // a run that never left it.
+    expect(view.getByTestId("wizard-step3-tracking").textContent).toContain("Finishing setup");
+    expect(view.getByTestId("wizard-step3-tracking-settled").textContent).toContain(expected);
+  });
+
+  test("an INDETERMINATE progress bar renders during CAS", async () => {
+    const view = await runToCas(2);
+    const bar = view.getByTestId("wizard-finalize-progressbar") as unknown as HTMLProgressElement;
+    // PREMISE: in the CAS phase. The batch phase also renders a bar with this testid,
+    // so without this the assertion could be reading the determinate one.
+    expect(view.getByTestId("wizard-step3-tracking").textContent).toContain("Finishing setup");
+    expect(bar.getAttribute("value"), "the CAS bar must be INDETERMINATE").toBeNull();
+    expect(bar.getAttribute("aria-label")).toBe("Show setup progress");
+  });
+
+  test("no receipt when this session ran no batch (checkpoint resume)", async () => {
+    // checkpointStatus "all_batches_complete" maps to mode "finish"
+    // (Step3ReviewWithFinalize.tsx:100-104), which skips the batch loop entirely and
+    // reaches CAS with completedRef and grandTotalRef both reset to zero. There is no
+    // batch in THIS session to report, so a receipt would be counting work this run did
+    // not do.
+    //
+    // This is the flow an operator lands in after reloading mid-finalize, which is
+    // exactly the outcome FINALIZE-CAS-PROGRESS-AFFORDANCE-1 exists to prevent — so the
+    // state it produces is deliberate rather than an accident of two refs being zero.
+    // An implementation seeding the receipt from the checkpoint would pass every other
+    // case and print a count for work this run never did.
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(cas.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+        checkpointStatus="all_batches_complete"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    // PREMISE: the run actually entered the CAS phase. Without it a run still idle
+    // renders no receipt either, and the assertion below would pass vacuously.
+    expect(view.getByTestId("wizard-step3-tracking")).toBeTruthy();
+    expect(view.queryByTestId("wizard-step3-tracking-settled")).toBeNull();
+  });
+});
+
+describe("Step3 compact tracking — the focused group answers 'is it still working?'", () => {
+  // Whole-diff review R1 finding 6, and the class the panel's own P3 fix left half
+  // repaired. Both renderers put focus on a named role="group" whose every visible
+  // string is aria-hidden; the panel gained aria-busy and the compact footer did not,
+  // so a virtual-cursor operator re-reading THIS group between announcements still
+  // found a named group with no perceivable state. Asserted in both phases because the
+  // group is one element spanning them and the CAS bar carries no value either.
+  test.each([
+    { phase: "batch", cas: false },
+    { phase: "cas", cas: true },
+  ])("the compact group reports busy in the $phase phase", async ({ cas: intoCas }) => {
+    const batch = controllableNdjson();
+    const casStream = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(casStream.response);
+    const view = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(view.getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 1 });
+      batch.push({ type: "row", done: 1, total: 1, name: "Show 1", driveFileId: "f1" });
+    });
+    if (intoCas) {
+      await act(async () => {
+        batch.push({
+          type: "result",
+          body: {
+            status: "all_batches_complete",
+            wizard_session_id: WIZARD_SESSION_ID,
+            remaining_count: 0,
+            unresolved_manifest_count: 0,
+            per_row: [],
+          },
+        });
+        batch.close();
+      });
+    }
+    const group = view.getByTestId("wizard-step3-tracking");
+    // PREMISE: this case is reading the phase it names. Both phases render the same
+    // group element, so without this the cas row could assert against the batch phase
+    // and pass while proving nothing about the phase it is named for.
+    expect(
+      (group.textContent ?? "").includes("Finishing setup"),
+      "premise: the case must be reading the phase it names",
+    ).toBe(intoCas);
+    expect(group.getAttribute("aria-busy")).toBe("true");
   });
 });
