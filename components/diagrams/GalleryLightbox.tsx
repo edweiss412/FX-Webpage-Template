@@ -129,6 +129,38 @@ const ZOOM_THRESHOLD = 1.01;
  */
 export const DEMOTE_CHIP_VISIBLE_MS = 6000;
 
+/**
+ * How long an unresolved retry runs before the in-flight control offers a way out.
+ *
+ * Ratified at 30 seconds by the product owner on 2026-08-31; the number is not
+ * re-derived. What it does NOT do is cancel anything: the request keeps running,
+ * because a 50MB original on venue wifi may be seconds from finishing and killing
+ * it is the dead end the originals-only override exists to avoid. See
+ * docs/superpowers/specs/2026-08-31-retry-check-in-design.md.
+ *
+ * Exported from THIS file and imported by Gallery.tsx because the dependency edge
+ * already runs that way and the reverse would be circular. Written without a
+ * numeric separator's absence being an accident: the timing scanner parses
+ * `30_000` fine, asserted at tests/docs/interactionTimingScan.test.ts:69.
+ */
+export const RETRY_CHECK_IN_MS = 30_000;
+
+/**
+ * A retry's phase, per item.
+ *
+ * ONE value per item rather than several parallel sets, and that is the whole
+ * design. Earlier drafts of this arc carried `retrying`, `checkedIn` and
+ * `restarting` as three `ReadonlySet<string>` and then had to defend an invariant
+ * saying no id appears in two of them. Review found two violations of it, both
+ * silent. A single value makes the invariant unrepresentable instead of guarded.
+ *
+ * It also gives the check-in timer somewhere honest to read from: its callback is
+ * one functional update whose `prev` is live by React's contract, so it can ask
+ * `prev.get(id) === "pending"` and no-op when the item is gone or already
+ * resolved. Spec: docs/superpowers/specs/2026-08-31-retry-check-in-design.md.
+ */
+export type RetryPhase = "pending" | "checked-in" | "restarting";
+
 function isZoomed(scale: number): boolean {
   return scale > ZOOM_THRESHOLD;
 }
@@ -330,23 +362,24 @@ export function GalleryLightbox({
   }, [snapshotRevisionId]);
   // Task 5 (spec §4). The lightbox's own copy of the retry machine; Task 2's is
   // gallery-only by design, so nothing here inherits from it.
-  const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
+  const [retryPhase, setRetryPhase] = useState<ReadonlyMap<string, RetryPhase>>(() => new Map());
+  /** Live check-in timers, one per in-flight item. Owned by the reconciler below. */
+  const checkInTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** Ids whose check-in has been spoken, so a re-render does not speak twice. */
+  const announcedCheckInRef = useRef(new Set<string>());
   const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
-  // A mirror of `retrying`, read by the Embla `select` subscriber. That callback
-  // is registered once and captures the `retrying` of the render that subscribed,
-  // so reading the state directly there would consult an arbitrarily old set --
-  // and the abandon path would silently do nothing for exactly the ids it exists
-  // to clear. Synced in an effect, which is current long before any swipe.
-  const retryingStateRef = useRef<ReadonlySet<string>>(retrying);
-  useEffect(() => {
-    retryingStateRef.current = retrying;
-  }, [retrying]);
-  // `items` needs the same treatment for the same reason, and eslint's
-  // exhaustive-deps caught that I had introduced the very staleness class the
-  // mirror above exists to prevent: the abandon path reads `items` inside the
-  // `select` subscriber, which is registered once. Adding `items` to that
-  // effect's deps would re-subscribe on every roster change instead, which is
-  // worse -- it tears down a live Embla listener mid-gesture.
+  // TWO MIRRORS WERE DELETED HERE, and the deletion is the point rather than a
+  // tidy-up. `retryingStateRef` and `itemsRef` existed so the Embla `select`
+  // subscriber — registered once, capturing the render it subscribed in — could
+  // read current state while abandoning a departing slide's retry. Whole-diff
+  // review round 1 moved that abandonment into the render sweep and deleted the
+  // subscriber's copy, which left both mirrors written and never read: round 3
+  // measured that removing them keeps all seven suites green at 66/66.
+  //
+  // Worth stating because the mirrors were not incidental: they were the
+  // machinery for reading live state from a stale closure, and a sweep that
+  // derives from the render needs none of it. Deleting them is what makes the
+  // repair a simplification rather than an addition.
   // Which item the lifted scale currently describes.
   //
   // STATE, not a ref, and the difference is enforced rather than stylistic: the
@@ -355,10 +388,6 @@ export function GalleryLightbox({
   // writing one. A ref here produced ten lint errors on one comparison. State is
   // read in render legally, and written from the effect below.
   const [scaleOwner, setScaleOwner] = useState<string | null>(null);
-  const itemsRef = useRef<readonly GalleryItem[]>(items);
-  useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
   const retryControlRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const focusRetryTargetRef = useRef<string | null>(null);
 
@@ -405,10 +434,10 @@ export function GalleryLightbox({
       next.delete(item.id);
       return next;
     });
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (prev.has(item.id)) return prev;
-      const next = new Set(prev);
-      next.add(item.id);
+      const next = new Map(prev);
+      next.set(item.id, "pending");
       return next;
     });
   };
@@ -535,34 +564,14 @@ export function GalleryLightbox({
       // also resets so the next keyboard +/- bases targets on 1.
       setActiveScale(1);
       requestedScaleRef.current = 1;
-      // R1 finding 2: leaving a slide ABANDONS its in-flight retry, so the
-      // state has to end with it. Previously only the RENDERING stopped (the
-      // overlay is gated on `isActive`) while `retrying` kept the id, so
-      // swiping back resurrected `Retrying…` for a request nobody is waiting
-      // on and could remount a second image request. The sweep could not catch
-      // this: it keys on availability, and an inactive slide is still available.
-      //
-      // `failedKeys` regains the id in the same breath. The item did fail, the
-      // retry that would have cleared it was abandoned, so the honest state on
-      // return is the failed cell with its retry control -- not a loaded image
-      // and not a phantom spinner.
-      setRetrying((prev) => {
-        if (prev.size === 0) return prev;
-        const leaving = itemsRef.current.filter((entry, i) => i !== index && prev.has(entry.id));
-        if (leaving.length === 0) return prev;
-        const next = new Set(prev);
-        for (const entry of leaving) next.delete(entry.id);
-        return next;
-      });
-      setFailedKeys((prev) => {
-        const leaving = itemsRef.current.filter(
-          (entry, i) => i !== index && retryingStateRef.current.has(entry.id),
-        );
-        if (leaving.length === 0) return prev;
-        const next = new Set(prev);
-        for (const entry of leaving) next.add(entry.id);
-        return next;
-      });
+      // ABANDONMENT IS NOT HERE ANY MORE. It used to write `retryPhase` and
+      // `failedKeys` from this handler, which keyed it on ONE ROUTE to
+      // inactivity: a reorder of `items` that leaves `activeIndex` alone makes a
+      // slide inactive and emits no `select`, so the retry survived invisibly and
+      // announced late when the slide came back (whole-diff review finding 1).
+      // The render sweep now derives it from the active slide, so every route is
+      // covered and there is one mechanism rather than two. What stays here is
+      // the focus and scale work, which genuinely belongs to a navigation event.
       // The announcement is owed by THIS handler, not by the chevrons: a swipe
       // changes the slide with no button involved, and since the inactive
       // slides left the accessibility tree the change is otherwise silent.
@@ -805,7 +814,7 @@ export function GalleryLightbox({
     const active = document.activeElement;
     if (active instanceof HTMLElement && dialog.contains(active)) return;
     closeRef.current?.focus();
-  }, [zoomed, retrying, failedKeys, activeIndex, activeAvailable, closedAtNonce, openNonce]);
+  }, [zoomed, retryPhase, failedKeys, activeIndex, activeAvailable, closedAtNonce, openNonce]);
   // The REF half of the availability sweep. Split from the render-time half
   // above only because `react-hooks/refs` forbids writing a ref during render;
   // neither of these renders, so committing a frame later costs nothing.
@@ -854,12 +863,182 @@ export function GalleryLightbox({
     }
     return changed ? next : prev;
   };
-  const sweptFailed = sweepSet(failedKeys);
-  const sweptRetrying = sweepSet(retrying);
+  // `sweepPhases` is a SIBLING of `sweepSet`, deliberately, not a widening of it.
+  // `sweepSet` serves `failedKeys` and `wantsOriginal`, which stay Sets; making it
+  // generic to serve one new Map-valued caller would widen a helper two other
+  // states depend on. The plan for this arc records the choice and the reason.
+  // An in-flight retry belongs to the ACTIVE slide, and this is where that is
+  // enforced — in the render, not in the `select` handler.
+  //
+  // Whole-diff review finding 1 is why. Abandonment used to live only in Embla's
+  // `select` callback, so it was keyed on ONE ROUTE to inactivity rather than on
+  // inactivity itself. Reordering `items` from [A, B] to [B, A] without moving
+  // `activeIndex` makes A inactive and emits no `select`, so A kept its phase and
+  // its armed timer while invisible, then came back checked-in and announced
+  // late. The reviewer's probe: LIVE_CHECKIN_TIMERS_AFTER_REORDER=1.
+  //
+  // Derived, not enumerated: any route to inactivity abandons, including ones
+  // nobody has thought of yet. The `select` handler keeps the focus and scale
+  // work that genuinely belongs to a navigation event and no longer writes the
+  // retry state, so there is exactly ONE mechanism rather than a fast path and
+  // an invariant that can disagree.
+  // `activeId` is the one declared above for the slide-scoped chrome; the same
+  // value, so a second binding would be two names for one fact.
+  const abandonedPhases: string[] = [];
+  const sweepPhases = (prev: ReadonlyMap<string, RetryPhase>): ReadonlyMap<string, RetryPhase> => {
+    let changed = false;
+    const next = new Map<string, RetryPhase>();
+    for (const [id, phase] of prev) {
+      if (liveIds.has(id) && id === activeId) next.set(id, phase);
+      else {
+        changed = true;
+        // Only a LIVE id earns the failure back. One that left `items` has no
+        // cell to show it in, and re-adding it would strand a key the other
+        // sweep just dropped.
+        if (liveIds.has(id)) abandonedPhases.push(id);
+      }
+    }
+    return changed ? next : prev;
+  };
+  const sweptRetryPhase = sweepPhases(retryPhase);
+  // ORDER MATTERS, and it is the same composition the gallery uses: sweep the
+  // failures first, then add the abandoned ids back on top. The item did fail,
+  // the retry that would have cleared it was abandoned, so the honest state on
+  // return is the failed cell with its retry control.
+  const sweptFailedBase = sweepSet(failedKeys);
+  const sweptFailed =
+    abandonedPhases.length === 0
+      ? sweptFailedBase
+      : (() => {
+          const next = new Set(sweptFailedBase);
+          for (const id of abandonedPhases) next.add(id);
+          return next;
+        })();
   const sweptWantsOriginal = sweepSet(wantsOriginal);
   if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
-  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
+  if (sweptRetryPhase !== retryPhase) setRetryPhase(sweptRetryPhase);
   if (sweptWantsOriginal !== wantsOriginal) setWantsOriginal(sweptWantsOriginal);
+
+  // The check-in timers. TWO effects, and the split is the mechanism: React runs
+  // an effect cleanup before every dependency-driven re-run, so one effect that
+  // cleared every timer in its cleanup would restart every OTHER slide's window
+  // whenever any slide entered or left. The reconciler touches only the ids whose
+  // membership changed; the mount-scoped effect below owns clear-everything.
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "pending" || timers.has(id)) continue;
+      timers.set(
+        id,
+        setTimeout(() => {
+          // ONE functional update on the single source of truth. `prev` is live
+          // by React's contract, so this reads the CURRENT phase rather than the
+          // one captured when the timer was scheduled, and no-ops when the slide
+          // has gone or already resolved.
+          setRetryPhase((prev) => {
+            if (prev.get(id) !== "pending") return prev;
+            const next = new Map(prev);
+            next.set(id, "checked-in");
+            return next;
+          });
+        }, RETRY_CHECK_IN_MS),
+      );
+    }
+    for (const [id, handle] of timers) {
+      if (sweptRetryPhase.get(id) === "pending") continue;
+      clearTimeout(handle);
+      timers.delete(id);
+    }
+    // Keyed to the CURRENT checked-in occupancy, not to the lifetime of the id.
+    // An id that left the map is the obvious case; an id that is still HERE but
+    // no longer `checked-in` is the one that cost an accessibility gap. Restart
+    // moves it to `restarting` and a layout effect returns it to `pending`, so
+    // it never leaves the map, and an announced-set keyed on presence kept it
+    // marked. The replacement's own window then ended in a check-in nobody was
+    // told about: the sighted user watched the copy change and the
+    // screen-reader user heard nothing. AC-8b already says the replacement gets
+    // its own full window; a window of its own ends in a check-in of its own.
+    for (const id of announcedCheckInRef.current) {
+      if (sweptRetryPhase.get(id) !== "checked-in") announcedCheckInRef.current.delete(id);
+    }
+  }, [sweptRetryPhase]);
+
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    return () => {
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, []);
+
+  // `restarting` -> `pending`, BEFORE PAINT. Two updates in one handler would
+  // batch into a single commit, React would reconcile the same element and
+  // nothing would remount at all. The two-commit sequence is what makes the
+  // unmount real.
+  //
+  // WHAT THE REMOUNT DOES AND DOES NOT BUY. This comment used to say the batched
+  // version would leave "a new label on the same hung fetch", implying the
+  // two-commit version does not. U-1 measured otherwise (design spec §1.2,
+  // 2026-09-01): the browser keeps the original request and serves the identical
+  // URL from it, so the user gets a re-armed watchdog and honest copy over the
+  // same fetch either way. The remount is still load-bearing — it is what makes
+  // the phase machine a real state change rather than a relabel, and it is what
+  // a validator-carrying route would need — but it is not a new download.
+  //
+  // DOCUMENTED LIMIT, the same one the gallery's twin carries: no test pins
+  // `useLayoutEffect` over `useEffect` here. Swapping them keeps every case
+  // green, because the difference is whether the imageless commit can PAINT and
+  // jsdom does not paint. The remount the suites DO pin happens either way.
+  useLayoutEffect(() => {
+    let hasRestarting = false;
+    for (const phase of sweptRetryPhase.values()) {
+      if (phase === "restarting") {
+        hasRestarting = true;
+        break;
+      }
+    }
+    if (!hasRestarting) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing SECOND RENDER, the ShowRowActions.tsx:247 waiver shape: the imageless commit is the mechanism, not a derivation. It cannot cascade, because the updater only moves `restarting` to `pending` and `pending` does not satisfy the guard above.
+    setRetryPhase((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const [id, phase] of prev) {
+        if (phase !== "restarting") continue;
+        next.set(id, "pending");
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [sweptRetryPhase]);
+
+  // The announcement, in a LAYOUT effect: a commit showing a slide checked-in is
+  // proof it WAS checked in at that commit. A passive effect scheduled by that
+  // commit still runs after an `onLoad` queued but not yet rendered.
+  //
+  // ACTIVE SLIDE ONLY, which is the lightbox's own difference from the gallery.
+  // Embla keeps every slide mounted, so an inactive slide announcing would speak
+  // for a diagram the user has not swiped to -- the same reason the shipped
+  // failure announcements are active-only.
+  useLayoutEffect(() => {
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "checked-in" || announcedCheckInRef.current.has(id)) continue;
+      const index = items.findIndex((entry) => entry.id === id);
+      // ACTIVE SLIDE ONLY, and this line is DEFENCE IN DEPTH rather than a
+      // reachable branch today. The Embla `select` handler abandons a departing
+      // slide's retry, removing it from the phase map, so a slide cannot be both
+      // inactive and `checked-in` through any path the product offers: deleting
+      // this line changes no observable behaviour, and no test in this file
+      // discriminates it. Recorded rather than removed because the guarantee it
+      // rests on lives in a different handler, and a change there would make an
+      // inactive slide announce a diagram nobody has swiped to. Recorded rather
+      // than asserted because a test that cannot reach the branch would be
+      // measuring its own fixture.
+      if (index !== activeIndex) continue;
+      announcedCheckInRef.current.add(id);
+      const entry = items[index];
+      if (entry) onAnnounce?.(`${entry.alt || `Diagram ${index + 1}`} is still loading.`);
+    }
+  });
 
   // R1 finding 3. Four more members carry `swept: true` rows and none of them
   // were being swept. The registry's stated reason -- "the active-slide ERROR
@@ -1022,7 +1201,16 @@ export function GalleryLightbox({
         <div ref={emblaRef} className="size-full overflow-hidden">
           <div className="flex size-full">
             {items.map((item, i) => {
-              const isRetrying = sweptRetrying.has(item.id);
+              const phase = sweptRetryPhase.get(item.id);
+              // Every in-flight phase renders the overlay, which is what makes it
+              // ONE element across pending, checked-in and restarting: the node
+              // survives Restart so focus never moves.
+              const isRetrying = phase !== undefined;
+              // The one in-flight phase that renders NO image. The remount that
+              // follows is a new ELEMENT, not a new request: U-1 measured that
+              // the browser keeps the original fetch and coalesces the identical
+              // URL into it (design spec §1.2).
+              const isRestarting = phase === "restarting";
               const isActive = i === activeIndex;
               // The image renders for BOTH idle and retrying, mounted once in its
               // final position (§4.0.5), with the in-flight control overlaid.
@@ -1090,15 +1278,56 @@ export function GalleryLightbox({
                         }
                       }}
                       aria-busy="true"
-                      aria-disabled="true"
-                      onClick={(event) => event.preventDefault()}
-                      aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Retrying…`}
+                      // `aria-disabled` only while the control does nothing. At
+                      // the check-in it does something. `aria-busy` stays true in
+                      // both: the request IS still in flight, and dropping it
+                      // would announce a completion that has not happened.
+                      {...(sweptRetryPhase.get(item.id) === "checked-in"
+                        ? {}
+                        : { "aria-disabled": "true" as const })}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        // Restart is offered ONLY in the check-in. One update to
+                        // `restarting`, which unmounts the <Image>; the layout
+                        // effect puts it back to `pending` before paint and THAT
+                        // mount is the fresh ELEMENT. Not a fresh request: U-1
+                        // measured the identical URL being served from the fetch
+                        // already in flight (design spec §1.2).
+                        setRetryPhase((prev) => {
+                          if (prev.get(item.id) !== "checked-in") return prev;
+                          const next = new Map(prev);
+                          next.set(item.id, "restarting");
+                          return next;
+                        });
+                      }}
+                      aria-label={
+                        sweptRetryPhase.get(item.id) === "checked-in"
+                          ? `${item.alt || `Diagram ${i + 1}`} is still loading. Restart.`
+                          : `${item.alt || `Diagram ${i + 1}`} could not be loaded. Retrying…`
+                      }
                       // `text-text` for DESIGN.md §1.1a: in-flight is not an
                       // action, but it is a button, and the rule's default for
                       // anything interactive is text or stronger.
                       className="absolute inset-x-0 top-2 z-dropdown mx-auto inline-flex min-h-tap-min w-fit items-center gap-1 rounded-sm bg-surface-raised px-3 py-2 text-sm font-medium text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      Retrying…
+                      {/*
+                        The action is its own node, not a word inside a uniform
+                        string. Rendered flat, "Still loading. Restart." carried
+                        zero typographic distinction, so the lightbox showed the
+                        same phase in a different visual language from the
+                        gallery — one feature, two languages, which is the exact
+                        class the gallery's failed-control comment settled for
+                        the retry action. `text-accent-on-bg` matches it, and the
+                        pairing on this raised ground is pinned in DESIGN.md §1.2.
+                      */}
+                      {sweptRetryPhase.get(item.id) === "checked-in" ? (
+                        <>
+                          <span>Still loading.</span>
+                          <span className="text-accent-on-bg">Restart</span>
+                        </>
+                      ) : (
+                        "Retrying…"
+                      )}
                     </button>
                   ) : null}
                   {demotedNotice?.id === item.id &&
@@ -1289,210 +1518,212 @@ export function GalleryLightbox({
                           wrapperClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                           contentClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                         >
-                          <Image
-                            loader={makeDiagramLoader({
-                              showId,
-                              rev: snapshotRevisionId,
-                              key: item.key,
-                              variants: item.variants,
-                              // Zoom-gated (spec §4.1): the clamped tier until
-                              // this slide has shown zoom intent, then the
-                              // original at every candidate width. The mounted
-                              // element is the same one either way, so the
-                              // browser keeps painting the current bitmap until
-                              // the original lands — the silent sharpen.
-                              // Variant-less entries resolve to the original in
-                              // both states, so the gate is a no-op there.
-                              pinOriginal: sweptWantsOriginal.has(item.id),
-                            })}
-                            src={item.key}
-                            alt={item.alt || `Diagram ${i + 1}`}
-                            priority
-                            draggable={false}
-                            {...blurProps(item)}
-                            // next/image derives the placeholder's background-size
-                            // from style.objectFit, NOT from className — without it the
-                            // blur paints `cover` (stretched, full-bleed) and then snaps
-                            // to the letterboxed image.
-                            style={{ objectFit: "contain" }}
-                            {...(dims ?? { fill: true as const, sizes: "100vw" })}
-                            onLoad={() => {
-                              // `retrying` → `idle` (§4.0.5): the overlay clears
-                              // and the image node itself does not change.
-                              if (!retrying.has(item.id)) return;
-                              setRetrying((prev) => {
-                                if (!prev.has(item.id)) return prev;
-                                const next = new Set(prev);
-                                next.delete(item.id);
-                                return next;
-                              });
-                              onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} loaded.`);
-                            }}
-                            onError={() => {
-                              // A retry that failed AGAIN. Handled first and
-                              // returned from, so it never reaches the demote
-                              // branch below: `handleSlideRetry` cleared
-                              // `wantsOriginal`, so this failure is a CLAMPED
-                              // tier failure and there is nothing to demote to.
-                              // The copy is distinct from the first failure's,
-                              // or a user cannot tell a failed retry from the
-                              // original break (AC-3).
-                              if (retrying.has(item.id)) {
-                                const overlay = retryingRefs.current.get(item.id) ?? null;
-                                if (overlay && document.activeElement === overlay) {
-                                  focusRetryTargetRef.current = item.id;
-                                }
-                                setRetrying((prev) => {
+                          {isRestarting ? null : (
+                            <Image
+                              loader={makeDiagramLoader({
+                                showId,
+                                rev: snapshotRevisionId,
+                                key: item.key,
+                                variants: item.variants,
+                                // Zoom-gated (spec §4.1): the clamped tier until
+                                // this slide has shown zoom intent, then the
+                                // original at every candidate width. The mounted
+                                // element is the same one either way, so the
+                                // browser keeps painting the current bitmap until
+                                // the original lands — the silent sharpen.
+                                // Variant-less entries resolve to the original in
+                                // both states, so the gate is a no-op there.
+                                pinOriginal: sweptWantsOriginal.has(item.id),
+                              })}
+                              src={item.key}
+                              alt={item.alt || `Diagram ${i + 1}`}
+                              priority
+                              draggable={false}
+                              {...blurProps(item)}
+                              // next/image derives the placeholder's background-size
+                              // from style.objectFit, NOT from className — without it the
+                              // blur paints `cover` (stretched, full-bleed) and then snaps
+                              // to the letterboxed image.
+                              style={{ objectFit: "contain" }}
+                              {...(dims ?? { fill: true as const, sizes: "100vw" })}
+                              onLoad={() => {
+                                // `retrying` → `idle` (§4.0.5): the overlay clears
+                                // and the image node itself does not change.
+                                if (!retryPhase.has(item.id)) return;
+                                setRetryPhase((prev) => {
                                   if (!prev.has(item.id)) return prev;
-                                  const next = new Set(prev);
+                                  const next = new Map(prev);
                                   next.delete(item.id);
                                   return next;
                                 });
+                                onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} loaded.`);
+                              }}
+                              onError={() => {
+                                // A retry that failed AGAIN. Handled first and
+                                // returned from, so it never reaches the demote
+                                // branch below: `handleSlideRetry` cleared
+                                // `wantsOriginal`, so this failure is a CLAMPED
+                                // tier failure and there is nothing to demote to.
+                                // The copy is distinct from the first failure's,
+                                // or a user cannot tell a failed retry from the
+                                // original break (AC-3).
+                                if (retryPhase.has(item.id)) {
+                                  const overlay = retryingRefs.current.get(item.id) ?? null;
+                                  if (overlay && document.activeElement === overlay) {
+                                    focusRetryTargetRef.current = item.id;
+                                  }
+                                  setRetryPhase((prev) => {
+                                    if (!prev.has(item.id)) return prev;
+                                    const next = new Map(prev);
+                                    next.delete(item.id);
+                                    return next;
+                                  });
+                                  setFailedKeys((prev) => {
+                                    if (prev.has(item.id)) return prev;
+                                    const next = new Set(prev);
+                                    next.add(item.id);
+                                    return next;
+                                  });
+                                  onAnnounce?.(
+                                    `${item.alt || `Diagram ${i + 1}`} still could not be loaded.`,
+                                  );
+                                  return;
+                                }
+                                // DEMOTE, don't destroy (impeccable critique P0,
+                                // 2026-08-11). The zoom gate made the original a
+                                // fetch the USER triggers, so on venue wifi a
+                                // pinch could turn a painted, readable 1024px view
+                                // into "Image unavailable" — a working image
+                                // destroyed by the gesture meant to read it.
+                                //
+                                // The condition is the REQUESTED TIER, not whether
+                                // a bitmap painted: if this slide asked for the
+                                // original, the clamped tier is a different, far
+                                // smaller object that is usually browser-cached and
+                                // very often still reachable, so falling back to it
+                                // beats the placeholder even when nothing painted
+                                // yet. The gesture is left alone — the user is
+                                // mid-pinch on an image that is still there.
+                                //
+                                // Never re-pin: the library publishes a scale above
+                                // the commitment bound for as long as the gesture
+                                // lasts, so without `demotedRef` this would be a
+                                // fetch loop rather than one fallback.
+                                // BOTH conjuncts are load-bearing. `wantsOriginal`
+                                // says the user asked for the original;
+                                // `hasVariantTier` says there is something smaller
+                                // to retreat TO — which is why it takes the
+                                // ORIGINAL KEY: a well-formed row can name the
+                                // original itself, and then both loader states
+                                // resolve to one URL. Without the second conjunct
+                                // an originals-only entry would announce a
+                                // fallback that cannot happen and then leave the
+                                // broken image on screen instead of the
+                                // placeholder.
+                                if (
+                                  wantsOriginal.has(item.id) &&
+                                  hasVariantTier(item.variants, item.key)
+                                ) {
+                                  demotedRef.current.add(item.id);
+                                  setWantsOriginal((prev) => {
+                                    if (!prev.has(item.id)) return prev;
+                                    const next = new Set(prev);
+                                    next.delete(item.id);
+                                    return next;
+                                  });
+                                  // NAMED, because this message can outlive the
+                                  // viewer: a demote inside the exit window is
+                                  // buffered and delivered to the gallery channel
+                                  // after the dialog is gone, where "full detail"
+                                  // alone refers to nothing the listener can see.
+                                  onAnnounce?.(
+                                    `${item.alt || `Diagram ${i + 1}`}: full detail could not be loaded. Showing a less detailed view.`,
+                                  );
+                                  // The SIGHTED half of the same event, in the same
+                                  // branch so the two channels cannot drift: one
+                                  // demote, one chip, one announcement. Skipped
+                                  // while the dialog is mid-close — the retained
+                                  // slide can still fail there, and the user who
+                                  // closed the dialog is not looking at it.
+                                  if (closedAtNonce !== openNonce) {
+                                    if (demoteTimerRef.current !== null) {
+                                      clearTimeout(demoteTimerRef.current);
+                                    }
+                                    setDemotedNotice({ id: item.id, nonce: openNonce });
+                                    // Last demote wins: two chips would double-signal
+                                    // one event class, so the id is replaced and the
+                                    // window restarts.
+                                    demoteTimerRef.current = setTimeout(() => {
+                                      demoteTimerRef.current = null;
+                                      setDemotedNotice((current) =>
+                                        current?.id === item.id ? null : current,
+                                      );
+                                    }, DEMOTE_CHIP_VISIBLE_MS);
+                                  }
+                                  return;
+                                }
+                                // Codex R2 HIGH: when the active image
+                                // errors mid-zoom, the slide flips to
+                                // the unavailable placeholder branch
+                                // which unmounts ZoomController. That
+                                // leaves activeScale > 1 with a null
+                                // controlsSlotRef — Reset chip stays
+                                // visible but its onClick no-ops, and
+                                // Embla swipe stays disabled. Force the
+                                // lifted zoom state back to 1 here so
+                                // the chrome (Reset chip / Embla
+                                // watchDrag) drops back to defaults.
+                                // resetTransform on the about-to-unmount
+                                // wrapper runs synchronously before the
+                                // ZoomController cleanup so the library
+                                // also drops state cleanly.
+                                // Codex R3 MED-3: if focus is on a
+                                // soon-to-unmount lightbox element
+                                // (Reset chip OR the now-stale <img>),
+                                // relocate focus to closeRef before the
+                                // unmount cascade so the non-Escape
+                                // keyboard gate doesn't drop the user
+                                // outside the dialog.
+                                const dialog = dialogRef.current;
+                                const active = document.activeElement;
+                                if (
+                                  dialog &&
+                                  active instanceof HTMLElement &&
+                                  dialog.contains(active)
+                                ) {
+                                  closeRef.current?.focus();
+                                }
+                                // Codex R8: reset requestedScaleRef on
+                                // error path so the next keyboard +/-
+                                // (after the placeholder renders and
+                                // user perhaps navigates to a working
+                                // diagram) starts from 1.
+                                requestedScaleRef.current = 1;
+                                controlsSlotRef.current?.resetTransform();
+                                setActiveScale(1);
+                                // The branch that DESTROYS the view must speak at
+                                // least as loudly as the one that degrades it: this
+                                // is where focus jumps to Close and the diagram is
+                                // replaced, and silence here left a screen-reader
+                                // user hearing only "Close gallery".
+                                onAnnounce?.(
+                                  `${item.alt || `Diagram ${i + 1}`} could not be loaded.`,
+                                );
                                 setFailedKeys((prev) => {
                                   if (prev.has(item.id)) return prev;
                                   const next = new Set(prev);
                                   next.add(item.id);
                                   return next;
                                 });
-                                onAnnounce?.(
-                                  `${item.alt || `Diagram ${i + 1}`} still could not be loaded.`,
-                                );
-                                return;
-                              }
-                              // DEMOTE, don't destroy (impeccable critique P0,
-                              // 2026-08-11). The zoom gate made the original a
-                              // fetch the USER triggers, so on venue wifi a
-                              // pinch could turn a painted, readable 1024px view
-                              // into "Image unavailable" — a working image
-                              // destroyed by the gesture meant to read it.
-                              //
-                              // The condition is the REQUESTED TIER, not whether
-                              // a bitmap painted: if this slide asked for the
-                              // original, the clamped tier is a different, far
-                              // smaller object that is usually browser-cached and
-                              // very often still reachable, so falling back to it
-                              // beats the placeholder even when nothing painted
-                              // yet. The gesture is left alone — the user is
-                              // mid-pinch on an image that is still there.
-                              //
-                              // Never re-pin: the library publishes a scale above
-                              // the commitment bound for as long as the gesture
-                              // lasts, so without `demotedRef` this would be a
-                              // fetch loop rather than one fallback.
-                              // BOTH conjuncts are load-bearing. `wantsOriginal`
-                              // says the user asked for the original;
-                              // `hasVariantTier` says there is something smaller
-                              // to retreat TO — which is why it takes the
-                              // ORIGINAL KEY: a well-formed row can name the
-                              // original itself, and then both loader states
-                              // resolve to one URL. Without the second conjunct
-                              // an originals-only entry would announce a
-                              // fallback that cannot happen and then leave the
-                              // broken image on screen instead of the
-                              // placeholder.
-                              if (
-                                wantsOriginal.has(item.id) &&
-                                hasVariantTier(item.variants, item.key)
-                              ) {
-                                demotedRef.current.add(item.id);
-                                setWantsOriginal((prev) => {
-                                  if (!prev.has(item.id)) return prev;
-                                  const next = new Set(prev);
-                                  next.delete(item.id);
-                                  return next;
-                                });
-                                // NAMED, because this message can outlive the
-                                // viewer: a demote inside the exit window is
-                                // buffered and delivered to the gallery channel
-                                // after the dialog is gone, where "full detail"
-                                // alone refers to nothing the listener can see.
-                                onAnnounce?.(
-                                  `${item.alt || `Diagram ${i + 1}`}: full detail could not be loaded. Showing a less detailed view.`,
-                                );
-                                // The SIGHTED half of the same event, in the same
-                                // branch so the two channels cannot drift: one
-                                // demote, one chip, one announcement. Skipped
-                                // while the dialog is mid-close — the retained
-                                // slide can still fail there, and the user who
-                                // closed the dialog is not looking at it.
-                                if (closedAtNonce !== openNonce) {
-                                  if (demoteTimerRef.current !== null) {
-                                    clearTimeout(demoteTimerRef.current);
-                                  }
-                                  setDemotedNotice({ id: item.id, nonce: openNonce });
-                                  // Last demote wins: two chips would double-signal
-                                  // one event class, so the id is replaced and the
-                                  // window restarts.
-                                  demoteTimerRef.current = setTimeout(() => {
-                                    demoteTimerRef.current = null;
-                                    setDemotedNotice((current) =>
-                                      current?.id === item.id ? null : current,
-                                    );
-                                  }, DEMOTE_CHIP_VISIBLE_MS);
-                                }
-                                return;
-                              }
-                              // Codex R2 HIGH: when the active image
-                              // errors mid-zoom, the slide flips to
-                              // the unavailable placeholder branch
-                              // which unmounts ZoomController. That
-                              // leaves activeScale > 1 with a null
-                              // controlsSlotRef — Reset chip stays
-                              // visible but its onClick no-ops, and
-                              // Embla swipe stays disabled. Force the
-                              // lifted zoom state back to 1 here so
-                              // the chrome (Reset chip / Embla
-                              // watchDrag) drops back to defaults.
-                              // resetTransform on the about-to-unmount
-                              // wrapper runs synchronously before the
-                              // ZoomController cleanup so the library
-                              // also drops state cleanly.
-                              // Codex R3 MED-3: if focus is on a
-                              // soon-to-unmount lightbox element
-                              // (Reset chip OR the now-stale <img>),
-                              // relocate focus to closeRef before the
-                              // unmount cascade so the non-Escape
-                              // keyboard gate doesn't drop the user
-                              // outside the dialog.
-                              const dialog = dialogRef.current;
-                              const active = document.activeElement;
-                              if (
-                                dialog &&
-                                active instanceof HTMLElement &&
-                                dialog.contains(active)
-                              ) {
-                                closeRef.current?.focus();
-                              }
-                              // Codex R8: reset requestedScaleRef on
-                              // error path so the next keyboard +/-
-                              // (after the placeholder renders and
-                              // user perhaps navigates to a working
-                              // diagram) starts from 1.
-                              requestedScaleRef.current = 1;
-                              controlsSlotRef.current?.resetTransform();
-                              setActiveScale(1);
-                              // The branch that DESTROYS the view must speak at
-                              // least as loudly as the one that degrades it: this
-                              // is where focus jumps to Close and the diagram is
-                              // replaced, and silence here left a screen-reader
-                              // user hearing only "Close gallery".
-                              onAnnounce?.(
-                                `${item.alt || `Diagram ${i + 1}`} could not be loaded.`,
-                              );
-                              setFailedKeys((prev) => {
-                                if (prev.has(item.id)) return prev;
-                                const next = new Set(prev);
-                                next.add(item.id);
-                                return next;
-                              });
-                              // "Full detail unavailable" over "Image
-                              // unavailable" is a contradiction: the chip's
-                              // premise is that a less-detailed view IS showing,
-                              // and it just died with the clamped tier.
-                              if (demotedNotice?.id === item.id) clearDemoteNotice();
-                            }}
-                            className="size-full select-none object-contain"
-                          />
+                                // "Full detail unavailable" over "Image
+                                // unavailable" is a contradiction: the chip's
+                                // premise is that a less-detailed view IS showing,
+                                // and it just died with the clamped tier.
+                                if (demotedNotice?.id === item.id) clearDemoteNotice();
+                              }}
+                              className="size-full select-none object-contain"
+                            />
+                          )}
                         </TransformComponent>
                       </TransformWrapper>
                     ) : (

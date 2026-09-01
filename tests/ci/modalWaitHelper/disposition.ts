@@ -463,6 +463,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     // 73 -> 74 -> 75 -> 76 -> 78 -> 80 -> 81, by six independent arcs, which is
     // what a declared population claim looks like when it is doing its job.
+    // 81 -> 83 on 2026-09-01 by fix/lightbox-pair-and-retry-checkin: the diagram
+    // check-in adds one standalone-harness navigation to each of the two retry
+    // e2e specs. Re-derived from the failure's own count (83 candidates), not
+    // incremented by hand.
     //
     // feat/review-modal-strip-dock added two: the §7 anchor-room measurement,
     // which drives a refusal through the real modal at `baseUrl` and is the case
@@ -505,7 +509,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // edit here by design — and this rule is a SUBJECT of
     // _metaScratchRootCleanup, so a stale count here fails that suite's premise
     // downstream, which is how the strip-dock bump was found.
-    expectedCount: 81,
+    expectedCount: 83,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
