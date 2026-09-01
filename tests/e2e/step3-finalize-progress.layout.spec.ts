@@ -524,3 +524,87 @@ test("the CAS column spends no gap on an empty phase label", async ({ page }) =>
     "an empty in-flow child must not charge the column's gap once empty:hidden takes it out of flow",
   ).toBe(without);
 });
+
+/**
+ * Sample the painted strip across a bar's whole width, so a gradient positioned
+ * anywhere is found. `samplePaint` above reads two FIXED fractions, which is right
+ * for a determinate bar whose fill boundary is known, and blind to an indeterminate
+ * one whose accent can sit anywhere or nowhere.
+ */
+async function sampleStrip(page: Page, id: string) {
+  const shot = await page.locator(`#${id}`).screenshot({ animations: "allow" });
+  return page.evaluate(
+    async (url) => {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const samples: string[] = [];
+      // Skip the outermost column at each end: the element's own 1px border rounds
+      // into the corner pixels and neither end is track.
+      for (let i = 1; i < 40; i++) {
+        const x = Math.floor(((img.naturalWidth - 1) * i) / 40);
+        const d = ctx.getImageData(x, Math.floor(img.naturalHeight / 2), 1, 1).data;
+        samples.push(`rgb(${d[0]}, ${d[1]}, ${d[2]})`);
+      }
+      return { samples, width: img.naturalWidth };
+    },
+    `data:image/png;base64,${shot.toString("base64")}`,
+  );
+}
+
+/**
+ * The CAS phase's only visual progress affordance is an INDETERMINATE bar, and in
+ * Chromium and WebKit it never moves: the `animation` declared on
+ * ::-webkit-progress-bar does not run on that pseudo-element. Probed against this
+ * very stylesheet — a plain <div> carrying the identical @keyframes produced four
+ * distinct frames over 570ms and reported one entry from `getAnimations`, while the
+ * bar produced one frame and reported zero. So whatever `background-position` the
+ * rule rests at IS the bar, permanently, on the engines Doug uses.
+ *
+ * That resting position was `-40%`, the animation's starting frame, which parks a
+ * 40%-wide gradient entirely off the left edge. Measured: the bar painted flat track
+ * with a single faint bleed column at the far left (light `255,218,182`, dark
+ * `101,65,32`) and nothing else — indistinguishable from a determinate bar at zero.
+ * The reduced-motion override, which pins `background-position: 50%`, painted a clean
+ * centered accent. The user who asked for less motion was getting MORE signal than
+ * the user who asked for nothing, which is the reduced-motion contract backwards.
+ *
+ * This ranges over both bars because both are one rule; step 2 had the same dead
+ * resting frame since the shimmer shipped.
+ */
+for (const id of ["finalize-ind", "step2-ind"] as const) {
+  test(`the indeterminate ${id === "step2-ind" ? "scan" : "finalize"} bar paints a visible accent at rest`, async ({
+    page,
+  }) => {
+    await page.goto(baseUrl + "bars.html");
+
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme);
+      const accent = hexToRgb(await token(page, "--color-accent"));
+      const indeterminate = await sampleStrip(page, id);
+      const determinate = await sampleStrip(page, id.replace("-ind", "-det"));
+
+      // PREMISE: the element rendered, and the compiled stylesheet reached this page.
+      // Without both, "no accent anywhere" is true for a reason that has nothing to do
+      // with the resting position, and this case would fail while proving nothing.
+      expect(indeterminate.width, `premise: ${id} rendered with real width`).toBeGreaterThan(20);
+      expect(
+        determinate.samples,
+        `premise: the sibling DETERMINATE bar paints the accent in ${theme}, so the ` +
+          "stylesheet is loaded and the accent token resolves",
+      ).toContain(accent);
+
+      expect(
+        indeterminate.samples,
+        `the indeterminate ${id} paints no accent anywhere across its width in ${theme}: ` +
+          "its resting frame parks the gradient off-canvas, so the CAS phase's only " +
+          "visual progress affordance reads as an empty track",
+      ).toContain(accent);
+    }
+  });
+}

@@ -718,7 +718,25 @@ progress[data-testid="wizard-finalize-progressbar"]::-moz-progress-bar {
    reads as a misleading 100% bar. Painting the moving gradient onto the visible
    surfaces (bar pseudo-elements) fixes both. The determinate state (a `value`
    attribute → ::-webkit-progress-value / a filled ::-moz-progress-bar) is
-   UNCHANGED — these rules only match `:indeterminate`. */
+   UNCHANGED — these rules only match `:indeterminate`.
+
+   THE RESTING POSITION IS THE WHOLE BAR ON CHROMIUM AND WEBKIT, because the
+   `animation` below does not run on ::-webkit-progress-bar there. Probed against
+   this stylesheet on 2026-09-01: a plain <div> carrying the identical @keyframes
+   produced four distinct frames over 570ms and reported one entry from
+   `getAnimations({subtree:true})`; the bar produced one frame and reported zero.
+   So `background-position` is not a starting frame on those engines, it is the
+   permanent painted state, and it must be the position that COMMUNICATES.
+   It was `-40%`, which parks the 40%-wide gradient entirely off the left edge:
+   measured flat track with one faint bleed column at the far left (light
+   rgb(255,218,182), dark rgb(101,65,32)) and nothing else, while the
+   reduced-motion override's `50%` painted a clean centered accent. The user who
+   asked for less motion was getting more signal than the user who asked for
+   nothing. `50%` is now the resting position for both, and Firefox, which does
+   run the animation, is unaffected: the keyframes name -40% and 140% explicitly
+   at both ends, so they override the base for the whole cycle.
+   Pinned by tests/e2e/step3-finalize-progress.layout.spec.ts, which scans the
+   full width of both indeterminate bars for an accent-bearing pixel. */
 progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
 progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar {
   background-color: var(--color-surface-raised);
@@ -730,7 +748,8 @@ progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progr
   );
   background-size: 40% 100%;
   background-repeat: no-repeat;
-  background-position: -40% 0;
+  /* The RESTING state on Chromium and WebKit, not a starting frame. See above. */
+  background-position: 50% 0;
   animation: scan-progress-indeterminate 1.2s ease-in-out infinite;
 }
 progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar,
@@ -746,7 +765,8 @@ progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-moz-progress
   );
   background-size: 40% 100%;
   background-repeat: no-repeat;
-  background-position: -40% 0;
+  /* The RESTING state on Chromium and WebKit, not a starting frame. See above. */
+  background-position: 50% 0;
   animation: scan-progress-indeterminate 1.2s ease-in-out infinite;
 }
 @keyframes scan-progress-indeterminate {
@@ -769,7 +789,11 @@ progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-moz-progress
    these rules is single-vendor. */
 @media (prefers-reduced-motion: reduce) {
   /* Kill the shimmer motion on the track pseudo-elements, leaving a static
-     centered accent hint (not a solid bar). */
+     centered accent hint (not a solid bar). `animation: none` is the load-bearing
+     half and Firefox is who it is for: the base position is now 50% too, so on the
+     engines that never ran the animation this block changes nothing. The position
+     is restated rather than dropped so the reduced-motion state stays readable on
+     its own, without a reader having to go and check what the base rests at. */
   progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
   progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar {
     animation: none;

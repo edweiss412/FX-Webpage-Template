@@ -566,7 +566,9 @@
     ],
     "tests/e2e/step3-finalize-progress.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-052160e588fb50f3a33b\",[\"step3-finalize-progress.layout.spec.ts\",\"the finalize bar paints the FXAV accent, and its track follows the theme\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-15188f5b017ac5ba2c0c\",[\"step3-finalize-progress.layout.spec.ts\",\"the indeterminate scan bar paints a visible accent at rest\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-2e2dc1c64620596e6548\",[\"step3-finalize-progress.layout.spec.ts\",\"the CAS column spends no gap on an empty phase label\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-40b1c378e28b4346b534\",[\"step3-finalize-progress.layout.spec.ts\",\"the indeterminate finalize bar paints a visible accent at rest\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-6835d9719d901342d289\",[\"step3-finalize-progress.layout.spec.ts\",\"the compact tracking reaches its running state\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-b68df597f3fb2ed5a598\",[\"step3-finalize-progress.layout.spec.ts\",\"the compact heading holds one line at 375px at any count\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2ce8e6f60a4ae4b5f0d-ce2d7201b9a0d2c82661\",[\"step3-finalize-progress.layout.spec.ts\",\"engine: the reduced-motion override survives this engine's selector parser\"]]",
@@ -790,5 +792,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 687
+  "totalTests": 689
 }
