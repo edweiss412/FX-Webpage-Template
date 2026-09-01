@@ -44,8 +44,11 @@
  *   3. `CommitProbe` is rendered AFTER the button. React runs layout effects in
  *      tree order, so the button's own `useLayoutEffect([url])` has already
  *      written `urlRef` by the time the probe's fires and settles the clipboard
- *      promise. The release therefore lands after the whole layout phase of that
- *      commit and before any of its passive phase.
+ *      promise. The settlement itself happens INSIDE the layout phase, from the
+ *      probe's own layout effect; what lands after the whole layout phase is the
+ *      CONTINUATION, because a settled promise resumes its reactions as
+ *      microtasks and those drain at the end of the current job. Either way
+ *      nothing of the commit's passive phase has run yet.
  *   4. A settled promise resumes its continuations as microtasks, and microtasks
  *      drain before the next task. So the component's `await` resumes, and its
  *      captured-url guard runs, strictly before React's passive flush.
@@ -271,7 +274,7 @@ function assertWindowOpened(run: Run, expectedRequest: string): void {
     run.released,
   );
   premiseHolds(
-    "the release landed after the commit's layout phase and before any of its passive phase",
+    "at release, this commit had logged its layout phase and none of its passive phase",
     run.phasesAtRelease.length === 1 && run.phasesAtRelease[0] === "layout",
   );
   const microtask = run.order.indexOf("microtask");

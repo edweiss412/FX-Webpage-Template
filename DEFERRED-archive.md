@@ -38,9 +38,9 @@ commit and passive effects. `tests/components/admin/shareLinkCopyButtonOrdering.
 harness, and it needed no scheduler mock: `scheduler/unstable_mock` is not resolvable from this
 repo's module graph under pnpm, and React's REAL scheduler already puts the commit and the passive
 flush in different tasks. What had to go was `act()`. The file drives `createRoot` with
-`IS_REACT_ACT_ENVIRONMENT` false, commits the rotate with a bare `root.render`, and releases the
+`IS_REACT_ACT_ENVIRONMENT` false, commits the rotate with a bare `root.render`, and settles the
 stalled clipboard promise from a sibling layout effect ordered after the button, which lands the
-promise continuation in the microtask drain between the two phases. `T-ORDER-STALE` is green on the
+promise continuation in the microtask drain between the layout and passive phases. `T-ORDER-STALE` is green on the
 shipped component and red with the effect swapped for a passive one, which is the proof the row
 asked for.
 
