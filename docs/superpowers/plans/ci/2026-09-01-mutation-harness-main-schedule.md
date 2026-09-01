@@ -200,8 +200,12 @@ drifted exactly eleven keys, all on fixture `2026-04-asset-mgmt-cfo-coo-waldorf`
 commit `1ed69d9b1` (PR #790) is the sole edit to that fixture in `1e503d714..9e949297f` — it
 rewrote one Internet cell to `SSID: WaldorfMeeting Password: Astoria2026`.
 
-**Five instances of one class now sit in `BACKLOG-archive.md`** (ROLETOKEN-DRIFT,
-AUTOCORRECT-DRIFT, REFRESH-AMBIGUITY, plus these two). The structural reason it recurs, stated as an
+**Five instances of one class are on record, and they are not all on record the same way.** Three
+carry archived `BL-MUTATION-LEDGER-*` rows — ROLETOKEN-DRIFT, AUTOCORRECT-DRIFT and
+REFRESH-AMBIGUITY. The 08-16 waldorf instance has no row at all: it is attributed here from the run
+log and the fixture diff, and was re-blessed by somebody without one. The fifth is the one open now.
+(An earlier draft said all five "sit in `BACKLOG-archive.md`", which is true of three of them; the
+review caught the count and this is the same over-claim one level down.) The structural reason it recurs, stated as an
 observation: a fixture or parser edit CANNOT fire this harness before merge — `parser-shards` is
 nightly-only on pull requests, and neither `fixtures/**` nor `lib/parser/**` is in the workflow's
 `pull_request.paths`. The drift is always found after the merge that caused it. This plan does not
@@ -442,13 +446,18 @@ others follow.
 
 <!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts tests/parser/mutation/runShard.test.ts` red-state=authored red-target=`.github/workflows/mutation-harness.yml:112` why=`this step's env block gains COLLECT_MUTATION_ALARMS with no matching row in the allowlist at tests/ci/_workflowCoverageScan.ts:692, so unreviewedLivePairs reports the pair and _metaE2eWorkflowCoverage reds on a real workflow surface; the same command also carries the two inertness cases, which fail against a collector that treats the empty string as a directory` ac=AC-5,AC-6 -->
 
-**Why a committed tool at all.** The ledger has drifted and been re-blessed five times before this one
-(ROLETOKEN-DRIFT, AUTOCORRECT-DRIFT, REFRESH-AMBIGUITY, the 08-16 waldorf instance, and the one open
-now). Every one of those re-blesses was done by hand or by a script that was never committed — the
-sharding plan's own closeout names a regeneration script that exists nowhere in the tree
-(the sharding plan's closeout at `docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:836`
-names a regeneration script that exists nowhere in the tree). The sixth instance should not
-re-derive it.
+**Why a committed tool at all.** Five instances of this class are on record and FOUR have been
+re-blessed: ROLETOKEN-DRIFT, AUTOCORRECT-DRIFT, REFRESH-AMBIGUITY and the 08-16 waldorf instance.
+The fifth is the one open now, and re-blessing it is this arc's Task 3 — so this work COMPLETES the
+fifth rather than opening a sixth. (An earlier draft counted the open instance among the re-blessed
+ones and then called this work the sixth, which double-counted it; the numbers are stated here once
+and the limits section below reads from the same five.)
+
+Every one of those four re-blesses was done by hand or by a script that was never committed — the
+sharding plan's closeout at
+`docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:836` names a regeneration
+script that exists nowhere in the tree. The fifth should not re-derive it, and the sixth should not
+either.
 
 **RED, and it is deliberately NOT "the module does not exist yet".** An unresolved import is a
 test-local failure: it goes green when the test file changes rather than when an implementation
@@ -652,5 +661,6 @@ fingerprints moved, and the by-operator and by-kind census is unmoved.
   returning a code. Re-file trigger: an AC-3 failure that survives the post-A run.
 - **A fixture or parser edit still cannot fire this harness before merge.** `parser-shards` is
   nightly-only on pull requests and neither `fixtures/**` nor `lib/parser/**` is in
-  `on.pull_request.paths`. This arc makes the recovery mechanical; it does not move the trigger. Six
-  instances of the drift class are now on record. Re-file trigger: a seventh.
+  `on.pull_request.paths`. This arc makes the recovery mechanical; it does not move the trigger.
+  FIVE instances of the drift class are on record, the fifth being the one this arc re-blesses.
+  Re-file trigger: a sixth.
