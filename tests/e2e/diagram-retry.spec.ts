@@ -397,6 +397,10 @@ test("the check-in appears, Restart re-requests, and U-1 is measured", async ({
     // Written to a fixed path as well as attached, because the recording step
     // reads it: an attachment lives inside a report a human opens, and the gate
     // that follows is a script.
+    // Also to stdout: standalone-e2e uploads its artifact only `if: failure()`,
+    // so on a GREEN CI run the file above never leaves the runner and the job
+    // log is the only place the answer can be read.
+    console.log(`U-1 OBSERVATION ${JSON.stringify(observation)}`);
     mkdirSync(join(REPO_ROOT, "test-results"), { recursive: true });
     writeFileSync(
       join(REPO_ROOT, "test-results", "u1-observation.json"),

@@ -61,16 +61,46 @@ nothing else.
 
 ## 2. What ships
 
-1. A per-item `checkedIn` set, read only through its intersection with `retrying` (§3.1), so no
-   removal path has to maintain it.
-2. Two effects per component owning every check-in timer: a reconciler derived from the live
-   `retrying` set rather than from a list of removal sites, and a mount-scoped guard that clears
-   everything on unmount (§3.2).
+### AMENDMENT, 2026-08-31 — one phase map, not two sets
+
+**This section and every section after it were written against a design that did not ship, and the
+difference is the container.** The spec below carries `retrying`, `checkedIn` and `restarting` as
+three separate `Set<string>`s whose relationships have to be maintained: an intersection at read
+time (§3.1), a disjointness invariant between `retrying` and `restarting` (§4.1), and a mirror ref
+so out-of-render readers see a live value. What ships is ONE
+`ReadonlyMap<string, RetryPhase>` with `type RetryPhase = "pending" | "checked-in" | "restarting"`.
+
+**Why it changed, and where.** The mirror ref was the writer-side twin of §3.2a's consequence
+bound, and it is unimplementable in these two components: both write the retry state from the render
+body, and `react-hooks/refs` forbids a ref write there. The plan stage hit that at its round cap and
+adopted the phase map as the named fallback. The reading rule for everything below: a claim about
+an id's MEMBERSHIP in one of the three sets is a claim about the phase VALUE of that id's single map
+entry, and the two are the same claim throughout.
+
+**What the change DELETES rather than defends,** which is why it was worth taking a fallback at a
+round cap. The intersection rule of §3.1 is gone: one entry cannot hold two phases, so a stale
+`checked-in` id in a resolved retry is not inert-by-construction, it does not exist. The
+disjointness invariant of §4.1 is gone for the same reason, along with the two rounds of findings
+that came from maintaining it, one of which was a regression the previous round's repair introduced.
+The mirror ref is gone, and §3.2a's bound is satisfied by a mechanism that takes no snapshot at all:
+the timer callback is one functional update whose guard reads the live `prev`.
+
+The writer set is pinned as a population in `tests/components/diagrams/retryWriterSetPin.test.ts`,
+and §8's unreachable rows are derived from that same table in
+`tests/components/diagrams/gallery.transitions.test.tsx` rather than asserted as prose.
+
+### The list, as shipped
+
+1. A per-item retry PHASE, one map entry per in-flight id, so no removal path has to maintain a
+   second container and no read has to reconcile two.
+2. Two effects per component owning every check-in timer: a reconciler derived from the live phase
+   map rather than from a list of removal sites, and a mount-scoped guard that clears everything on
+   unmount (§3.2).
 3. At `RETRY_CHECK_IN_MS`, the in-flight control changes copy, drops `aria-disabled`, gains a
    working `onClick`, and announces once. `aria-busy` does not change.
-4. Restart: a one-commit `restarting` state, disjoint from `retrying`, that unmounts the `<Image>`,
-   followed by a layout effect that re-enters `retrying` before paint and mounts a fresh one, with a
-   fresh check-in window (§4.1).
+4. Restart: a one-commit `restarting` PHASE, which the map makes exclusive of `pending` rather than
+   disjoint from it, that unmounts the `<Image>`, followed by a layout effect that returns the id to
+   `pending` before paint and mounts a fresh one, with a fresh check-in window (§4.1).
 5. An announcement effect derived from the effective checked-in set, so the clock never speaks
    directly (§6.1).
 6. Registry rows for every new `useState` / `useRef`, per 2026-08-29 §4.0.3.
