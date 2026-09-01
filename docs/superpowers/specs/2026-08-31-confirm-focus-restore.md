@@ -52,37 +52,100 @@ After its confirm settles, focus is on `share-hub-kebab`: `insideRoot: true`, a 
 
 **Consequence for the design.** A container-level rescue already solved this class once, for one control, at the surface that owns the unmount. That is a live design precedent the repair should weigh against a per-control restore — not a reason to widen the container hook, which today keys on `published`/`archived` and knows nothing about rotate, picker-reset or revoke.
 
+## 2.4 The three controls do not share one shape
+
+Round 1 established that the spec's first draft treated them as one. They are
+not, and every requirement below is stated per control.
+
+| | rotate | picker reset | revoke admin |
+| --- | --- | --- | --- |
+| states | `idle \| confirm \| resolving` (`app/admin/show/[slug]/RotateShareTokenButton.tsx:51`) | `idle \| confirm \| resolving` (`app/admin/show/[slug]/PickerResetControl.tsx:31`) | **four**: `idle \| confirm \| resolving \| couldnt_confirm` (`app/admin/settings/admins/RevokeRowButton.tsx:72`) |
+| success/failure model | `result.ok` boolean | `outcome.kind` union (`app/admin/show/[slug]/PickerResetControl.tsx:123`) | `result.kind` union (`app/admin/settings/admins/RevokeRowButton.tsx:158`) |
+| thrown action | caught locally, settles through the refused banner (`app/admin/show/[slug]/RotateShareTokenButton.tsx:196-210`) | caught locally (`app/admin/show/[slug]/PickerResetControl.tsx:177`) | **not** caught locally for unknown/gate failures — propagates to the route error boundary |
+| does the trigger survive a SUCCESS? | yes | yes | **no** — the revoked row leaves the active list |
+| extra machinery | — | — | a 12s watchdog (`app/admin/settings/admins/RevokeRowButton.tsx:52`) flips `resolving → couldnt_confirm` (`app/admin/settings/admins/RevokeRowButton.tsx:189`), and `effectiveUi` (`app/admin/settings/admins/RevokeRowButton.tsx:162`) can render the idle branch while `ui` is still `resolving` |
+
+**The revoke-success case has no trigger to return to.** That is the finding
+round 1 called out first, and it is the one place this spec cannot settle alone,
+so it is stated as an open decision rather than papered over. Candidate targets,
+all real controls on the surface: the `AddAdminDisclosure` trigger
+(`components/admin/settings/AdministratorsSection.tsx:185`), the section heading
+`#admin-settings-admins-heading` (`components/admin/settings/AdministratorsSection.tsx:64` and `components/admin/settings/AdministratorsSection.tsx:86`) made programmatically focusable,
+or the `admin-active-list` container (`components/admin/settings/AdministratorsSection.tsx:106`) likewise. **Recommended:** the
+section heading, because it is where a screen-reader user would want to be told
+the list changed, and it needs no new interactive semantics.
+
 ## 3. Requirements
 
-- **R1.** After a confirm resolves, focus lands on a control inside the surface the operator was working in, for each of the three controls in §2.2.
-- **R2.** The Cancel path keeps its current behavior exactly. It already restores to the trigger and is the control arm of every measurement.
-- **R3.** `RevokeRowButton`'s submit must still fire. The repair may not disable the submitter synchronously in its own `onClick` (`app/admin/settings/admins/RevokeRowButton.tsx:381-389`).
-- **R4.** No change to `ArchiveShowButton` or to `ShareHub`'s lifecycle effect.
-- **R5.** The restore target must exist at the moment it is focused, in every arm the control renders.
+- **R1 (rotate, picker reset).** When the confirm resolves and the trigger
+  re-renders, focus returns to the trigger.
+- **R2 (revoke admin, success).** The row is gone, so focus moves to the
+  surviving target chosen above. Never `<body>`.
+- **R3 (revoke admin, non-success).** On a refused `result.kind`, on
+  `couldnt_confirm`, and on any branch where `effectiveUi` renders idle while
+  `ui` is still `resolving`, focus goes to whichever control that branch
+  actually renders. Each branch names its own target; "the trigger" is not a
+  universal answer here.
+- **R4.** The Cancel path is unchanged on all three.
+- **R5.** `RevokeRowButton`'s submit must still fire: no synchronous disable of
+  the submitter in its own `onClick` (`app/admin/settings/admins/RevokeRowButton.tsx:381-389`).
+- **R6.** No change to `ArchiveShowButton` or to ShareHub's lifecycle effect.
+- **R7.** Every requirement above is proved by an executable assertion on the
+  FOCUSED ELEMENT — its testid, or at minimum `document.activeElement` not being
+  `<body>` — not by a reading count. The round-1 finding here was correct and is
+  a defect of the shipped probe, not only of the prose: `tests/e2e/confirm-focus-probe.spec.ts`
+  asserts `readings.length` and the presence of a sample whose label ends in `armed` and nothing
+  about focus, so it would pass today against every defect this spec describes.
 
-## 4. Guard conditions
+## 4. Guard conditions, per control
 
-| condition | required behavior |
-| --- | --- |
-| Confirm resolves OK, trigger re-renders | focus the trigger |
-| Confirm REFUSED (`result.ok === false`) | focus the trigger; the refused banner is announced separately |
-| Action throws (network death) | same as refused — the catch path already settles through the refused banner (`RotateShareTokenButton.tsx:196-210`, the catch that settles through the refused banner) |
-| Component unmounts before the restore runs | no focus call; a ref to a detached node is a no-op, and this must not throw |
-| Arm-expiry timer fires during resolving | unchanged; `closeConfirm()` already guards `prev === "confirm"` only |
-| Cancel pressed | unchanged (R2) |
+| control | condition | required behavior |
+| --- | --- | --- |
+| rotate | `result.ok === true` | focus the trigger |
+| rotate | `result.ok === false`, or the local catch sets the refused result | focus the trigger |
+| picker reset | `outcome.kind === "ok"` | focus the trigger |
+| picker reset | `outcome.kind !== "ok"`, or the local catch fires | focus the trigger |
+| revoke | `result.kind === "ok"` | focus the surviving target (R2); the row is unmounted |
+| revoke | `result.kind !== "ok"` (refused) | focus the control the refused branch renders |
+| revoke | watchdog fires, `resolving → couldnt_confirm` | focus the Refresh control that branch renders (`app/admin/settings/admins/RevokeRowButton.tsx:253-293`) |
+| revoke | a late result arrives while `couldnt_confirm` is sticky | no focus movement; `couldnt_confirm` outranks (`app/admin/settings/admins/RevokeRowButton.tsx:159-162`) |
+| all | component unmounts before the restore runs | no focus call; a ref to a detached node is a no-op and must not throw |
+| all | Cancel or arm-expiry | unchanged (R4) |
 
 ## 5. Transition inventory
 
-States: `idle`, `confirm`, `resolving`. Pairs:
+No control in scope animates a state change; every transition below is
+**instant — no animation needed**, and the column that matters is focus.
 
-| transition | focus treatment |
+**rotate and picker reset** (3 states, 3 pairs):
+
+| pair | animation | focus |
+| --- | --- | --- |
+| idle → confirm | instant | Cancel focused (C3) — unchanged |
+| confirm → idle (cancel / arm expiry) | instant | trigger refocused — unchanged |
+| confirm → resolving | instant | **in scope**: the activated button is disabled in the same commit; focus must not be left on `<body>` |
+| resolving → idle | instant | **in scope**: trigger refocused (R1) |
+| idle → resolving | unreachable — only entered from `confirm` | — |
+
+**revoke admin** (4 states, 6 pairs):
+
+| pair | animation | focus |
+| --- | --- | --- |
+| idle → confirm | instant | Cancel focused — unchanged |
+| confirm → idle | instant | trigger refocused — unchanged |
+| confirm → resolving | instant | **in scope**: the submitter is disabled one tick later, on `isPending` |
+| resolving → idle (success) | instant | **in scope**: row unmounts, R2 target |
+| resolving → couldnt_confirm (watchdog, 12s) | instant | **in scope**: Refresh control |
+| couldnt_confirm → idle (refresh completes) | instant | out of scope: a full refresh replaces the surface |
+| idle → couldnt_confirm | unreachable — only entered from `resolving` | — |
+
+Compound transitions:
+
+| compound | behavior |
 | --- | --- |
-| idle → confirm | Cancel is focused (C3, `app/admin/show/[slug]/RotateShareTokenButton.tsx:134-137`) — unchanged |
-| confirm → idle (Cancel / arm expiry) | trigger refocused via `restoreFocusRef` — unchanged |
-| confirm → resolving | **in scope**: focus must not be stranded when the activated control is disabled |
-| resolving → idle (ok / refused / throw) | **in scope**: trigger refocused |
-| idle → resolving | unreachable — `resolving` is only entered from `confirm` |
-| Compound: arm-expiry fires while resolving | `setUi` guard makes it a no-op; no focus movement |
+| arm-expiry fires while resolving | `setUi` guard makes it a no-op; no focus movement |
+| late result arrives while `couldnt_confirm` is sticky | `couldnt_confirm` outranks; no focus movement |
+| `effectiveUi` renders idle while `ui` is `resolving` (non-OK result) | focus follows the RENDERED branch, not `ui` |
 
 ## 5.1 Dimensional invariants
 
