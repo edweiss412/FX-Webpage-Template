@@ -16,7 +16,7 @@ spec-declared ids and the set covered below are equal, neither typed.
 
 | AC | Covered by |
 | --- | --- |
-| AC-1 | Task 3 and Task 4 (the cue), Task 12 (its layout half) |
+| AC-1 | Task 3 and Task 4 (the cue), Task 13 (its layout half) |
 | AC-2 | Task 4 |
 | AC-3 | Task 5, both halves — the idle half is the one §5.3's first draft got backwards |
 | AC-4 | Task 6, data-driven over every repair row |
@@ -24,10 +24,10 @@ spec-declared ids and the set covered below are equal, neither typed.
 | AC-4c | Task 2 (Arm 1 emits the CANNOT-DECIDE set; the pin is its exact-count literal) |
 | AC-4d | Task 5 (the compound forced-colors + reduced-motion state, both cues) |
 | AC-5 | Task 7, pixels in Playwright plus the cross-engine half in the mechanism probe |
-| AC-6 | Task 11, the focus pin — no `red=`, validated by four planted defects |
+| AC-6 | Task 12, the focus pin — no `red=`, validated by four planted defects |
 | AC-7 | Tasks 1 and 2 |
 | AC-8 | Task 4 |
-| AC-9 | Task 10 |
+| AC-9 | Task 11 |
 
 AC-4c and AC-6 sit on tasks outside the red-contract region, which is why they
 carry no `ac=` marker and appear only here. That is the point of the map: a
@@ -124,18 +124,22 @@ The CANNOT-DECIDE set (AC-4c) is the unresolved-component sink plus single-path
 elements carrying state variants. Its anti-tautology case: adding a fixture element
 with `aria-current:bg-accent` on an unconditional string must make it grow.
 
-## Task 3 — the e2e harness, wired, with the first assertion
-<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1143` why=`app/globals.css has no forced-colors block, so under emulateMedia forcedColors active the share-link ring computes box-shadow none with no outline and the AC-1 assertion that the cue is visible while flashing fails` ac=AC-1 -->
+## Task 3 — the e2e harness, wired, and the share-link cue it proves
+<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1143` why=`app/globals.css has no forced-colors block, so under emulateMedia forcedColors active the share-link ring computes box-shadow none with no outline and the AC-1 case this task writes fails until the same task adds the block` ac=AC-1 -->
 
-Creates tests/e2e/forcedColors.spec.ts carrying AC-1, AND adds `forced-colors` to
-the `testMatch` alternation of `mobile-safari` (`playwright.config.ts:83`) and
-`desktop-chromium` (`playwright.config.ts:97`).
+Creates tests/e2e/forcedColors.spec.ts carrying AC-1, adds `forced-colors` to the
+`testMatch` alternation of `mobile-safari` (`playwright.config.ts:83`) and
+`desktop-chromium` (`playwright.config.ts:97`), AND adds the unlayered block with
+the share-link outline substitution. **All three in this task, because invariant 1
+requires the task to reach green before it commits.** An earlier draft split the
+suite from the block so the suite could be committed observed-red; plan review R3
+finding 1 caught that a task cannot commit red, and the split was the reason the
+next three tasks' reds were also wrong.
 
-**The wiring is in THIS task and not a later one**, because those `testMatch` values
-are explicit allowlist regexes rather than globs: an unwired spec file lists zero
-tests and exits 0, so every later task whose `red=` is a Playwright command would
-declare a red against a command that collects nothing. Plan review R2 finding 5
-counted that across two tasks. Verification, in this commit:
+**The wiring is here** because those `testMatch` values are explicit allowlist
+regexes, not globs: an unwired spec lists zero tests and exits 0, so every later
+task naming a Playwright command would declare a red against a command that
+collects nothing. Verification, in this commit:
 
 ```
 pnpm exec playwright test --list tests/e2e/forcedColors.spec.ts
@@ -143,49 +147,69 @@ pnpm exec playwright test --list tests/e2e/forcedColors.spec.ts
 
 which must name cases under BOTH project names.
 
-**Readiness and sampling, stated once here and inherited by every later browser
-task.** The cues are timer-gated and one of them remounts, so an assertion that
-samples at the wrong moment is flaky in both directions. Every case: waits for the
-element by role or test id rather than a timeout; asserts the cue's presence while
-the gating attribute is present, using `expect.poll` against the computed style so a
-single unlucky frame does not decide; and re-reads the handle after any remount
-rather than holding one across it. `fullyParallel: false`
-(`playwright.config.ts:35`) already serializes, and `baseURL` is pinned to
-`127.0.0.1` (`playwright.config.ts:92`); this task adds no server of its own.
+**Readiness and sampling, stated once and inherited by every later browser task.**
+The cues are timer-gated and one remounts, so an assertion sampling at the wrong
+moment is flaky in both directions. Every case waits for the element by role or
+test id rather than a timeout, uses `expect.poll` against the computed style so one
+unlucky frame does not decide, and re-reads the handle after a remount rather than
+holding one across it. `fullyParallel: false` (`playwright.config.ts:35`) already
+serializes and `baseURL` is pinned to `127.0.0.1` (`playwright.config.ts:92`); this
+task starts no server of its own.
 
-## Task 4 — the forced-colors block, and the two cues that need it
-<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=live red-target=`app/globals.css:1143` why=`Task 3 committed AC-1 observed-red against the missing block; this task turns the SAME command green by adding the unlayered block with the share-link and step-3 outline substitutions` ac=AC-1,AC-2,AC-8 -->
+## Task 4 — the step-3 cue
+<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1104` why=`the step-3 warning flash animates background-color only and its reduced-motion fallback is a steady tint, so under forced colors both forms flatten and the AC-2 case this task writes finds no visible cue` ac=AC-2 -->
 
-Spec §5.1 and §5.2. One unlayered block at the foot of `app/globals.css`.
+Spec §5.2. The step-3 warning flash gains the outline substitution, and its
+reduced-motion arm gains a steady OUTLINE rather than a steady tint, preserving the
+distinction `app/globals.css:1121-1128` draws between a jump target and a one-shot
+change signal.
 
 The freshness cue is NOT repaired: spec §5.3 establishes it already survives, and
-the repair this task would have applied would have suppressed it. AC-3's two-halves
-assertion lands in Task 5 and pins the survival.
+the repair an earlier draft specified would have suppressed it.
 
-The reduced-motion arm is part of this task. `app/globals.css:1157` sets
-`animation: none` for the share-link cue, so a base transparent outline would force
-opaque and give a reduced-motion user a permanent ring. The block names that off
-state.
+## Task 5 — the compound states, and the off states they need
+<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1157` why=`the share-link reduced-motion arm sets animation none and names no off state, so with forced colors AND reduced motion the base outline Task 3 added forces opaque and the AC-4d case this task writes sees a permanent ring where it requires none` ac=AC-3,AC-4d -->
 
-## Task 5 — AC-3 and AC-4d, the states the transition table got wrong
-<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1157` why=`the block Task 4 added does not yet name the share-link off state under reduced motion, so the AC-4d assertion that it shows NO outline with both settings active fails while the base outline forces opaque` ac=AC-3,AC-4d -->
-
-Both halves of AC-3 (idle shows no outline, flashing shows one) and both cues under
+Both halves of AC-3 (a freshness-capable card shows no outline while its gating
+attribute is absent, and a visible one while it is present) and both cues under
 AC-4d, asserted separately because they differ in that compound state and the
 transition table's first draft got both wrong.
+
+The repair this task makes is naming the share-link off state in the reduced-motion
+arm. Task 3 added the base outline; naming its off state is what stops a
+reduced-motion user seeing a permanent ring. The two are deliberately in different
+tasks so that this one has a real red: after Task 3 the ring is correct in the
+ordinary case and wrong in the compound one, which is exactly what AC-4d measures.
 
 ## Task 6 — the state-collapse repairs, and AC-4 over every one of them
 <!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`components/crew/CrewSubNav.tsx:93` why=`the active and inactive tab paths compute identical border-color under forced colors, so the AC-4 case fails for that row until the block paints the selected state` ac=AC-4,AC-4b -->
 
 The repair set is the disposition's 25 Repair rows.
 
-**AC-4 is DATA-DRIVEN over those rows, not hand-written per site.** Plan review R2
-finding 7: an earlier draft asserted only the spec's five worked examples, leaving
-twenty rows repaired and unasserted. The case reads the census's repair rows and,
-for each, renders the two colliding paths and requires their computed styles to
-differ in at least one surviving property under forced colors. One mechanism over N
-rows, so a row added to the census is asserted by existing, which is the
-derivation-not-a-list rule applied to the test.
+**AC-4 is data-driven over those rows, and each row carries its own BINDING.** Plan
+review R2 finding 7 was that asserting only the spec's five worked examples left the
+rest unasserted; plan review R3 finding 3 was that a row holding a site and a token
+pair cannot reach a live component, so a data-driven case over those rows could be
+satisfied by a generated class-string fixture while the real component went
+unasserted. Both are true, and the repair is the same one: the row is the binding.
+
+Every repair row in tests/styles/forcedColorsCensus.ts carries four fields beyond
+its site: `route` (the URL the component renders at), `setup` (the seed or fixture
+state that puts it on screen), `locator` (a `data-testid` or role query resolving to
+the element), and `toggle` (the interaction or seed difference that moves it between
+the two colliding states). A row without all four does not compile, so a row cannot
+be added without saying how to reach it.
+
+The case then, per row: navigate `route`, apply `setup`, resolve `locator`, read the
+computed style under forced colors, apply `toggle`, read again, and require the two
+readings to differ in at least one property that survives. Failing to RESOLVE the
+locator is a failure, not a skip — that is what stops a fixture standing in for the
+component.
+
+Fourteen rows need fourteen bindings, which is real work and is why the repair set
+being fourteen rather than twenty-five matters. Two components need a `data-testid`
+they do not have today (`AdminNav`'s nav links and `EventFilters`' level buttons);
+adding those is part of this task.
 
 Off-states are named by setting the colour to the background system colour, NOT by
 `border-style: none`: both paths declare the border and vary only its colour, so
@@ -207,17 +231,42 @@ nothing about the other.
 
 **Firefox is not a Playwright project in this repo** (the two configured browsers
 are Chromium and WebKit), so AC-5's cross-engine half cannot be a Playwright case.
-It is asserted where both engines already run: `scripts/probes/forced-colors-mechanism.mjs`
-gains a progress case, and its transcript is regenerated in this commit. Stated as
-a decision rather than left as an omission, because "both engines" was nominal
-before plan review R2 finding 6.
+It is asserted where both engines already run:
+`scripts/probes/forced-colors-mechanism.mjs` gains a progress case.
 
-## Task 8 — the documented limits that need a row
+**And that case loads the LIVE COMPILED STYLESHEET and the shipped selectors, not a
+copy.** Plan review R3 finding 4: the existing progress prototype hard-codes both
+the CSS and the `<progress>` markup, so a typo in the live -moz-progress-bar
+selector would coexist with a green case — the probe would be measuring its own
+fixture. The mechanism probe already compiles `app/globals.css` for its cascade
+arm; the progress case reuses that compiled output and renders a `<progress>`
+carrying the shipped `data-testid` values, so the selector under test is the one
+that ships. A constructed fixture is excluded as proof of the live tree by this
+arc's own probe-domain rule, and that rule applies to the arc's own probes.
+
+## Task 8 — AC-8, every rule the pass adds is unlayered
+<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:899` why=`no case compiles the stylesheet and asserts the forced-colors rules are unlayered, so moving the block into @layer base would go unnoticed; the case fails until it exists and is pointed at the compiled output` ac=AC-8 -->
+
+AC-8 had no described assertion for three rounds: the coverage map named Task 4,
+which only instructs the implementer to place the block. Plan review R3 finding 5.
+Placing it correctly is not verifying it, and the cascade table is the reason this
+matters — a layered rule loses silently and renders exactly like a missing one.
+
+The case compiles `app/globals.css` (the `tests/styles/_metaZIndexBands.test.ts:164`
+shell-out, which honours the `@source not` exclusions) and parses the result with
+postcss, asserting that every rule inside a `forced-colors` at-rule has no `@layer`
+ancestor.
+
+Planted defect, run and recorded in this commit: wrap the block in `@layer base`,
+observe RED, unwrap. Without it the case passes the moment it is authored and
+proves nothing, since the block is already unlayered when this task runs.
+
+## Task 9 — the documented limits that need a row
 <!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1224` why=`the freshness reduced-motion arm sets outline-color transparent and no census row records it as a deliberate limit, so the case asserting every A2b row is either repaired or carries a limit row fails on that row` ac=AC-3 -->
 
 Spec §6's transition inventory and §8's limits 7 and 8, as census rows with reasons.
 
-## Task 9 — mutation enrolment
+## Task 10 — mutation enrolment
 <!-- task: red=`pnpm vitest run tests/mutation/source/registryMembership.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:4273` why=`no GUARD_SURFACES row names tests/styles/forcedColorsScan.ts, so the membership suite does not carry the surface and the case asserting it is enrolled fails` ac=AC-7 -->
 
 Before the first DIFF-stage dispatch, per bl-orch. Run `pnpm heavy:mutation` under
@@ -237,47 +286,39 @@ one: state the refutation and do not enrol.
 
 ## Execution order, and why every RED is stated against it
 
-Three plan-review findings across two rounds were REDs that could not complete, and
-all but one broke the same way: the command was already green when its task ran,
-because an earlier task had landed the thing its `why=` said was missing. Two rounds
-on one vector is this repo's trigger for comprehensive re-analysis rather than
-another per-instance patch, so the order is written down and every `red=` above is
-derived from it rather than from the task in isolation.
+Three plan-review rounds found REDs that could not complete, and after R2's
+execution-order table R3 found three more. The residue was one rule, not one
+ordering: **invariant 1 requires every task to reach GREEN before it commits**, and
+an earlier draft split the e2e suite from the block so the suite could be committed
+observed-red. That split is what made the next three tasks' reds wrong, because
+each was written against a tree state the split created and the merge removes.
 
-| After | The tree has | So the next red can rest on |
+So no task commits red, and **no task carries `red-state=live`**. Every marker is
+the ordinary invariant-1 shape: the task writes a case that fails against today's
+production surface, implements, observes green, commits.
+
+| After | The tree has | So the next task's own new case can fail on |
 | --- | --- | --- |
 | — | no scanner, no e2e spec, no block, no census | a missing module |
-| Task 1 | Arm 2 and its suite | a missing module (Arm 1's) |
-| Task 2 | both arms, the census, the cannot-decide set | nothing in CSS yet |
-| Task 3 | the e2e spec, WIRED, carrying AC-1 observed red | the missing block |
-| Task 4 | the block, share-link and step-3 repaired | the unnamed reduced-motion off state |
-| Task 5 | AC-3 and AC-4d green | the unrepaired state collapses |
-| Task 6 | the 25 repairs, AC-4 green over all of them | the progress gradient |
-| Task 7 | the progress fill | the missing limit rows |
-| Task 8 | the limit rows | the unenrolled surface |
-| Task 9 | the registry row | — |
+| Task 1 | Arm 2 and its suite, green | a missing module (Arm 1's) |
+| Task 2 | both arms, the census, the cannot-decide set, green | no forced-colors block at all |
+| Task 3 | the e2e spec WIRED, the block, the share-link cue, green | the step-3 cue, still flattening |
+| Task 4 | the step-3 cue repaired, green | the share-link off state, unnamed under reduced motion |
+| Task 5 | the compound states correct, green | 14 unrepaired state collapses |
+| Task 6 | the 14 repairs and AC-4 over all of them, green | the progress gradient |
+| Task 7 | the progress fill, green | no assertion that the block is unlayered |
+| Task 8 | AC-8 asserted, green | the missing documented-limit rows |
+| Task 9 | the limit rows, green | the unenrolled surface |
+| Task 10 | the registry row, green | — |
 
-Task 3 is the hinge: it wires `testMatch` in its own commit, so every later
-Playwright `red=` names a command that actually collects. Task 4 is the only
-`red-state=live` marker, and it is the canonical shape — Task 3 committed that exact
-command observed red, and Task 4 turns the SAME command green.
+Task 3 is the hinge and does three things at once for one reason: the wiring must
+land with the first Playwright case or that case collects nothing, and the block
+must land with it or the task commits red.
 
-## Two pins, and why they carry no `red=`
+`pnpm spec:lint --exec-red` has no `red-state=live` command to run here, which is
+stated rather than left to inference: silence from that arm is not a certificate.
 
-Tasks 6 and 8 in the first draft declared `red=` commands whose `why=` was "the
-spec file does not exist". That is the invalid-RED shape: the failure comes from
-the test file's own absence, so the command goes green when the TEST changes
-rather than when an implementation lands. Removing the fake red rather than
-rewording it, because both are pins over behaviour that is ALREADY correct and
-neither has an observable pre-implementation red to declare.
-
-They sit outside EVERY task region, deliberately. A region requires a `red=` on
-every task it owns, and inventing one for a pin is the fake red this section
-exists to remove; the multi-region design makes headings between regions
-unchecked, which is exactly this case. Each is validated by a recorded planted
-defect instead.
-
-## Task 10 — DESIGN.md section and the token mapping
+## Task 11 — DESIGN.md section and the token mapping
 
 Spec §3.1 verbatim, including rule 4's statement that the three slots apply PER
 AFFORDANCE and are not tokens. bl-orch made that a condition of approving the
@@ -303,7 +344,19 @@ So it sits with the pins, and its red is observed the same way theirs are: the
 RED step runs the AC-9 case against today's `DESIGN.md` and records the failure
 before the section is written. The four string-presence mutants below still apply.
 
-## Task 11 — pin the focus rule, cascade-sensitively
+## Three pins, and why they carry no `red=`
+
+Tasks 12 to 14 are pins over behaviour that is ALREADY correct, so no red exists to
+declare. An earlier draft gave them `red=` commands whose `why=` was "the spec file
+does not exist", which is a red that goes green when the TEST changes rather than
+when an implementation lands.
+
+They sit outside every task region deliberately: a region requires a `red=` on each
+task it owns, and inventing one for a pin is the fake red this section removes. The
+multi-region design makes headings between regions unchecked, which is this case.
+Each is validated by a recorded planted defect instead.
+
+## Task 12 — pin the focus rule, cascade-sensitively
 
 Spec §5.6, AC-6. `app/globals.css:899` is correct today, so this is a
 characterization pin and it would pass the moment it is authored. Its value is
@@ -320,7 +373,7 @@ defect it exists for and recording the result in the commit:
 Four planted defects rather than one, because a pin that only catches deletion is
 a pin against the edit nobody makes.
 
-## Task 12 — layout neutrality
+## Task 13 — layout neutrality
 
 Spec §5.7's table, verbatim. `getBoundingClientRect()` with forced colors off and
 on, agreeing within 0.5px, for every repaired element.
@@ -331,7 +384,7 @@ the same width, run, observe RED (the box grows by the border width), revert. Th
 is the exact mistake §5.7 exists to prevent, and it is the one a future author is
 most likely to make, because `border` is the more familiar property.
 
-## Task 13 — pin the spec-to-probe correspondence
+## Task 14 — pin the spec-to-probe correspondence
 
 Spec review R1 finding 4 was that the spec licensed `text-shadow` as a measured
 dropped property while the probe never set or read it. The instance is repaired.
@@ -389,48 +442,83 @@ projection. The families are exhaustive by construction: 25 + 5 + 5 + 2 + 1 + 2 
 + 1 = 42, and Task 2's suite asserts that sum against the arm's own output, so a
 new site cannot land in no family.
 
-### Repair — 25 rows
+### The rule the disposition applies, stated before the rows
 
-State carried by background, border or text tone alone, with no other carrier. The
-three semantic slots (spec §3.3) apply at these selectors.
+**A surviving carrier must be VISUALLY PERCEIVABLE.** Forced colors is used by
+SIGHTED people who need contrast, so an accessibility-tree attribute is not a
+carrier for them: `aria-current="page"` on a nav link renders nothing. Both
+carrier audits reached this independently and it moved six rows.
 
-| Site | Colliding pair | |
-| --- | --- | --- |
-| `app/me/meShowSections.tsx:219` | `bg-accent bg-info-bg text-accent-text text-text` | crew-facing |
-| `app/me/meShowSections.tsx:278` | `same` | crew-facing |
-| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:249` | `bg-accent bg-surface-sunken text-accent-text text-text-subtle` | crew-facing |
-| `components/crew/CrewSubNav.tsx:114` | `border-accent border-transparent text-text-strong text-text-subtle` | crew-facing |
-| `components/crew/primitives/RunOfShowList.tsx:93` | `text-text-strong text-text-subtle` | crew-facing |
-| `components/admin/OnboardingWizard.tsx:260` | `bg-accent bg-surface border-accent-edge border-text-faint text-accent-text text-text-subtle` | |
-| `components/admin/review/ShowReviewSurface.tsx:838` | `bg-surface bg-surface-sunken border-text-faint border-transparent text-text text-text-strong` | |
-| `components/admin/review/ShowReviewSurface.tsx:1019` | `same` | |
-| `components/admin/review/ShowReviewSurface.tsx:805` | `bg-surface-sunken hover:bg-surface-sunken` | |
-| `components/admin/review/ShowReviewSurface.tsx:926` | `same` | |
-| `components/admin/review/ShowReviewSurface.tsx:823` | `text-text text-text-strong` | |
-| `components/admin/review/ShowReviewSurface.tsx:945` | `same` | |
-| `components/admin/UndoChangeButton.tsx:51` | `bg-surface bg-transparent border-text-faint border-transparent` | |
-| `components/admin/nav/AdminNav.tsx:236` | `bg-surface-raised text-text-strong text-text-subtle` | |
-| `components/admin/nav/AdminNav.tsx:301` | `text-accent-on-bg text-text-subtle` | |
-| `components/admin/telemetry/EventFilters.tsx:97` | `bg-text text-bg text-text` | |
-| `components/admin/showpage/PublishedReviewModal.tsx:1133` | `bg-surface-sunken bg-warning-bg border-text-faint border-warning-text text-text text-warning-text` | |
-| `components/admin/wizard/Step3ReviewModal.tsx:590` | `same` | |
-| `components/admin/ShowRowActions.tsx:647` | `bg-surface-sunken text-text-strong text-text-subtle` | |
-| `components/admin/wizard/CrewRowActions.tsx:270` | `same` | |
-| `components/admin/UseRawControl.tsx:360` | `border-text-strong border-text-subtle` | |
-| `components/admin/UseRawControl.tsx:372` | `text-text text-text-strong` | |
-| `components/admin/RescanSheetButton.tsx:209` | `border-control-outline-tinted border-text-faint` | |
-| `components/admin/DashboardBucketSegmentedControl.tsx:56` | `bg-surface shadow-tile text-text-strong text-text-subtle` | |
-| `components/admin/DashboardBucketSegmentedControl.tsx:76` | `same` | |
+The corollary is subtler and moved four more. A carrier that is itself painted in
+a forced property does not survive either, however geometric it looks. The review
+rail's active indicator is positioned by `transform` and sized by `height`, which
+reads like a shape carrier, but it is a `w-1` span whose only paint is `bg-accent`
+(`components/admin/review/ShowReviewSurface.tsx:895`). Under forced colors that
+background and the rail behind it both force to the same system colour, so the
+indicator is invisible and its geometry carries nothing.
 
-Five are crew-facing and NONE was found by reading: both `app/me` chips, the picker
-interstitial's role chip, and the run-of-show title tone. `CrewSubNav.tsx:114` was
-read; its siblings were not.
+So a carrier survives when it is one of: rendered TEXT that differs, a glyph or
+mark that differs in SHAPE, a difference in border or outline WIDTH, a padding or
+size difference, a font-weight change, an element that is present in one state and
+absent in the other. Not colour, not `box-shadow`, not ARIA alone, and not a
+coloured shape whose colour is the only thing distinguishing it from its ground.
+
+**Method: read what the component RENDERS.** Plan review R3 found ten
+misdispositions in this section, and every one came from diffing class strings
+instead. The tell was censusing `ShareHub` for `aria-expanded` plus a visible popup
+while repairing `ShowRowActions` for the identical shape.
+
+### Repair — 14 rows
+
+Colour is the sole VISUAL carrier. The three semantic slots (spec §3.3) apply.
+
+| Site | What was checked and found absent |
+| --- | --- |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:249` | crew-facing. Both paths render the same `{c.role}`; no glyph, no aria, no size or weight difference |
+| `components/crew/CrewSubNav.tsx:114` | crew-facing. `border-b-2` on BOTH paths, so the width is shared and only its colour differs; the icon is the same component either way; `aria-current` toggles nothing rendered |
+| `components/admin/review/ShowReviewSurface.tsx:838` | `border` in the shared base, so both are 1px; icon tint is unconditional; label unchanged |
+| `components/admin/review/ShowReviewSurface.tsx:1019` | same; the sr-only text and the dot are status-derived, not active-derived |
+| `components/admin/review/ShowReviewSurface.tsx:805` | active fills at rest and inactive only on hover, so there IS an at-rest difference and it is a background; the rail indicator does not rescue it (see the rule above) |
+| `components/admin/review/ShowReviewSurface.tsx:926` | same; `railCount` and the dot are data-derived |
+| `components/admin/review/ShowReviewSurface.tsx:823` | tone only, same weight and text; its parent's carrier is itself a forced background, so the whole rail item goes flat together |
+| `components/admin/review/ShowReviewSurface.tsx:945` | same |
+| `components/admin/UndoChangeButton.tsx:51` | `border` on both branches, so no width change; children are keyed on `pending`, not on `quiet`; the file's comment at `components/admin/UndoChangeButton.tsx:46` claims differentiation is by weight, and the classes do not bear that out |
+| `components/admin/nav/AdminNav.tsx:236` | `aria-current` only; icon and label render unchanged in both states |
+| `components/admin/nav/AdminNav.tsx:301` | `aria-current` only; the attention badge is keyed on `showBadge`, not on `active` |
+| `components/admin/telemetry/EventFilters.tsx:97` | `aria-pressed` only; the visible text is the level either way |
+| `components/admin/DashboardBucketSegmentedControl.tsx:56` | `aria-current` only, and `shadow-tile` is dropped so it cannot carry it either. The component documents `aria-current` AS its selection mechanism (`components/admin/DashboardBucketSegmentedControl.tsx:11`), which is correct for a screen reader and insufficient for this user |
+| `components/admin/DashboardBucketSegmentedControl.tsx:76` | same; the `({archivedCount})` count is data-derived, and the disabled branch is a different element type, neither of which carries SELECTION |
+
+Two are crew-facing and neither was found by reading class strings.
+
+### Census — a rendered carrier that survives (11 rows)
+
+| Site | The carrier |
+| --- | --- |
+| `app/me/meShowSections.tsx:219` | the same value picks the tone AND renders the words: `relativeDayChip` returns "Today", "Tomorrow", "In N days" (`lib/time/relative.ts:31`) and `chipToneClass` derives the tone from that string |
+| `app/me/meShowSections.tsx:278` | same |
+| `components/crew/primitives/RunOfShowList.tsx:93` | the ancestor gains `border-l border-border pl-2` on a synthetic entry (`components/crew/primitives/RunOfShowList.tsx:78`): a border WIDTH and an indent, both of which survive |
+| `components/admin/OnboardingWizard.tsx:260` | done swaps the number for a `<Check>` glyph (`components/admin/OnboardingWizard.tsx:251`) and active adds `font-semibold` plus visibility below `sm` (`components/admin/OnboardingWizard.tsx:277`). See the limit below |
+| `components/admin/ShowRowActions.tsx:647` | `aria-expanded` AND an open menu that is rendered |
+| `components/admin/wizard/CrewRowActions.tsx:270` | same |
+| `components/admin/showpage/PublishedReviewModal.tsx:1133` | the states differ by filled, triangular and hollow MARKS (`components/admin/review/attentionMark.ts:76`), which is shape |
+| `components/admin/wizard/Step3ReviewModal.tsx:590` | same |
+| `components/admin/UseRawControl.tsx:360` | the checked row renders "In use" or "Selected" plus a dot (`components/admin/UseRawControl.tsx:368`) |
+| `components/admin/UseRawControl.tsx:372` | same |
+| `components/admin/RescanSheetButton.tsx:209` | not two states at all: the two paths are one button on two surrounding plates (`components/admin/RescanSheetButton.tsx:222`) |
+
+**Limit inside the wizard row.** `OnboardingWizard.tsx:260` carries ACTIVE and DONE
+non-chromatically, and that is the question the indicator exists to answer. VISITED
+against UNREACHED differs only in text tone, so those two flatten together. Not
+repaired: both are non-current steps, the distinction is affordance rather than
+position, and tabbability still separates them. Recorded here rather than left
+unstated, because a reader checking this row against the source would find it.
 
 ### Census — switch tracks, ruled exemption (5 rows)
 
-`bg-accent`/`bg-surface-sunken` with `border-accent-edge`/`border-border-strong`:
-the switch-track recipe whose contrast treatment is already ruled (`DESIGN.md`
-§1.2a, `tests/styles/controlOutlineResidue.ts:873`). Re-deciding a ratified visual
+`bg-accent`/`bg-surface-sunken` with `border-accent-edge`/`border-border-strong`,
+whose contrast treatment is already ruled (`DESIGN.md` §1.2a,
+`tests/styles/controlOutlineResidue.ts:873`). Re-deciding a ratified visual
 treatment is not this pass's to make.
 
 `components/admin/PublishedToggle.tsx:517`,
@@ -439,63 +527,55 @@ treatment is not this pass's to make.
 `components/admin/settings/DeveloperToggleButton.tsx:93`,
 `components/admin/telemetry/AutoRefreshControl.tsx:105`.
 
-FIVE, where the spec's §8 limit 5 says three. The spec's number came from a partial
-reading before the arm ran; the census is the authority and the spec cites the
-command rather than a count, so nothing there needs re-typing. Recorded because a
-reader comparing the two would otherwise find a discrepancy and no note.
+FIVE, where the spec's §8 limit 5 says three. The census is the authority and the
+spec cites the command rather than a count.
 
-### Census — an icon whose tone moves with a label that also moves (5 rows)
+### Census — an icon whose tone moves with a carrier that survives (4 rows)
 
-The icon is not the sole carrier: the adjacent text tone changes with it, two of the
-chevrons also rotate (which survives outright), and `CrewSubNav.tsx:125` sits inside
-`CrewSubNav.tsx:114`, which this pass REPAIRS, so the icon inherits a repaired state.
+`components/admin/review/ShowReviewSurface.tsx:819` and
+`components/admin/review/ShowReviewSurface.tsx:939` sit inside rail items this pass
+REPAIRS, so they inherit a repaired state.
+`components/admin/showpage/PublishedReviewModal.tsx:1376` and
+`components/admin/wizard/Step3ReviewModal.tsx:729` are chevrons that also ROTATE.
+`components/crew/CrewSubNav.tsx:125` sits inside `CrewSubNav.tsx:114`, repaired.
 
-`components/admin/review/ShowReviewSurface.tsx:819`,
-`components/admin/review/ShowReviewSurface.tsx:939`,
-`components/admin/showpage/PublishedReviewModal.tsx:1376`,
-`components/admin/wizard/Step3ReviewModal.tsx:729`,
-`components/crew/CrewSubNav.tsx:125`.
+That is five sites in four families of reason; the row count below the heading is
+five and the sum at the top counts it as five.
 
 ### Census — state carried by ARIA and a rendered element (2 rows)
 
-Plan review R2 finding 4 refuted an earlier "no distinction at rest" family here:
-both sites DO differ at rest. Their surviving carrier is not the background.
-
-- `components/admin/UseRawControl.tsx:334` — `role="radio"` with `aria-checked`
-  (`components/admin/UseRawControl.tsx:340`), and the checked row renders a dot. The
-  background is decoration on top of a state the accessibility tree and a rendered
-  mark both carry.
-- `components/admin/showpage/ShareHub.tsx:828` — the kebab's `aria-expanded`
-  (`components/admin/showpage/ShareHub.tsx:834`), and when it is true a popup is on
-  screen. The open state is the popup, not the button's fill.
+`components/admin/UseRawControl.tsx:334` (`role="radio"` with `aria-checked`, and a
+rendered dot) and `components/admin/showpage/ShareHub.tsx:828` (`aria-expanded`,
+and when true a popup is on screen). ARIA alone would not qualify under the rule
+above; the rendered element is what does.
 
 ### Census — focus-ring offset colour only (1 row)
 
-`components/admin/PerShowActionableWarnings.tsx:458`, whose pair differs only in
-`focus-visible:ring-offset-*`. The ring is not this repo's focus indicator
-(spec §2.2) and an offset colour is invisible under forced colors either way.
+`components/admin/PerShowActionableWarnings.tsx:458`. The ring is not this repo's
+focus indicator (spec §2.2) and an offset colour is invisible under forced colors
+either way.
 
 ### Census — emphasis opacity variants of one token (2 rows)
 
 `components/admin/showpage/PublishedReviewModal.tsx:1327` and
-`components/admin/wizard/Step3ReviewModal.tsx:662`, differing by
-`text-warning-text/80` against a sibling tone. Both force to `CanvasText`; the
-distinction is emphasis, which spec §8 limit 2 flattens deliberately.
+`components/admin/wizard/Step3ReviewModal.tsx:662`. Both force to `CanvasText`;
+the distinction is emphasis, which spec §8 limit 2 flattens deliberately.
 
 ### Census — elevation only (1 row)
 
 `components/shared/AccentButton.tsx:139`, whose sixteen paths collide on
-`shadow-tile` alone: a raised variant against a flat one, with no colour or state
-difference. Spec §8 limit 3, elevation flattens. It surfaced only after the
-instrument repair, because `shadow-tile` used to read as surviving.
+`shadow-tile` alone: a raised variant against a flat one. Spec §8 limit 3.
 
 ### Census — not a collapse (1 row)
 
 `components/admin/NeedsAttentionSummaryCard.tsx:36`, whose pair prints
-`(identical)`: two render paths resolving to the same class string. Nothing differs.
-It is reported because the arm compares path COUNT before projections, and it stays
-in the census as a named artifact rather than being filtered, since a filter here
-would also hide a real duplicate.
+`(identical)`. Nothing differs. Kept as a named artifact rather than filtered,
+since a filter would also hide a real duplicate.
+
+### The sum
+
+14 repair + 11 + 5 + 5 + 2 + 1 + 2 + 1 + 1 = 42. Task 2's suite asserts that sum
+against the arm's own output, so a new site cannot land in no family.
 
 ## Arm 2 sweep, RUN at plan time
 
@@ -537,15 +617,40 @@ during Task 1, each row carrying its reason.
 - The registry-array diff for Task 8.
 - The four string-presence mutants for every text-pin assertion (Task 9's DESIGN.md pin).
 
-## RED-validity note
 
-Tasks 3, 4 and 5 were drafted `red-state=live` and corrected to `authored` during
-plan self-review. Their command names a suite Tasks 1 and 2 create, so on today's
-tree it fails because the FILE is absent, not because the finding exists. That is
-the invalid-RED shape: it would go green when the test file changes rather than
-when the implementation lands. Each now names the production surface whose defect
-makes the case fail, verified defective on the live tree.
+## Task 15 — the invariant-8 UI quality gate
 
-No task in this plan carries `red-state=live`, so `pnpm spec:lint --exec-red` has
-no live command to run here. That is stated rather than left to inference: silence
-from the arm is not a certificate.
+**This plan omitted the gate for three review rounds and that was a hard error.**
+Plan review R3 finding 6. The arc changes `app/globals.css` and `DESIGN.md`, and
+AGENTS.md invariant 8 makes both UI surfaces, so the dual gate is non-negotiable
+and runs BEFORE the whole-diff cross-model review rather than after it.
+
+In one commit:
+
+1. Run the dual gate from AGENTS.md invariant 8 over the whole UI diff, with the
+   canonical v3 setup gates: the skill's context load (PRODUCT.md + DESIGN.md),
+   then the register reference read. The UI diff is `app/globals.css`, `DESIGN.md`,
+   and every component this pass repairs.
+2. Fix every P0 and P1, or defer one with a `DEFERRED.md` entry naming why. No
+   third option.
+3. Write the §12 closeout section with both halves' results and their dispositions,
+   and the `impeccable-gate:` marker line.
+
+**Why the marker is written HERE and not at plan time.** The marker grammar admits
+exactly two forms: a RAN form carrying real results, and `N/A — no UI surface`
+(`tests/docs/_invariant8Closeout.ts:44-48`). There is no pending form. A plan
+committed before the gate runs therefore cannot carry an honest marker, and the
+guard treats any unit naming both gate halves as one that MUST carry a valid marker
+(`tests/docs/_invariant8Closeout.ts:109-118`). So the two land together, in this
+task's commit, which is the only point at which both are true. Writing a marker
+earlier would mean writing a result that had not happened.
+
+Pre-code mechanical checklist, run BEFORE the UI tasks rather than discovered by
+the gate afterwards: no em dashes in user-visible copy, 44px tap targets, canonical
+type and token classes, apostrophe literals. This pass adds no user-visible copy,
+so the live items are the token classes the repairs use.
+
+## 12. Closeout
+
+Written by Task 15, in its own commit, together with the marker line. Empty until
+then, deliberately: Task 15 states why a pending marker is not expressible.
