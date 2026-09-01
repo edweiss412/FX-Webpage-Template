@@ -37,7 +37,34 @@ read as an absence of coverage.
 ## Meta-test inventory
 
 CREATES: tests/styles/_metaForcedColors.test.ts (both scanner arms, premise-stated).
-CREATES: tests/e2e/forcedColors.spec.ts (real-browser assertions, AC-1..AC-6, layout neutrality).
+CREATES: tests/e2e/forcedColors.spec.ts (real-browser assertions, AC-1 through AC-6, layout neutrality).
+EXTENDS: `playwright.config.ts` — `forced-colors` is added to the `testMatch` alternation of BOTH
+`mobile-safari` (`playwright.config.ts:83`) and `desktop-chromium` (`playwright.config.ts:97`).
+This is a wiring step and not a formality: those `testMatch` values are EXPLICIT
+ALLOWLIST regexes, not globs, so a new spec file matches nothing and would be
+committed, reviewed, and never executed while this plan and the PR both claim its
+coverage. Plan review R1 finding 5. Both projects, because the repaired surfaces
+span admin (the cues, the review pills, the nav) and crew (CrewSubNav, `app/me`,
+the picker interstitial), so a single-project entry leaves half the pass unasserted.
+Contrast vitest, which IS glob-based: `tests/styles/**/*.test.{ts,tsx}` is already in
+`PARALLEL_TEST_GLOBS` (`vitest.projects.ts:113`), so the scanner suite needs no wiring.
+
+**Firefox is not a Playwright project in this repo**, and the pass needs it: the
+mechanism probe measures Gecko and Blink separately because they differ (the
+progress fill is confirmed in Firefox and unmeasurable by `getComputedStyle` in
+Chromium). Rather than add a Firefox project to `playwright.config.ts`, which
+changes the CI matrix for every existing suite, the cross-engine claims stay where
+they already live and already run: `scripts/probes/forced-colors-mechanism.mjs`,
+which drives both engines directly and whose transcript is regenerated on every
+repair commit. The e2e spec asserts the SHIPPED surfaces in the two configured
+projects; the probe asserts the MECHANISM in both engines. Stated so the split is a
+decision rather than an omission.
+
+Server and readiness are inherited, not re-invented: the config's `webServer`
+starts the app, `fullyParallel: false` serializes (`playwright.config.ts:35`), and
+the projects pin `baseURL` to `127.0.0.1` rather than `localhost`
+(`playwright.config.ts:92`) to avoid the dual-stack mismatch. The new spec adds no
+server of its own and starts nothing.
 EXTENDS: `tests/mutation/source/registry.ts` (one row, the scanner; enrolment BEFORE the first diff dispatch per bl-orch Q3).
 EXTENDS: nothing else. Advisory-lock topology: N/A, the diff touches no `pg_advisory*` path.
 Supabase call boundaries: N/A, no Supabase client call in the diff.
@@ -119,7 +146,7 @@ per `residueKey` (`tests/styles/controlOutlineResidue.ts:436`), never line-keyed
 Plus the anti-vacuity literal: an exact row count.
 
 ## Task 3 — the forced-colors block, and the two cues that need it
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1143` why=`app/globals.css has no forced-colors block, so Arm 2 (landed in Task 1) reports the three cue rules and the case asserting its finding set is empty fails` ac=AC-8 -->
+<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts --project=desktop-chromium` red-state=authored red-target=`app/globals.css:1143` why=`under emulateMedia forcedColors active the share-link ring computes box-shadow none and no outline, so the AC-1 assertion that the cue is visible while flashing fails until this task adds the block` ac=AC-8 -->
 
 Spec §5.1 (share-link) and §5.2 (step-3). One unlayered block at the foot of
 `app/globals.css`.
@@ -138,18 +165,41 @@ Its coverage is AC-3's two-halves assertion in Task 6, which pins the survival
 rather than changing anything.
 
 ## Task 4 — the state-collapse repairs, and the census for the rest
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`components/crew/CrewSubNav.tsx:93` why=`the collapsing sites carry no forced-colors treatment, so Arm 1 (landed in Task 2) reports every one of them and the case asserting its unregistered finding set is empty fails` ac=AC-4,AC-4b -->
+<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts --project=desktop-chromium` red-state=authored red-target=`components/crew/CrewSubNav.tsx:93` why=`under emulateMedia forcedColors active the active and inactive tab paths compute identical border-color, so the assertion that a selected control differs from an unselected one in at least one surviving property fails until the forced-colors block paints the selected state` ac=AC-4,AC-4b -->
 
-Spec §5.4. Off-states named by setting the colour to the background system colour,
-NOT by `border-style: none`, because both paths declare the border and vary only
-its colour, so removing the width would reflow (spec §5.7).
+Spec §5.4, and the repair set is the "Repair" family in the Arm 1 disposition
+above, not the spec's five worked examples.
 
-The repair set is whatever Arm 1 reports, not the spec's five. Each reported
-element is repaired here or gets a tests/styles/forcedColorsCensus.ts row with
-its reason and, for a ruled exemption, its citation. Anti-vacuity: the census
-count is pinned by an exact literal, because a census that silently grows passes
-a subset assertion (`tests/styles/_metaControlOutlineFill.test.ts:117` calls its
-equivalent "the single most important case in the file").
+**The gate is the BROWSER, not Arm 1, and that is a correction.** The first draft
+made this task's `red=` the Arm 1 vitest suite. Arm 1's projection is computed from
+TSX class strings and the CSS those tokens emit; a repair that adds unlayered
+selectors to `app/globals.css` changes NO element's class list, so its projection
+is identical before and after and the command could never go green from its own
+repair. Plan review R1 finding 3, and it is a defect in the plan's gate design
+rather than in its wording.
+
+Worse, the projection treats a token that compiles to nothing as surviving, so
+adding a meaningless state class would make a collapse disappear without painting
+anything. A guard that a no-op class satisfies is not a guard.
+
+So the division is: **Arm 1 is inventory, the browser is the gate.** Arm 1 answers
+"which elements state themselves only in properties forced colors flattens", which
+is a question about the source and is correctly answered from the source. Whether
+the repair WORKS is a question about rendered output, and only a browser can
+answer it. AC-4 is asserted in Task 6's spec file; this task's `red=` names that
+command because that is the command its repair turns green.
+
+Off-states are named by setting the colour to the background system colour, NOT by
+`border-style: none`, because both paths declare the border and vary only its
+colour, so removing the width would reflow (spec §5.7).
+
+Every element Arm 1 reports is repaired here or carries a
+tests/styles/forcedColorsCensus.ts row with its reason, and the disposition above is
+that decision already made rather than deferred to the implementer. Anti-vacuity:
+the census count is pinned by an exact literal, because a census that silently
+grows passes a subset assertion
+(`tests/styles/_metaControlOutlineFill.test.ts:117` calls its equivalent "the
+single most important case in the file").
 
 ## Task 5 — the indeterminate progress shimmer
 <!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:743` why=`app/globals.css:743 and :760 declare gradients with no forced-colors fallback, so Arm 2 reports both progress rules` ac=AC-5 -->
@@ -165,13 +215,25 @@ direction.
 
 A computed-style assertion here would therefore read the same empty value in every
 Chromium mode and either fail confusingly or pass vacuously, which is the
-tautological guard the anti-tautology rule names. So: screenshot the element and
-require a non-background pixel, with a negative control (the same page with the
-forced-colors block removed) proving the assertion discriminates rather than
-passing on any render at all.
+tautological guard the anti-tautology rule names. So the assertion samples rendered
+pixels.
+
+**And the negative control is a FILL-ONLY deletion, not the whole block.** Plan
+review R1 finding 6: the repair paints a `ButtonFace` track as well as a `Highlight`
+fill, so "at least one non-background pixel" is satisfied by the track alone and
+passes with the fill entirely absent. Removing the whole forced-colors block as the
+control does not discriminate either, because it removes the track too and the
+assertion fails for the wrong reason.
+
+The discriminating mutant is: delete ONLY the fill declaration, leave the track
+rule intact, and require the assertion to go red. Run for both engines' fill
+selectors, since they are separate declarations and a control that exercises one
+says nothing about the other. The assertion itself therefore cannot be "some pixel
+is not the background"; it must distinguish the fill's colour from the track's,
+which is what the mutant forces it to do.
 
 ## Task 6 — real-browser forced-colors assertions
-<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1152` why=`the forced-colors block does not exist, so the cue assertions see no outline under emulateMedia forcedColors active` ac=AC-1,AC-2,AC-3,AC-4d -->
+<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1157` why=`the reduced-motion arm names no off state, so under forced colors AND reduced motion the share-link base outline forces opaque and the AC-4d assertion that it shows NO outline in that compound state fails` ac=AC-1,AC-2,AC-3,AC-4d -->
 
 Four states per cue, not one: forced colors on and off, crossed with reduced motion
 on and off. AC-4d lives here and it is the case the transition table got wrong for
@@ -180,14 +242,29 @@ share-link shows NO outline at any point in the compound state, freshness shows 
 only while its gating attribute is present. A single shared assertion over "the
 cues" would have passed the wrong table.
 
+**The wiring lands in this task's commit, not later.** Add `forced-colors` to the
+`testMatch` alternation of `mobile-safari` (`playwright.config.ts:83`) and
+`desktop-chromium` (`playwright.config.ts:97`). Verification step, run in the same
+commit and recorded in it:
+
+```
+pnpm exec playwright test --list tests/e2e/forcedColors.spec.ts
+```
+
+A spec file that matches no project lists ZERO tests and exits 0, which is the
+failure this step exists to catch: green, silent, and claiming coverage it does not
+have. The step passes only when the listing names cases under BOTH project names.
+
+
+
 ## Task 7 — transition audit
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1196` why=`the forced-colors keyframe bodies do not exist` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1224` why=`the freshness reduced-motion arm sets outline-color transparent, so the transition-inventory case asserting that arm is recorded as a documented limit rather than a repair has no matching row until this task writes it` ac=AC-3 -->
 
 Spec §6's table, verbatim, including the compound case: the freshness cue's `-1`
 and `-2` bodies stay identical after repair, which the existing drift pin requires.
 
 ## Task 8 — mutation enrolment
-<!-- task: red=`pnpm vitest run tests/mutation/source/registry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:4273` why=`no row names tests/styles/forcedColorsScan.ts, and the control string it will declare does not occur in a tracked source` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/registryMembership.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:4273` why=`no GUARD_SURFACES row names tests/styles/forcedColorsScan.ts, so the membership suite reports the surface as unenrolled until this task adds the row` ac=AC-7 -->
 
 Before the first DIFF-stage dispatch, per bl-orch Q3. Run `pnpm heavy:mutation`
 under an arbitrated class lock; state score, unaccepted survivors, and the
@@ -307,6 +384,119 @@ is non-empty.
 ## Disposed criteria
 
 None yet. Every AC-1..AC-9 is claimed above.
+
+## Arm 1 sweep, RUN and DISPOSITIONED at plan time
+
+`pnpm exec tsx scripts/probes/forced-colors-arm1-prototype.mts`, at `a5b5537a0`:
+
+```
+universe (textEntry + paintedChildren): 805
+multi-path elements: 79
+unresolved components reported: 113
+COLLAPSING (oracle projection): 39
+```
+
+The denominator is 805 and not 366. A first draft of this plan reported 366, which
+is the DEFAULT-options universe, beside a collapse set computed with
+`paintedChildren` on: two numbers about two different populations. Plan review R1
+finding 2. The prototype now prints its own denominator so the pair cannot drift
+apart again.
+
+All 39 are dispositioned here, by FAMILY rather than as a 39-row hand list, because
+a list re-opens the moment someone adds a site and a family rule does not. The
+prototype prints the COLLIDING PAIR per element, which is what makes the family
+assignment mechanical: the tokens that differ between the two paths that share a
+projection.
+
+### Repair (the three semantic slots apply, per spec §3.3)
+
+Selection or state carried by background, border and text tone alone. Under forced
+colors all three force to one value and the state is unreadable.
+
+| Site | Colliding pair |
+| --- | --- |
+| `app/me/meShowSections.tsx:219` | `bg-accent bg-info-bg text-accent-text text-text` |
+| `app/me/meShowSections.tsx:278` | same |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:249` | `bg-accent bg-surface-sunken text-accent-text text-text-subtle` |
+| `components/admin/OnboardingWizard.tsx:260` | `bg-accent bg-surface border-accent-edge border-text-faint text-accent-text text-text-subtle` |
+| `components/crew/CrewSubNav.tsx:114` | `border-accent border-transparent text-text-strong text-text-subtle` |
+| `components/admin/review/ShowReviewSurface.tsx:838` | `bg-surface bg-surface-sunken border-text-faint border-transparent text-text text-text-strong` |
+| `components/admin/review/ShowReviewSurface.tsx:1019` | same |
+| `components/admin/UndoChangeButton.tsx:51` | `bg-surface bg-transparent border-text-faint border-transparent` |
+| `components/admin/nav/AdminNav.tsx:236` | `bg-surface-raised text-text-strong text-text-subtle` |
+| `components/admin/nav/AdminNav.tsx:301` | `text-accent-on-bg text-text-subtle` |
+| `components/admin/telemetry/EventFilters.tsx:97` | `bg-text text-bg text-text` |
+| `components/admin/showpage/PublishedReviewModal.tsx:1133` | `bg-surface-sunken bg-warning-bg border-text-faint border-warning-text text-text text-warning-text` |
+| `components/admin/wizard/Step3ReviewModal.tsx:590` | same |
+| `components/admin/ShowRowActions.tsx:647` | `bg-surface-sunken text-text-strong text-text-subtle` |
+| `components/admin/wizard/CrewRowActions.tsx:270` | same |
+| `components/admin/UseRawControl.tsx:360` | `border-text-strong border-text-subtle` |
+| `components/admin/UseRawControl.tsx:372` | `text-text text-text-strong` |
+| `components/admin/review/ShowReviewSurface.tsx:823` | `text-text text-text-strong` |
+| `components/admin/review/ShowReviewSurface.tsx:945` | same |
+| `components/admin/RescanSheetButton.tsx:209` | `border-control-outline-tinted border-text-faint` |
+
+Three of these are crew-facing and none was found by reading: `app/me` twice and
+the picker interstitial. That is the argument for a derived inventory in one line.
+
+### Census: switch tracks (ruled exemption)
+
+`bg-accent`/`bg-surface-sunken` with `border-accent-edge`/`border-border-strong`,
+the switch-track recipe whose contrast treatment is already ruled (`DESIGN.md`
+§1.2a, `tests/styles/controlOutlineResidue.ts:873`).
+
+`components/admin/PublishedToggle.tsx:517`,
+`components/admin/settings/AutoPublishToggle.tsx:123`,
+`components/admin/settings/NotifyToggle.tsx:131`,
+`components/admin/settings/DeveloperToggleButton.tsx:93`,
+`components/admin/telemetry/AutoRefreshControl.tsx:105`.
+
+FIVE, not the three the spec's §8 limit 5 says. The spec's number came from a
+partial reading before the arm ran; the census is the authority and the spec cites
+the command rather than a count, so nothing there needs re-typing. Recorded here
+because a reader comparing the two would otherwise find a discrepancy and no note.
+
+### Census: an icon whose colour changes beside a label that also changes
+
+The icon is not the sole carrier — the adjacent text tone moves with it, and in
+two cases the chevron also rotates, which survives forced colors outright.
+
+`components/admin/review/ShowReviewSurface.tsx:819` and
+`components/admin/review/ShowReviewSurface.tsx:939`,
+`components/admin/showpage/PublishedReviewModal.tsx:1376`,
+`components/admin/wizard/Step3ReviewModal.tsx:729`.
+
+### Census: no state distinction at rest
+
+The colliding pair differs only in a `hover:` token or in nothing a user reads
+while not pointing at the control.
+
+`components/admin/review/ShowReviewSurface.tsx:805` and
+`components/admin/review/ShowReviewSurface.tsx:926`
+(`bg-surface-sunken hover:bg-surface-sunken`),
+`components/admin/UseRawControl.tsx:334` (`bg-surface-sunken`),
+`components/admin/showpage/ShareHub.tsx:828` (`bg-surface-sunken bg-transparent`).
+
+### Census: focus-ring offset colour only
+
+`components/admin/PerShowActionableWarnings.tsx:458`, whose pair differs only in
+`focus-visible:ring-offset-*`. The ring is not the focus indicator in this repo
+(spec §2.2), and an offset colour is invisible under forced colors either way.
+
+### Census: text opacity variants of one token
+
+`components/admin/showpage/PublishedReviewModal.tsx:1327` and
+`components/admin/wizard/Step3ReviewModal.tsx:662`, whose pair differs by
+`text-warning-text/80` against a sibling tone. Both force to `CanvasText`; the
+distinction is emphasis, which spec §8 limit 2 flattens deliberately.
+
+### Census: not a collapse at all
+
+`components/admin/NeedsAttentionSummaryCard.tsx:36`, whose colliding pair prints
+`(identical)`: two render paths that resolve to the same class string. Nothing
+differs, so nothing collapses. It is reported because the arm compares path COUNT
+before projections, and it stays in the census as a named artifact rather than
+being silently filtered, since a filter here would also hide a real duplicate.
 
 ## Arm 2 sweep, RUN at plan time
 

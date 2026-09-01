@@ -52,7 +52,16 @@ async function main() {
     },
   });
 
-  const els = scanInteractiveElements(ROOT, { textEntry: true, paintedChildren: true });
+  // The sink is REQUIRED, not optional: a capitalised tag the resolver cannot name
+  // used to vanish from the cover in silence, which is the one outcome the spec's
+  // consequence bound forbids. Counting them here is what makes the CANNOT-DECIDE
+  // set (spec AC-4c) a real number rather than a promise.
+  const unresolved: string[] = [];
+  const els = scanInteractiveElements(ROOT, {
+    textEntry: true,
+    paintedChildren: true,
+    onUnresolvedComponent: (i) => unresolved.push(`${i.file}:${i.line} <${i.tag}>`),
+  });
   const allTokens = [
     ...new Set(
       els
@@ -105,11 +114,41 @@ async function main() {
         as: el.admittedAs,
       });
   }
+  // The denominator must come from the SAME options the collapse set does. A first
+  // draft reported 366, the DEFAULT-options universe, beside a collapse set computed
+  // with paintedChildren on: two numbers about two different populations. Plan
+  // review R1 finding 2.
+  console.log("universe (textEntry + paintedChildren):", els.length);
   console.log(
     "multi-path elements:",
     els.filter((e) => new Set(e.paths.map((p) => p.join(" "))).size > 1).length,
   );
+  console.log("unresolved components reported:", unresolved.length);
   console.log("COLLAPSING (oracle projection):", collapses.length);
+  // Print the COLLIDING PAIR, not a union over every path. An element with eight
+  // paths can have one pair that collapses while the other twenty-seven differ, and
+  // a union over all eight then reports tokens that have nothing to do with the
+  // collision. The pair is what a person needs to disposition the row.
+  console.log("\n-- colliding pairs --");
+  for (const el of els) {
+    const uniq = [...new Set(el.paths.map((p) => p.join(" ")))];
+    if (uniq.length < 2) continue;
+    const byProjection = new Map<string, string[]>();
+    for (const u of uniq) {
+      const k = project(u.split(/\s+/));
+      byProjection.set(k, [...(byProjection.get(k) ?? []), u]);
+    }
+    for (const [, group] of byProjection) {
+      if (group.length < 2) continue;
+      const a = new Set(group[0]!.split(/\s+/).filter(Boolean));
+      const b = new Set(group[1]!.split(/\s+/).filter(Boolean));
+      const differing = [...new Set([...a, ...b])].filter((t) => !(a.has(t) && b.has(t)));
+      console.log(
+        `  ${el.file}:${el.line} <${el.tag}>  ${differing.sort().join(" ") || "(identical)"}`,
+      );
+    }
+  }
+
   for (const c of collapses)
     console.log(`  ${c.file}:${c.line} <${c.tag}> paths=${c.paths} ${c.as}`);
 }
