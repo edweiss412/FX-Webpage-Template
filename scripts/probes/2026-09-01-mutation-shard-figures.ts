@@ -154,6 +154,24 @@ function validateAnchor(): void {
   }
   positive("splitSurfaceOutcomes", A.splitSurfaceOutcomes);
 
+  // THE PARTITION INVARIANT, and it is the one that makes a WRONG cost visible rather
+  // than merely a missing one. Positivity accepts any plausible number: changing
+  // `integer-literal` from 1269906 to 269906 kept every per-field check happy and moved
+  // family N=10 from 2490.111 s to 2333.122 s -- a figure that is wrong and looks right,
+  // which is the exact outcome the consequence bound forbids. The operators PARTITION the
+  // surface's measured time, so their costs must sum to what the per-surface table
+  // independently recorded for it. Two tables again, one quantity, and a single digit
+  // edited in either is now a mismatch rather than a plausible answer.
+  const opSum = Object.values(A.splitSurfaceOperatorMs).reduce((a, b) => a + (b ?? 0), 0);
+  const surfaceTotal = A.surfaceMs[SPLIT_SURFACE];
+  if (opSum !== surfaceTotal) {
+    bad.push(
+      `the split surface's per-operator costs sum to ${opSum} but the per-surface table ` +
+        `records ${surfaceTotal} for ${SPLIT_SURFACE}; the operators partition that time, so ` +
+        `a difference means one of the two was edited`,
+    );
+  }
+
   // The text the operator costs were measured against.
   const blob = createHash("sha1")
     .update(`blob ${Buffer.byteLength(text)}\u0000`)
@@ -176,6 +194,26 @@ function validateAnchor(): void {
   }
   for (const [i, s] of A.priorRun.legsElapsedS.entries())
     positive(`priorRun.legsElapsedS[${i}]`, s);
+  positive("priorRun.surfaces", A.priorRun.surfaces);
+
+  // The growth line divides by the gap between these two dates. An absent date makes that
+  // gap NaN, and equal dates make it zero -- which prints `Infinity s/day` and a zero-day
+  // fuse, a figure that is not merely wrong but reads as an emergency. Both are ordinary
+  // one-edit mutations of the committed anchor, so both are refused rather than rendered.
+  const priorAt = Date.parse(A.priorRun.dateISO ?? "");
+  const thisAt = Date.parse(A.thisRunDateISO ?? "");
+  if (!Number.isFinite(priorAt) || !Number.isFinite(thisAt)) {
+    bad.push(
+      `the run dates do not both parse (priorRun.dateISO ${JSON.stringify(A.priorRun.dateISO)}, ` +
+        `thisRunDateISO ${JSON.stringify(A.thisRunDateISO)}); the growth figure is measured ` +
+        `between them`,
+    );
+  } else if (!(thisAt > priorAt)) {
+    bad.push(
+      `thisRunDateISO ${A.thisRunDateISO} is not strictly after priorRun.dateISO ` +
+        `${A.priorRun.dateISO}; growth per day over a zero or negative span is not a rate`,
+    );
+  }
 
   // Every live surface the split did not create must have a measurement. Without this the
   // `!` below turns a newly enrolled surface into a crash on an undefined rate.
@@ -230,6 +268,30 @@ const thisElapsed = legIds.reduce((a, n) => a + A.legs[n]!.elapsedS, 0);
 const priorElapsed = A.priorRun.legsElapsedS.reduce((a, b) => a + b, 0);
 const days = (Date.parse(A.thisRunDateISO) - Date.parse(A.priorRun.dateISO)) / 86_400_000;
 const growthPerDay = (thisElapsed - priorElapsed) / days;
+
+// STRUCTURAL BACKSTOP, deliberately downstream of validateAnchor rather than part of it.
+// The checks above name the fields they know about, so each one closes the hole it was
+// written for and none of them closes the CLASS: three review rounds in a row found one
+// more anchor field whose absence or corruption reached the output as `NaN`, `Infinity`
+// or `undefined` and exited 0. This asserts the property those findings actually share --
+// that every derived scalar the report rests on is a real number -- so a field nobody has
+// thought of yet fails here even when no per-field check names it. It is a net under the
+// checks above, never a replacement: it says a figure is unusable, while they say why.
+for (const [label, v] of [
+  ["overhead median", OV],
+  ["this run's elapsed total", thisElapsed],
+  ["the prior run's elapsed total", priorElapsed],
+  ["the day span between the runs", days],
+  ["growth per day", growthPerDay],
+] as const) {
+  if (!Number.isFinite(v)) {
+    throw new Error(
+      `${label} computed to ${String(v)}, which is not a usable figure. The anchor passed ` +
+        `validateAnchor, so this is a field it does not yet check -- fix the check, do not ` +
+        `print the number.`,
+    );
+  }
+}
 console.log(
   `growth          ${priorElapsed} s at ${A.priorRun.surfaces} surfaces (${A.priorRun.dateISO}) -> ` +
     `${thisElapsed} s at ${Object.keys(A.surfaceMs).length} (${A.thisRunDateISO}) = ` +
