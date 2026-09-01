@@ -221,7 +221,7 @@ The oracle is measured height, not `getClientRects().length`: a wrapped heading 
 
 Closed by `fix/finalize-progress-polish` in three commits, one per part of the critique's recommendation, which Eric ruled in whole on 2026-08-31.
 
-The settled batch count persists into CAS as a receipt; an indeterminate bar renders there, so the phase that actually puts shows live no longer goes blank; and the phase label is no longer rendered while `casPhaseLabel` returns the empty string, where it charged exactly 4px of its column's gap.
+The settled batch count persists into CAS as a receipt; an indeterminate bar renders there, so the phase that actually puts shows live no longer goes blank; and the phase label no longer occupies space while `casPhaseLabel` returns the empty string, where it charged exactly 4px of its column's gap. The element stays attached and `empty:hidden` takes its BOX, not its node (`display: none`, 0px, still selectable) — the distinction the canonical spec and the transition audit both pin, and the one this sentence originally got wrong.
 
 The receipt needed a reducer change rather than markup: the CAS state variant carried no counts, so the render had no source for them. Its guard conditions each have a case, and the one that matters is `mode: "finish"` — a checkpoint resume skips the batch loop with both accumulators reset, so no receipt renders. That is the flow an operator lands in after reloading mid-finalize, which is the outcome this row exists to prevent.
 
