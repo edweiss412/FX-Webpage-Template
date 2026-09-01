@@ -106,87 +106,6 @@ strings above are final; type them verbatim.
 
 **Evidence:** `/impeccable critique` on `perf/admin-diagram-next-image`, Assessment A, priority issues 1 and 4 (heuristic 9, Diagnose and Recover, scored 1/4 — the lowest score on the surface). The two-state claim is not inferred from the copy: it is read off the component, where the seed and the `onError` write are separate code paths that produce one indistinguishable render.
 
-### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome (2026-08-27)
-
-**Effort:** S for the mechanism, M with the prop threading and its tests
-
-Surfaced by the invariant-8 dual gate on branch `feat/telemetry-fallback-retry` (critique P1,
-audit P2 — recorded at the higher call). Findings and dispositions are in the closeout beside
-`docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md`.
-
-**The finding.** `components/admin/telemetry/TelemetryRetryButton.tsx` announces `Retrying <what>`
-into its live region on every activation. On success the component unmounts with the branch it
-lives in; on a repeated failure it re-renders the same phrase, distinguished only by a parity
-toggle. Either way a screen-reader user hears the intent and never the outcome. A sighted user
-sees the content appear or the fallback persist; a listener gets nothing that separates the two.
-
-**Why it is deferred rather than fixed, with the probes that settle it.** The control has no
-completion signal to announce, and this was measured rather than assumed:
-
-1. `router.refresh(): void` — `node_modules/next/dist/shared/lib/app-router-context.shared-runtime.d.ts:32`.
-   No promise, so nothing to await.
-2. `bfcacheId` is the one router value that tracks navigation identity, and its own doc comment
-   at `:57` says it "stays the same for ... `router.refresh()`". It is explicitly not this signal.
-3. A SYNC `useTransition` around `router.refresh()` never exposes a pending state in this harness:
-   a throwaway probe rendering exactly that shape asserted `isPending` after the click and FAILED.
-   An ASYNC transition does expose one, mid-flight and cleared on settle, and passed — but it needs
-   something real to await, and (1) says there is nothing. A timer would make `aria-busy` report a
-   duration unrelated to the refresh, which is a lie rather than a fix.
-
-**The mechanism that would fix it, so the next arc does not re-derive any of the above.** The only
-honest completion signal is one the SERVER render changes. All three call sites already hold a
-per-render timestamp in scope (`app/admin/dev/telemetry/page.tsx` awaits `nowDate()`,
-`EventTimeline` receives `now`, `HealthAlertsPanel` computes its own). Threading it as a prop lets
-the control record the value it saw at the tap and compare: a changed value while still mounted
-means the retry completed and did not fix the branch, which is a settled outcome worth announcing.
-
-**Its known fragility, stated up front.** That couples the announcement's correctness to a display
-clock. If `nowDate()` were ever memoized to a stable value the announcement would silently stop,
-and no test would red. Any implementation therefore owes a guard on the signal itself, not only on
-the announcement.
-
-**Un-defer trigger:** a second surface needing an outcome announcement from a `router.refresh()`
-that reports nothing, OR a Next release giving `refresh()` a completion signal, OR a report of a
-screen-reader user unable to tell a failed retry from a successful one on this page.
-
----
-
-### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips now read lighter than the control they sit beside (2026-08-16)
-
-**Effort:** S per site, M as a rule
-
-Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P1,
-audit P2 — recorded at the higher call). Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F1 and F2).
-
-**The finding.** The 2026-08-16 ruling moved 21 CONTROLS to `border-text-faint`. DESIGN.md §1.2a
-keeps `--color-border-strong` for non-interactive chrome, so two elements that share a recipe with
-a swapped control correctly stayed put — and each is now the quieter half of a pair a reader sees
-at once:
-
-- `components/diagrams/GalleryLightbox.tsx:773`, the `aria-hidden` demote chip, against the Reset
-  chip at `:708` it matches (same `rounded-pill bg-surface-raised px-4`, same shadow; `bottom-2`
-  and `top-2` of the same image). 1.59/1.50 versus 3.35/3.53.
-- `components/admin/StagedPreviewBanner.tsx:65`, the `aria-current` chip, standing in a row of
-  picker links at `:75` that moved. The entry marked current carries the weakest boundary in its
-  own row.
-
-**Why deferred rather than repaired in-branch — reason (b) plus (a).** Spec
-`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §4.4 ratifies the
-second site verbatim ("non-interactive chrome: outside the census, keeps its token") and §1.2a's
-scope paragraph ratifies the first, so moving either would move an element under a ruling the user
-took against a mockup of BUTTONS resting on cards. The general question is a design decision:
-should chrome that visually PAIRS with a control follow that control's outline weight, or does
-chrome follow chrome? Neither site is a contrast finding — both are non-interactive, so SC 1.4.11
-does not reach them, and both carry their state programmatically.
-
-Both are recorded as documented limits in DESIGN.md §1.2a so the predicate and the tree do not
-disagree while this sits open.
-
-**Un-defer trigger:** a decision on whether §1.2a gains a pairing clause or an explicit "chrome
-follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
-Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
-
 ### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
 
 **Effort:** S
@@ -270,20 +189,6 @@ exempted, and the gap is recorded here where deferrals are actually reviewed.
 **Un-defer trigger:** a harness that can resolve a promise between commit and
 passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
 Register the mutation as an adversary at that point and confirm it reds.
-
-### SHARELINK-CUE-FOCUS-OBSCURED-1 — the scroll cue may push the focused rotate control out of view (2026-08-07, arc A)
-
-**Effort:** S
-
-**Reachability:** INFERRED, NOT PROBED.
-
-From the impeccable audit of `feat/a11y-privacy-cluster` (P2). The new rotation cue scrolls the crew-URL row into view inside the share hub's `overflow-y-auto` popover. The URL row sits ABOVE the rotate control, so the scroll moves the viewport up and can push the just-activated control — which still holds focus — below the visible band. WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum, AA).
-
-**Not fixed, because the obvious repair fights the feature.** The cue exists precisely to move the view off the rotate control and onto the link that changed; scrolling the focused control back into view would undo it. `block: "nearest"` already minimizes the movement, and does nothing at all when the row is already visible. Whether the residual case is a real 2.4.11 failure also turns on a question this arc did not settle: 2.4.11 is written about author-created content covering the focused element (sticky headers, overlays), and an author-initiated scroll within a scroll container is a greyer reading.
-
-**The probe that settles it, and the first scheduled step if this is promoted:** at 390x560, drive the rotate flow in a real browser (the harness exists — `tests/e2e/admin-lifecycle-layout.spec.ts` already seeds a published show and drives arm+confirm), then read `document.activeElement`'s rect against the popover's client rect after the glide settles. If the focused element is fully outside, it is a confirmed failure and the fix is to scroll the active element back into view AFTER the cue rather than instead of it.
-
-**Un-defer trigger:** that probe, or any a11y pass over the share hub.
 
 ### TRAVEL-SUPPRESSION-PARTIAL-EXPLANATION-1 — a partly-suppressed Travel section explains nothing (2026-08-07, arc A)
 
