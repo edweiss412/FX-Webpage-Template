@@ -42,6 +42,7 @@ const VITEST_SUITES = [
   "tests/styles/status-token-contrast.test.ts",
 
   "tests/components/admin/shareLinkCopyButtonRotate.test.tsx",
+  "tests/components/admin/shareLinkCopyButtonOrdering.test.tsx",
 ];
 
 const argv = process.argv.slice(2);
@@ -589,6 +590,30 @@ ADVERSARIES.push([
       CSS,
       "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}",
       "@media (prefers-reduced-motion: reduce) {\n  [data-share-link-flash] {\n    animation: none;\n  }\n}\n}\n.escape\\{ {\n  color: red;\n}",
+    ],
+  ],
+]);
+
+/**
+ * A39 is the adversary the `UNPROVEN_SURVIVORS` whitelist was invented to excuse.
+ * Round-11 review rejected that whitelist as laundering because it had no
+ * bidirectional check; the gap went to DEFERRED.md as
+ * SHARELINK-COPY-REF-ORDERING-PROOF with an un-defer trigger asking for a
+ * harness that can settle a promise between commit and passive effects.
+ * `tests/components/admin/shareLinkCopyButtonOrdering.test.tsx` is that harness,
+ * so the adversary is registered here rather than exempted anywhere.
+ *
+ * Both hooks are already imported at ShareLinkCopyButton.tsx:18, so the swap
+ * needs no import edit.
+ */
+ADVERSARIES.push([
+  "A39",
+  "copy button: urlRef written in a PASSIVE effect, so a promise settling before the passive flush confirms a dead url",
+  [
+    [
+      COPY,
+      "  useLayoutEffect(() => {\n    urlRef.current = url;\n  }, [url]);",
+      "  useEffect(() => {\n    urlRef.current = url;\n  }, [url]);",
     ],
   ],
 ]);

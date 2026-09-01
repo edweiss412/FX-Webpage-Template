@@ -25,28 +25,29 @@
  * one row red each, not by assuming it.
  *
  * SCOPE: guard 2's `useLayoutEffect` vs passive-`useEffect` choice for `urlRef`
- * is not discriminated HERE. Catching it needs the promise to settle between
- * commit and passive effects, which RTL gives no hook for — `rerender` has
- * already flushed them when it returns (round-6 review).
+ * is not discriminated HERE, and cannot be: catching it needs the promise to
+ * settle between commit and passive effects, and RTL gives no hook for that —
+ * `rerender` wraps its commit in `act()`, which flushes passive effects before
+ * yielding to the microtask queue, so the passive write always lands first
+ * (round-6 and round-10 review).
  *
  * `tests/e2e/share-link-flash.spec.ts` T-FLASH-COPY-RACE stalls a real
  * `writeText`, rotates, releases it, and reads the label ONCE. That row reds
  * with the COMPARISON removed, so the guard's existence is proven in a real
- * engine.
+ * engine. Its TIMING is not proven there either: the row awaits the whole
+ * rotate before releasing the promise, by which point a passive effect would
+ * have updated `urlRef` too.
  *
- * Its TIMING is still not proven, and saying otherwise would be false: the row
- * awaits the whole rotate before releasing the promise, by which point a
- * passive effect has updated `urlRef` too (round-10 review). Creating the
- * commit-to-passive-effect window from Playwright is not something I found a
- * way to do, and neither is a jsdom probe releasing from a sibling layout
- * effect: `act()` flushes passive effects before yielding to the microtask, so
- * the passive write always lands first.
- *
- * Filed as `SHARELINK-COPY-REF-ORDERING-PROOF` in DEFERRED.md with its un-defer
- * trigger. It was briefly a whitelisted "unproven survivor" in the matrix;
- * round-11 review rejected that as laundering, since the whitelist carried no
- * bidirectional check and a later regression back to survival would still have
- * passed.
+ * The timing IS proven now, in
+ * `tests/components/admin/shareLinkCopyButtonOrdering.test.tsx`, which drops
+ * RTL entirely — no `act()`, and a bare `root.render` for the commit under test
+ * — and releases the promise from a sibling layout effect ordered after the
+ * button. That closed `SHARELINK-COPY-REF-ORDERING-PROOF`, whose un-defer
+ * trigger asked for exactly that harness. The mutation is registered as
+ * adversary `A39` in `scripts/share-link-flash-adversary-matrix.mjs`; it was
+ * briefly a whitelisted "unproven survivor" there instead, and round-11 review
+ * rejected that as laundering, since the whitelist carried no bidirectional
+ * check and a later regression back to survival would still have passed.
  */
 import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
