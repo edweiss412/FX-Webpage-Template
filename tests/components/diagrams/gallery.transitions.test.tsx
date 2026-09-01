@@ -143,7 +143,14 @@ describe("Task 9 — §9's transition inventory, every row", () => {
       (m) => m[0],
     );
     premiseHolds("the setRetryPhase writes were located at all", writes.length >= 2);
-    const adders = writes.filter((w) => w.includes("next.set("));
+    // ENTRY, not "any write that sets a phase". Since the check-in landed there
+    // are two writers calling `next.set(`: the tap handler, which ENTERS the
+    // in-flight state at `pending`, and the timer callback, which moves an item
+    // ALREADY in it to `checked-in`. The row's claim is about reaching the
+    // in-flight state from outside, so the oracle keys on the entry phase. An
+    // earlier version counted both and reported two entry points, which would
+    // have made this row read as violated by a transition that is not an entry.
+    const adders = writes.filter((w) => w.includes('next.set(item.id, "pending")'));
     expect(
       adders.length,
       "`retrying` has exactly ONE entry point, so idle -> retrying cannot be reached",

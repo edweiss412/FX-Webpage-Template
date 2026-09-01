@@ -53,8 +53,15 @@ const PHASE_SETTER = "setRetryPhase";
  * attributes every `new Set(prev)` / `new Map(prev)` to its enclosing setter. At
  * the merge base seventeen sites existed and SEVEN of them wrote the retry state;
  * the other ten write `failedKeys` and `wantsOriginal`, which stay Sets.
+ *
+ * EIGHT since the gallery's check-in landed: the timer callback is a writer too,
+ * and it is the one this pin exists for. It reads `prev.get(id)` before writing,
+ * which is what makes a callback that fires after its item has gone a no-op
+ * rather than a stale write the next retry inherits. The count moved because a
+ * writer was added on purpose; a count that moves on its own is the failure this
+ * guards.
  */
-const EXPECTED_PHASE_WRITERS = 7;
+const EXPECTED_PHASE_WRITERS = 8;
 
 type Writer = { file: string; line: number; body: string };
 

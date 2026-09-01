@@ -58,6 +58,24 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       "the phase transitions themselves: `onLoad` (any in-flight phase -> idle) and `onError` (-> failed), both per item; the rendered-ID sweep, which abandons a retry whose cell stopped rendering; and the availability sweep, so a cell that goes unavailable mid-flight cannot return holding an overlay (spec §4, §9.1). ONE value per item, not several parallel sets: the earlier three-set shape needed an invariant saying no id appeared in two of them, and review found two silent violations of it",
     sweep: { swept: true },
   },
+  "Gallery.tsx:checkInTimersRef": {
+    kind: "per-item",
+    clearedBy:
+      "the reconciling effect keyed on the swept phase map, which clears and drops any timer whose id is no longer `pending`. NOT the availability sweep: that runs during render, and `react-hooks/refs` forbids a ref write there. The mount-scoped effect beside it clears every live timer on unmount, and it is the ONLY place that clears all of them, because React runs an effect cleanup before every dependency-driven re-run and a clear-everything cleanup would restart every other item's window",
+    sweep: {
+      swept: false,
+      why: "reconciled against the live phase map in an effect, not by the render-phase sweep",
+    },
+  },
+  "Gallery.tsx:announcedCheckInRef": {
+    kind: "per-item",
+    clearedBy:
+      "the same reconciling effect, which drops an id once it leaves the phase map, so a genuine second entry announces again while a re-render does not",
+    sweep: {
+      swept: false,
+      why: "a latch reconciled in an effect beside the timers, for the same ref-write-in-render reason",
+    },
+  },
   "Gallery.tsx:focusWasOursRef": {
     kind: "not-per-item",
     why: "one boolean about the WHOLE GALLERY, not about any item: whether focus is currently ours. Set by a focus event rather than sampled at commit, because focus arriving on a control causes no re-render -- the commit-sampled version missed exactly that case and round 2 of the whole-diff review measured it",

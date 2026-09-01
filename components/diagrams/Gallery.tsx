@@ -35,7 +35,11 @@ import {
   AnnounceLogRegion,
   useAnnounceLog,
 } from "@/components/admin/announceLog";
-import { GalleryLightbox, type RetryPhase } from "@/components/diagrams/GalleryLightbox";
+import {
+  GalleryLightbox,
+  RETRY_CHECK_IN_MS,
+  type RetryPhase,
+} from "@/components/diagrams/GalleryLightbox";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
@@ -124,6 +128,10 @@ export function Gallery({
   // idle, failed, or retrying, and `item.available` is a conjunct of all three
   // so none can overlap the parse-time `unavailable` branch.
   const [retryPhase, setRetryPhase] = useState<ReadonlyMap<string, RetryPhase>>(() => new Map());
+  /** Live check-in timers, one per in-flight item. Owned by the reconciler below. */
+  const checkInTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** Ids whose check-in has been spoken, so a re-render does not speak twice. */
+  const announcedCheckInRef = useRef(new Set<string>());
   // The in-flight controls, so focus can be handed to one. The failed control
   // UNMOUNTS as the overlay mounts, so without this hand-off focus falls to
   // `<body>` -- outside anything -- which is precisely the §7.1 defect this arc
@@ -390,14 +398,7 @@ export function Gallery({
         })();
   if (restoredFailed !== failedKeys) setFailedKeys(restoredFailed);
   if (sweptRetryPhase !== retryPhase) setRetryPhase(sweptRetryPhase);
-  if (items.length === 0) return null;
 
-  const showAll = expanded || items.length <= INITIAL_VISIBLE;
-  const visible = showAll ? items : items.slice(0, INITIAL_VISIBLE);
-  const hiddenCount = items.length - INITIAL_VISIBLE;
-  const needsToggle = items.length > INITIAL_VISIBLE;
-
-  /** The label scheme the thumbnail's own aria-label uses, so the two agree. */
   const nameOf = (item: GalleryItem, visibleIndex: number): string =>
     item.alt || `Diagram ${visibleIndex + 1}`;
 
@@ -419,6 +420,88 @@ export function Gallery({
     announceInGallery(message);
   };
 
+  // ── The check-in timers, and why they are TWO effects ────────────────────
+  //
+  // The reconciler has NO cleanup function. React runs a cleanup before every
+  // dependency-driven re-run, not only on unmount, so a single effect that
+  // cleared every timer in its cleanup would restart every OTHER item's window
+  // whenever any item entered or left an in-flight phase: item A waits 29
+  // seconds, item B arrives, A's timer is cleared and restarted, and A checks in
+  // at about 59. A count of live timers cannot see that, since A always has
+  // exactly one, which is why the deciding suite asserts the TIMING relative to
+  // A's own entry.
+  //
+  // So this one only touches the ids whose membership actually changed, and the
+  // clear-everything path belongs to the mount-scoped effect below, whose
+  // cleanup runs exactly once.
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "pending" || timers.has(id)) continue;
+      timers.set(
+        id,
+        setTimeout(() => {
+          // ONE functional update on the single source of truth. `prev` is live
+          // by React's own contract, so this reads the CURRENT phase rather than
+          // the one captured when the timer was scheduled, and no-ops when the
+          // item has gone or already resolved. That is the whole mechanism: the
+          // spec's bound is that any out-of-render reader may see a stale
+          // snapshot, and this one takes no snapshot at all.
+          setRetryPhase((prev) => {
+            if (prev.get(id) !== "pending") return prev;
+            const next = new Map(prev);
+            next.set(id, "checked-in");
+            return next;
+          });
+        }, RETRY_CHECK_IN_MS),
+      );
+    }
+    for (const [id, handle] of timers) {
+      if (sweptRetryPhase.get(id) === "pending") continue;
+      clearTimeout(handle);
+      timers.delete(id);
+    }
+    for (const id of announcedCheckInRef.current) {
+      if (!sweptRetryPhase.has(id)) announcedCheckInRef.current.delete(id);
+    }
+  }, [sweptRetryPhase]);
+
+  // Mount-scoped, and the ONLY place that clears everything.
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    return () => {
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, []);
+
+  // The check-in announcement, in a LAYOUT effect rather than a passive one.
+  //
+  // A commit that shows an item `checked-in` is proof it WAS checked in at that
+  // commit, and a layout effect runs synchronously in that commit before
+  // anything can interleave. A passive effect cannot make that claim: React
+  // flushes pending passive effects before the next render, so one scheduled by
+  // the check-in commit still runs after an `onLoad` that is queued but not yet
+  // rendered, and would announce "is still loading" about an image that had
+  // already succeeded.
+  useLayoutEffect(() => {
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "checked-in" || announcedCheckInRef.current.has(id)) continue;
+      announcedCheckInRef.current.add(id);
+      const visibleIndex = items.findIndex((entry) => entry.id === id);
+      const entry = items[visibleIndex];
+      if (entry) routeAnnouncement(`${nameOf(entry, visibleIndex)} is still loading.`);
+    }
+  });
+
+  if (items.length === 0) return null;
+
+  const showAll = expanded || items.length <= INITIAL_VISIBLE;
+  const visible = showAll ? items : items.slice(0, INITIAL_VISIBLE);
+  const hiddenCount = items.length - INITIAL_VISIBLE;
+  const needsToggle = items.length > INITIAL_VISIBLE;
+
+  /** The label scheme the thumbnail's own aria-label uses, so the two agree. */
   /**
    * Drain the exit buffer into `deliver`.
    *
@@ -778,9 +861,21 @@ export function Gallery({
                         retryingRefs.current.set(item.id, node);
                       }}
                       aria-busy="true"
-                      aria-disabled="true"
+                      // `aria-disabled` only while the control does nothing. At
+                      // the check-in it does something, and an `aria-disabled`
+                      // control that acts is the real contradiction. `aria-busy`
+                      // stays true in BOTH: the request IS still in flight, and
+                      // dropping it would announce a completion that has not
+                      // happened, which is the objection the deferred row raised.
+                      {...(sweptRetryPhase.get(item.id) === "checked-in"
+                        ? {}
+                        : { "aria-disabled": "true" as const })}
                       onClick={(event) => event.preventDefault()}
-                      aria-label={`${nameOf(item, i)} could not be loaded. Retrying…`}
+                      aria-label={
+                        sweptRetryPhase.get(item.id) === "checked-in"
+                          ? `${nameOf(item, i)} is still loading. Restart.`
+                          : `${nameOf(item, i)} could not be loaded. Retrying…`
+                      }
                       // OPAQUE, not `/80`: over a translucent ground the label
                       // composites against whatever the diagram happens to be, and
                       // the worst case measured 3.80:1 -- under the 4.5:1 floor, on
@@ -790,8 +885,21 @@ export function Gallery({
                       // but it is a button, and the rule's default is text or stronger.
                       className="absolute inset-0 flex min-h-tap-min flex-col items-center justify-center gap-1 bg-surface-sunken text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      <ImageOff aria-hidden="true" className="size-5" />
-                      <span className="text-xs/relaxed">Retrying…</span>
+                      {sweptRetryPhase.get(item.id) === "checked-in" ? (
+                        // No icon here, deliberately. The cell is ~117px at 30vw
+                        // on a 390px phone, and two short lines plus an icon
+                        // needs a third row it does not have. The icon was
+                        // carrying "something is wrong"; the two lines say it.
+                        <>
+                          <span className="text-xs/relaxed">Still loading</span>
+                          <span className="text-xs/relaxed font-medium">Restart</span>
+                        </>
+                      ) : (
+                        <>
+                          <ImageOff aria-hidden="true" className="size-5" />
+                          <span className="text-xs/relaxed">Retrying…</span>
+                        </>
+                      )}
                     </button>
                   ) : null}
                 </>
