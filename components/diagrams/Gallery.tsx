@@ -964,7 +964,20 @@ export function Gallery({
                         // carrying "something is wrong"; the two lines say it.
                         <>
                           <span className="text-xs/relaxed">Still loading</span>
-                          <span className="text-xs/relaxed font-medium">Restart</span>
+                          {/*
+                            `text-accent-on-bg`, the same treatment the failed
+                            control below uses for the same action. A weight step
+                            alone is not an affordance: at 12px in a 112px cell in
+                            venue light, "Restart" in the status colour reads as a
+                            second status word. This is the inconsistency the
+                            comment on that control says it just settled, and the
+                            check-in reintroduced it one phase later. Contrast is
+                            pinned in DESIGN.md §1.2 and asserted in
+                            tests/styles/status-token-contrast.test.ts.
+                          */}
+                          <span className="text-xs/relaxed font-medium text-accent-on-bg">
+                            Restart
+                          </span>
                         </>
                       ) : (
                         <>

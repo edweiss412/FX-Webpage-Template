@@ -1288,9 +1288,24 @@ export function GalleryLightbox({
                       // anything interactive is text or stronger.
                       className="absolute inset-x-0 top-2 z-dropdown mx-auto inline-flex min-h-tap-min w-fit items-center gap-1 rounded-sm bg-surface-raised px-3 py-2 text-sm font-medium text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      {sweptRetryPhase.get(item.id) === "checked-in"
-                        ? "Still loading. Restart."
-                        : "Retrying…"}
+                      {/*
+                        The action is its own node, not a word inside a uniform
+                        string. Rendered flat, "Still loading. Restart." carried
+                        zero typographic distinction, so the lightbox showed the
+                        same phase in a different visual language from the
+                        gallery — one feature, two languages, which is the exact
+                        class the gallery's failed-control comment settled for
+                        the retry action. `text-accent-on-bg` matches it, and the
+                        pairing on this raised ground is pinned in DESIGN.md §1.2.
+                      */}
+                      {sweptRetryPhase.get(item.id) === "checked-in" ? (
+                        <>
+                          <span>Still loading.</span>
+                          <span className="text-accent-on-bg">Restart</span>
+                        </>
+                      ) : (
+                        "Retrying…"
+                      )}
                     </button>
                   ) : null}
                   {demotedNotice?.id === item.id &&

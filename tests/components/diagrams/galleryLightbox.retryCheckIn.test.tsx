@@ -253,6 +253,45 @@ describe("the lightbox check-in", () => {
     ).toHaveLength(1);
   });
 
+  test("the lightbox's in-flight copy reads exactly as ratified, per phase", () => {
+    vi.useFakeTimers();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+
+    // The gallery's twin lives in retryCopyPin.test.tsx and cannot reach this
+    // surface: it renders <Gallery> and the lightbox needs a controlled Embla.
+    // Pinned HERE rather than deferred, because a copy guard on one of two
+    // surfaces is the enumeration this arc keeps being caught by, and the
+    // harness for the other one is already in this file.
+    //
+    // Strings, not banned words. U-1 (design spec §1.2) measured that Restart
+    // starts no new download, so the copy must not promise one; a deny-list
+    // over English fails OPEN on the first phrasing nobody thought of, and the
+    // closed form is the exact rendered set.
+    expect(overlay(container)?.textContent, "PENDING").toBe("Retrying…");
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    // The action is its own node now, so the text runs together. What matters is
+    // that both parts are present and the action is separately styled — asserted
+    // on the class, because a flat string is exactly the defect this repaired.
+    const control = overlay(container);
+    expect(control?.textContent, "CHECKED-IN").toBe("Still loading.Restart");
+    const action = control?.querySelector("span:last-child");
+    expect(action?.textContent, "the action is its own element").toBe("Restart");
+    expect(
+      action?.getAttribute("class"),
+      "and it carries the accent action treatment, not a bare weight step",
+    ).toContain("text-accent-on-bg");
+
+    act(() => {
+      fireEvent.click(control as HTMLElement);
+    });
+    expect(overlay(container)?.textContent, "RESTARTED — on the SAME request").toBe("Retrying…");
+  });
+
   test("the check-in after Restart announces AGAIN on the active slide", () => {
     vi.useFakeTimers();
     const said: string[] = [];

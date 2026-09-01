@@ -462,3 +462,46 @@ This plan declares three criteria of its own. It was four until the paired-chrom
 - AC-D2: `DESIGN.md` §5.5 lists `RETRY_CHECK_IN_MS` at 30000 in `components/diagrams/GalleryLightbox.tsx`
 - AC-D3: spec §1.2 records an observed answer for U-1, citing the e2e case that measured it
 - AC-D4: `DIAGRETRY-NO-RETRY-DEADLINE-1` no longer appears in `DEFERRED.md` and carries no IN PROGRESS marker. ONE row, not two: the paired-chrome row split to `docs/paired-chrome-stale-text` and discharges its own criterion there. An earlier draft kept the two-row wording after the split, so this plan could not discharge the criterion it declared
+
+## 12. Invariant-8 close-out
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
+
+Run 2026-09-01 on the diff's UI surface: `components/diagrams/Gallery.tsx`, `components/diagrams/GalleryLightbox.tsx`, `DESIGN.md`. All three P1s are FIXED; the count is 3 because the audit raised one and closed it against `c2b0834e7` in the same report.
+
+Both halves ran against `c2b0834e7` and both re-derived their line numbers from the tree after it, so the announcement repair committed mid-gate is accounted for rather than assumed. Audit scored 18/20 (a11y 3, perf 4, responsive 3, theming 4, anti-patterns 4); critique scored health 26/40, with Consistency, Recognition and Help the weak heuristics.
+
+**This arc files no new ledger row of any facing**, so nothing below is deferred to a `BL-`/`DEF-` entry. What is not fixed here is named in the PR body under "Unfixed peers", and the disposition is stated per finding.
+
+### P0 — none, from either half.
+
+### P1 — two, both FIXED, and they were one class
+
+Both halves converged on the check-in's Restart being an action with no action treatment, and the two instances were repaired together rather than one at a time.
+
+| finding | disposition |
+|---|---|
+| `Gallery.tsx` — "Restart" differed from the status line above it by one weight step at 12px, same colour, no icon or ground change, so at 112px in venue light it reads as a second status word | FIXED. It now carries `text-accent-on-bg`, the treatment this same file already uses for the identical retry action on the failed control — whose own comment says it had just settled this exact inconsistency, which the check-in then reintroduced one phase later |
+| `GalleryLightbox.tsx` — the chip rendered "Still loading. Restart." as one uniform string, so the action carried zero typographic distinction and one feature showed one phase in two visual languages across the two surfaces | FIXED. The action is its own node with the same treatment |
+| audit's P1, raised and then closed by the audit itself: the check-in following a Restart announced nothing | FIXED before the report landed, in `c2b0834e7`, found independently by self-review and probed rather than argued. `announcedCheckInRef` was keyed on presence in the phase map, and Restart never leaves it |
+
+Both new pairings were MEASURED, not assumed: `accent-on-bg` on `surface-sunken` is 5.02:1 light / 9.65:1 dark, on `surface-raised` 5.57:1 / 8.30:1. Both are pinned in `DESIGN.md` §1.2 and asserted in `tests/styles/status-token-contrast.test.ts`, which had reached neither ground before. That closes the critique's contrast P2 as a side effect of the P1 repair rather than as a separate deferral.
+
+### P2 and P3 — not fixed here, each with its reason
+
+These go in the PR body under "Unfixed peers". None is "same defect, different file", which the class-sweep rule says is never a sufficient reason on its own.
+
+| finding | why not here |
+|---|---|
+| the announcement says "is still loading." and never that a control became pressable | The string is SPEC-PINNED (design §5.0, AC-14) and changing it is an amendment, not a copy tweak. A product call, not an implementation one |
+| `aria-busy` retained on the node whose name and text change at the check-in | The `aria-busy` posture is ratified at spec §6 and pinned by AC-3/AC-10; the audit's own fix says keep it. The residual risk is carried by the announcement, which is the row above |
+| the two-line check-in may clip out of the `overflow-hidden` cell under text-only zoom | The two halves DISAGREE and neither probed it in a browser: audit computed a clip at ~150%, critique derived ~45px of headroom at 1x and called it hierarchy rather than overflow. A finding two gates cannot agree on needs a real-browser probe at zoom, which the shipped `AC-13` case pins at 1x only |
+| the Reset chip and the retry overlay share `top-2 z-dropdown` in the lightbox | Pre-existing: the overlay's position is untouched by this diff. Reachable only by pinching an in-flight slide |
+| the pending phase holds a static `ImageOff` glyph for 30 seconds with no liveness cue | A design change to the phase that shipped 2026-08-29, not to the one this arc adds, and it wants a motion decision with a reduced-motion alternative |
+| `sweptRetryPhase.get(item.id)` re-read three times per branch where `phase` is already bound | Cosmetic, and it touches every branch of a region under active review; the churn is a bigger risk to this diff than the re-reads are |
+| the in-flight chip sits at `top-2`, the least reachable one-handed point | Pre-existing placement, unchanged by this diff |
+| `DESIGN.md` records the constant but not the three-phase copy machine it governs | The derived table cannot express it, so it needs prose the table's own generator does not own |
+
+### Refuted before reporting, recorded so no later round re-derives them
+
+The critique killed four of its own first-pass claims against the spec: that "Restart" over-promises a fresh attempt (ratified; the no-new-request outcome is the 2026-09-01 documented limit), that `aria-busy` true on an actionable control is a contradiction (answered at spec §6, pinned by AC-3/AC-10), that a cause hint such as "slow connection" is missing (refuted by §5.1, which carries its own re-file trigger), and that the whole cell should be the tap target (it is; the thumbnail beneath is `inert`).
