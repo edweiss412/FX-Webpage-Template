@@ -19,6 +19,19 @@ proven-equivalent mutant rather than a coverage hole — see the section after t
 > Do not hand-edit between the markers: a hand-transcribed total is what drifted
 > out of sync with the code last round. Prose outside the markers is authored.
 
+**The generated block below is 38 adversaries; the register is 39. `A39` is evidenced here instead, and this note is that evidence.** Regenerating the block means a full run, which mutates and re-runs the whole suite once per adversary, thirty-nine times, with the browser leg on each. bl-orch ruled on 2026-09-01 that one documentation row does not buy hours of local heavy time, and that the scoped rejection is the evidence that matters. So the block keeps the totals its last full run wrote, and nothing between the markers is hand-edited. **Regen trigger: the next full-mode run picks `A39` up with no further action.**
+
+`A39` was run alone, in FULL mode with the browser leg included, on 2026-09-01. Verbatim:
+
+```
+$ pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs --only A39
+A39  REJECTED  (1 rows)  copy button: urlRef written in a PASSIVE effect, so a promise settling before the passive flush confirms a dead url
+
+1 adversaries · 1 rejected · 0 SURVIVED · 0 unapplied
+```
+
+One row, and it is the jsdom harness's `T-ORDER-STALE`. That single number is the whole point rather than a detail: all seven browser rows RAN under the mutant and all seven passed, `T-FLASH-COPY-RACE` included. The row this adversary comes from said exactly that would happen, because Playwright cannot schedule a promise resolution inside the commit-to-passive window, and the full-mode run confirms it rather than assuming it. No browser row rescued the credit.
+
 
 <!-- BEGIN GENERATED -->
 
