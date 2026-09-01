@@ -9,8 +9,16 @@
  * probe rather than by recollection (`docs/agents/spec-self-review.md`,
  * "Empirical spike before speccing ... framework surfaces"). Reasoning from the
  * compiled stylesheet alone produced a WRONG headline on this arc: the
- * per-site focus idiom reads as fatal in the CSS and is in fact never applied,
- * because `app/globals.css:899` is unlayered and wins. Only the browser said so.
+ * per-site focus idiom reads as fatal in the CSS while focus is in fact safe,
+ * because `app/globals.css:899` is unlayered, wins, and paints an outline that
+ * forced colors keeps. Only the browser said so.
+ *
+ * Be exact about which half loses, because a first draft of this comment said the
+ * per-site declarations were "never applied" and the cascade table below refutes
+ * it: with forced colors OFF those rows read `box-shadow=present`. The ring paints
+ * in normal mode, alongside the outline. What loses is `outline-none` alone, which
+ * cannot suppress an unlayered rule. Focus survives forced colors because the
+ * outline survives, NOT because the ring was never there.
  *
  * Run: `node scripts/probes/forced-colors-mechanism.mjs`
  * Transcript: docs/superpowers/specs/probes/2026-09-01-forced-colors-mechanism.md
@@ -35,6 +43,7 @@ const READ_PROPS = (id) => {
     background: s.backgroundColor,
     backgroundImage: s.backgroundImage,
     boxShadow: s.boxShadow,
+    textShadow: s.textShadow,
     outline: `${s.outlineStyle} ${s.outlineWidth} ${s.outlineColor}`,
     border: `${s.borderTopStyle} ${s.borderTopWidth} ${s.borderTopColor}`,
     opacity: s.opacity,
@@ -44,6 +53,11 @@ const READ_PROPS = (id) => {
 /** Case id -> the CSS under test. Ids are cited by the spec, so they are stable. */
 const CASES = {
   "M1-boxshadow-ring": "box-shadow: 0 0 0 2px #e06000;",
+  // M1b exists because the spec licenses text-shadow as a dropped carrier in its
+  // durable authoring rule, and round 1 of review found the claim unprobed.
+  // Adding a text-shadow carrier is ordinary authoring that rule expressly
+  // covers, so the claim is measured rather than inferred from box-shadow.
+  "M1b-textshadow": "text-shadow: 0 1px 2px #e06000;",
   "M2-system-keyword-color": "color: Highlight;",
   "M3-system-keyword-pair": "background-color: Canvas; color: CanvasText;",
   "M4-system-keyword-outline": "outline: 2px solid Highlight;",

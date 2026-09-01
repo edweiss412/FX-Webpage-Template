@@ -23,12 +23,19 @@ forced-colors drops. Read that far, every keyboard focus indicator in the app
 dies in forced colors, which would be a WCAG 2.4.7 failure across the whole
 product.
 
-It is not true. `app/globals.css:899` carries an unlayered
-`:focus-visible { outline: 3px solid var(--color-focus-ring); outline-offset: 2px }`,
-unlayered beats `@layer utilities`, and so that outline is the focus indicator
-at every one of those sites — the per-site `outline-none` and `ring` never
-apply at all. The cascade table below is the measurement. An outline survives
-forced colors, so focus was already safe, and the 253 declarations are inert.
+It is not true, and the correction has a second half that a first draft of this
+document got wrong. `app/globals.css:899` carries an unlayered
+`:focus-visible { outline: 3px solid var(--color-focus-ring); outline-offset: 2px }`.
+Unlayered beats `@layer utilities`, so `outline-none` cannot suppress it, and the
+outline survives forced colors. Focus was already safe.
+
+What is NOT true is that the ring declarations are inert. The cascade rows with
+forced colors OFF read `box-shadow=present`: the ring paints in normal mode,
+alongside the outline. Only `outline-none` loses. Round 1 of the spec review
+caught the overreach, and it matters beyond wording, because "inert" was the
+stated reason for leaving 253 declarations in place. The honest reason is that
+removing them is a large sweep whose visual effect is real and unreviewed, not
+that it would change nothing.
 
 ## Reading the tables
 
@@ -41,6 +48,7 @@ those two computed values.
 | Case | Declaration under test | Result |
 | --- | --- | --- |
 | M1 | `box-shadow: 0 0 0 2px #e06000` | dropped to `none` |
+| M1b | `text-shadow: 0 1px 2px #e06000` | dropped to `none` |
 | M2 | `color: Highlight` | preserved, mapped to the forced palette |
 | M3 | `background-color: Canvas; color: CanvasText` | preserved unchanged |
 | M4 | `outline: 2px solid Highlight` | preserved, mapped |
@@ -70,7 +78,7 @@ candidate author rule reach an element wearing the shipped focus idiom?
 
 | Candidate | Reaches the element? |
 | --- | --- |
-| no author rule (control) | `globals.css:899` paints `solid 3px` in a system colour |
+| no author rule (control) | `app/globals.css:899` paints `solid 3px` in a system colour |
 | unlayered | YES — wins, paints `solid 2px` |
 | inside `@layer base` | no — loses to the unlayered `:899` |
 | inside `@layer utilities` | no — loses to the unlayered `:899` |
@@ -117,6 +125,16 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   CHANGED  boxShadow: rgb(224, 96, 0) 0px 0px 0px 2px  =>  none
+  same     textShadow: none  =>  none
+  CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
+  CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
+  same     opacity: 1  =>  1
+### M1b-textshadow
+  CHANGED  color: rgb(26, 27, 31)  =>  rgb(0, 0, 0)
+  CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
+  same     backgroundImage: none  =>  none
+  same     boxShadow: none  =>  none
+  CHANGED  textShadow: rgb(224, 96, 0) 0px 1px 2px  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -125,6 +143,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgba(128, 188, 254, 0.6)  =>  none 3px rgba(5, 0, 73, 0.8)
   CHANGED  border: none 0px rgba(128, 188, 254, 0.6)  =>  none 0px rgba(5, 0, 73, 0.8)
   same     opacity: 1  =>  1
@@ -133,6 +152,7 @@ compiled app/globals.css: 142883 bytes
   same     background: rgb(255, 255, 255)  =>  rgb(255, 255, 255)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   same     outline: none 3px rgb(0, 0, 0)  =>  none 3px rgb(0, 0, 0)
   same     border: none 0px rgb(0, 0, 0)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -141,6 +161,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: solid 2px rgba(128, 188, 254, 0.6)  =>  solid 2px rgba(5, 0, 73, 0.8)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -149,6 +170,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: solid 2px rgba(0, 0, 0, 0)  =>  solid 2px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -157,6 +179,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: solid 2px rgba(0, 0, 0, 0)  =>  solid 2px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -165,6 +188,7 @@ compiled app/globals.css: 142883 bytes
   same     background: rgb(255, 140, 26)  =>  rgb(255, 140, 26)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   same     outline: none 3px rgb(14, 15, 18)  =>  none 3px rgb(14, 15, 18)
   same     border: none 0px rgb(14, 15, 18)  =>  none 0px rgb(14, 15, 18)
   same     opacity: 1  =>  1
@@ -173,6 +197,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgb(255, 243, 214)  =>  rgb(255, 255, 255)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -181,6 +206,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgb(251, 234, 232)  =>  rgb(255, 255, 255)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -189,6 +215,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 0.4  =>  0.4
@@ -197,6 +224,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   CHANGED  backgroundImage: linear-gradient(rgb(255, 140, 26), rgb(230, 122, 14))  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -205,6 +233,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   CHANGED  boxShadow: rgb(224, 96, 0) 0px 0px 0px 2px  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -213,6 +242,7 @@ compiled app/globals.css: 142883 bytes
   CHANGED  background: rgba(0, 0, 0, 0)  =>  rgba(255, 255, 255, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: solid 2px rgb(122, 61, 0)  =>  solid 2px rgba(5, 0, 73, 0.8)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -245,6 +275,16 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   CHANGED  boxShadow: rgb(224, 96, 0) 0px 0px 0px 2px  =>  none
+  same     textShadow: none  =>  none
+  CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
+  CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
+  same     opacity: 1  =>  1
+### M1b-textshadow
+  CHANGED  color: rgb(26, 27, 31)  =>  rgb(0, 0, 0)
+  same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
+  same     backgroundImage: none  =>  none
+  same     boxShadow: none  =>  none
+  CHANGED  textShadow: rgb(224, 96, 0) 0px 1px 2px  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -253,6 +293,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   same     outline: none 3px rgb(51, 153, 255)  =>  none 3px rgb(51, 153, 255)
   same     border: none 0px rgb(51, 153, 255)  =>  none 0px rgb(51, 153, 255)
   same     opacity: 1  =>  1
@@ -261,6 +302,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgb(255, 255, 255)  =>  rgb(255, 255, 255)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   same     outline: none 3px rgb(0, 0, 0)  =>  none 3px rgb(0, 0, 0)
   same     border: none 0px rgb(0, 0, 0)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -269,6 +311,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   same     outline: solid 2px rgb(51, 153, 255)  =>  solid 2px rgb(51, 153, 255)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -277,6 +320,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: solid 2px rgba(0, 0, 0, 0)  =>  solid 2px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -285,6 +329,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: solid 2px rgba(0, 0, 0, 0)  =>  solid 2px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -293,6 +338,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgb(255, 140, 26)  =>  rgb(255, 140, 26)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   same     outline: none 3px rgb(14, 15, 18)  =>  none 3px rgb(14, 15, 18)
   same     border: none 0px rgb(14, 15, 18)  =>  none 0px rgb(14, 15, 18)
   same     opacity: 1  =>  1
@@ -301,6 +347,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   CHANGED  background: rgb(255, 243, 214)  =>  rgb(255, 255, 255)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -309,6 +356,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   CHANGED  background: rgb(251, 234, 232)  =>  rgb(255, 255, 255)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -317,6 +365,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 0.4  =>  0.4
@@ -325,6 +374,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   CHANGED  backgroundImage: linear-gradient(rgb(255, 140, 26), rgb(230, 122, 14))  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -333,6 +383,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   CHANGED  boxShadow: rgb(224, 96, 0) 0px 0px 0px 2px  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: none 3px rgb(26, 27, 31)  =>  none 3px rgb(0, 0, 0)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
@@ -341,6 +392,7 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   same     background: rgba(0, 0, 0, 0)  =>  rgba(0, 0, 0, 0)
   same     backgroundImage: none  =>  none
   same     boxShadow: none  =>  none
+  same     textShadow: none  =>  none
   CHANGED  outline: solid 2px rgb(122, 61, 0)  =>  solid 2px rgb(51, 153, 255)
   CHANGED  border: none 0px rgb(26, 27, 31)  =>  none 0px rgb(0, 0, 0)
   same     opacity: 1  =>  1
