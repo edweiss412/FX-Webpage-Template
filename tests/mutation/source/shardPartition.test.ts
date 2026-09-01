@@ -7,8 +7,11 @@ import {
   SHARD_BUDGET_SECONDS,
   SOURCE_SHARD_COUNT,
   bootsOf,
+  REQUIRED_RUNWAY_DAYS,
+  growthSecondsPerDay,
   legOverheadSeconds,
   modelledFloor,
+  runwayDays,
   shardOfSurface,
   sourceShardAssignment,
   surfacesForShard,
@@ -237,6 +240,35 @@ describe("source-mutation shard partition", () => {
   it("declares a budget below the per-job timeout, in seconds", () => {
     expect(SHARD_BUDGET_SECONDS).toBeGreaterThan(0);
     expect(SHARD_BUDGET_SECONDS).toBeLessThan(90 * 60);
+  });
+
+  it("the shard count carries at least the required runway (AC-10)", () => {
+    // ONE-SIDED, deliberately: over-provisioning is not a defect, and an equality would red the
+    // moment anyone raised the count for any other reason. What this catches is enrolment growth
+    // eating the count's travel — the failure the 2026-08-31 nightly discovered by crossing a
+    // budget instead, at N = 8 and a runway already negative.
+    //
+    // Every input derived: the floor from the live registry, the total from the same weights, the
+    // growth from the anchor's two committed points.
+    const days = runwayDays();
+    // PREMISE: a zero or negative growth rate makes the division meaningless and the comparison
+    // trivially satisfiable in one direction.
+    premise("the derived growth rate is positive", growthSecondsPerDay(), 0);
+    expect(days).toBeGreaterThanOrEqual(REQUIRED_RUNWAY_DAYS);
+  });
+
+  it("runway RISES with the count, so it is a lever and not a constant", () => {
+    // The claim this file used to make -- that the count is finished as a lever -- is true of the
+    // MAKESPAN and false of the runway, and that distinction is the whole of AC-10. A
+    // `runwayDays` that ignored its argument would satisfy the case above forever.
+    expect(runwayDays(SOURCE_SHARD_COUNT + 1)).toBeGreaterThan(runwayDays(SOURCE_SHARD_COUNT));
+    expect(runwayDays(SOURCE_SHARD_COUNT - 1)).toBeLessThan(runwayDays(SOURCE_SHARD_COUNT));
+  });
+
+  it("the count is the SMALLEST that carries the required runway", () => {
+    // Derived rather than chosen. Without this, any large count passes the one-sided assertion
+    // above and the number in the constant stops being an answer to anything.
+    expect(runwayDays(SOURCE_SHARD_COUNT - 1)).toBeLessThan(REQUIRED_RUNWAY_DAYS);
   });
 
   it("the modelled floor IS the heaviest surface, derived from the same weights", () => {
