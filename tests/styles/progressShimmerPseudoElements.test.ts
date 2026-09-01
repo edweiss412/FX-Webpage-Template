@@ -273,5 +273,28 @@ describe("the panel docstring claims only what the code actually shares", () => 
         ).not.toBeNull();
       }
     }
+
+    // And the MOTION claim, which is the half nothing checked. Whole-diff R1 finding 2:
+    // the docstring read "All motion is the native bar's value change; state swaps are
+    // instant (no animation)" while the widened selector set had already given this
+    // panel's CAS bar `scan-progress-indeterminate`. Every assertion above passed,
+    // because each is about tokens or the shared bar, so the false clause sat there
+    // green. The wording-only guard is exactly the failure this arc keeps finding in
+    // its own prose, so the claim is pinned against the STYLESHEET rather than against
+    // a phrase: while an animation reaches this panel's bar, a blanket denial is false.
+    const animated = TESTIDS.some((id) =>
+      SHIMMER_ANIM.test(ruleFor(sel(id, ":indeterminate::-webkit-progress-bar"))?.body ?? ""),
+    );
+    // PREMISE: the stylesheet really does animate one of them, or this case asserts
+    // nothing at all and would stay green with the denial restored.
+    expect(
+      animated,
+      "premise: the indeterminate rule set must carry an animation for this claim to bite",
+    ).toBe(true);
+    expect(
+      doc,
+      "the stylesheet animates this panel's indeterminate bar, so an unqualified " +
+        "no-animation claim in the docstring is false",
+    ).not.toMatch(/\(no animation\)|All\s+motion is the native bar/i);
   });
 });

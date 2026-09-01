@@ -1047,8 +1047,14 @@ export function FinalizeButton({ panelPlacement = "below", ...props }: FinalizeB
  * distinct "Finishing setup…" step with a phase sub-label. Shares the BAR's styling with
  * <Step2Verify>'s scan panel through `app/globals.css`, which paints both wizard progress bars
  * from one selector set, so the two surfaces read as siblings; this panel's own container tokens
- * (`bg-surface-sunken`, `p-tile-pad`) are its own and the scan panel does not carry them. All
- * motion is the native bar's value change; state swaps are instant (no animation).
+ * (`bg-surface-sunken`, `p-tile-pad`) are its own and the scan panel does not carry them.
+ * MOTION: in the batch phase the only motion is the native bar's value change. The CAS
+ * phase's bar is indeterminate and the shared selector set gives it
+ * `scan-progress-indeterminate`, which Firefox runs; Chromium and WebKit do not run an
+ * animation on `::-webkit-progress-bar` at all, so there it rests at the static centred
+ * accent the stylesheet positions. State swaps between phases are instant either way.
+ * An earlier version of this line said "no animation" flatly, which the widened
+ * stylesheet had already falsified (whole-diff R1 finding 2).
  */
 const ProgressPanel = forwardRef<
   HTMLDivElement,

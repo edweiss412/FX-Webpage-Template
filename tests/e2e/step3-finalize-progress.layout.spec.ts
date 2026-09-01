@@ -406,10 +406,13 @@ async function sampleFooter(page: Page, countText: string | null) {
 }
 
 const LADDER = [
-  // The singular rung. It is the shortest string the ladder holds, so it says nothing
-  // about wrapping; it is here because the renderer BRANCHES on `total === 1` for the
-  // noun, and without a rung on that side the ladder exercises one arm of a two-arm
-  // decision. It also keeps the pluralisation below a real comparison rather than one
+  // The singular rung, and it is a GEOMETRY rung only. Corrected after whole-diff R1
+  // finding 1 said so: `sampleFooter` overwrites the count node's `textContent`
+  // directly, so this ladder never evaluates the renderer's `total === 1` branch and
+  // an earlier version of this comment claiming it "exercises one arm of a two-arm
+  // decision" was wrong. The branch is covered in jsdom, by the two component suites.
+  // What this rung buys is the shortest string in the ladder, which bounds the width
+  // sweep from below and keeps the pluralisation a real comparison rather than one
   // TypeScript can prove is always false against an `as const` literal union.
   { done: 1, total: 1 },
   { done: 1, total: 2 },

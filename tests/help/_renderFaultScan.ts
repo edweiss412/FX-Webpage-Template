@@ -782,6 +782,11 @@ export function scanCandidates(): Candidate[] {
       // arm above falls back to a vocabulary probe and reports an unclassifiable
       // guard as `unknown` residue. This arm drops it, deliberately.
       //
+      // 742 -> 744 on 2026-09-01 (fix/finalize-progress-polish): the two new JSX
+      // receipt ternaries, `state.settledTotal > 0 ? (...) : null`, one per renderer.
+      // Recorded because a bumped population with no attribution is indistinguishable
+      // from a bump taken to make a red go away (whole-diff R1 finding 3).
+      //
       // Probed: 744 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
