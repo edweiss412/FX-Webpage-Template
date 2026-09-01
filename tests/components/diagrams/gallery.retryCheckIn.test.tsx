@@ -203,7 +203,7 @@ describe("the gallery check-in at RETRY_CHECK_IN_MS", () => {
     ).not.toBe(duringPending);
   });
 
-  test("AC-8b: the replacement request gets its own full window", () => {
+  test("AC-8b: the replacement attempt gets its own full window", () => {
     renderGallery();
     enterPending(0);
     crossDeadline();

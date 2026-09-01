@@ -322,7 +322,9 @@ export function Gallery({
   // member whose diagram is removed by one sync and restored by the next should
   // get the diagram back, not the wreckage of its last life -- a retry control
   // for a fault that no longer applies, or worse a `Retrying…` claiming a
-  // request that was abandoned when the cell unmounted.
+  // request the component has stopped tracking. (Stopped TRACKING, not
+  // abandoned: U-1 measured that the browser keeps a fetch whose element goes.
+  // The stale overlay is a lie about our state, not about the network.)
   //
   // KEYED ON THE RENDERED ID SET, not on `item.available`: an item dropped from
   // `items` never flips that prop, it simply stops being rendered, so a sweep
@@ -345,8 +347,10 @@ export function Gallery({
   // `retrying` is swept against what is RENDERED, not merely what is available.
   // The two sets answer different questions: `failedKeys` is a fact about the
   // DIAGRAM and rightly survives the cell scrolling out of the collapsed grid,
-  // while `retrying` describes a request belonging to a MOUNTED element -- and
-  // unmounting that element abandons the request. Keyed on `items` alone, a
+  // while `retrying` describes a request belonging to a MOUNTED element, and
+  // unmounting that element ends our ability to observe it. (The REQUEST may well
+  // continue — U-1, design spec §1.2 — which is exactly why the state must not
+  // outlive the element that could have reported on it.) Keyed on `items` alone, a
   // retry in flight when the user hits "Show fewer" came back on re-expand still
   // claiming `Retrying…` with `aria-busy`, for work that had stopped.
   const renderedIds = new Set(
@@ -949,7 +953,9 @@ export function Gallery({
                         // the phase moves to `restarting`, which unmounts the
                         // <Image>. The layout effect below puts it straight back
                         // to `pending` before paint, and THAT mount is the fresh
-                        // request. No `key` changes and no counter exists: the
+                        // ELEMENT — not, as measured, a fresh request: the URL is
+                        // identical and the browser coalesces it into the fetch
+                        // already in flight (U-1). No `key` changes and no counter exists: the
                         // remount is the branch actually changing, which is the
                         // ordinary behaviour of the state machine.
                         setRetryPhase((prev) => {

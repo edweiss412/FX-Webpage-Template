@@ -426,6 +426,17 @@ describe("the lightbox check-in", () => {
     tapRetry(container);
     premiseHolds("a first check-in timer was scheduled", checkInHandles.length === 1);
 
+    // ADVANCE FIRST, and this one second is the whole point of review round 3's
+    // High finding. Without it the retired timer and its replacement share a
+    // deadline on the fake clock, so a reconciler that calls `timers.delete(id)`
+    // WITHOUT `clearTimeout(handle)` is indistinguishable from a correct one:
+    // the stale callback fires at the same instant the new one would have, sees
+    // the later attempt as `pending`, and checks it in. All seven suites stayed
+    // green at 66/66 against that mutant until this line existed.
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
     // Resolve it. The id leaves the phase map and its timer must be retired.
     const img = activeImage(container);
     premiseHolds("the in-flight slide has an image to load", img !== null);
@@ -443,11 +454,21 @@ describe("the lightbox check-in", () => {
         "would make `timers.has(id)` decline to schedule one, silently and forever",
     ).toBe(2);
 
-    // And it actually fires, which is the behaviour the count stands for.
+    // The replacement waits its OWN FULL WINDOW. One second short of it, nothing
+    // has checked in: an uncleared callback from the first attempt would fire
+    // here, a second early, because it was scheduled a second before this one.
     act(() => {
-      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS - 1_000);
     });
-    expect(overlay(container)?.textContent, "the second window checks in").toContain(
+    expect(
+      overlay(container)?.textContent?.includes("Still loading"),
+      "the next retry waits its own full window; a stale callback would check it in early",
+    ).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(overlay(container)?.textContent, "and then the second window checks in").toContain(
       "Still loading",
     );
   });

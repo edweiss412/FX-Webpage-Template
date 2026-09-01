@@ -327,8 +327,12 @@ test("the check-in appears in a browser, and U-1 is measured", async ({ page }, 
       });
       return true;
     }
-    // The REPLACEMENT request Restart issues. Held too, so the case ends with
-    // the cell still in flight rather than resolving under the assertions.
+    // Any request that arrives AFTER the first two is held as well, so the case
+    // ends with the cell still in flight rather than resolving under the
+    // assertions. Note this branch is not reached on Chromium: Restart mounts a
+    // new element for an identical URL and the browser serves it from the fetch
+    // already open, which is what `attemptsAfterRestart: 2` records. It stays
+    // because the held-open contract must hold on any engine that does issue one.
     release.push(() => {
       try {
         res.end();

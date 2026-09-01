@@ -294,6 +294,58 @@ describe("the check-in mechanism, judged rather than described", () => {
     expect(checkedIn(0), "A checks in on ITS OWN schedule, unaffected by B").toBe(true);
   });
 
+  test("a RESOLVED retry retires its timer, so the NEXT retry waits its own full window", async () => {
+    // The gallery's half of review round 3's High finding. The lightbox twin
+    // lives in galleryLightbox.retryCheckIn.test.tsx; the reviewer measured the
+    // defect class in BOTH components, so both get a case rather than one
+    // standing in for the other.
+    //
+    // THE ONE-SECOND OFFSET IS THE MECHANISM. Retire and replace at the same
+    // fake-clock instant and a reconciler that calls `timers.delete(id)` without
+    // `clearTimeout(handle)` is indistinguishable from a correct one: the stale
+    // callback fires exactly when the new one would have. Offset by a second and
+    // it fires a second EARLY, which is observable.
+    renderGallery();
+    enterPending(0);
+    // A DELTA, not an absolute. The gallery schedules more than one timer at this
+    // delay (the probe read 2 after a single entry), so "exactly one handle"
+    // would be asserting the fixture rather than the mechanism. What the
+    // mechanism claims is that a NEW retry adds a watchdog of its own.
+    premiseHolds("at least one check-in timer was scheduled", checkInHandles.length > 0);
+    const afterFirstEntry = checkInHandles.length;
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    const img = imageIn(0);
+    premiseHolds("the in-flight item has an image to resolve", img !== null);
+    await act(async () => {
+      fireEvent.load(img as HTMLImageElement);
+      await Promise.resolve();
+    });
+
+    failThumb(0);
+    tapRetry(0);
+    expect(
+      checkInHandles.length - afterFirstEntry,
+      "the replacement retry scheduled a watchdog of its own",
+    ).toBeGreaterThan(0);
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS - 1_000);
+    });
+    expect(
+      checkedIn(0),
+      "the next retry waits its own full window; a stale callback would check it in early",
+    ).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(checkedIn(0), "and then the second window checks in").toBe(true);
+  });
+
   test("unmount clears the timer, asserted on clearTimeout rather than on silence", () => {
     const cleared: unknown[] = [];
     const realClear = globalThis.clearTimeout;

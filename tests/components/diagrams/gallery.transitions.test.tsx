@@ -438,7 +438,7 @@ describe("Task 6 — §8's rows the check-in adds, and §8.1's compound cases", 
     // `restarting` is never a painted state: the layout effect promotes it back
     // to `pending` before paint, inside this same act. So the observable of row
     // 11's B-to-A direction is the REMOUNT — a different <img> element, which is
-    // where the replacement request comes from.
+    // where the replacement ELEMENT comes from (the request is not new: U-1).
     expect(inFlight(0), "the overlay survives Restart, so focus never moves").toBe(overlay);
     expect(overlay.textContent, "and it is back to the plain in-flight copy").toContain("Retrying");
     expect(overlay.textContent).not.toContain("Still loading");
@@ -700,7 +700,7 @@ describe("Task 6 — §8's rows the check-in adds, and §8.1's compound cases", 
     ).toContain("Still loading");
     expect(
       inFlight(0).textContent,
-      "while the replacement request starts a fresh window of its own",
+      "while the replacement waits a fresh window of its own",
     ).not.toContain("Still loading");
 
     advance(RETRY_CHECK_IN_MS - 1000);

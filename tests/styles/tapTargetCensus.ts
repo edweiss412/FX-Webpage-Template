@@ -370,7 +370,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // below the tag, which is why reading the tag line alone looks wrong.
     // 572 -> 633 on the R2 repairs; still the only button in its span.
     // 655 -> 793 on the retry check-in arc. Same element, same reason: the `block size-full cursor-zoom-in` thumbnail button, whose className now sits well below its tag because the check-in branch grew between them. Keyed by stepping to the tag.
-    line: 793,
+    line: 813,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
@@ -383,7 +383,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // confirmed by reading that className at the new key.
     // 822 -> 864 on the R2 repairs; still the `fixed inset-0 z-overlay` surface.
     // 882 -> 1059 on the retry check-in arc; still that surface, confirmed by reading the className at the new key rather than trusting the delta.
-    line: 1059,
+    line: 1061,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",

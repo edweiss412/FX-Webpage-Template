@@ -368,21 +368,18 @@ export function GalleryLightbox({
   /** Ids whose check-in has been spoken, so a re-render does not speak twice. */
   const announcedCheckInRef = useRef(new Set<string>());
   const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
-  // A mirror of `retrying`, read by the Embla `select` subscriber. That callback
-  // is registered once and captures the `retrying` of the render that subscribed,
-  // so reading the state directly there would consult an arbitrarily old set --
-  // and the abandon path would silently do nothing for exactly the ids it exists
-  // to clear. Synced in an effect, which is current long before any swipe.
-  const retryingStateRef = useRef<ReadonlyMap<string, RetryPhase>>(retryPhase);
-  useEffect(() => {
-    retryingStateRef.current = retryPhase;
-  }, [retryPhase]);
-  // `items` needs the same treatment for the same reason, and eslint's
-  // exhaustive-deps caught that I had introduced the very staleness class the
-  // mirror above exists to prevent: the abandon path reads `items` inside the
-  // `select` subscriber, which is registered once. Adding `items` to that
-  // effect's deps would re-subscribe on every roster change instead, which is
-  // worse -- it tears down a live Embla listener mid-gesture.
+  // TWO MIRRORS WERE DELETED HERE, and the deletion is the point rather than a
+  // tidy-up. `retryingStateRef` and `itemsRef` existed so the Embla `select`
+  // subscriber — registered once, capturing the render it subscribed in — could
+  // read current state while abandoning a departing slide's retry. Whole-diff
+  // review round 1 moved that abandonment into the render sweep and deleted the
+  // subscriber's copy, which left both mirrors written and never read: round 3
+  // measured that removing them keeps all seven suites green at 66/66.
+  //
+  // Worth stating because the mirrors were not incidental: they were the
+  // machinery for reading live state from a stale closure, and a sweep that
+  // derives from the render needs none of it. Deleting them is what makes the
+  // repair a simplification rather than an addition.
   // Which item the lifted scale currently describes.
   //
   // STATE, not a ref, and the difference is enforced rather than stylistic: the
@@ -391,10 +388,6 @@ export function GalleryLightbox({
   // writing one. A ref here produced ten lint errors on one comparison. State is
   // read in render legally, and written from the effect below.
   const [scaleOwner, setScaleOwner] = useState<string | null>(null);
-  const itemsRef = useRef<readonly GalleryItem[]>(items);
-  useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
   const retryControlRefs = useRef(new Map<string, HTMLButtonElement | null>());
   const focusRetryTargetRef = useRef<string | null>(null);
 
@@ -1297,7 +1290,9 @@ export function GalleryLightbox({
                         // Restart is offered ONLY in the check-in. One update to
                         // `restarting`, which unmounts the <Image>; the layout
                         // effect puts it back to `pending` before paint and THAT
-                        // mount is the fresh request.
+                        // mount is the fresh ELEMENT. Not a fresh request: U-1
+                        // measured the identical URL being served from the fetch
+                        // already in flight (design spec §1.2).
                         setRetryPhase((prev) => {
                           if (prev.get(item.id) !== "checked-in") return prev;
                           const next = new Map(prev);
