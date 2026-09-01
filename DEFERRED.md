@@ -106,39 +106,6 @@ strings above are final; type them verbatim.
 
 **Evidence:** `/impeccable critique` on `perf/admin-diagram-next-image`, Assessment A, priority issues 1 and 4 (heuristic 9, Diagnose and Recover, scored 1/4 — the lowest score on the surface). The two-state claim is not inferred from the copy: it is read off the component, where the seed and the `onError` write are separate code paths that produce one indistinguishable render.
 
-### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
-
-**Effort:** S
-
-Surfaced by the invariant-8 dual gate on branch `feat/admin-nav-badge-suspense`, by BOTH halves
-independently (critique P1, audit P2). Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-09-admin-nav-badge-suspense.md`.
-
-**The finding.** That branch moves the two badge reads out of the layout's blocking path, so the
-counts now land after the nav has painted. Two accessible names change at that moment:
-`NotifBell.tsx` flips "Notifications" → "Notifications: N unseen", and `AdminNav.tsx`'s attention
-tab flips "Needs attention" → "Needs attention, N items". Nothing announces the change. A screen
-reader user who reads either control during the pending window and never returns to it keeps the
-count-less name for the rest of the visit.
-
-**Why deferred rather than repaired in-branch — reason (a), it needs a product decision this PR
-cannot settle.** The repair is not the code; it is whether this surface should speak at all. The
-app has one announce channel (`AdminAnnounceProvider`) with a strict ownership contract — the
-region's owner must sit above every data-dependent branch (DESIGN.md §15), which the layout does
-satisfy — but wiring the _global nav_ into it means every `/admin` entry with a nonzero count
-announces on load. PRODUCT.md's register for this user is calm competence on a venue floor, and a
-count that speaks on every page load may be exactly the chatter that register rejects. Whether the
-badge should announce, and if so whether only on the first resolution and only above zero, is
-Doug's call, not the implementer's.
-
-**Un-defer trigger:** the owner rules on announcing badge arrivals, OR any a11y pass that finds a
-real screen-reader user affected by the stale name.
-
-**Bounded worst case today:** the control's PURPOSE is always conveyed correctly ("Notifications",
-"Needs attention"); only the supplementary count is missing, and it is restored on the next focus
-because both names are computed reactively from hook state. No control is unlabeled, mislabeled, or
-unreachable at any point.
-
 ### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 
 **Effort:** S

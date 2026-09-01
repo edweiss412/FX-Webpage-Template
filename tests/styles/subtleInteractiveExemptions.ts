@@ -223,7 +223,12 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/nav/AdminNav.tsx",
-    line: 168,
+    // Renumbered 168 -> 236 by feat/nav-badge-arrival-announce, which inserted
+    // the arrival-announcement join above this JSX. The SITE is unchanged: same
+    // desktop nav Link, same token, same carve-out reason. This is the
+    // line-keyed-siteId class the review corpus names, and re-keying the
+    // registry off line numbers is a registry-wide change this arc does not own.
+    line: 236,
     tag: "Link",
     token: "text-text-subtle",
     family: "state-dim",
@@ -233,7 +238,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/nav/AdminNav.tsx",
-    line: 232,
+    // Renumbered 232 -> 301, same insertion, same site: the bottom tab Link.
+    line: 301,
     tag: "Link",
     token: "text-text-subtle",
     family: "state-dim",

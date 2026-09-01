@@ -1,3 +1,52 @@
+### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement — CLOSED 2026-08-31 (`feat/nav-badge-arrival-announce`, SHIPPED)
+
+**Resolution: SHIPPED.** The entry deferred under class-sweep exception (a), it needed a product
+decision this repo could not settle, and it graduated by that decision being taken rather than by
+the requirement being waived. Eric ruled on 2026-08-31: announce on the FIRST resolution only, and
+only when the count is nonzero. Silence at zero, silence at both-zero, and later count changes never
+announce. That is the entry's own suggested narrowing, and it is the answer to the question the
+entry said only Doug could answer, whether a global nav that speaks on every `/admin` entry is the
+chatter PRODUCT.md's calm-competence register rejects. One utterance per mount, only when there is
+something true to say, is not chatter.
+
+**The defect, unchanged from the filing.** `feat/admin-nav-badge-suspense` moved both badge reads
+out of the layout's blocking path, so the counts land after the nav has painted and two accessible
+names change at that moment with nothing announcing them. A screen-reader user who reads either
+control inside the pending window and never returns keeps the count-less name for the whole visit.
+
+**What shipped.** One pure module, `components/admin/nav/navArrivalAnnounce.ts`, holding the copy
+builder and two selectors; one optional prop on `NotifBell`; and the join in `AdminNav`, which calls
+the existing `AdminAnnounceProvider`. No new live region, no new context, no change to either badge
+hook. The utterance is one polite sentence per half, bell first, carrying the TRUE count rather than
+the `9+` pill cap, because both accessible names already interpolate the real number and the name is
+what a screen-reader user receives.
+
+**The design decision the review rounds actually settled.** Settlement LATCHES per half, once; the
+announced VALUE is read LIVE at the instant the announcement is built. Freezing both together is
+wrong and a probe defeated it: the bell settles at 4, the operator opens the panel, `zeroNow()`
+commits 0, and a frozen report then speaks "4 unseen notifications" against a control displaying no
+badge. One selector, `bellAnnounceableCount`, answers both "what would be announced" and "what does
+the label say", and `bellAccessibleName` is DEFINED on it, so the sentence and the name are two
+callers of one decision rather than two implementations of one rule.
+
+**Silence is a resolution.** A both-zero or both-failed arrival marks the mount spoken and says
+nothing, so a later push that takes a count positive announces nothing either. That is the ratified
+cadence by the letter, and it is also right on the merits: at zero the accessible name is the same
+name the pending window showed, so nothing went stale and there is nothing to repair.
+
+**Documented limits carried forward, not repaired.** At desktop widths the attention tab is out of
+the accessibility tree, so the attention sentence explains no control there and its number is a
+second snapshot: the layout and the dashboard read that count through two independent calls, so a
+spoken 2 can sit beside a panel showing 1. The utterance is still spoken, on the ground that the
+sentence is about STATE rather than a control and `/admin/needs-attention` is a real route at every
+width. Recorded as §6 limit 7 of the design rather than left implicit.
+
+**A shipped guard was repaired on the way past.** `tests/components/_metaLiveRegionMounting.test.ts`
+recognised `role="status"` and `aria-live="polite"` and not `role="log"` — which is the spelling of
+the admin shell's own announce region. The guard whose subject is regions born populated could not
+see the one region the whole app announces through. Widened here, with planted cases for both
+spellings, per the class-sweep default.
+
 ### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips read lighter than the control they sat beside — CLOSED 2026-08-25 (`feat/ui-polish-class-sweep`, SHIPPED in `e6408222c`); prose retired 2026-08-31 (`docs/paired-chrome-stale-text`)
 
 **Effort:** S per site, M as a rule

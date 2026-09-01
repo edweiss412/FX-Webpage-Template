@@ -301,6 +301,31 @@ function conditionalStatusRegions(
   const hits: Array<{ index: number; line: number; testId: string }> = [];
 
   const attrs = (node: ts.JsxOpeningLikeElement) => node.attributes.properties;
+  /**
+   * An element carrying a JSX SPREAD cannot be classified from source: the
+   * spread's contents are not statically known, and TypeScript compiles
+   * `{...{ role: "log" }}` to exactly the attribute this guard exists to find.
+   *
+   * DOCUMENTED LIMIT, repo-wide. The REPO-WIDE scanners below do NOT fire on a
+   * spread, deliberately. Firing was tried and produces 35 hits across the live
+   * corpus, nearly all ordinary elements that merely carry a spread and are not
+   * live regions at all, and a guard that reds on correct code gets exempted
+   * into uselessness. So repo-wide, a live region assembled through a spread is
+   * OUT OF REACH of this guard and is stated here rather than silently missed.
+   *
+   * It IS refused in the nav-scoped AC-10 scan at the bottom of this file, where
+   * the population is six files, no spread exists today, and an unclassifiable
+   * element on that surface is worth failing on.
+   *
+   * The asymmetry is the point. Diff rounds 2, 3 and 4 each added one input
+   * family to these recognisers (line-regex to AST, counts to identities, the
+   * template literal), which is the widening treadmill AGENTS.md names: a bigger
+   * recogniser is a bigger target for the next round. The prescribed repair is
+   * to decline what cannot be classified and record the limit, which is what
+   * this comment is, not to grow the parser once more.
+   */
+  const hasSpread = (node: ts.JsxOpeningLikeElement): boolean =>
+    attrs(node).some(ts.isJsxSpreadAttribute);
   const attrText = (node: ts.JsxOpeningLikeElement, name: string): string | null => {
     for (const a of attrs(node)) {
       if (!ts.isJsxAttribute(a) || a.name.getText() !== name) continue;
@@ -310,8 +335,13 @@ function conditionalStatusRegions(
         // `role={"status"}` is the same attribute written differently (R2). Strip
         // the quotes a string literal keeps in `getText()` so both spellings
         // compare equal; anything non-literal falls through as its own text.
+        // The TEMPLATE spelling was missed until diff R3 probed it: `getText()`
+        // returns the backticks, so `` `log` `` never equalled `log` and a
+        // template-spelled region escaped this scanner entirely.
         const e = init.expression;
-        return ts.isStringLiteral(e) ? e.text : e.getText();
+        if (ts.isStringLiteral(e)) return e.text;
+        if (ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+        return e.getText();
       }
       return "";
     }
@@ -451,14 +481,18 @@ function conditionalStatusRegions(
 
   const visit = (node: ts.Node): void => {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
-      // A LIVE REGION IS `role="status"` OR `aria-live="polite"` (R3). The two
-      // are independent spellings of the same thing, and a conditional
-      // `aria-live` region — one shipped at UseRawControl.tsx — was invisible
-      // while only the role was scanned. `role="alert"` stays excluded: alerts
-      // ARE announced on insertion, so the conditional form is correct there.
+      // A LIVE REGION IS `role="status"`, `role="log"` OR `aria-live="polite"`
+      // (R3, plus nav-badge-arrival-announce Task 4). All three are independent
+      // spellings of the same thing, and a conditional `aria-live` region — one
+      // shipped at UseRawControl.tsx — was invisible while only the role was
+      // scanned. `role="log"` joined them because the admin shell's own
+      // announce region is one (components/admin/announceLog.tsx:134), so the
+      // guard's central subject was the one shape it could not see.
+      // `role="alert"` stays excluded: alerts ARE announced on insertion, so
+      // the conditional form is correct there.
       const role = attrText(node, "role");
       const live = attrText(node, "aria-live");
-      if (role !== "alert" && (role === "status" || live === "polite")) {
+      if (role !== "alert" && (role === "status" || role === "log" || live === "polite")) {
         const el = ts.isJsxOpeningElement(node) ? node.parent : node;
         if (gated(el)) {
           hits.push({
@@ -496,16 +530,32 @@ function hidingStatusRegions(text: string, file: string): Array<{ line: number; 
         if (!ts.isJsxAttribute(a)) continue;
         const name = a.name.getText();
         const init = a.initializer;
+        // All three spellings. This scanner recognised only StringLiteral, so a
+        // hidden `` role={`log`} `` region was invisible to the guard whose
+        // whole subject is a region nobody can hear (diff R3 finding 3).
+        const initExpr =
+          init && ts.isJsxExpression(init) && init.expression ? init.expression : null;
         const literal =
           init && ts.isStringLiteral(init)
             ? init.text
-            : init &&
-                ts.isJsxExpression(init) &&
-                init.expression &&
-                ts.isStringLiteral(init.expression)
-              ? init.expression.text
-              : null;
-        if (name === "role" && literal === "status") isStatus = true;
+            : initExpr && ts.isStringLiteral(initExpr)
+              ? initExpr.text
+              : initExpr && ts.isNoSubstitutionTemplateLiteral(initExpr)
+                ? initExpr.text
+                : null;
+        // `role="log"` is a live region exactly as `role="status"` is, and the
+        // HIDDEN-region scanner was still status-only after the conditional-mount
+        // scanner learned `log`. The consequence the review probed: changing the
+        // app's own region (announceLog.tsx:134) from `sr-only` to `hidden`,
+        // `inert`, `aria-hidden`, `display:none` or an `empty:hidden` class would
+        // silently escape this guard, which is the one that exists to catch a
+        // region nobody can hear.
+        if (name === "role" && (literal === "status" || literal === "log")) isStatus = true;
+        // `aria-live="polite"` with NO role is the same live region, and the
+        // conditional-mount scanner has always treated it as one. This scanner
+        // did not, so the two disagreed about what a live region IS. Making them
+        // agree is a correctness fix, not a widening (diff R4 finding 2).
+        if (name === "aria-live" && literal === "polite") isStatus = true;
         if (name === "hidden" || name === "inert") reasons.push(name);
         if (
           name === "aria-hidden" &&
@@ -675,6 +725,22 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
       ),
     ).toBe(1);
 
+    // nav-badge-arrival-announce Task 4: `role="log"` is the third spelling of
+    // a live region born populated, and the detector did not recognise it.
+    // AdminAnnounceProvider's own region is a `role="log"`
+    // (components/admin/announceLog.tsx:134), so a conditionally-mounted copy
+    // of that shape was exactly as invisible as the `aria-live` one was.
+    expect(gated('const C = () => <div>{a && <p role="log">{m}</p>}</div>;')).toBe(1);
+    expect(gated('const C = () => <div>{a ? <p role="log">{m}</p> : null}</div>;')).toBe(1);
+    expect(gated('const C = () => <div>{a ? <p role={"log"}>{m}</p> : null}</div>;')).toBe(1);
+    // The template spelling, which diff R3 found escaping both scanners.
+    expect(gated("const C = () => <div>{a ? <p role={`log`}>{m}</p> : null}</div>;")).toBe(1);
+    expect(gated("const C = () => <div>{a ? <p role={`status`}>{m}</p> : null}</div>;")).toBe(1);
+    // ...and the same not-a-false-positive rule the other spellings carry.
+    expect(
+      gated('function C(){ if(!ok) return null; return <p role="log">{a ? m : ""}</p>; }'),
+    ).toBe(0);
+
     // R2: expression-form role, switch/case, and guard-clause mounting.
     expect(gated('const C = () => <div>{a ? <p role={"status"}>{m}</p> : null}</div>;')).toBe(1);
     expect(
@@ -733,5 +799,129 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
       (f) => conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f).length === 0,
     );
     expect(stale, "listed as pending but already repaired — remove the row").toEqual([]);
+  });
+});
+
+/**
+ * AC-10 of the nav badge arrival announcement.
+ *
+ * The widened walk above does NOT discharge this criterion, and an earlier
+ * revision of that arc's plan claimed it did. That walk pushes a hit only when
+ * `gated(el)` is true, because its subject is regions born populated. AC-10 is
+ * a different claim: the nav must add NO live region at all, gated or not,
+ * because the arc rides the layout's existing `AdminAnnounceProvider` and a
+ * second region in the nav would be a competing announce channel.
+ *
+ * This is a NON-RED regression pin, stated plainly rather than dressed as TDD.
+ * It passes on the pre-implementation tree, since the nav carries no
+ * live-region attribute today, and its job is to keep passing. A "do not add"
+ * criterion only ever fails on a later edit, which is what a regression pin is
+ * for.
+ */
+describe("AC-10: the admin nav mints no live region of its own", () => {
+  const NAV_DIR = "components/admin/nav";
+
+  /**
+   * Same unwrapping as the scanner above: a string literal, or the literal
+   * inside `role={"log"}`. Local because that one is closed over by the
+   * scanner's own factory, and duplicating four lines beats widening its scope
+   * for a second caller.
+   */
+  const navAttrText = (node: ts.JsxOpeningLikeElement, name: string): string | null => {
+    for (const a of node.attributes.properties) {
+      if (!ts.isJsxAttribute(a) || a.name.getText() !== name) continue;
+      const init = a.initializer;
+      if (init && ts.isStringLiteral(init)) return init.text;
+      if (init && ts.isJsxExpression(init) && init.expression) {
+        const e = init.expression;
+        // Three spellings, not one. `role="log"`, `role={"log"}`, and
+        // ``role={`log`}``; the template form was missed by the first version.
+        if (ts.isStringLiteral(e)) return e.text;
+        if (ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+        return e.getText();
+      }
+    }
+    return null;
+  };
+
+  // RECURSIVE. The first version read only the immediate directory, so a live
+  // region in a new subdirectory was invisible to a scan whose own name claims
+  // `components/admin/nav/**`. Creating a subdirectory is an ordinary edit.
+  /**
+   * Local, like `navAttrText` above: the repo-wide helper is closed over by the
+   * scanner factory. A NAV element carrying a spread is unclassifiable from
+   * source and is refused HERE, unlike repo-wide, where firing on spreads
+   * produced 35 hits on ordinary elements and is a documented limit instead.
+   */
+  const navHasSpread = (node: ts.JsxOpeningLikeElement): boolean =>
+    node.attributes.properties.some(ts.isJsxSpreadAttribute);
+
+  const navFiles = (dir: string = NAV_DIR): string[] => {
+    const out: string[] = [];
+    for (const entry of readdirSync(join(REPO_ROOT, dir))) {
+      const rel = join(dir, entry);
+      if (statSync(join(REPO_ROOT, rel)).isDirectory()) out.push(...navFiles(rel));
+      else if (/\.tsx?$/.test(entry)) out.push(rel);
+    }
+    return out.sort();
+  };
+
+  it("carries no role=log, role=status or aria-live under components/admin/nav/", () => {
+    // Read from disk, not a file list: a nav file added later is in scope by
+    // default rather than outside a list nobody updated.
+    const files = navFiles();
+    expect(files.length, "the nav directory should hold source files").toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const rel of files) {
+      const src = readFileSync(join(REPO_ROOT, rel), "utf8");
+      const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const visit = (node: ts.Node): void => {
+        if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+          // Compares UNWRAPPED literals, so `role={"log"}` fails exactly as
+          // `role="log"` does. That spelling is one ordinary edit away and the
+          // repo's own attrText already unwraps it.
+          const role = navAttrText(node, "role");
+          const live = navAttrText(node, "aria-live");
+          // Refuse the two live-region roles and any aria-live, in every
+          // spelling. A NON-LITERAL role (`role={LIVE_ROLE}`, `role={x ? a : b}`)
+          // is unresolvable from source, and on a nav element that is worth
+          // refusing too, since it is the one shape that could hide a live role
+          // from this scan.
+          //
+          // What is NOT refused: ordinary non-live roles. An earlier revision
+          // allowlisted ten and rejected everything else, so adding
+          // `role="group"`, `role="toolbar"`, `tablist` or `tab` to the action
+          // cluster failed AC-10 while adding no live region at all. A guard
+          // that reds on correct edits gets exempted into uselessness, so the
+          // rule is now a denylist of live roles plus a resolvability check.
+          const LIVE_ROLES = new Set(["log", "status", "alert", "marquee", "timer"]);
+          const resolvable = role === null || /^[a-z]+$/.test(role);
+          const unresolvableRole = !resolvable;
+          // A spread on a NAV element is unclassifiable and is refused here,
+          // unlike repo-wide (see the documented limit on `hasSpread`). This
+          // surface is six files, carries no spread today, and is the one whose
+          // announce channel the arc depends on.
+          const spread = navHasSpread(node);
+          if (
+            spread ||
+            (role !== null && LIVE_ROLES.has(role)) ||
+            live !== null ||
+            unresolvableRole
+          ) {
+            offenders.push(
+              `${rel}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`,
+            );
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sf);
+    }
+
+    expect(
+      offenders,
+      "the nav announces through the layout's AdminAnnounceProvider; a region here would be a second channel",
+    ).toEqual([]);
   });
 });

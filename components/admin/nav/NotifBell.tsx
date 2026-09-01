@@ -15,16 +15,18 @@
  * degraded bell stays openable (spec §12: the feed route is authoritative once
  * the panel is open, so a degraded count never blocks the panel).
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import type { BellCountResult } from "@/lib/admin/bellFeed";
 import { BellPanel } from "@/components/admin/BellPanel";
 import { useBellBadge } from "./useBellBadge";
+import { bellAccessibleName, bellAnnounceableCount } from "./navArrivalAnnounce";
 
 export function NotifBell({
   initialCount = null,
   countPromise = null,
+  onBellState,
   viewerIsDeveloper,
 }: {
   /**
@@ -36,6 +38,15 @@ export function NotifBell({
   initialCount?: BellCountResult | null;
   /** §3.2: the layout's un-awaited read; the hook commits it on arrival. */
   countPromise?: Promise<BellCountResult> | null;
+  /**
+   * nav-badge-arrival-announce §3.2: report `{settled, announceable}` to the
+   * parent whenever that tuple changes. NOT once-only — a report frozen at
+   * first settle goes stale for the same reason the promise does, and the
+   * parent reads the value live at announce time.
+   *
+   * Optional: the four existing call sites pass nothing and are unaffected.
+   */
+  onBellState?: (state: { settled: boolean; announceable: number | null }) => void;
   viewerIsDeveloper: boolean;
 }) {
   const { count, degraded, refetch, zeroNow, pingSignal } = useBellBadge(
@@ -43,6 +54,23 @@ export function NotifBell({
     countPromise,
   );
   const [open, setOpen] = useState(false);
+
+  // The bell has settled once it holds a number, or is degraded, or nothing
+  // will ever arrive (neither input supplied). What it would ANNOUNCE is the
+  // same selector the accessible name below reads, so the sentence and the name
+  // cannot drift (§3.3).
+  const settled =
+    typeof count === "number" || degraded || (initialCount === null && countPromise === null);
+  const announceable = bellAnnounceableCount(count, degraded);
+
+  const lastReport = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onBellState) return;
+    const key = `${settled}:${announceable}`;
+    if (lastReport.current === key) return;
+    lastReport.current = key;
+    onBellState({ settled, announceable });
+  }, [onBellState, settled, announceable]);
 
   // Open gesture: zero the badge immediately client-side (spec §7.2 — a quick
   // open/close on a slow network must not leave a stale count visible), then
@@ -76,9 +104,7 @@ export function NotifBell({
     <button
       type="button"
       data-testid="admin-notif-bell"
-      aria-label={
-        typeof count === "number" && count > 0 ? `Notifications: ${count} unseen` : "Notifications"
-      }
+      aria-label={bellAccessibleName(count, degraded)}
       aria-haspopup="dialog"
       aria-expanded={open}
       onClick={openPanel}
