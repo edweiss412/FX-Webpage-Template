@@ -134,22 +134,12 @@ nearest-only scrolling, which round 2 correctly found unstated in the GREEN); an
 the announcement region's content is unchanged by the focus move. GREEN delivers
 all four.
 
-## Task 7 — the transition matrix, as the last repair
-
-<!-- task: red=`pnpm exec vitest run tests/components/settings/administratorsSectionFocusTarget.test.tsx` red-state=authored red-target=`app/admin/settings/admins/RevokeRowButton.tsx:189` why=`the watchdog transition to couldnt_confirm has no deciding assertion anywhere, so the compound rows the matrix enumerates cannot be mapped and the case fails on them when authored` ac=AC-4 -->
-
-A matrix with one row per pair from the spec's two inventories — 3 for rotate and
-picker, 6 for revoke — plus the three compound rows, each mapped to the
-executable assertion that decides it or to an explicit "unreachable, and why".
-It is RED when authored because the compound rows have no assertion yet, and
-GREEN when this task adds them. It is last because it can only map assertions
-that exist.
-
 <!-- tasks: end -->
 
 ## Checklist
 
-- [ ] Tasks 1-7, TDD each, scoped runs only
+- [ ] Tasks 1-6, TDD each, scoped runs only
+- [ ] Closeout, NOT a TDD task: the transition matrix. Round 4 found the last instance of the class the three earlier rounds closed — Task 5 already adds the watchdog case and its premise, so a matrix authored afterwards maps cleanly and starts green. The matrix AUDITS coverage the tasks produce: it can only be red before them and green after, which spans tasks rather than living inside one. `docs/agents/writing-plans.md` requires the audit to EXIST and RUN, not to be a TDD task, so it runs here — one row per pair from the spec's two inventories (3 for rotate and picker, 6 for revoke) plus the three compound rows, each mapped to the assertion that decides it or an explicit "unreachable, and why". A row with neither is a gap the closeout must close before READINESS.
 - [ ] Closeout, NOT a TDD task: the e2e cases. Round 3 was right that an e2e rotate case added AFTER Tasks 3 and 6 starts green — by then production is repaired, so there is no observable red on that command. E2E coverage here VERIFIES repairs the jsdom tasks already decided, which is the same shape round 2 removed. It runs at closeout under a granted playwright turn: add the rotate case, keep picker, archive and revoke success, and require the whole spec file green.
 - [ ] Closeout, NOT a TDD task: confirm `components/admin/ArchiveShowButton.tsx` and `components/admin/showpage/ShareHub.tsx` are absent from the branch diff (AC-9). Round 2 was right that this cannot be a red-then-green task — it is true from the first commit and stays true, so it is a closeout check rather than a task with an implementation step.
 - [ ] Self-review
