@@ -207,7 +207,9 @@ describe("the root a control is read through cannot disagree with the root it is
     );
     const block = /export type ConfirmControl = \{([\s\S]*?)\n\};/.exec(src);
     expect(block, "ConfirmControl's declaration must be findable").not.toBeNull();
-    const fields = [...(block![1] ?? "").matchAll(/^\s*readonly\s+(\w+)\s*:/gm)].map((m) => m[1] ?? "");
+    const fields = [...(block![1] ?? "").matchAll(/^\s*readonly\s+(\w+)\s*:/gm)].map(
+      (m) => m[1] ?? "",
+    );
     expect(fields.length, "premise: the field list parsed").toBeGreaterThan(3);
     expect(fields.filter((f) => f.toLowerCase().includes("root"))).toEqual(["rootSelector"]);
   });
