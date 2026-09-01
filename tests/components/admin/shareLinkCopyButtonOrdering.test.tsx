@@ -25,8 +25,14 @@
  *
  * HOW THE WINDOW OPENS HERE. Four facts, in order:
  *
- *   1. `IS_REACT_ACT_ENVIRONMENT` is false, so React never installs an act queue
- *      and schedules through its real scheduler.
+ *   1. Nothing here calls `act()`. That is the load-bearing fact and the whole
+ *      of it: `act()` is what installs React's act queue, so a file that never
+ *      calls it runs on the real scheduler. Probed on React 19.2.4 rather than
+ *      assumed. `actQueue` is null before any `act()`; it is installed INSIDE
+ *      `act()` even with `IS_REACT_ACT_ENVIRONMENT` false; and it stays null
+ *      with the flag true and no `act()`. The flag is set false below for a
+ *      different reason, given at that line, and it is NOT what opens this
+ *      window.
  *   2. The commit under test is driven by a BARE `root.render`, never `flushSync`
  *      and never `act`. React renders and commits it in a scheduler task and
  *      schedules the passive flush as a separate task. (Which host callback the
@@ -57,7 +63,7 @@
  * ROW IDS. Both cases are named `T-ORDER-STALE` and `T-ORDER-FRESH`, following
  * the `T-FLASH-*` convention the browser spec already uses. The ids are not
  * decoration: the adversary matrix records a rejected row by TITLE and discards
- * the suite path (`scripts/share-link-flash-adversary-matrix.mjs:955`), so a
+ * the suite path (`scripts/share-link-flash-adversary-matrix.mjs:984`), so a
  * title shared with another suite would let someone else's failure be read as
  * this file's coverage. Each id appears in exactly one file of `VITEST_SUITES`
  * and once within it, which is what makes an attribution to these rows sound.
@@ -120,9 +126,11 @@ const label = () => query("admin-current-share-link-copy-button");
 const announce = () => query("admin-current-share-link-copy-announce");
 
 beforeEach(() => {
-  // Off, not merely absent: a future global setup file that turns it on would
-  // reinstate the act queue and close the window this file depends on. Restored
-  // rather than deleted, so a file that ran before this one gets its value back.
+  // This does NOT open the window; not calling `act()` does. What the flag
+  // controls is the warning: with it true, React DOM reports every state update
+  // made outside `act()`, and this file makes those deliberately. Setting it
+  // false keeps a correct run quiet rather than drowned. Restored rather than
+  // deleted, so a file that ran before this one gets its value back.
   priorActEnv = (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT;
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = false;
   // The DESCRIPTOR, not a boolean: restoring what was there beats guessing that

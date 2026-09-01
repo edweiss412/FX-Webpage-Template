@@ -58,11 +58,11 @@ Every claim below was grepped against the live tree at `059bd1bd4` / `d6e90d893`
 | `useEffect` and `useLayoutEffect` are both already imported, so the mutation needs no import edit | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:18` |
 | The captured-url guard | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:107` |
 | Button and announcer testids | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:172` and `app/admin/show/[slug]/ShareLinkCopyButton.tsx:203` |
-| The matrix runs vitest files by explicit list, and the rotate suite is already one of them | `scripts/share-link-flash-adversary-matrix.mjs:38-45` |
+| The matrix runs vitest files by explicit list, and the rotate suite is already one of them | `scripts/share-link-flash-adversary-matrix.mjs:38-46` |
 | `COPY` is the component's path | `scripts/share-link-flash-adversary-matrix.mjs:36` |
-| `A32` (guard deleted) and `A35` (blanket suppression) exist and mutate `COPY` | `scripts/share-link-flash-adversary-matrix.mjs:492-496` and `scripts/share-link-flash-adversary-matrix.mjs:522-526` |
-| `--only` with an unknown id exits 2 before `assertCleanTargets`/`acquireLock` | `scripts/share-link-flash-adversary-matrix.mjs:1164-1174` and `scripts/share-link-flash-adversary-matrix.mjs:1176-1177` |
-| `--only` and `--quick` runs never write the report doc | `scripts/share-link-flash-adversary-matrix.mjs:1244` |
+| `A32` (guard deleted) and `A35` (blanket suppression) exist and mutate `COPY` | `scripts/share-link-flash-adversary-matrix.mjs:493-497` and `scripts/share-link-flash-adversary-matrix.mjs:523-527` |
+| `--only` with an unknown id exits 2 before `assertCleanTargets`/`acquireLock` | `scripts/share-link-flash-adversary-matrix.mjs:1189-1199` and `scripts/share-link-flash-adversary-matrix.mjs:1201-1202` |
+| `--only` and `--quick` runs never write the report doc | `scripts/share-link-flash-adversary-matrix.mjs:1269` |
 | Highest registered id is `A38`; `A39` is free | run output pasted in the sweep below |
 | `tests/components/**` is in the parallel, DB-free vitest project | `vitest.projects.ts:105` |
 | `premise` / `premiseHolds` live here | `tests/_shared/premise.ts:26` and `tests/_shared/premise.ts:36` |
@@ -123,7 +123,7 @@ This plan attaches no new Playwright spec. It does invoke the matrix's existing 
 - **(b) Readiness gate:** unchanged. No new assertion is added to that spec, so no new hydration gate is introduced.
 - **(c) Detach safety:** unchanged, for the same reason. No new `locator.evaluate` sampler is added.
 
-Full mode is a non-interactive Playwright run and therefore a heavy phase: every full-mode invocation in this plan is written `pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs ...`, matching the AGENTS.md transitive-shape rule. The Playwright invocation itself is at `scripts/share-link-flash-adversary-matrix.mjs:1017`; AGENTS.md and `tests/docs/agentsHeavyPhaseRule.test.ts` both pin the string `scripts/share-link-flash-adversary-matrix.mjs:1014`, and that line today is the closing paren of a stale-report error, so the AGENTS.md citation has drifted. The RULE it states is unaffected and the drift is not repaired here: the string is pinned by a guard this arc does not otherwise touch. Recorded under Unfixed peers. `--quick` invocations spawn no browser and run vitest against an explicit file list, so they stay unwrapped.
+Full mode is a non-interactive Playwright run and therefore a heavy phase: every full-mode invocation in this plan is written `pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs ...`, matching the AGENTS.md transitive-shape rule. The Playwright invocation itself is at `scripts/share-link-flash-adversary-matrix.mjs:1042`; AGENTS.md and `tests/docs/agentsHeavyPhaseRule.test.ts` both pin the string `scripts/share-link-flash-adversary-matrix.mjs:1014`, which today lands inside a JSDoc block and names nothing. So the AGENTS.md citation has drifted, and THIS diff moved it further: the invocation sat at `scripts/share-link-flash-adversary-matrix.mjs:1017` before the `A39` block was inserted, and the 25 lines that block adds pushed it to `scripts/share-link-flash-adversary-matrix.mjs:1042`. The RULE the citation supports is unaffected in either case. It is not repaired here, and the reason is in Unfixed peers. `--quick` invocations spawn no browser and run vitest against an explicit file list, so they stay unwrapped.
 
 ## Acceptance criteria
 
@@ -199,7 +199,7 @@ The red is the command in the marker, observed at plan time (exit 2, output past
 
 - [x] **Step 6b: The clean baseline, which the matrix never runs (AC-1).** `pnpm vitest run tests/components/admin/shareLinkCopyButtonOrdering.test.tsx --project parallel`, observed GREEN on the UNMUTATED tree, output pasted.
 
-  This step exists because `A39 REJECTED` on its own does not establish AC-1. The matrix applies the mutation and only then runs vitest (`scripts/share-link-flash-adversary-matrix.mjs:1210-1217`); there is no clean pass anywhere in the loop. So a row that is red against the SHIPPED component and still red under `A39` reports `REJECTED` and exits 0, and the arc would ship a harness that says nothing. The pair is the proof: green on the shipped component, red under the mutant. Neither half alone is.
+  This step exists because `A39 REJECTED` on its own does not establish AC-1. The matrix applies the mutation and only then runs vitest (`scripts/share-link-flash-adversary-matrix.mjs:1235-1242`); there is no clean pass anywhere in the loop. So a row that is red against the SHIPPED component and still red under `A39` reports `REJECTED` and exits 0, and the arc would ship a harness that says nothing. The pair is the proof: green on the shipped component, red under the mutant. Neither half alone is.
 
   **This step earned itself on its first run.** The very first `--only A39` run reported `A39 REJECTED (2 rows)`, exit 0, and looked like a finished proof. The baseline run then exited 1: BOTH cases were red on the shipped component, on the premise `the microtask drain preceded the passive flush`. The cause was in the harness, not the component. `order` was a run-long log scanned with `indexOf`, and the MOUNT commit had already logged a layout and a passive of its own, so the scan found the mount's passive effect, placed it before a microtask that had not happened yet, and refused to run the assertion. `order` is now cleared alongside `phases` immediately before the commit under test. Without Step 6b this arc would have committed a harness that proved nothing while the matrix said `REJECTED`, which is round 1's finding 2 happening for real rather than in theory.
 
@@ -210,11 +210,11 @@ The red is the command in the marker, observed at plan time (exit 2, output past
   EXIT=0
   ```
 
-  The residual gap is exactly this one and nothing else, which is worth stating because it bounds what the baseline has to cover. `runVitest` already refuses to score a run whose requested suites did not all report (`scripts/share-link-flash-adversary-matrix.mjs:918-929`), a suite that collected zero tests (`scripts/share-link-flash-adversary-matrix.mjs:932-939`), or a test neither passed nor failed (`scripts/share-link-flash-adversary-matrix.mjs:940-945`); each throws as an infrastructure fault rather than counting as a rejection. Absence of a baseline was the one way left for `REJECTED` to be true and worthless.
+  The residual gap is exactly this one and nothing else, which is worth stating because it bounds what the baseline has to cover. `runVitest` already refuses to score a run whose requested suites did not all report (`scripts/share-link-flash-adversary-matrix.mjs:943-954`), a suite that collected zero tests (`scripts/share-link-flash-adversary-matrix.mjs:957-964`), or a test neither passed nor failed (`scripts/share-link-flash-adversary-matrix.mjs:965-970`); each throws as an infrastructure fault rather than counting as a rejection. Absence of a baseline was the one way left for `REJECTED` to be true and worthless.
 
 - [x] **Step 7: Non-vacuity of both new rows (AC-6), attributed by a row id that only this file can produce.**
 
-  The matrix records a rejected row as `a.fullName ?? a.title` and discards the suite path (`scripts/share-link-flash-adversary-matrix.mjs:955-960`), so a title alone cannot say WHICH file produced it, and a title shared with another suite would let someone else's failure be read as this file's coverage. Both existing collision candidates are real: `A32` already credits the rotate suite's in-flight row and `A35` already credits its current-url row. So the two new cases are named `T-ORDER-STALE` and `T-ORDER-FRESH`, following the `T-FLASH-*` convention the browser spec already uses, and the check has two halves.
+  The matrix records a rejected row as `a.fullName ?? a.title` and discards the suite path (`scripts/share-link-flash-adversary-matrix.mjs:980-985`), so a title alone cannot say WHICH file produced it, and a title shared with another suite would let someone else's failure be read as this file's coverage. Both existing collision candidates are real: `A32` already credits the rotate suite's in-flight row and `A35` already credits its current-url row. So the two new cases are named `T-ORDER-STALE` and `T-ORDER-FRESH`, following the `T-FLASH-*` convention the browser spec already uses, and the check has two halves.
 
   First, uniqueness, DERIVED from the script's own suite list rather than from a list typed here, so a suite added later is covered by default. Run as a scratch script with `node`, from the worktree root:
 
@@ -313,7 +313,7 @@ This is the PR's last commit. It is authored red, not live red: the failing case
 
 ## 12. Closeout
 
-<!-- gate: cmd=`pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs --only A39` probed=`the same command with A39 unregistered exits 2, observed 2026-09-01 and pasted in the registry reconciliation above; with A39 registered but no row reding under it the script exits 1 with *** SURVIVED ***, which is the script's own documented behaviour at scripts/share-link-flash-adversary-matrix.mjs:1341-1347` -->
+<!-- gate: cmd=`pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs --only A39` probed=`the same command with A39 unregistered exits 2, observed 2026-09-01 and pasted in the registry reconciliation above; with A39 registered but no row reding under it the script exits 1 with *** SURVIVED ***, which is the script's own documented behaviour at scripts/share-link-flash-adversary-matrix.mjs:1366-1372` -->
 
 <!-- gate: cmd=`pnpm vitest run tests/components/admin/shareLinkCopyButtonOrdering.test.tsx --project parallel` probed=`the constructed failing input is the A39 mutation itself: with useLayoutEffect swapped for useEffect in ShareLinkCopyButton.tsx the discriminating case reports label Copied against announcer URL copied to clipboard and the command exits non-zero, observed by probe on 2026-09-01 before this plan was written` -->
 
@@ -321,7 +321,7 @@ This is the PR's last commit. It is authored red, not live red: the failing case
 
 **Full-mode confirmation.** The first gate above runs `A39` in FULL mode, browser leg included, because the recorded evidence for an adversary should not come from the leg that skips half the suite. It is one adversary, not thirty-nine. Its exit code is not the whole reading: full mode adds the browser rows to the same credit pool, so the matrix JSON is read for `T-ORDER-STALE` under `A39` exactly as in Task 1 Step 7. `A39 REJECTED` credited only to a browser row would mean the jsdom harness did not fire, which is a failure of this arc however green the command looks.
 
-**The report doc's generated block.** `scripts/share-link-flash-adversary-matrix.mjs:1244` refuses to write the report on any `--only` or `--quick` run, deliberately, so a partial run cannot record a truthful-looking table over an incomplete matrix. That means the generated block keeps saying `38 adversaries` until somebody spends a full 39-adversary run, which is a heavy Playwright phase repeated once per adversary. This arc does NOT hand-edit the generated block: hand-transcribed totals drifting is the exact defect the generator was built to end. Two honest outcomes, and bl-orch picks:
+**The report doc's generated block.** `scripts/share-link-flash-adversary-matrix.mjs:1269` refuses to write the report on any `--only` or `--quick` run, deliberately, so a partial run cannot record a truthful-looking table over an incomplete matrix. That means the generated block keeps saying `38 adversaries` until somebody spends a full 39-adversary run, which is a heavy Playwright phase repeated once per adversary. This arc does NOT hand-edit the generated block: hand-transcribed totals drifting is the exact defect the generator was built to end. Two honest outcomes, and bl-orch picks:
 
 1. bl-orch grants a serial local turn for the full run, and the regenerated block lands in this branch.
 2. It does not, and the report doc's HAND-WRITTEN prose records that `A39` was registered on 2026-09-01 and verified REJECTED by a scoped full-mode run, with the generated table dated to the last full run above it.
@@ -332,7 +332,11 @@ This is the PR's last commit. It is authored red, not live red: the failing case
 
 **Unfixed peers.**
 
-1. `AGENTS.md`'s heavy-phase rule cites `scripts/share-link-flash-adversary-matrix.mjs:1014` for the claim that the matrix runs non-interactive Playwright in full mode. That line is now the closing paren of a stale-report error; the Playwright invocation is at `scripts/share-link-flash-adversary-matrix.mjs:1017`. The rule is correct and only its line number drifted. Not repaired here: `tests/docs/agentsHeavyPhaseRule.test.ts:154` and `tests/docs/agentsHeavyPhaseRule.test.ts:221` pin that exact string, so moving it is a change to a guard surface this arc does not otherwise touch, which is class-sweep exception (c). No ledger row is filed, per this arc's standing instruction; it goes to bl-orch in the readiness message instead.
+1. `AGENTS.md`'s heavy-phase rule cites `scripts/share-link-flash-adversary-matrix.mjs:1014` for the claim that the matrix runs non-interactive Playwright in full mode. Line 1014 lands inside a JSDoc block and names nothing; the invocation is at `scripts/share-link-flash-adversary-matrix.mjs:1042`.
+
+   **The citation was already stale before this arc, and this arc made it staler.** It pointed at `scripts/share-link-flash-adversary-matrix.mjs:1014` while the invocation was at `scripts/share-link-flash-adversary-matrix.mjs:1017`, and the 25 lines the `A39` block adds pushed the invocation to `scripts/share-link-flash-adversary-matrix.mjs:1042`. The rule it supports is correct throughout, and no gate reds: `tests/docs/agentsHeavyPhaseRule.test.ts` asserts only that the STRING is present in `AGENTS.md`, which it still is.
+
+   Not repaired here. Fixing it means editing `AGENTS.md` plus three pinned literals in that guard (`tests/docs/agentsHeavyPhaseRule.test.ts:154`, `tests/docs/agentsHeavyPhaseRule.test.ts:221`, and the `editRule` mutant at `tests/docs/agentsHeavyPhaseRule.test.ts:992`), which is a guard surface and a repo-constitution document this arc does not otherwise touch: class-sweep exception (c). The four sites are enumerated here so the repair is one instruction rather than a re-derivation. No ledger row is filed, per this arc's standing instruction; it goes to bl-orch in the readiness message.
 
 ## Task checklist
 
