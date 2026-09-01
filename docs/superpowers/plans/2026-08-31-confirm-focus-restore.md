@@ -148,3 +148,42 @@ all four.
 - [ ] Whole-diff Codex review
 - [ ] Thirteen required CI checks, read from the branch-protection API
 - [ ] Execution handoff / READINESS
+
+## Transition matrix (closeout)
+
+One row per unordered pair from the spec's two inventories, plus the compound
+rows, each mapped to the assertion that decides it or to an explicit
+unreachable-and-why. Counts are arithmetic, not eyeballed: 3 states give 3
+pairs, 4 states give 6.
+
+**rotate and picker reset — 3 pairs**
+
+| pair | decided by |
+| --- | --- |
+| idle ↔ confirm | `RotateShareTokenButton.test.tsx` "open focus (C3)"; `pickerResetControl.test.tsx` arm case |
+| confirm ↔ resolving | out of scope, spec §2.5: no control renders a trigger during `resolving` |
+| idle ↔ resolving | `RotateShareTokenButton.test.tsx` "close focus on CONFIRM (ok)" and "(refused)"; `pickerResetControl.test.tsx` "close focus on CONFIRM (ok)" and "(non-ok)" |
+
+**revoke admin — 6 pairs**
+
+| pair | decided by |
+| --- | --- |
+| idle ↔ confirm | `RevokeRowButton.test.tsx` armAndConfirm's cancel-focus wait |
+| confirm ↔ resolving | out of scope, spec §2.5 |
+| confirm ↔ couldnt_confirm | unreachable: `couldnt_confirm` is entered only from `resolving` (`RevokeRowButton.tsx:189`) and left only by a full refresh |
+| idle ↔ resolving (SUCCESS) | `tests/e2e/confirm-focus-probe.spec.ts` revoke case, settled on the heading; predicate in `adminListFocusRestore.test.tsx` |
+| idle ↔ couldnt_confirm | unreachable in that direction; the return is a full refresh that replaces the surface |
+| resolving ↔ couldnt_confirm | `RevokeRowButton.test.tsx` refused cases reach the refused branch; the watchdog path shares the same restore |
+
+**compound rows**
+
+| compound | decided by |
+| --- | --- |
+| arm-expiry fires while resolving | pre-existing `RevokeRowButton.test.tsx` auto-revert cases; `setUi` guard makes it a no-op |
+| late non-OK under sticky `couldnt_confirm` | `RevokeRowButton.test.tsx` refused cases; no focus movement |
+| late OK under sticky `couldnt_confirm` | `adminListFocusRestore.test.tsx` — the list loses the focused row, so the heading takes focus |
+| `effectiveUi` renders idle while `ui` is `resolving` | `RevokeRowButton.test.tsx` refused cases; the restore now keys on `effectiveUi` |
+| refused then retried | `RevokeRowButton.test.tsx` retry case, asserting the DISPATCH COUNT |
+
+**Gaps: none.** Every pair maps to a deciding assertion or a stated
+unreachability.

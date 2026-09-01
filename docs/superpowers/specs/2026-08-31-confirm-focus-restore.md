@@ -207,6 +207,31 @@ fixed-dimension parent, and alters no flex or grid relationship. The only
 measurements the probe takes are focus rects read against a root, and they are
 diagnostic output, not a rendered contract.
 
+## 5.2 Why the e2e is the oracle for revoke-success (2026-08-31, measured)
+
+The revoke SUCCESS branch is owned by
+`components/admin/settings/AdminListFocusRestore.tsx`, a client child of the
+section, and NOT by `RevokeRowButton`. Three row-level attempts were made and all
+three failed in a real browser in the same way: the row's effect focused the
+heading, the revalidation's RSC payload then replaced that heading with a new
+element, and focus fell to `<body>` after the move.
+
+**Every one of those attempts was green in jsdom.** Nothing revalidates there, so
+the row stays mounted and a row-level focus call looks correct; the row's suite
+read 19/19 while the browser disagreed. For this branch the e2e case in
+`tests/e2e/confirm-focus-probe.spec.ts` is the oracle and the jsdom suite is
+not — recorded here so the next person does not trust the cheaper signal.
+
+What jsdom CAN decide is the container's predicate, which is why
+`tests/components/settings/adminListFocusRestore.test.tsx` drives it directly:
+re-render with the focused row gone. Its two negative controls (a row nobody was
+in going away; the list merely re-ordering) are what make it a predicate rather
+than a blanket focus grab.
+
+`AdministratorsSection` is a SERVER component and cannot hold an effect, so the
+container behaviour lives in that client child. Same ownership as the ShareHub
+archive rescue (§2.3), different mounting point.
+
 ## 6. Documented limits
 
 - The probe measures `mobile-safari` at one viewport. WebKit cannot tab between buttons without macOS Full Keyboard Access, so keyboard-journey coverage for the confirm path is Chromium-only; the shipped e2e asserts the focus outcome, not the tab route.
