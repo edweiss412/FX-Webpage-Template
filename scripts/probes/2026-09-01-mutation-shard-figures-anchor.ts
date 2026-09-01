@@ -237,6 +237,37 @@ export function anchorProblems(A: Anchor, text: string): string[] {
   if (!/^[0-9a-f]{40}$/.test(R.runHeadSha)) {
     bad.push(`recalibration.runHeadSha ${JSON.stringify(R.runHeadSha)} is not a commit sha`);
   }
+  // A DIFFERENT, LATER run than the body, not merely a well-formed identity.
+  //
+  // Whole-diff review round 1 probed this: relabelling the block with the body's own runId, or
+  // with its runHeadSha, passed every check while the block claimed `psqlStartupScan` at 25952
+  // ms/boot and the body records the same run measuring 16462. Syntax cannot see a figure
+  // attributed to a run that demonstrably measured something else, and the declared-rate checks
+  // cannot either, since they read the block alone.
+  if (R.runId === A.runId) {
+    bad.push(
+      `recalibration.runId is ${R.runId}, the same run the body measures; the recalibration is a ` +
+        `LATER run, and a block relabelled with the body's identity claims figures that run did ` +
+        `not produce`,
+    );
+  }
+  if (R.runHeadSha === A.runHeadSha) {
+    bad.push(
+      `recalibration.runHeadSha is the body's own head; the two runs ran on different trees, and ` +
+        `bootsAtRun is evaluated on the block's tree rather than the body's`,
+    );
+  }
+  const bodyDate = Date.parse(A.thisRunDateISO);
+  const blockDate = Date.parse(R.dateISO);
+  if (!Number.isFinite(blockDate)) {
+    bad.push(`recalibration.dateISO ${JSON.stringify(R.dateISO)} is not a date`);
+  } else if (Number.isFinite(bodyDate) && blockDate < bodyDate) {
+    bad.push(
+      `recalibration.dateISO ${R.dateISO} is BEFORE the body's ${A.thisRunDateISO}; the ` +
+        `recalibration is the newer measurement, and declaring rates from the older one silently ` +
+        `undoes it`,
+    );
+  }
   const rLegIdx = Object.keys(R.legs)
     .map(Number)
     .sort((x, y) => x - y);

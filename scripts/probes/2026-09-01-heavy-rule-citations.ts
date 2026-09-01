@@ -88,7 +88,8 @@ for (const c of actual) {
  * only knew the `path:N` form found one stale number where there were two. Scanned PER LINE
  * and only on lines that name the target, so a bare "line 1243" elsewhere is not swept up.
  */
-const cited = new Map<string, number[]>();
+type Citation = { line: number; form: "path" | "prose" };
+const cited = new Map<string, Citation[]>();
 /**
  * Bare `line N` tokens on a target-naming line that no path citation precedes.
  *
@@ -100,7 +101,7 @@ const cited = new Map<string, number[]>();
  */
 const unattributed: string[] = [];
 for (const site of SITES) {
-  const found: number[] = [];
+  const found: Citation[] = [];
   for (const line of readFileSync(join(ROOT, site), "utf8").split("\n")) {
     if (!line.includes("share-link-flash-adversary-matrix")) continue;
     // Backslashes stripped first: agentsHeavyPhaseRule.test.ts:221 pins the citation as a REGEX,
@@ -116,13 +117,13 @@ for (const site of SITES) {
     for (const m of flat.matchAll(token)) {
       if (m[1] !== undefined && m[2] !== undefined) {
         current = m[1];
-        if (m[1].endsWith(TARGET_BASENAME)) found.push(Number(m[2]));
+        if (m[1].endsWith(TARGET_BASENAME)) found.push({ line: Number(m[2]), form: "path" });
       } else if (m[3] !== undefined) {
         if (current === null) {
           // Nothing to attribute it to. NOT skipped: a fourth stale citation lived exactly here.
           unattributed.push(`${site}: "line ${m[3]}" follows no file citation on its own line`);
         } else if (current.endsWith(TARGET_BASENAME)) {
-          found.push(Number(m[3]));
+          found.push({ line: Number(m[3]), form: "prose" });
         }
         // Otherwise it belongs to another file named earlier on the line, which is correct
         // attribution and not this probe's business.
@@ -144,21 +145,37 @@ if (cited.size === 0) {
 
 problems.push(...unattributed);
 
-const ok = new Set(actual.flatMap((c) => c.lines));
-for (const [site, lines] of cited) {
-  for (const n of lines) {
-    if (!ok.has(n)) {
-      const at = (targetLines[n - 1] ?? "").trim();
+/**
+ * Each citation FORM names its own construct, and a union would not.
+ *
+ * Whole-diff review round 1 measured this: the check was membership in one set holding both
+ * lines, so changing an invocation citation to the `--quick` guard's line passed and the probe
+ * printed "every line-form citation resolves". Two wrong citations that happen to swap are
+ * exactly the failure a citation check exists to catch.
+ *
+ * The mapping is the convention these documents already use, verified across all eight sites: a
+ * `path:N` citation names the playwright invocation, and a prose "line N" attributed to this
+ * script names the `--quick` guard that suppresses it.
+ */
+const EXPECTED_BY_FORM = { path: CONSTRUCTS[0].id, prose: CONSTRUCTS[1].id } as const;
+const lineOf = new Map(actual.map((c) => [c.id, c.lines]));
+for (const [site, citations] of cited) {
+  for (const c of citations) {
+    const want = EXPECTED_BY_FORM[c.form];
+    const lines = lineOf.get(want) ?? [];
+    if (!lines.includes(c.line)) {
+      const at = (targetLines[c.line - 1] ?? "").trim();
       problems.push(
-        `${site}: cites ${TARGET}:${String(n)}, which holds ${JSON.stringify(at)} — ` +
-          `the constructs are at ${actual.map((c) => `${c.id} = ${c.lines.join(",")}`).join("; ")}`,
+        `${site}: its ${c.form}-form citation names ${TARGET}:${String(c.line)}, which holds ` +
+          `${JSON.stringify(at)} — a ${c.form}-form citation names ${want}, at ` +
+          `${lines.join(", ")}`,
       );
     }
   }
 }
 
-for (const [site, lines] of cited) {
-  console.log(`${site}: cites ${lines.map(String).join(", ")}`);
+for (const [site, citations] of cited) {
+  console.log(`${site}: cites ${citations.map((c) => `${String(c.line)} (${c.form})`).join(", ")}`);
 }
 for (const c of actual) console.log(`${TARGET}: ${c.id} at ${c.lines.join(", ")}`);
 if (problems.length > 0) {

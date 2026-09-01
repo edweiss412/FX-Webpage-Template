@@ -299,28 +299,38 @@ export function runSurface(root: string, surface: GuardSurface): RunResult {
  * nothing, which is the same fail-open this whole verdict exists to close, one
  * level in. Only a test that actually EXECUTED is an observation.
  *
- * A missing counter reads as zero, which is the conservative direction: a report
- * whose shape changed under a vitest upgrade is reported DARK rather than
- * silently counted as a suite that ran and found nothing.
+ * BOTH counters must be present and finite, and an absent one is DARK rather than zero. An earlier
+ * version coerced a missing counter to 0 while its comment claimed the opposite, so a report of
+ * `{"numPassedTests": 60}` with the child exiting 1 came back `ran-clean` — 60 tests ran, none
+ * failed — and `controlProblem` then blamed the control row for a report that never said whether
+ * anything failed. That is the same fail-open this verdict exists to close, one level further in.
+ * A report whose shape changed under a vitest upgrade goes dark, which is what the comment always
+ * promised and now what the code does.
  */
 function readControlReport(path: string): {
   reportRead: boolean;
   ranTests: number;
   failedTests: number;
 } {
+  const dark = { reportRead: false, ranTests: 0, failedTests: 0 };
   try {
     const r = JSON.parse(readFileSync(path, "utf8")) as {
       numPassedTests?: unknown;
       numFailedTests?: unknown;
     };
-    const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-    return {
-      reportRead: true,
-      ranTests: num(r.numPassedTests) + num(r.numFailedTests),
-      failedTests: num(r.numFailedTests),
-    };
+    const passed = r.numPassedTests;
+    const failed = r.numFailedTests;
+    if (
+      typeof passed !== "number" ||
+      !Number.isFinite(passed) ||
+      typeof failed !== "number" ||
+      !Number.isFinite(failed)
+    ) {
+      return dark;
+    }
+    return { reportRead: true, ranTests: passed + failed, failedTests: failed };
   } catch {
-    return { reportRead: false, ranTests: 0, failedTests: 0 };
+    return dark;
   }
 }
 

@@ -81,15 +81,22 @@ function runSuite(target: string, mutantFile: string, suite: string, dir: string
   }
   try {
     const r = JSON.parse(readFileSync(out, "utf8")) as {
-      numPassedTests?: number;
-      numFailedTests?: number;
+      numPassedTests?: unknown;
+      numFailedTests?: unknown;
     };
-    return {
-      suite,
-      ran: (r.numPassedTests ?? 0) + (r.numFailedTests ?? 0),
-      failed: r.numFailedTests ?? 0,
-      reportRead: true,
-    };
+    const passed = r.numPassedTests;
+    const failed = r.numFailedTests;
+    // BOTH counters, or dark. `?? 0` on a missing `numFailedTests` reports a suite that ran and
+    // found nothing, from a report that never said whether anything failed.
+    if (
+      typeof passed !== "number" ||
+      !Number.isFinite(passed) ||
+      typeof failed !== "number" ||
+      !Number.isFinite(failed)
+    ) {
+      return { suite, ran: 0, failed: 0, reportRead: false };
+    }
+    return { suite, ran: passed + failed, failed, reportRead: true };
   } catch {
     return { suite, ran: 0, failed: 0, reportRead: false };
   }

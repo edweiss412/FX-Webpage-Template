@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { premiseHolds } from "@/tests/_shared/premise";
+
 import {
   SPLIT_SOURCE,
   type Anchor,
@@ -121,6 +123,26 @@ describe("the figures anchor reconciles its rate table against its millisecond t
       expect(Math.round(base.surfaceMs[id]! / base.bootsAtRun[id]!)).toBe(
         base.rates[id]!.observedPerBoot,
       );
+    }
+  });
+
+  it("refuses a recalibration relabelled as the run the BODY measures", () => {
+    // Whole-diff review round 1. Syntax alone accepted the body's own runId and headSha on the
+    // block, while the block claimed psqlStartupScan at 25952 ms/boot and the body records that
+    // same run measuring 16462. Three relabels, each independently refused.
+    for (const [label, edit] of [
+      ["runId", (a: Anchor) => (a.recalibration.runId = a.runId)],
+      ["runHeadSha", (a: Anchor) => (a.recalibration.runHeadSha = a.runHeadSha)],
+      ["dateISO before the body's", (a: Anchor) => (a.recalibration.dateISO = "2026-08-01")],
+    ] as const) {
+      const a = clone(base);
+      edit(a);
+      // PREMISE: the edit must actually change the block, or the refusal below proves nothing.
+      premiseHolds(
+        `the ${label} relabel changed the anchor`,
+        JSON.stringify(a.recalibration) !== JSON.stringify(base.recalibration),
+      );
+      expect(anchorProblems(a, SPLIT_TEXT), label).not.toEqual([]);
     }
   });
 

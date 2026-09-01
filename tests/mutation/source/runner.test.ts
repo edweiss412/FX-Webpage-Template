@@ -703,6 +703,35 @@ describe("runControl — a verdict from OBSERVATIONS, not from an exit code (AC-
     expect(v.kind === "no-observations" ? v.dark : []).toEqual(["a.test.ts"]);
   });
 
+  it("a report MISSING a counter is dark, not a suite that ran and found nothing", () => {
+    // Whole-diff review round 1. An earlier version coerced a missing counter to 0 while its
+    // comment claimed a changed report shape went dark, so `{"numPassedTests": 60}` with the child
+    // exiting 1 came back `ran-clean` and `controlProblem` blamed the control row for a report
+    // that never said whether anything failed.
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 60, numPassedTests: 60, numPendingTests: 0 } as never,
+      },
+    });
+    expect(runControl("/root", surface, "mutant").kind).toBe("no-observations");
+  });
+
+  it("a report with a NON-NUMERIC counter is dark too", () => {
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: {
+          numTotalTests: 60,
+          numPassedTests: 60,
+          numFailedTests: "1",
+          numPendingTests: 0,
+        } as never,
+      },
+    });
+    expect(runControl("/root", surface, "mutant").kind).toBe("no-observations");
+  });
+
   it("a dark suite outranks a clean one, so a partial run cannot report RAN-CLEAN", () => {
     // Otherwise a two-suite surface whose SECOND suite never ran would be reported
     // as "the suite did not notice", sending the reader to the control row when the
