@@ -70,6 +70,21 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // feat/nav-badge-arrival-announce (2026-08-31). Graduated by the product
+  // decision it was blocked on being taken, not by the requirement being
+  // waived: Eric ruled that the nav announces on the FIRST resolution only and
+  // only above zero, which is the entry's own suggested narrowing and the
+  // answer to the question it said only Doug could settle.
+  "NAV-BADGE-ARRIVAL-ANNOUNCE-1",
+  // docs/paired-chrome-stale-text (2026-08-31). Graduated by the decision it was
+  // deferred for having ALREADY been taken: the pairing clause shipped on
+  // 2026-08-25 in `e6408222c`, moving both chips, and the queue row was archived
+  // the same day. The product owner confirmed the same ruling independently on
+  // 2026-08-31 without knowing it had shipped. What this branch closed was the
+  // bookkeeping: the row stayed open and DESIGN.md §1.2a kept describing the
+  // pre-resolution state in the present tense, four lines above the clause that
+  // settled it.
+  "CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1",
   // fix/finalize-progress-polish (2026-08-31). Four rows from ONE impeccable critique
   // of the step-3 finalize surface, closed by one arc. Eric lifted both decision fences
   // on 2026-08-31, taking the critique's CAS recommendation whole, so the two rows that

@@ -87,7 +87,11 @@ export default async function TelemetryPage({
               <p>
                 Couldn’t load scheduled-job health right now. The jobs are probably still running.
               </p>
-              <TelemetryRetryButton what="scheduled-job health" testId="cron-health-retry" />
+              <TelemetryRetryButton
+                what="scheduled-job health"
+                testId="cron-health-retry"
+                renderedAt={now.getTime()}
+              />
             </div>
           )}
         </aside>
