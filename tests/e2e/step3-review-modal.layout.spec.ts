@@ -1211,3 +1211,141 @@ test("§DI-1 link-only venue: map region fills text column height AND is ≥ til
     `tile ${tile.height} fills region ${region.height}`,
   ).toBeLessThanOrEqual(TOL);
 });
+
+/**
+ * AC-7, the dimensional invariants of spec §3.3, in a real browser.
+ *
+ * jsdom computes no layout, so every relationship below is measured rather than
+ * inferred, at 0.5px, with ONE failed tile beside a live one so the stretch is
+ * actually exercised.
+ *
+ * These viewports are the TILE-GEOMETRY breakpoints and are deliberately NOT the
+ * modal MODES this file loops elsewhere. Different axes:
+ * `components/admin/wizard/diagramTileGeometry.ts:55` flips 3 columns to 4 at
+ * 640 and `:52` flips the outer padding at that same width, and `:48` records
+ * that the tile is constant only from 1072 up. MODES (390 / 800 / 1280) crosses
+ * neither boundary and shares only 390. A sibling spec on this same modal
+ * already carries a plain viewport table including 320
+ * (tests/e2e/step3-review-modal.agenda.spec.ts:68), so this is the corpus's own
+ * shape rather than one invented here.
+ */
+const TILE_VIEWPORTS = [
+  { w: 320, h: 800, cols: 3 },
+  { w: 390, h: 844, cols: 3 },
+  { w: 640, h: 900, cols: 4 },
+  { w: 1072, h: 900, cols: 4 },
+] as const;
+
+for (const { w, h, cols } of TILE_VIEWPORTS) {
+  test(`T-DIAGRAM-CELL §3.3 dimensional invariants @ ${w}px`, async ({ page }) => {
+    await openHarness(page, { width: w, height: h });
+
+    // ONE evaluate: every rect from a single layout frame. A sequence of
+    // locator.evaluate calls can straddle a re-render, and auto-wait hangs on a
+    // node that has unmounted.
+    const m = await page.evaluate(
+      ({ dfid, servable }) => {
+        const box = (i: number) =>
+          document.querySelector(`[data-testid="wizard-step3-card-${dfid}-diagram-tile-${i}"]`);
+        const cell = (i: number) =>
+          document.querySelector(`[data-testid="wizard-step3-card-${dfid}-diagram-cell-${i}"]`);
+        const failedIndex = servable === 0 ? 1 : 0;
+        const lb = box(servable);
+        const lc = cell(servable);
+        const fb = box(failedIndex);
+        const fc = cell(failedIndex);
+        if (!lb || !lc || !fb || !fc) return null;
+        const r = (e: Element) => {
+          const b = e.getBoundingClientRect();
+          return { w: b.width, h: b.height, top: b.top };
+        };
+        const grid = lc.parentElement as HTMLElement | null;
+        return {
+          liveHasImg: lb.querySelector("img") !== null,
+          failedHasImg: fb.querySelector("img") !== null,
+          nested: lc.contains(lb) && fc.contains(fb),
+          liveBox: r(lb),
+          liveCell: r(lc),
+          failedBox: r(fb),
+          failedCell: r(fc),
+          gridCols: grid
+            ? getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length
+            : -1,
+        };
+      },
+      { dfid: HARNESS_DFID, servable: SERVABLE_DIAGRAM_INDEX },
+    );
+
+    expect(m, `both cells resolve @ ${w}px (premise)`).not.toBeNull();
+    const d = m!;
+    // Premises, on this case's OWN inputs: the two tiles must be DIFFERENT
+    // branches or every equality below compares a box to itself, and the grid
+    // must really be at the column count this viewport was chosen to cross.
+    expect(d.liveHasImg, `the servable tile is the LIVE branch @ ${w}px (premise)`).toBe(true);
+    expect(d.failedHasImg, `its neighbour is a FAILED branch @ ${w}px (premise)`).toBe(false);
+    expect(d.nested, `each box sits inside its own cell @ ${w}px (premise)`).toBe(true);
+    expect(d.gridCols, `the grid is ${cols} columns @ ${w}px (premise)`).toBe(cols);
+    expect(
+      Math.abs(d.liveCell.top - d.failedCell.top),
+      `the two cells share a grid row @ ${w}px (premise)`,
+    ).toBeLessThanOrEqual(TOL);
+
+    // Rows 1 and 2: the wrapper fills the cell's width, and the box fills the
+    // wrapper. Measured on both branches.
+    for (const [label, box, cell] of [
+      ["live", d.liveBox, d.liveCell],
+      ["failed", d.failedBox, d.failedCell],
+    ] as const) {
+      expect(
+        Math.abs(box.w - cell.w),
+        `${label} box width ${box.w} === cell width ${cell.w} @ ${w}px`,
+      ).toBeLessThanOrEqual(TOL);
+      // Row 3: EXACTLY 4:3, derived from the measured width rather than a
+      // hardcoded height, at every viewport.
+      expect(
+        Math.abs(box.h - (box.w * 3) / 4),
+        `${label} box holds 4:3 (${box.w}x${box.h}) @ ${w}px`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+
+    // Row 4, the one this design exists to protect, and the mechanism is worth
+    // stating because the obvious phrasing of it is WRONG. Grid items stretch,
+    // so the failed cell is NOT taller than the live one: both fill the row,
+    // and the row is what the failed cell's message makes tall. That equality
+    // is the precondition, not the defect.
+    expect(
+      Math.abs(d.failedCell.h - d.liveCell.h),
+      `both cells fill the same grid row @ ${w}px (premise: they stretch)`,
+    ).toBeLessThanOrEqual(TOL);
+    // The stretch is real and there IS something for the box to resist: each
+    // cell is taller than its own box, by the caption it carries. Without this
+    // the rows below pass on a grid that never stretched anything.
+    for (const [label, box, cell] of [
+      ["live", d.liveBox, d.liveCell],
+      ["failed", d.failedBox, d.failedCell],
+    ] as const) {
+      expect(
+        cell.h - box.h,
+        `the ${label} cell is taller than its own box @ ${w}px (premise for row 4)`,
+      ).toBeGreaterThan(TOL);
+    }
+    // And the resisting: the live box does NOT take the row's extra height. Row
+    // 3 above already pins it to 4:3, which is the same claim measured from the
+    // box's own width; this states it against the SIBLING that caused the
+    // stretch, which is how §3.3 phrases it.
+    expect(
+      d.liveBox.h,
+      `the live box did not stretch to the row (${d.liveBox.h} < cell ${d.liveCell.h}) @ ${w}px`,
+    ).toBeLessThan(d.liveCell.h - TOL);
+
+    // Row 5, the ratified contract: the two BOXES still match exactly.
+    expect(
+      Math.abs(d.liveBox.w - d.failedBox.w),
+      `boxes share a width (${d.liveBox.w} vs ${d.failedBox.w}) @ ${w}px`,
+    ).toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs(d.liveBox.h - d.failedBox.h),
+      `boxes share a height (${d.liveBox.h} vs ${d.failedBox.h}) @ ${w}px`,
+    ).toBeLessThanOrEqual(TOL);
+  });
+}

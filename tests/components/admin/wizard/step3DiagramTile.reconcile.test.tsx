@@ -28,6 +28,12 @@ import { premiseHolds } from "../../../_shared/premise";
 const DFID = "drive-file-staged";
 const WSID = "wizard-session-staged";
 const TILE = (i: number) => `wizard-step3-card-${DFID}-diagram-tile-${i}`;
+/** The CELL wraps the box and the caption both; the message is a SIBLING of the
+ *  box now, so every assertion about it scopes here. The `img` counts beside
+ *  these are the POSITIVE discriminators and they are untouched: they are what
+ *  make the live-negatives below fail against a placeholder, which asserting
+ *  the absence of a string can no longer do on its own. */
+const CELL = (i: number) => `wizard-step3-card-${DFID}-diagram-cell-${i}`;
 
 afterEach(cleanup);
 
@@ -81,7 +87,7 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     // so React keeps the component instance, and `failed` starts true and is
     // only ever set true. Without a reset this render is still the placeholder.
     expect(container.querySelectorAll("img").length).toBe(1);
-    expect(within(getByTestId(TILE(0))).queryByText("Preview unavailable")).toBeNull();
+    expect(within(getByTestId(CELL(0))).queryByText("Preview unavailable")).toBeNull();
   });
 
   test("available -> unavailable: the image yields immediately, not on a failed fetch", () => {
@@ -92,7 +98,7 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     rerender(renderOne(stagedStub({ objectId: id, contentUrl: null })));
 
     expect(container.querySelectorAll("img").length).toBe(0);
-    expect(within(getByTestId(TILE(0))).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(getByTestId(CELL(0))).getByText("Preview unavailable")).toBeTruthy();
   });
 
   test("failed on source A -> a good source B clears the failure", () => {
@@ -115,7 +121,7 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     expect(container.querySelectorAll("img").length).toBe(1);
     const hrefB = getByTestId(TILE(0)).getAttribute("href");
     premiseHolds("the rerender actually moved the href", hrefA !== hrefB && hrefB !== null);
-    expect(within(getByTestId(TILE(0))).queryByText("Preview unavailable")).toBeNull();
+    expect(within(getByTestId(CELL(0))).queryByText("Preview unavailable")).toBeNull();
   });
 
   test("failed, then the loader changes under a stable source: the tile recovers", () => {
@@ -155,7 +161,9 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     // Serving variants now exist. A tile that stays on the placeholder renders
     // none of them, which the consequence bound forbids in its own words.
     expect(container.querySelectorAll("img").length).toBe(1);
-    expect(within(getByTestId("reconcile-loader")).queryByText("Preview unavailable")).toBeNull();
+    expect(
+      within(getByTestId("reconcile-loader-cell")).queryByText("Preview unavailable"),
+    ).toBeNull();
     expect(new URL(container.querySelector("img")!.src, document.baseURI).pathname).toBe(variant);
   });
 
@@ -179,6 +187,6 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     rerender(renderOne(stub));
 
     expect(container.querySelectorAll("img").length).toBe(0);
-    expect(within(getByTestId(TILE(0))).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(getByTestId(CELL(0))).getByText("Preview unavailable")).toBeTruthy();
   });
 });

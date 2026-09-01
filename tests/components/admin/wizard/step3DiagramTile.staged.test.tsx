@@ -34,6 +34,10 @@ const DFID = "drive-file-staged";
 const WSID = "wizard-session-staged";
 const SECTION = `wizard-step3-card-${DFID}-section-diagrams`;
 const TILE = (i: number) => `wizard-step3-card-${DFID}-diagram-tile-${i}`;
+/** The CELL wraps the box and the caption both. Every assertion about the name
+ *  or the message scopes here, because the caption is a SIBLING of the box now:
+ *  the box is `overflow-hidden` and 4:3, and a message inside it was clipped. */
+const CELL = (i: number) => `wizard-step3-card-${DFID}-diagram-cell-${i}`;
 
 afterEach(cleanup);
 
@@ -172,8 +176,8 @@ describe("staged wizard diagram tile — transition inventory", () => {
     const { scoped, container } = renderStaged([
       stagedStub({ objectId: `staged-obj-unavailable-${label.length}`, ...over }),
     ]);
-    const tile = scoped.getByTestId(TILE(0));
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    const cell = scoped.getByTestId(CELL(0));
+    expect(within(cell).getByText("Preview unavailable")).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 
@@ -185,15 +189,19 @@ describe("staged wizard diagram tile — transition inventory", () => {
     const stub = stagedStub({ objectId: "staged-obj-named", contentUrl: null });
     const { scoped } = renderStaged([stub]);
     const tile = scoped.getByTestId(TILE(0));
+    const cell = scoped.getByTestId(CELL(0));
     premiseHolds(
       "the tile is on the placeholder branch, which is the branch under test",
-      within(tile).queryByText("Preview unavailable") !== null,
+      within(cell).queryByText("Preview unavailable") !== null,
     );
     // Selected by `title`, not by a testid: a testid derived from the tile's
     // own would be counted as a tile by the `[data-testid^="…-diagram-tile-"]`
     // prefix selector the cap assertion uses. Derived from the fixture, never
     // pasted: the stub carries its own alt.
-    const name = tile.querySelector("[title]");
+    // The name node is a sibling of the box now, so it is read off the CELL.
+    // Asserted in BOTH directions: gone from the box, present in the cell.
+    expect(tile.querySelector("[title]"), "the name is no longer inside the box").toBeNull();
+    const name = cell.querySelector("[title]");
     expect(name).not.toBeNull();
     expect(name!.textContent).toBe(stub.alt);
     expect(name!.getAttribute("title")).toBe(stub.alt);
@@ -219,7 +227,7 @@ describe("staged wizard diagram tile — transition inventory", () => {
         hasPreviewSource={false}
       />,
     );
-    expect(within(getByTestId("noname-tile")).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(getByTestId("noname-cell")).getByText("Preview unavailable")).toBeTruthy();
     expect(container.querySelector("[title]")).toBeNull();
   });
 
@@ -230,10 +238,11 @@ describe("staged wizard diagram tile — transition inventory", () => {
 
     fireEvent.error(img!);
 
-    const tile = scoped.getByTestId(TILE(0));
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    const cell = scoped.getByTestId(CELL(0));
+    expect(within(cell).getByText("Preview unavailable")).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
-    expect(tile.tagName).toBe("SPAN");
+    // The BOX is still what swaps element type; only the message moved out.
+    expect(scoped.getByTestId(TILE(0)).tagName).toBe("SPAN");
   });
 
   test("COMPOUND: a runtime error AFTER a successful load still swaps to the placeholder", () => {
@@ -251,8 +260,8 @@ describe("staged wizard diagram tile — transition inventory", () => {
     );
 
     fireEvent.error(img!);
-    const tile = scoped.getByTestId(TILE(0));
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    const cell = scoped.getByTestId(CELL(0));
+    expect(within(cell).getByText("Preview unavailable")).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 });

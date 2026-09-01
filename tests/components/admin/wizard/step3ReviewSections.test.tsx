@@ -747,6 +747,10 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
   // a sibling can never satisfy an assertion by accident (anti-tautology).
   const SECTION_TESTID = `wizard-step3-card-${DFID}-section-diagrams`;
   const TILE_PREFIX = `wizard-step3-card-${DFID}-diagram-tile-`;
+  // The CELL prefix. Deliberately a DIFFERENT segment: the three prefix queries
+  // below select on TILE_PREFIX, and a cell id sharing it would be counted as a
+  // tile — the defect that read 24 where 12 was correct.
+  const CELL_PREFIX = `wizard-step3-card-${DFID}-diagram-cell-`;
 
   /** A fully valid EmbeddedImageStub. `alt` is ABSENT by default so the
    *  alt-fallback test derives from `sheetTab`, never a hardcoded literal. */
@@ -812,7 +816,9 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
       diagramsOf({ embeddedImages: [diagramStub({ contentUrl: null })] }),
     );
     const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    expect(
+      within(scoped.getByTestId(`${CELL_PREFIX}0`)).getByText("Preview unavailable"),
+    ).toBeTruthy();
     expect(tile.querySelector("img")).toBeNull();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
@@ -838,9 +844,13 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     const mediaTile = scoped.getByTestId(`${TILE_PREFIX}0`);
     expect(mediaTile.tagName).toBe("A");
     expect(mediaTile.querySelector("img")).not.toBeNull();
-    expect(within(mediaTile).queryByText("Preview unavailable")).toBeNull();
+    expect(
+      within(scoped.getByTestId(`${CELL_PREFIX}0`)).queryByText("Preview unavailable"),
+    ).toBeNull();
     const restageTile = scoped.getByTestId(`${TILE_PREFIX}1`);
-    expect(within(restageTile).getByText("Preview unavailable")).toBeTruthy();
+    expect(
+      within(scoped.getByTestId(`${CELL_PREFIX}1`)).getByText("Preview unavailable"),
+    ).toBeTruthy();
     expect(restageTile.querySelector("img")).toBeNull();
     // Guard condition (§A4): non-servable stubs still count in summary/cap math.
     expect(scoped.getByText("2 embedded images")).toBeTruthy();

@@ -358,7 +358,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the scanner on the post-edit tree, not by adding a delta: it reports exactly one
     // unclassified site in this file, 4203, and 4203 is that same `<a>` — the tile
     // anchor, now one level deeper inside the wrapper. Same element, same reason below.
-    line: 4203,
+    // 4203 -> 4223 on Task 2 of the same plan, which lifted the caption out of the
+    // box and added the shared `caption()` helper above both branches. Located the
+    // same way, by running the scanner: one unclassified site, 4223, still that `<a>`.
+    line: 4223,
     tag: "a",
     category: "full-bleed",
     reason:

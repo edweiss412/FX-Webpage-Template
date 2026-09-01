@@ -37,6 +37,10 @@ const OBJECT_ID = "g123abc:4";
 const ASSET_KEY = `embedded-${OBJECT_ID}.png`;
 const SECTION = `wizard-step3-card-${DRIVE_FILE_ID}-section-diagrams`;
 const TILE0 = `wizard-step3-card-${DRIVE_FILE_ID}-diagram-tile-0`;
+/** The CELL holds the box and the caption both; the message is a sibling of the
+ *  box now. The `img` assertions beside these are the positive discriminators
+ *  and stay as they are. */
+const CELL0 = `wizard-step3-card-${DRIVE_FILE_ID}-diagram-cell-0`;
 
 afterEach(cleanup);
 
@@ -206,8 +210,7 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     ["a MIME outside the allowed set", { mimeType: "application/pdf" }],
   ])("published servability gate (%s): placeholder, and NO image element", (_label, over) => {
     const { scoped, container } = renderPublished(over);
-    const tile = scoped.getByTestId(TILE0);
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(scoped.getByTestId(CELL0)).getByText("Preview unavailable")).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 
@@ -222,8 +225,7 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     const { container, getByTestId } = render(
       <PublishedDiagramsBreakdown showId={SHOW_ID} driveFileId={DRIVE_FILE_ID} diagrams={column} />,
     );
-    const tile = getByTestId(TILE0);
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(getByTestId(CELL0)).getByText("Preview unavailable")).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
     // And nothing anywhere in the rendered tree carries the doubled slash.
     const urlBearing = Array.from(container.querySelectorAll("[src],[href]"))
@@ -272,7 +274,7 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     // them, which the consequence bound forbids in its own words.
     const after = scoped.getByTestId(TILE0).querySelector("img");
     expect(after).not.toBeNull();
-    expect(within(scoped.getByTestId(TILE0)).queryByText("Preview unavailable")).toBeNull();
+    expect(within(scoped.getByTestId(CELL0)).queryByText("Preview unavailable")).toBeNull();
     expect(new Set(srcsetCandidates(after!))).toEqual(
       new Set(ladder().map((row) => assetUrl(row.key))),
     );

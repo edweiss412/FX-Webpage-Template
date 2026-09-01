@@ -4158,34 +4158,54 @@ export function DiagramTile({
     setFailed(!hasPreviewSource);
   }
   const strippedAlt = stripNewTabSuffix(alt);
+  /**
+   * The caption: the tile's name, and in the failed states its explanation.
+   * It lives OUTSIDE the box, as a sibling in the cell, so it can be as tall as
+   * its content while the box holds its exact 4:3 — the invariant the
+   * real-browser suite pins. Inside the box it was clipped by
+   * `overflow-hidden`, which is the whole reason it moved.
+   *
+   * NO `data-testid` on the name line, deliberately, and the reason survives
+   * the move: the tile-count assertion selects with
+   * `[data-testid^="…-diagram-tile-"]`, a PREFIX match, so any testid derived
+   * from the tile's own would be counted AS a tile — that read 24 where 12 was
+   * correct at every breakpoint. The `title` attribute is the handle instead,
+   * and it doubles as the untruncated value, since the line is `truncate` and a
+   * tile is ~74px wide at 320px.
+   *
+   * `announced` is false ONLY in the live state, where the anchor already
+   * carries the name and a visible duplicate would be heard twice. In the
+   * failed states there is no anchor, so this is the only accessible text the
+   * tile has and it must stay announced. Same argument that emptied the image's
+   * `alt` below.
+   */
+  const caption = (announced: boolean) =>
+    strippedAlt ? (
+      <span
+        title={strippedAlt}
+        aria-hidden={announced ? undefined : "true"}
+        className="max-w-full truncate text-xs text-text-subtle"
+      >
+        {strippedAlt}
+      </span>
+    ) : null;
   if (failed) {
     return (
       <span className="flex flex-col gap-1" data-testid={cellTestId}>
         <span
           data-testid={testId}
-          className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-text-faint bg-surface-sunken px-1 text-center"
+          className="grid aspect-4/3 w-full place-items-center overflow-hidden rounded-md border border-text-faint bg-surface-sunken"
         >
           <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
-          <span className="text-xs text-text-subtle">Preview unavailable</span>
-          {/* WHICH diagram is dark. The name is already in hand as `alt` and was
-            being discarded, so a grid of failures read as N identical grey
-            boxes and the reviewer could not tell which sheet tab was missing —
-            on the surface where he confirms diagrams made it in before
-            publishing. Truncated because a tile is ~74px wide at 320px; the
-            full string stays available as the title. `overflow-hidden` on the
-            container keeps the box identical to the live tile's, which the
-            real-browser suite pins.
-
-            NO `data-testid` here, deliberately. The tile-count assertion selects
-            with `[data-testid^="…-diagram-tile-"]`, a PREFIX match, so any
-            testid derived from the tile's own would be counted AS a tile — the
-            cap assertion read 24 where 12 was correct at every breakpoint. The
-            title attribute is the handle instead. */}
-          {strippedAlt ? (
-            <span title={strippedAlt} className="max-w-full truncate text-xs text-text-subtle">
-              {strippedAlt}
-            </span>
-          ) : null}
+        </span>
+        {caption(true)}
+        {/* The message is addressed by its OWN attribute rather than a testid:
+            a third id would enlarge a namespace whose prefix discipline is
+            already load-bearing, and keying an oracle to the SENTENCE would
+            make it unable to fail when the sentence is wrong.
+            `[data-attention-anchor]` in this file is the same pattern. */}
+        <span data-diagram-message className="text-xs/relaxed text-text-subtle">
+          Preview unavailable
         </span>
       </span>
     );
@@ -4268,6 +4288,7 @@ export function DiagramTile({
           className="object-cover"
         />
       </a>
+      {caption(false)}
     </span>
   );
 }
