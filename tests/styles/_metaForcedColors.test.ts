@@ -119,6 +119,40 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     expect(new Set(CARRIER_CENSUS.map((r) => r.subject)).size).toBe(17);
   });
 
+  it("records the two cues this pass deliberately leaves alone", () => {
+    // Spec §8 limits 7 and 8. Both concern the freshness cue, and both are the
+    // kind of thing that rots into an unexplained absence: someone later sees a
+    // reported rule with no repair and either repairs it — which for limit 7 would
+    // SUPPRESS a working cue, the spec's first draft mistake — or widens the arm
+    // to stop reporting it, which hides the class.
+    const bySubject = new Map(CARRIER_CENSUS.map((row) => [row.subject, row]));
+    for (const subject of [
+      "@keyframes section-freshness-flash-1",
+      "@keyframes section-freshness-flash-2",
+      "[data-section-freshness-flash]",
+    ]) {
+      const row = bySubject.get(subject);
+      expect(row, `${subject} must carry a census row`).toBeDefined();
+      expect(row?.disposition, `${subject} is a deliberate flatten, not a repair`).toBe(
+        "deliberate-flatten",
+      );
+    }
+  });
+
+  it("keeps the freshness keyframe bodies identical, which an existing pin requires", () => {
+    // The cue alternates -1 and -2 to restart, and a drift pin keeps the two
+    // bodies the same (app/globals.css:1186-1191). This pass does not touch them,
+    // and this case is what makes that a checked claim rather than an intention:
+    // repairing one and not the other would leave a flash whose two halves behave
+    // differently depending on which one fired.
+    const one = CSS.slice(CSS.indexOf("@keyframes section-freshness-flash-1"));
+    const two = CSS.slice(CSS.indexOf("@keyframes section-freshness-flash-2"));
+    const body = (text: string) => text.slice(text.indexOf("{"), text.indexOf("}\n}") + 3);
+    expect(body(one).replace(/-1/g, ""), "the two freshness bodies have drifted apart").toBe(
+      body(two).replace(/-2/g, ""),
+    );
+  });
+
   it("does not report the pass's own repairs as defects", () => {
     // The cure is not the disease. A rule scoped to forced-colors IS the treatment,
     // so applying the carrier criterion to it is a category error — and the guard
