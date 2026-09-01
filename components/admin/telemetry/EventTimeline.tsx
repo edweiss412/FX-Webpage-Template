@@ -20,7 +20,11 @@ export function EventTimeline({
         className="flex flex-col items-start gap-2 rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
       >
         <p>Couldn’t load activity right now.</p>
-        <TelemetryRetryButton what="activity" testId="event-timeline-retry" />
+        <TelemetryRetryButton
+          what="activity"
+          testId="event-timeline-retry"
+          renderedAt={now.getTime()}
+        />
       </div>
     );
   }
