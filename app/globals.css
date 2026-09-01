@@ -1539,6 +1539,25 @@ details[open] > summary [data-agenda-day-count] {
     outline-offset: 2px;
   }
 
+  /* And the share-link cue's OFF state, named, which rule 2 above demands and
+     which the rule right before this one makes necessary.
+
+     Under reduced motion the stylesheet already sets `animation: none` for this
+     cue and shows NOTHING, deliberately: a one-shot "this just changed" signal has
+     no correct steady state (app/globals.css:1129-1132). The rule above gives the
+     element an outline unconditionally, so without this a reduced-motion user in
+     forced colors would get a PERMANENT ring — the exact phantom this pass exists
+     to remove, reintroduced by the pass. AC-4d is the assertion that caught it.
+
+     `outline-style: none` and not a transparent colour, because transparent is
+     what forces opaque. No width is load-bearing here: no sibling state declares
+     an outline on this element, so removing the style reflows nothing. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-share-link-flash] {
+      outline-style: none;
+    }
+  }
+
   /* Step-3 review modal, the one-shot warning-row highlight after a callout jump
      (spec §5.2). Its only carrier is a background, which forces to one value, so
      the animated form paints nothing.

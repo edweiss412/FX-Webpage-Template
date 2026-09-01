@@ -146,6 +146,52 @@ test.describe("forced colors", () => {
       .not.toBe("none");
   });
 
+  test("AC-3: a freshness card shows a cue only while its gating attribute is present", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(origin);
+
+    // BOTH halves, because the spec's first draft got the idle one exactly
+    // backwards: it claimed a permanent phantom outline on every freshness-capable
+    // card and specified a repair that would have suppressed the working cue. The
+    // attribute is spread conditionally by both emitters, so with no attribute
+    // there is no rule and nothing to be permanent.
+    expect(
+      (await paint(page, "fc-fresh-idle")).outlineStyle,
+      "an idle card must carry no outline; the first spec draft asserted the opposite",
+    ).toBe("none");
+    await expect
+      .poll(async () => (await paint(page, "fc-fresh-flash")).outlineStyle)
+      .not.toBe("none");
+  });
+
+  test("AC-4d: forced colors AND reduced motion, where the two cues differ", async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await page.goto(origin);
+
+    // Asserted separately, because the transition table's first draft said both
+    // cues show nothing here and that is true of only one of them.
+    //
+    // share-link: NO cue. Its reduced-motion arm sets `animation: none` because a
+    // one-shot signal has no correct steady state, and the block must name that off
+    // state — otherwise the base outline forces opaque and a reduced-motion user
+    // gets a PERMANENT ring, which is the phantom this pass exists to remove,
+    // reintroduced by the pass.
+    expect(
+      (await paint(page, "fc-share-flash")).outlineStyle,
+      "a reduced-motion user must not get a permanent ring from the forced-colors base",
+    ).toBe("none");
+
+    // freshness: a cue DOES appear, and that is documented rather than repaired.
+    // Its reduced-motion arm sets `outline-color: transparent`, which forces
+    // opaque. Suppressing it for reduced-motion alone would be the inconsistent
+    // branch once the fade is gone for every user (spec §8 limit 8).
+    await expect
+      .poll(async () => (await paint(page, "fc-fresh-flash")).outlineStyle)
+      .not.toBe("none");
+  });
+
   test("the component still emits the attribute the stylesheet keys on", () => {
     // The page above is synthetic in exactly one respect: it wears the attribute
     // rather than rendering ShareHub. This is what stops that becoming a fixture
