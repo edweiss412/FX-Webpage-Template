@@ -261,7 +261,16 @@ test("engine: the reduced-motion override survives this engine's selector parser
   await page.goto(baseUrl + "bars.html");
 
   const parsed = await page.evaluate(() => {
-    const found: string[] = [];
+    // Two collections, because ONE conflates the contexts. Whole-diff review R1
+    // finding 4: an earlier form pushed every CSSStyleRule it walked into a single
+    // array, so the ORDINARY indeterminate shimmer rule — same selector, top level,
+    // no media query — satisfied the "a reduced-motion rule covering the finalize
+    // bar's webkit track exists" assertion on its own. Deleting the override, or
+    // restoring it to the invalid mixed-vendor list this whole test exists to catch,
+    // left the case green. `reduced` is the subject; `all` is only the premise that
+    // the stylesheet parsed at all.
+    const reduced: string[] = [];
+    const all: string[] = [];
     for (const sheet of Array.from(document.styleSheets)) {
       let rules: CSSRule[];
       try {
@@ -269,18 +278,22 @@ test("engine: the reduced-motion override survives this engine's selector parser
       } catch {
         continue; // cross-origin sheet; ours is same-origin
       }
-      const walk = (list: CSSRule[]) => {
+      const walk = (list: CSSRule[], underReducedMotion: boolean) => {
         for (const rule of list) {
           if (rule instanceof CSSMediaRule) {
-            if (/prefers-reduced-motion/.test(rule.conditionText)) walk(Array.from(rule.cssRules));
+            walk(
+              Array.from(rule.cssRules),
+              underReducedMotion || /prefers-reduced-motion/.test(rule.conditionText),
+            );
           } else if (rule instanceof CSSStyleRule) {
-            found.push(rule.selectorText);
+            all.push(rule.selectorText);
+            if (underReducedMotion) reduced.push(rule.selectorText);
           }
         }
       };
-      walk(rules);
+      walk(rules, false);
     }
-    return found;
+    return { reduced, all };
   });
 
   // PREMISE: the page must have parsed the project stylesheet at all. Without
@@ -288,11 +301,15 @@ test("engine: the reduced-motion override survives this engine's selector parser
   // satisfies every "not present" check below and would satisfy a naive
   // "present" check by failing for the wrong reason.
   expect(
-    parsed.length,
-    "premise: the compiled stylesheet must be parsed and contain reduced-motion rules",
+    parsed.all.length,
+    "premise: the compiled stylesheet must be parsed at all",
+  ).toBeGreaterThan(0);
+  expect(
+    parsed.reduced.length,
+    "premise: this engine must have parsed at least one prefers-reduced-motion rule",
   ).toBeGreaterThan(0);
 
-  const webkitTrack = parsed.filter(
+  const webkitTrack = parsed.reduced.filter(
     (s) => s.includes("::-webkit-progress-bar") && s.includes("wizard-finalize-progressbar"),
   );
   expect(
@@ -389,6 +406,12 @@ async function sampleFooter(page: Page, countText: string | null) {
 }
 
 const LADDER = [
+  // The singular rung. It is the shortest string the ladder holds, so it says nothing
+  // about wrapping; it is here because the renderer BRANCHES on `total === 1` for the
+  // noun, and without a rung on that side the ladder exercises one arm of a two-arm
+  // decision. It also keeps the pluralisation below a real comparison rather than one
+  // TypeScript can prove is always false against an `as const` literal union.
+  { done: 1, total: 1 },
   { done: 1, total: 2 },
   { done: 9, total: 12 },
   { done: 12, total: 12 },
