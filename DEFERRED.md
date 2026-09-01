@@ -81,6 +81,7 @@ From the same critique (P2). In the unsuppressed render each flight segment lead
 
 ### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog)
 
+**Status:** IN PROGRESS · **Branch:** feat/forced-colors-pass
 **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — waits on a repo-wide forced-colors pass to set the pattern; solving it once here would pre-commit that pattern from a sample of one.
 
