@@ -187,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
     runs-on: ubuntu-latest
     timeout-minutes: 125
     permissions:
@@ -360,7 +360,7 @@ jobs:
           ELAPSED_DIR: elapsed
           SHARD_BUDGET_SECONDS: "3600"
           PARSER_SHARD_COUNT: "8"
-          SOURCE_SHARD_COUNT: "8"
+          SOURCE_SHARD_COUNT: "10"
         run: pnpm tsx scripts/check-shard-budget.ts
       # The RECORDS, not the elapsed stamps: drift is per SURFACE, and only the
       # per-surface record carries the child wall clock a rate is derived from.

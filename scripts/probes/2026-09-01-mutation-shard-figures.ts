@@ -124,7 +124,14 @@ const weightsFor = (split: Record<string, readonly OperatorName[]>, announce: bo
   return out;
 };
 
-const base = GUARD_SURFACES.filter((s) => s.id !== SPLIT_SURFACE).map((s) => ({
+// EVERY id the split touches is excluded, by prefix rather than by exact match: once
+// the split lands the registry holds `controlOutlineResidueBoundaries` and
+// `controlOutlineResidueRewrites` instead of the original row, and neither is in the
+// anchor -- the anchor measured the surface BEFORE it was split. The candidate parts
+// below supply their weights. An exact-match filter worked until the split landed and
+// then threw on an undefined rate, which is the sort of breakage a probe should not
+// have on the day its subject changes.
+const base = GUARD_SURFACES.filter((s) => !s.id.startsWith(SPLIT_SURFACE)).map((s) => ({
   key: s.id,
   w: bootsOf(s) * A.rates[s.id]!.observedPerBoot,
 }));

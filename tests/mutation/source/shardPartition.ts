@@ -39,7 +39,7 @@ import { GUARD_SURFACES, type GuardSurface } from "./registry";
  * dated record; the live figures come from re-running the command that spec's header
  * carries, never from a number copied into this comment.
  */
-export const SOURCE_SHARD_COUNT = 8;
+export const SOURCE_SHARD_COUNT = 10;
 
 // Re-exported from its leaf module so every existing importer is untouched. It moved
 // because the registry now needs it to bound `millisPerBoot`, and this file imports the
