@@ -329,10 +329,10 @@ the suite names in its own `red=`:
 | task | red-observed | kept-green (and the suite that would red) |
 | --- | --- | --- |
 | 1 | `tests/observe/describeClientValue.test.ts`, through the control-verdict probe | — |
-| 2 | `tests/mutation/source/runner.ts`, `runner.test.ts`, `surfaceCases.ts` via `surfaceCases.test.ts` | — |
+| 2 | `tests/mutation/source/runner.ts` via `runner.test.ts`; `surfaceCases.ts` via the NEW verdict cases in `surfaceCases.test.ts` | — |
 | 3 | `tests/scripts/ledgerClaimsCheck.test.ts`, through the probe's `--mutant` and `--only-case` | — |
 | 4 | `registry.ts` and `expectedLedgerKinds.ts` via the two registry metas | `BACKLOG-archive.md` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts`, in the command) |
-| 5 | the anchor JSON and its validator via the two anchor metas; the workflow step via `tests/ci/_metaE2eWorkflowCoverage.test.ts` | `tests/mutation/source/registry.ts` (the parity meta, in the command) |
+| 5 | the anchor JSON and `anchorProblems` via the two anchor metas, whose deletion sweep this task extends to the new block; the workflow step via the NEW case in `tests/mutation/_metaSourceShardIntegrity.test.ts` | `tests/mutation/source/registry.ts` (the parity meta, in the command) |
 | 6 | `lib/ci/shardBudget.ts` via `tests/ci/shardBudget.test.ts` | `tests/mutation/source/shardPartition.ts` and its suite (`shardPartition.test.ts`, in the command) |
 | 7 | `shardPartition.ts`, the workflow, the gitignore range and the shard files via the four metas; `_workflowCoverageScan.ts` via `tests/ci/_metaE2eWorkflowCoverage.test.ts` | the root package.json (`tests/mutation/_metaSourceShardIntegrity.test.ts`, in the command) |
 | 8 | `AGENTS.md`, the fixture, the two docs, through the citation probe | `tests/docs/agentsHeavyPhaseRule.test.ts` (itself — the fixture byte-pin at `tests/docs/agentsHeavyPhaseRule.test.ts:442`) |
@@ -345,6 +345,26 @@ appear at all.
 **The walk cannot see a suite that reads a file by directory glob rather than by name** — the
 workflow-coverage meta walks `.github/workflows/` — so those two cells are asserted by reading the
 suite, and are marked as such here rather than left to look derived.
+
+### The obligation is executable, because three rounds proved prose cannot carry it
+
+Rounds 1, 2 and 3 each landed on this one vector: nine, then five, then three findings of the form
+"the `red=` claims a verdict its command cannot observe". Round 2 found it on round 1's repairs;
+round 3 found it on round 2's — including on the coverage table above, whose Task 5 cell named a
+workflow-coverage suite the reviewer then measured producing byte-identical output before and after
+the step was inserted. A table of predictions is still a prediction.
+
+So the table stops being the guarantee and becomes the plan. **Every task demonstrates its own red
+before its commit, and the demonstration goes in the commit message:**
+
+1. Run the task's `red=` on the tree BEFORE the task's own edits and record the failure text.
+2. Plant the defect the `why=` names — delete the new assertion, revert the one production line —
+   run the SAME command, and record that it fails for that reason and not another.
+3. Run it after the task's edits and record that it passes.
+
+Step 2 is the one that would have caught all seventeen findings across the three rounds: each was a
+case where planting the named defect changes nothing the command sees. A task whose step 2 cannot
+be made to fail has no red, and the task is rewritten rather than committed.
 
 ## Tasks
 
@@ -402,6 +422,15 @@ discriminated verdict:
 - `noticed` — a suite reported at least one failed test.
 - `ran-clean` — every suite ran at least one test and none failed.
 - `no-observations` — a suite produced no readable report, or reported zero total tests.
+
+**AC-3's own rejection is asserted, not assumed.** Round 3 established that a `runner.test.ts`
+case proving `runControl` CAN return `no-observations` says nothing about whether AC-3 rejects it —
+the shipped assertion `expect(...).not.toBe(0)` accepts all three object verdicts, so Task 2's
+command could green with AC-3 still fail-open. So this task also adds cases to
+`tests/mutation/source/surfaceCases.test.ts` that drive the registrar with a stubbed control
+returning each verdict in turn and assert AC-3 PASSES on `noticed` and FAILS on the other two.
+Those cases are the red-observed proof of the registrar edit; the `runner.test.ts` cases prove only
+the producer.
 
 AC-3 in `surfaceCases.ts` then asserts `noticed`, with a distinct message per other kind:
 `ran-clean` says the control row is wrong or the suite lacks the case, `no-observations` says the
@@ -465,12 +494,13 @@ No row is created, and none is deleted.
 
 ### Task 5 — the rates say what the newest run measured
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts tests/mutation/figuresAnchorReconciliation.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`scripts/probes/2026-09-01-mutation-shard-figures-input.json:59` why=`this line records psqlStartupScan at 1349908 ms from run 33404224554 and the file holds that run only, so once the recalibration block lands and the parity test is pointed at it, 48 surfaces declare a rate the block disagrees with and the assertion reds naming them; the same command also carries the workflow-coverage suite, which reds on the ref-count instrument step this task adds until its allowlist row exists` ac=AC-6,AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts tests/mutation/figuresAnchorReconciliation.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts` red-state=authored red-target=`scripts/probes/2026-09-01-mutation-shard-figures-input.json:59` why=`this line records psqlStartupScan at 1349908 ms from run 33404224554 and the file holds that run only, so once the recalibration block lands and the parity test is pointed at it, 48 surfaces declare a rate the block disagrees with and the assertion reds naming them; the same command also carries the shard-integrity suite, whose new case pinning the ref-count instrument step reds until that step exists` ac=AC-6,AC-7 -->
 
 **Files:** `scripts/probes/2026-09-01-mutation-shard-figures-input.json`,
 `scripts/probes/2026-09-01-mutation-shard-figures-anchor.ts`,
-`tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts`, `tests/mutation/source/registry.ts`,
-`.github/workflows/mutation-harness.yml`, `tests/ci/_workflowCoverageScan.ts`.
+`tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts`, `tests/mutation/figuresAnchorReconciliation.test.ts`,
+`tests/mutation/source/registry.ts`, `.github/workflows/mutation-harness.yml`,
+`tests/mutation/_metaSourceShardIntegrity.test.ts`.
 
 **The order inside this task, because the obvious one has no honest red.** Pointing the parity test
 at a block that does not exist fails to parse, which is not the marker's reason. So: (1) the
@@ -485,6 +515,15 @@ licensed the split. It gains a `recalibration` block naming run `33501574343` �
 `runHeadSha`, `dateISO`, per-leg `elapsedS` and `childMs`, `surfaceMs`, `bootsAtRun`, and
 `observedPerBoot` per surface — judged by the same whole-anchor gate: contiguous legs, every
 figure positive and finite, and the legs' child milliseconds equal to the per-surface total.
+
+**"The same gate" is a task step, not a property the block acquires by being added.** Round 3
+passed `anchorProblems` an anchor carrying an INVALID recalibration block and it returned `[]`: the
+function judges the top-level tables and knows nothing about a block that did not exist when it was
+written. So this task edits `anchorProblems` to walk the new block, and edits
+`tests/mutation/figuresAnchorReconciliation.test.ts` — whose single-digit-deletion sweep at
+`tests/mutation/figuresAnchorReconciliation.test.ts:115` mutates three top-level tables — to cover
+the recalibration block's tables on the same footing. Without that second edit the 48-rate RED can
+be cleared by moving the registry alone, with AC-7's promised validation absent.
 
 **The rate relation is `observedPerBoot === Math.round(surfaceMs / bootsAtRun)`, not an exact
 product.** `observedPerBoot` is an integer, `surfaceMs` is a measurement, and exact multiplication
@@ -502,7 +541,15 @@ the one thing they share is a suite neither run changed.
 **Re-measure trigger, and the instrument that makes it reachable.** The archived entry names the
 probe that settles the cause and records that it has never run: print `git for-each-ref
 refs/remotes/origin` under each trigger type. This task adds that one line to the `source-shards`
-job's setup, so every future run of either kind records its own ambient ref count in its log. The
+job's setup, so every future run of either kind records its own ambient ref count in its log.
+
+**Nothing observes that step today, and round 3 measured it:** the workflow-coverage scanner reads
+`env:` pairs, the step declares none, and its output was byte-identical before and after the step
+was inserted. `_metaSourceShardIntegrity` pins `steps[0]` and the count of `GITHUB_ENV` writers,
+neither of which a plain `run:` step disturbs. So this task ADDS the observer — a case in
+`tests/mutation/_metaSourceShardIntegrity.test.ts` pinning that the `source-shards` job carries a
+step printing `refs/remotes/origin` — and that suite is in the red command. The case is written
+first and reds because the step is absent; the step lands and it greens. The
 two rates are re-derivable, and this exclusion retired, from any two runs of the SAME trigger type
 whose ref counts agree. That is a condition a future run satisfies on its own; "after Task 3 lands"
 is not, because Task 3 leaves the ambient reader at `ledgerClaimsCheck.test.ts:570` in place.
@@ -549,11 +596,16 @@ The constructed cases, each naming the failure it catches:
 
 | input | expected | the defect it catches |
 | --- | --- | --- |
-| makespan 3500, floor 1000, overhead 205, budget 3600 | one problem, naming the makespan | the shipped comparison passes this: 3500 <= 3600 in child seconds, while the leg costs 3705 |
-| makespan 3390, floor 3390, overhead 205, budget 3600 | one problem, naming the floor SURFACE | a surface heavier than a leg, which no shard count repairs |
-| makespan 3395, floor 3395, overhead 205, budget 3600 | reports the surface NAME, not just a number | a message that says "over budget" sends the reader to the count, which is the wrong repair |
+| makespan 3500, floor 1000, overhead 205, budget 3600 | one problem, naming the makespan (3705 > 3600) | the shipped comparison passes this: 3500 <= 3600 in child seconds, while the leg costs 3705 |
+| makespan 3400, floor 3400, overhead 205, budget 3600 | one problem whose text contains the floor SURFACE's id (3605 > 3600) | a surface heavier than a leg, and a message that says only "over budget" sends the reader to the shard count, which is the wrong repair |
+| makespan 3395, floor 3395, overhead 205, budget 3600 | NO problem — 3600 is exactly at budget | the boundary `lib/ci/shardBudget.ts:109` already documents as compliant; a fit check that reds here has silently moved the budget |
 | makespan 3000, floor 1000, overhead 205, budget 3600 | no problems | a guard that reds on correct input is broken rather than stricter |
-| overhead 0 | the makespan case above reports NOTHING | the overhead is load-bearing and not decoration |
+| makespan 3500, floor 1000, overhead 0, budget 3600 | NO makespan problem | the overhead is load-bearing and not decoration |
+
+Round 3 rejected an earlier version of this table whose first two rows demanded a failure at 3595
+and at 3600, both of which the shipped strict `>` correctly passes. The arithmetic above is stated
+so the same check can be run against it: 3500+205=3705 and 3400+205=3605 exceed 3600; 3395+205=3600
+does not.
 
 The first row is the defect in one line: it is the case the shipped
 `tests/mutation/source/shardPartition.test.ts:259` comparison admits, because it compares child
