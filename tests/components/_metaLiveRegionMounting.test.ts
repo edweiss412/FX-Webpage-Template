@@ -785,17 +785,25 @@ describe("AC-10: the admin nav mints no live region of its own", () => {
       if (init && ts.isStringLiteral(init)) return init.text;
       if (init && ts.isJsxExpression(init) && init.expression) {
         const e = init.expression;
-        return ts.isStringLiteral(e) ? e.text : e.getText();
+        // Three spellings, not one. `role="log"`, `role={"log"}`, and
+        // ``role={`log`}``; the template form was missed by the first version.
+        if (ts.isStringLiteral(e)) return e.text;
+        if (ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+        return e.getText();
       }
     }
     return null;
   };
 
-  const navFiles = (): string[] => {
+  // RECURSIVE. The first version read only the immediate directory, so a live
+  // region in a new subdirectory was invisible to a scan whose own name claims
+  // `components/admin/nav/**`. Creating a subdirectory is an ordinary edit.
+  const navFiles = (dir: string = NAV_DIR): string[] => {
     const out: string[] = [];
-    for (const entry of readdirSync(join(REPO_ROOT, NAV_DIR))) {
-      const rel = join(NAV_DIR, entry);
-      if (statSync(join(REPO_ROOT, rel)).isFile() && /\.tsx?$/.test(entry)) out.push(rel);
+    for (const entry of readdirSync(join(REPO_ROOT, dir))) {
+      const rel = join(dir, entry);
+      if (statSync(join(REPO_ROOT, rel)).isDirectory()) out.push(...navFiles(rel));
+      else if (/\.tsx?$/.test(entry)) out.push(rel);
     }
     return out.sort();
   };
@@ -817,7 +825,26 @@ describe("AC-10: the admin nav mints no live region of its own", () => {
           // repo's own attrText already unwraps it.
           const role = navAttrText(node, "role");
           const live = navAttrText(node, "aria-live");
-          if (role === "log" || role === "status" || live !== null) {
+          // A NON-LITERAL role (`role={LIVE_ROLE}`) is unresolvable here, and
+          // an unresolvable role on a nav element is itself the thing to
+          // refuse: this directory has no legitimate reason to compute a role,
+          // and letting one through unread is how the scan would be evaded.
+          // `getText()` returns the identifier, so anything that is not a known
+          // safe literal is reported.
+          const SAFE_ROLES = new Set([
+            "menu",
+            "menuitem",
+            "navigation",
+            "banner",
+            "list",
+            "listitem",
+            "dialog",
+            "button",
+            "presentation",
+            "none",
+          ]);
+          const unresolvableRole = role !== null && !SAFE_ROLES.has(role);
+          if (role === "log" || role === "status" || live !== null || unresolvableRole) {
             offenders.push(
               `${rel}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`,
             );

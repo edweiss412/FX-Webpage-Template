@@ -131,10 +131,19 @@ export function AdminNav({
     };
   }, [attentionCountPromise]);
 
-  const attentionSettled =
+  // LATCHED, not derived. §3.2 says settlement is set once and never cleared,
+  // and a derived predicate is not that: `badgeCount` returns to `null` on a
+  // failed refetch (`useNeedsAttentionBadge.ts:88`), which would un-settle a
+  // half that had already arrived. If the bell then settled, the join would
+  // wait forever and the mount would go silent. Caught by the whole-diff
+  // review, which classified it as a documented limit; it is a deviation from
+  // the spec's own word, so it is repaired rather than recorded.
+  const attentionEverSettled =
     typeof badgeCount === "number" ||
     attentionFailed ||
     (attentionCountPromise === null && initialBadgeCount === null);
+  const [attentionSettled, setAttentionSettled] = useState(false);
+  if (attentionEverSettled && !attentionSettled) setAttentionSettled(true);
 
   const spokenRef = useRef(false);
   useEffect(() => {

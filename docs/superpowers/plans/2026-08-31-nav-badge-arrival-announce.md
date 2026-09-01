@@ -384,11 +384,18 @@ The derivation is added lines, and the table is now only what this arc adds:
 
 | Site | Kind | Treatment |
 |---|---|---|
-| `AdminNav`'s announce effect: returns early unless both halves are latched, the mount is unspoken, and the message is non-null | early return inside an effect | instant, and invisible. It appends to an `sr-only` region (`components/admin/announceLog.tsx:134`), so there is nothing to animate |
-| `NotifBell`'s `onBellState` effect: reports only when the tuple changed | early return inside an effect | instant. No render, no DOM |
+| `AdminNav`, the attention-promise subscription's `!attentionCountPromise` bail | early return inside an effect | instant. No render, no DOM |
+| `AdminNav`, the announce effect's `spokenRef.current` terminality guard | early return inside an effect | instant. This is what makes the utterance once-per-mount |
+| `AdminNav`, the announce effect's `!bellSettled \|\| !attentionSettled` guard | early return inside an effect | instant, and invisible. When it falls through it appends to an `sr-only` region (`components/admin/announceLog.tsx:134`), so there is nothing to animate |
+| `NotifBell`, the report effect's `!onBellState` bail | early return inside an effect | instant. The four existing call sites pass no prop and take this branch |
+| `NotifBell`, the report effect's `lastReport.current === key` dedup | early return inside an effect | instant. No render, no DOM |
 
-Two sites, both effect guards, ZERO conditional renders and zero animation
-props. That is the honest shape of an arc that adds no visual branch: the one
+FIVE sites, every one an effect guard, ZERO conditional renders and zero
+animation props. An earlier revision of this table said two, counting only the
+guards it found interesting; the audit asserts per-file EQUALITY against these
+counts, so the table and the code cannot drift, and the pure selector module's
+own two guards are asserted to contribute NOTHING to the inventory, which is the
+over-count the whole-diff review caught. That is the honest shape of an arc that adds no visual branch: the one
 JSX conditional it touches, `NotifBell`'s `aria-label` ternary, is REMOVED
 rather than added, replaced by a `bellAccessibleName` call, so it leaves the
 added set rather than joining it.

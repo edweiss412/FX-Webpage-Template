@@ -227,6 +227,38 @@ describe("NotifBell onBellState reporting", () => {
     expect(reports[2]).toEqual({ settled: true, announceable: 5 });
   });
 
+  it("keeps reporting after a post-zero restoration", async () => {
+    // The plan's table specified this row and the first implementation of this
+    // suite did not ship it, which the whole-diff review caught. It is the
+    // report side of AC-16: the parent can only announce a restored count if
+    // NotifBell keeps reporting after the zero.
+    const seed = deferred<BellCountResult>();
+    const reports: Report[] = [];
+    fetchSpy.mockImplementation((url: string) =>
+      url === COUNT_ENDPOINT ? Promise.resolve(okResponse({ count: 2 })) : new Promise(() => {}),
+    );
+    render(
+      <NotifBell
+        countPromise={seed.promise}
+        onBellState={(r: Report) => reports.push(r)}
+        viewerIsDeveloper={false}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-notif-bell"));
+    });
+    await act(async () => {
+      seed.resolve({ kind: "ok", count: 9 });
+      await seed.promise;
+    });
+
+    await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("2"));
+    // The LAST pair is what the parent reads at announce time. Not 9, the seed
+    // the claimed hook refused, and not null, the zero it passed through.
+    expect(reports.at(-1)).toEqual({ settled: true, announceable: 2 });
+  });
+
   it("reports the SELECTOR output, never the raw zero, when the panel opens first", async () => {
     const seed = deferred<BellCountResult>();
     const reports: Report[] = [];
@@ -284,8 +316,28 @@ describe("NotifBell aria-label is defined on bellAccessibleName", () => {
     const path = "components/admin/nav/NotifBell.tsx";
     const src = stripCommentsForFile(readFileSync(join(process.cwd(), path), "utf8"), path);
 
+    // Not merely "the identifier appears somewhere": the whole-diff review
+    // showed that a rebuilt label using concatenation could keep an unrelated
+    // reference elsewhere and pass. The assertion is on the aria-label
+    // EXPRESSION itself.
     expect(src).toContain("bellAccessibleName");
+    const labels = [...src.matchAll(/aria-label=\{([^}]*)\}/g)].map((m) => m[1]!.trim());
+    premiseHolds("NotifBell renders at least two aria-label expressions", labels.length >= 2);
+
+    const selectorLabels = labels.filter((expr) => expr.includes("bellAccessibleName("));
+    expect(
+      selectorLabels,
+      "exactly one aria-label (the non-degraded branch) must be the selector's caller",
+    ).toHaveLength(1);
+
+    // The degraded branch keeps its own Doug-facing name and must NOT be the
+    // selector's caller, so the count is not the whole story either way.
+    const degradedLabels = labels.filter((expr) => expr.includes("ADMIN_ALERT_COUNT_FAILED"));
+    expect(degradedLabels).toHaveLength(1);
+
+    // And no second implementation of the name survives anywhere in the file.
     expect(src).not.toContain("Notifications: ${");
+    expect(src).not.toMatch(/"Notifications: "|'Notifications: '/);
   });
 });
 
