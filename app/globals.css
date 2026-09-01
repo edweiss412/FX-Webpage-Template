@@ -1485,3 +1485,57 @@ details[open] > summary [data-agenda-day-count] {
     }
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FORCED COLORS.
+
+   Spec: docs/superpowers/specs/2026-09-01-forced-colors-pass.md.
+
+   THE RULE, which every addition below follows:
+
+     Outline is the durable carrier. `transparent` is the trap.
+
+     1. An affordance whose ONLY carrier is box-shadow, text-shadow or a gradient
+        has no existence under forced colors. It must gain an outline or border
+        carrier HERE. Changing the shadow's colour does not work and never will:
+        a box-shadow re-declared inside this block is dropped again.
+     2. An affordance whose OFF state is a transparent border or outline INVERTS:
+        the off state becomes visible. Name the off state here. Where the border's
+        width is load-bearing, because a sibling state declares the same border and
+        varies only its colour, name it by setting the colour to the background
+        system colour; where it is not, use `outline-style: none`. Never leave it
+        transparent, and never remove a width a sibling state depends on.
+     3. Two states differing ONLY in properties forced colors flattens are one
+        state, UNLESS something outside CSS separates them: a glyph, a different
+        label, an icon. ARIA alone does not count — this reader can see.
+     4. The three semantic slots are applied PER AFFORDANCE, at the selector that
+        means the thing. They are NOT tokens: this repo has no selected token, no
+        disabled token and no link token, and re-pointing a shared token recolours
+        every unrelated meaning it also paints.
+     5. `forced-color-adjust: none` is for content whose colour IS the information.
+        Every use gets a DESIGN.md row naming what the colour means.
+     6. Every rule here is UNLAYERED. A layered rule loses to app/globals.css:899.
+
+   THIS IS THE ONLY forced-colors block in the file, and a guard asserts it: a
+   second one would satisfy every per-rule assertion while splitting the pattern
+   in two.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (forced-colors: active) {
+  /* ShareHub crew-link cue (spec §5.1). Its two legs both die here: the ring is a
+     box-shadow, which a UA drops, and the background animates between two values
+     that force to one. What replaces them is a steady outline for the flash
+     window, ended by the attribute's removal rather than by the animation —
+     ShareHub clears it after SHARE_LINK_FLASH_MS, so the cue's duration is
+     unchanged and only its texture is.
+
+     `animation: none` because there is nothing left worth animating: an
+     outline-color pair whose endpoints both force to one value animates
+     invisibly, and a steady outline says "this just changed" as well as a fade
+     does. Section 5.3 records the same thing happening by accident to the
+     freshness cue, which is the evidence that it reads correctly. */
+  [data-share-link-flash] {
+    animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
