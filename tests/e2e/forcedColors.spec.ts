@@ -47,7 +47,14 @@ const FRESHNESS_FLASH_ATTR = "data-section-freshness-flash";
 
 let workDir: string;
 let server: Server;
-let origin: string;
+// Named `baseUrl` rather than `origin`, which is what it was called first. The
+// modal-wait census recognises a standalone harness navigation by the identifier
+// it navigates to (`tests/ci/modalWaitHelper/disposition.ts:304`), and this file
+// is exactly the class that rule already describes: a mkdtemp workdir served over
+// node:http, never the /admin loader. Adopting the house name puts these
+// navigations in the existing exclusion instead of teaching the recogniser a
+// ninth spelling of the same idea.
+let baseUrl: string;
 
 let repairPairs: RepairPair[] = [];
 
@@ -131,7 +138,7 @@ test.beforeAll(async () => {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("no server address");
-  origin = `http://127.0.0.1:${address.port}`;
+  baseUrl = `http://127.0.0.1:${address.port}`;
 });
 
 test.afterAll(async () => {
@@ -240,7 +247,7 @@ test.describe("forced colors", () => {
     page,
   }) => {
     await page.emulateMedia({ forcedColors: "active" });
-    await page.goto(origin);
+    await page.goto(baseUrl);
 
     // The cue's whole job. Before the repair this reads `none` for both legs: the
     // ring is a box-shadow, which a UA drops, and both background endpoints force
@@ -260,7 +267,7 @@ test.describe("forced colors", () => {
     page,
   }) => {
     await page.emulateMedia({ forcedColors: "active" });
-    await page.goto(origin);
+    await page.goto(baseUrl);
     await expect
       .poll(async () => (await paint(page, "fc-step3-flash")).outlineStyle)
       .not.toBe("none");
@@ -281,7 +288,7 @@ test.describe("forced colors", () => {
     page,
   }) => {
     await page.emulateMedia({ forcedColors: "active" });
-    await page.goto(origin);
+    await page.goto(baseUrl);
 
     // BOTH halves, because the spec's first draft got the idle one exactly
     // backwards: it claimed a permanent phantom outline on every freshness-capable
@@ -299,7 +306,7 @@ test.describe("forced colors", () => {
 
   test("AC-4d: forced colors AND reduced motion, where the two cues differ", async ({ page }) => {
     await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
-    await page.goto(origin);
+    await page.goto(baseUrl);
 
     // Asserted separately, because the transition table's first draft said both
     // cues show nothing here and that is true of only one of them.
@@ -327,7 +334,7 @@ test.describe("forced colors", () => {
     page,
   }) => {
     await page.emulateMedia({ forcedColors: "active" });
-    await page.goto(origin);
+    await page.goto(baseUrl);
 
     // Data-driven over the census's repair rows rather than over the spec's five
     // worked examples, which left twenty unasserted in an earlier draft. The class
@@ -379,7 +386,7 @@ test.describe("forced colors", () => {
     // is what let the engine gate silently turn both of its screenshots into the
     // same picture.
     await page.emulateMedia({ forcedColors: "none" });
-    await page.goto(origin);
+    await page.goto(baseUrl);
     await expect(bar).toBeVisible();
     const normal = await bar.screenshot();
 
@@ -411,7 +418,7 @@ test.describe("forced colors", () => {
     page,
   }) => {
     await page.emulateMedia({ forcedColors: "active" });
-    await page.goto(origin);
+    await page.goto(baseUrl);
     const button = page.getByTestId("fc-focus-idiom");
     await button.focus();
 
@@ -431,7 +438,7 @@ test.describe("forced colors", () => {
   });
 
   test("layout neutrality: no repair changes the size of what it repairs", async ({ page }) => {
-    await page.goto(origin);
+    await page.goto(baseUrl);
     const ids = [
       "fc-share-flash",
       "fc-step3-flash",
