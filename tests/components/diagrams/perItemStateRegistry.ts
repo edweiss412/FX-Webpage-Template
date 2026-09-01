@@ -207,6 +207,24 @@ export const PER_ITEM_STATE_REGISTRY: Record<string, Classification> = {
       "the phase transitions themselves: `onLoad` (any in-flight phase -> idle) and the retry-failure branch of `onError` (-> failed), both per item; the Embla `select` handler, which abandons a departing slide's retry; and the availability sweep via `sweepPhases`, so a slide going unavailable mid-flight cannot return holding an overlay (spec §4, §9.1). ONE value per item rather than parallel sets, so a phase disagreement is unrepresentable instead of guarded",
     sweep: { swept: true },
   },
+  "GalleryLightbox.tsx:checkInTimersRef": {
+    kind: "per-item",
+    clearedBy:
+      "the reconciling effect keyed on the swept phase map, which clears and drops any timer whose id is no longer `pending`. NOT the availability sweep: that runs during render and `react-hooks/refs` forbids a ref write there. The mount-scoped effect beside it owns clear-everything, because React runs a cleanup before every dependency-driven re-run and a clear-all cleanup would restart every other slide's window",
+    sweep: {
+      swept: false,
+      why: "reconciled against the live phase map in an effect, not by the render-phase sweep",
+    },
+  },
+  "GalleryLightbox.tsx:announcedCheckInRef": {
+    kind: "per-item",
+    clearedBy:
+      "the same reconciling effect, which drops an id once it leaves the phase map, so a genuine second entry announces again while a re-render does not",
+    sweep: {
+      swept: false,
+      why: "a latch reconciled in an effect beside the timers, for the same ref-write-in-render reason",
+    },
+  },
   "GalleryLightbox.tsx:retryingRefs": {
     kind: "per-item",
     clearedBy: "React, on unmount of each in-flight overlay (the ref callback stores null)",

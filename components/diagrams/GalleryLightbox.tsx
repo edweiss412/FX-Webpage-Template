@@ -363,6 +363,10 @@ export function GalleryLightbox({
   // Task 5 (spec §4). The lightbox's own copy of the retry machine; Task 2's is
   // gallery-only by design, so nothing here inherits from it.
   const [retryPhase, setRetryPhase] = useState<ReadonlyMap<string, RetryPhase>>(() => new Map());
+  /** Live check-in timers, one per in-flight item. Owned by the reconciler below. */
+  const checkInTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** Ids whose check-in has been spoken, so a re-render does not speak twice. */
+  const announcedCheckInRef = useRef(new Set<string>());
   const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
   // A mirror of `retrying`, read by the Embla `select` subscriber. That callback
   // is registered once and captures the `retrying` of the render that subscribed,
@@ -906,6 +910,78 @@ export function GalleryLightbox({
   if (sweptRetryPhase !== retryPhase) setRetryPhase(sweptRetryPhase);
   if (sweptWantsOriginal !== wantsOriginal) setWantsOriginal(sweptWantsOriginal);
 
+  // The check-in timers. TWO effects, and the split is the mechanism: React runs
+  // an effect cleanup before every dependency-driven re-run, so one effect that
+  // cleared every timer in its cleanup would restart every OTHER slide's window
+  // whenever any slide entered or left. The reconciler touches only the ids whose
+  // membership changed; the mount-scoped effect below owns clear-everything.
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "pending" || timers.has(id)) continue;
+      timers.set(
+        id,
+        setTimeout(() => {
+          // ONE functional update on the single source of truth. `prev` is live
+          // by React's contract, so this reads the CURRENT phase rather than the
+          // one captured when the timer was scheduled, and no-ops when the slide
+          // has gone or already resolved.
+          setRetryPhase((prev) => {
+            if (prev.get(id) !== "pending") return prev;
+            const next = new Map(prev);
+            next.set(id, "checked-in");
+            return next;
+          });
+        }, RETRY_CHECK_IN_MS),
+      );
+    }
+    for (const [id, handle] of timers) {
+      if (sweptRetryPhase.get(id) === "pending") continue;
+      clearTimeout(handle);
+      timers.delete(id);
+    }
+    for (const id of announcedCheckInRef.current) {
+      if (!sweptRetryPhase.has(id)) announcedCheckInRef.current.delete(id);
+    }
+  }, [sweptRetryPhase]);
+
+  useEffect(() => {
+    const timers = checkInTimersRef.current;
+    return () => {
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, []);
+
+  // The announcement, in a LAYOUT effect: a commit showing a slide checked-in is
+  // proof it WAS checked in at that commit. A passive effect scheduled by that
+  // commit still runs after an `onLoad` queued but not yet rendered.
+  //
+  // ACTIVE SLIDE ONLY, which is the lightbox's own difference from the gallery.
+  // Embla keeps every slide mounted, so an inactive slide announcing would speak
+  // for a diagram the user has not swiped to -- the same reason the shipped
+  // failure announcements are active-only.
+  useLayoutEffect(() => {
+    for (const [id, phase] of sweptRetryPhase) {
+      if (phase !== "checked-in" || announcedCheckInRef.current.has(id)) continue;
+      const index = items.findIndex((entry) => entry.id === id);
+      // ACTIVE SLIDE ONLY, and this line is DEFENCE IN DEPTH rather than a
+      // reachable branch today. The Embla `select` handler abandons a departing
+      // slide's retry, removing it from the phase map, so a slide cannot be both
+      // inactive and `checked-in` through any path the product offers: deleting
+      // this line changes no observable behaviour, and no test in this file
+      // discriminates it. Recorded rather than removed because the guarantee it
+      // rests on lives in a different handler, and a change there would make an
+      // inactive slide announce a diagram nobody has swiped to. Recorded rather
+      // than asserted because a test that cannot reach the branch would be
+      // measuring its own fixture.
+      if (index !== activeIndex) continue;
+      announcedCheckInRef.current.add(id);
+      const entry = items[index];
+      if (entry) onAnnounce?.(`${entry.alt || `Diagram ${index + 1}`} is still loading.`);
+    }
+  });
+
   // R1 finding 3. Four more members carry `swept: true` rows and none of them
   // were being swept. The registry's stated reason -- "the active-slide ERROR
   // path already resets it" -- is true and beside the point: going UNAVAILABLE
@@ -1135,15 +1211,27 @@ export function GalleryLightbox({
                         }
                       }}
                       aria-busy="true"
-                      aria-disabled="true"
+                      // `aria-disabled` only while the control does nothing. At
+                      // the check-in it does something. `aria-busy` stays true in
+                      // both: the request IS still in flight, and dropping it
+                      // would announce a completion that has not happened.
+                      {...(sweptRetryPhase.get(item.id) === "checked-in"
+                        ? {}
+                        : { "aria-disabled": "true" as const })}
                       onClick={(event) => event.preventDefault()}
-                      aria-label={`${item.alt || `Diagram ${i + 1}`} could not be loaded. Retrying…`}
+                      aria-label={
+                        sweptRetryPhase.get(item.id) === "checked-in"
+                          ? `${item.alt || `Diagram ${i + 1}`} is still loading. Restart.`
+                          : `${item.alt || `Diagram ${i + 1}`} could not be loaded. Retrying…`
+                      }
                       // `text-text` for DESIGN.md §1.1a: in-flight is not an
                       // action, but it is a button, and the rule's default for
                       // anything interactive is text or stronger.
                       className="absolute inset-x-0 top-2 z-dropdown mx-auto inline-flex min-h-tap-min w-fit items-center gap-1 rounded-sm bg-surface-raised px-3 py-2 text-sm font-medium text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                     >
-                      Retrying…
+                      {sweptRetryPhase.get(item.id) === "checked-in"
+                        ? "Still loading. Restart."
+                        : "Retrying…"}
                     </button>
                   ) : null}
                   {demotedNotice?.id === item.id &&
