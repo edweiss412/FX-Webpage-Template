@@ -107,7 +107,7 @@ box, free to be as tall as its content.
 <span class="flex flex-col gap-1"       ← wrapper, the grid item
       data-testid=…-diagram-cell-{i}>    ← its OWN handle; see §5.0
   <a|span data-testid={testId} …>         ← the box: aspect-4/3, chrome, image or icon
-  <span class="text-xs …truncate">        ← the NAME line, every state, same position
+  <span class="text-xs …line-clamp-2">    ← the NAME line, every state, same position
   <span class="text-xs/relaxed …">        ← the MESSAGE, failed states only
 </span>
 ```
@@ -145,8 +145,12 @@ explanation hangs below rather than displacing it.
   image's `alt` (`components/admin/wizard/step3ReviewSections.tsx:4242`).
 - **The message uses `text-xs/relaxed`** — the repo's class for copy that wraps. 35 uses at this
   commit, `rg -c 'text-xs/relaxed' components app | awk -F: '{n+=$2} END {print n}'`; 34 of them are
-  under `components/`. Example: `components/diagrams/GalleryLightbox.tsx:1568`. The name line uses plain `text-xs`; it is one
-  truncated line and never wraps.
+  under `components/`. Example: `components/diagrams/GalleryLightbox.tsx:1568`. The name line uses plain `text-xs` and is
+  clamped to TWO lines. It was one truncated line in the original design, which the impeccable gate
+  then measured as unreadable: the grid probe reports `name truncated` at 320 and 390, and the
+  copy-fit probe puts a realistic 21-character name at two lines even at 640. A cut-off name cannot
+  answer which diagram is dark, and `title` recovers it only on hover. Two lines, bounded, so one
+  pathological name still cannot push the grid around.
 - **The placeholder's border becomes `border-text-faint`**, matching the live box: 1.22-1.27:1 light
   becomes 3.02:1 light, over the 3:1 non-text floor. This is the P2 restyle the
   `DIAGRAMTILE-FAILURE-STATE-COPY-1` row folds in, and `DESIGN.md` §1.2a is the rule: a box filled
@@ -395,9 +399,10 @@ New coverage this spec owes, each stating the failure mode it catches:
       message's rect is contained in that ancestor's rect. That is the general form; 4 is the
       specific instance worth naming because it is the likely one.
 
-   The name line is exempt from 2 and 5 by design: it is `truncate`, so it is SUPPOSED to clip, and
-   its full value stays in the `title`. The assertion for it is that its `title` equals the
-   untruncated name.
+   The name line is clamped to two lines, so it is NOT exempt from 2 and 5: within those two lines
+   it must not clip, which is what `T-DIAGRAM-NAME` asserts by comparing the name's own
+   `scrollWidth`/`scrollHeight` against its client box at all four widths. Its `title` still carries
+   the full value, and a name past two lines is ellipsised as before.
 
    `docs/superpowers/specs/probes/2026-08-31-diagram-tile-grid-probe.mjs` is the shape of 1-3 and
    sets a non-zero exit code on a clipped message or a box off 4:3, verified by mutating its

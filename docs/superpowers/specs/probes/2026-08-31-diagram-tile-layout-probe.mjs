@@ -43,6 +43,10 @@ body{font-family:"Inter",ui-sans-serif,system-ui,sans-serif;font-optical-sizing:
   aspect-ratio:4/3;overflow:hidden;border:1px solid #000}
 .icon{width:16px;height:16px}
 .trunc{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The PROPOSED arm ships a two-line clamp, not a single ellipsised line. Arm (A)
+   below keeps .trunc because it models TODAY, which really was one line. */
+.nameNew{max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;
+  -webkit-line-clamp:2;overflow-wrap:break-word}
 .wrap{display:flex;flex-direction:column;gap:4px}
 .boxNew{aspect-ratio:4/3;display:grid;place-items:center;overflow:hidden;border:1px solid #000}
 </style></head><body><div id="out"></div></body></html>`);
@@ -87,7 +91,7 @@ const rows = await page.evaluate(
       ]) {
         const el = mk(
           `<div class="wrap"><span class="boxNew"><span class="icon"></span></span>` +
-            `<span class="xs trunc" style="display:block">${NAME}</span>` +
+            `<span class="xs nameNew" style="display:block">${NAME}</span>` +
             (msg ? `<span class="xsr" style="display:block">${msg}</span>` : "")+
             `</div>`,
           w,
