@@ -58,6 +58,7 @@ import {
   Receipt,
   Sparkles,
   Theater,
+  TriangleAlert,
   Truck,
   Users,
   Video,
@@ -4077,6 +4078,39 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
 export const DIAGRAM_TILE_CAP = 12;
 
 /**
+ * What a tile is showing, which is three things and not two.
+ *
+ * `absent` and `load-failed` were one boolean until 2026-08-31, so both said
+ * "Preview unavailable" and wore the same glyph. They are different facts about
+ * the show and they need different things from the person reading them: a
+ * diagram that is not in the snapshot will not reach the crew page and someone
+ * has to go and add it, while one whose thumbnail failed to render will publish
+ * exactly as it is and needs nothing. Merged, the tile said neither.
+ *
+ * The two are reached by different paths and can never be confused: `absent` is
+ * SEEDED, before any request is made, from a source that does not resolve;
+ * `load-failed` is only ever WRITTEN, by a real error on an image that mounted.
+ */
+export type DiagramTileState = "live" | "absent" | "load-failed";
+
+/** The seed and the reconcile share one rule, so a source that comes and goes
+ *  moves the tile the same way every time. `load-failed` is deliberately NOT
+ *  reachable here: it is a fact about a request, and the seed has made none. */
+const diagramTileStateFor = (hasPreviewSource: boolean): DiagramTileState =>
+  hasPreviewSource ? "live" : "absent";
+
+/** The two ratified sentences (DEFERRED.md DIAGRAMTILE-FAILURE-STATE-COPY-1,
+ *  ratified 2026-08-28). Each one names what happened and then what it means
+ *  for publishing, because that second half is the part the reader acts on.
+ *  Straight apostrophes: the ratified strings carry them, and this file holds
+ *  curly ones elsewhere, so the corpus is mixed and the spec settles it rather
+ *  than leaving it to whoever types the next string. */
+const DIAGRAM_TILE_FAILURE_COPY: Record<"absent" | "load-failed", string> = {
+  absent: "Not captured. Won't appear on the crew page.",
+  "load-failed": "Preview couldn't load. The diagram will still publish.",
+};
+
+/**
  * One thumbnail tile: a `next/image` driven by a CALLER-SUPPLIED loader, with
  * the onError placeholder unchanged.
  *
@@ -4126,7 +4160,7 @@ export function DiagramTile({
    *  focus and announces; the tile owns only its own render. */
   onFailure?: (node: HTMLAnchorElement | null) => void;
 }) {
-  const [failed, setFailed] = useState(!hasPreviewSource);
+  const [state, setState] = useState<DiagramTileState>(diagramTileStateFor(hasPreviewSource));
   /** The live anchor, readable from the `onError` closure. */
   const anchorNodeRef = useRef<HTMLAnchorElement | null>(null);
   /**
@@ -4155,7 +4189,7 @@ export function DiagramTile({
     lastSource.sourceKey !== sourceKey
   ) {
     setLastSource({ hasPreviewSource, href, sourceKey });
-    setFailed(!hasPreviewSource);
+    setState(diagramTileStateFor(hasPreviewSource));
   }
   const strippedAlt = stripNewTabSuffix(alt);
   /**
@@ -4189,14 +4223,22 @@ export function DiagramTile({
         {strippedAlt}
       </span>
     ) : null;
-  if (failed) {
+  if (state !== "live") {
     return (
       <span className="flex flex-col gap-1" data-testid={cellTestId}>
         <span
           data-testid={testId}
           className="grid aspect-4/3 w-full place-items-center overflow-hidden rounded-md border border-text-faint bg-surface-sunken"
         >
-          <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
+          {/* The glyph carries the state, and it is the SHAPE that carries it:
+              same size, same ramp in both, so the two are told apart by
+              anyone who cannot tell the two colours apart either. Same
+              color-blind-safe reasoning as BellPanel's severity icons. */}
+          {state === "absent" ? (
+            <TriangleAlert aria-hidden="true" className="size-4 text-text-subtle" />
+          ) : (
+            <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
+          )}
         </span>
         {caption(true)}
         {/* The message is addressed by its OWN attribute rather than a testid:
@@ -4205,7 +4247,7 @@ export function DiagramTile({
             make it unable to fail when the sentence is wrong.
             `[data-attention-anchor]` in this file is the same pattern. */}
         <span data-diagram-message className="text-xs/relaxed text-text-subtle">
-          Preview unavailable
+          {DIAGRAM_TILE_FAILURE_COPY[state]}
         </span>
       </span>
     );
@@ -4283,7 +4325,7 @@ export function DiagramTile({
            active element against. */
           onError={() => {
             onFailure?.(anchorNodeRef.current);
-            setFailed(true);
+            setState("load-failed");
           }}
           className="object-cover"
         />

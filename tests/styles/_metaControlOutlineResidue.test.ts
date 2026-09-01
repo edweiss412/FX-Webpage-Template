@@ -1561,7 +1561,12 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // for them near the top. Located on the live tree by the same rounded-pill
       // border-border <span>, not by applying the delta.
       // Relocated on the ref-error-cell-anchors merge; same rounded-pill count span.
-      "components/admin/wizard/step3ReviewSections.tsx:2456",
+      // 2456 -> 2457 on Task 3 of docs/superpowers/plans/2026-08-31-diagram-tile-states.md,
+      // which added ONE `TriangleAlert` line to that file's lucide import. Located on
+      // the shifted tree, not bumped: 2457 is PackCountPill's pill <span>, carrying
+      // `border border-border`, and `git show HEAD:<file>` puts the same element at
+      // 2456 before the edit.
+      "components/admin/wizard/step3ReviewSections.tsx:2457",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

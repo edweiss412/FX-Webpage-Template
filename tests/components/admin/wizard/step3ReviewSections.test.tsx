@@ -81,6 +81,10 @@ import {
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow, show, STEP3_FIXTURE_WSID } from "./_step3ReviewFixture";
+import {
+  DIAGRAM_TILE_COPY,
+  DIAGRAM_TILE_FAILURE_SENTENCES,
+} from "../../../_shared/diagramTileCopy";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an
 // effect; no test here renders it (the hideDot modal tests use an empty
@@ -817,7 +821,7 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     );
     const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
     expect(
-      within(scoped.getByTestId(`${CELL_PREFIX}0`)).getByText("Preview unavailable"),
+      within(scoped.getByTestId(`${CELL_PREFIX}0`)).getByText(DIAGRAM_TILE_COPY.absent),
     ).toBeTruthy();
     expect(tile.querySelector("img")).toBeNull();
     expect(container.querySelectorAll("img").length).toBe(0);
@@ -844,12 +848,14 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     const mediaTile = scoped.getByTestId(`${TILE_PREFIX}0`);
     expect(mediaTile.tagName).toBe("A");
     expect(mediaTile.querySelector("img")).not.toBeNull();
-    expect(
-      within(scoped.getByTestId(`${CELL_PREFIX}0`)).queryByText("Preview unavailable"),
-    ).toBeNull();
+    // Neither sentence, not just one of them: asserting the absence of ONE
+    // stopped discriminating the moment there were two.
+    for (const sentence of DIAGRAM_TILE_FAILURE_SENTENCES) {
+      expect(within(scoped.getByTestId(`${CELL_PREFIX}0`)).queryByText(sentence)).toBeNull();
+    }
     const restageTile = scoped.getByTestId(`${TILE_PREFIX}1`);
     expect(
-      within(scoped.getByTestId(`${CELL_PREFIX}1`)).getByText("Preview unavailable"),
+      within(scoped.getByTestId(`${CELL_PREFIX}1`)).getByText(DIAGRAM_TILE_COPY.absent),
     ).toBeTruthy();
     expect(restageTile.querySelector("img")).toBeNull();
     // Guard condition (§A4): non-servable stubs still count in summary/cap math.

@@ -361,7 +361,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4203 -> 4223 on Task 2 of the same plan, which lifted the caption out of the
     // box and added the shared `caption()` helper above both branches. Located the
     // same way, by running the scanner: one unclassified site, 4223, still that `<a>`.
-    line: 4223,
+    // 4223 -> 4265 on Task 3, which added the state union, the ratified copy record
+    // and one lucide import line above this element. Located the same way: the
+    // scanner reports one unclassified site in this file, 4265, and it is still that
+    // same tile anchor. Same element, same reason below.
+    line: 4265,
     tag: "a",
     category: "full-bleed",
     reason:

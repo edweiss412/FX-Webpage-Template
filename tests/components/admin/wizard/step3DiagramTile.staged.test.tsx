@@ -29,6 +29,7 @@ import { DiagramTile, DiagramsBreakdown } from "@/components/admin/wizard/step3R
 import { DIAGRAM_TILE_SIZES } from "@/components/admin/wizard/diagramTileGeometry";
 import type { EmbeddedImageStub, ParseResult } from "@/lib/parser/types";
 import { premise, premiseHolds } from "../../../_shared/premise";
+import { DIAGRAM_TILE_COPY } from "../../../_shared/diagramTileCopy";
 
 const DFID = "drive-file-staged";
 const WSID = "wizard-session-staged";
@@ -177,7 +178,8 @@ describe("staged wizard diagram tile — transition inventory", () => {
       stagedStub({ objectId: `staged-obj-unavailable-${label.length}`, ...over }),
     ]);
     const cell = scoped.getByTestId(CELL(0));
-    expect(within(cell).getByText("Preview unavailable")).toBeTruthy();
+    // The staged predicate rejected the source before any request, so ABSENT.
+    expect(within(cell).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 
@@ -192,7 +194,7 @@ describe("staged wizard diagram tile — transition inventory", () => {
     const cell = scoped.getByTestId(CELL(0));
     premiseHolds(
       "the tile is on the placeholder branch, which is the branch under test",
-      within(cell).queryByText("Preview unavailable") !== null,
+      within(cell).queryByText(DIAGRAM_TILE_COPY.absent) !== null,
     );
     // Selected by `title`, not by a testid: a testid derived from the tile's
     // own would be counted as a tile by the `[data-testid^="…-diagram-tile-"]`
@@ -227,7 +229,7 @@ describe("staged wizard diagram tile — transition inventory", () => {
         hasPreviewSource={false}
       />,
     );
-    expect(within(getByTestId("noname-cell")).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(getByTestId("noname-cell")).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();
     expect(container.querySelector("[title]")).toBeNull();
   });
 
@@ -239,7 +241,8 @@ describe("staged wizard diagram tile — transition inventory", () => {
     fireEvent.error(img!);
 
     const cell = scoped.getByTestId(CELL(0));
-    expect(within(cell).getByText("Preview unavailable")).toBeTruthy();
+    // Reached by a real error on a mounted image, so LOAD-FAILED.
+    expect(within(cell).getByText(DIAGRAM_TILE_COPY.loadFailed)).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
     // The BOX is still what swaps element type; only the message moved out.
     expect(scoped.getByTestId(TILE(0)).tagName).toBe("SPAN");
@@ -261,7 +264,8 @@ describe("staged wizard diagram tile — transition inventory", () => {
 
     fireEvent.error(img!);
     const cell = scoped.getByTestId(CELL(0));
-    expect(within(cell).getByText("Preview unavailable")).toBeTruthy();
+    // Reached by a real error on a mounted image, so LOAD-FAILED.
+    expect(within(cell).getByText(DIAGRAM_TILE_COPY.loadFailed)).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 });

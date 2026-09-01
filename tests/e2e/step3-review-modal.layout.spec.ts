@@ -1349,3 +1349,170 @@ for (const { w, h, cols } of TILE_VIEWPORTS) {
     ).toBeLessThanOrEqual(TOL);
   });
 }
+
+/**
+ * AC-7b, the `absent` arm: the ratified sentence is READABLE in a real browser.
+ *
+ * Its five clauses exist because "the message moved out of the box" is not the
+ * property anyone cares about — "the reviewer can read the whole sentence at
+ * 320px" is, and an element can satisfy the first while failing the second in
+ * five different ways. Each clause is one of them.
+ *
+ * Clause 1 is why the font gate in `openHarness` is load-bearing rather than
+ * incidental: it compares the message against ONE line-height, and a fallback
+ * face resolves to a different one, so measuring before `document.fonts.ready`
+ * fails in the direction that PASSES.
+ *
+ * Split across two specs on the hydration boundary, which is not a preference:
+ * this harness renders `renderToStaticMarkup`, so `onError` is never attached
+ * and `load-failed` is unreachable here at all. Its arm is in
+ * tests/e2e/step3-review-modal.interactions.spec.ts, against the live bundle.
+ */
+for (const { w, h } of TILE_VIEWPORTS) {
+  test(`T-DIAGRAM-MESSAGE AC-7b: the absent sentence is readable @ ${w}px`, async ({ page }) => {
+    await openHarness(page, { width: w, height: h });
+
+    // Scroll the message into view BEFORE measuring, and the reason is that
+    // clause 5 ranges over every ancestor whose overflow is not `visible` —
+    // which includes the modal's own scroll container
+    // (`…-review-content`, overflow auto/auto). A scrollable ancestor does not
+    // CLIP the content below its fold; it holds it one scroll away, which is
+    // the whole point of a scroller. Measured at the default scroll position
+    // the diagram grid sits ~4200px down and every containment check fails
+    // against a scroll offset rather than against any clipping. Scrolling first
+    // asks the question clause 5 is actually for: with the tile in view, is the
+    // sentence whole? The walk itself is unnarrowed — `auto` ancestors are
+    // still checked, and a genuine `hidden` clip still fails.
+    const failedCell = page.locator(
+      `[data-testid="wizard-step3-card-${HARNESS_DFID}-diagram-cell-${
+        SERVABLE_DIAGRAM_INDEX === 0 ? 1 : 0
+      }"] [data-diagram-message]`,
+    );
+    await failedCell.scrollIntoViewIfNeeded();
+
+    // ONE evaluate: the message rect, its own scroll metrics, and every
+    // clipping ancestor's rect, all from a single layout frame. Compared across
+    // two frames, containment is not a measurement of anything.
+    const m = await page.evaluate(
+      ({ dfid, servable }) => {
+        const failedIndex = servable === 0 ? 1 : 0;
+        const box = document.querySelector(
+          `[data-testid="wizard-step3-card-${dfid}-diagram-tile-${failedIndex}"]`,
+        );
+        const cell = document.querySelector(
+          `[data-testid="wizard-step3-card-${dfid}-diagram-cell-${failedIndex}"]`,
+        );
+        const msg = cell?.querySelector("[data-diagram-message]") ?? null;
+        if (!box || !cell || !msg) return null;
+        const cs = getComputedStyle(msg);
+        const r = (e: Element) => {
+          const b = e.getBoundingClientRect();
+          return { top: b.top, left: b.left, right: b.right, bottom: b.bottom, h: b.height };
+        };
+        // Every ancestor that could clip: computed overflow other than
+        // `visible` on either axis. Walking to <html> rather than to the panel,
+        // because a clipping ancestor anywhere on the chain clips.
+        // The walk STOPS at the first `position: fixed` ancestor, inclusive.
+        // Overflow clips a descendant only when that ancestor is in the
+        // descendant's containing-block chain, and a fixed element's containing
+        // block is the viewport — so nothing ABOVE the fixed modal panel can
+        // clip anything inside it. Measured rather than assumed: this live page
+        // puts `overflow: hidden` on a <body> whose own rect is 0px tall,
+        // because the only thing in it is the fixed panel. Walking past the
+        // panel reported that body as a clipper and failed every containment
+        // check against a rect that clips nothing.
+        //
+        // Documented limit: an `absolute` descendant can likewise escape a
+        // static ancestor's overflow, and that is not modelled. Nothing between
+        // the message and the panel is absolutely positioned; if something ever
+        // is, this walk OVER-reports and fails loudly, which is the direction a
+        // guard should be wrong in.
+        const clippers: { tag: string; overflow: string; rect: ReturnType<typeof r> }[] = [];
+        for (let n = msg.parentElement; n; n = n.parentElement) {
+          const s = getComputedStyle(n);
+          if (s.overflowX !== "visible" || s.overflowY !== "visible") {
+            clippers.push({
+              tag: `${n.tagName.toLowerCase()}[${n.getAttribute("data-testid") ?? ""}]`,
+              overflow: `${s.overflowX}/${s.overflowY}`,
+              rect: r(n),
+            });
+          }
+          if (s.position === "fixed") break;
+        }
+        return {
+          text: (msg.textContent ?? "").trim(),
+          insideBox: box.contains(msg),
+          display: cs.display,
+          visibility: cs.visibility,
+          lineClamp: cs.webkitLineClamp,
+          lineHeight: parseFloat(cs.lineHeight),
+          msgRect: r(msg),
+          scrollH: (msg as HTMLElement).scrollHeight,
+          clientH: (msg as HTMLElement).clientHeight,
+          clippers,
+        };
+      },
+      { dfid: HARNESS_DFID, servable: SERVABLE_DIAGRAM_INDEX },
+    );
+
+    expect(m, `the failed cell and its message resolve @ ${w}px (premise)`).not.toBeNull();
+    const d = m!;
+    // Premise: this really is the ABSENT arm. Asserting the sentence rather
+    // than the state, because the state is not observable from here and the
+    // sentence is what distinguishes the two.
+    expect(d.text, `the failed tile is in the ABSENT state @ ${w}px (premise)`).toBe(
+      "Not captured. Won't appear on the crew page.",
+    );
+    expect(
+      Number.isFinite(d.lineHeight) && d.lineHeight > 0,
+      `a real line-height resolved (${d.lineHeight}) @ ${w}px (premise)`,
+    ).toBe(true);
+
+    // Clause 1: MORE than one line-height. At 320 and 390 the ratified sentence
+    // needs 6 and 4 lines against a 74.0px and 97.3px tile (spec §2), so a
+    // one-line result at any of these viewports means the sentence is being
+    // truncated, clamped, or measured against the wrong face.
+    expect(
+      d.msgRect.h,
+      `the message wraps past one line (${d.msgRect.h} vs line-height ${d.lineHeight}) @ ${w}px`,
+    ).toBeGreaterThan(d.lineHeight + TOL);
+
+    // Clause 2: nothing of its own is scrolled away.
+    expect(
+      d.scrollH - d.clientH,
+      `the message is not clipped by its own scroll box (${d.scrollH} vs ${d.clientH}) @ ${w}px`,
+    ).toBeLessThanOrEqual(TOL);
+
+    // Clause 3: rendered, and not clamped to a line count.
+    expect(d.display, `the message is not display:none @ ${w}px`).not.toBe("none");
+    expect(d.visibility, `the message is visible @ ${w}px`).toBe("visible");
+    expect(["none", "", "auto"], `the message is not line-clamped @ ${w}px`).toContain(d.lineClamp);
+
+    // Clause 4: outside the aspect box. This is the one the move bought, and
+    // the box is `overflow-hidden`, so inside it the four above can all hold
+    // and the sentence still be cut in half.
+    expect(d.insideBox, `the message is NOT inside the overflow-hidden box @ ${w}px`).toBe(false);
+
+    // Clause 5: contained in EVERY clipping ancestor, not just the nearest.
+    // The nearest one passing while a grandparent cuts the last line is exactly
+    // the shape a single-ancestor check misses.
+    for (const c of d.clippers) {
+      expect(
+        d.msgRect.top,
+        `message top ${d.msgRect.top} inside ${c.tag} (${c.overflow}) top ${c.rect.top} @ ${w}px`,
+      ).toBeGreaterThanOrEqual(c.rect.top - TOL);
+      expect(
+        d.msgRect.bottom,
+        `message bottom ${d.msgRect.bottom} inside ${c.tag} (${c.overflow}) bottom ${c.rect.bottom} @ ${w}px`,
+      ).toBeLessThanOrEqual(c.rect.bottom + TOL);
+      expect(
+        d.msgRect.left,
+        `message left ${d.msgRect.left} inside ${c.tag} (${c.overflow}) left ${c.rect.left} @ ${w}px`,
+      ).toBeGreaterThanOrEqual(c.rect.left - TOL);
+      expect(
+        d.msgRect.right,
+        `message right ${d.msgRect.right} inside ${c.tag} (${c.overflow}) right ${c.rect.right} @ ${w}px`,
+      ).toBeLessThanOrEqual(c.rect.right + TOL);
+    }
+  });
+}

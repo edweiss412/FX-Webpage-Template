@@ -26,6 +26,10 @@ import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import { PublishedDiagramsBreakdown } from "@/components/admin/wizard/step3ReviewSections";
 import { premise, premiseHolds } from "../../../_shared/premise";
+import {
+  DIAGRAM_TILE_COPY,
+  DIAGRAM_TILE_FAILURE_SENTENCES,
+} from "../../../_shared/diagramTileCopy";
 
 const SHOW_ID = "33333333-3333-4333-8333-333333333333";
 const REV = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -210,7 +214,7 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     ["a MIME outside the allowed set", { mimeType: "application/pdf" }],
   ])("published servability gate (%s): placeholder, and NO image element", (_label, over) => {
     const { scoped, container } = renderPublished(over);
-    expect(within(scoped.getByTestId(CELL0)).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(scoped.getByTestId(CELL0)).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 
@@ -225,7 +229,7 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     const { container, getByTestId } = render(
       <PublishedDiagramsBreakdown showId={SHOW_ID} driveFileId={DRIVE_FILE_ID} diagrams={column} />,
     );
-    expect(within(getByTestId(CELL0)).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(getByTestId(CELL0)).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
     // And nothing anywhere in the rendered tree carries the doubled slash.
     const urlBearing = Array.from(container.querySelectorAll("[src],[href]"))
@@ -274,7 +278,11 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     // them, which the consequence bound forbids in its own words.
     const after = scoped.getByTestId(TILE0).querySelector("img");
     expect(after).not.toBeNull();
-    expect(within(scoped.getByTestId(CELL0)).queryByText("Preview unavailable")).toBeNull();
+    // Neither sentence, not just one of them: asserting the absence of ONE
+    // stopped discriminating the moment there were two.
+    for (const sentence of DIAGRAM_TILE_FAILURE_SENTENCES) {
+      expect(within(scoped.getByTestId(CELL0)).queryByText(sentence)).toBeNull();
+    }
     expect(new Set(srcsetCandidates(after!))).toEqual(
       new Set(ladder().map((row) => assetUrl(row.key))),
     );
