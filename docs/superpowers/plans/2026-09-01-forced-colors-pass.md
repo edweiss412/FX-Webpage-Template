@@ -8,6 +8,8 @@ The spec's criteria are declared in its §7 and are covered here by the map belo
 not re-declared. Every count in this plan is either a run output pasted under its
 command or a command the reader can run; none is retyped from the spec.
 
+<!-- self-reference: checked -->
+
 ## Acceptance-criteria coverage map
 
 The criteria are declared in the sibling spec's §7, not here, so this map is how
@@ -16,18 +18,18 @@ spec-declared ids and the set covered below are equal, neither typed.
 
 | AC | Covered by |
 | --- | --- |
-| AC-1 | Task 3 and Task 4 (the cue), Task 13 (its layout half) |
+| AC-1 | Task 3, which wires the harness and repairs the share-link cue in one task; Task 13 for its layout half |
 | AC-2 | Task 4 |
 | AC-3 | Task 5, both halves — the idle half is the one §5.3's first draft got backwards |
 | AC-4 | Task 6, data-driven over every repair row |
 | AC-4b | Task 2 (the census and its two literals), Task 6 (the repairs) |
-| AC-4c | Task 2 (Arm 1 emits the CANNOT-DECIDE set; the pin is its exact-count literal) |
+| AC-4c | Task 2, a characterization task (Arm 1 emits the CANNOT-DECIDE set; the pin is its exact-count literal, with a planted `aria-current:bg-accent` fixture proving it grows) |
 | AC-4d | Task 5 (the compound forced-colors + reduced-motion state, both cues) |
-| AC-5 | Task 7, pixels in Playwright plus the cross-engine half in the mechanism probe |
+| AC-5 | Task 7: pixels in Playwright, and the cross-engine half in the mechanism probe |
 | AC-6 | Task 12, the focus pin — no `red=`, validated by four planted defects |
 | AC-7 | Tasks 1 and 2 |
-| AC-8 | Task 4 |
-| AC-9 | Task 11 |
+| AC-8 | Task 11, a pin: the block is already unlayered when it runs |
+| AC-9 | Task 10 |
 
 AC-4c and AC-6 sit on tasks outside the red-contract region, which is why they
 carry no `ac=` marker and appear only here. That is the point of the map: a
@@ -76,11 +78,25 @@ by reading" into "every site of this shape", and running it before the repairs
 means the repair list is derived rather than trusted. It also gives every later
 task its RED.
 
-<!-- tasks: depth=2 red-contract -->
+## Tasks 1 and 2 are characterization, and carry no `red=`
+
+Four review rounds landed findings on RED validity, and round 4 named the shape
+rather than another instance: these two tasks derive their red from a module that
+does not exist yet, which is the form this repo calls invalid outright — a failure
+that comes from an unresolved import goes green when the TEST file changes, not
+when an implementation lands.
+
+That is not a defect in how they were written. It is true of every scanner task by
+construction: the production surface under test IS the scanner, so there is no
+production defect for its own test to fail on. A red-then-green cycle cannot exist
+here, and four rounds of trying to phrase one produced four wrong phrasings.
+
+So they sit outside the red-contract region with the pins, and their discriminating
+power is established the way the pins' is: by planting the defect each exists to
+catch and recording the result in the task's commit. Each task below names its
+plants. That closes the vector rather than moving it.
 
 ## Task 1 — Arm 2, carrier loss over the source stylesheet
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`tests/styles/forcedColorsScan.ts` why=`the module does not exist, so the suite cannot import scanCarrierLoss and every case fails on the missing export` ac=AC-7 -->
-
 Parse the SOURCE `app/globals.css` with postcss (the
 `tests/styles/_metaZIndexBands.test.ts:35` mechanism). Two closed criteria, spec §4.1:
 
@@ -95,8 +111,12 @@ Parse the SOURCE `app/globals.css` with postcss (the
 
 Source and not compiled, carried as this suite's own case: the same criterion over
 compiled output reports an order of magnitude more, every extra one a Tailwind
-`.shadow-*` or `.ring-*` utility. Both inventory cases PRINT their rows, so the
-spec cites a command rather than a count.
+`.shadow-*` or `.ring-*` utility. Both inventory cases PRINT their rows, so the spec cites a command rather than a
+count. **And a third case ASSERTS**, which the printing ones do not: the live A2a
+and A2b sets minus the census are empty. Round 4 finding 4 caught that printing is
+not gating — a contributor adding a new carrier-loss rule to `app/globals.css`
+would see it reported and nothing would fail. Its plant: add a rule declaring only
+`box-shadow`, observe RED.
 
 Premise: `premiseHolds` that the parsed source contains
 `@keyframes share-link-flash-ring` before any emptiness assertion. A scanner handed
@@ -107,15 +127,13 @@ a rule with a dropped carrier AND a surviving one is not reported; the same rule
 without the surviving one is.
 
 ## Task 2 — Arm 1, state collapse, the census, and the cannot-decide set
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`tests/styles/forcedColorsScan.ts` why=`projectPath and findCollisions do not exist, so the case asserting CrewSubNav's two tab paths share a projection fails on the missing export` ac=AC-7,AC-4c -->
-
 `scanInteractiveElements` (`tests/styles/interactiveScanCore.ts:1067`) with
 `{ textEntry: true, paintedChildren: true }` and a REQUIRED `onUnresolvedComponent`
 sink; the Tailwind design system (`tests/styles/controlOutlineResidue.ts:146`) for
 what each token emits, scanning the candidate's own rule after stripping the
 `@property` blocks it returns alongside.
 
-The census is the disposition above, transcribed: 25 repair rows and 17 census rows
+The census is the disposition above, transcribed: 14 repair rows and 28 census rows
 with their reasons. Two literals pin it — the family sum against the arm's output,
 and an exact row count — because a census that silently grows passes a subset
 assertion.
@@ -123,6 +141,8 @@ assertion.
 The CANNOT-DECIDE set (AC-4c) is the unresolved-component sink plus single-path
 elements carrying state variants. Its anti-tautology case: adding a fixture element
 with `aria-current:bg-accent` on an unconditional string must make it grow.
+
+<!-- tasks: depth=2 red-contract -->
 
 ## Task 3 — the e2e harness, wired, and the share-link cue it proves
 <!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1143` why=`app/globals.css has no forced-colors block, so under emulateMedia forcedColors active the share-link ring computes box-shadow none with no outline and the AC-1 case this task writes fails until the same task adds the block` ac=AC-1 -->
@@ -184,7 +204,7 @@ ordinary case and wrong in the compound one, which is exactly what AC-4d measure
 ## Task 6 — the state-collapse repairs, and AC-4 over every one of them
 <!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`components/crew/CrewSubNav.tsx:93` why=`the active and inactive tab paths compute identical border-color under forced colors, so the AC-4 case fails for that row until the block paints the selected state` ac=AC-4,AC-4b -->
 
-The repair set is the disposition's 25 Repair rows.
+The repair set is the disposition's 14 Repair rows.
 
 **AC-4 is data-driven over those rows, and each row carries its own BINDING.** Plan
 review R2 finding 7 was that asserting only the spec's five worked examples left the
@@ -206,10 +226,23 @@ readings to differ in at least one property that survives. Failing to RESOLVE th
 locator is a failure, not a skip — that is what stops a fixture standing in for the
 component.
 
-Fourteen rows need fourteen bindings, which is real work and is why the repair set
-being fourteen rather than twenty-five matters. Two components need a `data-testid`
-they do not have today (`AdminNav`'s nav links and `EventFilters`' level buttons);
-adding those is part of this task.
+**Thirteen of the fourteen already have their locator**, which is the field most
+easily faked by a fixture, so the binding work is smaller than it looks. Audited
+rather than assumed: `picker-role-chip`; the four
+`wizard-step3-card-<dfid>-review-{rail,chip}-item-<id>` ids covering the rail items
+and pills and, through them, the two labels; `change-feed-undo`;
+`admin-bottom-tab-<item.id>`; `dashboard-bucket-active` and
+`dashboard-bucket-archived`; `filter-level-<lvl>`; and `data-section=<id>` on each
+tab inside `data-testid="crew-sub-nav"`.
+
+ONE needs a locator added: the DESKTOP nav links at
+`components/admin/nav/AdminNav.tsx:236`. Its mobile twin at
+`components/admin/nav/AdminNav.tsx:301` already has one. An earlier draft named
+`EventFilters` as needing one, and it has carried
+`filter-level-<lvl>` at `components/admin/telemetry/EventFilters.tsx:100` all
+along; it also named `AdminNav` without saying which of its two nav surfaces. Both
+errors came from asserting a fact about live code without grepping it, in the same
+commit that claimed every component had been re-read.
 
 Off-states are named by setting the colour to the background system colour, NOT by
 `border-style: none`: both paths declare the border and vary only its colour, so
@@ -241,32 +274,27 @@ selector would coexist with a green case — the probe would be measuring its ow
 fixture. The mechanism probe already compiles `app/globals.css` for its cascade
 arm; the progress case reuses that compiled output and renders a `<progress>`
 carrying the shipped `data-testid` values, so the selector under test is the one
-that ships. A constructed fixture is excluded as proof of the live tree by this
-arc's own probe-domain rule, and that rule applies to the arc's own probes.
+that ships. A constructed fixture is excluded as proof of the live tree by this arc's own
+probe-domain rule, and that rule applies to the arc's own probes.
 
-## Task 8 — AC-8, every rule the pass adds is unlayered
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:899` why=`no case compiles the stylesheet and asserts the forced-colors rules are unlayered, so moving the block into @layer base would go unnoticed; the case fails until it exists and is pointed at the compiled output` ac=AC-8 -->
+**The probe gains an ASSERTION and a non-zero exit, which it does not have today.**
+Round 4 finding 4: `scripts/probes/forced-colors-mechanism.mjs` logs observations
+and exits 0 whatever it sees, so naming it as AC-5's Firefox owner would leave that
+half unguarded — deleting the live -moz-progress-bar fill would keep the Playwright
+command green and the probe silent. The progress case requires a fill
+distinguishable from the track in BOTH engines and exits non-zero when it is not,
+which makes the probe a command this task can be red on. Its plant is the same
+fill-only deletion, run per engine.
 
-AC-8 had no described assertion for three rounds: the coverage map named Task 4,
-which only instructs the implementer to place the block. Plan review R3 finding 5.
-Placing it correctly is not verifying it, and the cascade table is the reason this
-matters — a layered rule loses silently and renders exactly like a missing one.
+## Task 8 — the documented limits that need a row
+<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1224` why=`the freshness reduced-motion arm is an A2a hit that Task 1 dispositions as a repair candidate, and no census row records it as a deliberate limit, so the case asserting every A2a row is either repaired or carries a limit row fails on that row` ac=AC-3 -->
 
-The case compiles `app/globals.css` (the `tests/styles/_metaZIndexBands.test.ts:164`
-shell-out, which honours the `@source not` exclusions) and parses the result with
-postcss, asserting that every rule inside a `forced-colors` at-rule has no `@layer`
-ancestor.
+Spec §6's transition inventory and §8's limits 7 and 8, as census rows with
+reasons. The reduced-motion freshness arm is an A2a hit rather than an A2b one, and
+an earlier draft called it A2b; round 4 caught that the stated test could not fail
+for the stated reason.
 
-Planted defect, run and recorded in this commit: wrap the block in `@layer base`,
-observe RED, unwrap. Without it the case passes the moment it is authored and
-proves nothing, since the block is already unlayered when this task runs.
-
-## Task 9 — the documented limits that need a row
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1224` why=`the freshness reduced-motion arm sets outline-color transparent and no census row records it as a deliberate limit, so the case asserting every A2b row is either repaired or carries a limit row fails on that row` ac=AC-3 -->
-
-Spec §6's transition inventory and §8's limits 7 and 8, as census rows with reasons.
-
-## Task 10 — mutation enrolment
+## Task 9 — mutation enrolment
 <!-- task: red=`pnpm vitest run tests/mutation/source/registryMembership.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:4273` why=`no GUARD_SURFACES row names tests/styles/forcedColorsScan.ts, so the membership suite does not carry the surface and the case asserting it is enrolled fails` ac=AC-7 -->
 
 Before the first DIFF-stage dispatch, per bl-orch. Run `pnpm heavy:mutation` under
@@ -307,9 +335,9 @@ production surface, implements, observes green, commits.
 | Task 5 | the compound states correct, green | 14 unrepaired state collapses |
 | Task 6 | the 14 repairs and AC-4 over all of them, green | the progress gradient |
 | Task 7 | the progress fill, green | no assertion that the block is unlayered |
-| Task 8 | AC-8 asserted, green | the missing documented-limit rows |
-| Task 9 | the limit rows, green | the unenrolled surface |
-| Task 10 | the registry row, green | — |
+| Task 11 | AC-8 asserted, green | the missing documented-limit rows |
+| Task 8 | the limit rows, green | the unenrolled surface |
+| Task 9 | the registry row, green | — |
 
 Task 3 is the hinge and does three things at once for one reason: the wiring must
 land with the first Playwright case or that case collects nothing, and the block
@@ -318,7 +346,7 @@ must land with it or the task commits red.
 `pnpm spec:lint --exec-red` has no `red-state=live` command to run here, which is
 stated rather than left to inference: silence from that arm is not a certificate.
 
-## Task 11 — DESIGN.md section and the token mapping
+## Task 10 — DESIGN.md section and the token mapping
 
 Spec §3.1 verbatim, including rule 4's statement that the three slots apply PER
 AFFORDANCE and are not tokens. bl-orch made that a condition of approving the
@@ -343,6 +371,33 @@ not the defective surface, which is worse than an honest absence.
 So it sits with the pins, and its red is observed the same way theirs are: the
 RED step runs the AC-9 case against today's `DESIGN.md` and records the failure
 before the section is written. The four string-presence mutants below still apply.
+
+## Task 11 — AC-8, every rule the pass adds is unlayered
+AC-8 had no described assertion for three rounds: the coverage map named Task 4,
+which only instructs the implementer to place the block. Plan review R3 finding 5.
+Placing it correctly is not verifying it, and the cascade table is the reason this
+matters — a layered rule loses silently and renders exactly like a missing one.
+
+The case compiles `app/globals.css` (the `tests/styles/_metaZIndexBands.test.ts:164`
+shell-out, which honours the `@source not` exclusions) and parses the result with
+postcss, asserting that every rule inside a `forced-colors` at-rule has no `@layer`
+ancestor.
+
+**It carries no `red=` for the reason it states.** The block is already unlayered
+when this task runs, so the case passes the moment it is authored — a
+characterization pin, not a red-then-green cycle. Round 4 named the mismatch
+between that admission and a `red-state=authored` marker.
+
+Planted defects, run and recorded in this commit: wrap the block in `@layer base`
+and observe RED; unwrap and observe green. Then add a SECOND unlayered
+`@media (forced-colors: active)` block elsewhere in the file and observe RED, which
+is the condition below.
+
+**And it asserts the SINGLE-block half of the consequence bound.** Round 4 finding
+5: checking that forced-colors rules are unlayered says nothing about how many such
+blocks exist, so a contributor could add a second one and every assertion stay
+green. The case requires exactly one `@media (forced-colors: active)` at-rule in
+the compiled output, and that it is the last top-level at-rule in the source.
 
 ## Three pins, and why they carry no `red=`
 
@@ -521,56 +576,65 @@ whose contrast treatment is already ruled (`DESIGN.md` §1.2a,
 `tests/styles/controlOutlineResidue.ts:873`). Re-deciding a ratified visual
 treatment is not this pass's to make.
 
-`components/admin/PublishedToggle.tsx:517`,
-`components/admin/settings/AutoPublishToggle.tsx:123`,
-`components/admin/settings/NotifyToggle.tsx:131`,
-`components/admin/settings/DeveloperToggleButton.tsx:93`,
-`components/admin/telemetry/AutoRefreshControl.tsx:105`.
+| Site |
+| --- |
+| `components/admin/PublishedToggle.tsx:517` |
+| `components/admin/settings/AutoPublishToggle.tsx:123` |
+| `components/admin/settings/NotifyToggle.tsx:131` |
+| `components/admin/settings/DeveloperToggleButton.tsx:93` |
+| `components/admin/telemetry/AutoRefreshControl.tsx:105` |
 
 FIVE, where the spec's §8 limit 5 says three. The census is the authority and the
 spec cites the command rather than a count.
 
-### Census — an icon whose tone moves with a carrier that survives (4 rows)
+### Census — an icon whose tone moves with a carrier that survives (5 rows)
 
-`components/admin/review/ShowReviewSurface.tsx:819` and
-`components/admin/review/ShowReviewSurface.tsx:939` sit inside rail items this pass
-REPAIRS, so they inherit a repaired state.
-`components/admin/showpage/PublishedReviewModal.tsx:1376` and
-`components/admin/wizard/Step3ReviewModal.tsx:729` are chevrons that also ROTATE.
-`components/crew/CrewSubNav.tsx:125` sits inside `CrewSubNav.tsx:114`, repaired.
-
-That is five sites in four families of reason; the row count below the heading is
-five and the sum at the top counts it as five.
+| Site | The carrier |
+| --- | --- |
+| `components/admin/review/ShowReviewSurface.tsx:819` | sits inside a rail item this pass repairs, so it inherits a repaired state |
+| `components/admin/review/ShowReviewSurface.tsx:939` | same |
+| `components/admin/showpage/PublishedReviewModal.tsx:1376` | a chevron that also ROTATES |
+| `components/admin/wizard/Step3ReviewModal.tsx:729` | same |
+| `components/crew/CrewSubNav.tsx:125` | sits inside the tab button this pass repairs |
 
 ### Census — state carried by ARIA and a rendered element (2 rows)
 
-`components/admin/UseRawControl.tsx:334` (`role="radio"` with `aria-checked`, and a
-rendered dot) and `components/admin/showpage/ShareHub.tsx:828` (`aria-expanded`,
-and when true a popup is on screen). ARIA alone would not qualify under the rule
-above; the rendered element is what does.
+| Site | The carrier |
+| --- | --- |
+| `components/admin/UseRawControl.tsx:334` | `role="radio"` with `aria-checked`, AND a rendered dot |
+| `components/admin/showpage/ShareHub.tsx:828` | `aria-expanded`, AND when true a popup is on screen |
+
+ARIA alone would not qualify under the rule above; the rendered element is what does.
 
 ### Census — focus-ring offset colour only (1 row)
 
-`components/admin/PerShowActionableWarnings.tsx:458`. The ring is not this repo's
-focus indicator (spec §2.2) and an offset colour is invisible under forced colors
-either way.
+| Site | Why |
+| --- | --- |
+| `components/admin/PerShowActionableWarnings.tsx:458` | the pair differs only in `focus-visible:ring-offset-*`; the ring is not this repo's focus indicator (spec §2.2) and an offset colour is invisible under forced colors either way |
 
 ### Census — emphasis opacity variants of one token (2 rows)
 
-`components/admin/showpage/PublishedReviewModal.tsx:1327` and
-`components/admin/wizard/Step3ReviewModal.tsx:662`. Both force to `CanvasText`;
-the distinction is emphasis, which spec §8 limit 2 flattens deliberately.
+| Site | Why |
+| --- | --- |
+| `components/admin/showpage/PublishedReviewModal.tsx:1327` | `text-warning-text/80` against a sibling tone; both force to `CanvasText` |
+| `components/admin/wizard/Step3ReviewModal.tsx:662` | same |
+
+The distinction is emphasis, which spec §8 limit 2 flattens deliberately.
 
 ### Census — elevation only (1 row)
 
-`components/shared/AccentButton.tsx:139`, whose sixteen paths collide on
-`shadow-tile` alone: a raised variant against a flat one. Spec §8 limit 3.
+| Site | Why |
+| --- | --- |
+| `components/shared/AccentButton.tsx:139` | sixteen paths colliding on `shadow-tile` alone, a raised variant against a flat one; spec §8 limit 3 |
 
 ### Census — not a collapse (1 row)
 
-`components/admin/NeedsAttentionSummaryCard.tsx:36`, whose pair prints
-`(identical)`. Nothing differs. Kept as a named artifact rather than filtered,
-since a filter would also hide a real duplicate.
+| Site | Why |
+| --- | --- |
+| `components/admin/NeedsAttentionSummaryCard.tsx:36` | its pair prints `(identical)`: two render paths resolving to the same class string, so nothing differs |
+
+Kept as a named artifact rather than filtered, since a filter would also hide a
+real duplicate.
 
 ### The sum
 
@@ -614,8 +678,8 @@ during Task 1, each row carrying its reason.
 ## Sweeps to author AND run at plan time
 
 - The Arm 1 and Arm 2 finding sets on the live tree, pasted, with a per-hit disposition.
-- The registry-array diff for Task 8.
-- The four string-presence mutants for every text-pin assertion (Task 9's DESIGN.md pin).
+- The registry-array diff for Task 9.
+- The four string-presence mutants for every text-pin assertion (Task 10's DESIGN.md pin).
 
 
 ## Task 15 — the invariant-8 UI quality gate

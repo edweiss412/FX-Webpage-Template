@@ -541,6 +541,20 @@ the condition that would re-open it.
    become `CanvasText` outside the three §3.3 slots. This is forced colors working
    as designed. **Re-open when:** a surface uses emphasis alone to mark a state
    rather than to shape a reading hierarchy.
+
+   **One such surface exists and is accepted here rather than left to trip that
+   trigger.** The onboarding step pill separates ACTIVE and DONE non-chromatically
+   — a `<Check>` glyph replaces the number, and the active label gains
+   `font-semibold` plus visibility below `sm`
+   (`components/admin/OnboardingWizard.tsx:251`,
+   `components/admin/OnboardingWizard.tsx:277`) — but VISITED and UNREACHED differ
+   only in text tone. Both are non-current steps, and which step you are on, the
+   question the indicator exists to answer, survives. Tabbability still separates
+   them, which is not a visual carrier and is not offered as one. Accepted as a
+   deliberate collapse under condition (c), so the plan's census row for that site
+   records a limit rather than an unrepaired defect. **Re-open when:** the wizard
+   gains an affordance that depends on telling a visited step from an unreached
+   one at a glance.
 3. **Elevation flattens.** `shadow-tile` and `shadow-popover` are dropped. Nine of
    the ten popover sites also carry a border, so they keep an edge. Not repaired
    as a class.
