@@ -55,6 +55,31 @@ What IS settled, and is not this claim: the old element's HANDLERS cannot fire i
 component after that unmount, because React detaches them with the node. That is a fact about
 React, not about the network, and §4.1 records why it matters that the two are not confused.
 
+**U-1 VERDICT:** CONTINUED
+
+**U-1 MEASURED BY:** `the check-in appears in a browser, and U-1 is measured`
+
+**U-1 MEASURED ON:** 2026-09-01
+
+Removing a mid-fetch `<img>` does NOT abandon its request. The harness held one open, Restart
+unmounted the element that was waiting on it, and five seconds later the socket had not closed:
+`heldForMs: null`. Chromium, `tests/e2e/diagram-retry.spec.ts`, standalone-chromium project.
+
+**The same run measured a second thing, and it is the one that matters.** Restart issued NO new
+request: `attemptsAfterRestart: 2`, not 3. The replacement `<img>` carries an IDENTICAL URL, a
+request for that URL is still in flight, and the browser serves the new element from it rather than
+opening a second connection. So on a hung request, Restart today changes the copy and re-mounts an
+element onto the same fetch. That is exactly the outcome the layout effect's eslint waiver in
+`Gallery.tsx` says it exists to avoid, quoted there as "leaving the user a new label on the same
+hung fetch", and it is now measured rather than argued.
+
+**AC-8 is therefore NOT discharged by this arc.** It reads "pressing it issues a SECOND request
+while the first is unanswered", and in a real browser on an identical URL it does not. The three
+ways out are ship-and-document, bust the coalescing with a distinguishing URL (a genuinely new
+request, at the cost of the user paying twice for one asset, since the asset route sends
+`must-revalidate` with no validator), or descope Restart. That is a product decision and this arc
+does not take it. The browser case records the number instead of asserting a claim that is false.
+
 Settled by the probe in the plan's first task, whose only job is to record the observed answer
 in this section. No behavior below branches on it, so the answer changes the documentation and
 nothing else.
