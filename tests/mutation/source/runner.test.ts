@@ -17,7 +17,15 @@ type Outcome =
    * the fail-open case: it exits NON-ZERO, which the exit code alone reads as
    * "the suite noticed".
    */
-  | { code: number; report: { numTotalTests: number; numFailedTests: number } | null };
+  | {
+      code: number;
+      report: {
+        numTotalTests: number;
+        numPassedTests: number;
+        numFailedTests: number;
+        numPendingTests: number;
+      } | null;
+    };
 
 /**
  * A VIRTUAL clock, armed only for the timeout cases.
@@ -628,17 +636,27 @@ describe("runControl — a verdict from OBSERVATIONS, not from an exit code (AC-
   } as unknown as Parameters<typeof runControl>[1];
 
   it("reports NOTICED when a suite records a failed test", () => {
-    reset({ "a.test.ts": { code: 1, report: { numTotalTests: 60, numFailedTests: 1 } } });
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 60, numPassedTests: 59, numFailedTests: 1, numPendingTests: 0 },
+      },
+    });
     const v = runControl("/root", surface, "mutant");
     expect(v.kind).toBe("noticed");
-    expect(v.observations.map((o) => [o.totalTests, o.failedTests])).toEqual([[60, 1]]);
+    expect(v.observations.map((o) => [o.ranTests, o.failedTests])).toEqual([[60, 1]]);
   });
 
   it("reports RAN-CLEAN when every suite ran tests and none failed", () => {
     // The honest diagnosis for main's 2026-08-31 nightly: the overlay was live and
     // the registry's declared control simply was not killed. Reported as its own
     // kind so it can carry its own message rather than "the overlay is dead".
-    reset({ "a.test.ts": { code: 0, report: { numTotalTests: 60, numFailedTests: 0 } } });
+    reset({
+      "a.test.ts": {
+        code: 0,
+        report: { numTotalTests: 60, numPassedTests: 60, numFailedTests: 0, numPendingTests: 0 },
+      },
+    });
     expect(runControl("/root", surface, "mutant").kind).toBe("ran-clean");
   });
 
@@ -654,8 +672,35 @@ describe("runControl — a verdict from OBSERVATIONS, not from an exit code (AC-
   it("reports NO-OBSERVATIONS for a child that ran ZERO tests, even at a non-zero exit", () => {
     // vitest's "No test files found" shape: exit 1, numTotalTests 0. A report that
     // parses is not evidence the suite ran.
-    reset({ "a.test.ts": { code: 1, report: { numTotalTests: 0, numFailedTests: 0 } } });
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 0, numPassedTests: 0, numFailedTests: 0, numPendingTests: 0 },
+      },
+    });
     expect(runControl("/root", surface, "mutant").kind).toBe("no-observations");
+  });
+
+  it("a report where every test was SKIPPED is dark, not clean (the -t trap)", () => {
+    // Measured against vitest 4.1.5 on 2026-09-01: `-t` matching nothing reports
+    // numTotalTests 29, numPassedTests 0, numFailedTests 0, numPendingTests 29,
+    // and EXITS 0. Counting declared tests would call that "the suite ran and did
+    // not notice" -- the same fail-open this verdict exists to close, one level
+    // in, and the one Task 3's case-filtered red depends on being closed.
+    reset({
+      "a.test.ts": {
+        code: 0,
+        report: {
+          numTotalTests: 29,
+          numPassedTests: 0,
+          numFailedTests: 0,
+          numPendingTests: 29,
+        },
+      },
+    });
+    const v = runControl("/root", surface, "mutant");
+    expect(v.kind).toBe("no-observations");
+    expect(v.kind === "no-observations" ? v.dark : []).toEqual(["a.test.ts"]);
   });
 
   it("a dark suite outranks a clean one, so a partial run cannot report RAN-CLEAN", () => {
@@ -663,7 +708,10 @@ describe("runControl — a verdict from OBSERVATIONS, not from an exit code (AC-
     // as "the suite did not notice", sending the reader to the control row when the
     // defect is that half the evidence is missing.
     reset({
-      "a.test.ts": { code: 0, report: { numTotalTests: 12, numFailedTests: 0 } },
+      "a.test.ts": {
+        code: 0,
+        report: { numTotalTests: 12, numPassedTests: 12, numFailedTests: 0, numPendingTests: 0 },
+      },
       "b.test.ts": { code: 1, report: null },
     });
     const v = runControl("/root", twoSuites, "mutant");
@@ -676,7 +724,12 @@ describe("runControl — a verdict from OBSERVATIONS, not from an exit code (AC-
     // every verdict above would be `no-observations` for the wrong reason. Pinned
     // on the ARGV the child actually received, and the per-mutant path is asserted
     // NOT to carry it, because that path pays for every mutant.
-    reset({ "a.test.ts": { code: 1, report: { numTotalTests: 3, numFailedTests: 1 } } });
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 3, numPassedTests: 2, numFailedTests: 1, numPendingTests: 0 },
+      },
+    });
     runControl("/root", surface, "mutant");
     const control = calls.at(-1)!.args;
     expect(control).toContain("--reporter=json");

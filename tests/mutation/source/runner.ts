@@ -291,28 +291,36 @@ export function runSurface(root: string, surface: GuardSurface): RunResult {
  * REPORT, and turning it into an exception would put it back in the same bucket
  * as an infrastructure fault.
  *
+ * `ranTests` is PASSED PLUS FAILED, deliberately, and NOT `numTotalTests`.
+ * Measured 2026-09-01 against vitest 4.1.5: a `-t` filter that matches nothing
+ * reports `numTotalTests: 29, numPassedTests: 0, numFailedTests: 0,
+ * numPendingTests: 29` and exits 0 -- every declared test counted, none of them
+ * run. Reading `numTotalTests` would call that a suite that ran and found
+ * nothing, which is the same fail-open this whole verdict exists to close, one
+ * level in. Only a test that actually EXECUTED is an observation.
+ *
  * A missing counter reads as zero, which is the conservative direction: a report
  * whose shape changed under a vitest upgrade is reported DARK rather than
  * silently counted as a suite that ran and found nothing.
  */
 function readControlReport(path: string): {
   reportRead: boolean;
-  totalTests: number;
+  ranTests: number;
   failedTests: number;
 } {
   try {
     const r = JSON.parse(readFileSync(path, "utf8")) as {
-      numTotalTests?: unknown;
+      numPassedTests?: unknown;
       numFailedTests?: unknown;
     };
     const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
     return {
       reportRead: true,
-      totalTests: num(r.numTotalTests),
+      ranTests: num(r.numPassedTests) + num(r.numFailedTests),
       failedTests: num(r.numFailedTests),
     };
   } catch {
-    return { reportRead: false, totalTests: 0, failedTests: 0 };
+    return { reportRead: false, ranTests: 0, failedTests: 0 };
   }
 }
 
@@ -326,7 +334,9 @@ function readControlReport(path: string): {
 export type ControlObservation = {
   suite: string;
   reportRead: boolean;
-  totalTests: number;
+  /** Tests that actually EXECUTED: passed plus failed. A skipped test is not an
+   *  observation, and a filter that matches nothing skips every one of them. */
+  ranTests: number;
   failedTests: number;
   exitCode: number;
 };
@@ -395,9 +405,7 @@ export function runControl(
       // about the suites after it, and the verdict below needs all of them.
       if (observations.at(-1)!.failedTests > 0) break;
     }
-    const dark = observations
-      .filter((o) => !o.reportRead || o.totalTests === 0)
-      .map((o) => o.suite);
+    const dark = observations.filter((o) => !o.reportRead || o.ranTests === 0).map((o) => o.suite);
     if (observations.some((o) => o.failedTests > 0)) return { kind: "noticed", observations };
     if (dark.length > 0) return { kind: "no-observations", observations, dark };
     return { kind: "ran-clean", observations };

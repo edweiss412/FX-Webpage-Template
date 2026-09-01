@@ -32,7 +32,13 @@ import { GUARD_SURFACES } from "../../tests/mutation/source/registry";
 const ROOT = process.cwd();
 const CONFIG = "tests/mutation/source/mutantOverlay.config.ts";
 
-type SuiteReport = { suite: string; total: number; failed: number; reportRead: boolean };
+/**
+ * `ran` is PASSED PLUS FAILED, never `numTotalTests`. Measured against vitest
+ * 4.1.5 on 2026-09-01: a `-t` filter matching nothing reports every declared
+ * test as PENDING and exits 0, so counting declared tests would read a filter
+ * that matched nothing as a suite that ran and found nothing.
+ */
+type SuiteReport = { suite: string; ran: number; failed: number; reportRead: boolean };
 
 function runSuite(target: string, mutantFile: string, suite: string, dir: string): SuiteReport {
   const out = join(dir, `report-${suite.replace(/[^a-zA-Z0-9]/g, "_")}.json`);
@@ -67,17 +73,17 @@ function runSuite(target: string, mutantFile: string, suite: string, dir: string
   }
   try {
     const r = JSON.parse(readFileSync(out, "utf8")) as {
-      numTotalTests?: number;
+      numPassedTests?: number;
       numFailedTests?: number;
     };
     return {
       suite,
-      total: r.numTotalTests ?? 0,
+      ran: (r.numPassedTests ?? 0) + (r.numFailedTests ?? 0),
       failed: r.numFailedTests ?? 0,
       reportRead: true,
     };
   } catch {
-    return { suite, total: 0, failed: 0, reportRead: false };
+    return { suite, ran: 0, failed: 0, reportRead: false };
   }
 }
 
@@ -144,10 +150,10 @@ for (const id of ids) {
     writeFileSync(mutantFile, broken, "utf8");
     const reports = surface.suitePaths.map((s) => runSuite(target, mutantFile, s, dir));
     const noticed = reports.some((r) => r.failed > 0);
-    const dark = reports.filter((r) => !r.reportRead || r.total === 0);
+    const dark = reports.filter((r) => !r.reportRead || r.ran === 0);
     for (const r of reports) {
       console.log(
-        `  ${id} ${r.suite}: ${r.reportRead ? `${r.total} tests, ${r.failed} failed` : "NO REPORT"}`,
+        `  ${id} ${r.suite}: ${r.reportRead ? `${r.ran} ran, ${r.failed} failed` : "NO REPORT"}`,
       );
     }
     if (noticed) {

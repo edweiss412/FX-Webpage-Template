@@ -548,10 +548,10 @@ describe("AC-3 rejects every verdict but NOTICED, and says which one it got", ()
    * accepted every object verdict, so the producer could be repaired with the
    * registrar still fail-open.
    */
-  const obs = (suite: string, totalTests: number, failedTests: number) => ({
+  const obs = (suite: string, ranTests: number, failedTests: number) => ({
     suite,
     reportRead: true,
-    totalTests,
+    ranTests,
     failedTests,
     exitCode: failedTests > 0 ? 1 : 0,
   });

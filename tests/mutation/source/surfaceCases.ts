@@ -58,7 +58,7 @@ export function controlProblem(verdict: ControlVerdict): string | null {
       `the fail-open this check exists to close`
     );
   }
-  const ran = verdict.observations.map((o) => `${o.suite} (${String(o.totalTests)} tests)`);
+  const ran = verdict.observations.map((o) => `${o.suite} (${String(o.ranTests)} tests)`);
   return (
     `every declared suite RAN and none rejected the control mutant: ${ran.join(", ")}. ` +
     `The overlay is live -- a run that could not apply the mutant would report no observations ` +
