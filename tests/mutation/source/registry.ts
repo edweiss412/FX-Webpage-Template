@@ -189,8 +189,12 @@ export function validateSurface(surface: GuardSurface): string[] {
 export const GUARD_SURFACES: GuardSurface[] = [
   {
     id: "configBranchProbe",
-    // MEASURED, three consecutive runs of the deciding suite: 2314ms, 1976ms,
-    // 1905ms real. Median, not mean, so one cold start does not price every shard.
+    // Rate MEASURED, never estimated. The live value is whatever
+    // scripts/probes/2026-09-01-mutation-shard-figures-input.json records for this surface
+    // from GitHub Actions run 33404224554, and _metaDeclaredRatesMatchAnchor pins the two
+    // together. This comment deliberately quotes NO figure: the enrolling comments here each
+    // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
+    // every rate without moving them, which cost three review rounds.
     millisPerBoot: 2090,
     sourcePath: "tests/ci/_configBranchProbe.ts",
     suitePaths: ["tests/ci/_metaConfigBranchStaleness.test.ts"],
@@ -310,8 +314,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "reportDraftStore",
-    // Measured, three consecutive runs of the deciding suite: 0.96s, 0.97s,
-    // 0.97s wall clock. Not estimated.
+    // Rate MEASURED, never estimated. The live value is whatever
+    // scripts/probes/2026-09-01-mutation-shard-figures-input.json records for this surface
+    // from GitHub Actions run 33404224554, and _metaDeclaredRatesMatchAnchor pins the two
+    // together. This comment deliberately quotes NO figure: the enrolling comments here each
+    // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
+    // every rate without moving them, which cost three review rounds.
     millisPerBoot: 1907,
     sourcePath: "lib/admin/reportDraftStore.ts",
     suitePaths: ["tests/admin/reportDraftStore.test.ts"],
@@ -385,9 +393,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "perItemStateScanner",
-    // MEASURED, three consecutive runs of the deciding suite: 1.30s, 1.10s,
-    // 1.10s real. Taken as the median rather than the mean so one cold start
-    // does not price every shard.
+    // Rate MEASURED, never estimated. The live value is whatever
+    // scripts/probes/2026-09-01-mutation-shard-figures-input.json records for this surface
+    // from GitHub Actions run 33404224554, and _metaDeclaredRatesMatchAnchor pins the two
+    // together. This comment deliberately quotes NO figure: the enrolling comments here each
+    // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
+    // every rate without moving them, which cost three review rounds.
     millisPerBoot: 1443,
     sourcePath: "tests/components/diagrams/perItemStateScanner.ts",
     suitePaths: ["tests/components/diagrams/perItemStateLifetime.probe.test.ts"],
@@ -3257,8 +3268,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // past it are one argument, and the second of the two banners refers back to the
     // first. So every equivalent mutant on this file stays together on
     // `controlOutlineResidueBoundaries`, this row takes none, and the choice costs
-    // 176 s of makespan (2,490 s against 2,314 s). Measured, not guessed: the sweep in
-    // the plan exits 1 on the balanced split and 0 on this one.
+    // 157 s of makespan, makespan against makespan -- 2490.111 s for this split at N=10
+    // against 2333.122 s for the balanced one, each pinned by its own heaviest remaining
+    // part. Measured, not guessed: the sweep in the plan exits 1 on the balanced split and
+    // 0 on this one, and every figure is emitted by
+    // scripts/probes/2026-09-01-mutation-shard-figures.ts.
     //
     // ZERO ACCEPTED ROWS IS A MEASUREMENT, not an assumption. The run above recorded
     // fourteen survivors on the whole surface and every one is an `integer-literal`,
@@ -4220,9 +4234,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
-    // MEASURED with scripts/mutation-score-surfaces.ts, not estimated: 10s of child wall clock
-    // over 10 modelled boots. The shard partition is priced in this number, so an enrolment
-    // carrying a guessed one would weight the partition by something nobody measured.
+    // Rate MEASURED, never estimated. The live value is whatever
+    // scripts/probes/2026-09-01-mutation-shard-figures-input.json records for this surface
+    // from GitHub Actions run 33404224554, and _metaDeclaredRatesMatchAnchor pins the two
+    // together. This comment deliberately quotes NO figure: the enrolling comments here each
+    // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
+    // every rate without moving them, which cost three review rounds.
     millisPerBoot: 1366,
     // Narrows the fault set by one status. The plants iterate 500 through 599 and assert each
     // records, so 500 stops recording and the suite notices — a live behaviour change rather than
@@ -4294,10 +4311,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
     suitePaths: ["tests/observe/clientErrorTransport.test.ts"],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
-    // MEASURED by scripts/mutation-score-surfaces.ts on the FINAL head, not the
-    // enrolling one: 75s of child wall clock over 56 modelled boots. The enrolling
-    // run read 1766 against a larger source; the repairs removed three branches, so
-    // the honest number is the one measured against what actually ships. The shard
+    // MEASURED on the FINAL head rather than the enrolling one, and re-measured by the
+    // 2026-09-01 recalibration; the live figure is in the anchor named above, not here.
+    // The enrolling run read a larger number against a larger source, and the repairs
+    // removed three branches, so the honest rate is the one measured against what
+    // actually ships. The shard
     // partition is priced in this, so a guessed number would weight it by something
     // nobody measured.
     millisPerBoot: 1983,
@@ -4317,7 +4335,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
     suitePaths: ["tests/observe/describeClientValue.test.ts"],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
-    // MEASURED on the same final-head run: 23s over 22 modelled boots.
+    // Rate MEASURED, never estimated. The live value is whatever
+    // scripts/probes/2026-09-01-mutation-shard-figures-input.json records for this surface
+    // from GitHub Actions run 33404224554, and _metaDeclaredRatesMatchAnchor pins the two
+    // together. This comment deliberately quotes NO figure: the enrolling comments here each
+    // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
+    // every rate without moving them, which cost three review rounds.
     millisPerBoot: 1446,
     // Drops the empty-string guard, so a field present but empty starts joining into
     // the message. The suite pins the exact message for that case.

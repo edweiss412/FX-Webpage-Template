@@ -250,6 +250,9 @@ jobs:
       # 32958581720: leg 5 held 8 surfaces and 7 reported nothing).
       #
       # MEASURED COST: 84 s per leg (setup-cli 2 s + bootstrap 82 s, off
+      # NOTE 2026-09-01: the leg COUNT below moved 8 -> 10 with SOURCE_SHARD_COUNT, so the
+      # aggregate figures in this paragraph are the eight-leg ones and are kept as the dated
+      # measurement they were. The per-leg 84 s is unchanged; the total is now ten times it.
       # unit-suite-db job 98210351983), against legs of 2494-3267 s. The binding
       # leg goes to about 93% of the 3600 s budget. Documented limit L-1: a
       # conditional bring-up would pay this on one leg instead of eight and was
