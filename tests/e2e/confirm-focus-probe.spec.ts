@@ -44,57 +44,14 @@ import {
 import { canonicalize } from "@/lib/email/canonicalize";
 import { ensureActorActive, hardDeleteAdminEmail, insertActivePeer } from "./helpers/seedAdminPeer";
 import {
+  assertFocusReadings,
+  captureRestoreTarget,
   measureCancelPath,
   measureConfirmPath,
+  type CapturedTarget,
   type ConfirmControl,
   type FocusReading,
 } from "./helpers/confirmFocusProbe";
-
-/**
- * The assertions the round-1 review found MISSING, and it was right.
- *
- * The first version of this file asserted `readings.length` and that an
- * `armed` sample existed. Both are true of a run in which focus never moves at
- * all, so the case would have passed against every defect this arc exists to
- * repair — a probe that cannot fail is not evidence. What follows asserts the
- * FOCUSED ELEMENT at each step, which is the only thing under measurement.
- *
- * These are deliberately assertions about the CURRENT, DEFECTIVE behaviour, so
- * this file records the defect executably before the repair lands and flips
- * them. Each expectation carries the control name so a failure says which one.
- */
-function assertFocusReadings(readings: FocusReading[]): void {
-  expect(readings.length, "every step must produce a reading").toBe(5);
-
-  const at = (suffix: string): FocusReading => {
-    const hit = readings.find((r) => r.at.endsWith(suffix));
-    expect(hit, `no reading captured for step ${suffix}`).toBeDefined();
-    return hit!;
-  };
-
-  // The CONTROL arm. Cancel restores focus to the trigger, and it is what makes
-  // a confirm-path reading a finding rather than an observation: without it, a
-  // component that never restores focus at all is indistinguishable from one
-  // whose restore is broken only on confirm.
-  const cancel = at(":control-after-cancel");
-  expect(cancel.insideRoot, `${cancel.at}: cancel must restore focus inside the surface`).toBe(
-    true,
-  );
-  expect(cancel.tag, `${cancel.at}: cancel must not strand focus on the document`).not.toBe("BODY");
-
-  // Arming focuses the SAFE control (C3), not the destructive one.
-  const armed = at(":armed");
-  expect(armed.insideRoot, `${armed.at}: arming must focus inside the surface`).toBe(true);
-  expect(armed.testid, `${armed.at}: arming must focus a real control`).not.toBeNull();
-
-  // The subject. Recorded as the measured value rather than asserted good, so
-  // the repair task flips this line and the flip IS the proof.
-  const settled = at(":settled");
-  expect(
-    { control: settled.at, tag: settled.tag, testid: settled.testid, inside: settled.insideRoot },
-    "settled focus after confirm — this is the defect record, and the repair updates it",
-  ).toMatchObject({ control: settled.at });
-}
 
 let seeded: SeededShow & { slug: string };
 
@@ -192,11 +149,13 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       name: "picker-reset",
       root: popover,
       rootSelector: '[data-testid="share-hub-popover"]',
+      restoreTargetSelector: '[data-testid="picker-reset-all-button"]',
       trigger: "picker-reset-all-button",
       confirm: "picker-reset-confirm-button",
       cancel: "picker-reset-cancel-button",
     };
 
+    const target: CapturedTarget = await captureRestoreTarget(page, pickerReset);
     const readings: FocusReading[] = [];
     // Cancel FIRST for this control: the confirm is destructive and would
     // change the state the control arm needs. Order is the reason, not habit.
@@ -207,7 +166,7 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
 
     // The premise: every reading came from a control that was actually there.
     // Without this the whole case passes vacuously if a testid ever moves.
-    assertFocusReadings(readings);
+    assertFocusReadings(readings, target);
   });
 
   test("390x560: archive show, confirm path against cancel path", async ({ page }) => {
@@ -232,18 +191,20 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       name: "archive-show",
       root: modal,
       rootSelector: '[data-testid="published-show-review-modal"]',
+      restoreTargetSelector: '[data-testid="share-hub-kebab"]',
       trigger: "archive-show-button",
       confirm: "archive-show-confirm-button",
       cancel: "archive-show-cancel-button",
     };
 
+    const target: CapturedTarget = await captureRestoreTarget(page, archive);
     const readings: FocusReading[] = [];
     readings.push(await measureCancelPath(page, archive));
     readings.push(...(await measureConfirmPath(page, archive)));
 
     console.log(`PROBE-ARCHIVE-SHOW ${JSON.stringify(readings)}`);
 
-    assertFocusReadings(readings);
+    assertFocusReadings(readings, target);
   });
 
   test("390x560: revoke admin, confirm path against cancel path", async ({ page }) => {
@@ -271,19 +232,25 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       const revoke: ConfirmControl = {
         name: "revoke-admin",
         root: activeList,
-        rootSelector: '[data-testid="admin-active-list"]',
+        // Root is the SECTION, not the active list: the ratified restore target
+        // is the section heading, which sits OUTSIDE the list, so rooting on the
+        // list left `insideRoot` unable to observe the very element the repair
+        // must hit (round 2, finding 1).
+        rootSelector: "#admin-settings-admins-heading",
+        restoreTargetSelector: "#admin-settings-admins-heading",
         trigger: "admin-allowlist-revoke-button",
         confirm: "admin-allowlist-revoke-confirm-button",
         cancel: "admin-allowlist-revoke-cancel-button",
       };
 
+      const target: CapturedTarget = await captureRestoreTarget(page, revoke);
       const readings: FocusReading[] = [];
       readings.push(await measureCancelPath(page, revoke));
       readings.push(...(await measureConfirmPath(page, revoke)));
 
       console.log(`PROBE-REVOKE-ADMIN ${JSON.stringify(readings)}`);
 
-      assertFocusReadings(readings);
+      assertFocusReadings(readings, target);
     } finally {
       await hardDeleteAdminEmail(peerEmail);
     }

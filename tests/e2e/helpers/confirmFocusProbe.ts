@@ -46,6 +46,17 @@ export type ConfirmControl = {
    * so a vanished root is a fact the probe can report rather than a hang.
    */
   readonly rootSelector: string;
+  /**
+   * CSS selector for the element focus is REQUIRED to end on after the confirm.
+   *
+   * Its identity is captured from the DOM BEFORE the action and compared after,
+   * rather than written as a literal beside the assertion. Two earlier versions
+   * of the deciding assertion were self-referential and passed for every input;
+   * an expectation captured from a different moment, off a different read,
+   * cannot degenerate that way, and it also proves the target EXISTED before
+   * the action rather than only that something was focused after it.
+   */
+  readonly restoreTargetSelector: string;
   /** Opens the two-tap confirm. */
   readonly trigger: string;
   /** Commits the destructive action. */
@@ -59,6 +70,15 @@ export type FocusReading = {
   readonly tag: string | null;
   readonly testid: string | null;
   readonly insideRoot: boolean;
+  /**
+   * The focused element's `id`.
+   *
+   * Carried because a ratified focus target may have no testid: the admins
+   * section heading `#admin-settings-admins-heading` is identified by id alone,
+   * and a reading that recorded only `testid` could never observe whether the
+   * repair hit it. Round 2 caught exactly that.
+   */
+  readonly id: string | null;
   /** false when the confirm destroyed the root — a result, not an error. */
   readonly rootPresent: boolean;
   /** Intersection of the focused rect with the root's client rect, in CSS px. */
@@ -83,6 +103,7 @@ export async function readFocus(
         at: label,
         tag: active ? active.tagName : null,
         testid: active ? active.getAttribute("data-testid") : null,
+        id: active && active.id !== "" ? active.id : null,
         insideRoot: el !== null && active !== null ? el.contains(active) : false,
         rootPresent: el !== null,
         visibleHeight:
@@ -115,6 +136,25 @@ async function focusAndClick(target: Locator): Promise<void> {
  * predicate for "focus has finished moving", and polling `activeElement` until
  * it changes would bias the reading toward whichever value appeared first.
  */
+export type CapturedTarget = { readonly testid: string | null; readonly id: string | null };
+
+/** Identity of the required restore target, read BEFORE the action runs. */
+export async function captureRestoreTarget(
+  page: Page,
+  control: ConfirmControl,
+): Promise<CapturedTarget> {
+  const got = await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el === null) return null;
+    return { testid: el.getAttribute("data-testid"), id: el.id === "" ? null : el.id };
+  }, control.restoreTargetSelector);
+  expect(
+    got,
+    `${control.name}: the required restore target ${control.restoreTargetSelector} must exist BEFORE the confirm, or the assertion after it proves nothing`,
+  ).not.toBeNull();
+  return got!;
+}
+
 export async function measureConfirmPath(
   page: Page,
   control: ConfirmControl,
@@ -152,4 +192,58 @@ export async function measureCancelPath(
   await focusAndClick(cancel);
   await page.waitForTimeout(settleMs);
   return readFocus(page, control.rootSelector, `${control.name}:control-after-cancel`);
+}
+
+/**
+ * The assertions the round-1 review found MISSING, and it was right.
+ *
+ * The first version of this file asserted `readings.length` and that an
+ * `armed` sample existed. Both are true of a run in which focus never moves at
+ * all, so the case would have passed against every defect this arc exists to
+ * repair — a probe that cannot fail is not evidence. What follows asserts the
+ * FOCUSED ELEMENT at each step, which is the only thing under measurement.
+ *
+ * These are deliberately assertions about the CURRENT, DEFECTIVE behaviour, so
+ * this file records the defect executably before the repair lands and flips
+ * them. Each expectation carries the control name so a failure says which one.
+ */
+export function assertFocusReadings(readings: FocusReading[], expected: CapturedTarget): void {
+  expect(readings.length, "every step must produce a reading").toBe(5);
+
+  const at = (suffix: string): FocusReading => {
+    const hit = readings.find((r) => r.at.endsWith(suffix));
+    expect(hit, `no reading captured for step ${suffix}`).toBeDefined();
+    return hit!;
+  };
+
+  // The CONTROL arm. Cancel restores focus to the trigger, and it is what makes
+  // a confirm-path reading a finding rather than an observation: without it, a
+  // component that never restores focus at all is indistinguishable from one
+  // whose restore is broken only on confirm.
+  const cancel = at(":control-after-cancel");
+  expect(cancel.insideRoot, `${cancel.at}: cancel must restore focus inside the surface`).toBe(
+    true,
+  );
+  expect(cancel.tag, `${cancel.at}: cancel must not strand focus on the document`).not.toBe("BODY");
+
+  // Arming focuses the SAFE control, not the destructive one.
+  const armed = at(":armed");
+  expect(armed.insideRoot, `${armed.at}: arming must focus inside the surface`).toBe(true);
+  expect(armed.testid, `${armed.at}: arming must focus a real control`).not.toBeNull();
+
+  // THE SUBJECT, asserted against a value supplied by the CALLER.
+  //
+  // Two earlier versions of this block proved nothing and both looked fine.
+  // The first asserted a reading count and the presence of an `armed` sample —
+  // true of a run where focus never moves. The second compared `settled.at` to
+  // itself through `toMatchObject`, which passes for every possible input.
+  // A self-referential expectation is the failure mode to watch for here: the
+  // expected value must come from OUTSIDE the received object, which is why it
+  // is a parameter rather than anything derived from `readings`.
+  const settled = at(":settled");
+  expect(settled.tag, `${settled.at}: focus must not be stranded on the document`).not.toBe("BODY");
+  expect(
+    { testid: settled.testid, id: settled.id },
+    `${settled.at}: settled focus must land on the target captured BEFORE the action`,
+  ).toEqual(expected);
 }
