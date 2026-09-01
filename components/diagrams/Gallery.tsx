@@ -479,8 +479,16 @@ export function Gallery({
   //
   // A layout effect, so the imageless commit is never painted. Two updates in one
   // handler would batch into a single commit, React would reconcile the same
-  // element and nothing would remount, so the user would get a new label and the
-  // same hung fetch. The two-commit sequence is what makes the unmount real.
+  // element and nothing would remount at all. The two-commit sequence is what
+  // makes the unmount real.
+  //
+  // WHAT THE REMOUNT DOES AND DOES NOT BUY. This comment used to end "so the
+  // user would get a new label and the same hung fetch", implying the two-commit
+  // version avoids that. U-1 measured otherwise (design spec §1.2, 2026-09-01):
+  // the browser keeps the original request and serves the identical URL from it,
+  // so the user gets a re-armed watchdog and honest copy over the same fetch
+  // either way. The remount is still load-bearing — it makes the phase machine a
+  // real state change rather than a relabel — but it is not a new download.
   //
   // DOCUMENTED LIMIT: no test pins `useLayoutEffect` over `useEffect` here.
   // Swapping them keeps every case in gallery.retryCheckIn.test.tsx green,
@@ -499,7 +507,7 @@ export function Gallery({
       }
     }
     if (!hasRestarting) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing SECOND RENDER, the same waiver shape ShowRowActions.tsx:247 carries: the imageless commit is the mechanism, not a derivation. Restart must unmount the <Image> and remount it, and two updates batched into one commit would reconcile the same element and remount nothing, leaving the user a new label on the same hung fetch. It cannot cascade: the updater only ever moves `restarting` to `pending`, and `pending` does not satisfy the guard above.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing SECOND RENDER, the same waiver shape ShowRowActions.tsx:247 carries: the imageless commit is the mechanism, not a derivation. Restart must unmount the <Image> and remount it, and two updates batched into one commit would reconcile the same element and remount nothing at all. (The remount is a new ELEMENT, not a new request: U-1 measured the browser coalescing the identical URL into the fetch already in flight, design spec section 1.2.) It cannot cascade: the updater only ever moves `restarting` to `pending`, and `pending` does not satisfy the guard above.
     setRetryPhase((prev) => {
       const next = new Map(prev);
       let changed = false;
@@ -755,9 +763,17 @@ export function Gallery({
           // survives Restart, so the browser keeps focus on it and no hand-off is
           // needed (AC-10).
           const isRetrying = phase !== undefined;
-          // `restarting` is the one in-flight phase that renders NO image. That
-          // unmount is where the fresh request comes from: the layout effect puts
-          // the id straight back to `pending`, which mounts a new <Image>.
+          // `restarting` is the one in-flight phase that renders NO image. The
+          // layout effect puts the id straight back to `pending`, which mounts a
+          // NEW <Image> element.
+          //
+          // A NEW ELEMENT, NOT A NEW REQUEST, and the distinction is measured
+          // rather than assumed. U-1 (design spec §1.2, 2026-09-01) found the
+          // browser does not abandon the original fetch when its element goes,
+          // and the replacement carries an identical URL, so Chromium serves it
+          // from the request already in flight: attemptsAfterRestart was 2, not
+          // 3. What the remount buys is the UI state — a re-armed watchdog and
+          // honest copy — over a fetch that never stopped.
           const isRestarting = phase === "restarting";
           // `failed` excludes `retrying` (spec §4): the states are disjoint, so
           // the render picks exactly one branch.

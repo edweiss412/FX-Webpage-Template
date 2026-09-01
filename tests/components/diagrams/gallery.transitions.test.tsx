@@ -442,7 +442,10 @@ describe("Task 6 — §8's rows the check-in adds, and §8.1's compound cases", 
     expect(inFlight(0), "the overlay survives Restart, so focus never moves").toBe(overlay);
     expect(overlay.textContent, "and it is back to the plain in-flight copy").toContain("Retrying");
     expect(overlay.textContent).not.toContain("Still loading");
-    expect(imageIn(0), "a DIFFERENT image node, which is the new request").not.toBe(staleImg);
+    expect(
+      imageIn(0),
+      "a DIFFERENT image node. The element is new; the REQUEST is not, per U-1",
+    ).not.toBe(staleImg);
     expect(imageIn(0)).not.toBeNull();
   });
 

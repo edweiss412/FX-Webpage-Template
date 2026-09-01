@@ -196,7 +196,10 @@ describe("the gallery check-in at RETRY_CHECK_IN_MS", () => {
     expect(afterRestart, "AC-8: Restart mounts an image again").not.toBeNull();
     expect(
       afterRestart,
-      "AC-8: and it is a DIFFERENT node, which is where the fresh request comes from. A presence check would pass on a design that never remounted and so never re-fetched",
+      "AC-8: and it is a DIFFERENT node. A presence check would pass on a design that never " +
+        "remounted at all. Node identity is ALL this asserts: whether the remount causes a new " +
+        "network request is the browser's call, and U-1 measured that it does not on an identical " +
+        "URL (design spec 1.2)",
     ).not.toBe(duringPending);
   });
 

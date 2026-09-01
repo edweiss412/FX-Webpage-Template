@@ -980,8 +980,17 @@ export function GalleryLightbox({
 
   // `restarting` -> `pending`, BEFORE PAINT. Two updates in one handler would
   // batch into a single commit, React would reconcile the same element and
-  // nothing would remount, so the user would get a new label on the same hung
-  // fetch. The two-commit sequence is what makes the unmount real.
+  // nothing would remount at all. The two-commit sequence is what makes the
+  // unmount real.
+  //
+  // WHAT THE REMOUNT DOES AND DOES NOT BUY. This comment used to say the batched
+  // version would leave "a new label on the same hung fetch", implying the
+  // two-commit version does not. U-1 measured otherwise (design spec §1.2,
+  // 2026-09-01): the browser keeps the original request and serves the identical
+  // URL from it, so the user gets a re-armed watchdog and honest copy over the
+  // same fetch either way. The remount is still load-bearing — it is what makes
+  // the phase machine a real state change rather than a relabel, and it is what
+  // a validator-carrying route would need — but it is not a new download.
   //
   // DOCUMENTED LIMIT, the same one the gallery's twin carries: no test pins
   // `useLayoutEffect` over `useEffect` here. Swapping them keeps every case
@@ -1204,8 +1213,10 @@ export function GalleryLightbox({
               // ONE element across pending, checked-in and restarting: the node
               // survives Restart so focus never moves.
               const isRetrying = phase !== undefined;
-              // The one in-flight phase that renders NO image. That unmount is
-              // where the fresh request comes from.
+              // The one in-flight phase that renders NO image. The remount that
+              // follows is a new ELEMENT, not a new request: U-1 measured that
+              // the browser keeps the original fetch and coalesces the identical
+              // URL into it (design spec §1.2).
               const isRestarting = phase === "restarting";
               const isActive = i === activeIndex;
               // The image renders for BOTH idle and retrying, mounted once in its

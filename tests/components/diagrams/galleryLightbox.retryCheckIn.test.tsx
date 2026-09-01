@@ -386,7 +386,8 @@ describe("the lightbox check-in", () => {
     expect(afterRestart, "Restart mounts an image again").not.toBeNull();
     expect(
       afterRestart,
-      "and it is a DIFFERENT node, which is where the fresh request comes from",
+      "and it is a DIFFERENT node — node identity only, since U-1 measured that the remount " +
+        "does not issue a new request on an identical URL",
     ).not.toBe(duringPending);
     expect(overlay(container)?.textContent, "the phase reverted to pending").toContain("Retrying");
 
@@ -401,6 +402,54 @@ describe("the lightbox check-in", () => {
       vi.advanceTimersByTime(1);
     });
     expect(overlay(container)?.textContent).toContain("Still loading");
+  });
+
+  test("a RESOLVED retry retires its timer, so the NEXT retry gets a watchdog of its own", async () => {
+    // Whole-diff review r2 finding 1, and it is the case every other test in this
+    // file walked past. The reconciler retires a timer when its id stops being
+    // `pending`; mutate that to fire only when the id LEAVES THE MAP and the old
+    // handle is stranded instead of cleared. Nothing observable breaks at that
+    // moment — the stale callback no-ops on the live `prev` — so resolution,
+    // failure, reorder and swipe-away all stay green.
+    //
+    // The damage lands one retry LATER: `timers.has(id)` is still true, so the
+    // reconciler declines to schedule the replacement and that item never checks
+    // in again. The reviewer's probe named it exactly:
+    // SHIPPED newTimerScheduled: true / MUTANT newTimerScheduled: false.
+    //
+    // So the assertion is about the SECOND window, which is the first place the
+    // difference is visible at all. The repaired unmount case cannot see this:
+    // the mount-scoped cleanup eventually clears the stranded handle.
+    captureCheckIns();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+    premiseHolds("a first check-in timer was scheduled", checkInHandles.length === 1);
+
+    // Resolve it. The id leaves the phase map and its timer must be retired.
+    const img = activeImage(container);
+    premiseHolds("the in-flight slide has an image to load", img !== null);
+    await act(async () => {
+      fireEvent.load(img as HTMLImageElement);
+      await Promise.resolve();
+    });
+
+    // Fail and retry the SAME item again.
+    failActive(container);
+    tapRetry(container);
+    expect(
+      checkInHandles.length,
+      "the replacement retry scheduled a watchdog of its own; a stranded handle " +
+        "would make `timers.has(id)` decline to schedule one, silently and forever",
+    ).toBe(2);
+
+    // And it actually fires, which is the behaviour the count stands for.
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    expect(overlay(container)?.textContent, "the second window checks in").toContain(
+      "Still loading",
+    );
   });
 
   test("unmount clears the lightbox's check-in timers, asserted on handle identity", () => {

@@ -48,7 +48,11 @@ const CANCELLERS = [
   // Clearing an `<img>` src is the cancellation that does not look like one:
   // assigning "" or null to a live element's src abandons the fetch in every
   // engine, and it reads as cleanup rather than as a cancel.
-  { what: "an <img> src being cleared", pattern: /\.src\s*=\s*(""|''|null|undefined)/ },
+  // The empty TEMPLATE LITERAL sits in this row deliberately. Review round 2
+  // finding 2 showed an assignment of an empty template literal escaped a row
+  // that listed only the two quote forms, and it is the same empty string the
+  // row already forbids — one mechanism, a third spelling.
+  { what: "an <img> src being cleared", pattern: /\.src\s*=\s*(""|''|``|null|undefined)/ },
   // WHOLE-DIFF REVIEW FINDING 4. The row above matches the PROPERTY assignment
   // and nothing else, so the three ordinary attribute routes to the same
   // cancellation were invisible: the reviewer injected `removeAttribute("src")`
@@ -65,8 +69,12 @@ const CANCELLERS = [
     pattern: /setAttribute\(\s*["'`]src["'`]\s*,\s*(""|''|``)\s*\)/,
   },
   {
-    what: 'toggleAttribute("src", false)',
-    pattern: /toggleAttribute\(\s*["'`]src["'`]\s*,\s*false\s*\)/,
+    // ONE-ARGUMENT `toggleAttribute("src")` removes an attribute that is
+    // present, so the second argument is optional and a two-argument-only
+    // pattern missed it (r2 finding 2, one instance per component). Optional in
+    // the pattern rather than a second row: one mechanism, one row.
+    what: 'toggleAttribute("src") / toggleAttribute("src", false)',
+    pattern: /toggleAttribute\(\s*["'`]src["'`]\s*(,\s*false\s*)?\)/,
   },
 ] as const;
 
