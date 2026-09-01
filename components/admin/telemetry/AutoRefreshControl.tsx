@@ -98,6 +98,14 @@ export function AutoRefreshControl() {
         type="button"
         data-testid="autorefresh-toggle"
         aria-pressed={on}
+        // Opts out of the forced-colors selected fill (app/globals.css §17). The
+        // attribute sits on this 44px tap target while the visible control is the
+        // 34x20 track inside it, so a fill here paints the tap box rather than the
+        // switch. The track's own state is already a ruled deliberate flatten
+        // (DESIGN.md §1.2a, and the switch-track rows in
+        // tests/styles/forcedColorsCensus.ts), so the stylesheet defers to the
+        // census rather than contradicting it.
+        data-fc-skip=""
         aria-label={`Auto-refresh ${on ? "on" : "off"}`}
         onClick={toggle}
         className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center"

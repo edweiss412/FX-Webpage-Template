@@ -167,6 +167,15 @@ pnpm exec playwright test --list tests/e2e/forcedColors.spec.ts
 
 which must name cases under BOTH project names.
 
+**And the same gap exists one layer up, in CI.** `playwright.config.ts` decides
+which PROJECTS can collect a spec; `.github/workflows/app-e2e.yml` decides which
+SPECS the job actually runs, and it is an explicit file list, not a glob. A spec
+wired into both projects and absent from that list is collected by nothing in CI,
+which is the identical silent-coverage failure at a different altitude. Found while
+implementing, after the local server timed out twice on a starved box and the
+question "then CI is the oracle" turned into "is it running this at all". The spec
+is added to that list in the same task.
+
 **Readiness and sampling, stated once and inherited by every later browser task.**
 The cues are timer-gated and one remounts, so an assertion sampling at the wrong
 moment is flaky in both directions. Every case waits for the element by role or

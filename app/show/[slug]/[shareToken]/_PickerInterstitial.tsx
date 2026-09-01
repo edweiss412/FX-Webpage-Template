@@ -248,7 +248,7 @@ export function PickerInterstitial({
                       {c.role && (
                         <span
                           data-testid="picker-role-chip"
-                          {...(isLead ? { "data-lead": "" } : {})}
+                          {...(isLead ? { "data-fc-lead": "" } : {})}
                           className={chipClasses}
                         >
                           {c.role}

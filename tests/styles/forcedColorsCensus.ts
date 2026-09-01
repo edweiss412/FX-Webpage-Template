@@ -373,7 +373,7 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "switch track; the developer toggle wears the same ruled recipe (DESIGN.md 1.2a)",
   },
   {
-    site: "components/admin/telemetry/AutoRefreshControl.tsx:105",
+    site: "components/admin/telemetry/AutoRefreshControl.tsx:113",
     disposition: "deliberate-flatten",
     reason: "switch track; the auto-refresh toggle wears the same ruled recipe (DESIGN.md 1.2a)",
   },

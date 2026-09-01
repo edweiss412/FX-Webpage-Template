@@ -61,11 +61,20 @@ function pairsMarkup(): string {
   // aria-pressed on every one, which made this case pass for the six sites whose
   // components set no marker at all: the fixture was testing the fixture.
   return repairPairs
-    .map(
-      (pair, i) => `
-  <div id="pair-${i}-on" data-testid="fc-pair-${i}-on" ${pair.stateAttribute ?? ""} class="${pair.a}">on</div>
-  <div id="pair-${i}-off" data-testid="fc-pair-${i}-off" class="${pair.b}">off</div>`,
-    )
+    .map((pair, i) => {
+      // The element's own tag, because the selected-state rule is scoped to
+      // interactive elements. A page of <div>s matches none of it, and AC-4 then
+      // fails for a reason unrelated to the repair. A capitalised tag is a
+      // component the scanner could not resolve to an intrinsic; those render as
+      // <span>, which is what a painted child usually is.
+      // `Link` is Next's router component and renders an <a>; mapping it to a
+      // <span> would put it outside the interactive scope the repair requires,
+      // which is the same mistake as rendering everything as a <div>.
+      const tag = pair.tag === "Link" ? "a" : /^[a-z]+$/.test(pair.tag) ? pair.tag : "span";
+      return `
+  <${tag} id="pair-${i}-on" data-testid="fc-pair-${i}-on" ${pair.stateAttribute ?? ""} class="${pair.a}">on</${tag}>
+  <${tag} id="pair-${i}-off" data-testid="fc-pair-${i}-off" class="${pair.b}">off</${tag}>`;
+    })
     .join("");
 }
 
@@ -151,6 +160,10 @@ async function paint(page: import("@playwright/test").Page, testId: string) {
       borderBottomWidth: s.borderBottomWidth,
       boxShadow: s.boxShadow,
       background: s.backgroundColor,
+      // The selected repair sets `color: HighlightText` alongside the fill, and it
+      // went unread until the compiler pointed out that the comparison listed a
+      // property the reader never returned. Half the pair was unmeasured.
+      color: s.color,
     };
   });
 }
@@ -290,6 +303,13 @@ test.describe("forced colors", () => {
         "borderBottomColor",
         "borderBottomStyle",
         "borderBottomWidth",
+        // The selected repair is a FILL, so background and colour belong here even
+        // though the M-table calls them forced. Forced is not the same as
+        // author-invisible: an authored brand colour is replaced, but `Highlight`
+        // and `HighlightText` are palette slots the author CHOSE, and choosing one
+        // is what makes the two states differ.
+        "background",
+        "color",
       ] as const;
       const differs = surviving.some((key) => on[key] !== off[key]);
       if (!differs) identical.push(pair.site);

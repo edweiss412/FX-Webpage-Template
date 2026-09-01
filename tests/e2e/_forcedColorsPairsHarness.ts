@@ -40,6 +40,15 @@ export type RepairPair = {
    * fixture was testing the fixture.
    */
   readonly stateAttribute: string | null;
+  /**
+   * The element's own tag, as the scanner reports it.
+   *
+   * Carried because the repair's selector is scoped to INTERACTIVE elements, so a
+   * page that renders every pair as a `<div>` matches none of it and AC-4 fails
+   * for a reason that has nothing to do with the repair. The fixture has to be the
+   * shape the component is.
+   */
+  readonly tag: string;
 };
 
 /** Ordered by specificity: the first match is the marker the site actually uses. */
@@ -53,8 +62,8 @@ const STATE_ATTRIBUTES: readonly (readonly [RegExp, string])[] = [
   // the ARIA markers — read out of the component's own source — so a hook that is
   // renamed or removed drops out of the page and AC-4 goes red on that site rather
   // than passing against an attribute the component no longer sets.
-  [/"data-lead"/, "data-lead"],
-  [/"data-quiet"/, "data-quiet"],
+  [/"data-fc-lead"/, "data-fc-lead"],
+  [/"data-fc-quiet"/, "data-fc-quiet"],
 ];
 
 /** Read the element's own opening tag region for the marker it sets. */
@@ -94,6 +103,7 @@ async function main(): Promise<void> {
       a: collision.pair[0],
       b: collision.pair[1],
       stateAttribute: stateAttributeAt(root, site),
+      tag: collision.tag,
     });
   }
 

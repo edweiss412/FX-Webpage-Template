@@ -1559,29 +1559,41 @@ details[open] > summary [data-agenda-day-count] {
   }
 
   /* SELECTED STATE, the Highlight slot applied per affordance (rule 4).
-     Spec §3.3, §5.4.
+     Spec §5.4, DESIGN.md §17.3.
 
-     Ten of the fourteen collapsing controls already expose their state through
-     `aria-current` or `aria-pressed`, so ONE rule repairs them rather than ten
-     bespoke ones. That is not a contradiction of rule 3, which says ARIA is not a
-     CARRIER: it is not, because it renders nothing. It is an excellent SELECTOR,
-     and what this rule does is hang a visible carrier off it. The distinction is
-     the whole design — a screen-reader user already had the state, and this is
-     what gives it to someone who can see but has asked the OS to flatten colour.
+     A FILL, not a ring, and the domain is stated rather than left to the selector.
+     Both of those are corrections; the first version was an unscoped
+     `[aria-current], [aria-pressed="true"]` painting a 2px inset outline, and the
+     invariant-8 critique found what that reaches.
 
-     `outline` and not `border`, because these controls declare their borders on
-     BOTH paths and vary only the colour; adding width to one would reflow it
-     (spec §5.7). `outline-offset: -2px` keeps the ring inside the control's own
-     box so a tab strip does not overlap its neighbour.
+     WHY A FILL. `Highlight` with `HighlightText` is the palette's own idiom for
+     "this one is chosen", and it is the pair DESIGN.md §17.3 promises — the ring
+     version delivered `Highlight` and never `HighlightText` at all. A fill also
+     fixes two things a ring could not. Rings STACK: an element that is both
+     selected and freshly-changed drew two concentric Highlight rings 4px apart,
+     which reads as one emphatic thing rather than two states, and the transient
+     cue's ring is now the only ring, so the two states differ in KIND rather than
+     in the sign of an offset. And these controls declare a border on both paths,
+     which is why an outline was chosen at all; under forced colors that border
+     flattens to the same system colour, so an inset ring rendered as a second
+     parallel line 2px inside the first.
 
-     Highlight and HighlightText are the palette's own name for "this one is
-     chosen", and every OS high-contrast theme guarantees the pair contrasts. */
-  [aria-current="page"],
-  [aria-current="true"],
-  [aria-current="step"],
-  [aria-pressed="true"] {
-    outline: 2px solid Highlight;
-    outline-offset: -2px;
+     WHY THE DOMAIN IS NARROWED. `aria-current` and `aria-pressed` appear at 35
+     sites in 16 files, and this pass audited eight. The selector now requires an
+     INTERACTIVE element, which keeps the rule to controls a user chooses between:
+     `app/help/_components/Breadcrumb.tsx:26` is a plain `<li aria-current="page">`,
+     a text node in a trail, and painting the current crumb was never selection.
+     `[data-fc-skip]` is the opt-out for a control whose state the census already
+     rules deliberately flattened, so the stylesheet and the census cannot
+     disagree. */
+  :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
+      [aria-current="page"],
+      [aria-current="true"],
+      [aria-current="step"],
+      [aria-pressed="true"]
+    ):not([data-fc-skip]) {
+    background-color: Highlight;
+    color: HighlightText;
   }
 
   /* Two states that no ARIA describes, so each gets its own hook rather than a
@@ -1593,7 +1605,7 @@ details[open] > summary [data-agenda-day-count] {
      thing that says so, and the chip renders the same {c.role} text either way, so
      under forced colors a lead is indistinguishable from anyone else on a page
      whose whole job is picking yourself out of a list. Crew-facing. */
-  [data-lead] {
+  [data-fc-lead] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
@@ -1608,7 +1620,7 @@ details[open] > summary [data-agenda-day-count] {
      `none`, which is rule 2's first branch: the width IS load-bearing here, since
      the loud variant declares the same border and removing the quiet one's width
      would shift the row. */
-  [data-quiet] {
+  [data-fc-quiet] {
     border-color: Canvas;
   }
 
