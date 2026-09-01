@@ -15,8 +15,12 @@
  * it exists in a real engine. Neither proved the effect had to be LAYOUT: swapping
  * the hook for `useEffect` reddened nothing anywhere in the suite.
  *
- * WHY THE EARLIER ATTEMPTS LOST. Playwright cannot schedule a promise resolution
- * inside the commit-to-passive window at all. A jsdom probe releasing from a
+ * WHY THE EARLIER ATTEMPTS LOST. The browser row does not reach the window: it
+ * releases the clipboard promise only after `await rotate(page)` returns
+ * (`tests/e2e/share-link-flash.spec.ts:466-469`), by which point a passive effect would have
+ * written `urlRef` too. That is a fact about the row as written, not a proof
+ * that no Playwright test could reach the window; nobody built one, and the
+ * DEFERRED row recorded an attempt that failed rather than an impossibility. A jsdom probe releasing from a
  * sibling `useLayoutEffect` lost for a different reason: it ran under `act()`,
  * and `act()` flushes passive effects before yielding to the microtask queue, so
  * the passive write always landed first. RTL's `render` and `rerender` wrap every

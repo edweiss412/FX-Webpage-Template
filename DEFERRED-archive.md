@@ -16,8 +16,8 @@ for the whole crew.
 removed.
 
 **What is NOT proven:** that the effect must be a LAYOUT effect. Swapping it for
-`useEffect` reds nothing. Two attempts failed: Playwright cannot schedule a
-promise resolution inside the commit-to-passive-effect window, and a jsdom probe
+`useEffect` reds nothing. Two attempts failed: nobody found a way to schedule a
+promise resolution inside the commit-to-passive-effect window from Playwright, and a jsdom probe
 releasing from a sibling `useLayoutEffect` does not beat React either — `act()`
 flushes passive effects before yielding to the microtask, so the passive write
 always lands first.

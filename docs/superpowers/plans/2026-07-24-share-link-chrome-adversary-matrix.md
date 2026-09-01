@@ -30,7 +30,7 @@ A39  REJECTED  (1 rows)  copy button: urlRef written in a PASSIVE effect, so a p
 1 adversaries · 1 rejected · 0 SURVIVED · 0 unapplied
 ```
 
-One row, and it is the jsdom harness's `T-ORDER-STALE`. That single number is the whole point rather than a detail: all seven browser rows RAN under the mutant and all seven passed, `T-FLASH-COPY-RACE` included. The row this adversary comes from said exactly that would happen, because Playwright cannot schedule a promise resolution inside the commit-to-passive window, and the full-mode run confirms it rather than assuming it. No browser row rescued the credit.
+One row, and it is the jsdom harness's `T-ORDER-STALE`. That single number is the whole point rather than a detail: all seven browser rows RAN under the mutant and all seven passed, `T-FLASH-COPY-RACE` included. The row this adversary comes from said exactly that would happen, and the reason is visible in the row itself: `T-FLASH-COPY-RACE` releases the clipboard promise only after `await rotate(page)` returns (`tests/e2e/share-link-flash.spec.ts:466-469`), by which point a passive effect would have written `urlRef` too. So the full-mode run establishes that no SHIPPED browser row rescues the credit, which is what matters here. It does not establish that no Playwright test could reach the window; nobody has built one.
 
 
 <!-- BEGIN GENERATED -->
