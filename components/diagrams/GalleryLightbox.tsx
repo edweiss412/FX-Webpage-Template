@@ -953,6 +953,37 @@ export function GalleryLightbox({
     };
   }, []);
 
+  // `restarting` -> `pending`, BEFORE PAINT. Two updates in one handler would
+  // batch into a single commit, React would reconcile the same element and
+  // nothing would remount, so the user would get a new label on the same hung
+  // fetch. The two-commit sequence is what makes the unmount real.
+  //
+  // DOCUMENTED LIMIT, the same one the gallery's twin carries: no test pins
+  // `useLayoutEffect` over `useEffect` here. Swapping them keeps every case
+  // green, because the difference is whether the imageless commit can PAINT and
+  // jsdom does not paint. The remount the suites DO pin happens either way.
+  useLayoutEffect(() => {
+    let hasRestarting = false;
+    for (const phase of sweptRetryPhase.values()) {
+      if (phase === "restarting") {
+        hasRestarting = true;
+        break;
+      }
+    }
+    if (!hasRestarting) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing SECOND RENDER, the ShowRowActions.tsx:247 waiver shape: the imageless commit is the mechanism, not a derivation. It cannot cascade, because the updater only moves `restarting` to `pending` and `pending` does not satisfy the guard above.
+    setRetryPhase((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const [id, phase] of prev) {
+        if (phase !== "restarting") continue;
+        next.set(id, "pending");
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [sweptRetryPhase]);
+
   // The announcement, in a LAYOUT effect: a commit showing a slide checked-in is
   // proof it WAS checked in at that commit. A passive effect scheduled by that
   // commit still runs after an `onLoad` queued but not yet rendered.
@@ -1143,7 +1174,14 @@ export function GalleryLightbox({
         <div ref={emblaRef} className="size-full overflow-hidden">
           <div className="flex size-full">
             {items.map((item, i) => {
-              const isRetrying = sweptRetryPhase.has(item.id);
+              const phase = sweptRetryPhase.get(item.id);
+              // Every in-flight phase renders the overlay, which is what makes it
+              // ONE element across pending, checked-in and restarting: the node
+              // survives Restart so focus never moves.
+              const isRetrying = phase !== undefined;
+              // The one in-flight phase that renders NO image. That unmount is
+              // where the fresh request comes from.
+              const isRestarting = phase === "restarting";
               const isActive = i === activeIndex;
               // The image renders for BOTH idle and retrying, mounted once in its
               // final position (§4.0.5), with the in-flight control overlaid.
@@ -1218,7 +1256,19 @@ export function GalleryLightbox({
                       {...(sweptRetryPhase.get(item.id) === "checked-in"
                         ? {}
                         : { "aria-disabled": "true" as const })}
-                      onClick={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        // Restart is offered ONLY in the check-in. One update to
+                        // `restarting`, which unmounts the <Image>; the layout
+                        // effect puts it back to `pending` before paint and THAT
+                        // mount is the fresh request.
+                        setRetryPhase((prev) => {
+                          if (prev.get(item.id) !== "checked-in") return prev;
+                          const next = new Map(prev);
+                          next.set(item.id, "restarting");
+                          return next;
+                        });
+                      }}
                       aria-label={
                         sweptRetryPhase.get(item.id) === "checked-in"
                           ? `${item.alt || `Diagram ${i + 1}`} is still loading. Restart.`
@@ -1422,210 +1472,212 @@ export function GalleryLightbox({
                           wrapperClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                           contentClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                         >
-                          <Image
-                            loader={makeDiagramLoader({
-                              showId,
-                              rev: snapshotRevisionId,
-                              key: item.key,
-                              variants: item.variants,
-                              // Zoom-gated (spec §4.1): the clamped tier until
-                              // this slide has shown zoom intent, then the
-                              // original at every candidate width. The mounted
-                              // element is the same one either way, so the
-                              // browser keeps painting the current bitmap until
-                              // the original lands — the silent sharpen.
-                              // Variant-less entries resolve to the original in
-                              // both states, so the gate is a no-op there.
-                              pinOriginal: sweptWantsOriginal.has(item.id),
-                            })}
-                            src={item.key}
-                            alt={item.alt || `Diagram ${i + 1}`}
-                            priority
-                            draggable={false}
-                            {...blurProps(item)}
-                            // next/image derives the placeholder's background-size
-                            // from style.objectFit, NOT from className — without it the
-                            // blur paints `cover` (stretched, full-bleed) and then snaps
-                            // to the letterboxed image.
-                            style={{ objectFit: "contain" }}
-                            {...(dims ?? { fill: true as const, sizes: "100vw" })}
-                            onLoad={() => {
-                              // `retrying` → `idle` (§4.0.5): the overlay clears
-                              // and the image node itself does not change.
-                              if (!retryPhase.has(item.id)) return;
-                              setRetryPhase((prev) => {
-                                if (!prev.has(item.id)) return prev;
-                                const next = new Map(prev);
-                                next.delete(item.id);
-                                return next;
-                              });
-                              onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} loaded.`);
-                            }}
-                            onError={() => {
-                              // A retry that failed AGAIN. Handled first and
-                              // returned from, so it never reaches the demote
-                              // branch below: `handleSlideRetry` cleared
-                              // `wantsOriginal`, so this failure is a CLAMPED
-                              // tier failure and there is nothing to demote to.
-                              // The copy is distinct from the first failure's,
-                              // or a user cannot tell a failed retry from the
-                              // original break (AC-3).
-                              if (retryPhase.has(item.id)) {
-                                const overlay = retryingRefs.current.get(item.id) ?? null;
-                                if (overlay && document.activeElement === overlay) {
-                                  focusRetryTargetRef.current = item.id;
-                                }
+                          {isRestarting ? null : (
+                            <Image
+                              loader={makeDiagramLoader({
+                                showId,
+                                rev: snapshotRevisionId,
+                                key: item.key,
+                                variants: item.variants,
+                                // Zoom-gated (spec §4.1): the clamped tier until
+                                // this slide has shown zoom intent, then the
+                                // original at every candidate width. The mounted
+                                // element is the same one either way, so the
+                                // browser keeps painting the current bitmap until
+                                // the original lands — the silent sharpen.
+                                // Variant-less entries resolve to the original in
+                                // both states, so the gate is a no-op there.
+                                pinOriginal: sweptWantsOriginal.has(item.id),
+                              })}
+                              src={item.key}
+                              alt={item.alt || `Diagram ${i + 1}`}
+                              priority
+                              draggable={false}
+                              {...blurProps(item)}
+                              // next/image derives the placeholder's background-size
+                              // from style.objectFit, NOT from className — without it the
+                              // blur paints `cover` (stretched, full-bleed) and then snaps
+                              // to the letterboxed image.
+                              style={{ objectFit: "contain" }}
+                              {...(dims ?? { fill: true as const, sizes: "100vw" })}
+                              onLoad={() => {
+                                // `retrying` → `idle` (§4.0.5): the overlay clears
+                                // and the image node itself does not change.
+                                if (!retryPhase.has(item.id)) return;
                                 setRetryPhase((prev) => {
                                   if (!prev.has(item.id)) return prev;
                                   const next = new Map(prev);
                                   next.delete(item.id);
                                   return next;
                                 });
+                                onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} loaded.`);
+                              }}
+                              onError={() => {
+                                // A retry that failed AGAIN. Handled first and
+                                // returned from, so it never reaches the demote
+                                // branch below: `handleSlideRetry` cleared
+                                // `wantsOriginal`, so this failure is a CLAMPED
+                                // tier failure and there is nothing to demote to.
+                                // The copy is distinct from the first failure's,
+                                // or a user cannot tell a failed retry from the
+                                // original break (AC-3).
+                                if (retryPhase.has(item.id)) {
+                                  const overlay = retryingRefs.current.get(item.id) ?? null;
+                                  if (overlay && document.activeElement === overlay) {
+                                    focusRetryTargetRef.current = item.id;
+                                  }
+                                  setRetryPhase((prev) => {
+                                    if (!prev.has(item.id)) return prev;
+                                    const next = new Map(prev);
+                                    next.delete(item.id);
+                                    return next;
+                                  });
+                                  setFailedKeys((prev) => {
+                                    if (prev.has(item.id)) return prev;
+                                    const next = new Set(prev);
+                                    next.add(item.id);
+                                    return next;
+                                  });
+                                  onAnnounce?.(
+                                    `${item.alt || `Diagram ${i + 1}`} still could not be loaded.`,
+                                  );
+                                  return;
+                                }
+                                // DEMOTE, don't destroy (impeccable critique P0,
+                                // 2026-08-11). The zoom gate made the original a
+                                // fetch the USER triggers, so on venue wifi a
+                                // pinch could turn a painted, readable 1024px view
+                                // into "Image unavailable" — a working image
+                                // destroyed by the gesture meant to read it.
+                                //
+                                // The condition is the REQUESTED TIER, not whether
+                                // a bitmap painted: if this slide asked for the
+                                // original, the clamped tier is a different, far
+                                // smaller object that is usually browser-cached and
+                                // very often still reachable, so falling back to it
+                                // beats the placeholder even when nothing painted
+                                // yet. The gesture is left alone — the user is
+                                // mid-pinch on an image that is still there.
+                                //
+                                // Never re-pin: the library publishes a scale above
+                                // the commitment bound for as long as the gesture
+                                // lasts, so without `demotedRef` this would be a
+                                // fetch loop rather than one fallback.
+                                // BOTH conjuncts are load-bearing. `wantsOriginal`
+                                // says the user asked for the original;
+                                // `hasVariantTier` says there is something smaller
+                                // to retreat TO — which is why it takes the
+                                // ORIGINAL KEY: a well-formed row can name the
+                                // original itself, and then both loader states
+                                // resolve to one URL. Without the second conjunct
+                                // an originals-only entry would announce a
+                                // fallback that cannot happen and then leave the
+                                // broken image on screen instead of the
+                                // placeholder.
+                                if (
+                                  wantsOriginal.has(item.id) &&
+                                  hasVariantTier(item.variants, item.key)
+                                ) {
+                                  demotedRef.current.add(item.id);
+                                  setWantsOriginal((prev) => {
+                                    if (!prev.has(item.id)) return prev;
+                                    const next = new Set(prev);
+                                    next.delete(item.id);
+                                    return next;
+                                  });
+                                  // NAMED, because this message can outlive the
+                                  // viewer: a demote inside the exit window is
+                                  // buffered and delivered to the gallery channel
+                                  // after the dialog is gone, where "full detail"
+                                  // alone refers to nothing the listener can see.
+                                  onAnnounce?.(
+                                    `${item.alt || `Diagram ${i + 1}`}: full detail could not be loaded. Showing a less detailed view.`,
+                                  );
+                                  // The SIGHTED half of the same event, in the same
+                                  // branch so the two channels cannot drift: one
+                                  // demote, one chip, one announcement. Skipped
+                                  // while the dialog is mid-close — the retained
+                                  // slide can still fail there, and the user who
+                                  // closed the dialog is not looking at it.
+                                  if (closedAtNonce !== openNonce) {
+                                    if (demoteTimerRef.current !== null) {
+                                      clearTimeout(demoteTimerRef.current);
+                                    }
+                                    setDemotedNotice({ id: item.id, nonce: openNonce });
+                                    // Last demote wins: two chips would double-signal
+                                    // one event class, so the id is replaced and the
+                                    // window restarts.
+                                    demoteTimerRef.current = setTimeout(() => {
+                                      demoteTimerRef.current = null;
+                                      setDemotedNotice((current) =>
+                                        current?.id === item.id ? null : current,
+                                      );
+                                    }, DEMOTE_CHIP_VISIBLE_MS);
+                                  }
+                                  return;
+                                }
+                                // Codex R2 HIGH: when the active image
+                                // errors mid-zoom, the slide flips to
+                                // the unavailable placeholder branch
+                                // which unmounts ZoomController. That
+                                // leaves activeScale > 1 with a null
+                                // controlsSlotRef — Reset chip stays
+                                // visible but its onClick no-ops, and
+                                // Embla swipe stays disabled. Force the
+                                // lifted zoom state back to 1 here so
+                                // the chrome (Reset chip / Embla
+                                // watchDrag) drops back to defaults.
+                                // resetTransform on the about-to-unmount
+                                // wrapper runs synchronously before the
+                                // ZoomController cleanup so the library
+                                // also drops state cleanly.
+                                // Codex R3 MED-3: if focus is on a
+                                // soon-to-unmount lightbox element
+                                // (Reset chip OR the now-stale <img>),
+                                // relocate focus to closeRef before the
+                                // unmount cascade so the non-Escape
+                                // keyboard gate doesn't drop the user
+                                // outside the dialog.
+                                const dialog = dialogRef.current;
+                                const active = document.activeElement;
+                                if (
+                                  dialog &&
+                                  active instanceof HTMLElement &&
+                                  dialog.contains(active)
+                                ) {
+                                  closeRef.current?.focus();
+                                }
+                                // Codex R8: reset requestedScaleRef on
+                                // error path so the next keyboard +/-
+                                // (after the placeholder renders and
+                                // user perhaps navigates to a working
+                                // diagram) starts from 1.
+                                requestedScaleRef.current = 1;
+                                controlsSlotRef.current?.resetTransform();
+                                setActiveScale(1);
+                                // The branch that DESTROYS the view must speak at
+                                // least as loudly as the one that degrades it: this
+                                // is where focus jumps to Close and the diagram is
+                                // replaced, and silence here left a screen-reader
+                                // user hearing only "Close gallery".
+                                onAnnounce?.(
+                                  `${item.alt || `Diagram ${i + 1}`} could not be loaded.`,
+                                );
                                 setFailedKeys((prev) => {
                                   if (prev.has(item.id)) return prev;
                                   const next = new Set(prev);
                                   next.add(item.id);
                                   return next;
                                 });
-                                onAnnounce?.(
-                                  `${item.alt || `Diagram ${i + 1}`} still could not be loaded.`,
-                                );
-                                return;
-                              }
-                              // DEMOTE, don't destroy (impeccable critique P0,
-                              // 2026-08-11). The zoom gate made the original a
-                              // fetch the USER triggers, so on venue wifi a
-                              // pinch could turn a painted, readable 1024px view
-                              // into "Image unavailable" — a working image
-                              // destroyed by the gesture meant to read it.
-                              //
-                              // The condition is the REQUESTED TIER, not whether
-                              // a bitmap painted: if this slide asked for the
-                              // original, the clamped tier is a different, far
-                              // smaller object that is usually browser-cached and
-                              // very often still reachable, so falling back to it
-                              // beats the placeholder even when nothing painted
-                              // yet. The gesture is left alone — the user is
-                              // mid-pinch on an image that is still there.
-                              //
-                              // Never re-pin: the library publishes a scale above
-                              // the commitment bound for as long as the gesture
-                              // lasts, so without `demotedRef` this would be a
-                              // fetch loop rather than one fallback.
-                              // BOTH conjuncts are load-bearing. `wantsOriginal`
-                              // says the user asked for the original;
-                              // `hasVariantTier` says there is something smaller
-                              // to retreat TO — which is why it takes the
-                              // ORIGINAL KEY: a well-formed row can name the
-                              // original itself, and then both loader states
-                              // resolve to one URL. Without the second conjunct
-                              // an originals-only entry would announce a
-                              // fallback that cannot happen and then leave the
-                              // broken image on screen instead of the
-                              // placeholder.
-                              if (
-                                wantsOriginal.has(item.id) &&
-                                hasVariantTier(item.variants, item.key)
-                              ) {
-                                demotedRef.current.add(item.id);
-                                setWantsOriginal((prev) => {
-                                  if (!prev.has(item.id)) return prev;
-                                  const next = new Set(prev);
-                                  next.delete(item.id);
-                                  return next;
-                                });
-                                // NAMED, because this message can outlive the
-                                // viewer: a demote inside the exit window is
-                                // buffered and delivered to the gallery channel
-                                // after the dialog is gone, where "full detail"
-                                // alone refers to nothing the listener can see.
-                                onAnnounce?.(
-                                  `${item.alt || `Diagram ${i + 1}`}: full detail could not be loaded. Showing a less detailed view.`,
-                                );
-                                // The SIGHTED half of the same event, in the same
-                                // branch so the two channels cannot drift: one
-                                // demote, one chip, one announcement. Skipped
-                                // while the dialog is mid-close — the retained
-                                // slide can still fail there, and the user who
-                                // closed the dialog is not looking at it.
-                                if (closedAtNonce !== openNonce) {
-                                  if (demoteTimerRef.current !== null) {
-                                    clearTimeout(demoteTimerRef.current);
-                                  }
-                                  setDemotedNotice({ id: item.id, nonce: openNonce });
-                                  // Last demote wins: two chips would double-signal
-                                  // one event class, so the id is replaced and the
-                                  // window restarts.
-                                  demoteTimerRef.current = setTimeout(() => {
-                                    demoteTimerRef.current = null;
-                                    setDemotedNotice((current) =>
-                                      current?.id === item.id ? null : current,
-                                    );
-                                  }, DEMOTE_CHIP_VISIBLE_MS);
-                                }
-                                return;
-                              }
-                              // Codex R2 HIGH: when the active image
-                              // errors mid-zoom, the slide flips to
-                              // the unavailable placeholder branch
-                              // which unmounts ZoomController. That
-                              // leaves activeScale > 1 with a null
-                              // controlsSlotRef — Reset chip stays
-                              // visible but its onClick no-ops, and
-                              // Embla swipe stays disabled. Force the
-                              // lifted zoom state back to 1 here so
-                              // the chrome (Reset chip / Embla
-                              // watchDrag) drops back to defaults.
-                              // resetTransform on the about-to-unmount
-                              // wrapper runs synchronously before the
-                              // ZoomController cleanup so the library
-                              // also drops state cleanly.
-                              // Codex R3 MED-3: if focus is on a
-                              // soon-to-unmount lightbox element
-                              // (Reset chip OR the now-stale <img>),
-                              // relocate focus to closeRef before the
-                              // unmount cascade so the non-Escape
-                              // keyboard gate doesn't drop the user
-                              // outside the dialog.
-                              const dialog = dialogRef.current;
-                              const active = document.activeElement;
-                              if (
-                                dialog &&
-                                active instanceof HTMLElement &&
-                                dialog.contains(active)
-                              ) {
-                                closeRef.current?.focus();
-                              }
-                              // Codex R8: reset requestedScaleRef on
-                              // error path so the next keyboard +/-
-                              // (after the placeholder renders and
-                              // user perhaps navigates to a working
-                              // diagram) starts from 1.
-                              requestedScaleRef.current = 1;
-                              controlsSlotRef.current?.resetTransform();
-                              setActiveScale(1);
-                              // The branch that DESTROYS the view must speak at
-                              // least as loudly as the one that degrades it: this
-                              // is where focus jumps to Close and the diagram is
-                              // replaced, and silence here left a screen-reader
-                              // user hearing only "Close gallery".
-                              onAnnounce?.(
-                                `${item.alt || `Diagram ${i + 1}`} could not be loaded.`,
-                              );
-                              setFailedKeys((prev) => {
-                                if (prev.has(item.id)) return prev;
-                                const next = new Set(prev);
-                                next.add(item.id);
-                                return next;
-                              });
-                              // "Full detail unavailable" over "Image
-                              // unavailable" is a contradiction: the chip's
-                              // premise is that a less-detailed view IS showing,
-                              // and it just died with the clamped tier.
-                              if (demotedNotice?.id === item.id) clearDemoteNotice();
-                            }}
-                            className="size-full select-none object-contain"
-                          />
+                                // "Full detail unavailable" over "Image
+                                // unavailable" is a contradiction: the chip's
+                                // premise is that a less-detailed view IS showing,
+                                // and it just died with the clamped tier.
+                                if (demotedNotice?.id === item.id) clearDemoteNotice();
+                              }}
+                              className="size-full select-none object-contain"
+                            />
+                          )}
                         </TransformComponent>
                       </TransformWrapper>
                     ) : (

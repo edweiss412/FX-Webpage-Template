@@ -289,6 +289,48 @@ describe("the lightbox check-in", () => {
     expect(failedControl(container), "it shows its retry control instead").not.toBeNull();
   });
 
+  test("Restart remounts the image and gives the replacement its own window", () => {
+    captureCheckIns();
+    const { container } = open([item(1), item(2)]);
+    failActive(container);
+    tapRetry(container);
+    const duringPending = activeImage(container);
+    premiseHolds("the in-flight slide renders an image to identify", duringPending !== null);
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS);
+    });
+    // AC-5: the CHECK-IN must not remount. AC-8: RESTART must. Opposite on
+    // purpose, so a repair satisfying one by breaking the other fails here.
+    expect(activeImage(container), "the check-in keeps the same node").toBe(duringPending);
+
+    const control = overlay(container);
+    premiseHolds("the check-in offers a control to press", control !== null);
+    act(() => {
+      fireEvent.click(control as Element);
+    });
+
+    const afterRestart = activeImage(container);
+    expect(afterRestart, "Restart mounts an image again").not.toBeNull();
+    expect(
+      afterRestart,
+      "and it is a DIFFERENT node, which is where the fresh request comes from",
+    ).not.toBe(duringPending);
+    expect(overlay(container)?.textContent, "the phase reverted to pending").toContain("Retrying");
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS - 1);
+    });
+    expect(
+      overlay(container)?.textContent?.includes("Still loading"),
+      "the replacement waits a FULL window, not the remainder of the old one",
+    ).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(overlay(container)?.textContent).toContain("Still loading");
+  });
+
   test("the swipe-away abandons the retry, so swiping back offers the control again", () => {
     vi.useFakeTimers();
     const { container } = open([item(1), item(2)]);
