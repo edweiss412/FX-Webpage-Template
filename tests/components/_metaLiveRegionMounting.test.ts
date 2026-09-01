@@ -451,14 +451,18 @@ function conditionalStatusRegions(
 
   const visit = (node: ts.Node): void => {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
-      // A LIVE REGION IS `role="status"` OR `aria-live="polite"` (R3). The two
-      // are independent spellings of the same thing, and a conditional
-      // `aria-live` region — one shipped at UseRawControl.tsx — was invisible
-      // while only the role was scanned. `role="alert"` stays excluded: alerts
-      // ARE announced on insertion, so the conditional form is correct there.
+      // A LIVE REGION IS `role="status"`, `role="log"` OR `aria-live="polite"`
+      // (R3, plus nav-badge-arrival-announce Task 4). All three are independent
+      // spellings of the same thing, and a conditional `aria-live` region — one
+      // shipped at UseRawControl.tsx — was invisible while only the role was
+      // scanned. `role="log"` joined them because the admin shell's own
+      // announce region is one (components/admin/announceLog.tsx:134), so the
+      // guard's central subject was the one shape it could not see.
+      // `role="alert"` stays excluded: alerts ARE announced on insertion, so
+      // the conditional form is correct there.
       const role = attrText(node, "role");
       const live = attrText(node, "aria-live");
-      if (role !== "alert" && (role === "status" || live === "polite")) {
+      if (role !== "alert" && (role === "status" || role === "log" || live === "polite")) {
         const el = ts.isJsxOpeningElement(node) ? node.parent : node;
         if (gated(el)) {
           hits.push({
@@ -675,6 +679,19 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
       ),
     ).toBe(1);
 
+    // nav-badge-arrival-announce Task 4: `role="log"` is the third spelling of
+    // a live region born populated, and the detector did not recognise it.
+    // AdminAnnounceProvider's own region is a `role="log"`
+    // (components/admin/announceLog.tsx:134), so a conditionally-mounted copy
+    // of that shape was exactly as invisible as the `aria-live` one was.
+    expect(gated('const C = () => <div>{a && <p role="log">{m}</p>}</div>;')).toBe(1);
+    expect(gated('const C = () => <div>{a ? <p role="log">{m}</p> : null}</div>;')).toBe(1);
+    expect(gated('const C = () => <div>{a ? <p role={"log"}>{m}</p> : null}</div>;')).toBe(1);
+    // ...and the same not-a-false-positive rule the other spellings carry.
+    expect(
+      gated('function C(){ if(!ok) return null; return <p role="log">{a ? m : ""}</p>; }'),
+    ).toBe(0);
+
     // R2: expression-form role, switch/case, and guard-clause mounting.
     expect(gated('const C = () => <div>{a ? <p role={"status"}>{m}</p> : null}</div>;')).toBe(1);
     expect(
@@ -733,5 +750,87 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
       (f) => conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f).length === 0,
     );
     expect(stale, "listed as pending but already repaired — remove the row").toEqual([]);
+  });
+});
+
+/**
+ * AC-10 of the nav badge arrival announcement.
+ *
+ * The widened walk above does NOT discharge this criterion, and an earlier
+ * revision of that arc's plan claimed it did. That walk pushes a hit only when
+ * `gated(el)` is true, because its subject is regions born populated. AC-10 is
+ * a different claim: the nav must add NO live region at all, gated or not,
+ * because the arc rides the layout's existing `AdminAnnounceProvider` and a
+ * second region in the nav would be a competing announce channel.
+ *
+ * This is a NON-RED regression pin, stated plainly rather than dressed as TDD.
+ * It passes on the pre-implementation tree, since the nav carries no
+ * live-region attribute today, and its job is to keep passing. A "do not add"
+ * criterion only ever fails on a later edit, which is what a regression pin is
+ * for.
+ */
+describe("AC-10: the admin nav mints no live region of its own", () => {
+  const NAV_DIR = "components/admin/nav";
+
+  /**
+   * Same unwrapping as the scanner above: a string literal, or the literal
+   * inside `role={"log"}`. Local because that one is closed over by the
+   * scanner's own factory, and duplicating four lines beats widening its scope
+   * for a second caller.
+   */
+  const navAttrText = (node: ts.JsxOpeningLikeElement, name: string): string | null => {
+    for (const a of node.attributes.properties) {
+      if (!ts.isJsxAttribute(a) || a.name.getText() !== name) continue;
+      const init = a.initializer;
+      if (init && ts.isStringLiteral(init)) return init.text;
+      if (init && ts.isJsxExpression(init) && init.expression) {
+        const e = init.expression;
+        return ts.isStringLiteral(e) ? e.text : e.getText();
+      }
+    }
+    return null;
+  };
+
+  const navFiles = (): string[] => {
+    const out: string[] = [];
+    for (const entry of readdirSync(join(REPO_ROOT, NAV_DIR))) {
+      const rel = join(NAV_DIR, entry);
+      if (statSync(join(REPO_ROOT, rel)).isFile() && /\.tsx?$/.test(entry)) out.push(rel);
+    }
+    return out.sort();
+  };
+
+  it("carries no role=log, role=status or aria-live under components/admin/nav/", () => {
+    // Read from disk, not a file list: a nav file added later is in scope by
+    // default rather than outside a list nobody updated.
+    const files = navFiles();
+    expect(files.length, "the nav directory should hold source files").toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const rel of files) {
+      const src = readFileSync(join(REPO_ROOT, rel), "utf8");
+      const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const visit = (node: ts.Node): void => {
+        if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+          // Compares UNWRAPPED literals, so `role={"log"}` fails exactly as
+          // `role="log"` does. That spelling is one ordinary edit away and the
+          // repo's own attrText already unwraps it.
+          const role = navAttrText(node, "role");
+          const live = navAttrText(node, "aria-live");
+          if (role === "log" || role === "status" || live !== null) {
+            offenders.push(
+              `${rel}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`,
+            );
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sf);
+    }
+
+    expect(
+      offenders,
+      "the nav announces through the layout's AdminAnnounceProvider; a region here would be a second channel",
+    ).toEqual([]);
   });
 });
