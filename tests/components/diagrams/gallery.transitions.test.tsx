@@ -127,16 +127,23 @@ describe("Task 9 — §9's transition inventory, every row", () => {
     // silently making the inventory wrong.
     const src = readFileSync(join(process.cwd(), "components/diagrams/Gallery.tsx"), "utf8");
     premiseHolds("the component source was read", src.includes("export function Gallery"));
-    // A raw count of `setRetrying` sites was the first version of this and it was
-    // both wrong and weak: wrong because there are four (entry, two exits, the
+    // A raw count of writer sites was the first version of this and it was both
+    // wrong and weak: wrong because there are several (entry, two exits, the
     // sweep's clear), and weak because the row's claim is not "how many writes"
-    // but "how many ENTRIES". So the oracle counts the writes that ADD to the
-    // set, which is what entering `retrying` means.
-    const writes = [...src.matchAll(/setRetrying\(\(prev\) => \{[\s\S]*?\n {4}\}\);/g)].map(
+    // but "how many ENTRIES". So the oracle counts the writes that ADD a phase,
+    // which is what entering an in-flight phase means.
+    //
+    // The setter is `setRetryPhase` and the container is a Map since the check-in
+    // work folded that dimension into the retry state itself. This recognizer
+    // keyed on the literal source form, so it stopped matching at the rename and
+    // reported ZERO entries rather than failing loudly: a recognizer over source
+    // text is only ever as durable as the spelling it was written against, which
+    // is worth knowing before writing the next one.
+    const writes = [...src.matchAll(/setRetryPhase\(\(prev\) => \{[\s\S]*?\n {4}\}\);/g)].map(
       (m) => m[0],
     );
-    premiseHolds("the setRetrying writes were located at all", writes.length >= 2);
-    const adders = writes.filter((w) => w.includes("next.add("));
+    premiseHolds("the setRetryPhase writes were located at all", writes.length >= 2);
+    const adders = writes.filter((w) => w.includes("next.set("));
     expect(
       adders.length,
       "`retrying` has exactly ONE entry point, so idle -> retrying cannot be reached",

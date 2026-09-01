@@ -362,17 +362,17 @@ export function GalleryLightbox({
   }, [snapshotRevisionId]);
   // Task 5 (spec §4). The lightbox's own copy of the retry machine; Task 2's is
   // gallery-only by design, so nothing here inherits from it.
-  const [retrying, setRetrying] = useState<ReadonlySet<string>>(() => new Set());
+  const [retryPhase, setRetryPhase] = useState<ReadonlyMap<string, RetryPhase>>(() => new Map());
   const retryingRefs = useRef(new Map<string, HTMLButtonElement | null>());
   // A mirror of `retrying`, read by the Embla `select` subscriber. That callback
   // is registered once and captures the `retrying` of the render that subscribed,
   // so reading the state directly there would consult an arbitrarily old set --
   // and the abandon path would silently do nothing for exactly the ids it exists
   // to clear. Synced in an effect, which is current long before any swipe.
-  const retryingStateRef = useRef<ReadonlySet<string>>(retrying);
+  const retryingStateRef = useRef<ReadonlyMap<string, RetryPhase>>(retryPhase);
   useEffect(() => {
-    retryingStateRef.current = retrying;
-  }, [retrying]);
+    retryingStateRef.current = retryPhase;
+  }, [retryPhase]);
   // `items` needs the same treatment for the same reason, and eslint's
   // exhaustive-deps caught that I had introduced the very staleness class the
   // mirror above exists to prevent: the abandon path reads `items` inside the
@@ -437,10 +437,10 @@ export function GalleryLightbox({
       next.delete(item.id);
       return next;
     });
-    setRetrying((prev) => {
+    setRetryPhase((prev) => {
       if (prev.has(item.id)) return prev;
-      const next = new Set(prev);
-      next.add(item.id);
+      const next = new Map(prev);
+      next.set(item.id, "pending");
       return next;
     });
   };
@@ -578,11 +578,11 @@ export function GalleryLightbox({
       // retry that would have cleared it was abandoned, so the honest state on
       // return is the failed cell with its retry control -- not a loaded image
       // and not a phantom spinner.
-      setRetrying((prev) => {
+      setRetryPhase((prev) => {
         if (prev.size === 0) return prev;
         const leaving = itemsRef.current.filter((entry, i) => i !== index && prev.has(entry.id));
         if (leaving.length === 0) return prev;
-        const next = new Set(prev);
+        const next = new Map(prev);
         for (const entry of leaving) next.delete(entry.id);
         return next;
       });
@@ -837,7 +837,7 @@ export function GalleryLightbox({
     const active = document.activeElement;
     if (active instanceof HTMLElement && dialog.contains(active)) return;
     closeRef.current?.focus();
-  }, [zoomed, retrying, failedKeys, activeIndex, activeAvailable, closedAtNonce, openNonce]);
+  }, [zoomed, retryPhase, failedKeys, activeIndex, activeAvailable, closedAtNonce, openNonce]);
   // The REF half of the availability sweep. Split from the render-time half
   // above only because `react-hooks/refs` forbids writing a ref during render;
   // neither of these renders, so committing a frame later costs nothing.
@@ -886,11 +886,24 @@ export function GalleryLightbox({
     }
     return changed ? next : prev;
   };
+  // `sweepPhases` is a SIBLING of `sweepSet`, deliberately, not a widening of it.
+  // `sweepSet` serves `failedKeys` and `wantsOriginal`, which stay Sets; making it
+  // generic to serve one new Map-valued caller would widen a helper two other
+  // states depend on. The plan for this arc records the choice and the reason.
+  const sweepPhases = (prev: ReadonlyMap<string, RetryPhase>): ReadonlyMap<string, RetryPhase> => {
+    let changed = false;
+    const next = new Map<string, RetryPhase>();
+    for (const [id, phase] of prev) {
+      if (liveIds.has(id)) next.set(id, phase);
+      else changed = true;
+    }
+    return changed ? next : prev;
+  };
   const sweptFailed = sweepSet(failedKeys);
-  const sweptRetrying = sweepSet(retrying);
+  const sweptRetryPhase = sweepPhases(retryPhase);
   const sweptWantsOriginal = sweepSet(wantsOriginal);
   if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
-  if (sweptRetrying !== retrying) setRetrying(sweptRetrying);
+  if (sweptRetryPhase !== retryPhase) setRetryPhase(sweptRetryPhase);
   if (sweptWantsOriginal !== wantsOriginal) setWantsOriginal(sweptWantsOriginal);
 
   // R1 finding 3. Four more members carry `swept: true` rows and none of them
@@ -1054,7 +1067,7 @@ export function GalleryLightbox({
         <div ref={emblaRef} className="size-full overflow-hidden">
           <div className="flex size-full">
             {items.map((item, i) => {
-              const isRetrying = sweptRetrying.has(item.id);
+              const isRetrying = sweptRetryPhase.has(item.id);
               const isActive = i === activeIndex;
               // The image renders for BOTH idle and retrying, mounted once in its
               // final position (§4.0.5), with the in-flight control overlaid.
@@ -1351,10 +1364,10 @@ export function GalleryLightbox({
                             onLoad={() => {
                               // `retrying` → `idle` (§4.0.5): the overlay clears
                               // and the image node itself does not change.
-                              if (!retrying.has(item.id)) return;
-                              setRetrying((prev) => {
+                              if (!retryPhase.has(item.id)) return;
+                              setRetryPhase((prev) => {
                                 if (!prev.has(item.id)) return prev;
-                                const next = new Set(prev);
+                                const next = new Map(prev);
                                 next.delete(item.id);
                                 return next;
                               });
@@ -1369,14 +1382,14 @@ export function GalleryLightbox({
                               // The copy is distinct from the first failure's,
                               // or a user cannot tell a failed retry from the
                               // original break (AC-3).
-                              if (retrying.has(item.id)) {
+                              if (retryPhase.has(item.id)) {
                                 const overlay = retryingRefs.current.get(item.id) ?? null;
                                 if (overlay && document.activeElement === overlay) {
                                   focusRetryTargetRef.current = item.id;
                                 }
-                                setRetrying((prev) => {
+                                setRetryPhase((prev) => {
                                   if (!prev.has(item.id)) return prev;
-                                  const next = new Set(prev);
+                                  const next = new Map(prev);
                                   next.delete(item.id);
                                   return next;
                                 });

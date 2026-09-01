@@ -117,10 +117,9 @@ describe("retry phase writers are a pinned, closed set", () => {
     ).toEqual([]);
 
     const mapShaped = writers.filter((w) => w.body.includes("new Map(prev)"));
-    expect(
-      mapShaped.length,
-      "every phase writer copies through `new Map(prev)`",
-    ).toBe(writers.length);
+    expect(mapShaped.length, "every phase writer copies through `new Map(prev)`").toBe(
+      writers.length,
+    );
   });
 
   it("no writer captures the phase state instead of reading the updater argument", () => {
