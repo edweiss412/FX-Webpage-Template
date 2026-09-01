@@ -77,7 +77,7 @@ States: `idle`, `confirm`, `resolving`. Pairs:
 
 | transition | focus treatment |
 | --- | --- |
-| idle → confirm | Cancel is focused (C3, `RotateShareTokenButton.tsx:134-137`) — unchanged |
+| idle → confirm | Cancel is focused (C3, `app/admin/show/[slug]/RotateShareTokenButton.tsx:134-137`) — unchanged |
 | confirm → idle (Cancel / arm expiry) | trigger refocused via `restoreFocusRef` — unchanged |
 | confirm → resolving | **in scope**: focus must not be stranded when the activated control is disabled |
 | resolving → idle (ok / refused / throw) | **in scope**: trigger refocused |
