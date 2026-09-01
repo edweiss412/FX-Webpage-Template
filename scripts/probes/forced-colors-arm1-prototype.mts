@@ -81,7 +81,14 @@ async function main() {
       survives.set(t, true);
       return;
     }
-    const props = [...emitted.matchAll(/(^|[{;\s])([-a-zA-Z]+)\s*:/g)]
+    // Scan the CANDIDATE'S OWN RULE only. candidatesToCss appends the @property
+    // definitions a utility depends on, and their declarations are `syntax`,
+    // `inherits` and `initial-value` — none of which is in the not-author-controlled
+    // set, so scanning the whole string made `shadow-tile` and every ring utility
+    // look like survivors. Plan review R2 finding 2. Dropping the at-rules is what
+    // makes the projection measure the utility rather than its plumbing.
+    const ownRule = emitted.replace(/@property\s+[^{]*\{[^}]*\}/g, "");
+    const props = [...ownRule.matchAll(/(^|[{;\s])([-a-zA-Z]+)\s*:/g)]
       .map((m) => m[2])
       .filter((x): x is string => x !== undefined);
     survives.set(t, props.length === 0 || props.some((p) => !NOT_AUTHOR_CONTROLLED.has(p)));
