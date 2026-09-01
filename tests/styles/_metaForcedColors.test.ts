@@ -176,6 +176,30 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     expect(design).toContain("ARIA is not a carrier, but it is an excellent selector");
   });
 
+  it("cites no probe row the probe does not measure", () => {
+    // Spec review R1 finding 4: the spec licensed `text-shadow` as a measured
+    // dropped property while the probe never set or read it. That instance is
+    // repaired; this is the CLASS, and it is derivable from both documents rather
+    // than re-checked by hand the next time someone adds a claim.
+    const spec = readFileSync(
+      join(ROOT, "docs/superpowers/specs/2026-09-01-forced-colors-pass.md"),
+      "utf8",
+    );
+    const producer = readFileSync(join(ROOT, "scripts/probes/forced-colors-mechanism.mjs"), "utf8");
+    const defined = new Set(
+      [...producer.matchAll(/"(M\d+[a-z]?)-[a-z-]+"/g)].map((m) => m[1] as string),
+    );
+    for (const m of producer.matchAll(/#(M\d+[a-z]?)-[a-z-]+/g)) defined.add(m[1] as string);
+    const cited = new Set([...spec.matchAll(/\bM(\d+[a-z]?)\b/g)].map((m) => `M${m[1]}`));
+
+    // Both sides derived, so neither list is typed. A subset assertion alone would
+    // pass on a spec that cites nothing, which is why the cited set is premised.
+    premise("the spec cites probe rows at all", cited.size, 5);
+    premise("the producer defines probe cases at all", defined.size, 5);
+    const dangling = [...cited].filter((row) => !defined.has(row)).sort();
+    expect(dangling, "the spec cites a probe row the probe does not measure").toEqual([]);
+  });
+
   it("does not report the pass's own repairs as defects", () => {
     // The cure is not the disease. A rule scoped to forced-colors IS the treatment,
     // so applying the carrier criterion to it is a category error — and the guard

@@ -79,6 +79,7 @@ function harnessHtml(): string {
   <div id="step3-flash" ${STEP3_FLASH_ATTR} data-testid="fc-step3-flash">step3, flashing</div>
   <div id="fresh-idle" data-testid="fc-fresh-idle">freshness, idle</div>
   <div id="fresh-flash" ${FRESHNESS_FLASH_ATTR}="1" data-testid="fc-fresh-flash">freshness, flashing</div>
+  <button data-testid="fc-focus-idiom" class="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface">focus me</button>
   <progress data-testid="wizard-step2-progressbar" style="width:200px;height:16px;display:block"></progress>
   ${pairsMarkup()}
 </body></html>`;
@@ -330,6 +331,67 @@ test.describe("forced colors", () => {
       Buffer.compare(normal, forced),
       "the bar renders identically in both modes, so nothing repainted it",
     ).not.toBe(0);
+  });
+
+  test("AC-6: keyboard focus survives forced colors, and would not if it were layered", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(origin);
+    const button = page.getByTestId("fc-focus-idiom");
+    await button.focus();
+
+    // A pin, not a repair. app/globals.css:899 already works, and the point is that
+    // it keeps working: this pass nearly opened with a headline that ~253 focus
+    // indicators die here, which the compiled CSS supports (Tailwind v4's
+    // .outline-none emits outline-style:none, .ring-2 is pure box-shadow) and the
+    // browser refutes. That rule is unlayered, so outline-none cannot suppress it,
+    // and it paints an OUTLINE, which forced colors keeps.
+    const focused = await paint(page, "fc-focus-idiom");
+    expect(focused.outlineStyle, "the focus indicator vanished under forced colors").not.toBe(
+      "none",
+    );
+    // The ring is genuinely dropped, which is the half that IS true and the reason
+    // the outline is doing the work.
+    expect(focused.boxShadow, "box-shadow survived, so this measures the wrong thing").toBe("none");
+  });
+
+  test("layout neutrality: no repair changes the size of what it repairs", async ({ page }) => {
+    await page.goto(origin);
+    const ids = [
+      "fc-share-flash",
+      "fc-step3-flash",
+      "fc-fresh-flash",
+      "fc-focus-idiom",
+      ...repairPairs.map((_, i) => `fc-pair-${i}-on`),
+    ];
+    const before = await Promise.all(ids.map((id) => page.getByTestId(id).boundingBox()));
+
+    await page.emulateMedia({ forcedColors: "active" });
+    const after = await Promise.all(ids.map((id) => page.getByTestId(id).boundingBox()));
+
+    // Spec §5.7. Of the properties this pass adds, only `border-style` can change
+    // layout: switching a side from none to solid adds its width to the border box.
+    // Everything else is outline, which draws OUTSIDE the box and takes no space,
+    // or a colour. The repair that would break this is the natural one — reaching
+    // for `border` instead of `outline`, because border is the more familiar
+    // property — which is why this is asserted rather than assumed.
+    const moved: string[] = [];
+    ids.forEach((id, i) => {
+      // `noUncheckedIndexedAccess`: an index into a parallel array is not proven
+      // in range, and a missing box is a real outcome (a detached element) rather
+      // than an impossible one, so it is reported rather than asserted away.
+      const a = before[i];
+      const b = after[i];
+      if (a === null || a === undefined || b === null || b === undefined) {
+        moved.push(`${id} has no box`);
+        return;
+      }
+      if (Math.abs(a.width - b.width) > 0.5 || Math.abs(a.height - b.height) > 0.5) {
+        moved.push(`${id} ${a.width}x${a.height} -> ${b.width}x${b.height}`);
+      }
+    });
+    expect(moved, "a forced-colors repair resized the element it repairs").toEqual([]);
   });
 
   test("the component still emits the attribute the stylesheet keys on", () => {
