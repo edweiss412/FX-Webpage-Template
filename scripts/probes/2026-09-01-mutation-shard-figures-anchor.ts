@@ -244,12 +244,23 @@ export function anchorProblems(A: Anchor, text: string): string[] {
   // ms/boot and the body records the same run measuring 16462. Syntax cannot see a figure
   // attributed to a run that demonstrably measured something else, and the declared-rate checks
   // cannot either, since they read the block alone.
-  if (R.runId === A.runId) {
-    bad.push(
-      `recalibration.runId is ${R.runId}, the same run the body measures; the recalibration is a ` +
-        `LATER run, and a block relabelled with the body's identity claims figures that run did ` +
-        `not produce`,
-    );
+  // LATER THAN EVERY RUN THE ANCHOR NAMES, derived rather than enumerated.
+  //
+  // An earlier version of this check rejected the body's exact runId and head sha, and whole-diff
+  // round 2 walked straight past it by relabelling the block with the anchor's PRIOR run
+  // (32958581720) instead. Two equality checks close two relabels; a run id must simply be the
+  // largest the file names, which closes the class -- GitHub's run ids are monotonic, so a later
+  // run always carries a larger one, and every id the anchor already holds is a lower bound.
+  const otherRunIds = [A.runId, A.priorRun.runId];
+  for (const other of otherRunIds) {
+    if (!/^\d+$/.test(other)) continue;
+    if (BigInt(R.runId) <= BigInt(other)) {
+      bad.push(
+        `recalibration.runId ${R.runId} is not later than ${other}, which this anchor also ` +
+          `names; the recalibration is the NEWEST measurement, and a block relabelled with an ` +
+          `earlier run's identity claims figures that run did not produce`,
+      );
+    }
   }
   if (R.runHeadSha === A.runHeadSha) {
     bad.push(
@@ -257,6 +268,12 @@ export function anchorProblems(A: Anchor, text: string): string[] {
         `bootsAtRun is evaluated on the block's tree rather than the body's`,
     );
   }
+  // DOCUMENTED LIMIT: this function is pure over the anchor's own contents and takes no git, so
+  // it cannot tell a real commit sha from a well-formed invented one. That check lives in the
+  // deciding suite, which can ask git -- see the "names a commit that exists" case in
+  // tests/mutation/figuresAnchorReconciliation.test.ts. Round 2 demonstrated the gap with a
+  // one-character head typo, and splitting it this way is deliberate rather than a shortfall: a
+  // validator that shelled out could not run where this one does.
   const bodyDate = Date.parse(A.thisRunDateISO);
   const blockDate = Date.parse(R.dateISO);
   if (!Number.isFinite(blockDate)) {

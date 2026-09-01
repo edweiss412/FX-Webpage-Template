@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -132,6 +133,14 @@ describe("the figures anchor reconciles its rate table against its millisecond t
     // same run measuring 16462. Three relabels, each independently refused.
     for (const [label, edit] of [
       ["runId", (a: Anchor) => (a.recalibration.runId = a.runId)],
+      [
+        "runId set to the anchor's PRIOR run",
+        (a: Anchor) => (a.recalibration.runId = a.priorRun.runId),
+      ],
+      [
+        "runId one digit shorter, so numerically earlier",
+        (a: Anchor) => (a.recalibration.runId = a.recalibration.runId.slice(0, -1)),
+      ],
       ["runHeadSha", (a: Anchor) => (a.recalibration.runHeadSha = a.runHeadSha)],
       ["dateISO before the body's", (a: Anchor) => (a.recalibration.dateISO = "2026-08-01")],
     ] as const) {
@@ -144,6 +153,28 @@ describe("the figures anchor reconciles its rate table against its millisecond t
       );
       expect(anchorProblems(a, SPLIT_TEXT), label).not.toEqual([]);
     }
+  });
+
+  it("the recalibration's head sha names a commit that EXISTS in this repository", () => {
+    // `anchorProblems` is pure over the anchor's contents and takes no git, so a well-formed
+    // invented sha is invisible to it -- whole-diff round 2 demonstrated exactly that with a
+    // one-character typo. The existence question needs git, so it is asked here, where git is
+    // available, rather than by pushing a shell out of a pure validator.
+    const sha = base.recalibration.runHeadSha;
+    const type = execFileSync("git", ["cat-file", "-t", sha], {
+      cwd: join(__dirname, "..", ".."),
+      encoding: "utf8",
+    }).trim();
+    expect(type, `${sha} is not a commit in this repository`).toBe("commit");
+    // PREMISE: `cat-file -t` on an unknown object THROWS rather than returning a non-"commit"
+    // string, so a passing assertion above must be shown to be discriminating at all.
+    expect(() =>
+      execFileSync("git", ["cat-file", "-t", "0".repeat(40)], {
+        cwd: join(__dirname, "..", ".."),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ).toThrow();
   });
 
   const generated = mutants(base);
