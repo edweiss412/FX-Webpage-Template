@@ -466,6 +466,43 @@ export function Gallery({
     }
   }, [sweptRetryPhase]);
 
+  // `restarting` -> `pending`, BEFORE PAINT.
+  //
+  // A layout effect, so the imageless commit is never painted. Two updates in one
+  // handler would batch into a single commit, React would reconcile the same
+  // element and nothing would remount, so the user would get a new label and the
+  // same hung fetch. The two-commit sequence is what makes the unmount real.
+  //
+  // DOCUMENTED LIMIT: no test pins `useLayoutEffect` over `useEffect` here.
+  // Swapping them keeps every case in gallery.retryCheckIn.test.tsx green,
+  // measured rather than assumed. The difference is whether the imageless commit
+  // can PAINT, and jsdom does not paint, so the distinction is unobservable
+  // there; the two-commit remount that the suite DOES pin happens either way.
+  // Stated so a future reader does not mistake the green suite for a guarantee
+  // about flicker, and so nobody "simplifies" this to a passive effect believing
+  // the tests cover it.
+  useLayoutEffect(() => {
+    let hasRestarting = false;
+    for (const phase of sweptRetryPhase.values()) {
+      if (phase === "restarting") {
+        hasRestarting = true;
+        break;
+      }
+    }
+    if (!hasRestarting) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing SECOND RENDER, the same waiver shape ShowRowActions.tsx:247 carries: the imageless commit is the mechanism, not a derivation. Restart must unmount the <Image> and remount it, and two updates batched into one commit would reconcile the same element and remount nothing, leaving the user a new label on the same hung fetch. It cannot cascade: the updater only ever moves `restarting` to `pending`, and `pending` does not satisfy the guard above.
+    setRetryPhase((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const [id, phase] of prev) {
+        if (phase !== "restarting") continue;
+        next.set(id, "pending");
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [sweptRetryPhase]);
+
   // Mount-scoped, and the ONLY place that clears everything.
   useEffect(() => {
     const timers = checkInTimersRef.current;
@@ -703,7 +740,16 @@ export function Gallery({
         aria-label="Diagrams gallery thumbnails"
       >
         {visible.map((item, i) => {
-          const isRetrying = sweptRetryPhase.has(item.id);
+          const phase = sweptRetryPhase.get(item.id);
+          // Every in-flight phase renders the overlay, and that is what makes it
+          // ONE element across `pending`, `checked-in` and `restarting`: the node
+          // survives Restart, so the browser keeps focus on it and no hand-off is
+          // needed (AC-10).
+          const isRetrying = phase !== undefined;
+          // `restarting` is the one in-flight phase that renders NO image. That
+          // unmount is where the fresh request comes from: the layout effect puts
+          // the id straight back to `pending`, which mounts a new <Image>.
+          const isRestarting = phase === "restarting";
           // `failed` excludes `retrying` (spec §4): the states are disjoint, so
           // the render picks exactly one branch.
           const runtimeFailed = sweptFailed.has(item.id) && !isRetrying;
@@ -815,30 +861,32 @@ export function Gallery({
                   back to the same unavailable placeholder branch as
                   parse-time-known-unavailable items.
                 */}
-                    <Image
-                      loader={makeDiagramLoader({
-                        showId,
-                        rev: snapshotRevisionId,
-                        key: item.key,
-                        variants: item.variants,
-                      })}
-                      src={item.key}
-                      alt={item.alt || `Diagram ${i + 1}`}
-                      fill
-                      sizes={sizes}
-                      {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
-                        ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
-                        : {})}
-                      onError={() =>
-                        isRetrying ? handleRetryFailure(item, i) : handleThumbnailFailure(item, i)
-                      }
-                      onLoad={() => {
-                        // Only meaningful while retrying; on an ordinary load the
-                        // set does not hold the id and the setter no-ops.
-                        if (isRetrying) handleRetrySuccess(item, i);
-                      }}
-                      className="object-cover"
-                    />
+                    {isRestarting ? null : (
+                      <Image
+                        loader={makeDiagramLoader({
+                          showId,
+                          rev: snapshotRevisionId,
+                          key: item.key,
+                          variants: item.variants,
+                        })}
+                        src={item.key}
+                        alt={item.alt || `Diagram ${i + 1}`}
+                        fill
+                        sizes={sizes}
+                        {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
+                          ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
+                          : {})}
+                        onError={() =>
+                          isRetrying ? handleRetryFailure(item, i) : handleThumbnailFailure(item, i)
+                        }
+                        onLoad={() => {
+                          // Only meaningful while retrying; on an ordinary load the
+                          // set does not hold the id and the setter no-ops.
+                          if (isRetrying) handleRetrySuccess(item, i);
+                        }}
+                        className="object-cover"
+                      />
+                    )}
                   </button>
                   {isRetrying ? (
                     /*
@@ -870,7 +918,22 @@ export function Gallery({
                       {...(sweptRetryPhase.get(item.id) === "checked-in"
                         ? {}
                         : { "aria-disabled": "true" as const })}
-                      onClick={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        // Restart is offered ONLY in the check-in. One update:
+                        // the phase moves to `restarting`, which unmounts the
+                        // <Image>. The layout effect below puts it straight back
+                        // to `pending` before paint, and THAT mount is the fresh
+                        // request. No `key` changes and no counter exists: the
+                        // remount is the branch actually changing, which is the
+                        // ordinary behaviour of the state machine.
+                        setRetryPhase((prev) => {
+                          if (prev.get(item.id) !== "checked-in") return prev;
+                          const next = new Map(prev);
+                          next.set(item.id, "restarting");
+                          return next;
+                        });
+                      }}
                       aria-label={
                         sweptRetryPhase.get(item.id) === "checked-in"
                           ? `${nameOf(item, i)} is still loading. Restart.`

@@ -54,14 +54,21 @@ const PHASE_SETTER = "setRetryPhase";
  * the merge base seventeen sites existed and SEVEN of them wrote the retry state;
  * the other ten write `failedKeys` and `wantsOriginal`, which stay Sets.
  *
- * NINE since both check-ins landed: each surface's timer callback is a writer too,
+ * ELEVEN as of the GALLERY's Restart. The breakdown, because a bare number tells
+ * a later reader nothing about which way it should move: seven transitions
+ * shipped before this arc, each surface's check-in timer callback added one
+ * (nine), and the gallery's Restart handler plus its restarting-to-pending
+ * promotion added two more. The LIGHTBOX's Restart is not in yet and will take
+ * this to thirteen. The count moves because writers are added on purpose; a
+ * count that moves on its own is the failure this guards, and the timer callback
+ * is the writer the pin exists for,
  * and it is the one this pin exists for. It reads `prev.get(id)` before writing,
  * which is what makes a callback that fires after its item has gone a no-op
  * rather than a stale write the next retry inherits. The count moved because a
  * writer was added on purpose; a count that moves on its own is the failure this
  * guards.
  */
-const EXPECTED_PHASE_WRITERS = 9;
+const EXPECTED_PHASE_WRITERS = 11;
 
 type Writer = { file: string; line: number; body: string };
 

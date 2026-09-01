@@ -173,6 +173,120 @@ describe("the gallery check-in at RETRY_CHECK_IN_MS", () => {
     ).toHaveLength(1);
   });
 
+  test("Restart mounts a DIFFERENT image node, and the check-in kept the SAME one", () => {
+    renderGallery();
+    enterPending(0);
+    const duringPending = imageIn(0);
+    premiseHolds("the in-flight cell renders an image to identify", duringPending !== null);
+
+    crossDeadline();
+    // AC-5 and AC-8 are OPPOSITE ON PURPOSE and share this test, because a repair
+    // satisfying one by breaking the other is the failure mode. Across the
+    // CHECK-IN the node must survive; across RESTART it must not.
+    expect(
+      imageIn(0),
+      "AC-5: the check-in does not remount the image, so one tap stays one request",
+    ).toBe(duringPending);
+
+    act(() => {
+      fireEvent.click(inFlight(0));
+    });
+
+    const afterRestart = imageIn(0);
+    expect(afterRestart, "AC-8: Restart mounts an image again").not.toBeNull();
+    expect(
+      afterRestart,
+      "AC-8: and it is a DIFFERENT node, which is where the fresh request comes from. A presence check would pass on a design that never remounted and so never re-fetched",
+    ).not.toBe(duringPending);
+  });
+
+  test("AC-8b: the replacement request gets its own full window", () => {
+    renderGallery();
+    enterPending(0);
+    crossDeadline();
+    premiseHolds(
+      "the item is checked in, so Restart is reachable",
+      inFlight(0).textContent?.includes("Still loading") === true,
+    );
+
+    act(() => {
+      fireEvent.click(inFlight(0));
+    });
+    // Back to `pending`: the copy reverts, which is the observable proof the
+    // phase moved rather than the label alone changing.
+    expect(inFlight(0).textContent).toContain("Retrying");
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS - 1);
+    });
+    expect(
+      inFlight(0).textContent?.includes("Still loading"),
+      "the replacement waits a FULL window, not the remainder of the old one",
+    ).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(inFlight(0).textContent).toContain("Still loading");
+  });
+
+  test("AC-10: no committed frame during Restart shows the failed control, and focus never moves", () => {
+    renderGallery();
+    enterPending(0);
+    crossDeadline();
+    const control = inFlight(0);
+    act(() => {
+      control.focus();
+    });
+    premiseHolds("the overlay holds focus before the press", document.activeElement === control);
+
+    // A MutationObserver records mutation FACTS and LIVE node references, not a
+    // snapshot per commit, so `record.target.getAttribute(...)` yields the
+    // CURRENT value. Only `addedNodes` is preserved, so element PRESENCE is the
+    // thing this can honestly assert.
+    const addedFailedControls: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const r of records) {
+        for (const node of r.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.matches?.("[data-testid^='diagram-retry-']")) addedFailedControls.push("self");
+          if (node.querySelector?.("[data-testid^='diagram-retry-']"))
+            addedFailedControls.push("descendant");
+        }
+      }
+    });
+    observer.observe(slot(0), {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeOldValue: true,
+    });
+
+    // Focus needs its OWN instrument: a MutationObserver records no focus at
+    // all, and sampling activeElement before and after passes when one commit
+    // moves focus and the next restores it. An EMPTY event log is the only
+    // evidence focus never moved, as opposed to moved and came back.
+    const focusEvents: string[] = [];
+    const onFocusOut = () => focusEvents.push("focusout");
+    const onFocusIn = () => focusEvents.push("focusin");
+    slot(0).addEventListener("focusout", onFocusOut);
+    slot(0).addEventListener("focusin", onFocusIn);
+
+    act(() => {
+      fireEvent.click(control);
+    });
+    observer.takeRecords();
+    observer.disconnect();
+    slot(0).removeEventListener("focusout", onFocusOut);
+    slot(0).removeEventListener("focusin", onFocusIn);
+
+    expect(
+      addedFailedControls,
+      "the failed control is never committed during Restart. Asserted by TESTID, not by the phrase 'could not be loaded', because the in-flight name legitimately contains it",
+    ).toEqual([]);
+    expect(focusEvents, "focus never left the overlay, not even for one commit").toEqual([]);
+    expect(document.activeElement, "and it still holds focus after").toBe(control);
+  });
+
   test("a second item checked in at the same time is independent", () => {
     renderGallery();
     enterPending(0);
