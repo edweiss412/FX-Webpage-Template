@@ -26,6 +26,10 @@ import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import { PublishedDiagramsBreakdown } from "@/components/admin/wizard/step3ReviewSections";
 import { premise, premiseHolds } from "../../../_shared/premise";
+import {
+  DIAGRAM_TILE_COPY,
+  DIAGRAM_TILE_FAILURE_SENTENCES,
+} from "../../../_shared/diagramTileCopy";
 
 const SHOW_ID = "33333333-3333-4333-8333-333333333333";
 const REV = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -37,6 +41,10 @@ const OBJECT_ID = "g123abc:4";
 const ASSET_KEY = `embedded-${OBJECT_ID}.png`;
 const SECTION = `wizard-step3-card-${DRIVE_FILE_ID}-section-diagrams`;
 const TILE0 = `wizard-step3-card-${DRIVE_FILE_ID}-diagram-tile-0`;
+/** The CELL holds the box and the caption both; the message is a sibling of the
+ *  box now. The `img` assertions beside these are the positive discriminators
+ *  and stay as they are. */
+const CELL0 = `wizard-step3-card-${DRIVE_FILE_ID}-diagram-cell-0`;
 
 afterEach(cleanup);
 
@@ -204,10 +212,18 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
   test.each([
     ["a null snapshotPath", { snapshotPath: null }],
     ["a MIME outside the allowed set", { mimeType: "application/pdf" }],
+    // A path that ENDS in a separator derives an empty asset key, and an empty
+    // key is the same malformed-URL class the revision case below already
+    // refuses: `/api/asset/diagram/<show>/<rev>/` addresses no bytes. Left
+    // ungated it is WORSE than a 404, because `next/image` given an empty `src`
+    // emits an <img> with no src, makes no request, and therefore never fires
+    // `onError` — so the tile sits on the LIVE branch showing nothing, with no
+    // glyph and no sentence. That is the one outcome the consequence bound
+    // forbids outright: silently wrong rather than correct or signalled.
+    ["a snapshotPath that derives an empty key", { snapshotPath: "snapshots/rev/" }],
   ])("published servability gate (%s): placeholder, and NO image element", (_label, over) => {
     const { scoped, container } = renderPublished(over);
-    const tile = scoped.getByTestId(TILE0);
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(scoped.getByTestId(CELL0)).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 
@@ -222,8 +238,7 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     const { container, getByTestId } = render(
       <PublishedDiagramsBreakdown showId={SHOW_ID} driveFileId={DRIVE_FILE_ID} diagrams={column} />,
     );
-    const tile = getByTestId(TILE0);
-    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    expect(within(getByTestId(CELL0)).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();
     expect(container.querySelectorAll("img").length).toBe(0);
     // And nothing anywhere in the rendered tree carries the doubled slash.
     const urlBearing = Array.from(container.querySelectorAll("[src],[href]"))
@@ -272,7 +287,11 @@ describe("published wizard diagram tile — the manifest ladder reaches the brow
     // them, which the consequence bound forbids in its own words.
     const after = scoped.getByTestId(TILE0).querySelector("img");
     expect(after).not.toBeNull();
-    expect(within(scoped.getByTestId(TILE0)).queryByText("Preview unavailable")).toBeNull();
+    // Neither sentence, not just one of them: asserting the absence of ONE
+    // stopped discriminating the moment there were two.
+    for (const sentence of DIAGRAM_TILE_FAILURE_SENTENCES) {
+      expect(within(scoped.getByTestId(CELL0)).queryByText(sentence)).toBeNull();
+    }
     expect(new Set(srcsetCandidates(after!))).toEqual(
       new Set(ladder().map((row) => assetUrl(row.key))),
     );

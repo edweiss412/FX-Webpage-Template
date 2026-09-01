@@ -104,6 +104,7 @@ import {
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
+import { DIAGRAM_TILE_COPY } from "../../../_shared/diagramTileCopy";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const MODAL_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
@@ -900,7 +901,11 @@ describe("§H N6: diagram tile — browser-default img load; error→placeholder
     // re-render flushes — no waitFor.
     const placeholder = q.getByTestId(tileId);
     expect(placeholder.tagName).toBe("SPAN");
-    expect(placeholder.textContent).toContain("Preview unavailable");
+    // The message is a SIBLING of the box now, so it is read off the cell.
+    // The box's own tagName swap above is still the instant-ness assertion.
+    const cell = q.getByTestId(`wizard-step3-card-${DFID}-diagram-cell-0`);
+    // A real error on a mounted image, so the LOAD-FAILED sentence.
+    expect(cell.textContent).toContain(DIAGRAM_TILE_COPY.loadFailed);
     expect(placeholder.className).not.toMatch(/\banimate-|\btransition-/);
   });
 });

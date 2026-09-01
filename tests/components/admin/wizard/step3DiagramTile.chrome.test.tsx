@@ -79,6 +79,7 @@ function tile(hasPreviewSource: boolean) {
       sizes="100px"
       alt="Stage plot"
       testId={TEST_ID}
+      cellTestId={`${TEST_ID}-cell`}
       hasPreviewSource={hasPreviewSource}
     />
   );
@@ -95,21 +96,21 @@ describe("diagram tile chrome lives on the wrapper", () => {
     // typed in here. What remains is the other direction, which real data
     // cannot supply: the regex must NOT match a bare fit class, or the negative
     // assertion would be failing for the wrong reason.
-    expect(hasChromeToken("object-cover")).toBe(false);
-    expect(hasChromeToken("size-full object-cover")).toBe(false);
+    expect(hasChromeToken("object-contain")).toBe(false);
+    expect(hasChromeToken("size-full object-contain")).toBe(false);
     // Box chrome in the MIDDLE of a class list. The first two are the cases the
     // previous whole-string regex got wrong: it anchored `border` and `rounded`
     // with `(-|$)`, where `$` is end of the whole string, so a bare token
     // followed by another class was never reached.
-    expect(hasChromeToken("object-cover border size-full")).toBe(true);
-    expect(hasChromeToken("object-cover rounded size-full")).toBe(true);
+    expect(hasChromeToken("object-contain border size-full")).toBe(true);
+    expect(hasChromeToken("object-contain rounded size-full")).toBe(true);
     // The third was NOT missed by the old regex — `bg-` carried no end anchor,
     // so it matched anywhere. It is kept because it pins the same boundary for a
     // prefix token, and stating it accurately matters more than a tidier story:
     // an earlier version of this comment claimed all three had failed, which was
     // asserted rather than measured, and diff review R2 disproved it by running
     // the old pattern.
-    expect(hasChromeToken("object-cover bg-surface-sunken size-full")).toBe(true);
+    expect(hasChromeToken("object-contain bg-surface-sunken size-full")).toBe(true);
   });
 
   test("live branch: the anchor carries the box, the image carries only its fit", () => {
@@ -141,7 +142,7 @@ describe("diagram tile chrome lives on the wrapper", () => {
     // AC-1's actual contract: the image's class string is EXACTLY this. Stronger
     // than the shape scan above, and it also catches a diff that ADDS something
     // to the image which happens not to look like chrome.
-    expect(img!.className.trim()).toBe("object-cover");
+    expect(img!.className.trim()).toBe("object-contain");
   });
 
   test("failed branch: the placeholder carries the same box", () => {
@@ -157,6 +158,29 @@ describe("diagram tile chrome lives on the wrapper", () => {
     for (const cls of ["rounded-md", "border", "bg-surface-sunken"]) {
       expect(have.has(cls), `the placeholder carries the exact utility ${cls}`).toBe(true);
     }
+  });
+
+  // AC-8. The suite above pins the bare `border` utility and says nothing about
+  // WHICH stroke token, so the placeholder's edge was unguarded in both
+  // directions: it could be restyled, or silently reverted, and nothing here
+  // would notice. `border-border` is 1.22-1.27:1 against the sunken ground,
+  // under the 3:1 non-text floor; `border-text-faint` is 3.02:1 and is what the
+  // LIVE box already carries, so this also closes the gap between the two
+  // branches of one tile. DESIGN.md §1.2a is the rule: a box filled with one of
+  // the four neutral grounds carries no visual weight of its own, so its stroke
+  // IS its boundary and takes the text ramp.
+  test("the placeholder's stroke is the control-edge token, not the hairline (AC-8)", () => {
+    const { getByTestId, container } = renderTile(false);
+    const box = getByTestId(TEST_ID);
+
+    premiseHolds("the failed branch rendered no <img>", container.querySelector("img") === null);
+    premiseHolds("the failed branch's box element is not the anchor", box.tagName !== "A");
+
+    const have = tokens(box);
+    expect(have.has("border-text-faint"), "the placeholder carries border-text-faint").toBe(true);
+    expect(have.has("border-border"), "the placeholder no longer carries border-border").toBe(
+      false,
+    );
   });
 
   // Spec §8's compound case. The two axes (which branch renders, and whether the

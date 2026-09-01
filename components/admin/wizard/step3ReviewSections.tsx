@@ -58,6 +58,7 @@ import {
   Receipt,
   Sparkles,
   Theater,
+  TriangleAlert,
   Truck,
   Users,
   Video,
@@ -4077,6 +4078,39 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
 export const DIAGRAM_TILE_CAP = 12;
 
 /**
+ * What a tile is showing, which is three things and not two.
+ *
+ * `absent` and `load-failed` were one boolean until 2026-08-31, so both said
+ * "Preview unavailable" and wore the same glyph. They are different facts about
+ * the show and they need different things from the person reading them: a
+ * diagram that is not in the snapshot will not reach the crew page and someone
+ * has to go and add it, while one whose thumbnail failed to render will publish
+ * exactly as it is and needs nothing. Merged, the tile said neither.
+ *
+ * The two are reached by different paths and can never be confused: `absent` is
+ * SEEDED, before any request is made, from a source that does not resolve;
+ * `load-failed` is only ever WRITTEN, by a real error on an image that mounted.
+ */
+export type DiagramTileState = "live" | "absent" | "load-failed";
+
+/** The seed and the reconcile share one rule, so a source that comes and goes
+ *  moves the tile the same way every time. `load-failed` is deliberately NOT
+ *  reachable here: it is a fact about a request, and the seed has made none. */
+const diagramTileStateFor = (hasPreviewSource: boolean): DiagramTileState =>
+  hasPreviewSource ? "live" : "absent";
+
+/** The two ratified sentences (DEFERRED.md DIAGRAMTILE-FAILURE-STATE-COPY-1,
+ *  ratified 2026-08-28). Each one names what happened and then what it means
+ *  for publishing, because that second half is the part the reader acts on.
+ *  Straight apostrophes: the ratified strings carry them, and this file holds
+ *  curly ones elsewhere, so the corpus is mixed and the spec settles it rather
+ *  than leaving it to whoever types the next string. */
+const DIAGRAM_TILE_FAILURE_COPY: Record<"absent" | "load-failed", string> = {
+  absent: "Not captured. Won't appear on the crew page.",
+  "load-failed": "Preview couldn't load. The diagram will still publish.",
+};
+
+/**
  * One thumbnail tile: a `next/image` driven by a CALLER-SUPPLIED loader, with
  * the onError placeholder unchanged.
  *
@@ -4099,6 +4133,7 @@ export function DiagramTile({
   sizes,
   alt,
   testId,
+  cellTestId,
   hasPreviewSource,
   anchorRef,
   onFailure,
@@ -4109,6 +4144,14 @@ export function DiagramTile({
   sizes: string;
   alt: string;
   testId: string;
+  /** The WRAPPER's handle, built at the call site from the same parts as
+   *  `testId` and never derived from it by string rewrite. Its `-diagram-cell-`
+   *  segment is deliberate: five prefix consumers in the corpus select on the
+   *  literal `-diagram-tile-`, and an id sharing that prefix would be counted
+   *  AS a tile — the defect recorded below that read 24 tiles where 12 was
+   *  correct. Required, not optional: one omitted call site would render a
+   *  wrapper with no handle and the cap assertion could not see it. */
+  cellTestId: string;
   hasPreviewSource: boolean;
   /** Registers the live anchor with the grid, which needs a NODE to move focus
    *  off and to compare against — see `handleTileFailure`. */
@@ -4117,7 +4160,7 @@ export function DiagramTile({
    *  focus and announces; the tile owns only its own render. */
   onFailure?: (node: HTMLAnchorElement | null) => void;
 }) {
-  const [failed, setFailed] = useState(!hasPreviewSource);
+  const [state, setState] = useState<DiagramTileState>(diagramTileStateFor(hasPreviewSource));
   /** The live anchor, readable from the `onError` closure. */
   const anchorNodeRef = useRef<HTMLAnchorElement | null>(null);
   /**
@@ -4146,61 +4189,106 @@ export function DiagramTile({
     lastSource.sourceKey !== sourceKey
   ) {
     setLastSource({ hasPreviewSource, href, sourceKey });
-    setFailed(!hasPreviewSource);
+    setState(diagramTileStateFor(hasPreviewSource));
   }
   const strippedAlt = stripNewTabSuffix(alt);
-  if (failed) {
-    return (
+  /**
+   * The caption: the tile's name, and in the failed states its explanation.
+   * It lives OUTSIDE the box, as a sibling in the cell, so it can be as tall as
+   * its content while the box holds its exact 4:3 — the invariant the
+   * real-browser suite pins. Inside the box it was clipped by
+   * `overflow-hidden`, which is the whole reason it moved.
+   *
+   * NO `data-testid` on the name line, deliberately, and the reason survives
+   * the move: the tile-count assertion selects with
+   * `[data-testid^="…-diagram-tile-"]`, a PREFIX match, so any testid derived
+   * from the tile's own would be counted AS a tile — that read 24 where 12 was
+   * correct at every breakpoint. The `title` attribute is the handle instead.
+   *
+   * TWO LINES, not one, and `truncate` was the wrong inheritance. While the
+   * caption lived INSIDE the `overflow-hidden aspect-4/3` box it could not be
+   * allowed to grow, so it was ellipsised to a single line. Out here growth is
+   * the whole point of the move, and a single line does not fit the names this
+   * surface actually carries: the grid probe reports `name truncated` at 320
+   * and 390, which is where this matters and is also where Doug's phone is. A
+   * cut-off name
+   * does not answer WHICH diagram is dark, which is the entire job of the line,
+   * and `title` recovers it only on hover, which the venue floor does not have.
+   *
+   * Still BOUNDED at two, so one pathological name cannot push the grid around;
+   * a name past two lines is ellipsised as before, and `wrap-break-word` keeps
+   * a single very long token from overflowing sideways instead.
+   *
+   * `announced` is false ONLY in the live state, where the anchor already
+   * carries the name and a visible duplicate would be heard twice. In the
+   * failed states there is no anchor, so this is the only accessible text the
+   * tile has and it must stay announced. Same argument that emptied the image's
+   * `alt` below.
+   */
+  const caption = (announced: boolean) =>
+    strippedAlt ? (
       <span
-        data-testid={testId}
-        className="grid aspect-4/3 w-full place-items-center gap-1 overflow-hidden rounded-md border border-border bg-surface-sunken px-1 text-center"
+        title={strippedAlt}
+        aria-hidden={announced ? undefined : "true"}
+        className="line-clamp-2 max-w-full wrap-break-word text-xs text-text-subtle"
       >
-        <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
-        <span className="text-xs text-text-subtle">Preview unavailable</span>
-        {/* WHICH diagram is dark. The name is already in hand as `alt` and was
-            being discarded, so a grid of failures read as N identical grey
-            boxes and the reviewer could not tell which sheet tab was missing —
-            on the surface where he confirms diagrams made it in before
-            publishing. Truncated because a tile is ~74px wide at 320px; the
-            full string stays available as the title. `overflow-hidden` on the
-            container keeps the box identical to the live tile's, which the
-            real-browser suite pins.
-
-            NO `data-testid` here, deliberately. The tile-count assertion selects
-            with `[data-testid^="…-diagram-tile-"]`, a PREFIX match, so any
-            testid derived from the tile's own would be counted AS a tile — the
-            cap assertion read 24 where 12 was correct at every breakpoint. The
-            title attribute is the handle instead. */}
-        {strippedAlt ? (
-          <span title={strippedAlt} className="max-w-full truncate text-xs text-text-subtle">
-            {strippedAlt}
-          </span>
-        ) : null}
+        {strippedAlt}
+      </span>
+    ) : null;
+  if (state !== "live") {
+    return (
+      <span className="flex flex-col gap-1" data-testid={cellTestId}>
+        <span
+          data-testid={testId}
+          className="grid aspect-4/3 w-full place-items-center overflow-hidden rounded-md border border-text-faint bg-surface-sunken"
+        >
+          {/* The glyph carries the state, and it is the SHAPE that carries it:
+              same size, same ramp in both, so the two are told apart by
+              anyone who cannot tell the two colours apart either. Same
+              color-blind-safe reasoning as BellPanel's severity icons. */}
+          {state === "absent" ? (
+            <TriangleAlert aria-hidden="true" className="size-4 text-text-subtle" />
+          ) : (
+            <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
+          )}
+        </span>
+        {caption(true)}
+        {/* The message is addressed by its OWN attribute rather than a testid:
+            a third id would enlarge a namespace whose prefix discipline is
+            already load-bearing, and keying an oracle to the SENTENCE would
+            make it unable to fail when the sentence is wrong.
+            `[data-attention-anchor]` in this file is the same pattern. */}
+        <span data-diagram-message className="text-xs/relaxed text-text-subtle">
+          {DIAGRAM_TILE_FAILURE_COPY[state]}
+        </span>
       </span>
     );
   }
   return (
-    /* The anchor is the tile's SOLE accessible name (spec
+    <span className="flex flex-col gap-1" data-testid={cellTestId}>
+      {/* The anchor is the tile's SOLE accessible name (spec
        2026-08-07-step3-a11y-cluster §2.4, closing NEWTAB-A11Y-RESIDUE-1(a)).
        Its aria-label — including the empty-alt fallback below — is the
        nameless-link guard (WCAG 2.4.4/4.1.2) and is unchanged. The inner <img>
        used to repeat the same string as its alt, so a screen reader navigating
        into the link heard the name twice; it is now decorative. That reverses
        an earlier belt-and-braces audit fix deliberately: the fallback here
-       makes the duplicate redundant rather than defensive. */
-    <a
-      ref={(node) => {
-        anchorNodeRef.current = node;
-        anchorRef?.(node);
-      }}
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={
-        strippedAlt ? `${strippedAlt} (opens in a new tab)` : "Staged diagram (opens in a new tab)"
-      }
-      data-testid={testId}
-      /* `relative` and the aspect box are REQUIRED, and only these: without a
+       makes the duplicate redundant rather than defensive. */}
+      <a
+        ref={(node) => {
+          anchorNodeRef.current = node;
+          anchorRef?.(node);
+        }}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={
+          strippedAlt
+            ? `${strippedAlt} (opens in a new tab)`
+            : "Staged diagram (opens in a new tab)"
+        }
+        data-testid={testId}
+        /* `relative` and the aspect box are REQUIRED, and only these: without a
          positioned ancestor a `fill` image resolves against the modal panel,
          which IS positioned, and one thumbnail covers the whole dialog —
          measured at all three modes.
@@ -4228,32 +4316,34 @@ export function DiagramTile({
          Spec L3. Pinned in a real browser at
          tests/e2e/step3-review-modal.layout.spec.ts, which asserts the border
          is on THIS element and not on the image. */
-      /* Focus ring: WCAG 2.4.7. This anchor is a link and had NO visible focus
+        /* Focus ring: WCAG 2.4.7. This anchor is a link and had NO visible focus
          indicator beyond the browser default, while every sibling link in this
          file carries the recipe. The arc that rewrote this className is the one
          that owes it. `overflow-hidden` above does not clip it — an element's
          own overflow never clips its own ring — and the offset ground is
          `surface`, the panel-card the grid sits in. */
-      className="relative block aspect-4/3 w-full overflow-hidden rounded-md border border-text-faint bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-    >
-      <Image
-        loader={loader}
-        src={sourceKey}
-        alt=""
-        fill
-        sizes={sizes}
-        /* ORDER IS LOAD-BEARING, and it is the crew gallery's
+        className="relative block aspect-4/3 w-full overflow-hidden rounded-md border border-text-faint bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      >
+        <Image
+          loader={loader}
+          src={sourceKey}
+          alt=""
+          fill
+          sizes={sizes}
+          /* ORDER IS LOAD-BEARING, and it is the crew gallery's
            (components/diagrams/Gallery.tsx:286-293): the grid is handed the
            anchor BEFORE `failed` flips, because after the flip there is no
            anchor left to move focus off and no node left to compare the
            active element against. */
-        onError={() => {
-          onFailure?.(anchorNodeRef.current);
-          setFailed(true);
-        }}
-        className="object-cover"
-      />
-    </a>
+          onError={() => {
+            onFailure?.(anchorNodeRef.current);
+            setState("load-failed");
+          }}
+          className="object-contain"
+        />
+      </a>
+      {caption(false)}
+    </span>
   );
 }
 
@@ -4404,6 +4494,7 @@ export function DiagramsBreakdown({
                 handleTileFailure(i, stub.alt?.trim() || `Diagram from ${stub.sheetTab}`, node)
               }
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
+              cellTestId={`wizard-step3-card-${dfid}-diagram-cell-${i}`}
               href={resolveSrc(stub)}
               sourceKey={resolveSourceKey(stub)}
               loader={resolveLoader(stub)}
@@ -4588,6 +4679,19 @@ export function PublishedDiagramsBreakdown({
           // tile takes the placeholder branch instead of asking.
           rev !== "" &&
           (stub as PersistedEmbeddedImage).snapshotPath !== null &&
+          // The derived KEY must be non-empty too, and the revision check above
+          // does not imply it: a `snapshotPath` ending in a separator derives
+          // "" from `diagramAssetKeyFromPath`, giving
+          // `/api/asset/diagram/<show>/<rev>/` — the same malformed shape the
+          // comment above refuses, one path component over.
+          //
+          // Ungated it is worse than a 404. `next/image` handed an empty `src`
+          // emits an <img> with no src, issues no request, and therefore never
+          // fires `onError`, so the tile stays on the LIVE branch rendering
+          // nothing at all: no image, no glyph, no sentence. Silently wrong is
+          // the one outcome the consequence bound forbids, and every other
+          // unservable shape on this surface is signalled.
+          keyOf(stub) !== "" &&
           isAllowedDiagramMime(stub.mimeType)
         }
       />

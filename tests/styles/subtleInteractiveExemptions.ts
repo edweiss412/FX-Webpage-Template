@@ -105,7 +105,12 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // this row, so neither number described the merged tree. Located by the scanner on the
     // merged tree, never by composing the two deltas.
     // The scanner reports this file's two hits as 1648 and 3412.
-    line: 1648,
+    // Both +1 on Task 3 of docs/superpowers/plans/2026-08-31-diagram-tile-states.md,
+    // which added a single `TriangleAlert` line to the lucide import at the top of
+    // the file, shifting every line below it. Located by RUNNING the scanner, not by
+    // adding the delta: it reports two hits, 1649 and 3413, and 1649 is still the
+    // `{hidden.length} more` accordion <summary>.
+    line: 1649,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -127,7 +132,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // this row, so neither number described the merged tree. Located by the scanner on the
     // merged tree, never by composing the two deltas.
     // The second of the scanner's two hits, still the ignored-summary <summary>.
-    line: 3412,
+    // +1 on Task 3 of the diagram-tile-states plan, same one-line lucide import.
+    // 3413 on the post-edit tree, confirmed by its own unique
+    // `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`, never by the delta.
+    line: 3413,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

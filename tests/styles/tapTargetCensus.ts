@@ -357,7 +357,23 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // this row, so neither number described the merged tree. Located by the scanner on the
     // merged tree, never by composing the two deltas.
     // The scanner reports this file's one unclassified site as 4191, that same `<a>`.
-    line: 4191,
+    // 4191 -> 4203 when the diagram tile gained its cell wrapper (Task 1 of
+    // docs/superpowers/plans/2026-08-31-diagram-tile-states.md). Located by RUNNING
+    // the scanner on the post-edit tree, not by adding a delta: it reports exactly one
+    // unclassified site in this file, 4203, and 4203 is that same `<a>` — the tile
+    // anchor, now one level deeper inside the wrapper. Same element, same reason below.
+    // 4203 -> 4223 on Task 2 of the same plan, which lifted the caption out of the
+    // box and added the shared `caption()` helper above both branches. Located the
+    // same way, by running the scanner: one unclassified site, 4223, still that `<a>`.
+    // 4223 -> 4265 on Task 3, which added the state union, the ratified copy record
+    // and one lucide import line above this element. Located the same way: the
+    // scanner reports one unclassified site in this file, 4265, and it is still that
+    // same tile anchor. Same element, same reason below.
+    // 4265 -> 4277 on the impeccable-critique P1 repair, which replaced the name
+    // line's single-line truncate with a two-line clamp and recorded why in the
+    // comment above it. Located by running the scanner: one unclassified site,
+    // 4277, still that same tile anchor.
+    line: 4277,
     tag: "a",
     category: "full-bleed",
     reason:
