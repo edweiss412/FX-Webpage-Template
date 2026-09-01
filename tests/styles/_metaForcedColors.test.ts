@@ -153,6 +153,29 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     );
   });
 
+  it("DESIGN.md carries the pattern, including the per-affordance clause", () => {
+    // AC-9. The whole-section pin plus a clause pin, because a section that
+    // survives with rule 4 deleted does not pin what bl-orch made a condition of
+    // approving the mechanism change: a future author who reads "selected takes
+    // Highlight" and goes looking for a selected TOKEN will not find one, and the
+    // next thing they try is re-pointing a shared token, which is the failure §3.3
+    // records.
+    // Fenced blocks are stripped first. The four string-presence mutants this pin
+    // owes include "present but not live", and a bare `toContain` passes when the
+    // clause is moved inside a code fence — where it reads as an example rather
+    // than as the rule. Two of the four mutants were red without this and one was
+    // green, which is what put the strip here.
+    const design = readFileSync(join(ROOT, "DESIGN.md"), "utf8").replace(/^```[\s\S]*?^```/gm, "");
+    expect(design).toContain("Forced colors — outline is the durable carrier");
+    expect(design).toContain("They are NOT tokens");
+    expect(design, "rule 4's per-affordance clause is the one bl-orch required").toContain(
+      "applied PER AFFORDANCE",
+    );
+    // And the ARIA distinction, which is the pass's sharpest finding and the one
+    // most likely to be "simplified" away by someone who reads rule 3 alone.
+    expect(design).toContain("ARIA is not a carrier, but it is an excellent selector");
+  });
+
   it("does not report the pass's own repairs as defects", () => {
     // The cure is not the disease. A rule scoped to forced-colors IS the treatment,
     // so applying the carrier criterion to it is a category error — and the guard
@@ -195,6 +218,30 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     expect(withCarrier).toEqual([]);
     const withoutCarrier = scanCarrierLoss(`.x { box-shadow: 0 0 0 2px red; }`);
     expect(withoutCarrier).toHaveLength(1);
+  });
+
+  it("counts a longhand outline property as a surviving carrier", () => {
+    // `outline-style` reaches the predicate through its REGEX branch, not the
+    // `outline` shorthand equality above it, and no case exercised that branch —
+    // a surviving mutant flipped the `||` between them to `&&` and nothing
+    // noticed. A rule keeping only the longhand still keeps its carrier.
+    expect(scanCarrierLoss(`.x { box-shadow: 0 0 0 2px red; outline-style: solid; }`)).toEqual([]);
+    // And the same rule without it is still reported, so the case discriminates
+    // rather than asserting that nothing is ever reported.
+    expect(scanCarrierLoss(`.x { box-shadow: 0 0 0 2px red; }`)).toHaveLength(1);
+  });
+
+  it("treats a gradient as a dropped carrier only on background-image", () => {
+    // Two surviving mutants lived on this one line: the `&&` joining the property
+    // test to the value test, and the `===` in the property test. Both widen
+    // `isDroppedGradient` to fire on any gradient-valued declaration, so a
+    // `mask-image` gradient becomes a carrier the rule does not actually have.
+    expect(
+      scanCarrierLoss(`.x { mask-image: linear-gradient(red, blue); }`),
+      "a gradient on a property this pass does not model is not a carrier",
+    ).toEqual([]);
+    // The real case still reports, so the narrowing is not a blanket exemption.
+    expect(scanCarrierLoss(`.x { background-image: linear-gradient(red, blue); }`)).toHaveLength(1);
   });
 
   it("judges an animation by its whole property set, not step by step", () => {
