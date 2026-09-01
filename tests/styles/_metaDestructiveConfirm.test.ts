@@ -113,12 +113,6 @@ const REGISTRY: Row[] = [
     "panel",
     "admin-rotate-share-token-confirm-button",
   ),
-  R(
-    "app/admin/show/[slug]/ResetPickerEpochButton.tsx",
-    0,
-    "panel",
-    "admin-reset-picker-epoch-confirm-button",
-  ),
   R("app/admin/show/[slug]/PickerResetControl.tsx", 0, "panel", "picker-reset-confirm-button"),
   R("components/admin/wizard/CrewRowActions.tsx", 0, "panel", "crew-row-reset-confirm-go"),
   R(
@@ -394,5 +388,57 @@ describe("META arm-revert timing contract (spec §5.2)", () => {
     expect(mod.ARM_EXPIRED_ANNOUNCEMENT, "spec 2026-08-01-announce-a11y-pass §3.1").toBe(
       "Confirm window closed. Nothing was changed.",
     );
+  });
+});
+
+/**
+ * C5-SCROLL. A close-focus restore must not move the viewport.
+ *
+ * `HTMLElement.focus()` scrolls the nearest scrollable ancestor to reveal its
+ * target unless `preventScroll` is set. That was harmless while these restores
+ * only ran on Cancel, and stopped being harmless the moment the 2026-08-31
+ * confirm-focus arc extended them to the CONFIRM path: the rotate trigger sits
+ * BELOW the share-URL row, so the restore dragged the popover back down and
+ * undid the `scrollIntoView(url row)` the rotation performs — silently breaking
+ * SHARELINK-CUE-VISIBILITY-1, a contract the PREVIOUS arc had ratified.
+ *
+ * Three component suites covering these controls stayed green through it,
+ * because jsdom's `focus()` neither scrolls nor records how it was called. Only
+ * the real-browser spec caught it, and only after three CI runs, one of which
+ * recovered on retry and reported "1 flaky" — a green job hiding the same
+ * failure.
+ *
+ * DERIVED, not enumerated: the population is every file carrying the
+ * `restoreFocusRef` recipe, walked from disk, so a fourth control adopting the
+ * pattern is covered on the day it lands. The arming focus is deliberately
+ * exempt — `cancelRef.focus()` runs when the confirm row APPEARS, where
+ * scrolling the operator to the thing they must now decide about is the point.
+ */
+describe("META C5-SCROLL: close-focus restores never move the viewport", () => {
+  const offenders: string[] = [];
+  const covered: string[] = [];
+  for (const root of ["components", "app"]) {
+    for (const file of walk(root)) {
+      const src = stripCommentsForFile(readFileSync(file, "utf8"), file);
+      if (!src.includes("restoreFocusRef")) continue;
+      covered.push(file);
+      src.split("\n").forEach((line, i) => {
+        if (!/\.focus\(/.test(line)) return;
+        if (/cancelRef/.test(line)) return; // arming focus: scrolling is intended
+        if (/preventScroll:\s*true/.test(line)) return;
+        offenders.push(`${file}:${i + 1} ${line.trim()}`);
+      });
+    }
+  }
+
+  it("premise: the walk found the controls carrying the recipe", () => {
+    // Without this the case passes vacuously the day the recipe is renamed.
+    expect(covered.length, `files carrying restoreFocusRef: ${covered.join(", ")}`).toBeGreaterThan(
+      2,
+    );
+  });
+
+  it("every restore-path focus passes preventScroll", () => {
+    expect(offenders).toEqual([]);
   });
 });

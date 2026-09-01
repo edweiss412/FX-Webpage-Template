@@ -7,7 +7,11 @@
  * THREAT FENCE: this suite defends against ONE thing — the swaps of TWO arcs
  * being reverted or half-reverted (the two-arm ternary case): the 21 that moved
  * off `border-border-strong` on 2026-08-16, and the 36 additions that moved off
- * `border-border` on 2026-08-18, 57 census rows in total. It does NOT defend
+ * `border-border` on 2026-08-18, 55 census rows in total (57 until the
+ * 2026-08-31 confirm-focus arc deleted the dead `ResetPickerEpochButton`,
+ * taking that component's two rows with it — a ratified deletion, swept out of
+ * every registry that named it rather than left as an unresolvable pin). It
+ * does NOT defend
  * against a contributor adding a NEW control at either token; spec §5.2 records the five review rounds that
  * established why that forward guard was CUT rather than shipped.
  */
@@ -110,14 +114,14 @@ describe("control-outline census (spec §4.2)", () => {
    * and every surviving row still resolves. This is the vacuous-iteration
    * failure and it is the single most important case in the file.
    */
-  it("holds exactly 57 rows", () => {
-    expect(CENSUS.length).toBe(57);
+  it("holds exactly 55 rows", () => {
+    expect(CENSUS.length).toBe(55);
   });
 
   /** A duplicated row must not stand in for a deleted one and keep the count. */
-  it("has 57 distinct row identities", () => {
+  it("has 55 distinct row identities", () => {
     const identities = new Set(CENSUS.map((r) => `${r.file}:${r.line}`));
-    expect(identities.size).toBe(57);
+    expect(identities.size).toBe(55);
   });
 
   /**
@@ -505,7 +509,7 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
     // 8 delete / 10 raise / 3 accent. FOUR sites moved from (a) to (b) on
     // adequacy grounds: ThemeToggle, UserMenu and UnarchiveShowButton at the
     // invariant-8 design review, and ReportButton's icon variant at whole-diff
-    // review round 1. The 21 here is the HOVER population; the census is 57.
+    // review round 1. The 21 here is the HOVER population; the census is 55.
     expect(HOVER_DELETE.length).toBe(8);
     expect(HOVER_SUBTLE.length).toBe(10);
     expect(HOVER_ACCENT.length).toBe(3);
@@ -521,7 +525,7 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
    * deliberately not among them: it belongs to the 2026-08-16 census, not to
    * this arc's additions, and its `hover:border-status-warn` is a SEMANTIC
    * escalation rather than a weight cue — which is why the scoping below is
-   * over ADDITIONS and not over all 57 rows (see the plan's scoping note).
+   * over ADDITIONS and not over all 55 rows (see the plan's scoping note).
    */
   it("exactly the thirteen retarget sites still carry a border override", () => {
     const stillOverridden = ADDITIONS.map((r) => `${r.file}:${r.line}`).filter((id) => {

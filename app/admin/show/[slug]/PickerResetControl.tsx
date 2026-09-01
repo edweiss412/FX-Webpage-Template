@@ -103,7 +103,10 @@ export function PickerResetControl({
   useEffect(() => {
     if (ui === "idle" && restoreFocusRef.current) {
       restoreFocusRef.current = false;
-      triggerRef.current?.focus();
+      // preventScroll for the same reason as the rotate control: this restore
+      // reaches the confirm path now, and a scrolling focus would fight any
+      // scroll the settled action performs.
+      triggerRef.current?.focus({ preventScroll: true });
     }
   }, [ui]);
 
@@ -160,6 +163,17 @@ export function PickerResetControl({
   const onConfirm = () => {
     clearAutoRevert();
     setExpired(false);
+    // C5 on the CONFIRM path. closeConfirm writes this flag for cancel and for
+    // the arm-expiry timer, and nothing wrote it here, so the operator who
+    // committed the reset was left on the document: the disable blurs the button
+    // they just pressed and no restore fires.
+    //
+    // Captured at click time, because once the row is disabled the containment
+    // question cannot be answered any more. Same test closeConfirm uses, so
+    // focus planted outside the row is still not stolen.
+    if (confirmRowRef.current) {
+      restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+    }
     setUi("resolving");
     // not-subject:M5-D8 — this control's outcome copy (success AND error) is admin-authored inline
     // BY DESIGN (spec §6.2): the picker message catalog is crew-oriented and would misattribute an

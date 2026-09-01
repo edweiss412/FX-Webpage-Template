@@ -106,6 +106,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // Destructive-confirm pass F4 (spec §6): C3 open-focus + C5 close-focus refs.
   const cancelRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const refreshRef = useRef<HTMLButtonElement>(null);
   const confirmRowRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
 
@@ -131,18 +132,20 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // confirm episode (cancel clears the timer; the timer cannot race a consumed
   // restore because the effect runs on the very next render, before any later
   // macro-task timer callback).
-  useEffect(() => {
-    if (ui === "idle" && restoreFocusRef.current) {
-      restoreFocusRef.current = false;
-      triggerRef.current?.focus();
-    }
-  }, [ui]);
 
   // When a result arrives, the action did NOT hang, clear the watchdog so a
   // late timer can't override the resolved (ok / infra_error / lockout) path.
   useEffect(() => {
     if (result !== null) clearWatchdog();
   }, [result]);
+
+  // NOTE: the success path deliberately does NOT restore focus here. This row is
+  // removed by revalidation, and three browser runs showed the row's own effect
+  // focusing a heading that the RSC replacement then swapped out, leaving focus
+  // on <body> after the move. That branch belongs to
+  // components/admin/settings/AdminListFocusRestore.tsx, the surface that
+  // survives the unmount — the same reason ShareHub owns the archive rescue
+  // (spec §2.3).
 
   // R8 MEDIUM FIX (refined at R9): when the Server Action returns a
   // non-ok terminal result (last_admin_lockout, invalid_email), the
@@ -160,6 +163,32 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // be present when the watchdog fired, the result-effect clears the
   // watchdog, but guard defensively so a late render never re-derives idle).
   const effectiveUi: UiState = ui === "couldnt_confirm" ? "couldnt_confirm" : refused ? "idle" : ui;
+
+  // Keyed on effectiveUi, not on raw `ui`, and this is the whole repair for the
+  // non-success branches. A refused result never leaves `ui === "resolving"` —
+  // only `effectiveUi` snaps to idle (see the effectiveUi derivation above) — so
+  // an effect gated on raw `ui` can fire for cancel and the arm-expiry timer and
+  // never for a refusal, a lockout, or a retry. The rendered branch is what the
+  // operator is looking at, so the rendered branch is what focus must follow.
+  useEffect(() => {
+    if (!restoreFocusRef.current) return;
+    // Follow the branch that RENDERS, all the way — not just the idle one. When
+    // the 12s watchdog flips resolving to couldnt_confirm, the idle trigger does
+    // not exist and Refresh is the only control that branch puts on screen; an
+    // effect that handled idle alone left the operator on the submitter that had
+    // just gone away (whole-diff review P1).
+    const target =
+      effectiveUi === "idle"
+        ? triggerRef.current
+        : effectiveUi === "couldnt_confirm"
+          ? refreshRef.current
+          : null;
+    if (target === null) return;
+    restoreFocusRef.current = false;
+    // preventScroll, matching the other two-tap controls and the container
+    // restore: focus returns without moving the viewport under the operator.
+    target.focus({ preventScroll: true });
+  }, [effectiveUi]);
 
   const onRevokeClick = () => {
     clearAutoRevert();
@@ -182,6 +211,12 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
     clearAutoRevert();
     setExpired(false);
     clearWatchdog();
+    // C5 on the CONFIRM path, captured at click time: once the submitter is
+    // disabled on isPending the containment question has no answer. Same test
+    // closeConfirm uses, so focus planted outside the row is not stolen.
+    if (confirmRowRef.current) {
+      restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+    }
     setUi("resolving");
     // Start the no-response watchdog. If we're still resolving with no result
     // when it fires, the action hung, go conservative.
@@ -283,6 +318,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           {/* tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10 */}
           <button
             type="button"
+            ref={refreshRef}
             data-testid="admin-allowlist-couldnt-confirm-refresh"
             onClick={onRefreshClick}
             className="font-medium underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"

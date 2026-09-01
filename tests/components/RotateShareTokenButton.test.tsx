@@ -53,6 +53,17 @@ const mockRotateOk = () =>
     new_epoch: 9,
   });
 
+/** Confirm an ALREADY-ARMED row. `clickThroughConfirm` arms first, so it cannot
+ *  be used after an explicit arm — the idle trigger is gone by then. */
+const confirmArmed = async () => {
+  await act(async () => {
+    fireEvent.click(confirmBtn());
+    vi.useRealTimers();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+};
+
 const clickThroughConfirm = async () => {
   fireEvent.click(idleBtn());
   await act(async () => {
@@ -408,6 +419,61 @@ describe("RotateShareTokenButton — destructive recipe + focus-safe open/close 
       vi.advanceTimersByTime(4_001);
     });
     await vi.waitFor(() => expect(idleBtn()).toHaveFocus());
+  });
+
+  // AC-1 — the confirm path. Cancel and auto-revert already restore the trigger;
+  // CONFIRM does not, because restoreFocusRef is written only by closeConfirm
+  // and no confirm path calls it. The operator who commits the destructive
+  // action is the one left on <body>.
+  test("close focus on CONFIRM (ok): the trigger regains focus once the action settles", async () => {
+    mockRotateOk();
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} isCrewLinkActive />);
+    fireEvent.click(idleBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    await confirmArmed();
+    // Premise: the action actually resolved OK, so this is the settled state and
+    // not a reading taken mid-flight. isCrewLinkActive is load-bearing — without
+    // it the component renders the -ok-inactive banner and this premise would be
+    // asserting the wrong branch.
+    await vi.waitFor(() => expect(screen.getByTestId("admin-rotate-share-token-ok")).toBeVisible());
+    await vi.waitFor(() => expect(idleBtn()).toHaveFocus());
+  });
+
+  test("close focus on CONFIRM (refused): the trigger regains focus once the action settles", async () => {
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    });
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    await confirmArmed();
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("admin-rotate-share-token-refused")).toBeVisible(),
+    );
+    await vi.waitFor(() => expect(idleBtn()).toHaveFocus());
+  });
+
+  test("confirm does NOT steal focus planted outside the row", async () => {
+    // The existing auto-revert case pins this for cancel; the confirm path must
+    // inherit it rather than focus unconditionally.
+    mockRotateOk();
+    render(
+      <>
+        <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} isCrewLinkActive />
+        <button type="button" data-testid="external-btn">
+          elsewhere
+        </button>
+      </>,
+    );
+    fireEvent.click(idleBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    const external = screen.getByTestId("external-btn");
+    act(() => external.focus());
+    await confirmArmed();
+    await vi.waitFor(() => expect(screen.getByTestId("admin-rotate-share-token-ok")).toBeVisible());
+    expect(external).toHaveFocus();
+    expect(idleBtn()).not.toHaveFocus();
   });
 
   test("close focus (C5): auto-revert with focus planted outside does NOT steal focus", async () => {

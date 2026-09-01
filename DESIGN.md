@@ -767,7 +767,6 @@ realtime reconnect backoff.
 | --- | --- | --- |
 | `WATCHDOG_MS` | 12000 | `app/admin/settings/admins/RevokeRowButton.tsx` |
 | `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/PickerResetControl.tsx` |
-| `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/ResetPickerEpochButton.tsx` |
 | `CLEAR_AFTER_MS` | 2000 | `app/help/_components/RefAnchor.tsx` |
 | `CLOSE_DELAY_MS` | 120 | `components/admin/HoverHelp.tsx` |
 | `ANNOUNCE_LOG_TTL_MS` | 30000 | `components/admin/announceLog.tsx` |

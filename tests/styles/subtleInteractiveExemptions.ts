@@ -52,7 +52,11 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/admin/settings/AdministratorsSection.tsx",
-    line: 151,
+    // 151 -> 177 on this arc: the container-level focus restore added an import,
+    // the AdminListFocusRestore mount, and the heading's focus-target comment,
+    // all of which land ABOVE this disclosure. Re-MEASURED by identity on the
+    // live tree (the same "Revoked (n)" <summary>), not by adding a delta.
+    line: 177,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
