@@ -24,7 +24,13 @@
 import { useEffect, useRef } from "react";
 
 export function AdminListFocusRestore({ activeEmails }: { activeEmails: readonly string[] }) {
-  const previous = useRef<readonly string[] | null>(null);
+  // The effect keys on a PRIMITIVE, not on the array. `activeEmails` is built
+  // with `active.map(...)` in the parent, so it is a fresh reference on every
+  // parent render and an array dependency would run this effect body every time,
+  // saved only by its own guard. The joined string changes when membership
+  // does, which is exactly when this component has anything to do.
+  const membership = activeEmails.join("\u0000");
+  const previous = useRef<string | null>(null);
   /** The row email that held focus when the list last changed under it. */
   const focusedRowEmail = useRef<string | null>(null);
 
@@ -40,14 +46,15 @@ export function AdminListFocusRestore({ activeEmails }: { activeEmails: readonly
 
   useEffect(() => {
     const before = previous.current;
-    previous.current = activeEmails;
+    previous.current = membership;
     if (before === null) return;
+    const beforeList = before.split("\u0000");
 
     const held = focusedRowEmail.current;
     if (held === null) return;
     // Only when the row that held focus is the one that went away. A list that
     // merely re-orders, or loses a row nobody was in, must not move focus.
-    if (!before.includes(held) || activeEmails.includes(held)) return;
+    if (!beforeList.includes(held) || activeEmails.includes(held)) return;
 
     focusedRowEmail.current = null;
     const heading = document.getElementById("admin-settings-admins-heading");
@@ -57,7 +64,7 @@ export function AdminListFocusRestore({ activeEmails }: { activeEmails: readonly
     // viewport (spec AC-3).
     heading.focus({ preventScroll: true });
     heading.scrollIntoView({ block: "nearest" });
-  }, [activeEmails]);
+  }, [membership, activeEmails]);
 
   return null;
 }
