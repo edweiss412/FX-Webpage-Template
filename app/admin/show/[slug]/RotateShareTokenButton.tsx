@@ -145,7 +145,12 @@ export function RotateShareTokenButton({
   useEffect(() => {
     if (ui === "idle" && restoreFocusRef.current) {
       restoreFocusRef.current = false;
-      triggerRef.current?.focus();
+      // preventScroll, because this restore now fires on the CONFIRM path too and
+      // the trigger sits BELOW the URL row: a scrolling focus drags the popover
+      // back down and undoes the `scrollIntoView(url row)` the rotation performs
+      // (SHARELINK-CUE-VISIBILITY-1, the previous arc's ratified contract).
+      // Focus returns; the scroll position is left to whoever owns it.
+      triggerRef.current?.focus({ preventScroll: true });
     }
   }, [ui]);
 

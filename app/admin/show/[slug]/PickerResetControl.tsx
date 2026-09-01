@@ -103,7 +103,10 @@ export function PickerResetControl({
   useEffect(() => {
     if (ui === "idle" && restoreFocusRef.current) {
       restoreFocusRef.current = false;
-      triggerRef.current?.focus();
+      // preventScroll for the same reason as the rotate control: this restore
+      // reaches the confirm path now, and a scrolling focus would fight any
+      // scroll the settled action performs.
+      triggerRef.current?.focus({ preventScroll: true });
     }
   }, [ui]);
 

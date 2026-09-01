@@ -185,7 +185,9 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           : null;
     if (target === null) return;
     restoreFocusRef.current = false;
-    target.focus();
+    // preventScroll, matching the other two-tap controls and the container
+    // restore: focus returns without moving the viewport under the operator.
+    target.focus({ preventScroll: true });
   }, [effectiveUi]);
 
   const onRevokeClick = () => {
