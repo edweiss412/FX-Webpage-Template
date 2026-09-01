@@ -106,42 +106,6 @@ strings above are final; type them verbatim.
 
 **Evidence:** `/impeccable critique` on `perf/admin-diagram-next-image`, Assessment A, priority issues 1 and 4 (heuristic 9, Diagnose and Recover, scored 1/4 — the lowest score on the surface). The two-state claim is not inferred from the copy: it is read off the component, where the seed and the `onError` write are separate code paths that produce one indistinguishable render.
 
-### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips now read lighter than the control they sit beside (2026-08-16)
-
-**Effort:** S per site, M as a rule
-
-Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P1,
-audit P2 — recorded at the higher call). Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F1 and F2).
-
-**The finding.** The 2026-08-16 ruling moved 21 CONTROLS to `border-text-faint`. DESIGN.md §1.2a
-keeps `--color-border-strong` for non-interactive chrome, so two elements that share a recipe with
-a swapped control correctly stayed put — and each is now the quieter half of a pair a reader sees
-at once:
-
-- `components/diagrams/GalleryLightbox.tsx:773`, the `aria-hidden` demote chip, against the Reset
-  chip at `:708` it matches (same `rounded-pill bg-surface-raised px-4`, same shadow; `bottom-2`
-  and `top-2` of the same image). 1.59/1.50 versus 3.35/3.53.
-- `components/admin/StagedPreviewBanner.tsx:65`, the `aria-current` chip, standing in a row of
-  picker links at `:75` that moved. The entry marked current carries the weakest boundary in its
-  own row.
-
-**Why deferred rather than repaired in-branch — reason (b) plus (a).** Spec
-`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §4.4 ratifies the
-second site verbatim ("non-interactive chrome: outside the census, keeps its token") and §1.2a's
-scope paragraph ratifies the first, so moving either would move an element under a ruling the user
-took against a mockup of BUTTONS resting on cards. The general question is a design decision:
-should chrome that visually PAIRS with a control follow that control's outline weight, or does
-chrome follow chrome? Neither site is a contrast finding — both are non-interactive, so SC 1.4.11
-does not reach them, and both carry their state programmatically.
-
-Both are recorded as documented limits in DESIGN.md §1.2a so the predicate and the tree do not
-disagree while this sits open.
-
-**Un-defer trigger:** a decision on whether §1.2a gains a pairing clause or an explicit "chrome
-follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
-Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
-
 ### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 
 **Effort:** S
