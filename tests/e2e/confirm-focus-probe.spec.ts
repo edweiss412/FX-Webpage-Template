@@ -37,6 +37,8 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { openShowReviewModal } from "./helpers/openShowReviewModal";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { ensureActorActive, hardDeleteAdminEmail, insertActivePeer } from "./helpers/seedAdminPeer";
 import {
   measureCancelPath,
   measureConfirmPath,
@@ -45,6 +47,9 @@ import {
 } from "./helpers/confirmFocusProbe";
 
 let seeded: SeededShow;
+
+/** Unique per run, so a leftover row from an aborted run cannot be measured instead. */
+const RUN_TAG = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS)", () => {
   test.beforeAll(async () => {
@@ -128,5 +133,48 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
 
     expect(readings.length).toBe(5);
     expect(readings.some((r) => r.at.endsWith(":armed"))).toBe(true);
+  });
+
+  test("390x560: revoke admin, confirm path against cancel path", async ({ page }) => {
+    test.setTimeout(180_000);
+    const peerEmail = canonicalize(`probe-peer-${RUN_TAG}@example.com`)!;
+    await ensureActorActive(ADMIN_FIXTURE.email);
+    await insertActivePeer(peerEmail);
+
+    try {
+      await page.setViewportSize({ width: 390, height: 560 });
+      await page.goto("/admin/settings");
+
+      const activeList = page.getByTestId("admin-active-list");
+      await expect(activeList).toBeVisible();
+      const peerRow = activeList.locator(
+        `[data-testid="admin-allowlist-row"][data-row-email="${peerEmail}"]`,
+      );
+      await expect(peerRow).toHaveCount(1);
+      // The actor's OWN Revoke is disabled, so a probe that hit the wrong row
+      // would measure a control nobody can press. Assert enabled before reading.
+      await expect(peerRow.getByTestId("admin-allowlist-revoke-button")).toBeEnabled();
+
+      // Root is the LIST, not the row: a successful revoke unmounts the row, and
+      // a detached root cannot answer where focus went afterwards.
+      const revoke: ConfirmControl = {
+        name: "revoke-admin",
+        root: activeList,
+        trigger: "admin-allowlist-revoke-button",
+        confirm: "admin-allowlist-revoke-confirm-button",
+        cancel: "admin-allowlist-revoke-cancel-button",
+      };
+
+      const readings: FocusReading[] = [];
+      readings.push(await measureCancelPath(page, revoke));
+      readings.push(...(await measureConfirmPath(page, revoke)));
+
+      console.log(`PROBE-REVOKE-ADMIN ${JSON.stringify(readings)}`);
+
+      expect(readings.length).toBe(5);
+      expect(readings.some((r) => r.at.endsWith(":armed"))).toBe(true);
+    } finally {
+      await hardDeleteAdminEmail(peerEmail);
+    }
   });
 });
