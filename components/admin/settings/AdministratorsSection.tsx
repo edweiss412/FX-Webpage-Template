@@ -30,6 +30,7 @@ import { HoverHelp } from "@/components/admin/HoverHelp";
 import { ReAddRowButton } from "@/app/admin/settings/admins/ReAddRowButton";
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
 import { AddAdminDisclosure } from "@/components/admin/settings/AddAdminDisclosure";
+import { AdminListFocusRestore } from "@/components/admin/settings/AdminListFocusRestore";
 import { DeveloperToggleButton } from "@/components/admin/settings/DeveloperToggleButton";
 
 export function AdministratorsSection({
@@ -83,7 +84,26 @@ export function AdministratorsSection({
 
   const heading = (
     <div className="flex items-center gap-2">
-      <h2 id="admin-settings-admins-heading" className="text-lg font-semibold text-text-strong">
+      {/* `focus:`, deliberately, NOT `focus-visible:`. This heading is focused
+          PROGRAMMATICALLY after a revoke, and :focus-visible does not match a
+          programmatic focus that followed a pointer interaction — so a sighted
+          operator who TAPS Confirm would get the scroll and the focus move with
+          no indicator at all. Correct focus, invisible to the person it moved.
+          The keyboard operator is served either way; this is what the pointer
+          operator gets from the change besides a scroll. */}
+      {/* tabIndex -1, not 0: a PROGRAMMATIC focus target, never a tab stop.
+          A successful revoke removes the row by revalidation, so the trigger the
+          operator pressed is gone and there is nothing to restore focus to. This
+          heading is the only candidate that exists unconditionally after that
+          unmount — every next-row scheme dies on the last-row case — and it
+          reorients a screen-reader user by naming where they are. Ratified
+          2026-08-31; the outcome announcement stays on its own channel and is
+          deliberately not merged into this focus move. */}
+      <h2
+        id="admin-settings-admins-heading"
+        tabIndex={-1}
+        className="rounded-sm text-lg font-semibold text-text-strong focus:outline-none focus:ring-2 focus:ring-focus-ring focus:ring-offset-2 focus:ring-offset-surface"
+      >
         Administrators ({active.length})
       </h2>
       <HoverHelp
@@ -103,6 +123,12 @@ export function AdministratorsSection({
 
   const list = (
     <>
+      {/* Container-level focus restore (spec §2.3, the ShareHub pattern). A
+          successful revoke revalidates and the RSC payload replaces this whole
+          section, so the ROW cannot restore focus — the element it focuses is
+          swapped out from under it. This section is a server component, so the
+          behaviour lives in a client child. */}
+      <AdminListFocusRestore activeEmails={active.map((r) => r.email)} />
       <div data-testid="admin-active-list">
         {active.length === 0 ? (
           <p

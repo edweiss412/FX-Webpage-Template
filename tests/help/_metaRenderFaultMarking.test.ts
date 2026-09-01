@@ -418,7 +418,16 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Regenerated on the ref-error-cell-anchors merge of main. Both parents had moved lines in
     // step3ReviewSections.tsx, so neither parent digest describes the merged tree; membership
     // is unchanged and its assertion passed on the same run that produced this hash.
-    expect(digest).toBe("71f14e841ebb8085aa25a60d56438ccb805bdc0bc1b254200989fb690ee1eff3");
+    // Regenerated 2026-09-01 (confirm-focus-restore), to that same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the arc edits:
+    //   components/admin/settings/AdministratorsSection.tsx 54 -> 55 (+1, the
+    //   AdminListFocusRestore import lands above it)
+    // Nothing joined or left: membership is still 35, the file set is unchanged, and
+    // every `form` and `marked` value is unchanged — the row is the same bare
+    // `if (result.kind === "infra_error")` origin/main carries at 54. Reverting that
+    // ONE row reproduces 71f14e84... byte-for-byte, which is what makes the delta a
+    // move rather than a membership change.
+    expect(digest).toBe("01e90bc3843d8b559f071d782fcf256719c1d7503e5293d75423f4a19b828f8c");
   });
 });
 

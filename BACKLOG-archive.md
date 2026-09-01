@@ -1,3 +1,72 @@
+## BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS — every two-tap destructive control restores focus on Cancel and drops it on Confirm — ✅ RESOLVED
+
+**Status:** RESOLVED 2026-09-01 (`fix/confirm-focus-restore`, PR #963) · **Filed:** 2026-08-31 (`fix/sharelink-cue-focus`, PR #956, from the SHARELINK-CUE-FOCUS-OBSCURED-1 probe) · **Facing:** product · **Severity:** MEDIUM (keyboard and switch operators are returned to the top of the document after every destructive confirm on the admin surface) · **Class:** focus management on two-tap confirm · **Effort:** M · **Class-sweep exception:** (c) — repairing it spans five UI files and carries the invariant-8 impeccable dual gate, which would have converted a docs-only probe PR into a five-file UI arc; bl-orch ruled it a fresh arc rather than growth of #956 · **Reachability:** PROBED 2026-08-31 on the rotate control; the other four are derived, not observed.
+
+Confirming a destructive action drops `document.activeElement` to `<body>`, and
+nothing puts it back. The operator is returned to the start of the document with
+no focus anywhere in the popover, so a keyboard or switch user has to tab back in
+from the top. The action itself is announced through the admin layout's live
+region, so the outcome is not silent, but the focus position is lost.
+
+**Probe evidence.** Measured on the share-hub rotate control at 390x560 and
+390x460, WebKit and Chromium, driving the real arm-and-confirm flow
+(`tests/e2e/admin-lifecycle-layout.spec.ts` harness; rect tables, commands and the
+reproduction case in
+`docs/superpowers/specs/ci/probes/2026-08-31-sharelink-cue-focus-probe.md`). Focus
+is `<body>` from the confirm click onward, and `scrollTop` is unchanged between
+the armed and just-confirmed measurements in every run, so no scrolling is
+involved. The control that makes it a finding rather than an observation: the
+identical keyboard journey ending in Cancel restores focus to the trigger. Only
+Confirm loses it.
+
+**Mechanism.** `onConfirmClick` sets `ui = "resolving"`, which disables the button
+the operator just activated
+(`app/admin/show/[slug]/RotateShareTokenButton.tsx:179-182`,
+`app/admin/show/[slug]/RotateShareTokenButton.tsx:370-371`). Disabling a focused
+element blurs it. Focus never returns, because the close-focus restore is gated on
+`restoreFocusRef`, written only inside `closeConfirm()`
+(`app/admin/show/[slug]/RotateShareTokenButton.tsx:123-132`), whose callers are
+Cancel and the arm-expiry timer.
+
+**It is a class, swept by derivation over the flag's writers rather than by
+listing components.** `grep -rn "restoreFocusRef.current = " app/ components/`
+returns five two-tap destructive controls. One of the five, entry 4 below, turned
+out to render nowhere; the reachable class is four. In four the only setter is
+`closeConfirm()`; in the fifth it is Cancel's own `onClick`. **No confirm or
+submit handler writes the flag anywhere in the repo.**
+
+1. `app/admin/show/[slug]/RotateShareTokenButton.tsx` — rotate share link (measured)
+2. `app/admin/settings/admins/RevokeRowButton.tsx` — revoke admin
+3. `app/admin/show/[slug]/PickerResetControl.tsx` — picker reset
+4. ~~`app/admin/show/[slug]/ResetPickerEpochButton.tsx` — reset picker epoch~~ — **struck 2026-08-31 on `fix/confirm-focus-restore`.** It was imported by no source file, so it rendered on no route and could not be measured; `git grep` returned only its own definition, docs prose, its jsdom unit test, and a `tests/e2e/picker-flow.spec.ts` click inside a `test.skip`. Deleted in that branch per bl-orch's ruling rather than repaired, because dead code repaired is a maintained lie and git history preserves it. **The reachable class is FOUR.**
+5. `components/admin/ArchiveShowButton.tsx` — archive show
+
+**One constraint the repair has to survive.** `app/admin/settings/admins/RevokeRowButton.tsx:380-390`
+already moved its disable from the synchronous `isResolving` to `isPending`,
+because the synchronous disable cancelled the native form submit outright. That
+fix moves WHEN the button is disabled by a tick; it does not keep it enabled, so
+the focus outcome there is the same and the repair must not undo it.
+
+**What shipped.** The scheduled step ran first and changed the answer, which is
+the point of scheduling it: the probe was extended to the other controls in a
+real browser, and ARCHIVE was REFUTED there. Archive already restores focus, so
+the reachable class was three, not four — one site fewer than the row derived
+and two fewer than it first listed. The other struck site, entry 4, was deleted
+outright rather than repaired.
+
+Rotate and picker-reset now capture whether focus was inside the confirm row
+before the action, so Cancel restores and Confirm deliberately does not. Revoke
+could not use that shape: its success path replaces the row's whole subtree
+through RSC revalidation, so there is no element left to restore to. It takes a
+container-level restore instead, copying the mechanism ShareHub §2.3 already
+ratified for archive — the section heading takes `tabIndex={-1}` and programmatic
+focus, with scroll movement nearest-only.
+
+Measured, not derived: `tests/e2e/confirm-focus-probe.spec.ts` drives each
+control's real arm-and-confirm flow and reads focus page-side. jsdom cannot see
+this class at all, because the defect is a real RSC subtree replacement, which is
+why the deciding cases are browser-free and the probe is not.
+
 ## BL-ATTENTION-MENU-AUTOOPEN-COVERS-TOGGLE-PHONE — the auto-opened attention menu covers the published toggle at phone widths — ✅ RESOLVED
 
 **Status:** RESOLVED 2026-08-29 (`fix/attention-autoopen-suppress-phone`, PR #947) · **Filed:** 2026-08-28 (`fix/attention-panel-left-overflow`, during the containment migration) · **Facing:** product · **Severity:** MEDIUM (the primary publish control is unreachable until the operator dismisses a menu they did not open, on the most common phone width) · **Class:** anchored-overlay occlusion · **Effort:** M · **Class-sweep exception:** (a) — the repair is a product decision about auto-open behaviour, which this arc's geometry patch cannot settle.

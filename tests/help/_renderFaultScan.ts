@@ -763,11 +763,26 @@ export function scanCandidates(): Candidate[] {
       // the tree and this figure was set to what it computed, not bumped by two.
       // The 78 is unchanged; the meta-test compares BOTH against the tree.
       //
+      // 749 -> 742 on 2026-09-01 by fix/confirm-focus-restore, the first entry
+      // here to go DOWN: that arc deleted `ResetPickerEpochButton.tsx`, which was
+      // imported by no source file and so rendered on no route, taking its seven
+      // guarded conditionals with it. The component it adds in exchange
+      // (`AdminListFocusRestore`) returns null and contributes none. The 78 is
+      // unchanged again, which is the check that the drop is a whole file leaving
+      // rather than rows being reclassified.
+      //
+      // This entry read 747 -> 740 until the absorb of the lightbox arc's merge,
+      // which had itself moved 747 -> 749. NEITHER pre-merge number describes the
+      // merged tree, so this was RE-DERIVED against it rather than rebased by
+      // arithmetic: the meta-test reported 742 and this figure was set to what it
+      // computed. Subtracting seven from 749 happens to give the same answer here,
+      // which is exactly why it is not evidence.
+      //
       // ASYMMETRY, DECLINED AND DOCUMENTED rather than closed. The IfStatement
       // arm above falls back to a vocabulary probe and reports an unclassifiable
       // guard as `unknown` residue. This arm drops it, deliberately.
       //
-      // Probed: 749 such ternaries under the derived roots, 78 on a
+      // Probed: 742 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

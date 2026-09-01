@@ -135,10 +135,16 @@ jobs:
             ${{ runner.os }}-playwright-
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
+      # confirm-focus-probe is named EXPLICITLY, beside the lifecycle spec.
+      # Matching the mobile-safari project is NOT enough to run in CI: this step
+      # passes an explicit path list, so a spec that matches the project but is
+      # absent here executes nowhere and its assertions are decorative. That is
+      # LIM-PLAYWRIGHT-RED-TESTMATCH; the confirm-focus probe was dark by exactly
+      # that route until spec round 2 found it.
       - name: Run admin lifecycle layout e2e (mobile-safari, :3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/lifecycle-layout-e2e-report.json
-        run: pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts
+        run: pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts tests/e2e/confirm-focus-probe.spec.ts
       # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
       # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
       # downstream assertion skips the print entirely — the recovery happened, the list

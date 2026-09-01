@@ -317,7 +317,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "the caller owns the URL (extra query params, fragments, encodeURIComponent) and routes it through openShowReviewModalAt, so the wait and the single recovery are the helper's",
     },
-    expectedCount: 9,
+    expectedCount: 8,
     // The MATCH line, not the statement: a test() container's text contains its
     // whole body, so a statement-reading form would claim every describe block
     // holding an adopted call as a member too.
@@ -376,8 +376,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
   // ---------------------------------------------------------------- origin (f)
   //
   // The ADOPTED sites. These three counts ARE the §4.2 arithmetic, asserted
-  // rather than retyped: 30 G (28 of this arc's plus the parent arc's 2 in
-  // admin-changes-feed-layout.spec.ts), 9 U, 12 N edit locations. Deleting any
+  // rather than retyped: 34 G (28 of this arc's, the parent arc's 2 in
+  // admin-changes-feed-layout.spec.ts, and the 2026-08-31 confirm-focus arc's 4
+  // in confirm-focus-probe.spec.ts), 8 U, 12 N edit locations. U fell 9 -> 8
+  // when that same arc deleted the dead ResetPickerEpochButton and the
+  // picker-flow.spec.ts case that opened it. Deleting any
   // post-open helper wait drops the matching count and reds this suite, which is
   // the property the count-free version failed to hold. The N count is DERIVED
   // from N_WAIT_SITES rather than retyped, so the registry and the arithmetic
@@ -391,7 +394,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a plain goto adopted through openShowReviewModal(page, slug) — the helper owns the navigation, the loaded-modal wait and the single recovery",
     },
-    expectedCount: 30,
+    expectedCount: 34,
     match: (c) => /\bopenShowReviewModal\s*\(/.test(c.matchLineText),
   },
   {
@@ -403,7 +406,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "the caller owns the URL or the goto options and adopts through openShowReviewModalAt, so waitUntil semantics and extra query params survive untouched",
     },
-    expectedCount: 9,
+    expectedCount: 8,
     match: (c) => /\bopenShowReviewModalAt\s*\(/.test(c.matchLineText),
   },
   {

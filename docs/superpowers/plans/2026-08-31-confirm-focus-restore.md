@@ -1,0 +1,261 @@
+# Plan — confirm-path focus restore
+
+Spec: `docs/superpowers/specs/2026-08-31-confirm-focus-restore.md`.
+Row: `BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS`.
+
+Three controls, ratified: rotate, picker reset, revoke admin. `ArchiveShowButton`
+is REFUTED by measurement and must not be touched (spec §1.1, §2.3).
+
+## Acceptance criteria
+
+- AC-1 rotate restores focus to its trigger when the confirm resolves, on the OK and the refused branches.
+- AC-2 picker reset restores focus to its trigger when the confirm resolves, on the OK and the non-OK branches.
+- AC-3 revoke SUCCESS moves focus to `#admin-settings-admins-heading`, which takes `tabIndex={-1}`, scrolled nearest-only.
+- AC-4 revoke non-success focuses the control that branch renders: the revoke trigger for a refused result and for the `effectiveUi`-renders-idle case, the Refresh control for `couldnt_confirm`.
+- AC-5 the Cancel path is unchanged on all three, asserted against the EXACT trigger.
+- AC-6 `RevokeRowButton`'s native submit still fires; no synchronous disable of the submitter in its own `onClick`.
+- AC-7 a `ConfirmControl` whose `root` and `rootSelector` name different elements is caught by a test rather than by a reviewer.
+- AC-8 the revoke outcome announcement is not merged into the focus move.
+- AC-9 `ArchiveShowButton` and `ShareHub` are absent from the diff (discharged by the closeout)
+
+## Meta-test inventory
+
+CREATES `tests/e2e/helpers/confirmFocusProbe.decide.test.ts` (already live: the
+browser-free deciding suite for the focus assertion). EXTENDS it in Task 1.
+No other structural meta-test applies: this change touches no Supabase call
+boundary, no advisory lock, no `admin_alerts` catalog row, and no tile sentinel.
+
+## Layout-dimensions task
+
+**N/A, deliberately.** The spec's §5.1 says the same and for the same reason:
+this change moves focus, not layout. It adds no element, changes no
+fixed-dimension parent, and alters no flex or grid relationship. The one new
+rendered attribute is `tabIndex={-1}` on an existing heading.
+
+## e2e harness-readiness checklist
+
+- **Server boot.** `pnpm exec playwright test --project=mobile-safari`, dev
+  server on :3000, `BASELINE_SERVER_ONLY=1` so the :3001-:3003 build servers do
+  not start. Without it the run dies on `Timed out waiting 300000ms from
+  config.webServer` and leaves `app/admin/dev/*.disabled-by-build-gate` renamed
+  aside in the working tree.
+- **Readiness gate.** `openShowReviewModal(page, slug, { timeoutMs: 30_000 })`,
+  plus the `ensureWatchedFolder()` beforeEach — `app_settings.watched_folder_id`
+  being NULL makes `/admin` render the onboarding wizard and the modal never
+  mounts. Never `networkidle` alone.
+- **Detach-safety.** Already fixed and must stay fixed: readings run page-side
+  and re-query `rootSelector` each time, so a root destroyed by the action under
+  measurement reports `rootPresent: false` instead of hanging to the test
+  timeout. Archiving unmounts the popover by design; that is what hung a run for
+  180s before the fix.
+- **CI wiring.** `.github/workflows/lifecycle-layout-e2e.yml` names the spec
+  explicitly. Matching the `mobile-safari` project is NOT enough when the step
+  passes an explicit path list (`LIM-PLAYWRIGHT-RED-TESTMATCH`).
+
+## Restructured after plan review round 1
+
+Round 1 was right that the first draft could not satisfy its own contract: it
+split test-authoring tasks from implementation tasks, so six `red=` commands
+stayed red past their own task. **Every task below now pairs its RED test with
+the implementation that turns that SAME command green**, which is what invariant
+1 requires and what the first draft only approximated.
+
+Two facts from the round-1 probe changed the shape as well:
+
+- **`RevokeRowButton` has no injectable action.** It binds `useActionState` to
+  `revokeAdminAction` (`app/admin/settings/admins/RevokeRowButton.tsx:81`) and submits through a real `<form action={formAction}>`
+  (`app/admin/settings/admins/RevokeRowButton.tsx:305`), unlike rotate which carries a `useDevActionOverride` seam
+  (`app/admin/show/[slug]/RotateShareTokenButton.tsx:98`). Its refusal, watchdog, sticky-late-result and retry branches are
+  therefore decided in **jsdom**, where the action is mockable, using the
+  existing `tests/components/RevokeRowButton.test.tsx`. Only the SUCCESS path is
+  drivable end to end. No production seam is added to make a test convenient.
+- **The live heading is `components/admin/settings/AdministratorsSection.tsx:86`, not `components/admin/settings/AdministratorsSection.tsx:64`.** The latter is inside the
+  list-failed early return. The first draft pointed two tasks at the error-path
+  heading.
+
+<!-- tasks: depth=2 red-contract -->
+
+## Task 1 — reject a ConfirmControl whose two root forms disagree
+
+<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/confirmFocusProbe.decide.test.ts` red-state=authored red-target=`tests/e2e/helpers/confirmFocusProbe.ts:166` why=`measureConfirmPath looks controls up through control.root while every reading goes through control.rootSelector, and no line compares the two, which is how the revoke case shipped with a Locator on the list and a selector on the heading` ac=AC-7 -->
+
+RED: a deciding case constructing a control whose two root forms resolve to
+different elements, expecting a throw. GREEN: `assertRootParity` compares the
+resolved elements and throws naming both, called from `measureConfirmPath` and
+`measureCancelPath` before any lookup.
+
+## Task 2 — Cancel is asserted against the exact trigger
+
+<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/confirmFocusProbe.decide.test.ts` red-state=authored red-target=`tests/e2e/helpers/confirmFocusProbe.ts:224` why=`the cancel arm asserts insideRoot only, so a cancel that restores to the WRONG in-surface control passes` ac=AC-5 -->
+
+RED: a deciding case where cancel restores to a different in-surface control.
+GREEN: the cancel arm compares against the captured trigger identity.
+
+## Task 3 — rotate restores focus on both settled branches
+
+<!-- task: red=`pnpm exec vitest run tests/components/RotateShareTokenButton.test.tsx` red-state=authored red-target=`app/admin/show/[slug]/RotateShareTokenButton.tsx:179` why=`onConfirmClick never writes restoreFocusRef, so the C5 effect sees false and the trigger is never refocused on the OK or the refused branch` ac=AC-1 -->
+
+RED: jsdom cases for OK and refused, each with a premise that the result arrived
+(that branch's banner is rendered). GREEN: the confirm path sets the restore
+flag before returning to idle.
+
+## Task 4 — picker reset restores focus on both settled branches
+
+<!-- task: red=`pnpm exec vitest run tests/admin/pickerResetControl.test.tsx` red-state=authored red-target=`app/admin/show/[slug]/PickerResetControl.tsx:160` why=`onConfirm never writes restoreFocusRef, so the restore effect sees false on both the ok and non-ok outcomes` ac=AC-2 -->
+
+Same shape, against `outcome.kind`.
+
+## Task 5 — revoke non-success branches, and the submission that must survive them
+
+<!-- task: red=`pnpm exec vitest run tests/components/RevokeRowButton.test.tsx` red-state=authored red-target=`app/admin/settings/admins/RevokeRowButton.tsx:134` why=`the restore effect gates on RAW ui === "idle" and depends on [ui], but a refused result leaves ui === "resolving" while only effectiveUi renders idle, so the effect never fires on any non-success branch` ac=AC-4,AC-6 -->
+
+RED cases: refused `result.kind`; the watchdog reaching `couldnt_confirm`; a late
+non-OK under sticky `couldnt_confirm`; refused-then-retried. Each carries an
+executable premise that the branch was REACHED — that branch's rendered marker,
+and for retry a dispatch count of two. The dispatch-count assertion lives HERE,
+in the same task, because it is the regression a wrong repair of THIS code
+causes: it is not a separate verification pass.
+
+GREEN, and round 2 was right that the first statement of it was insufficient:
+the restore must key on the branch actually RENDERED, not on raw `ui`. Either the
+effect's condition and dependency move to `effectiveUi`, or the refused path
+settles `ui` to idle. The retry case additionally needs the stale refused
+`result` cleared, or the second `setUi("resolving")` leaves `effectiveUi`
+computing from it.
+
+## Task 6 — the heading becomes a focus target, and revoke success uses it
+
+<!-- task: red=`pnpm exec vitest run tests/components/settings/administratorsSectionFocusTarget.test.tsx` red-state=authored red-target=`components/admin/settings/AdministratorsSection.tsx:86` why=`the live heading renders without tabIndex, so it cannot receive programmatic focus and every assertion in the new suite fails` ac=AC-3,AC-8 -->
+
+RED asserts four things about the live heading (`components/admin/settings/AdministratorsSection.tsx:86`, not the list-failed
+heading at `components/admin/settings/AdministratorsSection.tsx:64`): it renders `tabIndex={-1}`; the success path focuses it;
+**the focus call passes `block: "nearest"`, asserted on the call itself** (AC-3's
+nearest-only scrolling, which round 2 correctly found unstated in the GREEN); and
+the announcement region's content is unchanged by the focus move. GREEN delivers
+all four.
+
+<!-- tasks: end -->
+
+## Checklist
+
+- [ ] Tasks 1-6, TDD each, scoped runs only
+- [ ] Closeout, NOT a TDD task: the transition matrix. Round 4 found the last instance of the class the three earlier rounds closed — Task 5 already adds the watchdog case and its premise, so a matrix authored afterwards maps cleanly and starts green. The matrix AUDITS coverage the tasks produce: it can only be red before them and green after, which spans tasks rather than living inside one. `docs/agents/writing-plans.md` requires the audit to EXIST and RUN, not to be a TDD task, so it runs here — one row per pair from the spec's two inventories (3 for rotate and picker, 6 for revoke) plus the three compound rows, each mapped to the assertion that decides it or an explicit "unreachable, and why". A row with neither is a gap the closeout must close before READINESS.
+- [ ] Closeout, NOT a TDD task: the e2e cases. Round 3 was right that an e2e rotate case added AFTER Tasks 3 and 6 starts green — by then production is repaired, so there is no observable red on that command. E2E coverage here VERIFIES repairs the jsdom tasks already decided, which is the same shape round 2 removed. It runs at closeout under a granted playwright turn: add the rotate case, keep picker, archive and revoke success, and require the whole spec file green.
+- [ ] Closeout, NOT a TDD task: confirm `components/admin/ArchiveShowButton.tsx` and `components/admin/showpage/ShareHub.tsx` are absent from the branch diff (AC-9). Round 2 was right that this cannot be a red-then-green task — it is true from the first commit and stays true, so it is a closeout check rather than a task with an implementation step.
+- [ ] Self-review
+- [ ] Adversarial review (cross-model)
+- [ ] invariant-8 impeccable pair (`app/` and `components/` are touched)
+- [ ] Whole-diff Codex review
+- [ ] Thirteen required CI checks, read from the branch-protection API
+- [ ] Execution handoff / READINESS
+
+## Transition matrix (closeout)
+
+One row per unordered pair from the spec's two inventories, plus the compound
+rows, each mapped to the assertion that decides it or to an explicit
+unreachable-and-why. Counts are arithmetic, not eyeballed: 3 states give 3
+pairs, 4 states give 6.
+
+**rotate and picker reset — 3 pairs**
+
+| pair | decided by |
+| --- | --- |
+| idle ↔ confirm | `RotateShareTokenButton.test.tsx` "open focus (C3)"; `pickerResetControl.test.tsx` arm case |
+| confirm ↔ resolving | out of scope, spec §2.5: no control renders a trigger during `resolving` |
+| idle ↔ resolving | `RotateShareTokenButton.test.tsx` "close focus on CONFIRM (ok)" and "(refused)"; `pickerResetControl.test.tsx` "close focus on CONFIRM (ok)" and "(non-ok)" |
+
+**revoke admin — 6 pairs**
+
+| pair | decided by |
+| --- | --- |
+| idle ↔ confirm | `RevokeRowButton.test.tsx` armAndConfirm's cancel-focus wait |
+| confirm ↔ resolving | out of scope, spec §2.5 |
+| confirm ↔ couldnt_confirm | unreachable: `couldnt_confirm` is entered only from `resolving` (`RevokeRowButton.tsx:189`) and left only by a full refresh |
+| idle ↔ resolving (SUCCESS) | `tests/e2e/confirm-focus-probe.spec.ts` revoke case, settled on the heading; predicate in `adminListFocusRestore.test.tsx` |
+| idle ↔ couldnt_confirm | unreachable in that direction; the return is a full refresh that replaces the surface |
+| resolving ↔ couldnt_confirm | `RevokeRowButton.test.tsx` refused cases reach the refused branch; the watchdog path shares the same restore |
+
+**compound rows**
+
+| compound | decided by |
+| --- | --- |
+| arm-expiry fires while resolving | pre-existing `RevokeRowButton.test.tsx` auto-revert cases; `setUi` guard makes it a no-op |
+| late non-OK under sticky `couldnt_confirm` | `RevokeRowButton.test.tsx` refused cases; no focus movement |
+| late OK under sticky `couldnt_confirm` | `adminListFocusRestore.test.tsx` — the list loses the focused row, so the heading takes focus |
+| `effectiveUi` renders idle while `ui` is `resolving` | `RevokeRowButton.test.tsx` refused cases; the restore now keys on `effectiveUi` |
+| refused then retried | `RevokeRowButton.test.tsx` retry case, asserting the DISPATCH COUNT |
+
+**Gaps: none.** Every pair maps to a deciding assertion or a stated
+unreachability.
+
+## 12. Invariant-8 impeccable dual gate
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
+
+Three P1s were raised: one fixed, one refuted against live code, one carried as
+an unfixed peer. Zero P0. The table below is the disposition of each.
+
+Both halves ran with the canonical v3 setup gates (the context script loading
+PRODUCT.md + DESIGN.md, then the `product` register reference — admin UI where
+design serves the product). Critique ran Assessment A and Assessment B as two
+ISOLATED sub-agents, so the run is not degraded and owes no banner.
+
+**Assessment B did not drive a browser**, deliberately: this machine is under a
+fleet-wide strict-serial-heavy constraint and a second browser tree would have
+collided with the arc's own granted playwright turn. Stated rather than implied,
+because the reference forbids claiming an overlay that did not exist.
+
+### Findings and dispositions
+
+| # | finding | disposition |
+| --- | --- | --- |
+| P1 | The focus move fires for pointer users and the CSS focus-visible pseudo-class does not match programmatic focus after a pointer interaction, so the operator got a scroll and a focus move with no indicator | **FIXED** `2864c9501` — the heading carries a plain focus style rather than a focus-visible one |
+| P1 | Rotate's success is silent to a screen reader | **REFUTED.** Rotate announces through the admin layout channel (`app/admin/show/[slug]/RotateShareTokenButton.tsx:208`). Assessment A read only the local `sr-only` region, which carries the arm-expiry string alone. Recorded so it is not re-derived |
+| P1 | Revoke's only outcome cue is a decremented count; nothing says "revoked" | **UNFIXED PEER.** Real. Adding a success announcement is announcement-channel scope, which the ratified decision fenced out of this arc ("the announcement is not merged into the focus move"). Carried to the PR body and the readiness message for bl-orch to rule on |
+| P2 | `ReAddRowButton.tsx` has zero focus machinery and unmounts by the same revalidation; the container guard early-returns for it because re-add ADDS to the active list | **UNFIXED PEER.** Verified: the file exists and contains no `restoreFocusRef`/`triggerRef`. Same class, uncovered |
+| P3 | The heading is both the focus target and the section's `aria-labelledby` target, so some screen readers may speak the region and the heading as one string | **NOTED.** Not fixed: changing the labelling relationship to serve focus would trade a real semantic for a cosmetic one |
+| audit P3 | `activeEmails` was a fresh array per render, so the effect body ran every parent render | **FIXED** `17b9ec0b9` — the effect keys on a joined membership string |
+
+### Audit scores (the diff, not the whole app)
+
+Accessibility 3 (tap targets and focus indicators present on every touched
+control; one cosmetic inconsistency — revoke's Cancel relies on the global
+focus-visible outline while its siblings suppress it and draw a ring).
+Theming 4 (zero hardcoded hex, px or ms in added lines). Responsive 4 (zero
+fixed widths added). Performance 4 after `17b9ec0b9`. Anti-patterns: detector
+`--json` returned `[]`, exit 0.
+
+## 13. Closeout note — two rules this arc paid for
+
+**A deletion sweeps the REGISTRIES THAT NAME the thing; prose is not the cover.**
+Deleting `ResetPickerEpochButton` swept `BACKLOG.md`, `DEFERRED.md` and
+`DESIGN.md`, and stopped there. Three EXECUTABLE rows still named the file —
+`tests/styles/_metaDestructiveConfirm.test.ts` and two in
+`tests/styles/controlOutlineScan.ts` — and both suites were deterministically
+red. Nothing in the prose sweep could have found them, because the thing that
+breaks is a registry entry, not a sentence. The sweep for a deletion is
+`git grep <symbol>` over `tests/` as much as over the docs.
+
+**An expected value must be captured independently of the received one.**
+Four assertions in this arc could not fail, and all four looked like real
+assertions:
+
+1. a reading count plus "an `armed` sample exists" — true of a run where focus
+   never moved;
+2. `toMatchObject({ control: settled.at })` — a value compared to itself;
+3. a dispatch counter the test incremented itself, then asserted equalled two —
+   it never observed the action, and would have passed with the dispatch
+   cancelled, which is the exact regression the requirement exists to prevent;
+4. a literal built without a `root` key, asserted to have no `root` key.
+
+The common shape is that the expected value came from inside the received
+object, or from the test's own bookkeeping. The rule: **capture the expectation
+from a different source, at a different moment** — `captureRestoreTarget` reads
+the target from the DOM BEFORE the action; the dispatch count comes from the
+mocked action itself; the shape assertion parses the type declaration out of
+source. And prove it: every one of these now has a planted mutant on record that
+turns it red.
+
+None of the four was caught by running the suite. A green suite and an inert
+suite are indistinguishable from the outside, which is why the deciding suite is
+browser-free and the mutants are planted rather than assumed.
