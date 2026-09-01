@@ -30,6 +30,7 @@
  * Tokens only.
  */
 
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -41,6 +42,8 @@ import { NAV, isNavItemActive, shouldRenderOverflow } from "./navConfig";
 import { AppHealthIndicator } from "./AppHealthIndicator";
 import { NotifBell } from "./NotifBell";
 import { useNeedsAttentionBadge } from "./useNeedsAttentionBadge";
+import { navBadgeArrivalAnnouncement } from "./navArrivalAnnounce";
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { UserMenu } from "./UserMenu";
 
 export function AdminNav({
@@ -87,6 +90,62 @@ export function AdminNav({
 }) {
   const pathname = usePathname();
   const badgeCount = useNeedsAttentionBadge(initialBadgeCount, attentionCountPromise);
+  const { announce } = useContext(UndoAnnounceContext);
+
+  // --- the arrival announcement (nav-badge-arrival-announce §3.2) ----------
+  //
+  // Two things are tracked per half and they are NOT the same thing. Whether a
+  // half has SETTLED is a latch, set once and never cleared. What it would
+  // ANNOUNCE is read LIVE, at the instant the announcement is built, because a
+  // value frozen at settle time goes stale: `zeroNow()` can commit 0 after the
+  // bell settles, and a later refetch can restore a count.
+  //
+  // The bell half reports itself through NotifBell's `onBellState`, since the
+  // promise's resolved value is not always what the bell displays. The
+  // attention half is read here: `badgeCount` is the announced number, while
+  // the PROMISE supplies the settlement signal on exactly one path, its
+  // failure, because useNeedsAttentionBadge commits `null` on a failed read and
+  // `null` is also its pending value (§2.2).
+  const bellStateRef = useRef<{ settled: boolean; announceable: number | null }>({
+    settled: false,
+    announceable: null,
+  });
+  const [bellSettled, setBellSettled] = useState(false);
+  // Stable identity so NotifBell's reporting effect does not re-run on every
+  // parent render. Writing the ref is the point: the VALUE must not trigger a
+  // render, only the settled LATCH may.
+  const onBellState = useCallback((state: { settled: boolean; announceable: number | null }) => {
+    bellStateRef.current = state;
+    if (state.settled) setBellSettled(true);
+  }, []);
+
+  const [attentionFailed, setAttentionFailed] = useState(false);
+  useEffect(() => {
+    if (!attentionCountPromise) return;
+    let live = true;
+    void attentionCountPromise.then((result) => {
+      if (live && result.kind !== "ok") setAttentionFailed(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [attentionCountPromise]);
+
+  const attentionSettled =
+    typeof badgeCount === "number" ||
+    attentionFailed ||
+    (attentionCountPromise === null && initialBadgeCount === null);
+
+  const spokenRef = useRef(false);
+  useEffect(() => {
+    if (spokenRef.current) return;
+    if (!bellSettled || !attentionSettled) return;
+    // Silence is a resolution: the mount is marked spoken either way, so a
+    // later change cannot announce (§3.2, AC-6).
+    spokenRef.current = true;
+    const message = navBadgeArrivalAnnouncement(bellStateRef.current.announceable, badgeCount);
+    if (message) announce(message);
+  }, [announce, attentionSettled, badgeCount, bellSettled]);
   // developerOnly items are hidden from non-developers in BOTH navs.
   const visibleNav = NAV.filter((item) => !item.developerOnly || viewerIsDeveloper);
   // The mobile bottom tab bar shows only non-desktopOnly items (Telemetry is a
@@ -204,6 +263,7 @@ export function AdminNav({
             <NotifBell
               initialCount={bellCount}
               countPromise={bellCountPromise}
+              onBellState={onBellState}
               viewerIsDeveloper={viewerIsDeveloper}
             />
           </div>
