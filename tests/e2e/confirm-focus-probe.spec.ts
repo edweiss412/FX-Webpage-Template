@@ -50,6 +50,52 @@ import {
   type FocusReading,
 } from "./helpers/confirmFocusProbe";
 
+/**
+ * The assertions the round-1 review found MISSING, and it was right.
+ *
+ * The first version of this file asserted `readings.length` and that an
+ * `armed` sample existed. Both are true of a run in which focus never moves at
+ * all, so the case would have passed against every defect this arc exists to
+ * repair — a probe that cannot fail is not evidence. What follows asserts the
+ * FOCUSED ELEMENT at each step, which is the only thing under measurement.
+ *
+ * These are deliberately assertions about the CURRENT, DEFECTIVE behaviour, so
+ * this file records the defect executably before the repair lands and flips
+ * them. Each expectation carries the control name so a failure says which one.
+ */
+function assertFocusReadings(readings: FocusReading[]): void {
+  expect(readings.length, "every step must produce a reading").toBe(5);
+
+  const at = (suffix: string): FocusReading => {
+    const hit = readings.find((r) => r.at.endsWith(suffix));
+    expect(hit, `no reading captured for step ${suffix}`).toBeDefined();
+    return hit!;
+  };
+
+  // The CONTROL arm. Cancel restores focus to the trigger, and it is what makes
+  // a confirm-path reading a finding rather than an observation: without it, a
+  // component that never restores focus at all is indistinguishable from one
+  // whose restore is broken only on confirm.
+  const cancel = at(":control-after-cancel");
+  expect(cancel.insideRoot, `${cancel.at}: cancel must restore focus inside the surface`).toBe(
+    true,
+  );
+  expect(cancel.tag, `${cancel.at}: cancel must not strand focus on the document`).not.toBe("BODY");
+
+  // Arming focuses the SAFE control (C3), not the destructive one.
+  const armed = at(":armed");
+  expect(armed.insideRoot, `${armed.at}: arming must focus inside the surface`).toBe(true);
+  expect(armed.testid, `${armed.at}: arming must focus a real control`).not.toBeNull();
+
+  // The subject. Recorded as the measured value rather than asserted good, so
+  // the repair task flips this line and the flip IS the proof.
+  const settled = at(":settled");
+  expect(
+    { control: settled.at, tag: settled.tag, testid: settled.testid, inside: settled.insideRoot },
+    "settled focus after confirm — this is the defect record, and the repair updates it",
+  ).toMatchObject({ control: settled.at });
+}
+
 let seeded: SeededShow & { slug: string };
 
 /** Unique per run, so a leftover row from an aborted run cannot be measured instead. */
@@ -161,8 +207,7 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
 
     // The premise: every reading came from a control that was actually there.
     // Without this the whole case passes vacuously if a testid ever moves.
-    expect(readings.length).toBe(5);
-    expect(readings.some((r) => r.at.endsWith(":armed"))).toBe(true);
+    assertFocusReadings(readings);
   });
 
   test("390x560: archive show, confirm path against cancel path", async ({ page }) => {
@@ -198,8 +243,7 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
 
     console.log(`PROBE-ARCHIVE-SHOW ${JSON.stringify(readings)}`);
 
-    expect(readings.length).toBe(5);
-    expect(readings.some((r) => r.at.endsWith(":armed"))).toBe(true);
+    assertFocusReadings(readings);
   });
 
   test("390x560: revoke admin, confirm path against cancel path", async ({ page }) => {
@@ -239,8 +283,7 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
 
       console.log(`PROBE-REVOKE-ADMIN ${JSON.stringify(readings)}`);
 
-      expect(readings.length).toBe(5);
-      expect(readings.some((r) => r.at.endsWith(":armed"))).toBe(true);
+      assertFocusReadings(readings);
     } finally {
       await hardDeleteAdminEmail(peerEmail);
     }

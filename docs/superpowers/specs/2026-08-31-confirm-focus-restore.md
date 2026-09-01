@@ -15,6 +15,7 @@ Confirming a destructive two-tap action drops `document.activeElement` to `<body
 | The class is **three** controls, not the five the filing named. Five filed → one unrendered → four reachable → one refuted. | §2.1, §2.3 |
 | `ResetPickerEpochButton` was **deleted**, not repaired. It was imported by no source file. | commit `fa5d3fffb`; bl-orch ruling 2026-08-31 |
 | The repair must handle **two different blur timings**, not one. | §2.2 |
+| **Revoke-success focus target is the section heading**, `tabIndex={-1}`, scroll nearest-only, announcement NOT merged into it. | bl-orch ruling 2026-08-31, recorded in §2.4 |
 | Evidence is measurement, not derivation. A `restoreFocusRef`-writer derivation predicted four defects; the probe overturned one. | §2 |
 | `resetPickerEpoch` (the Server Action) stays. Only its dead wrapper went. | `app/admin/show/[slug]/PickerResetControl.tsx` still calls it |
 
@@ -65,22 +66,36 @@ not, and every requirement below is stated per control.
 | does the trigger survive a SUCCESS? | yes | yes | **no** — the revoked row leaves the active list |
 | extra machinery | — | — | a 12s watchdog (`app/admin/settings/admins/RevokeRowButton.tsx:52`) flips `resolving → couldnt_confirm` (`app/admin/settings/admins/RevokeRowButton.tsx:189`), and `effectiveUi` (`app/admin/settings/admins/RevokeRowButton.tsx:162`) can render the idle branch while `ui` is still `resolving` |
 
-**The revoke-success case has no trigger to return to.** That is the finding
-round 1 called out first, and it is the one place this spec cannot settle alone,
-so it is stated as an open decision rather than papered over. Candidate targets,
-all real controls on the surface: the `AddAdminDisclosure` trigger
-(`components/admin/settings/AdministratorsSection.tsx:185`), the section heading
-`#admin-settings-admins-heading` (`components/admin/settings/AdministratorsSection.tsx:64` and `components/admin/settings/AdministratorsSection.tsx:86`) made programmatically focusable,
-or the `admin-active-list` container (`components/admin/settings/AdministratorsSection.tsx:106`) likewise. **Recommended:** the
-section heading, because it is where a screen-reader user would want to be told
-the list changed, and it needs no new interactive semantics.
+**The revoke-success case has no trigger to return to.** Round 1 found this
+first: the revoked row unmounts, so "focus the trigger" named an element that no
+longer exists. **RATIFIED 2026-08-31 (bl-orch): the section heading.**
+
+`#admin-settings-admins-heading` (`components/admin/settings/AdministratorsSection.tsx:64` and `components/admin/settings/AdministratorsSection.tsx:86`) takes `tabIndex={-1}`
+and is focused programmatically. The reasons are recorded so they are not
+re-derived:
+
+- It is the only candidate that exists **unconditionally** after the unmount.
+  Every next-row or adjacent-control scheme dies on the last-row case, and the
+  last-admin-revoked case is therefore covered by this same target rather than
+  needing one of its own.
+- It reorients a screen-reader user by naming where they are, which a focusable
+  list container does not.
+- It matches the attention-anchor precedent already in the codebase
+  (`tabIndex={-1}` as a programmatic focus target).
+
+Two constraints ride with the ruling. Scroll movement on that focus is
+**nearest-only**. And the revoke OUTCOME announcement **stays on the announce
+channel**: heading focus gives position, the announcement gives result, and the
+two are not merged.
 
 ## 3. Requirements
 
 - **R1 (rotate, picker reset).** When the confirm resolves and the trigger
   re-renders, focus returns to the trigger.
-- **R2 (revoke admin, success).** The row is gone, so focus moves to the
-  surviving target chosen above. Never `<body>`.
+- **R2 (revoke admin, success).** The row is gone, so focus moves to the section
+  heading with `tabIndex={-1}`, scrolled nearest-only. Never `<body>`. The
+  last-admin-revoked case uses this same target. The outcome announcement stays
+  on the announce channel and is not merged into the focus move.
 - **R3 (revoke admin, non-success).** On a refused `result.kind`, on
   `couldnt_confirm`, and on any branch where `effectiveUi` renders idle while
   `ui` is still `resolving`, focus goes to whichever control that branch
