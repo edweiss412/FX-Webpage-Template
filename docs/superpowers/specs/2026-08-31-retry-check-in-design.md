@@ -73,12 +73,20 @@ element onto the same fetch. That is exactly the outcome the layout effect's esl
 `Gallery.tsx` says it exists to avoid, quoted there as "leaving the user a new label on the same
 hung fetch", and it is now measured rather than argued.
 
-**AC-8 is therefore NOT discharged by this arc.** It reads "pressing it issues a SECOND request
-while the first is unanswered", and in a real browser on an identical URL it does not. The three
-ways out are ship-and-document, bust the coalescing with a distinguishing URL (a genuinely new
-request, at the cost of the user paying twice for one asset, since the asset route sends
-`must-revalidate` with no validator), or descope Restart. That is a product decision and this arc
-does not take it. The browser case records the number instead of asserting a claim that is false.
+**What this does and does not touch, stated precisely, because a first draft of this paragraph got
+it wrong.** AC-8 as declared in §12 reads "Restart reaches `retrying` and the second `<Image>` is a
+DIFFERENT node from the first", and that IS discharged: the jsdom suite asserts the node identity
+and the browser case asserts the original element is gone. What the measurement refutes is a
+sentence in the PLAN's Task 8 body, "pressing it issues a SECOND request while the first is
+unanswered", which was never an acceptance criterion and is false in a real browser on an identical
+URL.
+
+The ruling of 2026-09-01 kept Restart as ratified and made this the documented limit. Busting the
+coalescing with a distinguishing URL was rejected: it would be a genuinely new request at the cost
+of the user paying twice for one asset, since the asset route sends `must-revalidate` with no
+validator, and double-paying a 50MB asset on venue wifi is what the no-cancel posture exists to
+prevent. The browser case records the number instead of asserting the false claim, and the copy is
+pinned per phase so no future edit can quietly promise a download that will not happen.
 
 Settled by the probe in the plan's first task, whose only job is to record the observed answer
 in this section. No behavior below branches on it, so the answer changes the documentation and

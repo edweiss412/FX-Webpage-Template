@@ -254,13 +254,18 @@ test("one tap is one request, and the node that loads is the node that stays", a
 /**
  * AC-2 and AC-D3 — the check-in in a real engine, and U-1 measured.
  *
- * AC-8 IS NOT DISCHARGED HERE, and the case was renamed when the measurement
- * came in. AC-8 says pressing Restart issues a SECOND request while the first is
- * unanswered. It does not: the replacement `<img>` carries an IDENTICAL URL, a
- * request for that URL is still in flight, and Chromium serves the new element
- * from it rather than opening a second connection. Measured
- * `attemptsAfterRestart: 2`, not 3, on 2026-09-01. The observation is recorded
- * rather than asserted away, and what happens to AC-8 is a product decision.
+ * THE CASE WAS RENAMED when the measurement came in. It used to promise that
+ * Restart re-requests. It does not: the replacement `<img>` carries an IDENTICAL
+ * URL, a request for that URL is still in flight, and Chromium serves the new
+ * element from it rather than opening a second connection. Measured
+ * `attemptsAfterRestart: 2`, not 3, on 2026-09-01, and recorded rather than
+ * asserted away.
+ *
+ * AC-8 itself is unaffected and IS discharged, here and in the jsdom suite: it
+ * asks that Restart reach `retrying` with a DIFFERENT `<Image>` node, which is
+ * what `originalElementRemoved` asserts below. The sentence the measurement
+ * refutes is in the plan's Task 8 body, not in the criterion. Getting that
+ * distinction wrong once already cost this file a paragraph.
  *
  * Why a browser at all: jsdom issues no requests, so "Restart issues a SECOND
  * request while the first is unanswered" is invisible to every jsdom assertion

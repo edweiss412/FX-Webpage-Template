@@ -357,9 +357,16 @@ Readiness gate: the shipped `await expect(failedControl).toBeVisible()`, never `
 is a module constant read at call time, so shortening it needs a test-only prop; one slow case is
 cheaper than that prop and cheaper than the round it would earn.
 
-Assert the check-in copy appears, Restart is pressable, and pressing it issues a SECOND request while
-the first is unanswered. jsdom issues no requests, which is why AC-8's "a new request" needs a
-browser at all.
+Assert the check-in copy appears and Restart is pressable. jsdom issues no requests, which is why a
+browser is needed at all.
+
+**MEASURED 2026-09-01, and this paragraph used to say something else.** It asked the case to assert
+that pressing Restart issues a SECOND request while the first is unanswered. It does not:
+`attemptsAfterRestart: 2`, not 3. The replacement `<img>` carries an identical URL, a request for it
+is still in flight, and Chromium serves the new element from that request rather than opening a
+second connection. Ruled a documented limit (design spec §1.2); the case records the number instead
+of asserting a claim that is false. AC-8 is unaffected — it asks for a DIFFERENT `<Image>` node, not
+for a second request, and that is asserted here and in the jsdom suite.
 
 **U-1 is measured here and RECORDED, and the recording is gated.** Spec §1.2 leaves unratified
 whether removing a mid-fetch `<img>` abandons its request. This case already holds a request open and
