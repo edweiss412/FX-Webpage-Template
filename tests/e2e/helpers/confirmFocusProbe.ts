@@ -35,6 +35,17 @@ export type ConfirmControl = {
   readonly name: string;
   /** The scroller or panel the control lives in — the frame rects are read against. */
   readonly root: Locator;
+  /**
+   * CSS selector for that same root, used for the READING only.
+   *
+   * Not redundant with `root`. A confirm can destroy the surface it lives in —
+   * archiving a show unmounts the share-hub popover outright — and a reading
+   * taken through a Locator on a detached node hangs to the test timeout
+   * instead of answering. Measured: the archive case burned 180s that way. The
+   * reading therefore runs on the PAGE and re-queries this selector each time,
+   * so a vanished root is a fact the probe can report rather than a hang.
+   */
+  readonly rootSelector: string;
   /** Opens the two-tap confirm. */
   readonly trigger: string;
   /** Commits the destructive action. */
@@ -48,31 +59,45 @@ export type FocusReading = {
   readonly tag: string | null;
   readonly testid: string | null;
   readonly insideRoot: boolean;
+  /** false when the confirm destroyed the root — a result, not an error. */
+  readonly rootPresent: boolean;
   /** Intersection of the focused rect with the root's client rect, in CSS px. */
   readonly visibleHeight: number | null;
   readonly height: number | null;
   readonly rootScrollTop: number;
 };
 
-/** Reads `document.activeElement` against `root`'s own rect. Never hardcodes a position. */
-export async function readFocus(root: Locator, at: string): Promise<FocusReading> {
-  return root.evaluate((el, label) => {
-    const rootRect = el.getBoundingClientRect();
-    const active = document.activeElement as HTMLElement | null;
-    const rect = active ? active.getBoundingClientRect() : null;
-    return {
-      at: label,
-      tag: active ? active.tagName : null,
-      testid: active ? active.getAttribute("data-testid") : null,
-      insideRoot: active ? el.contains(active) : false,
-      visibleHeight:
-        rect === null
-          ? null
-          : Math.max(0, Math.min(rect.bottom, rootRect.bottom) - Math.max(rect.top, rootRect.top)),
-      height: rect === null ? null : rect.height,
-      rootScrollTop: el.scrollTop,
-    };
-  }, at);
+/** Reads `document.activeElement` against the root, from the PAGE so a detached root cannot hang. */
+export async function readFocus(
+  page: Page,
+  rootSelector: string,
+  at: string,
+): Promise<FocusReading> {
+  return page.evaluate(
+    ({ sel, label }) => {
+      const el = document.querySelector(sel);
+      const active = document.activeElement as HTMLElement | null;
+      const rect = active ? active.getBoundingClientRect() : null;
+      const rootRect = el ? el.getBoundingClientRect() : null;
+      return {
+        at: label,
+        tag: active ? active.tagName : null,
+        testid: active ? active.getAttribute("data-testid") : null,
+        insideRoot: el !== null && active !== null ? el.contains(active) : false,
+        rootPresent: el !== null,
+        visibleHeight:
+          rect === null || rootRect === null
+            ? null
+            : Math.max(
+                0,
+                Math.min(rect.bottom, rootRect.bottom) - Math.max(rect.top, rootRect.top),
+              ),
+        height: rect === null ? null : rect.height,
+        rootScrollTop: el instanceof HTMLElement ? el.scrollTop : 0,
+      };
+    },
+    { sel: rootSelector, label: at },
+  );
 }
 
 /** Focus, then activate, in one evaluate — see note 1 above. */
@@ -96,18 +121,18 @@ export async function measureConfirmPath(
   settleMs = 3000,
 ): Promise<FocusReading[]> {
   const out: FocusReading[] = [];
-  out.push(await readFocus(control.root, `${control.name}:before-arm`));
+  out.push(await readFocus(page, control.rootSelector, `${control.name}:before-arm`));
 
   await focusAndClick(control.root.getByTestId(control.trigger));
   const confirm = control.root.getByTestId(control.confirm);
   await expect(confirm).toBeVisible();
-  out.push(await readFocus(control.root, `${control.name}:armed`));
+  out.push(await readFocus(page, control.rootSelector, `${control.name}:armed`));
 
   await focusAndClick(confirm);
-  out.push(await readFocus(control.root, `${control.name}:just-after-confirm`));
+  out.push(await readFocus(page, control.rootSelector, `${control.name}:just-after-confirm`));
 
   await page.waitForTimeout(settleMs);
-  out.push(await readFocus(control.root, `${control.name}:settled`));
+  out.push(await readFocus(page, control.rootSelector, `${control.name}:settled`));
   return out;
 }
 
@@ -126,5 +151,5 @@ export async function measureCancelPath(
   await expect(cancel).toBeVisible();
   await focusAndClick(cancel);
   await page.waitForTimeout(settleMs);
-  return readFocus(control.root, `${control.name}:control-after-cancel`);
+  return readFocus(page, control.rootSelector, `${control.name}:control-after-cancel`);
 }

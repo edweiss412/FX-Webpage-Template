@@ -36,7 +36,11 @@ import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { openShowReviewModal } from "./helpers/openShowReviewModal";
-import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
+import {
+  seedAutoPublishedShowWithUnpublishToken,
+  sqlClient,
+  type SeededShow,
+} from "../db/_b2Helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { ensureActorActive, hardDeleteAdminEmail, insertActivePeer } from "./helpers/seedAdminPeer";
 import {
@@ -46,29 +50,83 @@ import {
   type FocusReading,
 } from "./helpers/confirmFocusProbe";
 
-let seeded: SeededShow;
+let seeded: SeededShow & { slug: string };
 
 /** Unique per run, so a leftover row from an aborted run cannot be measured instead. */
 const RUN_TAG = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS)", () => {
   test.beforeAll(async () => {
+    // The SEED IS NOT INTERCHANGEABLE, learned by measurement rather than
+    // assumed: `seedShowWithCrew` builds a show the crew ROUTE can resolve, and
+    // `openShowReviewModal` never mounted for one of its slugs. The merged
+    // rotate probe used this `_b2Helpers` seed and did mount, so the admin
+    // review modal wants what this one writes.
+    seeded = await seedAutoPublishedShowWithUnpublishToken();
     // PickerResetControl renders only when the show has crew
-    // (`components/admin/showpage/ShareHub.tsx:55`, the hasCrew check), and the
-    // share-hub URL row renders only when the link is live, so the seed has to
-    // satisfy both at once.
-    seeded = await seedShowWithCrew({
-      published: true,
-      archived: false,
-      crew: [{ name: "Probe Crew One" }, { name: "Probe Crew Two" }],
-    });
+    // (`components/admin/showpage/ShareHub.tsx:55`), and this seed writes none,
+    // so the rows go in directly.
+    await sqlClient`
+      insert into public.crew_members (id, show_id, name, role)
+      values (gen_random_uuid(), ${seeded.showId}::uuid, 'Probe Crew One', 'Camera'),
+             (gen_random_uuid(), ${seeded.showId}::uuid, 'Probe Crew Two', 'Audio')`;
+  });
+
+  /**
+   * PREMISE ON THE PROBE ITSELF.
+   *
+   * Two granted playwright turns were burned on harness bring-up, and both
+   * failed in a way that could have been mistaken for a result: a bad fixture
+   * shape aborted `beforeAll`, and a seed the admin review modal cannot mount
+   * failed inside the cases themselves. A probe whose surface never appeared
+   * reports "no reading", and "no reading" sits one careless sentence away from
+   * "no defect". So the mount is asserted ONCE, under a name that cannot be
+   * misread, before any case is allowed to claim anything about focus.
+   */
+  test("PREMISE: the review modal mounts for the seeded show", async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    try {
+      const modal = await openShowReviewModal(page, seeded.slug, { timeoutMs: 30_000 });
+      await expect(modal.getByTestId("share-hub-kebab")).toBeVisible({ timeout: 15_000 });
+    } catch (cause) {
+      throw new Error(
+        `PREMISE-FAILED-no-modal: the review modal never mounted for slug=${seeded.slug}, ` +
+          `so every focus reading in this file would be absence-of-surface rather than ` +
+          `absence-of-defect. Fix the seed before reading anything into the other cases. ` +
+          `Underlying: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
   });
 
   test.afterAll(async () => {
-    if (seeded) await deleteSeededShow(seeded.driveFileId);
+    // crew_members cascades from shows via the drive_file_id-keyed FKs.
+    if (seeded) await sqlClient`delete from public.shows where id = ${seeded.showId}::uuid`;
   });
 
+  /**
+   * Re-assert the watched folder before EVERY navigation, not once per file.
+   *
+   * `app/api/admin/onboarding/finalize-cas/route.ts` is the only path that nulls
+   * `app_settings.watched_folder_id`, and a sibling session's onboarding e2e
+   * does exactly that against the shared local DB. When it is null, `/admin`
+   * renders the onboarding wizard instead of the dashboard, the review modal
+   * never mounts, and every case here fails on its readiness gate for a reason
+   * that has nothing to do with focus. Measured on run 3 of this probe: the
+   * column was NULL and the premise guard fired. `admin-lifecycle-layout.spec.ts`
+   * carries the same beforeEach for the same reason, which is why the rotate
+   * probe never hit this.
+   */
+  async function ensureWatchedFolder(): Promise<void> {
+    await sqlClient`
+      update public.app_settings
+         set watched_folder_id = coalesce(watched_folder_id, 'seed-fixture-folder'),
+             watched_folder_name = coalesce(watched_folder_name, 'Seed fixture folder')
+       where id = 'default'`;
+  }
+
   test.beforeEach(async ({ page }) => {
+    await ensureWatchedFolder();
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
   });
@@ -87,6 +145,7 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
     const pickerReset: ConfirmControl = {
       name: "picker-reset",
       root: popover,
+      rootSelector: '[data-testid="share-hub-popover"]',
       trigger: "picker-reset-all-button",
       confirm: "picker-reset-confirm-button",
       cancel: "picker-reset-cancel-button",
@@ -117,9 +176,17 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       await expect(popover).toBeVisible({ timeout: 1500 });
     }).toPass({ timeout: 15_000 });
 
+    // ROOT IS THE MODAL, NOT THE POPOVER. Archiving unmounts the share-hub
+    // popover BY DESIGN — the show is no longer live — so the popover root died
+    // with the action under measurement and run 4 hung on it to the 180s
+    // timeout. The modal outlives the archive, so it can still answer where
+    // focus went. The reading is also taken from the page now rather than
+    // through a Locator, so even a vanished root reports rootPresent:false
+    // instead of hanging.
     const archive: ConfirmControl = {
       name: "archive-show",
-      root: popover,
+      root: modal,
+      rootSelector: '[data-testid="published-show-review-modal"]',
       trigger: "archive-show-button",
       confirm: "archive-show-confirm-button",
       cancel: "archive-show-cancel-button",
@@ -160,6 +227,7 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       const revoke: ConfirmControl = {
         name: "revoke-admin",
         root: activeList,
+        rootSelector: '[data-testid="admin-active-list"]',
         trigger: "admin-allowlist-revoke-button",
         confirm: "admin-allowlist-revoke-confirm-button",
         cancel: "admin-allowlist-revoke-cancel-button",
