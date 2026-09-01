@@ -106,51 +106,6 @@ strings above are final; type them verbatim.
 
 **Evidence:** `/impeccable critique` on `perf/admin-diagram-next-image`, Assessment A, priority issues 1 and 4 (heuristic 9, Diagnose and Recover, scored 1/4 — the lowest score on the surface). The two-state claim is not inferred from the copy: it is read off the component, where the seed and the `onError` write are separate code paths that produce one indistinguishable render.
 
-### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome (2026-08-27)
-
-**Effort:** S for the mechanism, M with the prop threading and its tests
-
-Surfaced by the invariant-8 dual gate on branch `feat/telemetry-fallback-retry` (critique P1,
-audit P2 — recorded at the higher call). Findings and dispositions are in the closeout beside
-`docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md`.
-
-**The finding.** `components/admin/telemetry/TelemetryRetryButton.tsx` announces `Retrying <what>`
-into its live region on every activation. On success the component unmounts with the branch it
-lives in; on a repeated failure it re-renders the same phrase, distinguished only by a parity
-toggle. Either way a screen-reader user hears the intent and never the outcome. A sighted user
-sees the content appear or the fallback persist; a listener gets nothing that separates the two.
-
-**Why it is deferred rather than fixed, with the probes that settle it.** The control has no
-completion signal to announce, and this was measured rather than assumed:
-
-1. `router.refresh(): void` — `node_modules/next/dist/shared/lib/app-router-context.shared-runtime.d.ts:32`.
-   No promise, so nothing to await.
-2. `bfcacheId` is the one router value that tracks navigation identity, and its own doc comment
-   at `:57` says it "stays the same for ... `router.refresh()`". It is explicitly not this signal.
-3. A SYNC `useTransition` around `router.refresh()` never exposes a pending state in this harness:
-   a throwaway probe rendering exactly that shape asserted `isPending` after the click and FAILED.
-   An ASYNC transition does expose one, mid-flight and cleared on settle, and passed — but it needs
-   something real to await, and (1) says there is nothing. A timer would make `aria-busy` report a
-   duration unrelated to the refresh, which is a lie rather than a fix.
-
-**The mechanism that would fix it, so the next arc does not re-derive any of the above.** The only
-honest completion signal is one the SERVER render changes. All three call sites already hold a
-per-render timestamp in scope (`app/admin/dev/telemetry/page.tsx` awaits `nowDate()`,
-`EventTimeline` receives `now`, `HealthAlertsPanel` computes its own). Threading it as a prop lets
-the control record the value it saw at the tap and compare: a changed value while still mounted
-means the retry completed and did not fix the branch, which is a settled outcome worth announcing.
-
-**Its known fragility, stated up front.** That couples the announcement's correctness to a display
-clock. If `nowDate()` were ever memoized to a stable value the announcement would silently stop,
-and no test would red. Any implementation therefore owes a guard on the signal itself, not only on
-the announcement.
-
-**Un-defer trigger:** a second surface needing an outcome announcement from a `router.refresh()`
-that reports nothing, OR a Next release giving `refresh()` a completion signal, OR a report of a
-screen-reader user unable to tell a failed retry from a successful one on this page.
-
----
-
 ### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips now read lighter than the control they sit beside (2026-08-16)
 
 **Effort:** S per site, M as a rule

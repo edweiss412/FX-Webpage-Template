@@ -1,3 +1,58 @@
+### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome — CLOSED 2026-08-31 (`feat/telemetry-retry-outcome`, SHIPPED)
+
+**Effort:** S for the mechanism, M with the prop threading and its tests
+
+Surfaced by the invariant-8 dual gate on branch `feat/telemetry-fallback-retry` (critique P1,
+audit P2 — recorded at the higher call). Findings and dispositions are in the closeout beside
+`docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md`.
+
+**The finding.** `components/admin/telemetry/TelemetryRetryButton.tsx` announces `Retrying <what>`
+into its live region on every activation. On success the component unmounts with the branch it
+lives in; on a repeated failure it re-renders the same phrase, distinguished only by a parity
+toggle. Either way a screen-reader user hears the intent and never the outcome. A sighted user
+sees the content appear or the fallback persist; a listener gets nothing that separates the two.
+
+**Why it is deferred rather than fixed, with the probes that settle it.** The control has no
+completion signal to announce, and this was measured rather than assumed:
+
+1. `router.refresh(): void` — `node_modules/next/dist/shared/lib/app-router-context.shared-runtime.d.ts:32`.
+   No promise, so nothing to await.
+2. `bfcacheId` is the one router value that tracks navigation identity, and its own doc comment
+   at `:57` says it "stays the same for ... `router.refresh()`". It is explicitly not this signal.
+3. A SYNC `useTransition` around `router.refresh()` never exposes a pending state in this harness:
+   a throwaway probe rendering exactly that shape asserted `isPending` after the click and FAILED.
+   An ASYNC transition does expose one, mid-flight and cleared on settle, and passed — but it needs
+   something real to await, and (1) says there is nothing. A timer would make `aria-busy` report a
+   duration unrelated to the refresh, which is a lie rather than a fix.
+
+**The mechanism that would fix it, so the next arc does not re-derive any of the above.** The only
+honest completion signal is one the SERVER render changes. All three call sites already hold a
+per-render timestamp in scope (`app/admin/dev/telemetry/page.tsx` awaits `nowDate()`,
+`EventTimeline` receives `now`, `HealthAlertsPanel` computes its own). Threading it as a prop lets
+the control record the value it saw at the tap and compare: a changed value while still mounted
+means the retry completed and did not fix the branch, which is a settled outcome worth announcing.
+
+**Its known fragility, stated up front.** That couples the announcement's correctness to a display
+clock. If `nowDate()` were ever memoized to a stable value the announcement would silently stop,
+and no test would red. Any implementation therefore owes a guard on the signal itself, not only on
+the announcement.
+
+**Un-defer trigger:** a second surface needing an outcome announcement from a `router.refresh()`
+that reports nothing, OR a Next release giving `refresh()` a completion signal, OR a report of a
+screen-reader user unable to tell a failed retry from a successful one on this page.
+
+---
+
+**Shipped 2026-08-31, PR #957.** The mechanism is the one this entry named: each of the three fallbacks threads its own per-render server timestamp as `renderedAt`, the control records the value it saw at the tap, and a later render carrying a different finite value means a re-read completed and the branch still failed. Any difference settles it, in either direction, never an ordering test; both guards are `Number.isFinite`, because zero is a valid instant and an infinity is not a completed render. Success stays silent by construction.
+
+**The owed guard landed.** `tests/time/now.test.ts` pins the SIGNAL rather than the announcement: a cache planted on `nowDate`'s production path reds exactly that case. The head-of-function plant that reds seven cases is recorded as the strawman it is.
+
+**Two things the arc changed that this entry did not anticipate.** The impeccable gate replaced the hand-rolled `role="status"` swap with the repo's shared append channel (`components/admin/announceLog.tsx`), which DESIGN.md §15 mandates whenever the same message text can recur, so the sequence counter and the parity suffix are gone rather than extended. And the announcement's cadence is one outcome per settled CYCLE, not one per tap or per response.
+
+**What did NOT ship, recorded so it is not mistaken for done.** A retry that never lands is still silent, and the timer that would fix it is declined on the record: it would assert an outcome nobody observed. The sighted half of the same defect is also still open, since tapping leaves the header's "Updated Ns ago" chip stale. Both are in the spec's documented limits and the PR body's unfixed peers.
+
+---
+
 ### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session — CLOSED 2026-08-29 (`feat/diagram-failure-retry`, SHIPPED)
 
 **Resolution: SHIPPED.** The entry deferred under class-sweep exception (a) — it needed a
