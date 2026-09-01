@@ -4,7 +4,7 @@
 
 **Goal:** Close `SHARELINK-COPY-REF-ORDERING-PROOF` (DEFERRED.md) by building the test harness its un-defer trigger asks for, using it to prove that `ShareLinkCopyButton`'s `urlRef` write must be a LAYOUT effect, and registering that proof as an adversary in the share-link matrix so the proof cannot silently rot.
 
-**Architecture:** No production code changes. One new jsdom test file drives React through `createRoot` with no `act()` and no `flushSync` on the rotate, so React's real scheduler puts the commit and the passive-effect flush in different macrotasks. A sibling probe ordered AFTER the button releases the stalled clipboard promise from its own layout effect, which lands the promise continuation in the microtask drain between the two. That is the commit-to-passive window the row says nobody had reached. The new file joins `VITEST_SUITES` in `scripts/share-link-flash-adversary-matrix.mjs`, and the layout-to-passive swap is registered there as adversary `A39`, so spec §9.0's "every registered adversary is rejected" becomes the executable statement of the proof.
+**Architecture:** No production code changes. One new jsdom test file drives React through `createRoot` with no `act()` and no `flushSync` on the rotate, so React's real scheduler puts the commit and the passive-effect flush in different tasks. A sibling probe ordered AFTER the button releases the stalled clipboard promise from its own layout effect, which lands the promise continuation in the microtask drain between the two. That is the commit-to-passive window the row says nobody had reached. The new file joins `VITEST_SUITES` in `scripts/share-link-flash-adversary-matrix.mjs`, and the layout-to-passive swap is registered there as adversary `A39`, so spec §9.0's "every registered adversary is rejected" becomes the executable statement of the proof.
 
 **Tech Stack:** React 19.2.4 / react-dom 19.2.4, Vitest 4.1.5 + jsdom (the `parallel` project), the matrix script's own Playwright leg for full-mode confirmation.
 
@@ -58,10 +58,10 @@ Every claim below was grepped against the live tree at `059bd1bd4` / `d6e90d893`
 | `useEffect` and `useLayoutEffect` are both already imported, so the mutation needs no import edit | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:18` |
 | The captured-url guard | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:107` |
 | Button and announcer testids | `app/admin/show/[slug]/ShareLinkCopyButton.tsx:172` and `app/admin/show/[slug]/ShareLinkCopyButton.tsx:203` |
-| The matrix runs vitest files by explicit list, and the rotate suite is already one of them | `scripts/share-link-flash-adversary-matrix.mjs:37-44` |
-| `COPY` is the component's path | `scripts/share-link-flash-adversary-matrix.mjs:35` |
+| The matrix runs vitest files by explicit list, and the rotate suite is already one of them | `scripts/share-link-flash-adversary-matrix.mjs:38-45` |
+| `COPY` is the component's path | `scripts/share-link-flash-adversary-matrix.mjs:36` |
 | `A32` (guard deleted) and `A35` (blanket suppression) exist and mutate `COPY` | `scripts/share-link-flash-adversary-matrix.mjs:492-496` and `scripts/share-link-flash-adversary-matrix.mjs:522-526` |
-| `--only` with an unknown id exits 2 before `assertCleanTargets`/`acquireLock` | `scripts/share-link-flash-adversary-matrix.mjs:1164-1175` and `scripts/share-link-flash-adversary-matrix.mjs:1177-1178` |
+| `--only` with an unknown id exits 2 before `assertCleanTargets`/`acquireLock` | `scripts/share-link-flash-adversary-matrix.mjs:1164-1174` and `scripts/share-link-flash-adversary-matrix.mjs:1176-1177` |
 | `--only` and `--quick` runs never write the report doc | `scripts/share-link-flash-adversary-matrix.mjs:1244` |
 | Highest registered id is `A38`; `A39` is free | run output pasted in the sweep below |
 | `tests/components/**` is in the parallel, DB-free vitest project | `vitest.projects.ts:105` |
@@ -123,17 +123,17 @@ This plan attaches no new Playwright spec. It does invoke the matrix's existing 
 - **(b) Readiness gate:** unchanged. No new assertion is added to that spec, so no new hydration gate is introduced.
 - **(c) Detach safety:** unchanged, for the same reason. No new `locator.evaluate` sampler is added.
 
-Full mode is a non-interactive Playwright run and therefore a heavy phase: every full-mode invocation in this plan is written `pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs ...`, matching the AGENTS.md transitive-shape rule and the `scripts/share-link-flash-adversary-matrix.mjs:1014` citation it already carries. `--quick` invocations spawn no browser and run vitest against an explicit file list, so they stay unwrapped.
+Full mode is a non-interactive Playwright run and therefore a heavy phase: every full-mode invocation in this plan is written `pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs ...`, matching the AGENTS.md transitive-shape rule. The Playwright invocation itself is at `scripts/share-link-flash-adversary-matrix.mjs:1017`; AGENTS.md and `tests/docs/agentsHeavyPhaseRule.test.ts` both pin the string `scripts/share-link-flash-adversary-matrix.mjs:1014`, and that line today is the closing paren of a stale-report error, so the AGENTS.md citation has drifted. The RULE it states is unaffected and the drift is not repaired here: the string is pinned by a guard this arc does not otherwise touch. Recorded under Unfixed peers. `--quick` invocations spawn no browser and run vitest against an explicit file list, so they stay unwrapped.
 
 ## Acceptance criteria
 
-- AC-1 With the harness, the shipped component leaves the button reading `Copy` and the announcer empty when a stalled clipboard promise settles inside the commit-to-passive window of a rotate.
+- AC-1 With the harness, the shipped component leaves the button reading `Copy` and the announcer empty when a stalled clipboard promise settles inside the commit-to-passive window of a rotate. Discharged by a CLEAN run of the new suite on the unmutated tree (Task 1 Step 6b), never by the matrix, which mutates before it ever runs vitest.
 - AC-2 With `useLayoutEffect` swapped for `useEffect` at `ShareLinkCopyButton.tsx:93`, that same row REDS. The row's un-defer trigger is satisfied by an observed red, not by an argument.
 - AC-3 The harness states its own premises executably, so a future React or setup change that closes the window fails loudly instead of passing vacuously.
 - AC-4 A mirror row proves the harness's window does not itself suppress confirmations: a commit that does not change the url, released in the same window, still confirms.
 - AC-5 The layout-to-passive swap is registered as adversary `A39` in the matrix, the new file is in `VITEST_SUITES`, and a scoped matrix run records `A39 REJECTED`. No whitelist row, no `EQUIVALENT_SURVIVORS` row, no exemption.
 - AC-6 Every row the new file adds rejects at least one registered adversary, so spec §9.0's no-vacuous-row rule holds for the rows this arc introduces.
-- AC-7 The two prose sites this change makes false are repaired in the same branch, and the four dated historical records plus the frozen ledger-mass fixture are left alone with the reason recorded.
+- AC-7 The two prose sites this change makes false are repaired in the same branch, and the three dated historical records plus the frozen ledger-mass fixture are left alone with the reason recorded.
 - AC-8 The row is graduated in the PR's last commit: moved to `DEFERRED-archive.md`, added to `GRADUATED`, IN PROGRESS marker removed.
 
 ## Tasks
@@ -154,12 +154,15 @@ The red is the command in the marker, observed at plan time (exit 2, output past
   3. Click the button through a real DOM `click()`. The fake clipboard's `writeText` returns a promise the test can settle on demand.
   4. Rotate with a bare `root.render(...)`, outside `act` and outside `flushSync`. React schedules that render through its own scheduler, so the commit lands in a later macrotask.
   5. A `ReleaseProbe` rendered AFTER `ShareLinkCopyButton` calls `release()` from its own `useLayoutEffect`. Layout effects run in tree order, so the button's `useLayoutEffect([url])` has already written `urlRef` by the time the probe fires. The release therefore lands after the whole commit's layout phase and before its passive phase.
-  6. The promise continuation is a microtask; React's passive flush is a `MessageChannel` task. The spec's own ordering rule puts the continuation first, which is the window.
-- [ ] **Step 2: The premises, above the assertions that rest on them.** Using `premiseHolds` from `tests/_shared/premise.ts`, unconditionally and not inside any `.each` callback:
-  - the act environment is off, so React is on its real scheduler;
-  - at release time the rotate commit's layout effects HAVE run and its passive effects have NOT (the probe's own effect log is exactly `["layout"]`);
-  - the microtask drain is ordered before the passive flush, asserted from a recorded order array with both indices checked non-negative first, since `indexOf` returns `-1` and `-1` precedes every real index;
-  - the passive flush DID eventually happen, so the window was real and then closed rather than never opening.
+  6. The promise continuation is a microtask; React's passive flush is a scheduler task. (The scheduler picks its host callback by what the environment offers, and under Node it takes `setImmediate` rather than `MessageChannel`; the harness therefore waits for the flush to be OBSERVED rather than for a fixed number of turns, and the language ordering rule that microtasks drain before any task is what puts the continuation first.)
+- [ ] **Step 2: The premises, above the assertions that rest on them.** Using `premiseHolds` from `tests/_shared/premise.ts`, unconditionally, not inside any `.each` callback, and evaluated on each case's OWN run rather than once for the file. Five, and the list here is the file's list:
+  1. the click captured the url this case is about, so the assertion is about the copy it names;
+  2. the probe reached the release at all, so a commit under test happened;
+  3. at release time the commit's layout effects HAVE run and none of its passive effects have (the probe's per-commit phase log is exactly `["layout"]`);
+  4. the settled promise resumed its continuations, and the commit's passive effects eventually ran, each proven present before either is compared, since `indexOf` returns `-1` for an event that never happened and `-1` precedes every real index;
+  5. the microtask drain preceded the passive flush, which is the window itself.
+
+  The act environment is SET to false rather than asserted. A premise that checks a value the same file just assigned proves nothing; what is worth asserting is the consequence, which is premises 3 and 5. The setting is documented at the site instead, because a future global setup file that turned the flag on would reinstate the act queue and close the window.
 - [ ] **Step 3: The discriminating row.** After the release lands in the window and the tree settles, the button reads `Copy` and the announcer's text is empty. Scoped to the two testids separately, so a passing label cannot stand in for a passing announcement. This is the row that reds under `A39` (AC-2) and also under `A32` (AC-6, family 2).
 - [ ] **Step 4: The mirror row.** Same harness, but the second `root.render` passes the SAME url. The commit still happens and the probe still releases inside the window, but nothing rotated, so the guard must let the confirmation through: the button reads `Copied` and the announcer reads `URL copied to clipboard`. Without this row the discriminating row is satisfied by a harness that suppresses everything. It reds under `A35` (AC-6, family 3).
 - [ ] **Step 5: Register the adversary and the suite.** Add the file to `VITEST_SUITES` in `scripts/share-link-flash-adversary-matrix.mjs`, and push `A39`:
@@ -181,7 +184,19 @@ The red is the command in the marker, observed at plan time (exit 2, output past
   The find string occurs exactly once in `ShareLinkCopyButton.tsx` and needs no import edit, because line 18 already imports both hooks. A mutation that fails to apply is reported `UNAPPLIED`, not silently passed, so a stale find string cannot read as a survivor.
 
 - [ ] **Step 6: Observed red, then observed green, on the marker's command.** Paste both. The red is exit 2 (unknown id). The green is `A39 REJECTED` and exit 0.
-- [ ] **Step 7: Non-vacuity of both new rows (AC-6).** `node scripts/share-link-flash-adversary-matrix.mjs --only A32,A35,A39 --quick` and paste the per-adversary row lists. The discriminating row must appear under `A39` and `A32`; the mirror row under `A35`. A new row appearing under no adversary is a §9.0 violation and is fixed here, not deferred.
+- [ ] **Step 6b: The clean baseline, which the matrix never runs (AC-1).** `pnpm vitest run tests/components/admin/shareLinkCopyButtonOrdering.test.tsx --project parallel`, observed GREEN on the UNMUTATED tree, output pasted.
+
+  This step exists because `A39 REJECTED` on its own does not establish AC-1. The matrix applies the mutation and only then runs vitest (`scripts/share-link-flash-adversary-matrix.mjs:1210-1217`); there is no clean pass anywhere in the loop. So a row that is red against the SHIPPED component and still red under `A39` reports `REJECTED` and exits 0, and the arc would ship a harness that says nothing. The pair is the proof: green on the shipped component, red under the mutant. Neither half alone is.
+
+  The residual gap is exactly this one and nothing else, which is worth stating because it bounds what the baseline has to cover. `runVitest` already refuses to score a run whose requested suites did not all report (`scripts/share-link-flash-adversary-matrix.mjs:918-929`), a suite that collected zero tests (`scripts/share-link-flash-adversary-matrix.mjs:932-939`), or a test neither passed nor failed (`scripts/share-link-flash-adversary-matrix.mjs:940-945`); each throws as an infrastructure fault rather than counting as a rejection. Absence of a baseline was the one way left for `REJECTED` to be true and worthless.
+
+- [ ] **Step 7: Non-vacuity of both new rows (AC-6), read by row title and not by exit code.** `node scripts/share-link-flash-adversary-matrix.mjs --only A32,A35,A39 --quick`, then read the matrix JSON at tmp/adversary-matrix.json, which the run writes for every invocation including a scoped one. Exit 0 alone is not the evidence: the matrix credits an adversary when ANY row reds, so all three could pass on rows this arc did not write. The check is on the `rows` array of each result object:
+
+  ```
+  node -e "const r=require('./tmp/adversary-matrix.json');for(const x of r)console.log(x.id,x.status,JSON.stringify(x.rows))"
+  ```
+
+  The discriminating row's title must appear under `A39` and under `A32`; the mirror row's title under `A35`. A new row appearing under no adversary is a §9.0 violation and is fixed here, not deferred.
 - [ ] **Step 8: The four string-presence mutants.** The rows assert on rendered text, so run all four before the review dispatch and record each: (a) the announcer's text emptied at the source; (b) the expected label with an appended suffix; (c) the label present but not live, moved behind a false condition; (d) each discriminating parameter varied, which here is the url passed to the second `root.render` and the identity of the url captured at click time. Each must red the row that claims to see it.
 - [ ] **Step 9: Repair the prose this task falsifies.** `docs/superpowers/plans/2026-07-24-share-link-chrome-adversary-matrix.md:8` currently ends with the clause about the adversary being unregistered rather than exempted; it now records that the adversary IS registered, as `A39`, and that the whitelist stayed rejected. The SCOPE paragraph at `tests/components/admin/shareLinkCopyButtonRotate.test.tsx:27-49` states the timing is unproven and that a jsdom probe cannot beat `act()`; it now points at the new file and says what changed, keeping the `act()` sentence as the reason RTL is not used there rather than deleting the history.
 - [ ] **Step 10: Gates.** `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, each as its own command. Commit `test(admin): prove the copy button's urlRef write must be a layout effect`.
@@ -209,6 +224,8 @@ This is the PR's last commit. It is authored red, not live red: the failing case
 
 <!-- gate: cmd=`pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs --only A39` probed=`the same command with A39 unregistered exits 2, observed 2026-09-01 and pasted in the registry reconciliation above; with A39 registered but no row reding under it the script exits 1 with *** SURVIVED ***, which is the script's own documented behaviour at scripts/share-link-flash-adversary-matrix.mjs:1341-1347` -->
 
+<!-- gate: cmd=`pnpm vitest run tests/components/admin/shareLinkCopyButtonOrdering.test.tsx --project parallel` probed=`the constructed failing input is the A39 mutation itself: with useLayoutEffect swapped for useEffect in ShareLinkCopyButton.tsx the discriminating case reports label Copied against announcer URL copied to clipboard and the command exits non-zero, observed by probe on 2026-09-01 before this plan was written` -->
+
 <!-- gate: cmd=`pnpm exec tsx scripts/spec-lint.ts docs/superpowers/plans/2026-09-01-sharelink-copy-ref-ordering-proof.md` probed=`run against this file before the plan-stage dispatch; a draft with a task marker missing its why= exits non-zero` -->
 
 **Full-mode confirmation.** The gate above runs `A39` in FULL mode, browser leg included, because the recorded evidence for an adversary should not come from the leg that skips half the suite. It is one adversary, not thirty-nine.
@@ -218,11 +235,13 @@ This is the PR's last commit. It is authored red, not live red: the failing case
 1. bl-orch grants a serial local turn for the full run, and the regenerated block lands in this branch.
 2. It does not, and the report doc's HAND-WRITTEN prose records that `A39` was registered on 2026-09-01 and verified REJECTED by a scoped full-mode run, with the generated table dated to the last full run above it.
 
-Either way the number in the generated block is produced by the generator or is left alone with its staleness named. The readiness message carries which one happened.
+**bl-orch ruled option 2 on 2026-09-01.** A 39-leg heavy Playwright regeneration on this box buys one documentation row at hours of local heavy time, against the standing offload posture. So: the generated block is left exactly as its last full run wrote it, and the HAND-WRITTEN caption around it carries the run stamp, a one-line note naming `A39`'s separate evidence, and the regen trigger, which is simply the next full-mode run picking it up. The generated block is not hand-edited. The ruling carries one condition this arc must honour: if any parity gate reds on 38 against 39, the GATE'S NAME goes to bl-orch before anything else is tried, because that is a different decision and not a silent workaround. Checked at plan time and re-checked at closeout: `grep -rln "38 adversaries\|adversaries ·" tests/ .github/` returns nothing, and no test in `tests/` reads the report doc.
 
 **Invariant 8.** No UI surface, so the dual gate does not apply. Marker at the head of this plan.
 
-**Unfixed peers.** Recorded here and in the PR body at closeout.
+**Unfixed peers.**
+
+1. `AGENTS.md`'s heavy-phase rule cites `scripts/share-link-flash-adversary-matrix.mjs:1014` for the claim that the matrix runs non-interactive Playwright in full mode. That line is now the closing paren of a stale-report error; the Playwright invocation is at `scripts/share-link-flash-adversary-matrix.mjs:1017`. The rule is correct and only its line number drifted. Not repaired here: `tests/docs/agentsHeavyPhaseRule.test.ts:154` and `tests/docs/agentsHeavyPhaseRule.test.ts:221` pin that exact string, so moving it is a change to a guard surface this arc does not otherwise touch, which is class-sweep exception (c). No ledger row is filed, per this arc's standing instruction; it goes to bl-orch in the readiness message instead.
 
 ## Task checklist
 
