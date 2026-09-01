@@ -16,7 +16,6 @@
 // else -- boots, mutant counts, the partition -- is computed against the LIVE registry,
 // which is what makes a drifted figure show up as a changed line rather than as
 // nothing at all.
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -27,29 +26,20 @@ import { GUARD_SURFACES } from "../../tests/mutation/source/registry";
 import { bootsOf } from "../../tests/mutation/source/shardPartition";
 import { lptAssign } from "../../tests/parser/mutation/shardPartition";
 
-type Anchor = {
-  runId: string;
-  legs: Record<string, { elapsedS: number; childMs: number }>;
-  surfaceMs: Record<string, number>;
-  splitSurfaceOperatorMs: Record<string, number>;
-  splitSurfaceOutcomes: number;
-  rates: Record<string, { declaredAtRun: number; observedPerBoot: number }>;
-  splitSourceBlobSha: string;
-  priorRun: {
-    runId: string;
-    surfaces: number;
-    legsElapsedS: number[];
-    legsElapsedTotalS: number;
-    dateISO: string;
-  };
-  thisRunDateISO: string;
-};
-const A = JSON.parse(
-  readFileSync(join(__dirname, "2026-09-01-mutation-shard-figures-input.json"), "utf8"),
-) as Anchor;
+// The anchor and the gate that licenses it live in their own module so the gate has a
+// deciding suite. Three rounds of anchor holes were proved by hand because nothing could
+// import this file; tests/mutation/figuresAnchorReconciliation.test.ts imports that one.
+import {
+  SPLIT_SOURCE,
+  SPLIT_SURFACE,
+  loadAnchor,
+  validateAnchor,
+} from "./2026-09-01-mutation-shard-figures-anchor";
 
-const SPLIT_SURFACE = "controlOutlineResidue";
-const SPLIT_SOURCE = "tests/styles/controlOutlineResidue.ts";
+const A = loadAnchor();
+const text = readFileSync(join(__dirname, "..", "..", SPLIT_SOURCE), "utf8");
+validateAnchor(A, text);
+
 // The two candidate splits, as OPERATOR SETS only. Every number about either is derived.
 const CANDIDATES: Record<string, Record<string, readonly OperatorName[]>> = {
   family: {
@@ -69,172 +59,6 @@ const median = (xs: readonly number[]): number => {
   const m = s.length >> 1;
   return s.length % 2 === 1 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 };
-
-const text = readFileSync(join(__dirname, "..", "..", SPLIT_SOURCE), "utf8");
-
-/**
- * The anchor must describe the tree it is being applied to, and it must be WHOLE.
- *
- * WHY THIS IS A GATE AND NOT A HANDFUL OF GUARDS. The first draft checked one thing --
- * that an operator's milliseconds were present and finite -- and a review swept the
- * omission class around it: deleting leg 0 dropped a 4,624 s leg and still reported the
- * partition within budget; deleting one `surfaceMs` row printed 59 surfaces beside a
- * 60-row rate table; deleting a prior-run leg moved 22,158 s to 18,993 and roughly
- * halved every fuse; and a measured cost of zero or below passed the finite check and
- * underpriced Boundaries by half. Every one of those exited 0. A probe whose purpose is
- * that figures are derived rather than typed cannot have a path where a MISSING figure
- * reads as a real one, so the anchor is judged once, as a whole, before a figure exists.
- *
- * The two totals are the load-bearing part and neither is a checksum I invented. Every
- * surface ran on exactly one leg, so the legs' child milliseconds and the per-surface
- * milliseconds are two independent measurements of one quantity; requiring them equal
- * catches a deletion from EITHER table, which no per-table count can do. The blob sha
- * does the same job across time: `splitSurfaceOperatorMs` prices operators against one
- * exact text, so against a different text those milliseconds answer a question nobody
- * asked -- which is how a moved mutation site was repriced silently instead of refused.
- */
-function validateAnchor(): void {
-  const bad: string[] = [];
-  const positive = (label: string, v: unknown) => {
-    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
-      bad.push(`${label} is ${JSON.stringify(v)}; a measurement must be a positive finite number`);
-      return false;
-    }
-    return true;
-  };
-
-  if (!/^\d+$/.test(A.runId)) bad.push(`runId ${JSON.stringify(A.runId)} is not a run id`);
-
-  // Legs are a CONTIGUOUS matrix from 0, so a hole is a dropped leg rather than a
-  // shorter matrix. Deleting leg 0 is the case that reported negative growth.
-  const legIdx = Object.keys(A.legs)
-    .map(Number)
-    .sort((x, y) => x - y);
-  const contiguous = legIdx.every((n, i) => n === i);
-  if (legIdx.length === 0 || !contiguous) {
-    bad.push(`legs are [${legIdx.join(", ")}], not a contiguous matrix 0..n-1`);
-  }
-  for (const [n, leg] of Object.entries(A.legs)) {
-    positive(`legs[${n}].elapsedS`, leg?.elapsedS);
-    positive(`legs[${n}].childMs`, leg?.childMs);
-  }
-
-  const surfaceIds = Object.keys(A.surfaceMs).sort();
-  const rateIds = Object.keys(A.rates).sort();
-  if (surfaceIds.join("\u0000") !== rateIds.join("\u0000")) {
-    const only = (xs: string[], ys: string[]) => xs.filter((x) => !ys.includes(x));
-    bad.push(
-      `surfaceMs and rates describe different surfaces: ` +
-        `only in surfaceMs [${only(surfaceIds, rateIds).join(", ")}], ` +
-        `only in rates [${only(rateIds, surfaceIds).join(", ")}]`,
-    );
-  }
-  for (const id of surfaceIds) positive(`surfaceMs.${id}`, A.surfaceMs[id]);
-  for (const id of rateIds) {
-    positive(`rates.${id}.declaredAtRun`, A.rates[id]?.declaredAtRun);
-    positive(`rates.${id}.observedPerBoot`, A.rates[id]?.observedPerBoot);
-  }
-
-  // The cross-check. Two tables, one quantity, measured independently.
-  const legChild = Object.values(A.legs).reduce((a, l) => a + (l?.childMs ?? 0), 0);
-  const surfChild = Object.values(A.surfaceMs).reduce((a, b) => a + (b ?? 0), 0);
-  if (legChild !== surfChild) {
-    bad.push(
-      `the legs' child milliseconds total ${legChild} but the per-surface table totals ` +
-        `${surfChild}; every surface ran on exactly one leg, so a difference means one ` +
-        `table lost a row`,
-    );
-  }
-
-  // Operator costs: present values must be real costs. Zero passed the finite check and
-  // halved the split's price. Absence stays legitimate ONLY where the operator has no
-  // sites, which weightsFor derives from the source rather than assuming.
-  for (const [op, ms] of Object.entries(A.splitSurfaceOperatorMs)) {
-    positive(`splitSurfaceOperatorMs.${op}`, ms);
-  }
-  positive("splitSurfaceOutcomes", A.splitSurfaceOutcomes);
-
-  // THE PARTITION INVARIANT, and it is the one that makes a WRONG cost visible rather
-  // than merely a missing one. Positivity accepts any plausible number: changing
-  // `integer-literal` from 1269906 to 269906 kept every per-field check happy and moved
-  // family N=10 from 2490.111 s to 2333.122 s -- a figure that is wrong and looks right,
-  // which is the exact outcome the consequence bound forbids. The operators PARTITION the
-  // surface's measured time, so their costs must sum to what the per-surface table
-  // independently recorded for it. Two tables again, one quantity, and a single digit
-  // edited in either is now a mismatch rather than a plausible answer.
-  const opSum = Object.values(A.splitSurfaceOperatorMs).reduce((a, b) => a + (b ?? 0), 0);
-  const surfaceTotal = A.surfaceMs[SPLIT_SURFACE];
-  if (opSum !== surfaceTotal) {
-    bad.push(
-      `the split surface's per-operator costs sum to ${opSum} but the per-surface table ` +
-        `records ${surfaceTotal} for ${SPLIT_SURFACE}; the operators partition that time, so ` +
-        `a difference means one of the two was edited`,
-    );
-  }
-
-  // The text the operator costs were measured against.
-  const blob = createHash("sha1")
-    .update(`blob ${Buffer.byteLength(text)}\u0000`)
-    .update(text)
-    .digest("hex");
-  if (blob !== A.splitSourceBlobSha) {
-    bad.push(
-      `${SPLIT_SOURCE} is blob ${blob} but the anchor measured ${A.splitSourceBlobSha}; ` +
-        `splitSurfaceOperatorMs prices operators against that exact text, so this run would ` +
-        `reprice a source nobody measured. Re-measure, or state the figures from a run on ` +
-        `this text.`,
-    );
-  }
-
-  const priorSum = A.priorRun.legsElapsedS.reduce((a, b) => a + b, 0);
-  if (A.priorRun.legsElapsedS.length === 0 || priorSum !== A.priorRun.legsElapsedTotalS) {
-    bad.push(
-      `priorRun legs sum to ${priorSum} but the run declares ${A.priorRun.legsElapsedTotalS}`,
-    );
-  }
-  for (const [i, s] of A.priorRun.legsElapsedS.entries())
-    positive(`priorRun.legsElapsedS[${i}]`, s);
-  positive("priorRun.surfaces", A.priorRun.surfaces);
-
-  // The growth line divides by the gap between these two dates. An absent date makes that
-  // gap NaN, and equal dates make it zero -- which prints `Infinity s/day` and a zero-day
-  // fuse, a figure that is not merely wrong but reads as an emergency. Both are ordinary
-  // one-edit mutations of the committed anchor, so both are refused rather than rendered.
-  const priorAt = Date.parse(A.priorRun.dateISO ?? "");
-  const thisAt = Date.parse(A.thisRunDateISO ?? "");
-  if (!Number.isFinite(priorAt) || !Number.isFinite(thisAt)) {
-    bad.push(
-      `the run dates do not both parse (priorRun.dateISO ${JSON.stringify(A.priorRun.dateISO)}, ` +
-        `thisRunDateISO ${JSON.stringify(A.thisRunDateISO)}); the growth figure is measured ` +
-        `between them`,
-    );
-  } else if (!(thisAt > priorAt)) {
-    bad.push(
-      `thisRunDateISO ${A.thisRunDateISO} is not strictly after priorRun.dateISO ` +
-        `${A.priorRun.dateISO}; growth per day over a zero or negative span is not a rate`,
-    );
-  }
-
-  // Every live surface the split did not create must have a measurement. Without this the
-  // `!` below turns a newly enrolled surface into a crash on an undefined rate.
-  const unmeasured = GUARD_SURFACES.filter((s) => !s.id.startsWith(SPLIT_SURFACE))
-    .filter((s) => A.rates[s.id] === undefined)
-    .map((s) => s.id);
-  if (unmeasured.length > 0) {
-    bad.push(
-      `the live registry enrols [${unmeasured.join(", ")}], which run ${A.runId} never ` +
-        `measured; this anchor cannot price today's partition`,
-    );
-  }
-
-  if (bad.length > 0) {
-    throw new Error(
-      `the measurement anchor cannot be used as it stands:\n` +
-        bad.map((m) => `  - ${m}\n`).join(""),
-    );
-  }
-}
-validateAnchor();
 
 const legIds = Object.keys(A.legs).sort((a, b) => Number(a) - Number(b));
 const overheads = legIds.map((n) => A.legs[n]!.elapsedS - A.legs[n]!.childMs / 1000);
