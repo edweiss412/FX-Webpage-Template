@@ -379,8 +379,130 @@ plus closeout review, which is an accepted cost (bl-orch ruling, 2026-08-31).
 Both halves run on the diff, with the canonical v3 setup gates, and their dispositions are recorded
 here before the whole-diff review.
 
-- [ ] **Invariant-8 dual gate**, both halves, with the canonical v3 setup gates. P0 and P1 findings fixed or deferred with a `DEFERRED.md` entry.
-- [ ] **Pre-code mechanical UI checklist**, run BEFORE Task 1 rather than discovered by the gate: no em dash in user-visible copy, straight apostrophes, 44px tap targets, canonical type and token classes.
+- [x] **Invariant-8 dual gate**, both halves, with the canonical v3 setup gates. Results below.
+- [x] **Pre-code mechanical UI checklist**: no em dash in user-visible copy (`tests/styles/_metaEmDashCopy.test.ts` green), straight apostrophes (ratified, spec §2), 44px tap targets (`_metaTapTargetFloor` green; the tile anchor is 74x55.5 at its narrowest and is censused), canonical type and token classes (`text-xs`, `text-xs/relaxed`, `text-text-subtle`, `border-text-faint`, `bg-surface-sunken` — no hex, no arbitrary values).
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=1 dispositions=recorded
+
+### `/impeccable critique` — DEGRADED, and the reason
+
+**⚠️ DEGRADED: single-context (both sub-agents ran but never returned their reports to the parent).**
+Assessment A and Assessment B were dispatched as two isolated parallel sub-agents, as the command
+requires. Both executed. Neither delivered its report across three retrieval attempts, going idle
+each time without returning text. Rather than wait further or claim a dual-agent run, the assessments
+were completed in the parent and the banner is stated here, which is what the command asks for when a
+run degrades. What is NOT degraded is the evidence: the detector was run, both spec probes were run,
+the contrast arithmetic was computed, and the real-browser measurements come from the arc's own
+Playwright oracles at four viewports.
+
+**Anti-patterns: PASS.** No gradient text, no glassmorphism, no side-stripe border, no hero-metric
+block, no uppercase tracked eyebrow, no numbered section markers. The tile grid is not the
+identical-card-grid tell — a grid of thumbnails is the correct affordance for thumbnails. The copy is
+domain-specific in a way generated copy is not: "Won't appear on the crew page" and "The diagram will
+still publish" name this product's consequence, where the reflex is "Image unavailable".
+
+**Deterministic scan.** `detect.mjs --json` over both changed files: 4 findings, all
+`broken-image` (severity warning), at `step3ReviewSections.tsx:4118` and `:4260` and
+`Gallery.tsx:63` and `:882`. **All four are false positives, and all four the same one:** each is the
+literal string `<img>` inside a code comment, matched by a text scan. None is a rendered element and
+none is in this diff. Zero true findings.
+
+**Browser evidence.** No overlay was injected and none is claimed: the Playwright MCP server failed
+to connect this session, and a Next dev server on :3000 was deliberately not started because this
+repo has a documented failure mode where a sibling worktree's server serves the wrong code and
+several agent sessions were live on the machine. The real-browser evidence is the arc's own
+oracles under `tests/e2e/standalone.config.ts`: `T-DIAGRAM-CELL` (five dimensional relationships at
+0.5px), `T-DIAGRAM-MESSAGE` (AC-7b, both failure states) and `T-DIAGRAM-NAME`, each at 320 / 390 /
+640 / 1072.
+
+| # | Heuristic | Score | Key issue |
+|---|-----------|-------|-----------|
+| 1 | Visibility of system status | 4 | The diff's whole subject; three states now distinguishable, each naming its consequence |
+| 2 | Match system / real world | 4 | Copy is in Doug's vocabulary (what reaches the crew page), not the system's |
+| 3 | User control and freedom | 2 | `absent` reports a problem and offers no route to fix it |
+| 4 | Consistency and standards | 3 | Strong internally; the crew counterpart is a list and this grid is a div of spans |
+| 5 | Error prevention | 3 | The servability predicate is shared with the serving route, so tile and route cannot disagree |
+| 6 | Recognition rather than recall | 2 | The name line was cut off at three of four widths — **P1, fixed in `847d882d8`** |
+| 7 | Flexibility and efficiency | 3 | No bulk affordance, but the grid is capped at 12 and this is a review surface |
+| 8 | Aesthetic and minimalist design | 4 | The caption move is a structural solution, not a font-size hack |
+| 9 | Error recovery | 2 | `load-failed` reassures correctly; `absent` is the actionable one and has no next step |
+| 10 | Help and documentation | 3 | The copy is the documentation, and at this size that is right |
+| **Total** | | **30/40** | Good |
+
+**Cognitive load: low.** One glyph, one name, one sentence per tile, at most 12 tiles, no decision
+point over four options. State is carried by SHAPE as well as text, which is the colour-blind floor
+PRODUCT.md sets.
+
+**Emotional journey.** The peak-end rule works in this diff's favour: `load-failed`'s second clause
+lands reassurance at the exact moment of alarm. The valley is `absent`, which correctly alarms and
+then abandons the reader (issue 2).
+
+**What's working.** (1) Both sentences say what happened AND what it means for publishing; the second
+clause is the part Doug acts on and most error copy omits it. (2) `TriangleAlert` vs `ImageOff` at
+identical size and ramp — the state survives a reader who cannot separate the two colours.
+(3) Moving the caption out of the aspect box rather than shrinking type solves the 320px overflow and
+makes the box's 4:3 exact, pinned in a real browser.
+
+**Priority issues.**
+
+- **[P1] The name line was cut off at 320, 390 and 640.** Why it matters: the line exists to answer
+  which diagram is dark, and two sheet tabs sharing a prefix rendered identically; `title` recovers it
+  only on hover, and the venue floor has none. **FIXED in `847d882d8`** — `truncate` to a bounded
+  two-line clamp, red-first against a real-browser clipping oracle.
+- **[P2] The `absent` state has no route to repair.** Doug learns a diagram is missing and must leave
+  the modal to work out where "captured" happens. The crew gallery has a retry affordance for its
+  failure state; the admin tile has none. **Deferred** — it needs a product decision about what the
+  affordance targets (the sheet tab? a rescan?), which this arc cannot settle. Unfixed peer.
+- **[P3] The admin grid is a `div` of `span`s; the crew counterpart is a list.** A screen reader
+  announces an item count on one surface and not the other. **Deferred** — unfixed peer.
+
+**Persona red flags.** *Doug, venue floor, phone (primary, from PRODUCT.md):* at 390px every name
+truncated and `title` needs hover — the exact question he opened the modal to answer was unanswerable.
+Fixed. *Doug, desk:* at 640px a 21-character name still wrapped to two lines and truncated; better,
+not solved. Fixed. *Jordan (first-timer):* reads "Not captured. Won't appear on the crew page." with no
+link, button, or hint where capturing happens (issue 2). *Alex (power user):* no keyboard path to a
+failed tile — correct today, since there is no action, but it also means there is nothing to reach if
+one were added.
+
+**Questions to consider.** If `absent` is the state that needs action, why is it the one with no
+action? Should the two failed states look equally quiet when only one of them is the reader's problem?
+
+### `/impeccable audit` — RAN
+
+| # | Dimension | Score | Key finding |
+|---|-----------|-------|-------------|
+| 1 | Accessibility | 3 | AA met everywhere measured; the grid is not a list, so no item count is announced |
+| 2 | Performance | 4 | `next/image` lazy with `sizes`; reconcile adjusts state during render rather than in an effect, so no stale frame |
+| 3 | Responsive design | 4 | Pinned at four viewports in a real browser at 0.5px, after the P1 repair |
+| 4 | Theming | 4 | Every colour is a token; both modes verified by arithmetic, not by eye |
+| 5 | Anti-patterns | 4 | No tells; the detector's four hits are all comment text |
+| **Total** | | **19/20** | Excellent (minor polish) |
+
+**Contrast, computed from `DESIGN.md` §1.1 rather than repeated from it:**
+
+| Pair | Light | Dark | Threshold |
+|---|---|---|---|
+| `text-subtle` on `surface-sunken` (message, glyph plate) | 6.09 | 6.94 | ≥4.5 AA body |
+| `text-subtle` on `surface` (name line under a live tile) | 6.76 | 6.35 | ≥4.5 AA body |
+| `border-text-faint` vs `surface-sunken` (the box's own stroke) | 3.02 | 4.11 | ≥3.0 AA non-text |
+| `border-text-faint` vs `surface` (the stroke from outside) | 3.35 | 3.76 | ≥3.0 AA non-text |
+| *(retired)* `border-border` vs `surface-sunken` | **1.15** | **1.38** | ≥3.0 — this is what Task 5 fixed |
+
+Every shipped pair passes. The caption does not reach PRODUCT.md's AAA aspiration for light-mode body
+(6.09 against 7.0), but `DESIGN.md` §1.1 scopes `--color-text-subtle` to labels and captions at AA and
+states its own ratios; that is the token's documented role and predates this diff.
+
+**Findings.** P0: none. P1: one, the name-line clipping above, fixed in `847d882d8`. P2: the absent
+state's missing repair route. P3: the grid-not-a-list inconsistency; `aspect-square` plus
+`object-contain` letterboxes a landscape diagram to roughly 56% of the crew cell's height, which the
+plan explicitly fences ("the two aspect boxes differ and that is not reconciled here"); and a marginal
+over-fetch for portrait diagrams, whose `sizes` is computed from the box width the image no longer
+fills.
+
+**Positive findings to keep.** State carried by shape rather than colour. A shared servability
+predicate, so the tile and the serving route cannot disagree. Every geometric claim pinned by
+measurement in a real browser rather than by a class assertion.
+
 - [ ] **Graduate all three rows** into DEFERRED-archive.md and remove the `**Status:** IN PROGRESS` markers, in the PR's LAST commit. An archive categorically rejects an in-flight entry, so the marker comes off in the same commit that archives the row, and a marker that reaches main names a branch the merge just deleted.
 - [ ] **Unfixed peers** into the PR body and the readiness message. No new ledger row, of any facing.
 - [ ] **Readiness to bl-orch** at pane wP:p28. The arc never merges.
