@@ -291,12 +291,21 @@ The red is the command in the marker, observed at plan time (exit 2, output past
 
 This is the PR's last commit. It is authored red, not live red: the failing case is one this task writes.
 
-- [ ] **Step 1: Add the id to `GRADUATED`** with a comment saying what closed it: the un-defer trigger's harness exists, and the adversary is registered rather than whitelisted.
-- [ ] **Step 2: Observed red** on the marker's command, for the stated reason.
-- [ ] **Step 3: Move the entry** from `DEFERRED.md` to `DEFERRED-archive.md`, and REMOVE the `**Status:** IN PROGRESS · **Branch:** ...` field in the same edit. An archive may not hold in-flight work, and a marker that reaches main names a branch the merge deleted.
-- [ ] **Step 4: Record the outcome in the archived entry.** What was proven, by which file, and that the whitelist was NOT reintroduced.
-- [ ] **Step 5: Observed green** on the same command, plus `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts`.
-- [ ] **Step 6: Gates and commit.** `docs(plan): graduate SHARELINK-COPY-REF-ORDERING-PROOF`.
+- [x] **Step 1: Add the id to `GRADUATED`** with a comment saying what closed it: the un-defer trigger's harness exists, and the adversary is registered rather than whitelisted.
+- [x] **Step 2: Observed red** on the marker's command, for the stated reason.
+
+  ```
+  $ pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts
+  FAIL every graduated id is archive-only
+  AssertionError: SHARELINK-COPY-REF-ORDERING-PROOF missing from DEFERRED-archive.md
+  Tests  1 failed | 142 passed (143)
+  ```
+
+  After the move, the same command plus the in-progress guard: `Tests 160 passed (160)`, and `grep -rn "IN PROGRESS"` over all four ledger files returns nothing.
+- [x] **Step 3: Move the entry** from `DEFERRED.md` to `DEFERRED-archive.md`, and REMOVE the `**Status:** IN PROGRESS · **Branch:** ...` field in the same edit. An archive may not hold in-flight work, and a marker that reaches main names a branch the merge deleted.
+- [x] **Step 4: Record the outcome in the archived entry.** What was proven, by which file, and that the whitelist was NOT reintroduced.
+- [x] **Step 5: Observed green** on the same command, plus `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts`.
+- [x] **Step 6: Gates and commit.** `docs(plan): graduate SHARELINK-COPY-REF-ORDERING-PROOF`.
 
 <!-- tasks: end -->
 
@@ -330,10 +339,10 @@ This is the PR's last commit. It is authored red, not live red: the failing case
 - [x] Pre-draft code verification (table above, run 2026-09-01)
 - [x] Reconciliation sweep authored AND run (output pasted above)
 - [x] Registry count reconciliation (run, output pasted)
-- [ ] Plan self-review
-- [ ] Adversarial review (cross-model, Codex) to APPROVE
-- [ ] Task 1
-- [ ] Task 2
+- [x] Plan self-review
+- [x] Adversarial review (cross-model, Codex) to APPROVE at round 3 (R1 3 findings, R2 1 BLOCKING, R3 0)
+- [x] Task 1
+- [x] Task 2
 - [ ] Whole-diff adversarial review (cross-model, Codex) to APPROVE
 - [ ] Thirteen required CI checks green on the pushed head
 - [ ] READINESS to bl-orch. THE ARC NEVER MERGES.
