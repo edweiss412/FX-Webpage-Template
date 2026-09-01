@@ -70,4 +70,34 @@ describe("crew gallery thumbnail chrome", () => {
       expect(have.has("border-border"), `slot ${id} no longer carries border-border`).toBe(false);
     }
   });
+
+  test("the thumbnail letterboxes rather than cropping (AC-12, crew half)", () => {
+    const { container } = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items(3)} />,
+    );
+
+    const slots = container.querySelectorAll('[data-testid^="diagram-slot-"]');
+    premise("the gallery rendered thumbnail slots", slots.length, 0);
+
+    // The scope cannot silently widen: with the lightbox CLOSED, every image in
+    // the tree is a thumbnail, so a slot-scoped count that matches the
+    // document-wide count proves this case is not quietly reading some other
+    // element's fit. The corpus's only other `object-contain` assertion is on
+    // the lightbox image, a different element entirely.
+    const slotImages = container.querySelectorAll('[data-testid^="diagram-slot-"] img');
+    premiseHolds(
+      "the lightbox is closed, so every rendered image IS a thumbnail",
+      container.querySelectorAll("img").length === slotImages.length,
+    );
+    expect(slotImages.length).toBe(slots.length);
+
+    for (const img of Array.from(slotImages)) {
+      const have = tokens(img);
+      // Letterbox, not crop. Eric's ruling of 2026-08-31 is product-wide: a
+      // thumbnail that crops shows the reviewer a diagram that is not the
+      // diagram, and the plate it letterboxes against already exists.
+      expect(have.has("object-contain"), "the thumbnail letterboxes").toBe(true);
+      expect(have.has("object-cover"), "the thumbnail does not crop").toBe(false);
+    }
+  });
 });

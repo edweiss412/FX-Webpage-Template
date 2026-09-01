@@ -96,21 +96,21 @@ describe("diagram tile chrome lives on the wrapper", () => {
     // typed in here. What remains is the other direction, which real data
     // cannot supply: the regex must NOT match a bare fit class, or the negative
     // assertion would be failing for the wrong reason.
-    expect(hasChromeToken("object-cover")).toBe(false);
-    expect(hasChromeToken("size-full object-cover")).toBe(false);
+    expect(hasChromeToken("object-contain")).toBe(false);
+    expect(hasChromeToken("size-full object-contain")).toBe(false);
     // Box chrome in the MIDDLE of a class list. The first two are the cases the
     // previous whole-string regex got wrong: it anchored `border` and `rounded`
     // with `(-|$)`, where `$` is end of the whole string, so a bare token
     // followed by another class was never reached.
-    expect(hasChromeToken("object-cover border size-full")).toBe(true);
-    expect(hasChromeToken("object-cover rounded size-full")).toBe(true);
+    expect(hasChromeToken("object-contain border size-full")).toBe(true);
+    expect(hasChromeToken("object-contain rounded size-full")).toBe(true);
     // The third was NOT missed by the old regex — `bg-` carried no end anchor,
     // so it matched anywhere. It is kept because it pins the same boundary for a
     // prefix token, and stating it accurately matters more than a tidier story:
     // an earlier version of this comment claimed all three had failed, which was
     // asserted rather than measured, and diff review R2 disproved it by running
     // the old pattern.
-    expect(hasChromeToken("object-cover bg-surface-sunken size-full")).toBe(true);
+    expect(hasChromeToken("object-contain bg-surface-sunken size-full")).toBe(true);
   });
 
   test("live branch: the anchor carries the box, the image carries only its fit", () => {
@@ -142,7 +142,7 @@ describe("diagram tile chrome lives on the wrapper", () => {
     // AC-1's actual contract: the image's class string is EXACTLY this. Stronger
     // than the shape scan above, and it also catches a diff that ADDS something
     // to the image which happens not to look like chrome.
-    expect(img!.className.trim()).toBe("object-cover");
+    expect(img!.className.trim()).toBe("object-contain");
   });
 
   test("failed branch: the placeholder carries the same box", () => {

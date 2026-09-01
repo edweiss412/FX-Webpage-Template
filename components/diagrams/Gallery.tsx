@@ -754,7 +754,7 @@ export function Gallery({
                         // set does not hold the id and the setter no-ops.
                         if (isRetrying) handleRetrySuccess(item, i);
                       }}
-                      className="object-cover"
+                      className="object-contain"
                     />
                   </button>
                   {isRetrying ? (

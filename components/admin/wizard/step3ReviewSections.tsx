@@ -4327,7 +4327,7 @@ export function DiagramTile({
             onFailure?.(anchorNodeRef.current);
             setState("load-failed");
           }}
-          className="object-cover"
+          className="object-contain"
         />
       </a>
       {caption(false)}
