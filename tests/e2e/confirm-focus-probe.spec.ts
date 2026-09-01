@@ -147,7 +147,6 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
 
     const pickerReset: ConfirmControl = {
       name: "picker-reset",
-      root: popover,
       rootSelector: '[data-testid="share-hub-popover"]',
       restoreTargetSelector: '[data-testid="picker-reset-all-button"]',
       trigger: "picker-reset-all-button",
@@ -189,7 +188,6 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
     // instead of hanging.
     const archive: ConfirmControl = {
       name: "archive-show",
-      root: modal,
       rootSelector: '[data-testid="published-show-review-modal"]',
       restoreTargetSelector: '[data-testid="share-hub-kebab"]',
       trigger: "archive-show-button",
@@ -240,7 +238,6 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
         // assertion is ever reached, while the Locator still pointed at the list.
         // The section wraps both the heading and the list, so it is the only root
         // under which every element this case touches is inside.
-        root: page.getByTestId("admin-settings-admins-section"),
         rootSelector: '[data-testid="admin-settings-admins-section"]',
         restoreTargetSelector: "#admin-settings-admins-heading",
         trigger: "admin-allowlist-revoke-button",

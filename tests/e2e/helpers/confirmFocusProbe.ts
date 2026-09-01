@@ -33,12 +33,11 @@ import { expect, type Locator, type Page } from "@playwright/test";
 export type ConfirmControl = {
   /** Human name for the report; appears in the emitted JSON. */
   readonly name: string;
-  /** The scroller or panel the control lives in — the frame rects are read against. */
-  readonly root: Locator;
   /**
-   * CSS selector for that same root, used for the READING only.
+   * CSS selector for the root: the ONE declaration of it.
    *
-   * Not redundant with `root`. A confirm can destroy the surface it lives in —
+   * There is deliberately no Locator field beside this. A confirm can destroy
+   * the surface it lives in —
    * archiving a show unmounts the share-hub popover outright — and a reading
    * taken through a Locator on a detached node hangs to the test timeout
    * instead of answering. Measured: the archive case burned 180s that way. The
@@ -136,6 +135,23 @@ async function focusAndClick(target: Locator): Promise<void> {
  * predicate for "focus has finished moving", and polling `activeElement` until
  * it changes would bias the reading toward whichever value appeared first.
  */
+/**
+ * The root Locator, DERIVED from the one declared selector.
+ *
+ * `ConfirmControl` used to carry a `root` Locator beside `rootSelector`, and the
+ * revoke control shipped with the two naming different elements: the Locator on
+ * the active list, the selector on the section heading. Element lookups went
+ * through one and every reading through the other, so `insideRoot` was false for
+ * every control and the case could not reach its own settled assertion.
+ *
+ * A guard comparing the two would have to be called at every site that builds a
+ * control. Deriving one from the other removes the second field, so there is
+ * nothing left to disagree.
+ */
+export function rootLocator(page: Page, control: ConfirmControl): Locator {
+  return page.locator(control.rootSelector);
+}
+
 export type CapturedTarget = { readonly testid: string | null; readonly id: string | null };
 
 /** Identity of the required restore target, read BEFORE the action runs. */
@@ -163,8 +179,8 @@ export async function measureConfirmPath(
   const out: FocusReading[] = [];
   out.push(await readFocus(page, control.rootSelector, `${control.name}:before-arm`));
 
-  await focusAndClick(control.root.getByTestId(control.trigger));
-  const confirm = control.root.getByTestId(control.confirm);
+  await focusAndClick(rootLocator(page, control).getByTestId(control.trigger));
+  const confirm = rootLocator(page, control).getByTestId(control.confirm);
   await expect(confirm).toBeVisible();
   out.push(await readFocus(page, control.rootSelector, `${control.name}:armed`));
 
@@ -186,8 +202,8 @@ export async function measureCancelPath(
   control: ConfirmControl,
   settleMs = 500,
 ): Promise<FocusReading> {
-  await focusAndClick(control.root.getByTestId(control.trigger));
-  const cancel = control.root.getByTestId(control.cancel);
+  await focusAndClick(rootLocator(page, control).getByTestId(control.trigger));
+  const cancel = rootLocator(page, control).getByTestId(control.cancel);
   await expect(cancel).toBeVisible();
   await focusAndClick(cancel);
   await page.waitForTimeout(settleMs);

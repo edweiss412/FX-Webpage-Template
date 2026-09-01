@@ -18,7 +18,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertFocusReadings,
+  rootLocator,
   type CapturedTarget,
+  type ConfirmControl,
   type FocusReading,
 } from "@/tests/e2e/helpers/confirmFocusProbe";
 
@@ -94,5 +96,59 @@ describe("assertFocusReadings decides the confirm-path focus outcome", () => {
       () => assertFocusReadings(r, { testid: "the-trigger", id: null }),
       "a self-comparing assertion cannot discriminate these and would pass",
     ).toThrow();
+  });
+});
+
+describe("the root a control is read through cannot disagree with the root it is looked up through", () => {
+  // Round 4 of the spec stage found the revoke control carrying `root: activeList`
+  // and `rootSelector: "#admin-settings-admins-heading"` — two different elements,
+  // under a comment claiming a third. The case could not reach its own settled
+  // assertion, because `insideRoot` is false for every control when the root is a
+  // heading that contains none.
+  //
+  // The repair is SUBTRACTION rather than a guard: `ConfirmControl` no longer
+  // carries a Locator at all. `rootLocator(page, control)` derives it from the one
+  // selector, so there is nothing left for a second field to disagree with. A
+  // guard would have to be remembered at every call site; a derivation cannot be
+  // forgotten.
+  it("derives the Locator from the single declared selector", () => {
+    const calls: string[] = [];
+    const page = {
+      locator: (sel: string) => {
+        calls.push(sel);
+        return { __sel: sel } as unknown;
+      },
+    };
+    const control = {
+      name: "probe",
+      rootSelector: '[data-testid="the-section"]',
+      restoreTargetSelector: '[data-testid="the-trigger"]',
+      trigger: "the-trigger",
+      confirm: "the-confirm",
+      cancel: "the-cancel",
+    } as unknown as ConfirmControl;
+
+    const got = rootLocator(page as never, control) as unknown as { __sel: string };
+
+    expect(calls, "the derivation must consult the declared selector and nothing else").toEqual([
+      '[data-testid="the-section"]',
+    ]);
+    expect(got.__sel).toBe('[data-testid="the-section"]');
+  });
+
+  it("leaves no second root field for a call site to set independently", () => {
+    const control: Record<string, unknown> = {
+      name: "probe",
+      rootSelector: '[data-testid="the-section"]',
+      restoreTargetSelector: '[data-testid="the-trigger"]',
+      trigger: "the-trigger",
+      confirm: "the-confirm",
+      cancel: "the-cancel",
+    };
+    // The shape a caller can express IS the guarantee. If `root` returns to the
+    // type, this file is the thing that notices.
+    expect(Object.keys(control), "a ConfirmControl declares exactly one root").not.toContain(
+      "root",
+    );
   });
 });
