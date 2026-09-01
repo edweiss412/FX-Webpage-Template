@@ -7,6 +7,7 @@
 // regen "shrink" the ledger to zero), and a missing DONE line (would make
 // "no output from shard i" ambiguous on a hung run).
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -161,5 +162,39 @@ describe("runShard slice filter + progress + collector", () => {
       unknown
     >;
     expect(s0.runId).toBe("local");
+  });
+
+  // CATCHES a failure that would be invisible from the refusing side: the re-bless tool
+  // refuses a file with no usable `headSha`, so a collector that stamped nothing would
+  // make EVERY re-bless refuse and read as a broken tool rather than a missing stamp.
+  // Asserted against this checkout's real HEAD rather than "some string", because a
+  // stamp of the wrong commit refuses just as hard as no stamp at all.
+  it("stamps the commit the alarms describe, off Actions, from the working tree", async () => {
+    scratch = mkdtempSync(join(tmpdir(), "mut-collect-head-"));
+    vi.stubEnv("COLLECT_MUTATION_ALARMS", scratch);
+    vi.stubEnv("GITHUB_SHA", undefined);
+    await runShard(0, OPTS);
+    const s0 = JSON.parse(readFileSync(join(scratch, "alarms-shard0.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(s0.headSha).toBe(
+      execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    );
+  });
+
+  // CATCHES: the working-tree fallback winning over the value Actions supplies. On a
+  // runner both are present and they are NOT the same commit for a pull_request event,
+  // so preferring the wrong one binds the alarms to a tree nobody collected.
+  it("prefers GITHUB_SHA to the working tree when Actions supplies it", async () => {
+    scratch = mkdtempSync(join(tmpdir(), "mut-collect-ghsha-"));
+    vi.stubEnv("COLLECT_MUTATION_ALARMS", scratch);
+    vi.stubEnv("GITHUB_SHA", "0123456789abcdef0123456789abcdef01234567");
+    await runShard(0, OPTS);
+    const s0 = JSON.parse(readFileSync(join(scratch, "alarms-shard0.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(s0.headSha).toBe("0123456789abcdef0123456789abcdef01234567");
   });
 });

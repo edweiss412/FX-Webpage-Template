@@ -30,6 +30,7 @@ export type ShardFile = {
   index: number;
   shard: unknown;
   runId: unknown;
+  headSha: unknown;
   alarms: Alarm[];
 };
 
@@ -93,6 +94,7 @@ export function readShardFiles(files: readonly string[]): ShardFile[] {
       index,
       shard: parsed.shard,
       runId: parsed.runId,
+      headSha: parsed.headSha,
       alarms: parsed.alarms as Alarm[],
     };
   });
@@ -133,7 +135,86 @@ export function provenanceProblems(files: readonly ShardFile[]): string[] {
   if (runs.size > 1) {
     problems.push(`files come from ${runs.size} different runs: ${[...runs].sort().join(", ")}`);
   }
+  // The commit each file's fingerprints describe, held to the same bar as the run id
+  // and for the same reason: a value that is absent, not a string, or empty is not a
+  // weaker claim about the tree, it is no claim at all.
+  for (const f of files) {
+    if (typeof f.headSha !== "string" || f.headSha === "") {
+      problems.push(
+        `${f.path} declares no usable headSha (${JSON.stringify(f.headSha)}); the commit its ` +
+          `fingerprints describe cannot be established`,
+      );
+    }
+  }
+  const heads = new Set(
+    files
+      .filter((f) => typeof f.headSha === "string" && f.headSha !== "")
+      .map((f) => f.headSha as string),
+  );
+  if (heads.size > 1) {
+    problems.push(
+      `files describe ${heads.size} different commits: ${[...heads].sort().join(", ")}`,
+    );
+  }
   return problems;
+}
+
+/**
+ * THE SIXTH CONDITION: the run describes the tree being re-blessed.
+ *
+ * The other five license a set of files as one run's whole, self-consistent output.
+ * All five can hold on a run from LAST WEEK. A review demonstrated it rather than
+ * argued it -- partitioning the base commit's ledger rows through the live shard
+ * assignment produced eight files with matching indices and one shared run id, and
+ * every check passed: provenance clean, both cardinality checks clean, 791 drifted,
+ * zero new and zero fixed holes, `rewritten === drifted`, census unchanged. The tool
+ * rewrote the ledger backwards and said nothing, because a fingerprint is a claim
+ * about a SOURCE and nothing here had ever asked which source.
+ *
+ * `allowHead` exists because a legitimate gap is real and already happened on the arc
+ * that wrote this: a docs commit landed while a collect run was in flight, moving HEAD
+ * past the run without touching a single byte the parser reads. The answer is not to
+ * infer that such a gap is harmless -- deciding WHICH commits are parser-irrelevant is
+ * exactly the judgement this function must not make silently. It is to make the
+ * crossing a named argument, so a re-bless across trees is a sentence somebody wrote
+ * rather than a thing that happened.
+ */
+export function headBindingProblems(
+  files: readonly ShardFile[],
+  currentHead: string,
+  allowHead?: string,
+): string[] {
+  const heads = [
+    ...new Set(
+      files
+        .filter((f) => typeof f.headSha === "string" && f.headSha !== "")
+        .map((f) => f.headSha as string),
+    ),
+  ];
+  // Disagreement and absence are provenanceProblems' to report; this function answers
+  // only the binding question, and answering it against an unusable set would produce a
+  // second, worse-worded copy of a refusal the caller has already made.
+  if (heads.length !== 1) return [];
+  const declared = heads[0]!;
+  const accepted = allowHead ?? currentHead;
+  if (!accepted) {
+    return [
+      `the collected run describes commit ${declared}, but the tree being re-blessed ` +
+        `could not be identified; a ledger is a claim about a tree, so an unidentifiable ` +
+        `one cannot receive a re-bless`,
+    ];
+  }
+  if (declared !== accepted) {
+    return [
+      `the collected run describes commit ${declared}, but this tree is ${currentHead}` +
+        (allowHead ? ` and --allow-head names ${allowHead}` : "") +
+        `. Its fingerprints are the ones THAT source produced, so applying them here ` +
+        `rewrites the ledger to describe a tree nobody ran. Re-collect at this commit, ` +
+        `or pass --allow-head ${declared} to state deliberately that nothing the parser ` +
+        `reads changed between them.`,
+    ];
+  }
+  return [];
 }
 
 /**

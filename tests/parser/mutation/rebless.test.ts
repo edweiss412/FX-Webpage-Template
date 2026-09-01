@@ -14,6 +14,7 @@ import {
   cardinalityProblems,
   classify,
   findShardFiles,
+  headBindingProblems,
   ledgerCardinalityProblems,
   provenanceProblems,
   readShardFiles,
@@ -173,11 +174,17 @@ describe("rewriteLedgerText", () => {
 });
 
 describe("provenanceProblems", () => {
-  const f = (index: number, shard: unknown, runId: unknown) => ({
+  // ARITY, not a default value. `headSha: unknown = "deadbeef"` reads the same and
+  // silently substitutes the default when a case passes `undefined` ON PURPOSE, which
+  // made the "missing headSha" case below assert against a present one and pass
+  // vacuously. The rest parameter distinguishes "not supplied" from "supplied as
+  // undefined", which is exactly the distinction those cases are about.
+  const f = (index: number, shard: unknown, runId: unknown, ...head: unknown[]) => ({
     path: `p${index}`,
     index,
     shard,
     runId,
+    headSha: head.length > 0 ? head[0] : "deadbeef",
     alarms: [],
   });
 
@@ -224,6 +231,84 @@ describe("provenanceProblems", () => {
   // repair seen from the other side.
   it("does not let a number and a string of the same digits pass as one run", () => {
     expect(provenanceProblems([f(0, 0, 1), f(1, 1, "1")]).length).toBeGreaterThan(0);
+  });
+
+  // CATCHES: the same absence class as the runId cases above, on the field that says
+  // WHICH TREE. Held to the identical bar deliberately -- a headSha that is missing,
+  // null or empty is not a weaker claim about the source, it is no claim at all, and
+  // an unusable value must not reach headBindingProblems looking like agreement.
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["empty string", ""],
+    ["an object", {}],
+    ["a number", 7],
+  ])("refuses a headSha that is %s", (_label, bad) => {
+    expect(provenanceProblems([f(0, 0, "111", bad)])).toEqual([
+      expect.stringContaining("no usable headSha"),
+    ]);
+  });
+
+  // CATCHES: two collect runs at different commits interleaved into one directory.
+  // Both declare a real tree, so the absence check above cannot see it.
+  it("refuses a set whose files describe different commits", () => {
+    expect(provenanceProblems([f(0, 0, "111", "aaa"), f(1, 1, "111", "bbb")])).toEqual([
+      expect.stringContaining("different commits"),
+    ]);
+  });
+});
+
+describe("headBindingProblems", () => {
+  const f = (index: number, headSha: unknown) => ({
+    path: `p${index}`,
+    index,
+    shard: index,
+    runId: "111",
+    headSha,
+    alarms: [],
+  });
+
+  // CATCHES the sixth condition, and it is a measured input rather than a constructed
+  // one: a review partitioned the BASE COMMIT's ledger rows through the live shard
+  // assignment, and the resulting eight files passed provenance, both cardinality
+  // checks, and the whole reconciliation -- 791 drifted, zero new holes, zero fixed
+  // holes, `rewritten === drifted`, census unchanged. The ledger rolled backwards in
+  // silence. Every one of the five conditions held; none of them asks which tree.
+  it("refuses a complete, self-consistent run from a different commit", () => {
+    expect(headBindingProblems([f(0, "old"), f(1, "old")], "new")).toEqual([
+      expect.stringContaining("describes commit old"),
+    ]);
+  });
+
+  it("accepts a run describing this very tree", () => {
+    expect(headBindingProblems([f(0, "same"), f(1, "same")], "same")).toEqual([]);
+  });
+
+  // CATCHES: the licensing flag licensing nothing. `--allow-head` must name the commit
+  // actually collected, or a typo in it reads as a blanket waiver.
+  it("accepts a crossing only when --allow-head names the collected commit", () => {
+    expect(headBindingProblems([f(0, "old")], "new", "old")).toEqual([]);
+    expect(headBindingProblems([f(0, "old")], "new", "typo")).toEqual([
+      expect.stringContaining("--allow-head names typo"),
+    ]);
+  });
+
+  // CATCHES: a tree with no git identity silently reading as "matches". An empty
+  // current head compares unequal to any real sha, but the message a reader needs is
+  // that the TREE is unidentifiable, not that two shas differ.
+  it("refuses when the tree being re-blessed cannot be identified", () => {
+    expect(headBindingProblems([f(0, "aaa")], "")).toEqual([
+      expect.stringContaining("could not be identified"),
+    ]);
+  });
+
+  // CATCHES: this function issuing a second, worse-worded copy of a refusal
+  // provenanceProblems has already made. Disagreement and absence are that
+  // function's to report; asking the binding question of an unusable set would
+  // produce two refusals for one defect and bury the one that names the cause.
+  it("says nothing about a set whose commits disagree or are absent", () => {
+    expect(headBindingProblems([f(0, "aaa"), f(1, "bbb")], "aaa")).toEqual([]);
+    expect(headBindingProblems([f(0, undefined)], "aaa")).toEqual([]);
   });
 });
 

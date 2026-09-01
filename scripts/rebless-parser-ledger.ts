@@ -7,6 +7,7 @@
 // EXIT CODES, because a caller reads them: 0 nothing to do (or the rewrite
 // succeeded), 1 the ledger is stale (--check) or the reconciliation is refused,
 // 2 a usage error, 3 the ledger text and the parsed ledger disagree.
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import { KNOWN_SILENT_HOLES } from "../tests/parser/mutation/knownHoles";
@@ -16,6 +17,7 @@ import {
   classify,
   ledgerCardinalityProblems,
   findShardFiles,
+  headBindingProblems,
   provenanceProblems,
   readShardFiles,
   rewriteLedgerText,
@@ -23,7 +25,8 @@ import {
 
 const LEDGER = "tests/parser/mutation/knownHoles.ts";
 const USAGE =
-  "usage: node --import tsx scripts/rebless-parser-ledger.ts --alarms <dir> [--shards <n>] [--check]";
+  "usage: node --import tsx scripts/rebless-parser-ledger.ts --alarms <dir> [--shards <n>] " +
+  "[--check] [--allow-head <sha>]";
 
 function die(message: string, code = 2): never {
   process.stderr.write(`rebless-parser-ledger: ${message}\n${USAGE}\n`);
@@ -47,6 +50,19 @@ if (!Number.isInteger(shards) || shards <= 0) {
   die(`--shards must be a positive integer, got "${String(shardsRaw)}"`);
 }
 const checkOnly = process.argv.includes("--check");
+const allowHead = flag("allow-head");
+if (process.argv.includes("--allow-head") && (allowHead === undefined || allowHead === "")) {
+  die("--allow-head requires the commit sha it is licensing");
+}
+
+// The tree this ledger describes. IO lives in the adapter; the comparison is in the
+// module, which is why `git` is called here and nowhere else.
+let currentHead = "";
+try {
+  currentHead = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+} catch {
+  currentHead = "";
+}
 
 let files: string[];
 let missing: number[];
@@ -85,6 +101,14 @@ if (provenance.length > 0) {
   die(
     "REFUSING -- the collected files are not one run's whole output:\n" +
       provenance.map((m) => `    ${m}\n`).join(""),
+    1,
+  );
+}
+const binding = headBindingProblems(shardFiles, currentHead, allowHead);
+if (binding.length > 0) {
+  die(
+    "REFUSING -- the collected run does not describe this tree:\n" +
+      binding.map((m) => `    ${m}\n`).join(""),
     1,
   );
 }
