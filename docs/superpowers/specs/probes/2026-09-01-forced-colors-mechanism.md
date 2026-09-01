@@ -116,7 +116,7 @@ base loses to utilities" and settles on `DELIBERATELY UNLAYERED`.
 ## Raw transcript
 
 ```
-compiled app/globals.css: 142883 bytes
+compiled app/globals.css: 144242 bytes
 
 ## Mechanism — chromium
 
@@ -417,4 +417,8 @@ Does an author rule reach an element wearing the shipped focus idiom, under forc
   rule inside @layer utilities forced=false #synthetic  outline=solid 3px rgb(224, 96, 0) offset=2px box-shadow=present
   rule inside @layer utilities forced=true  #native     outline=solid 3px rgb(0, 0, 0) offset=2px box-shadow=none
   rule inside @layer utilities forced=true  #synthetic  outline=solid 3px rgb(0, 0, 0) offset=2px box-shadow=none
+
+## AC-5, Gecko
+
+  fill asserted
 ```

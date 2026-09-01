@@ -628,9 +628,25 @@ the condition that would re-open it.
    shows nothing in that compound state in both modes. That difference is the
    whole content of §3.1 rule 2: a cue that names its off state behaves under
    forced colors, and one that leaves it `transparent` does not.
-9. **Safari is out of scope.** WebKit does not implement `forced-colors`. No claim
+9. **Blink paints `<progress>` itself under forced colors, and author CSS cannot
+   reach it.** Measured 2026-09-01 while implementing §5.5: with forced colors
+   active, deleting the -webkit-progress-bar background, the
+   -webkit-progress-value background, or both, leaves the rendered bar
+   byte-identical. The UA owns the widget. Gecko honours the author declarations,
+   and the repair is asserted there.
+
+   Not a defect, and the distinction matters: the bar is not invisible in Blink,
+   it is repainted by the UA in the forced palette, which is the accessible
+   outcome by a route this pass does not control. What is lost is the ability to
+   choose the fill colour, which was never the point. AC-5's Blink half therefore
+   asserts the property that holds — the bar renders, and renders differently
+   under forced colors than not — and its Gecko half asserts the author repair
+   with a fill-only deletion as the control. **Re-open when:** Blink ships author
+   control of progress pseudo-elements under forced colors, or a probe shows the
+   UA rendering is itself unreadable.
+10. **Safari is out of scope.** WebKit does not implement `forced-colors`. No claim
    in this spec covers it. **Re-open when:** WebKit ships the feature.
-10. **The probe measures emulation, not a user's theme.** No assertion in this pass
+11. **The probe measures emulation, not a user's theme.** No assertion in this pass
    may depend on a specific forced colour value; every assertion is about whether
    a property survives and whether two states differ.
 ## 9. Convergence

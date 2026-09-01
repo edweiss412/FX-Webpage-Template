@@ -1612,6 +1612,36 @@ details[open] > summary [data-agenda-day-count] {
     border-color: Canvas;
   }
 
+  /* The indeterminate progress shimmer (spec §5.5), on both the step-2 and the
+     finalize bars — the source rules are grouped selectors covering both.
+
+     Its carrier is a gradient, which a UA drops, and the Gecko rule additionally
+     sets a transparent background so the moving shimmer shows instead of a
+     misleading full bar. Under forced colors that leaves NOTHING: an indeterminate
+     bar rendering as empty track, which asks "is it still working?" and answers
+     nothing.
+
+     A solid fill rather than a shimmer, and that is a fair trade rather than a
+     compromise: the animation is the texture, the fill is the information. Both
+     engines' pseudo-elements are named because they are separate declarations, and
+     AC-5's negative control deletes each in turn. */
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar {
+    background-color: ButtonFace;
+    background-image: none;
+  }
+
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-value,
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-value {
+    background-color: Highlight;
+  }
+
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar,
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-moz-progress-bar {
+    background-color: Highlight;
+    background-image: none;
+  }
+
   /* Step-3 review modal, the one-shot warning-row highlight after a callout jump
      (spec §5.2). Its only carrier is a background, which forces to one value, so
      the animated form paints nothing.

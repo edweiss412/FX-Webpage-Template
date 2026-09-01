@@ -195,6 +195,70 @@ async function runCascade(engineName, launcher, appCss) {
   await browser.close();
 }
 
+/**
+ * AC-5's Gecko half, and the only place in this repo where it CAN be asserted:
+ * Playwright's two configured browsers are Chromium and WebKit, and the repair
+ * takes effect in neither. Measured 2026-09-01 — under forced colors Chromium
+ * paints `<progress>` entirely from the UA and ignores author pseudo-element
+ * styling, so deleting the author declarations leaves the render byte-identical;
+ * Gecko honours them.
+ *
+ * The case loads the COMPILED stylesheet and renders the SHIPPED test id, so the
+ * selector under test is the one that ships. A copied fixture would keep passing
+ * through a typo in the live selector, which is the failure this arc's own
+ * probe-domain rule forbids.
+ *
+ * It EXITS NON-ZERO on failure. The rest of this probe logs observations and exits
+ * 0 whatever it sees, which is right for a measurement and wrong for an acceptance
+ * criterion's owner.
+ */
+async function assertProgressFill(appCss) {
+  const browser = await firefox.launch();
+  const failures = [];
+  try {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.setContent(
+      `<!doctype html><meta charset="utf-8"><style>${appCss}</style>` +
+        `<progress data-testid="wizard-step2-progressbar" style="width:200px;height:16px;display:block"></progress>`,
+    );
+    await page.emulateMedia({ forcedColors: "active" });
+    const bar = page.locator('[data-testid="wizard-step2-progressbar"]');
+    const painted = await bar.screenshot();
+
+    // The fill-only deletion, which is the discriminating control: the repair also
+    // paints a track, so "something is painted" is satisfied with the fill absent.
+    const removed = await page.evaluate(() => {
+      let count = 0;
+      for (const sheet of Array.from(document.styleSheets)) {
+        for (const rule of Array.from(sheet.cssRules)) {
+          if (!(rule instanceof CSSMediaRule)) continue;
+          if (!rule.conditionText.includes("forced-colors")) continue;
+          for (const inner of Array.from(rule.cssRules)) {
+            if (!(inner instanceof CSSStyleRule)) continue;
+            if (!inner.selectorText.includes("-moz-progress-bar")) continue;
+            inner.style.removeProperty("background-color");
+            count += 1;
+          }
+        }
+      }
+      return count;
+    });
+    if (removed === 0) failures.push("no -moz-progress-bar fill rule was found to delete");
+    const unpainted = await bar.screenshot();
+    if (Buffer.compare(painted, unpainted) === 0) {
+      failures.push("deleting the -moz-progress-bar fill changed nothing");
+    }
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+  console.log(
+    `\n## AC-5, Gecko\n\n${failures.length === 0 ? "  fill asserted" : failures.map((f) => `  FAIL ${f}`).join("\n")}`,
+  );
+  return failures;
+}
+
 const appCss = compileAppCss();
 console.log(`compiled app/globals.css: ${appCss.length} bytes`);
 for (const [name, launcher] of [
@@ -203,4 +267,9 @@ for (const [name, launcher] of [
 ]) {
   await runMechanism(name, launcher);
   await runCascade(name, launcher, appCss);
+}
+
+const ac5Failures = await assertProgressFill(appCss);
+if (ac5Failures.length > 0) {
+  process.exitCode = 1;
 }

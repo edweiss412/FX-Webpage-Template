@@ -79,6 +79,7 @@ function harnessHtml(): string {
   <div id="step3-flash" ${STEP3_FLASH_ATTR} data-testid="fc-step3-flash">step3, flashing</div>
   <div id="fresh-idle" data-testid="fc-fresh-idle">freshness, idle</div>
   <div id="fresh-flash" ${FRESHNESS_FLASH_ATTR}="1" data-testid="fc-fresh-flash">freshness, flashing</div>
+  <progress data-testid="wizard-step2-progressbar" style="width:200px;height:16px;display:block"></progress>
   ${pairsMarkup()}
 </body></html>`;
 }
@@ -296,6 +297,39 @@ test.describe("forced colors", () => {
       identical,
       "a repaired state that still renders identically to its unselected twin",
     ).toEqual([]);
+  });
+
+  test("AC-5 (Blink half): the indeterminate bar is not invisible under forced colors", async ({
+    page,
+  }) => {
+    const bar = page.getByTestId("wizard-step2-progressbar");
+
+    await page.goto(origin);
+    await expect(bar).toBeVisible();
+    const normal = await bar.screenshot();
+
+    await page.emulateMedia({ forcedColors: "active" });
+    const forced = await bar.screenshot();
+
+    // What this asserts, and what it deliberately does NOT.
+    //
+    // MEASURED, and it changed this case: under forced colors Chromium paints
+    // <progress> entirely from the UA and ignores author pseudo-element styling
+    // altogether. Deleting the -webkit-progress-bar background, the
+    // -webkit-progress-value background, or both, leaves the render byte-identical
+    // at 370 bytes. So the fill-only negative control the plan specified cannot
+    // discriminate here — not because the control is weak, but because there is
+    // nothing author-side to delete that Blink was using.
+    //
+    // The user-facing property still holds and is what this asserts: the bar
+    // renders, and it renders DIFFERENTLY under forced colors, which is the UA
+    // repainting it in the palette rather than leaving an empty track. The author
+    // repair is asserted where it actually takes effect, in the mechanism probe's
+    // Gecko arm.
+    expect(
+      Buffer.compare(normal, forced),
+      "the bar renders identically in both modes, so nothing repainted it",
+    ).not.toBe(0);
   });
 
   test("the component still emits the attribute the stylesheet keys on", () => {
