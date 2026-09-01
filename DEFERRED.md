@@ -405,37 +405,3 @@ From the invariant-8 dual gate on `feat/diagram-failure-retry`. The gate's three
 audit P0 were all FIXED in-branch; dispositions and the refuted findings are recorded in
 `docs/superpowers/plans/2026-08-29-diagram-failure-retry/closeout.md`. One finding is deferred, under
 class-sweep exception (a): it needs a product decision this PR cannot settle.
-
-### DIAGRETRY-NO-RETRY-DEADLINE-1 — impeccable P2: a hung request leaves `Retrying…` up forever (2026-08-29)
-
-**Status:** IN PROGRESS · **Branch:** fix/lightbox-pair-and-retry-checkin · **Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a crew member stuck on
-`Retrying…`, or any work that gives the asset route a client-visible status channel (which would also
-close documented limit 1 in the design spec).
-
-No retry carries a DEADLINE, so a request that never resolves leaves the in-flight state permanent:
-`Retrying…` on screen, `aria-busy="true"` announced, and the control inert because its `onClick` is a
-bare `preventDefault`. Venue wifi is precisely where a request hangs rather than fails.
-
-**The original wording of this paragraph was wrong twice, and diff review R2 caught both.** It said
-there is no `setTimeout` anywhere in either component; the lightbox has several, including the demote
-chip's own visibility timer. The true claim is narrower and is the one that matters: none of them is a
-retry deadline. It also said closing the lightbox cannot reset a hung retry and a page reload is the
-only exit. That is true of the GALLERY, whose state outlives the dialog, and false of the LIGHTBOX,
-whose retry state is local and dies when the dialog unmounts. So the worst case is real but belongs to
-one surface, not both: a crew member with a hung retry in the lightbox can close it, and one hung in
-the gallery cannot get out without reloading.
-
-Recorded rather than quietly narrowed, because the decision below rests on this evidence and a reader
-checking it should find the corrected version and the reason it changed.
-
-**Why it is a product decision and not a fix.** Every repair needs a number and a sentence nobody has
-chosen: how long before a retry is declared hung (10s? 30s? long enough for 50MB on bad wifi?), what the
-control says when it gives up, and whether a timeout should offer a second retry or fall back to the
-failed state. Guessing a deadline is worse than the current behaviour: too short and a slow-but-working
-50MB fetch is killed on the venue floor, which is the exact failure the originals-only path was ratified
-to allow. §3.1 ratified "no dead ends" with the 50MB ceiling stated, and a wrong deadline reintroduces
-one.
-
-**What holds the line meanwhile.** The state is per item, so a hung retry strands one diagram rather than
-the page; every other tile stays live and openable. The announcement on entry says what is happening, so
-nothing is silent.

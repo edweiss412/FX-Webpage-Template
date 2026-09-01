@@ -70,6 +70,11 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // fix/lightbox-pair-and-retry-checkin (2026-09-01). The soft 30-second
+  // check-in: the copy changes, Restart is offered, and the in-flight request
+  // is never cancelled. This row asked for a deadline nobody had chosen; the
+  // answer was to choose none.
+  "DIAGRETRY-NO-RETRY-DEADLINE-1",
   // feat/nav-badge-arrival-announce (2026-08-31). Graduated by the product
   // decision it was blocked on being taken, not by the requirement being
   // waived: Eric ruled that the nav announces on the FIRST resolution only and
