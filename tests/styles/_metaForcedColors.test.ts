@@ -403,12 +403,24 @@ describe("forced-colors state collapse (Arm 1)", () => {
       .map((r) => r.site);
     expect(thin, "a binding that names no real locator or no real toggle").toEqual([]);
 
-    // The honest count, pinned so it can only move deliberately. Every repair is
-    // currently proved at the CSS level and none is proved through its live
-    // component; spec §8 records that and names the re-open trigger.
+    // The honest count, pinned so it can only move deliberately. ONE of the twelve
+    // is proved through the live component: AC-4e signs in, navigates to `/admin`
+    // and measures the rendered nav at `AdminNav.tsx:236`.
+    //
+    // It was briefly two. The mobile counterpart at `AdminNav.tsx:301` renders only
+    // under 840px, so mobile-safari is the only project that reaches it, and that
+    // engine does not implement forced-colors — AC-4e skips there, and a skipped
+    // case binds nothing. Writing two would have been the same class of claim R2
+    // caught in the first draft of spec §8 limit 9: a number describing what the
+    // test was meant to do rather than what it does.
+    //
+    // The other eleven are proved at the CSS level only, and limit 9 names what
+    // each still needs. That limit's original blocker did not survive contact:
+    // `/admin` is reachable here, it just needs the `signInAs` step every other
+    // admin spec takes.
     const bound = repairs.filter((r) => r.binding?.bound === true).length;
     expect(bound, "browser-bound repair rows; raising this is the point of the binding field").toBe(
-      0,
+      1,
     );
   });
 

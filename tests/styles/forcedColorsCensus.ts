@@ -328,9 +328,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     site: "components/admin/nav/AdminNav.tsx:236",
     disposition: "repaired",
     binding: {
-      locator: "nav a[href]",
-      toggle: "navigating to another admin route (needs a data-testid; see the plan)",
-      bound: false,
+      locator: 'nav [aria-current="page"]',
+      toggle: "navigating to another admin route",
+      // Bound by AC-4e on desktop-chromium, where this row is the visible one:
+      // the top row is `hidden min-[840px]:flex`, so it renders at 1280 and not
+      // at 390. The mobile half of the same case binds :301.
+      bound: true,
     },
     reason: "desktop nav; aria-current only, and icon and label render unchanged in both states",
   },
@@ -340,6 +343,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     binding: {
       locator: '[data-testid^="admin-bottom-tab-"]',
       toggle: "navigating to another admin route",
+      // NOT bound, and the reason is the engine rather than a missing seed:
+      // these bottom tabs render only under 840px, so mobile-safari is the only
+      // project that can reach them, and WebKit does not implement
+      // forced-colors — AC-4e skips there by design. Binding this row needs a
+      // third project on an engine that implements the feature at a phone
+      // viewport, not a fixture.
       bound: false,
     },
     reason:

@@ -133,7 +133,7 @@ sink; the Tailwind design system (`tests/styles/controlOutlineResidue.ts:146`) f
 what each token emits, scanning the candidate's own rule after stripping the
 `@property` blocks it returns alongside.
 
-The census is the disposition above, transcribed: 14 repair rows and 28 census rows
+The census is the disposition above, transcribed: 12 repair rows and 30 census rows
 with their reasons. Two literals pin it — the family sum against the arm's output,
 and an exact row count — because a census that silently grows passes a subset
 assertion.
@@ -213,7 +213,7 @@ ordinary case and wrong in the compound one, which is exactly what AC-4d measure
 ## Task 6 — the state-collapse repairs, and AC-4 over every one of them
 <!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`components/crew/CrewSubNav.tsx:93` why=`the active and inactive tab paths compute identical border-color under forced colors, so the AC-4 case fails for that row until the block paints the selected state` ac=AC-4,AC-4b -->
 
-The repair set is the disposition's 14 Repair rows.
+The repair set is the disposition's 12 Repair rows.
 
 **AC-4 is data-driven over those rows, and each row carries its own BINDING.** Plan
 review R2 finding 7 was that asserting only the spec's five worked examples left the
@@ -258,7 +258,7 @@ Off-states are named by setting the colour to the background system colour, NOT 
 removing the width would reflow (spec §5.7).
 
 ## Task 7 — the indeterminate progress shimmer
-<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:743` why=`the gradient is dropped under forced colors and the Firefox rule sets background-color transparent, so the AC-5 assertion that the bar paints a fill distinguishable from its track fails` ac=AC-5 -->
+<!-- task: red=`node scripts/probes/forced-colors-mechanism.mjs` red-state=authored red-target=`app/globals.css:743` why=`AC-5's Gecko half is the only place the missing author repair is observable, and it runs in the probe rather than in Playwright: Firefox is not a Playwright project in this repo, and Blink repaints the bar itself and ignores author pseudo-element styling, so a Chromium case stays green with or without the fix. Deleting the Gecko fill leaves the bar painting its track colour, the probe's AC-5 assertion reports FAIL and sets a non-zero exit` ac=AC-5 -->
 
 Spec §5.5. **The assertion samples rendered pixels and must distinguish the FILL
 from the TRACK.** A computed-style assertion reads `rgba(0, 0, 0, 0)` for
@@ -296,7 +296,7 @@ which makes the probe a command this task can be red on. Its plant is the same
 fill-only deletion, run per engine.
 
 ## Task 8 — the documented limits that need a row
-<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1224` why=`the freshness reduced-motion arm is an A2a hit that Task 1 dispositions as a repair candidate, and no census row records it as a deliberate limit, so the case asserting every A2a row is either repaired or carries a limit row fails on that row` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1224` why=`the case names the DISPOSITION, not a disjunction: the freshness reduced-motion arm must be recorded deliberate-flatten specifically. Task 1 already puts every live A2a hit in the census, so an "either repaired or carries a limit row" assertion would pass whichever way Task 1 called it and could never be observed red — that was the first draft of this line and whole-diff R2 was right to call it. Pinning the disposition fails while the row is anything else` ac=AC-3 -->
 
 Spec §6's transition inventory and §8's limits 7 and 8, as census rows with
 reasons. The reduced-motion freshness arm is an A2a hit rather than an A2b one, and
@@ -341,8 +341,8 @@ production surface, implements, observes green, commits.
 | Task 2 | both arms, the census, the cannot-decide set, green | no forced-colors block at all |
 | Task 3 | the e2e spec WIRED, the block, the share-link cue, green | the step-3 cue, still flattening |
 | Task 4 | the step-3 cue repaired, green | the share-link off state, unnamed under reduced motion |
-| Task 5 | the compound states correct, green | 14 unrepaired state collapses |
-| Task 6 | the 14 repairs and AC-4 over all of them, green | the progress gradient |
+| Task 5 | the compound states correct, green | 12 unrepaired state collapses |
+| Task 6 | the 12 repairs and AC-4 over all of them, green | the progress gradient |
 | Task 7 | the progress fill, green | no assertion that the block is unlayered |
 | Task 11 | AC-8 asserted, green | the missing documented-limit rows |
 | Task 8 | the limit rows, green | the unenrolled surface |
@@ -532,7 +532,7 @@ misdispositions in this section, and every one came from diffing class strings
 instead. The tell was censusing `ShareHub` for `aria-expanded` plus a visible popup
 while repairing `ShowRowActions` for the identical shape.
 
-### Repair — 14 rows
+### Repair — 12 rows
 
 Colour is the sole VISUAL carrier. The three semantic slots (spec §3.3) apply.
 
@@ -544,8 +544,6 @@ Colour is the sole VISUAL carrier. The three semantic slots (spec §3.3) apply.
 | `components/admin/review/ShowReviewSurface.tsx:1019` | same; the sr-only text and the dot are status-derived, not active-derived |
 | `components/admin/review/ShowReviewSurface.tsx:805` | active fills at rest and inactive only on hover, so there IS an at-rest difference and it is a background; the rail indicator does not rescue it (see the rule above) |
 | `components/admin/review/ShowReviewSurface.tsx:926` | same; `railCount` and the dot are data-derived |
-| `components/admin/review/ShowReviewSurface.tsx:823` | tone only, same weight and text; its parent's carrier is itself a forced background, so the whole rail item goes flat together |
-| `components/admin/review/ShowReviewSurface.tsx:945` | same |
 | `components/admin/UndoChangeButton.tsx:51` | `border` on both branches, so no width change; children are keyed on `pending`, not on `quiet`; the file's comment at `components/admin/UndoChangeButton.tsx:46` claims differentiation is by weight, and the classes do not bear that out |
 | `components/admin/nav/AdminNav.tsx:236` | `aria-current` only; icon and label render unchanged in both states |
 | `components/admin/nav/AdminNav.tsx:301` | `aria-current` only; the attention badge is keyed on `showBadge`, not on `active` |
@@ -596,12 +594,20 @@ treatment is not this pass's to make.
 FIVE, where the spec's §8 limit 5 says three. The census is the authority and the
 spec cites the command rather than a count.
 
-### Census — an icon whose tone moves with a carrier that survives (5 rows)
+### Census — a child whose tone moves with a carrier that survives (7 rows)
+
+Whole-diff R2's second finding: the two rail LABELS were listed as repairs while
+their sibling icons, inside the same repaired rail item, were listed here. Nothing
+distinguished them, and the shipped census had already classified all four the same
+way. The plan is what was stale. The family is named for a child rather than an icon
+because it now holds both.
 
 | Site | The carrier |
 | --- | --- |
-| `components/admin/review/ShowReviewSurface.tsx:819` | sits inside a rail item this pass repairs, so it inherits a repaired state |
-| `components/admin/review/ShowReviewSurface.tsx:939` | same |
+| `components/admin/review/ShowReviewSurface.tsx:819` | an icon inside a rail item this pass repairs, so it inherits a repaired state |
+| `components/admin/review/ShowReviewSurface.tsx:939` | same, in the second rail item |
+| `components/admin/review/ShowReviewSurface.tsx:823` | a label inside the rail item at `components/admin/review/ShowReviewSurface.tsx:805`, whose `aria-current` the selected-state fill repairs |
+| `components/admin/review/ShowReviewSurface.tsx:945` | same, inside the rail item at `components/admin/review/ShowReviewSurface.tsx:926` |
 | `components/admin/showpage/PublishedReviewModal.tsx:1376` | a chevron that also ROTATES |
 | `components/admin/wizard/Step3ReviewModal.tsx:729` | same |
 | `components/crew/CrewSubNav.tsx:125` | sits inside the tab button this pass repairs |
@@ -647,7 +653,7 @@ real duplicate.
 
 ### The sum
 
-14 repair + 11 + 5 + 5 + 2 + 1 + 2 + 1 + 1 = 42. Task 2's suite asserts that sum
+12 repair + 11 + 5 + 7 + 2 + 1 + 2 + 1 + 1 = 42. Task 2's suite asserts that sum
 against the arm's own output, so a new site cannot land in no family.
 
 ## Arm 2 sweep, RUN at plan time

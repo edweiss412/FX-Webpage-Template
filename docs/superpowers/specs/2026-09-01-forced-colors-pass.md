@@ -647,15 +647,33 @@ the condition that would re-open it.
    live condition could invert, or an emitter stop rendering, and the synthetic case
    would stay green.
 
-   Whole-diff review R1 named this and it is the honest state rather than a
-   dismissal. Every repair row now carries a `binding` — a real locator and the
-   toggle that moves the control between its two states — and a `bound` flag that a
-   guard pins at zero today, so the number can only move deliberately and a repair
-   added later cannot skip the question. Twelve of twelve rows have a locator; one
-   (`components/admin/nav/AdminNav.tsx:236`, the desktop nav links) needs a
-   `data-testid` before it can be used. **Re-open when:** the browser suite can
-   reach an authenticated admin route with a seed, at which point the bound count
-   rises row by row and this limit shrinks to whatever is left.
+   Whole-diff review R1 named this. Every repair row carries a `binding` — a real
+   locator and the toggle that moves the control between its two states — and a
+   `bound` flag a guard pins exactly, so the count can only move deliberately and a
+   repair added later cannot skip the question.
+
+   **One of the twelve is now bound, and the first draft of this limit was wrong
+   about why the rest are not.** It said the re-open trigger was a browser suite
+   that could reach an authenticated admin route with a seed. There was no such
+   blocker: `/admin` is reachable here and every admin spec gets in with one
+   `signInAs` call (`tests/e2e/admin-phase2-surfaces.spec.ts:83`). AC-4e takes that
+   step, navigates to `/admin` and measures the rendered nav, binding
+   `components/admin/nav/AdminNav.tsx:236`.
+
+   It was briefly written as two. The mobile counterpart at
+   `components/admin/nav/AdminNav.tsx:301` renders only under 840px, so
+   mobile-safari is the only project that reaches it, and WebKit does not implement
+   forced-colors (limit 11) — AC-4e skips there, and a skipped case binds nothing.
+   Binding it needs a project on an engine that implements the feature at a phone
+   viewport, which is a config change and not a fixture.
+
+   The eleven still unbound are unbound for reasons that differ per row, and stating
+   them as one blocker was the error worth not repeating: `ShowReviewSurface`'s four
+   rows need a show in review state, `EventFilters` needs telemetry rows,
+   `UndoChangeButton` needs a change with an undo window open, `CrewSubNav` and the
+   picker chip are crew routes behind a share token, and the two dashboard segments
+   need a populated dashboard. **Re-open when:** any of those seeds exists in the
+   browser suite, at which point that row's `bound` flips and the pin moves with it.
 10. **Blink paints `<progress>` itself under forced colors, and author CSS cannot
    reach it.** Measured 2026-09-01 while implementing §5.5: with forced colors
    active, deleting the -webkit-progress-bar background, the

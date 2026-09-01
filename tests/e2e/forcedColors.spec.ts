@@ -29,6 +29,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { test, expect } from "./helpers/fontFidelityFixture";
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { signInAs } from "./helpers/signInAs";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import type { RepairPair } from "./_forcedColorsPairsHarness";
 import { COLLAPSE_CENSUS } from "../styles/forcedColorsCensus";
@@ -187,6 +189,32 @@ function premiseRows(count: number): void {
 }
 
 test.describe("forced colors", () => {
+  // Every case in this file measures what forced colors DOES to a render, so
+  // every one of them is meaningless in an engine that does not implement the
+  // feature. WebKit is that engine (spec §8 limit 11), and this file runs in
+  // mobile-safari as well as desktop-chromium.
+  //
+  // Whole-diff R2's board caught the consequence on AC-6, which asserts the
+  // focus ring is DROPPED: WebKit keeps painting it, so the assertion failed
+  // there and nowhere else. The narrow read is that AC-6 is engine-specific.
+  // The real defect is one altitude up and quieter: the other nine cases
+  // compare a selected render against an unselected one, and those differ in
+  // NORMAL mode too, by design. They were passing on mobile-safari for a
+  // reason that has nothing to do with what they claim to measure — green,
+  // and proving nothing.
+  //
+  // Detected rather than listed by browser name: the question is whether the
+  // emulation took effect, and asking the engine is the answer that stays
+  // correct when WebKit ships the feature.
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    const live = await page.evaluate(() => matchMedia("(forced-colors: active)").matches);
+    test.skip(
+      !live,
+      "this engine does not implement forced-colors, so every assertion here would pass or fail for an unrelated reason (spec §8 limit 11)",
+    );
+  });
+
   test("AC-1: the share-link cue is visible while flashing and leaves no residue idle", async ({
     page,
   }) => {
@@ -425,5 +453,67 @@ test.describe("forced colors", () => {
     expect(shareHub).toContain(`"${SHARE_LINK_FLASH_ATTR}"`);
     const css = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
     expect(css).toContain(`[${SHARE_LINK_FLASH_ATTR}]`);
+  });
+
+  // The one case in this file that navigates to a real route. Every other case
+  // renders a derived class string against the live compiled stylesheet, which
+  // pins the RULE and says nothing about whether any component reaches it. Whole-
+  // diff R2 was right that this is the gap, and right that the blocker the spec
+  // claimed for it did not exist: `/admin` already answers 200 in this suite
+  // (`admin-phase2-surfaces.spec.ts:122`), under the same baseURL and the same two
+  // projects this file runs in.
+  //
+  // `/admin` is behind auth, and a first attempt at this case learned that the
+  // hard way: `page.goto("/admin")` answers 200 at the SIGN-IN page, so a naive
+  // version would have measured a page with no nav on it. `signInAs` is the same
+  // step every admin spec here takes (`admin-phase2-surfaces.spec.ts:83`).
+  //
+  // It binds a different row per project, because AdminNav renders a different
+  // control per viewport: the top row at `AdminNav.tsx:236` is `hidden
+  // min-[840px]:flex`, so desktop-chromium gets it and mobile-safari gets the
+  // bottom tabs at `AdminNav.tsx:301`. Both set `aria-current="page"` on the
+  // active item, which is what the selected-state rule selects on.
+  //
+  // What makes it discriminating rather than a smoke test: forced colors is what
+  // COLLAPSES these two elements together. The UA forces both backgrounds onto one
+  // system value, so without the repair the active and inactive tabs paint
+  // identically and a sighted high-contrast user loses which page they are on.
+  // Comparing active against a real inactive sibling fails on the unrepaired
+  // stylesheet and passes only because the block names a surviving carrier.
+  test("AC-4e: a live admin nav keeps its selected state under forced colors", async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await signInAs(page, ADMIN_FIXTURE);
+    const response = await page.goto("/admin");
+    expect(response?.status(), "/admin did not render, so this case pins nothing").toBe(200);
+
+    const active = page.locator('nav a[aria-current="page"]:visible').first();
+    await expect(
+      active,
+      "no visible nav link is aria-current, so this is not an authenticated admin page",
+    ).toBeVisible();
+
+    const inactive = page.locator('nav a[href]:not([aria-current="page"]):visible').first();
+    await expect(
+      inactive,
+      "no inactive sibling is visible, so nothing discriminates the selected one",
+    ).toBeVisible();
+
+    const paintOf = (l: typeof active) =>
+      l.evaluate((el) => {
+        const c = getComputedStyle(el);
+        return { bg: c.backgroundColor, fg: c.color };
+      });
+    const on = await paintOf(active);
+    const off = await paintOf(inactive);
+
+    // The collapse this pass exists to repair, stated as the assertion: equal here
+    // means the selected tab is indistinguishable from an unselected one.
+    expect(
+      on.bg,
+      "the selected nav item paints the same background as an unselected one, which is the collapse",
+    ).not.toBe(off.bg);
+    expect(on.bg, "the selected background is transparent, so nothing carries the state").not.toBe(
+      "rgba(0, 0, 0, 0)",
+    );
   });
 });
