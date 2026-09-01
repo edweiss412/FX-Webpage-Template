@@ -1077,6 +1077,7 @@ describe("interpolated labels never stack the appended suffix (spec 2026-07-31 Â
         sizes="100px"
         alt="Stage plot (opens in a new tab)"
         testId="t3"
+        cellTestId="t3-cell"
         hasPreviewSource={true}
       />,
     );

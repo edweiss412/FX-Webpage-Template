@@ -36,7 +36,7 @@ The count is not wrong. The verb is.
 | The progress stream makes NO per-row claim about publishing; the wire is unchanged | §2.1 — the ratified narrowing decision, owner call 2026-08-29 |
 | The displayed NAME is a claim this spec keeps, so it must name the applied parse | §3.1b — settled by spec review R4 |
 | The four `Publish progress` accessible names change too | §3.2, with the class-sweep command and its full result |
-| The `N of M` count, the progress bar, the CAS-phase copy, and the idle button label are unchanged | §3.2 |
+| The idle button label is unchanged. **Amended 2026-08-31** (`fix/finalize-progress-polish`): the `N of M` count now names what it counts on the compact surface too, the progress bar is themed and gains a CAS instance, and the CAS phase gains a settled receipt and per-sub-phase announcement. Each is recorded at its own section below; the idle button label really is untouched. | §3.2, and the amendments noted there |
 | No wire change, no DB change, no migration, no new error code, no advisory-lock change | §6 |
 
 ## 2. What the batch phase actually does
@@ -110,13 +110,21 @@ Both surfaces render the same batch-phase text and both change identically.
 | Group accessible name, BOTH phases (`components/admin/FinalizeButton.tsx:967`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:249`) | `Publish progress` | `Show setup progress` |
 | Progress bar accessible name (`components/admin/FinalizeButton.tsx:987`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:274`) | `Publish progress` | `Show setup progress` |
 
-Unchanged: the `N of M` count, the progress bar geometry, the CAS-phase header `Finishing setup…`, the CAS sub-label from `casPhaseLabel`, the idle button label, and the `title={state.lastName}` truncation tooltips.
+Unchanged: the CAS-phase header `Finishing setup…`, the idle button label, and the `title={state.lastName}` truncation tooltips.
+
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). Three items left this list, each for its own reason:
+
+- **The `N of M` count** now carries its noun on the compact surface, matching the panel. This spec settled the bare form deliberately, because the count is not inside a truncated node and the footer's height is load-bearing; the measurement that would have settled it could not be taken in that worktree. It was taken at 375px against the real footer: the heading holds one line at every count through `99999 of 99999` and wraps only at six digits. The compact heading also gained `min-w-0 truncate`, so the one-line guarantee is now structural rather than a property of the counts that were sampled, which matters because `state.total` is unbounded.
+- **The progress bar geometry** is unchanged in the batch phase. `app/globals.css` now paints both wizard bars from one selector set rather than the step-2 bar alone, and the CAS phase gains an indeterminate bar that did not exist.
+- **The CAS sub-label from `casPhaseLabel`** — the FUNCTION is untouched and still returns the empty string for a null phase. What changed is that the element holding it no longer occupies space while that string is empty. **Corrected 2026-09-01, whole-diff R1 finding 1:** the element is still RENDERED and still in the DOM. `empty:hidden` is `display: none`, which removes its box, not its node — measured at CAS entry as `display: "none"` with a 0px box on a span that `querySelector` still finds. The distinction matters because `tests/components/admin/finalizeTransitionAudit.test.tsx` reaches that attached element by selector, which an absent node would make impossible.
 
 The four accessible names are in scope because they are the same false claim in the layer a sighted operator cannot see. Both labelled groups wrap `state.phase === "batch" ? … : …` (`components/admin/FinalizeButton.tsx:962-972`, `components/admin/wizard/Step3ReviewWithFinalize.tsx:245-254`) and both take focus when the batch starts, so without this a screen-reader operator hears "Setting up your shows" immediately followed by "Publish progress". `Show setup progress` is correct for the CAS phase too, whose header is `Finishing setup…`, and it follows the pattern its siblings already set — `Onboarding progress` on the wizard stepper (`components/admin/OnboardingWizard.tsx:197`) and `Folder scan progress` on step 2 (`components/admin/wizard/Step2Verify.tsx:487`). A bare `Setup progress` was the vaguest of the three and the nearest to the stepper's own name; the impeccable critique (P2) caught it.
 
 **Class-sweep record.** The sweep is `rg -n 'aria-label|aria-labelledby|sr-only|title=' components/admin/FinalizeButton.tsx components/admin/wizard/Step3ReviewWithFinalize.tsx`. It returns exactly four `Publish progress` instances (the four above) and no other accessible name carrying the publish verb in either phase. The remaining hits are the modal Close/dismiss labels, the confirm dialog's `aria-labelledby`, the announcer's `sr-only`, and the two name tooltips.
 
 No em dash appears in any new string (pre-code mechanical UI gate). No client state is added: the subline continues to read `state.lastName` alone.
+
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). The subline half of that sentence is the half it was written to make, and it still holds: the subline reads `state.lastName` and nothing else. The blanket half does not. The running state's CAS variant gained `settledDone` and `settledTotal` (`components/admin/FinalizeButton.tsx:123-124`), set once at CAS entry (`:447-467`) from the two refs the batch loop already maintained. They introduce no new source of truth, only a carry-forward of counts the batch phase had already computed and displayed, which is why the publish-count fence in §7 is untouched by them.
 
 ### 3.3 Dimensional invariants
 
@@ -126,9 +134,13 @@ The batch tracking sits in the sticky footer, whose height is load-bearing: the 
 | --- | --- | --- |
 | `wizard-step3-tracking` (flex column, `gap-1`) → subline | Subline occupies exactly ONE line regardless of name length, so footer height is independent of show-name length | `truncate` on the subline (`components/admin/wizard/Step3ReviewWithFinalize.tsx:273`), unchanged by this spec |
 | `ProgressPanel` subline `<p>` → its two spans | Same one-line guarantee on the other surface | `truncate text-text` on the `<p>` (`components/admin/FinalizeButton.tsx:997`), unchanged |
-| Footer height, before vs after | Identical | No element is added or removed; only the text content of existing nodes changes, and the node is `truncate`d to one line at any length |
+| Compact heading row (`flex items-baseline justify-between gap-2`) → heading span | **Added 2026-08-31.** The heading occupies exactly ONE line at any count, so a growing count can never grow the footer. A flex item defaults to `min-width: auto` and refuses to shrink below its content, so without this the heading is the item that yields, and it yields by WRAPPING. The heading is fixed copy and the count is the variable one, so the heading is the correct thing to truncate | `min-w-0 truncate` on the heading span, batch phase (`components/admin/wizard/Step3ReviewWithFinalize.tsx:272`) and CAS phase (`:309`). Measured at 375px this never engages below a six-digit count, so it changes nothing anyone will see; it makes the one-line guarantee structural rather than a property of the counts that happened to be sampled, which matters because `state.total` is unbounded |
+| Compact heading row → count / receipt span | The count never wraps and never yields its width to the heading | `shrink-0 tabular-nums` on both spans (`components/admin/wizard/Step3ReviewWithFinalize.tsx:279`, `:314`) |
+| Footer height, before vs after | Identical | **Amended 2026-08-31.** Elements ARE now added: a settled receipt and an indeterminate bar in the CAS phase, and the phase label is suppressed while empty. The height proof no longer rests on 'no element changes' but on measurement: the compact heading carries `min-w-0 truncate` so it holds one line at any count, the CAS heading row is built identically to the batch one and inherits that, and the footer measures flat at 54.6px across the whole COUNT ladder in `tests/e2e/step3-finalize-progress.layout.spec.ts`. **Corrected 2026-09-01, whole-diff R1 finding 1:** that ladder varies the COUNT within the batch phase, so "flat at 54.6px" is a claim about count width and not about the run. Across PHASES the footer is not invariant, and the measured numbers are idle 48px, batch 54.59px, CAS before the first phase event 48px, CAS with a phase 54.59px. The 48px readings are the `min-h-12` reserve showing through: the CAS-entry tracking block is 30.3px, comfortably inside it. So the honest invariant is narrower than "identical" — the footer takes exactly two heights, its 48px floor and 54.59px, and never a third |
 
 This project's Tailwind v4 does not default `.flex` to `align-items: stretch`; no new flex parent is introduced and the existing containers are untouched.
+
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). One new flex parent is introduced: the CAS heading row, `flex items-baseline justify-between gap-2` (`components/admin/wizard/Step3ReviewWithFinalize.tsx:308`), built deliberately identical to the batch heading row above it (`:260`, which is unchanged apart from the `min-w-0 truncate` its heading span gained). `items-baseline` is explicit on both, so neither relies on a default this project does not set, and both parent-to-child relationships are stated with their guaranteeing class in the table above. The panel renderer added no flex parent: its receipt and phase label are ordinary `<p>` children of the existing column (`components/admin/FinalizeButton.tsx:1134-1150`).
 
 ### 3.4 Transition inventory
 
@@ -142,6 +154,21 @@ Batch-phase subline states: **A** none (`lastName === null`), **B** the bare `<n
 
 Compound: a name change arriving in the same `setState` as `done`/`total` is ONE commit (every row event carries all three), so the count, the bar and the subline update together with no interleaving to animate. The batch → cas change replaces the whole subtree, instant today and instant after. The group's accessible name is deliberately phase-neutral (`Show setup progress`) so it does not change across that boundary, which keeps a screen reader from re-announcing the group mid-run. There is no `AnimatePresence` or `motion.*` in either renderer and none is added.
 
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). The CAS phase is no longer one state. It is two, so the phase inventory is restated over three states rather than two:
+
+- **A** batch: determinate bar, live count, subline.
+- **B** CAS entry: indeterminate bar, settled receipt, phase element suppressed (`casPhase === null`, so `casPhaseLabel` returns the empty string and `empty:hidden` collapses the slot).
+- **C** CAS with a sub-phase: indeterminate bar, settled receipt, phase element painted.
+
+| Pair | Treatment |
+| --- | --- |
+| A → B | Instant. The subtree is replaced at the phase change. The bar switches from determinate to indeterminate in the same commit the receipt appears, because both read state written by one `setState` (`components/admin/FinalizeButton.tsx:447-467`). |
+| B → C | Instant. The phase element goes from suppressed to painted, which is a `display` change and is not animatable. |
+| C → C | Instant text swap inside one persistent node, as the sub-phase advances. |
+| A → C | Does not occur directly. CAS is always entered before the first phase event, so A reaches C through B. |
+
+Compound: a phase event arriving in the same commit as the batch-to-CAS transition passes THROUGH B within one commit rather than painting it, so the element is never painted empty even for a frame. `tests/components/admin/finalizeTransitionAudit.test.tsx` walks both renderers times both phases and holds the B → C pair. Still no `AnimatePresence` and no `motion.*` in either renderer, and none is added.
+
 ## 4. Guard conditions
 
 | Input | Rendered |
@@ -153,6 +180,15 @@ Compound: a name change arriving in the same `setState` as `done`/`total` is ONE
 | Zero-row finish | `listed(0)`, no row events, no subline. Covered today by `tests/onboarding/finalizeStream.test.ts:63`. |
 | A row that fails | The subline is transient; the terminal `per_row` is authoritative and the client already renders failures (`components/admin/FinalizeButton.tsx:374`). Unchanged. |
 | Non-stream response (proxy stripped Accept) | No progress events at all; the `!isStream` path reads `response.json()` (`components/admin/FinalizeButton.tsx:203-205`). Unchanged. |
+
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). The CAS phase gained two inputs of its own, so they get rows here rather than being left to the reader:
+
+| Input | Rendered |
+| --- | --- |
+| `settledTotal: 0` | No receipt at all. Zero is what the accumulators hold when this run had no batch to report: the loop was skipped, a checkpoint resumed mid-run, or a mixed-transport run left `countsExactRef` false because one batch streamed and a later one came back through the non-stream safety net. In every one of those the honest receipt is silence, not `0 of 0` (`components/admin/FinalizeButton.tsx:462-467`). |
+| `settledDone > settledTotal` | Clamped, like every peer count in these renderers. The two accumulators are fed by DIFFERENT events, `grandTotalRef` from `listed` and `completedRef` from each row event's own `total`, so a stream whose row events disagree with its listed total drives them apart. Reproduced as `5 of 1 show set up` before the clamp (`components/admin/FinalizeButton.tsx:464-466`). |
+| `settledTotal: 1` | Singular noun, `1 of 1 show set up`. Both renderers branch on `settledTotal === 1`. **Corrected 2026-09-01, whole-diff R1 finding 1:** the covering tests are the two component suites, NOT the Playwright ladder. That ladder mounts the compact BATCH state and then overwrites the count node's `textContent` directly, so it measures the geometry of a string and never enters the CAS phase, never renders a receipt, and never evaluates this branch at all. Its `{ done: 1, total: 1 }` rung is a short-string geometry rung and nothing more. |
+| `casPhase: null` (CAS entered, no phase event yet) | The phase element renders but occupies nothing: `casPhaseLabel` returns the empty string, React leaves zero child nodes, `:empty` matches, and `empty:hidden` sets `display: none`. The node stays in the DOM (measured: `display: "none"`, 0px box, still selectable) — it is the BOX that goes, not the element. Suppressing the ELEMENT rather than the string is load-bearing: a zero-height in-flow child still charges its parent's gap, measured at 4px, the whole of `gap-1`. |
 
 ## 5. Test plan
 
@@ -210,6 +246,8 @@ Feeding stream events is NOT symmetric across the two suites and the plan must b
 
 No Playwright task. The earlier draft's geometry test existed to protect a trailing destiny label from truncation; with no destiny label there is nothing for it to protect, and the one-line guarantee is an unchanged `truncate` that no line of this diff touches.
 
+**Superseded 2026-08-31** (`fix/finalize-progress-polish`), and dated rather than deleted so the original judgement stays legible. That judgement was sound for the diff it ranged over. It stopped being sound the moment this arc introduced a geometry claim that is NOT carried by an unchanged `truncate`: the compact heading's one-line guarantee is now a `min-w-0 truncate` this arc added (§3.3), the CAS phase element's suppression is an `empty:hidden` whose whole point is that it removes a gap a zero-height in-flow child still charges, and the footer-height invariant now rests on measurement instead of on 'no element changes'. None of the three is decidable in jsdom, which computes no layout. So the arc adds `tests/e2e/step3-finalize-progress.layout.spec.ts`, running on `standalone-chromium` and on a dedicated `standalone-webkit-finalize-progress` project (`tests/e2e/standalone.config.ts:130`), and its identities are recorded in `tests/e2e/standalone-baseline.json`.
+
 ## 6. Invariants
 
 | Invariant | Bearing |
@@ -225,4 +263,6 @@ No Playwright task. The earlier draft's geometry test existed to protect a trail
 
 ## 7. Out of scope
 
-Any per-row publish claim on the progress stream (§2.1, ratified). A publish count on the CAS phase. Renaming `FakeFinalizeDb.approved`. Any change to `listed`, to the `row` event, or to which rows finalize processes.
+Any per-row publish claim on the progress stream (§2.1, ratified). A publish count on the CAS phase.
+
+**Amended 2026-08-31** (`fix/finalize-progress-polish`). The publish-count fence STANDS: nothing counts publishes during the CAS phase, before or after that arc. What was lifted, by Eric's ruling and ratified by bl-orch the same day in reply to the arc's flag, is narrower: the batch phase's own SET-UP count now persists into CAS as a settled receipt. That is a carry-forward of a count this spec already ratified and already displayed, using the same verb §3.2 gave the batch phase, over work the batch had finished. It makes no claim about publishing. Both halves are recorded here because a fence that notes only its lift reads as repealed. Renaming `FakeFinalizeDb.approved`. Any change to `listed`, to the `row` event, or to which rows finalize processes.

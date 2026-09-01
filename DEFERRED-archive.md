@@ -1,3 +1,105 @@
+### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27) — CLOSED 2026-09-01 (`fix/diagram-tile-states`, SHIPPED)
+
+**Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.
+
+`DiagramTile` renders one string, "Preview unavailable" (`components/admin/wizard/step3ReviewSections.tsx:3896`), for two states the component already distinguishes INTERNALLY: not in the snapshot (`useState(!hasPreviewSource)` seeds `failed` true, no image element ever mounts) and the image failed to load (`onError` sets it true after a real request). They are merged at render.
+
+**Why it matters where it is.** This grid is how Doug confirms diagrams made it into a show BEFORE he publishes. "Preview unavailable" reads as a rendering hiccup, so a diagram that is genuinely absent from the snapshot looks like a diagram that is present and slow. He can publish believing it is there.
+
+**Why it WAS deferred rather than fixed by `perf/admin-diagram-next-image`.** Class-sweep exception (a): splitting the states needed NEW Doug-facing copy for a state that had never had its own words, which is a product decision that arc could not settle. **That exception is now RESOLVED — see the ratified copy below.** Blast radius is real too: `failed` is a single boolean, so the split threads a three-state value through the component, and every suite asserting the current string by text moves with it. The defect predates the arc — line 3896 is untouched by its diff, verified against the hunks — so shipping today is no worse than yesterday's main.
+
+**RATIFIED COPY (2026-08-28).** Meaning ratified by Eric via mockup at 10:30, Option A,
+consequence-stating; punctuation conformed to the `DESIGN.md` §9 em-dash ban by bl-orch ruling the
+same day, meaning unchanged. Eric holds veto on the punctuation and may restore a colon form. The product
+decision that held this row is made, so exception (a) no longer applies and this is ready to
+build. Both strings state the CONSEQUENCE rather than the mechanism, which is the whole point:
+"Preview unavailable" described the component's problem, and these describe Doug's. Use verbatim:
+
+- **Not in the snapshot** (`useState(!hasPreviewSource)` seeded true, no image element ever
+  mounts) — warn tone:
+
+  > Not captured. Won't appear on the crew page.
+
+- **Load failure** (`onError` after a real request) — reassure tone:
+
+  > Preview couldn't load. The diagram will still publish.
+
+The tones are part of the ruling, not decoration: the first state is the one that can cost Doug a
+show, and the second is the one that must NOT make him think it will. Whoever picks this up
+threads the three-state value, applies these two strings, and folds in the P2 border restyle
+below in the same change.
+
+**The em-dash ban was caught and settled BEFORE this row was built, which is the whole point of
+the pre-code mechanical gate.** The originally ratified strings used em dashes, which `DESIGN.md`
+§9 bans in user-visible copy — enforced by `tests/styles/_metaEmDashCopy.test.ts` over `lib`,
+`components` and `app`. `DEFERRED.md` sits outside that accept-set, so the conflict would not have
+surfaced until the copy was typed into `DiagramTile` and the gate went red. Settled by bl-orch on
+2026-08-28: the strings above are period form and conform mechanically. A guard carve-out was
+considered and DECLINED — weakening a ratified guard to admit copy is the wrong direction. The
+strings above are final; type them verbatim.
+
+**Partially mitigated in the meantime.** That arc DID land the half that needed no product decision: the placeholder now names which diagram is dark, using the `alt` already in hand (`…-diagram-tile-N-name`). A reviewer can now see WHICH tile failed, just not WHY.
+
+**Fold in when this is picked up — impeccable P2, same surface.** The placeholder's border is `border-border` at roughly 1.22–1.38:1 against `bg-surface-sunken`, while the live tile's is `border-text-faint` at 3.02:1. The state that most needs to be noticed has the faintest edge, and on a sunlit loading dock it reads as empty space rather than as a failure. Whoever splits the states restyles this placeholder once, so the two belong in one change.
+
+**New since 2026-08-27, and the reason this is more urgent than its age suggests.** The presentation is now DYNAMIC. `perf/admin-diagram-next-image` made the tile reconcile its failure state when the source changes under a stable React key, so a tile can flip between the 3.02:1 live edge and the 1.22:1 failed edge while Doug is looking at it, without a remount. Before that arc a tile's appearance was fixed once per mount.
+
+**Evidence:** `/impeccable critique` on `perf/admin-diagram-next-image`, Assessment A, priority issues 1 and 4 (heuristic 9, Diagnose and Recover, scored 1/4 — the lowest score on the surface). The two-state claim is not inferred from the copy: it is read off the component, where the seed and the `onError` write are separate code paths that produce one indistinguishable render.
+
+### DIAGRAMTILE-LIVE-TILE-UNLABELLED-1 — impeccable P1: only the FAILED tile says which diagram it is (2026-08-28) — CLOSED 2026-09-01 (`fix/diagram-tile-states`, SHIPPED)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that adds a visible label, caption or tooltip
+to `DiagramTile`, or the first report of Doug opening tiles one by one to identify a diagram.
+
+The failed branch renders the diagram's name as visible text, truncated with a `title`
+(`components/admin/wizard/step3ReviewSections.tsx:3892`). The live branch renders no visible name at all. It is
+not an accessibility defect — the anchor's `aria-label` carries `${strippedAlt} (opens in a new tab)`
+(`components/admin/wizard/step3ReviewSections.tsx:3918`), so a screen-reader user can identify every tile. It is
+a SIGHTED-scanning defect, and it inverts the obvious expectation: the tile that worked is anonymous, the tile
+that broke is named.
+
+**Why it matters where it is.** This grid is where Doug confirms diagrams made it into a show before publishing.
+Twelve unlabelled thumbnails at roughly 80px, several of which are pale line drawings, is a grid he can only
+resolve by opening tabs. The failed branch's own code comment makes exactly this argument for naming — "a grid
+of failures read as N identical grey boxes and the reviewer could not tell which sheet tab was missing" — and
+the live branch never answers it.
+
+**Why deferred rather than fixed here.** Class-sweep exception (a). The cheap version is `title={strippedAlt}` on
+the anchor, but a `title` duplicating an existing `aria-label` is a redundancy this project has deliberately
+removed before: the image's `alt` was emptied precisely so a screen reader would not hear the name twice
+(`components/admin/wizard/step3ReviewSections.tsx:3904-3912`). Whether the answer is a hover `title`, a visible
+caption under each tile, or a name revealed on focus is a product decision about a grid whose density is already
+tuned, and it is not one a chrome-relocation PR should take.
+
+### DIAGRAMTILE-OBJECT-COVER-CROPS-1 — impeccable P1: `object-cover` crops stage plots to their middle third (2026-08-28) — CLOSED 2026-09-01 (`fix/diagram-tile-states`, SHIPPED)
+
+**Effort:** S · **Facing:** product · **Un-defer trigger:** any work that changes `DiagramTile`'s image fit or the
+tile's aspect box, or the first report of a diagram thumbnail looking blank.
+
+The tile is `aspect-4/3` and the image is `object-cover`, so a wide stage plot or a tall floor plan is cropped to
+its centre. Architectural diagrams are mostly white space in the middle; the visible third is frequently the
+emptiest part of the drawing, which is the worst possible crop for recognition. Products that show attachment
+thumbnails — Notion, Figma, Linear — letterbox rather than crop for this reason.
+
+**What this arc changed about it.** Nothing directly, but it is the reason the fix is now clean.
+`object-contain` needs a plate behind the letterbox, and until this diff the plate (`bg-surface-sunken`) was on
+the image itself, so `object-contain` would have letterboxed against the plate's own edge. The plate now sits on
+the anchor, so `object-contain` would letterbox against a ground that already exists and already meets its
+contrast pin. The chrome move did not fix this; it removed the obstacle.
+
+**Why deferred rather than fixed here.** Class-sweep exception (a). Cropping versus letterboxing changes how
+every diagram in the product reads, on both the admin grid and — by the consistency argument this very spec
+makes — the crew gallery, which uses `object-cover` too (`components/diagrams/Gallery.tsx:412`). Taking it
+unilaterally inside a PR whose stated scope is which ELEMENT carries the border would be exactly the
+"spending a ratified design claim on a preference" that `BL-DIAGRAM-TILE-CHROME-CONSISTENCY` was filed to avoid.
+
+## Diagram failure retry — impeccable dual-gate deferrals (2026-08-29)
+
+From the invariant-8 dual gate on `feat/diagram-failure-retry`. The gate's three critique P0s and its
+audit P0 were all FIXED in-branch; dispositions and the refuted findings are recorded in
+`docs/superpowers/plans/2026-08-29-diagram-failure-retry/closeout.md`. One finding is deferred, under
+class-sweep exception (a): it needs a product decision this PR cannot settle.
+
 ### DIAGRETRY-NO-RETRY-DEADLINE-1 — impeccable P2: a hung request leaves `Retrying…` up forever — CLOSED 2026-09-01 (`fix/lightbox-pair-and-retry-checkin`, SHIPPED)
 
 **Effort:** S · **Facing:** product · **Un-defer trigger:** the first report of a crew member stuck on
@@ -188,6 +290,58 @@ screen-reader user unable to tell a failed retry from a successful one on this p
 **Two things the arc changed that this entry did not anticipate.** The impeccable gate replaced the hand-rolled `role="status"` swap with the repo's shared append channel (`components/admin/announceLog.tsx`), which DESIGN.md §15 mandates whenever the same message text can recur, so the sequence counter and the parity suffix are gone rather than extended. And the announcement's cadence is one outcome per settled CYCLE, not one per tap or per response.
 
 **What did NOT ship, recorded so it is not mistaken for done.** A retry that never lands is still silent, and the timer that would fix it is declined on the record: it would assert an outcome nobody observed. The sighted half of the same defect is also still open, since tapping leaves the header's "Updated Ns ago" chip stale. Both are in the spec's documented limits and the PR body's unfixed peers.
+
+---
+
+### FINALIZE-PROGRESSBAR-UNTHEMED-1 — impeccable P1: the finalize progress bar ships raw browser chrome in both themes — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish`. `app/globals.css` styled the step-2 scan bar and not the finalize bar, so both renderers painted the platform-accent UA bar in light AND dark. All eight selector occurrences now carry both testids.
+
+**The row said six selectors. There are eight**, and the two it missed were a dead rule. The `prefers-reduced-motion` override was ONE comma-grouped list mixing `::-webkit-progress-bar` with `::-moz-progress-bar`. A selector list is invalid as a whole when any selector in it is, so Chromium and WebKit dropped it entirely and Firefox kept it only because it aliases the webkit form. Step 2's reduced-motion override had therefore never applied on the engine Doug uses. Measured on all three bundled engines, then split into two single-vendor rules.
+
+That split turned out to be a prerequisite rather than a tidy-up: the CAS phase gained an INDETERMINATE bar in the same arc, which takes the shimmer path.
+
+**The guard asserted the defect.** `tests/styles/progressShimmerPseudoElements.test.ts` REQUIRED the comma-grouped form by name. Rewritten around a CSS scanner: both testids at every occurrence, each reduced-motion rule proved single-vendor, and its own cases pinning that the scanner reaches the block at all.
+
+**Computed style cannot verify any of this.** With an element red, its `::-webkit-progress-bar` green and its `::-webkit-progress-value` blue, Chromium reports RED for all three, for every property. Paint is asserted by sampling rendered pixels; rule existence by reading the parsed CSSOM. A WebKit project was added for the one engine-specific claim, and the wiring guard that was pinned to a single project now walks every WebKit leg.
+
+---
+
+### FINALIZE-COMPACT-COUNT-NOUN-1 — impeccable P1: the compact count says "1 of 2" without saying of what — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish`. The row was explicit that this needed a real-browser measurement before the noun could ship, and that the earlier fix-then-revert left the revert as the correct state. Both conditions were met rather than waived.
+
+Measured at 375px against the real footer: the heading holds ONE line at every count through `99999 of 99999` with the noun appended, footer flat at 54.6px. It wraps only at six digits, so the noun fits at every count anyone will see.
+
+The heading also gained `min-w-0 truncate`, which makes the one-line guarantee STRUCTURAL rather than a property of the counts that happened to be sampled. `state.total` is unbounded, so a ladder of reachable values authorizes nothing about the value above it, and that gap is what the measurement alone could not close.
+
+The oracle is measured height, not `getClientRects().length`: a wrapped heading in this flex row reports ONE rect while standing 40.6px tall, because the span is a flex item and its rect is the border box rather than a line box.
+
+---
+
+### FINALIZE-CAS-PROGRESS-AFFORDANCE-1 — impeccable P1: the highest-stakes phase has the weakest feedback — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish` in three commits, one per part of the critique's recommendation, which Eric ruled in whole on 2026-08-31.
+
+The settled batch count persists into CAS as a receipt; an indeterminate bar renders there, so the phase that actually puts shows live no longer goes blank; and the phase label no longer occupies space while `casPhaseLabel` returns the empty string, where it charged exactly 4px of its column's gap. The element stays attached and `empty:hidden` takes its BOX, not its node (`display: none`, 0px, still selectable) — the distinction the canonical spec and the transition audit both pin, and the one this sentence originally got wrong.
+
+The receipt needed a reducer change rather than markup: the CAS state variant carried no counts, so the render had no source for them. Its guard conditions each have a case, and the one that matters is `mode: "finish"` — a checkpoint resume skips the batch loop with both accumulators reset, so no receipt renders. That is the flow an operator lands in after reloading mid-finalize, which is the outcome this row exists to prevent.
+
+**Not a publish count.** Spec 2026-08-29 §7 fences those and the fence stands; the receipt carries the batch phase's own ratified set-up verb forward over work it already displayed. bl-orch ratified that reading on 2026-08-31 in reply to the arc's flag, and §7 records the lift for that line only.
+
+**Known peer, not filed as a row:** the bar now appears to rewind at the batch-to-CAS boundary, because React reconciles both ternary branches by position and type and reuses the same DOM node. The repair on offer is a monotonic bar, which contradicts the indeterminate ruling, so it went to bl-orch rather than being taken here.
+
+---
+
+### FINALIZE-PROGRESS-AT-PERCEIVABILITY-1 — impeccable P1: the CAS phase is a focused group whose every child is hidden from assistive tech — CLOSED 2026-08-31 (`fix/finalize-progress-polish`, SHIPPED)
+
+Closed by `fix/finalize-progress-polish`. `liveMessage` keyed on phase alone and said only "Finishing setup", so the three CAS sub-steps a sighted operator could read were never spoken. Each is now announced, with the phase-alone message kept for CAS entry so the step still announces once: up to four utterances per run, not exactly four, since the non-stream path and an early terminal both end a run before every sub-phase lands.
+
+The spoken strings are stated beside `casPhaseLabel` rather than derived from it, following the precedent two lines away in the same reducer: the batch heading reads "Setting up your shows…" while its announcement drops the ellipsis.
+
+The invariant-8 critique then found the same gap reintroduced by this arc's own receipt, which is `aria-hidden` like every visible string here — so the count now rides the CAS-entry utterance, with its denominator, and the group carries `aria-busy` so a virtual-cursor user re-reading it finds state rather than a named empty group.
+
+**Known limit, not filed as a row:** polite live regions coalesce, so the entry utterance can be overwritten by the first phase event and "every sub-step is spoken" is queued rather than guaranteed. The repairs on offer are timing machinery in a reducer or a real-screen-reader verification the fleet hold forbade; the change is not worse than the silence it replaced, and the limit is stated rather than the claim overstated.
 
 ---
 

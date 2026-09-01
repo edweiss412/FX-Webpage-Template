@@ -1514,3 +1514,244 @@ test.describe("draft-restored note (spec 2026-08-30)", () => {
     }
   }
 });
+
+/**
+ * AC-7b, the `load-failed` arm. It lives here and not in the static layout spec
+ * for a structural reason, not a stylistic one: that spec renders
+ * `renderToStaticMarkup`, so React never attaches `onError` and `load-failed`
+ * is unreachable there at all. `absent` is seeded from props and renders
+ * statically, so the two arms split on hydration.
+ *
+ * How the state is REACHED here: this server serves only the files it wrote
+ * into `workDir` and 404s everything else, so the servable tile's request to
+ * `/api/admin/onboarding/staged-diagram/...` fails, the browser fires a real
+ * `error` event on a mounted image, and the tile writes `load-failed`. That is
+ * the genuine path, not a seeded prop. The sentence is asserted as a premise
+ * because it is the only thing that distinguishes the two failed states from
+ * outside the component.
+ *
+ * The viewport table is duplicated from the layout spec rather than imported,
+ * which is this file's existing convention for every constant it shares with
+ * the harness (see the note above `HARNESS_DFID`): the tile-geometry
+ * breakpoints are 320 / 390 / 640 / 1072, from
+ * components/admin/wizard/diagramTileGeometry.ts.
+ */
+const MESSAGE_VIEWPORTS = [
+  { w: 320, h: 800 },
+  { w: 390, h: 844 },
+  { w: 640, h: 900 },
+  { w: 1072, h: 900 },
+] as const;
+
+for (const { w, h } of MESSAGE_VIEWPORTS) {
+  test(`T-DIAGRAM-MESSAGE AC-7b: the load-failed sentence is readable @ ${w}px`, async ({
+    page,
+  }) => {
+    await openLive(page, { width: w, height: h });
+
+    // Scroll the TILE in before waiting on anything, and the reason is
+    // `next/image`, which is `loading="lazy"` by default. The diagram grid sits
+    // roughly 4000px down this modal, so at first paint the browser never
+    // requests the image at all — no request, no 404, no error event, and the
+    // tile sits happily LIVE forever. Measured: 12 tiles rendered and 11
+    // messages, the twelfth being this servable tile whose bytes were never
+    // asked for. Scrolling is what makes the failure REACHABLE, so it is setup
+    // and not a workaround.
+    const cell = page.locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-diagram-cell-0"]`);
+    await cell.scrollIntoViewIfNeeded();
+
+    // Now the request is in flight and will 404 against this server, which
+    // serves only the files it wrote into workDir. Waiting on the message
+    // itself rather than on a timeout: a fixed wait either flakes or hides the
+    // flip entirely.
+    const message = cell.locator("[data-diagram-message]");
+    await expect(message).toBeVisible();
+
+    // Scroll the message into view BEFORE measuring, and the reason is that
+    // clause 5 ranges over every ancestor whose overflow is not `visible` —
+    // which includes the modal's own scroll container
+    // (`…-review-content`, overflow auto/auto). A scrollable ancestor does not
+    // CLIP the content below its fold; it holds it one scroll away, which is
+    // the whole point of a scroller. Measured at the default scroll position
+    // the diagram grid sits ~4200px down and every containment check fails
+    // against a scroll offset rather than against any clipping. Scrolling first
+    // asks the question clause 5 is actually for: with the tile in view, is the
+    // sentence whole? The walk itself is unnarrowed — `auto` ancestors are
+    // still checked, and a genuine `hidden` clip still fails.
+    await message.scrollIntoViewIfNeeded();
+
+    const m = await page.evaluate(
+      ({ dfid }) => {
+        const box = document.querySelector(
+          `[data-testid="wizard-step3-card-${dfid}-diagram-tile-0"]`,
+        );
+        const cell = document.querySelector(
+          `[data-testid="wizard-step3-card-${dfid}-diagram-cell-0"]`,
+        );
+        const msg = cell?.querySelector("[data-diagram-message]") ?? null;
+        if (!box || !cell || !msg) return null;
+        const cs = getComputedStyle(msg);
+        const r = (e: Element) => {
+          const b = e.getBoundingClientRect();
+          return { top: b.top, left: b.left, right: b.right, bottom: b.bottom, h: b.height };
+        };
+        // The walk STOPS at the first `position: fixed` ancestor, inclusive.
+        // Overflow clips a descendant only when that ancestor is in the
+        // descendant's containing-block chain, and a fixed element's containing
+        // block is the viewport — so nothing ABOVE the fixed modal panel can
+        // clip anything inside it. Measured rather than assumed: this live page
+        // puts `overflow: hidden` on a <body> whose own rect is 0px tall,
+        // because the only thing in it is the fixed panel. Walking past the
+        // panel reported that body as a clipper and failed every containment
+        // check against a rect that clips nothing.
+        //
+        // Documented limit: an `absolute` descendant can likewise escape a
+        // static ancestor's overflow, and that is not modelled. Nothing between
+        // the message and the panel is absolutely positioned; if something ever
+        // is, this walk OVER-reports and fails loudly, which is the direction a
+        // guard should be wrong in.
+        const clippers: { tag: string; overflow: string; rect: ReturnType<typeof r> }[] = [];
+        for (let n = msg.parentElement; n; n = n.parentElement) {
+          const s = getComputedStyle(n);
+          if (s.overflowX !== "visible" || s.overflowY !== "visible") {
+            clippers.push({
+              tag: `${n.tagName.toLowerCase()}[${n.getAttribute("data-testid") ?? ""}]`,
+              overflow: `${s.overflowX}/${s.overflowY}`,
+              rect: r(n),
+            });
+          }
+          if (s.position === "fixed") break;
+        }
+        // Effective opacity, walking to the stop element: opacity composites
+        // down the tree, so an ancestor at 0 hides the message just as
+        // completely as the message itself at 0. Diff review round 1 showed
+        // `opacity-0` on the shared message class surviving all eight cases —
+        // display, visibility, line-clamp, clipping and containment all stay
+        // true of a fully transparent element, and Playwright's own
+        // `toBeVisible()` does not read opacity either.
+        // PAINTED, asked of the engine rather than enumerated by me. Round 1
+        // added an opacity clause; round 2 walked straight past it with
+        // `text-transparent`, which is alpha in `color`, not `opacity`. Adding
+        // an eighth mechanism by hand invites a ninth, so this delegates the
+        // question: `checkVisibility` is Chromium's own answer and covers
+        // display, visibility, opacity and content-visibility in one call.
+        // Colour alpha is the one thing it does NOT model, so it is read
+        // separately, and that pair is the whole check rather than a growing
+        // list of ways to be invisible.
+        const cs2 = getComputedStyle(msg);
+        const alpha = (() => {
+          const m2 = /^rgba?\(([^)]+)\)$/.exec(cs2.color.trim());
+          if (!m2) return 1;
+          const parts = (m2[1] ?? "").split(",").map((x) => parseFloat(x));
+          const a3 = parts[3];
+          return parts.length < 4 || a3 === undefined ? 1 : a3;
+        })();
+        const engineVisible = (msg as HTMLElement).checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+          contentVisibilityAuto: true,
+        });
+        let effectiveOpacity = 1;
+        for (let n: Element | null = msg; n; n = n.parentElement) {
+          const o = parseFloat(getComputedStyle(n).opacity);
+          if (Number.isFinite(o)) effectiveOpacity *= o;
+          if (getComputedStyle(n).position === "fixed") break;
+        }
+        return {
+          engineVisible,
+          colorAlpha: alpha,
+          checkVisibilitySupported: typeof (msg as HTMLElement).checkVisibility === "function",
+          effectiveOpacity,
+          text: (msg.textContent ?? "").trim(),
+          hasImg: box.querySelector("img") !== null,
+          insideBox: box.contains(msg),
+          display: cs.display,
+          visibility: cs.visibility,
+          lineClamp: cs.webkitLineClamp,
+          lineHeight: parseFloat(cs.lineHeight),
+          msgRect: r(msg),
+          scrollH: (msg as HTMLElement).scrollHeight,
+          clientH: (msg as HTMLElement).clientHeight,
+          clippers,
+        };
+      },
+      { dfid: HARNESS_DFID },
+    );
+
+    expect(m, `the failed cell and its message resolve @ ${w}px (premise)`).not.toBeNull();
+    const d = m!;
+    // Premises, on this case's own inputs: the tile really flipped by a load
+    // failure, and it really is the LOAD-FAILED sentence rather than the absent
+    // one. Without the second, this case would pass against a tile that was
+    // never servable to begin with, which is the other spec's arm.
+    expect(d.text, `the tile is in the LOAD-FAILED state @ ${w}px (premise)`).toBe(
+      "Preview couldn't load. The diagram will still publish.",
+    );
+    expect(d.hasImg, `the failed tile dropped its image @ ${w}px (premise)`).toBe(false);
+    expect(
+      Number.isFinite(d.lineHeight) && d.lineHeight > 0,
+      `a real line-height resolved (${d.lineHeight}) @ ${w}px (premise)`,
+    ).toBe(true);
+
+    // Clause 1: more than one line-height. The load-failed sentence is the
+    // longer of the two at 54 characters, so a one-line result here means it is
+    // being truncated rather than wrapped.
+    expect(
+      d.msgRect.h,
+      `the message wraps past one line (${d.msgRect.h} vs line-height ${d.lineHeight}) @ ${w}px`,
+    ).toBeGreaterThan(d.lineHeight + TOL);
+
+    // Clause 2.
+    expect(
+      d.scrollH - d.clientH,
+      `the message is not clipped by its own scroll box (${d.scrollH} vs ${d.clientH}) @ ${w}px`,
+    ).toBeLessThanOrEqual(TOL);
+
+    // Clause 3, and the opacity half of it is not decoration: a message at
+    // `opacity: 0` is unreadable while remaining display:block, visible,
+    // unclamped, unclipped and contained.
+    expect(
+      d.effectiveOpacity,
+      `the message is not transparent (effective opacity ${d.effectiveOpacity}) @ ${w}px`,
+    ).toBeGreaterThan(0);
+    // The engine's own visibility answer, plus the one thing it does not model.
+    // A premise first, because a browser without `checkVisibility` would make
+    // the clause below vacuously true.
+    expect(
+      d.checkVisibilitySupported,
+      `this browser answers checkVisibility @ ${w}px (premise)`,
+    ).toBe(true);
+    expect(d.engineVisible, `the engine considers the message visible @ ${w}px`).toBe(true);
+    expect(
+      d.colorAlpha,
+      `the message's text colour is not transparent (alpha ${d.colorAlpha}) @ ${w}px`,
+    ).toBeGreaterThan(0);
+    // Clause 3.
+    expect(d.display, `the message is not display:none @ ${w}px`).not.toBe("none");
+    expect(d.visibility, `the message is visible @ ${w}px`).toBe("visible");
+    expect(["none", "", "auto"], `the message is not line-clamped @ ${w}px`).toContain(d.lineClamp);
+
+    // Clause 4.
+    expect(d.insideBox, `the message is NOT inside the overflow-hidden box @ ${w}px`).toBe(false);
+
+    // Clause 5, every clipping ancestor to <html>.
+    for (const c of d.clippers) {
+      expect(
+        d.msgRect.top,
+        `message top ${d.msgRect.top} inside ${c.tag} (${c.overflow}) top ${c.rect.top} @ ${w}px`,
+      ).toBeGreaterThanOrEqual(c.rect.top - TOL);
+      expect(
+        d.msgRect.bottom,
+        `message bottom ${d.msgRect.bottom} inside ${c.tag} (${c.overflow}) bottom ${c.rect.bottom} @ ${w}px`,
+      ).toBeLessThanOrEqual(c.rect.bottom + TOL);
+      expect(
+        d.msgRect.left,
+        `message left ${d.msgRect.left} inside ${c.tag} (${c.overflow}) left ${c.rect.left} @ ${w}px`,
+      ).toBeGreaterThanOrEqual(c.rect.left - TOL);
+      expect(
+        d.msgRect.right,
+        `message right ${d.msgRect.right} inside ${c.tag} (${c.overflow}) right ${c.rect.right} @ ${w}px`,
+      ).toBeLessThanOrEqual(c.rect.right + TOL);
+    }
+  });
+}

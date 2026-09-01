@@ -24,10 +24,20 @@ import { DiagramTile, DiagramsBreakdown } from "@/components/admin/wizard/step3R
 import type { ImageLoader } from "next/image";
 import type { EmbeddedImageStub, ParseResult } from "@/lib/parser/types";
 import { premiseHolds } from "../../../_shared/premise";
+import {
+  DIAGRAM_TILE_COPY,
+  DIAGRAM_TILE_FAILURE_SENTENCES,
+} from "../../../_shared/diagramTileCopy";
 
 const DFID = "drive-file-staged";
 const WSID = "wizard-session-staged";
 const TILE = (i: number) => `wizard-step3-card-${DFID}-diagram-tile-${i}`;
+/** The CELL wraps the box and the caption both; the message is a SIBLING of the
+ *  box now, so every assertion about it scopes here. The `img` counts beside
+ *  these are the POSITIVE discriminators and they are untouched: they are what
+ *  make the live-negatives below fail against a placeholder, which asserting
+ *  the absence of a string can no longer do on its own. */
+const CELL = (i: number) => `wizard-step3-card-${DFID}-diagram-cell-${i}`;
 
 afterEach(cleanup);
 
@@ -81,7 +91,12 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     // so React keeps the component instance, and `failed` starts true and is
     // only ever set true. Without a reset this render is still the placeholder.
     expect(container.querySelectorAll("img").length).toBe(1);
-    expect(within(getByTestId(TILE(0))).queryByText("Preview unavailable")).toBeNull();
+    // Neither sentence, not just one of them: asserting the absence of ONE
+    // stopped discriminating the moment there were two, and this line is the
+    // only part of the case that ever spoke about the failed states.
+    for (const sentence of DIAGRAM_TILE_FAILURE_SENTENCES) {
+      expect(within(getByTestId(CELL(0))).queryByText(sentence)).toBeNull();
+    }
   });
 
   test("available -> unavailable: the image yields immediately, not on a failed fetch", () => {
@@ -92,7 +107,9 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     rerender(renderOne(stagedStub({ objectId: id, contentUrl: null })));
 
     expect(container.querySelectorAll("img").length).toBe(0);
-    expect(within(getByTestId(TILE(0))).getByText("Preview unavailable")).toBeTruthy();
+    // The source stopped resolving, so this is the ABSENT state: no request
+    // was ever made on the new source and nothing could have failed.
+    expect(within(getByTestId(CELL(0))).getByText(DIAGRAM_TILE_COPY.absent)).toBeTruthy();
   });
 
   test("failed on source A -> a good source B clears the failure", () => {
@@ -115,7 +132,12 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     expect(container.querySelectorAll("img").length).toBe(1);
     const hrefB = getByTestId(TILE(0)).getAttribute("href");
     premiseHolds("the rerender actually moved the href", hrefA !== hrefB && hrefB !== null);
-    expect(within(getByTestId(TILE(0))).queryByText("Preview unavailable")).toBeNull();
+    // Neither sentence, not just one of them: asserting the absence of ONE
+    // stopped discriminating the moment there were two, and this line is the
+    // only part of the case that ever spoke about the failed states.
+    for (const sentence of DIAGRAM_TILE_FAILURE_SENTENCES) {
+      expect(within(getByTestId(CELL(0))).queryByText(sentence)).toBeNull();
+    }
   });
 
   test("failed, then the loader changes under a stable source: the tile recovers", () => {
@@ -138,6 +160,7 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
         sizes="100px"
         alt="Stage plot"
         testId="reconcile-loader"
+        cellTestId="reconcile-loader-cell"
         hasPreviewSource={true}
       />
     );
@@ -154,7 +177,12 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     // Serving variants now exist. A tile that stays on the placeholder renders
     // none of them, which the consequence bound forbids in its own words.
     expect(container.querySelectorAll("img").length).toBe(1);
-    expect(within(getByTestId("reconcile-loader")).queryByText("Preview unavailable")).toBeNull();
+    // Neither sentence, not just one of them: asserting the absence of ONE
+    // stopped discriminating the moment there were two, and this line is the
+    // only part of the case that ever spoke about the failed states.
+    for (const sentence of DIAGRAM_TILE_FAILURE_SENTENCES) {
+      expect(within(getByTestId("reconcile-loader-cell")).queryByText(sentence)).toBeNull();
+    }
     expect(new URL(container.querySelector("img")!.src, document.baseURI).pathname).toBe(variant);
   });
 
@@ -178,6 +206,8 @@ describe("staged wizard diagram tile — failure state reconciles under a stable
     rerender(renderOne(stub));
 
     expect(container.querySelectorAll("img").length).toBe(0);
-    expect(within(getByTestId(TILE(0))).getByText("Preview unavailable")).toBeTruthy();
+    // The tile got here by a real error on a mounted image, so the sentence
+    // it keeps across the re-render is the LOAD-FAILED one.
+    expect(within(getByTestId(CELL(0))).getByText(DIAGRAM_TILE_COPY.loadFailed)).toBeTruthy();
   });
 });

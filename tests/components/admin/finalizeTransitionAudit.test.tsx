@@ -95,11 +95,13 @@ const RENDERERS = [
   {
     name: "FinalizeButton",
     subtree: "wizard-finalize-progress",
+    casPhaseTestId: "wizard-finalize-cas-phase",
     mount: () => render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />),
   },
   {
     name: "Step3ReviewWithFinalize",
     subtree: "wizard-step3-tracking",
+    casPhaseTestId: "wizard-step3-tracking-cas-phase",
     mount: () =>
       render(
         <Step3ReviewWithFinalize
@@ -113,7 +115,7 @@ const RENDERERS = [
   },
 ] as const;
 
-async function panel(renderer: (typeof RENDERERS)[number], phase: "batch" | "cas") {
+async function panel(renderer: (typeof RENDERERS)[number], phase: "batch" | "cas" | "cas-entry") {
   const batch = controllableNdjson();
   const cas = controllableNdjson();
   fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
@@ -125,7 +127,7 @@ async function panel(renderer: (typeof RENDERERS)[number], phase: "batch" | "cas
     batch.push({ type: "listed", total: 2 });
     batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
   });
-  if (phase === "cas") {
+  if (phase === "cas" || phase === "cas-entry") {
     await act(async () => {
       batch.push({
         type: "result",
@@ -139,9 +141,11 @@ async function panel(renderer: (typeof RENDERERS)[number], phase: "batch" | "cas
       });
       batch.close();
     });
-    await act(async () => {
-      cas.push({ type: "phase", phase: "applying" });
-    });
+    if (phase === "cas") {
+      await act(async () => {
+        cas.push({ type: "phase", phase: "applying" });
+      });
+    }
   }
   return { ...view, batch, cas };
 }
@@ -257,6 +261,37 @@ describe("finalize progress transitions are instant", () => {
       }
     }
   });
+
+  test.each(RENDERERS)(
+    "$name: B to C, the phase label goes from suppressed to painted with no animation",
+    async (renderer) => {
+      // The inventory's B-to-C pair. B is CAS entered with no phase event yet, where
+      // casPhaseLabel returns "" and empty:hidden takes the element out of flow; C is
+      // the first sub-phase arriving. The change is a `display` flip, which is not
+      // animatable, so the pair is instant by construction rather than by choice — and
+      // this pins that nothing was added to animate it.
+      const view = await panel(renderer, "cas-entry");
+      const label = view.getByTestId(renderer.casPhaseTestId);
+
+      // PREMISE: state B really is empty. If a phase event had already landed the
+      // element would carry text and this would be measuring C to C.
+      expect(label.textContent ?? "", "premise: the phase label is empty at CAS entry").toBe("");
+      expect(label.className, "B: empty:hidden takes it out of flow").toContain("empty:hidden");
+
+      await act(async () => {
+        view.cas.push({ type: "phase", phase: "applying" });
+      });
+
+      // C: painted, same element, no animation or transition class introduced.
+      expect(view.getByTestId(renderer.casPhaseTestId).textContent).toContain(
+        "Applying your edits",
+      );
+      expect(
+        view.getByTestId(renderer.casPhaseTestId).className,
+        "the B to C flip is a display change and must stay instant",
+      ).not.toMatch(/\b(transition|animate)\b/);
+    },
+  );
 
   test("the group's accessible name does not change across the batch to CAS boundary", async () => {
     const { getByTestId, batch } = await batchPanel();

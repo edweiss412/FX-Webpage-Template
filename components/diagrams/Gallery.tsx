@@ -806,7 +806,7 @@ export function Gallery({
               // absolutely positioned fill image (inset shadows paint below
               // descendants). An element's own ring is not clipped by its own
               // overflow.
-              className="relative aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-focus-ring"
+              className="relative aspect-square overflow-hidden rounded-sm border border-text-faint bg-surface-sunken has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-focus-ring"
             >
               {isAvailable ? (
                 <>
@@ -913,7 +913,7 @@ export function Gallery({
                           // set does not hold the id and the setter no-ops.
                           if (isRetrying) handleRetrySuccess(item, i);
                         }}
-                        className="object-cover"
+                        className="object-contain"
                       />
                     )}
                   </button>
