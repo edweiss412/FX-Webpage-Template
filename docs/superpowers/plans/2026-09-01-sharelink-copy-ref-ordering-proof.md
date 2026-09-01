@@ -148,14 +148,14 @@ Full mode is a non-interactive Playwright run and therefore a heavy phase: every
 
 The red is the command in the marker, observed at plan time (exit 2, output pasted in the registry reconciliation above). It goes green only when both halves land: `A39` registered, and a vitest row that actually reds under it. Registering `A39` alone turns exit 2 into exit 1 with `*** SURVIVED ***`, which is the failure this arc exists to avoid, so the command discriminates the half-done state as well as the not-done one.
 
-- [ ] **Step 1: The harness file.** tests/components/admin/shareLinkCopyButtonOrdering.test.tsx, carrying `// @vitest-environment jsdom`. It drives React directly rather than through Testing Library, because RTL's `render` and `rerender` wrap every commit in `act()`, and `act()` flushes passive effects before yielding to the microtask queue. That is the exact obstacle the row records, and dropping RTL is what removes it. Mechanism, in order:
+- [x] **Step 1: The harness file.** tests/components/admin/shareLinkCopyButtonOrdering.test.tsx, carrying `// @vitest-environment jsdom`. It drives React directly rather than through Testing Library, because RTL's `render` and `rerender` wrap every commit in `act()`, and `act()` flushes passive effects before yielding to the microtask queue. That is the exact obstacle the row records, and dropping RTL is what removes it. Mechanism, in order:
   1. `IS_REACT_ACT_ENVIRONMENT` is set to `false` for the file, so React never installs its act queue and schedules through the real scheduler.
   2. Mount with `flushSync(() => root.render(...))`, so the initial tree exists synchronously. `flushSync` DOES flush passive effects (probed: after the mount `flushSync`, a sibling probe had already logged both `layout` and `passive`), which is why it is used for setup and NEVER for the rotate.
   3. Click the button through a real DOM `click()`. The fake clipboard's `writeText` returns a promise the test can settle on demand.
   4. Rotate with a bare `root.render(...)`, outside `act` and outside `flushSync`. React schedules that render through its own scheduler, so the commit lands in a later macrotask.
   5. A `ReleaseProbe` rendered AFTER `ShareLinkCopyButton` calls `release()` from its own `useLayoutEffect`. Layout effects run in tree order, so the button's `useLayoutEffect([url])` has already written `urlRef` by the time the probe fires. The release therefore lands after the whole commit's layout phase and before its passive phase.
   6. The promise continuation is a microtask; React's passive flush is a scheduler task. (The scheduler picks its host callback by what the environment offers, and under Node it takes `setImmediate` rather than `MessageChannel`; the harness therefore waits for the flush to be OBSERVED rather than for a fixed number of turns, and the language ordering rule that microtasks drain before any task is what puts the continuation first.)
-- [ ] **Step 2: The premises, above the assertions that rest on them.** Using `premiseHolds` from `tests/_shared/premise.ts`, unconditionally, not inside any `.each` callback, and evaluated on each case's OWN run rather than once for the file. Five, and the list here is the file's list:
+- [x] **Step 2: The premises, above the assertions that rest on them.** Using `premiseHolds` from `tests/_shared/premise.ts`, unconditionally, not inside any `.each` callback, and evaluated on each case's OWN run rather than once for the file. Five, and the list here is the file's list:
   1. the click captured the url this case is about, so the assertion is about the copy it names;
   2. the probe reached the release at all, so a commit under test happened;
   3. at release time the commit's layout effects HAVE run and none of its passive effects have (the probe's per-commit phase log is exactly `["layout"]`);
@@ -163,9 +163,9 @@ The red is the command in the marker, observed at plan time (exit 2, output past
   5. the microtask drain preceded the passive flush, which is the window itself.
 
   The act environment is SET to false rather than asserted. A premise that checks a value the same file just assigned proves nothing; what is worth asserting is the consequence, which is premises 3 and 5. The setting is documented at the site instead, because a future global setup file that turned the flag on would reinstate the act queue and close the window.
-- [ ] **Step 3: The discriminating row.** After the release lands in the window and the tree settles, the button reads `Copy` and the announcer's text is empty. Scoped to the two testids separately, so a passing label cannot stand in for a passing announcement. This is `T-ORDER-STALE`, the row that reds under `A39` (AC-2) and also under `A32` (AC-6, family 2).
-- [ ] **Step 4: The mirror row.** Same harness, but the second `root.render` passes the SAME url. The commit still happens and the probe still releases inside the window, but nothing rotated, so the guard must let the confirmation through: the button reads `Copied` and the announcer reads `URL copied to clipboard`. Without this row the discriminating row is satisfied by a harness that suppresses everything. This is `T-ORDER-FRESH`. It reds under `A35` (AC-6, family 3).
-- [ ] **Step 5: Register the adversary and the suite.** Add the file to `VITEST_SUITES` in `scripts/share-link-flash-adversary-matrix.mjs`, and push `A39`:
+- [x] **Step 3: The discriminating row.** After the release lands in the window and the tree settles, the button reads `Copy` and the announcer's text is empty. Scoped to the two testids separately, so a passing label cannot stand in for a passing announcement. This is `T-ORDER-STALE`, the row that reds under `A39` (AC-2) and also under `A32` (AC-6, family 2).
+- [x] **Step 4: The mirror row.** Same harness, but the second `root.render` passes the SAME url. The commit still happens and the probe still releases inside the window, but nothing rotated, so the guard must let the confirmation through: the button reads `Copied` and the announcer reads `URL copied to clipboard`. Without this row the discriminating row is satisfied by a harness that suppresses everything. This is `T-ORDER-FRESH`. It reds under `A35` (AC-6, family 3).
+- [x] **Step 5: Register the adversary and the suite.** Add the file to `VITEST_SUITES` in `scripts/share-link-flash-adversary-matrix.mjs`, and push `A39`:
 
   ```js
   ADVERSARIES.push([
@@ -183,14 +183,36 @@ The red is the command in the marker, observed at plan time (exit 2, output past
 
   The find string occurs exactly once in `ShareLinkCopyButton.tsx` and needs no import edit, because line 18 already imports both hooks. A mutation that fails to apply is reported `UNAPPLIED`, not silently passed, so a stale find string cannot read as a survivor.
 
-- [ ] **Step 6: Observed red, then observed green, on the marker's command.** Paste both. The red is exit 2 (unknown id). The green is `A39 REJECTED` and exit 0.
-- [ ] **Step 6b: The clean baseline, which the matrix never runs (AC-1).** `pnpm vitest run tests/components/admin/shareLinkCopyButtonOrdering.test.tsx --project parallel`, observed GREEN on the UNMUTATED tree, output pasted.
+- [x] **Step 6: Observed red, then observed green, on the marker's command.** Paste both. The red is exit 2 (unknown id). The green is `A39 REJECTED` and exit 0.
+
+  ```
+  $ node scripts/share-link-flash-adversary-matrix.mjs --only A39 --quick   # BEFORE
+  --only names unknown adversary id(s): A39
+  EXIT=2
+
+  $ node scripts/share-link-flash-adversary-matrix.mjs --only A39 --quick   # AFTER
+  A39  REJECTED  (1 rows)  copy button: urlRef written in a PASSIVE effect, so a promise
+                           settling before the passive flush confirms a dead url
+  1 adversaries · 1 rejected · 0 SURVIVED · 0 unapplied
+  EXIT=0
+  ```
+
+- [x] **Step 6b: The clean baseline, which the matrix never runs (AC-1).** `pnpm vitest run tests/components/admin/shareLinkCopyButtonOrdering.test.tsx --project parallel`, observed GREEN on the UNMUTATED tree, output pasted.
 
   This step exists because `A39 REJECTED` on its own does not establish AC-1. The matrix applies the mutation and only then runs vitest (`scripts/share-link-flash-adversary-matrix.mjs:1210-1217`); there is no clean pass anywhere in the loop. So a row that is red against the SHIPPED component and still red under `A39` reports `REJECTED` and exits 0, and the arc would ship a harness that says nothing. The pair is the proof: green on the shipped component, red under the mutant. Neither half alone is.
 
+  **This step earned itself on its first run.** The very first `--only A39` run reported `A39 REJECTED (2 rows)`, exit 0, and looked like a finished proof. The baseline run then exited 1: BOTH cases were red on the shipped component, on the premise `the microtask drain preceded the passive flush`. The cause was in the harness, not the component. `order` was a run-long log scanned with `indexOf`, and the MOUNT commit had already logged a layout and a passive of its own, so the scan found the mount's passive effect, placed it before a microtask that had not happened yet, and refused to run the assertion. `order` is now cleared alongside `phases` immediately before the commit under test. Without Step 6b this arc would have committed a harness that proved nothing while the matrix said `REJECTED`, which is round 1's finding 2 happening for real rather than in theory.
+
+  ```
+  $ npx vitest run tests/components/admin/shareLinkCopyButtonOrdering.test.tsx --project parallel
+  Test Files  1 passed (1)
+       Tests  2 passed (2)
+  EXIT=0
+  ```
+
   The residual gap is exactly this one and nothing else, which is worth stating because it bounds what the baseline has to cover. `runVitest` already refuses to score a run whose requested suites did not all report (`scripts/share-link-flash-adversary-matrix.mjs:918-929`), a suite that collected zero tests (`scripts/share-link-flash-adversary-matrix.mjs:932-939`), or a test neither passed nor failed (`scripts/share-link-flash-adversary-matrix.mjs:940-945`); each throws as an infrastructure fault rather than counting as a rejection. Absence of a baseline was the one way left for `REJECTED` to be true and worthless.
 
-- [ ] **Step 7: Non-vacuity of both new rows (AC-6), attributed by a row id that only this file can produce.**
+- [x] **Step 7: Non-vacuity of both new rows (AC-6), attributed by a row id that only this file can produce.**
 
   The matrix records a rejected row as `a.fullName ?? a.title` and discards the suite path (`scripts/share-link-flash-adversary-matrix.mjs:955-960`), so a title alone cannot say WHICH file produced it, and a title shared with another suite would let someone else's failure be read as this file's coverage. Both existing collision candidates are real: `A32` already credits the rotate suite's in-flight row and `A35` already credits its current-url row. So the two new cases are named `T-ORDER-STALE` and `T-ORDER-FRESH`, following the `T-FLASH-*` convention the browser spec already uses, and the check has two halves.
 
@@ -227,9 +249,38 @@ The red is the command in the marker, observed at plan time (exit 2, output past
 
   `T-ORDER-STALE` must appear under `A39` and under `A32`; `T-ORDER-FRESH` under `A35`. A new row appearing under no adversary is a §9.0 violation and is fixed here, not deferred.
 
-- [ ] **Step 8: The four string-presence mutants.** The rows assert on rendered text, so run all four before the review dispatch and record each: (a) the announcer's text emptied at the source; (b) the expected label with an appended suffix; (c) the label present but not live, moved behind a false condition; (d) each discriminating parameter varied, which here is the url passed to the second `root.render` and the identity of the url captured at click time. Each must red the row that claims to see it, identified by its `T-ORDER-*` id rather than by prose, for the reason Step 7 gives.
-- [ ] **Step 9: Repair the prose this task falsifies.** `docs/superpowers/plans/2026-07-24-share-link-chrome-adversary-matrix.md:8` currently ends with the clause about the adversary being unregistered rather than exempted; it now records that the adversary IS registered, as `A39`, and that the whitelist stayed rejected. The SCOPE paragraph at `tests/components/admin/shareLinkCopyButtonRotate.test.tsx:27-49` states the timing is unproven and that a jsdom probe cannot beat `act()`; it now points at the new file and says what changed, keeping the `act()` sentence as the reason RTL is not used there rather than deleting the history.
-- [ ] **Step 10: Gates.** `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, each as its own command. Commit `test(admin): prove the copy button's urlRef write must be a layout effect`.
+  Observed, after the commit hooks had formatted the file, because a line-keyed scan verified before prettier is a scan of bytes that are no longer there:
+
+  ```
+  $ node <the uniqueness script above>
+  T-ORDER-STALE files=1 defs=1 tests/components/admin/shareLinkCopyButtonOrdering.test.tsx OK
+  T-ORDER-FRESH files=1 defs=1 tests/components/admin/shareLinkCopyButtonOrdering.test.tsx OK
+  EXIT=0
+
+  $ node scripts/share-link-flash-adversary-matrix.mjs --only A32,A35,A39 --quick
+  A32  REJECTED  (2 rows)   A35  REJECTED  (3 rows)   A39  REJECTED  (1 rows)
+  A32 -> T-ORDER-STALE (plus the rotate suite's in-flight row)
+  A35 -> T-ORDER-FRESH (plus the rotate suite's completed-copy and current-url rows)
+  A39 -> T-ORDER-STALE, and nothing else
+  ```
+
+  `A39` credited to exactly one row, and that row this file's, is the proof in its narrowest form.
+
+- [x] **Step 8: The four string-presence mutants.** The rows assert on rendered text, so run all four before the review dispatch and record each: (a) the announcer's text emptied at the source; (b) the expected label with an appended suffix; (c) the label present but not live, moved behind a false condition; (d) each discriminating parameter varied, which here is the url passed to the second `root.render` and the identity of the url captured at click time. Each must red the row that claims to see it, identified by its `T-ORDER-*` id rather than by prose, for the reason Step 7 gives. Seven were run, each one asserted to have APPLIED before its result was read, and each restored afterwards; the clean baseline was re-read first and had zero red rows.
+
+  | Mutant | Expected red | Result |
+  |---|---|---|
+  | (a) announcer's text emptied at the source | `T-ORDER-FRESH` | killed |
+  | (b) announcer's text with an appended suffix | `T-ORDER-FRESH` | killed |
+  | (b2) the `Copied` label with an appended suffix | `T-ORDER-FRESH` | killed |
+  | (c) announcer's text present in the source but behind `false` | `T-ORDER-FRESH` | killed |
+  | (d1) the stale case loses its rotate (`NEW, NEW`) | `T-ORDER-STALE` | killed |
+  | (d2) the mirror case gains a rotate (`OLD, NEW`) | `T-ORDER-FRESH` | killed |
+  | (e) the probe releases from a PASSIVE effect, closing the window | both rows | killed |
+
+  (c) is the one that matters for string-presence: the component keeps `URL copied to clipboard` in the button's `aria-label` as well, so a case reading the wrong node would have passed with the announcer dead. (e) is family 4 from the closure set, and the only mutant that attacks the harness rather than the component: it proves the premises fire when the window closes instead of the rows passing vacuously.
+- [x] **Step 9: Repair the prose this task falsifies.** `docs/superpowers/plans/2026-07-24-share-link-chrome-adversary-matrix.md:8` currently ends with the clause about the adversary being unregistered rather than exempted; it now records that the adversary IS registered, as `A39`, and that the whitelist stayed rejected. The SCOPE paragraph at `tests/components/admin/shareLinkCopyButtonRotate.test.tsx:27-49` states the timing is unproven and that a jsdom probe cannot beat `act()`; it now points at the new file and says what changed, keeping the `act()` sentence as the reason RTL is not used there rather than deleting the history.
+- [x] **Step 10: Gates.** `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, each as its own command. Commit `test(admin): prove the copy button's urlRef write must be a layout effect`.
 
 ### Task 2: Graduate the row
 
