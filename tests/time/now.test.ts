@@ -196,6 +196,31 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
   });
 });
 
+describe("lib/time/now — freshness, the signal the telemetry retry outcome rides on", () => {
+  // TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1. The retry control announces "still
+  // couldn't load" when the per-render timestamp it was handed changes while the
+  // fallback is still mounted. That announcement is only as alive as this function:
+  // memoize `nowDate` across renders and every call site keeps rendering, the value
+  // stops moving, and the announcement dies with nothing going red. This case is the
+  // guard on the SIGNAL rather than on the announcement string.
+  it("returns a fresh instant per call under an advancing clock", async () => {
+    const BASE = new Date("2099-01-01T00:00:00.000Z").getTime();
+    const ADVANCE_MS = 20;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(BASE));
+
+    const { nowDate } = await import("@/lib/time/now");
+    const first = (await nowDate()).getTime();
+    vi.setSystemTime(new Date(BASE + ADVANCE_MS));
+    const second = (await nowDate()).getTime();
+
+    // The exact delta, not merely `toBeGreaterThan`: under fake timers a fresh clock
+    // tracks the advance to the millisecond, and the expectation is derived from the
+    // same constant that drives the clock, so it cannot be satisfied by a stale pair.
+    expect(second - first).toBe(ADVANCE_MS);
+  });
+});
+
 describe("lib/time/now — capture-boundary + alt-style envelope (test #15)", () => {
   it("capture-boundary: same frozen header returns byte-identical ISO across 60+s wall clock", async () => {
     headerStore["x-screenshot-frozen-now"] = FROZEN;

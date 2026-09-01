@@ -292,7 +292,11 @@ export async function HealthAlertsPanel({ searchParams }: { searchParams: Search
         {/* "Refresh in a moment." was removed with BL-TELEMETRY-FALLBACK-RETRY: a manual
             instruction sitting beside the button that performs it is copy this arc made wrong. */}
         <p>Couldn’t load system-health alerts right now.</p>
-        <TelemetryRetryButton what="system-health alerts" testId="health-alerts-retry" />
+        <TelemetryRetryButton
+          what="system-health alerts"
+          testId="health-alerts-retry"
+          renderedAt={now.getTime()}
+        />
       </section>
     );
   }

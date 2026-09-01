@@ -2,16 +2,19 @@
  * Non-interactive chrome that shares a frame with a control.
  *
  * WHY THIS EXISTS. The 2026-08-16 swap moved 21 CONTROLS to `border-text-faint`
- * and DESIGN §1.2a keeps `--color-border-strong` for non-interactive chrome, so
- * two elements that shared a recipe with a swapped control correctly stayed
- * put — and became the quieter half of a pair a reader sees in one glance. The
- * lightbox's demote chip sits in the same frame as its Reset chip; the
- * staged-preview banner's `aria-current` chip sits in a row of picker links
- * that moved. `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` filed it.
+ * while DESIGN §1.2a kept `--color-border-strong` for non-interactive chrome, so
+ * two elements that shared a recipe with a swapped control stayed put and became
+ * the quieter half of a pair a reader sees in one glance. The lightbox's demote
+ * chip sits in the same frame as its Reset chip; the staged-preview banner's
+ * `aria-current` chip sits in a row of picker links that moved.
+ * `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` filed it, and that row is CLOSED:
+ * archived at `BACKLOG-archive.md:1288` on 2026-08-25, resolved by the pairing
+ * clause this file pins, with both chips moved in `e6408222c`. The paragraph
+ * above is the state this guard was BUILT for, not the state of the tree.
  *
  * IT IS HIERARCHY, NOT ACCESSIBILITY. Neither element is interactive, so SC
- * 1.4.11 does not reach either one and there is no contrast failure here to
- * argue about (`BACKLOG.md`, the row's own text). What was wrong is that the
+ * 1.4.11 does not reach either one and there was never a contrast failure here
+ * to argue about (`BACKLOG-archive.md`, the row's own text). What was wrong is that the
  * chip a reader is meant to read as the CURRENT state read lighter than the
  * control beside it, which inverts the hierarchy the swap was making.
  *
@@ -139,5 +142,71 @@ describe("chrome in a frame with a control takes that control's outline weight",
     // the sentence wraps is a property of the formatter, not of the rule.
     const design = readFileSync(join(ROOT, "DESIGN.md"), "utf8").replace(/\s+/g, " ").toLowerCase();
     expect(design).toContain("chrome rendered in-frame with a control of the same recipe");
+  });
+
+  /**
+   * The predicate and the tree must agree, and for six days they did not.
+   *
+   * The clause shipped 2026-08-25 and both chips moved with it, while §1.2a kept
+   * a paragraph in the PRESENT TENSE saying they had stayed put and now read
+   * lighter. A reader who trusted the section was told the opposite of what the
+   * tree does, four lines above the clause that had already settled it.
+   *
+   * The load-bearing half of this assertion is the POSITIVE one. A negative
+   * phrase check goes quiet the moment someone rephrases the stale claim, so
+   * what is pinned is that the section RECORDS THE CLOSURE, with the archive
+   * anchor that makes it checkable. The negative half catches a straight revert.
+   */
+  it("records the closure rather than restating the pre-2026-08-25 state", () => {
+    // SCOPED TO §1.2a, not to the file. The first version of this greped all of
+    // DESIGN.md, so the closure anchor could be satisfied by any other section
+    // mentioning it and the stale-claim check ranged over prose this rule has no
+    // business policing. The invariant-8 gate on `docs/paired-chrome-stale-text`
+    // raised both halves.
+    const raw = readFileSync(join(ROOT, "DESIGN.md"), "utf8");
+    const start = raw.indexOf("### 1.2a ");
+    premiseHolds("§1.2a is present to extract", start !== -1);
+    // To the next same-level heading, so the section is bounded by structure
+    // rather than by a line count that drifts with every edit.
+    const rest = raw.indexOf("\n### ", start + 1);
+    const section = (rest === -1 ? raw.slice(start) : raw.slice(start, rest))
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    premiseHolds(
+      "the extracted section is the did-not-move record's home",
+      section.includes("what did not move with the 21"),
+    );
+
+    expect(
+      section,
+      "the closure is recorded with its archive anchor, so the record cannot read as open",
+    ).toContain("backlog-archive.md:1288");
+
+    // THE TENSE IS DECLARED, NOT INFERRED. A negative list of phrasings is blind
+    // to a rephrase, which is the defect the gate found in the first version: two
+    // literals were pinned and any third wording passed. So the positive
+    // requirement is that the historical block SAYS which state it describes and
+    // when that state ended. A rewrite that drops the marker reds here even if it
+    // avoids every phrase below.
+    expect(
+      section,
+      "the did-not-move record must date the state it describes, so a reader cannot take it as current",
+    ).toContain("until 2026-08-25");
+
+    // The negative arm stays, widened past the two literals it started with. It
+    // catches a straight revert; the dated marker above is what catches a
+    // rephrase. Neither is sufficient alone and the file says so rather than
+    // implying the pair is exhaustive.
+    for (const stale of [
+      "and now reads lighter beside it",
+      "is now the quieter half",
+      "are now the quieter half",
+      "now read lighter",
+      "carries the weakest boundary",
+    ]) {
+      expect(section, `§1.2a still asserts the pre-2026-08-25 state: "${stale}"`).not.toContain(
+        stale,
+      );
+    }
   });
 });

@@ -1538,7 +1538,10 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       "components/admin/RecentAutoAppliedStrip.tsx:447",
       "components/admin/RecentAutoAppliedStrip.tsx:474",
       "components/admin/ShowsTable.tsx:288",
-      "components/admin/nav/AdminNav.tsx:154",
+      // 154 -> 222 by feat/nav-badge-arrival-announce; located on the shifted
+      // tree, not bumped: 222 is the decorative Admin pill <span> in the brand
+      // Link, carrying `border border-border`.
+      "components/admin/nav/AdminNav.tsx:222",
       "components/admin/showpage/AttentionMenu.tsx:304",
       "components/admin/telemetry/EventFilters.tsx:97",
       // Moved on the merge of origin/main (6441d5e4c). Located on the merged tree, not

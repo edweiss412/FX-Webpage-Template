@@ -1,3 +1,150 @@
+### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement — CLOSED 2026-08-31 (`feat/nav-badge-arrival-announce`, SHIPPED)
+
+**Resolution: SHIPPED.** The entry deferred under class-sweep exception (a), it needed a product
+decision this repo could not settle, and it graduated by that decision being taken rather than by
+the requirement being waived. Eric ruled on 2026-08-31: announce on the FIRST resolution only, and
+only when the count is nonzero. Silence at zero, silence at both-zero, and later count changes never
+announce. That is the entry's own suggested narrowing, and it is the answer to the question the
+entry said only Doug could answer, whether a global nav that speaks on every `/admin` entry is the
+chatter PRODUCT.md's calm-competence register rejects. One utterance per mount, only when there is
+something true to say, is not chatter.
+
+**The defect, unchanged from the filing.** `feat/admin-nav-badge-suspense` moved both badge reads
+out of the layout's blocking path, so the counts land after the nav has painted and two accessible
+names change at that moment with nothing announcing them. A screen-reader user who reads either
+control inside the pending window and never returns keeps the count-less name for the whole visit.
+
+**What shipped.** One pure module, `components/admin/nav/navArrivalAnnounce.ts`, holding the copy
+builder and two selectors; one optional prop on `NotifBell`; and the join in `AdminNav`, which calls
+the existing `AdminAnnounceProvider`. No new live region, no new context, no change to either badge
+hook. The utterance is one polite sentence per half, bell first, carrying the TRUE count rather than
+the `9+` pill cap, because both accessible names already interpolate the real number and the name is
+what a screen-reader user receives.
+
+**The design decision the review rounds actually settled.** Settlement LATCHES per half, once; the
+announced VALUE is read LIVE at the instant the announcement is built. Freezing both together is
+wrong and a probe defeated it: the bell settles at 4, the operator opens the panel, `zeroNow()`
+commits 0, and a frozen report then speaks "4 unseen notifications" against a control displaying no
+badge. One selector, `bellAnnounceableCount`, answers both "what would be announced" and "what does
+the label say", and `bellAccessibleName` is DEFINED on it, so the sentence and the name are two
+callers of one decision rather than two implementations of one rule.
+
+**Silence is a resolution.** A both-zero or both-failed arrival marks the mount spoken and says
+nothing, so a later push that takes a count positive announces nothing either. That is the ratified
+cadence by the letter, and it is also right on the merits: at zero the accessible name is the same
+name the pending window showed, so nothing went stale and there is nothing to repair.
+
+**Documented limits carried forward, not repaired.** At desktop widths the attention tab is out of
+the accessibility tree, so the attention sentence explains no control there and its number is a
+second snapshot: the layout and the dashboard read that count through two independent calls, so a
+spoken 2 can sit beside a panel showing 1. The utterance is still spoken, on the ground that the
+sentence is about STATE rather than a control and `/admin/needs-attention` is a real route at every
+width. Recorded as §6 limit 7 of the design rather than left implicit.
+
+**A shipped guard was repaired on the way past.** `tests/components/_metaLiveRegionMounting.test.ts`
+recognised `role="status"` and `aria-live="polite"` and not `role="log"` — which is the spelling of
+the admin shell's own announce region. The guard whose subject is regions born populated could not
+see the one region the whole app announces through. Widened here, with planted cases for both
+spellings, per the class-sweep default.
+
+### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips read lighter than the control they sat beside — CLOSED 2026-08-25 (`feat/ui-polish-class-sweep`, SHIPPED in `e6408222c`); prose retired 2026-08-31 (`docs/paired-chrome-stale-text`)
+
+**Effort:** S per site, M as a rule
+
+Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P1,
+audit P2 — recorded at the higher call). Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F1 and F2).
+
+**The finding, as it stood in 2026-08-16.** The ruling that day moved 21 CONTROLS to
+`border-text-faint`. DESIGN.md §1.2a kept `--color-border-strong` for non-interactive chrome, so two
+elements that shared a recipe with a swapped control stayed put, and each became the quieter half of
+a pair a reader sees at once:
+
+- `components/diagrams/GalleryLightbox.tsx:773`, the `aria-hidden` demote chip, against the Reset
+  chip at `:708` it matches (same `rounded-pill bg-surface-raised px-4`, same shadow; `bottom-2`
+  and `top-2` of the same image). 1.59/1.50 versus 3.35/3.53.
+- `components/admin/StagedPreviewBanner.tsx:65`, the `aria-current` chip, standing in a row of
+  picker links at `:75` that moved. The entry marked current carried the weakest boundary in its
+  own row. (The two line anchors in these bullets are the 2026-08-16 file; both have since drifted.)
+
+**Why deferred rather than repaired in-branch — reason (b) plus (a).** Spec
+`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §4.4 ratifies the
+second site verbatim ("non-interactive chrome: outside the census, keeps its token") and §1.2a's
+scope paragraph ratifies the first, so moving either would move an element under a ruling the user
+took against a mockup of BUTTONS resting on cards. The general question is a design decision:
+should chrome that visually PAIRS with a control follow that control's outline weight, or does
+chrome follow chrome? Neither site is a contrast finding — both are non-interactive, so SC 1.4.11
+does not reach them, and both carry their state programmatically.
+
+**RESOLVED 2026-08-25, and this entry is a record rather than an open item.** The design decision
+the deferral was waiting on was taken: §1.2a gained the pairing clause, both chips moved in
+`e6408222c`, and the queue row was archived at `BACKLOG-archive.md:1288`. The product owner
+confirmed the same ruling independently on 2026-08-31, not knowing it had already shipped.
+
+The §1.2a documented-limit entries this paragraph used to point at are gone with the resolution;
+that section now carries the clause and a dated historical note instead. Past-tensed here on
+2026-08-31 by the invariant-8 gate on `docs/paired-chrome-stale-text`, which found this body still
+asserting the pre-resolution state in the present tense. Same defect as the one that branch exists
+to repair, in a file it was already editing, which is not a deferral reason.
+
+**Un-defer trigger:** a decision on whether §1.2a gains a pairing clause or an explicit "chrome
+follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
+
+### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome — CLOSED 2026-08-31 (`feat/telemetry-retry-outcome`, SHIPPED)
+
+**Effort:** S for the mechanism, M with the prop threading and its tests
+
+Surfaced by the invariant-8 dual gate on branch `feat/telemetry-fallback-retry` (critique P1,
+audit P2 — recorded at the higher call). Findings and dispositions are in the closeout beside
+`docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md`.
+
+**The finding.** `components/admin/telemetry/TelemetryRetryButton.tsx` announces `Retrying <what>`
+into its live region on every activation. On success the component unmounts with the branch it
+lives in; on a repeated failure it re-renders the same phrase, distinguished only by a parity
+toggle. Either way a screen-reader user hears the intent and never the outcome. A sighted user
+sees the content appear or the fallback persist; a listener gets nothing that separates the two.
+
+**Why it is deferred rather than fixed, with the probes that settle it.** The control has no
+completion signal to announce, and this was measured rather than assumed:
+
+1. `router.refresh(): void` — `node_modules/next/dist/shared/lib/app-router-context.shared-runtime.d.ts:32`.
+   No promise, so nothing to await.
+2. `bfcacheId` is the one router value that tracks navigation identity, and its own doc comment
+   at `:57` says it "stays the same for ... `router.refresh()`". It is explicitly not this signal.
+3. A SYNC `useTransition` around `router.refresh()` never exposes a pending state in this harness:
+   a throwaway probe rendering exactly that shape asserted `isPending` after the click and FAILED.
+   An ASYNC transition does expose one, mid-flight and cleared on settle, and passed — but it needs
+   something real to await, and (1) says there is nothing. A timer would make `aria-busy` report a
+   duration unrelated to the refresh, which is a lie rather than a fix.
+
+**The mechanism that would fix it, so the next arc does not re-derive any of the above.** The only
+honest completion signal is one the SERVER render changes. All three call sites already hold a
+per-render timestamp in scope (`app/admin/dev/telemetry/page.tsx` awaits `nowDate()`,
+`EventTimeline` receives `now`, `HealthAlertsPanel` computes its own). Threading it as a prop lets
+the control record the value it saw at the tap and compare: a changed value while still mounted
+means the retry completed and did not fix the branch, which is a settled outcome worth announcing.
+
+**Its known fragility, stated up front.** That couples the announcement's correctness to a display
+clock. If `nowDate()` were ever memoized to a stable value the announcement would silently stop,
+and no test would red. Any implementation therefore owes a guard on the signal itself, not only on
+the announcement.
+
+**Un-defer trigger:** a second surface needing an outcome announcement from a `router.refresh()`
+that reports nothing, OR a Next release giving `refresh()` a completion signal, OR a report of a
+screen-reader user unable to tell a failed retry from a successful one on this page.
+
+---
+
+**Shipped 2026-08-31, PR #957.** The mechanism is the one this entry named: each of the three fallbacks threads its own per-render server timestamp as `renderedAt`, the control records the value it saw at the tap, and a later render carrying a different finite value means a re-read completed and the branch still failed. Any difference settles it, in either direction, never an ordering test; both guards are `Number.isFinite`, because zero is a valid instant and an infinity is not a completed render. Success stays silent by construction.
+
+**The owed guard landed.** `tests/time/now.test.ts` pins the SIGNAL rather than the announcement: a cache planted on `nowDate`'s production path reds exactly that case. The head-of-function plant that reds seven cases is recorded as the strawman it is.
+
+**Two things the arc changed that this entry did not anticipate.** The impeccable gate replaced the hand-rolled `role="status"` swap with the repo's shared append channel (`components/admin/announceLog.tsx`), which DESIGN.md §15 mandates whenever the same message text can recur, so the sequence counter and the parity suffix are gone rather than extended. And the announcement's cadence is one outcome per settled CYCLE, not one per tap or per response.
+
+**What did NOT ship, recorded so it is not mistaken for done.** A retry that never lands is still silent, and the timer that would fix it is declined on the record: it would assert an outcome nobody observed. The sighted half of the same defect is also still open, since tapping leaves the header's "Updated Ns ago" chip stale. Both are in the spec's documented limits and the PR body's unfixed peers.
+
+---
+
 ### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session — CLOSED 2026-08-29 (`feat/diagram-failure-retry`, SHIPPED)
 
 **Resolution: SHIPPED.** The entry deferred under class-sweep exception (a) — it needed a

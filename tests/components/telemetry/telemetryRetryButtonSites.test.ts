@@ -61,8 +61,19 @@ type Site = { file: string; what: string; testId: string; at: number; src: strin
 
 /** Every mention of the tag, in ANY form, well- or ill-formed. */
 const TAG = /<TelemetryRetryButton\b/g;
-/** The CANONICAL form: self-closing, exactly these two props, both string literals. */
-const CANONICAL = /<TelemetryRetryButton\s+what="([^"]*)"\s+testId="([^"]*)"\s*\/>/g;
+/**
+ * The CANONICAL form: self-closing, exactly these three props, the two labels as
+ * string literals and the timestamp as one fixed expression.
+ *
+ * Widened deliberately for TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1, which is what the
+ * totality-bridge case below asks for when the counts diverge. `renderedAt` is pinned
+ * to the literal `{now.getTime()}` rather than accepted as any expression: every site
+ * has a per-render `now` in scope, and the announcement is only honest while the value
+ * comes from THAT render. A site passing a captured constant, a stale variable, or a
+ * zero would thread a timestamp that never moves, which is silence with no red.
+ */
+const CANONICAL =
+  /<TelemetryRetryButton\s+what="([^"]*)"\s+testId="([^"]*)"\s+renderedAt=\{now\.getTime\(\)\}\s*\/>/g;
 
 function scanned(): { sites: Site[]; tagMentions: number } {
   const sites: Site[] = [];
