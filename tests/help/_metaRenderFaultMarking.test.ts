@@ -52,8 +52,15 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // import for them near the top, shifting every keyed row below it. Same identity
   // check: 4108 is still the bare `if (failed)`, verified against origin/main's 4101.
   // 4108 -> 4152 on the ref-error-cell-anchors merge of main; still the bare `if (failed)`.
-  "components/admin/wizard/step3ReviewSections.tsx:4152":
-    "a bare boolean named `failed`, one hop from no resolvable infra source.",
+  //
+  // ROW RETIRED 2026-09-01 by fix/diagram-tile-states, and RETIRED rather than
+  // relocated because the thing it excused no longer exists. The reason read "a
+  // bare boolean named `failed`"; that boolean is now a three-state union
+  // (`DiagramTileState`), so the scanner reports no candidate at this site at all.
+  // Causation probed, not inferred: a throwaway worktree at origin/main reports
+  // `step3ReviewSections.tsx:4152 unknown marked=false` while this tree reports no
+  // candidate in that file. A registry entry outliving the shape it described is
+  // the stale-declaration direction this file's own tests already guard against.
   "components/tiles/OpeningReelVideo.tsx:33":
     "a media-element error flag, not a data-loading fault. Different fault domain from the one this instrument measures.",
 };
@@ -284,7 +291,11 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // resolver is also how this scanner makes its two cross-file hops. Index
     // resolution can only ADD resolutions, so a moved count means the scanner
     // had been silently missing a predicate -- worth failing over either way.
-    expect(CANDIDATES.length).toBe(35);
+    // 35 -> 34 on fix/diagram-tile-states: the bare `if (failed)` at
+    // step3ReviewSections.tsx:4152 became a three-state union, so that site is no
+    // longer an unrecognized candidate. Probed rather than inferred — origin/main
+    // reports 35 with that row present, this tree 34 with it absent.
+    expect(CANDIDATES.length).toBe(34);
   });
 
   it("scanCandidates reports exactly the same file:line:form:marked SET", () => {
@@ -427,7 +438,11 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // `if (result.kind === "infra_error")` origin/main carries at 54. Reverting that
     // ONE row reproduces 71f14e84... byte-for-byte, which is what makes the delta a
     // move rather than a membership change.
-    expect(digest).toBe("01e90bc3843d8b559f071d782fcf256719c1d7503e5293d75423f4a19b828f8c");
+    // Regenerated 2026-09-01 for fix/diagram-tile-states, which RETIRED a row
+    // rather than moving one: the `if (failed)` at step3ReviewSections.tsx:4152
+    // became a `DiagramTileState` union. Membership 35 -> 34, and the sets differ
+    // by that row alone.
+    expect(digest).toBe("ed124ebcad66392c04e124001124fb94fa4ab79b297841fa3822fcfa1e5527c8");
   });
 });
 
