@@ -50,14 +50,20 @@ export function navBadgeArrivalAnnouncement(
   bell: number | null,
   attention: number | null,
 ): string | null {
-  const sentences: string[] = [];
-  if (speakable(bell)) {
-    sentences.push(`${bell} unseen notification${bell === 1 ? "" : "s"}.`);
-  }
-  if (speakable(attention)) {
-    sentences.push(
-      `${attention} item${attention === 1 ? "" : "s"} need${attention === 1 ? "s" : ""} attention.`,
-    );
-  }
-  return sentences.length === 0 ? null : sentences.join(" ");
+  // Composed directly rather than joined from an array. `tests/specLint/canonicalClassCallee.test.ts`
+  // forbids array-join call sites because the Tailwind plugin cannot see inside
+  // one, and its escape hatch is an EXEMPT_SITES row keyed by operand
+  // signature. This join's operands are an array variable, so its signature is
+  // EMPTY, and a row keyed on nothing would exempt any future join in this
+  // function including a real className one. Removing the array removes the
+  // hazard instead of excusing it, and reads no worse at two halves.
+  const bellSentence = speakable(bell)
+    ? `${bell} unseen notification${bell === 1 ? "" : "s"}.`
+    : null;
+  const attentionSentence = speakable(attention)
+    ? `${attention} item${attention === 1 ? "" : "s"} need${attention === 1 ? "s" : ""} attention.`
+    : null;
+
+  if (bellSentence && attentionSentence) return `${bellSentence} ${attentionSentence}`;
+  return bellSentence ?? attentionSentence;
 }

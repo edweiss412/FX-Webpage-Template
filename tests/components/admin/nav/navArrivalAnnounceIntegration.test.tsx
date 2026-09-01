@@ -922,8 +922,11 @@ describe("AC-20: the transition audit", () => {
     //   NotifBell, 3 renders: the degraded/normal trigger ternary assigned to
     //     `const trigger`, the badge pill, and the panel. 2 early returns, both
     //     added here: the report effect's `!onBellState` bail and its dedup.
-    //   navArrivalAnnounce, 0 renders (no JSX) and 2 early returns, the pure
-    //     selector's degraded and not-finite guards.
+    //   navArrivalAnnounce, 0 renders (no JSX) and 3 early returns: the pure
+    //     selector's degraded and not-finite guards (:19, :20), plus the
+    //     both-halves-present composition (:67). The third arrived when the
+    //     array join was removed, and this census is what caught the change,
+    //     which is the behaviour a pinned population is for.
     //
     // Every entry is instant: the renders are swaps on already-mounted chrome,
     // and no early return renders anything. §3.8's three states have no
@@ -931,7 +934,7 @@ describe("AC-20: the transition audit", () => {
     expect(census).toEqual({
       "components/admin/nav/AdminNav.tsx": { jsxConditionals: 3, earlyReturns: 3 },
       "components/admin/nav/NotifBell.tsx": { jsxConditionals: 3, earlyReturns: 2 },
-      "components/admin/nav/navArrivalAnnounce.ts": { jsxConditionals: 0, earlyReturns: 2 },
+      "components/admin/nav/navArrivalAnnounce.ts": { jsxConditionals: 0, earlyReturns: 3 },
     });
   });
 });
