@@ -66,9 +66,6 @@ export const CENSUS: readonly CensusRow[] = [
     line: 361,
     outline: "control-outline-tinted",
   },
-  // spec §4.2 row 3 — only its `compact` branch carries the token (§6: the
-  // non-compact branch stays `border-border bg-surface` at 1.27:1)
-  { file: "app/admin/show/[slug]/ResetPickerEpochButton.tsx", line: 178 },
   // spec §4.2 row 4 — two-arm ternary, BOTH arms carry the token
   { file: "components/admin/ArchiveShowButton.tsx", line: 365 },
   // spec §4.2 row 5
@@ -282,7 +279,6 @@ export const CENSUS: readonly CensusRow[] = [
   // moved TO.
   // ---------------------------------------------------------------------------
   { file: "app/admin/show/[slug]/PickerResetControl.tsx", line: 255 },
-  { file: "app/admin/show/[slug]/ResetPickerEpochButton.tsx", line: 260 },
   { file: "app/admin/show/[slug]/RotateShareTokenButton.tsx", line: 379 },
   { file: "app/me/meShowSections.tsx", line: 174 },
   { file: "app/me/meShowSections.tsx", line: 213 },

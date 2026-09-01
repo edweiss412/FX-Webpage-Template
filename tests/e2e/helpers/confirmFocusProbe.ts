@@ -78,6 +78,15 @@ export type FocusReading = {
    * repair hit it. Round 2 caught exactly that.
    */
   readonly id: string | null;
+  /**
+   * `data-row-email` of the nearest ancestor row, when there is one.
+   *
+   * Every revoke trigger carries the SAME testid and no id, so testid+id cannot
+   * tell one row's trigger from another's and the cancel assertion would pass
+   * with focus on the WRONG row. The row identity is what makes the oracle
+   * exact on a repeated control.
+   */
+  readonly row: string | null;
   /** false when the confirm destroyed the root — a result, not an error. */
   readonly rootPresent: boolean;
   /** Intersection of the focused rect with the root's client rect, in CSS px. */
@@ -103,6 +112,10 @@ export async function readFocus(
         tag: active ? active.tagName : null,
         testid: active ? active.getAttribute("data-testid") : null,
         id: active && active.id !== "" ? active.id : null,
+        row:
+          active === null
+            ? null
+            : (active.closest("[data-row-email]")?.getAttribute("data-row-email") ?? null),
         insideRoot: el !== null && active !== null ? el.contains(active) : false,
         rootPresent: el !== null,
         visibleHeight:
@@ -152,7 +165,26 @@ export function rootLocator(page: Page, control: ConfirmControl): Locator {
   return page.locator(control.rootSelector);
 }
 
-export type CapturedTarget = { readonly testid: string | null; readonly id: string | null };
+export type CapturedTarget = {
+  readonly testid: string | null;
+  readonly id: string | null;
+  readonly row: string | null;
+};
+
+/** Identity of ANY element, read from the page by selector. One implementation,
+ *  so a second copy at a call site cannot drift from CapturedTarget's shape. */
+export async function captureBySelector(page: Page, selector: string): Promise<CapturedTarget> {
+  const got = await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el === null) return null;
+    return {
+      testid: el.getAttribute("data-testid"),
+      id: el.id === "" ? null : el.id,
+      row: el.closest("[data-row-email]")?.getAttribute("data-row-email") ?? null,
+    };
+  }, selector);
+  return got ?? { testid: null, id: null, row: null };
+}
 
 /** Identity of the required restore target, read BEFORE the action runs. */
 export async function captureRestoreTarget(
@@ -162,7 +194,11 @@ export async function captureRestoreTarget(
   const got = await page.evaluate((sel) => {
     const el = document.querySelector(sel);
     if (el === null) return null;
-    return { testid: el.getAttribute("data-testid"), id: el.id === "" ? null : el.id };
+    return {
+      testid: el.getAttribute("data-testid"),
+      id: el.id === "" ? null : el.id,
+      row: el.closest("[data-row-email]")?.getAttribute("data-row-email") ?? null,
+    };
   }, control.restoreTargetSelector);
   expect(
     got,
@@ -258,7 +294,7 @@ export function assertFocusReadings(
   // captured before the action, for the same reason the settled assertion is:
   // an expectation taken from the readings could not discriminate.
   expect(
-    { testid: cancel.testid, id: cancel.id },
+    { testid: cancel.testid, id: cancel.id, row: cancel.row },
     `${cancel.at}: cancel must restore focus to the trigger itself, not to another control in the surface`,
   ).toEqual(expected.cancel);
 
@@ -279,7 +315,7 @@ export function assertFocusReadings(
   const settled = at(":settled");
   expect(settled.tag, `${settled.at}: focus must not be stranded on the document`).not.toBe("BODY");
   expect(
-    { testid: settled.testid, id: settled.id },
+    { testid: settled.testid, id: settled.id, row: settled.row },
     `${settled.at}: settled focus must land on the target captured BEFORE the action`,
   ).toEqual(expected.settled);
 }

@@ -113,12 +113,6 @@ const REGISTRY: Row[] = [
     "panel",
     "admin-rotate-share-token-confirm-button",
   ),
-  R(
-    "app/admin/show/[slug]/ResetPickerEpochButton.tsx",
-    0,
-    "panel",
-    "admin-reset-picker-epoch-confirm-button",
-  ),
   R("app/admin/show/[slug]/PickerResetControl.tsx", 0, "panel", "picker-reset-confirm-button"),
   R("components/admin/wizard/CrewRowActions.tsx", 0, "panel", "crew-row-reset-confirm-go"),
   R(

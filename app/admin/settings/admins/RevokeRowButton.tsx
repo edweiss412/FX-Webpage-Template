@@ -106,6 +106,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // Destructive-confirm pass F4 (spec §6): C3 open-focus + C5 close-focus refs.
   const cancelRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const refreshRef = useRef<HTMLButtonElement>(null);
   const confirmRowRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
 
@@ -170,10 +171,21 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // never for a refusal, a lockout, or a retry. The rendered branch is what the
   // operator is looking at, so the rendered branch is what focus must follow.
   useEffect(() => {
-    if (effectiveUi === "idle" && restoreFocusRef.current) {
-      restoreFocusRef.current = false;
-      triggerRef.current?.focus();
-    }
+    if (!restoreFocusRef.current) return;
+    // Follow the branch that RENDERS, all the way — not just the idle one. When
+    // the 12s watchdog flips resolving to couldnt_confirm, the idle trigger does
+    // not exist and Refresh is the only control that branch puts on screen; an
+    // effect that handled idle alone left the operator on the submitter that had
+    // just gone away (whole-diff review P1).
+    const target =
+      effectiveUi === "idle"
+        ? triggerRef.current
+        : effectiveUi === "couldnt_confirm"
+          ? refreshRef.current
+          : null;
+    if (target === null) return;
+    restoreFocusRef.current = false;
+    target.focus();
   }, [effectiveUi]);
 
   const onRevokeClick = () => {
@@ -304,6 +316,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           {/* tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10 */}
           <button
             type="button"
+            ref={refreshRef}
             data-testid="admin-allowlist-couldnt-confirm-refresh"
             onClick={onRefreshClick}
             className="font-medium underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"

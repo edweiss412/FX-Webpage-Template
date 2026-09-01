@@ -14,6 +14,9 @@
  * browser: a mutant that restores the tautology must turn one of these red.
  * Each case names the defect shape it kills.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -29,6 +32,7 @@ const reading = (at: string, over: Partial<FocusReading> = {}): FocusReading => 
   tag: "BUTTON",
   testid: "the-trigger",
   id: null,
+  row: null,
   insideRoot: true,
   rootPresent: true,
   visibleHeight: 44,
@@ -37,7 +41,7 @@ const reading = (at: string, over: Partial<FocusReading> = {}): FocusReading => 
   ...over,
 });
 
-const TRIGGER: CapturedTarget = { testid: "the-trigger", id: null };
+const TRIGGER: CapturedTarget = { testid: "the-trigger", id: null, row: null };
 /** Cancel and settled coincide for most controls; archive is why they are separate fields. */
 const TARGET = { cancel: TRIGGER, settled: TRIGGER };
 
@@ -68,7 +72,11 @@ describe("assertFocusReadings decides the confirm-path focus outcome", () => {
   });
 
   it("FAILS when the target is identified by id and focus lands elsewhere", () => {
-    const idTarget: CapturedTarget = { testid: null, id: "admin-settings-admins-heading" };
+    const idTarget: CapturedTarget = {
+      testid: null,
+      id: "admin-settings-admins-heading",
+      row: null,
+    };
     const r = repaired();
     r[0] = reading("x:control-after-cancel", { testid: null, id: "admin-settings-admins-heading" });
     r[4] = reading("x:settled", { testid: null, id: "some-other-heading" });
@@ -110,8 +118,8 @@ describe("assertFocusReadings decides the confirm-path focus outcome", () => {
     r[0] = reading("x:control-after-cancel", { testid: "the-trigger" });
     r[4] = reading("x:settled", { testid: "the-other-target" });
     const twoTargets = {
-      cancel: { testid: "the-trigger", id: null },
-      settled: { testid: "the-other-target", id: null },
+      cancel: { testid: "the-trigger", id: null, row: null },
+      settled: { testid: "the-other-target", id: null, row: null },
     };
     expect(() => assertFocusReadings(r, twoTargets)).not.toThrow();
     // ...and the arms are not interchangeable: swapping them must fail.
@@ -172,19 +180,35 @@ describe("the root a control is read through cannot disagree with the root it is
     expect(got.__sel).toBe('[data-testid="the-section"]');
   });
 
-  it("leaves no second root field for a call site to set independently", () => {
-    const control: Record<string, unknown> = {
-      name: "probe",
-      rootSelector: '[data-testid="the-section"]',
-      restoreTargetSelector: '[data-testid="the-trigger"]',
-      trigger: "the-trigger",
-      confirm: "the-confirm",
-      cancel: "the-cancel",
-    };
-    // The shape a caller can express IS the guarantee. If `root` returns to the
-    // type, this file is the thing that notices.
-    expect(Object.keys(control), "a ConfirmControl declares exactly one root").not.toContain(
-      "root",
+  it("tells one row's trigger from another's when the testid is shared", () => {
+    // Every revoke row renders the SAME trigger testid and no id. Without the
+    // row identity, focus landing on a DIFFERENT row's trigger satisfied the
+    // cancel assertion — the oracle could not be exact on a repeated control.
+    const r = repaired();
+    r[0] = reading("x:control-after-cancel", { testid: "the-trigger", row: "other@example.com" });
+    expect(
+      () =>
+        assertFocusReadings(r, {
+          cancel: { testid: "the-trigger", id: null, row: "peer@example.com" },
+          settled: TRIGGER,
+        }),
+      "same testid, different row, must not satisfy the cancel arm",
+    ).toThrow();
+  });
+
+  it("declares exactly ONE root field, read from the type itself", () => {
+    // The previous version of this case built a literal WITHOUT a `root` key and
+    // then asserted the literal had no `root` key — self-fulfilling, and it would
+    // have passed on the very day someone re-added the field. The guarantee is a
+    // property of the TYPE, so the type is what gets read.
+    const src = readFileSync(
+      join(__dirname, "..", "..", "..", "tests/e2e/helpers/confirmFocusProbe.ts"),
+      "utf8",
     );
+    const block = /export type ConfirmControl = \{([\s\S]*?)\n\};/.exec(src);
+    expect(block, "ConfirmControl's declaration must be findable").not.toBeNull();
+    const fields = [...(block![1] ?? "").matchAll(/^\s*readonly\s+(\w+)\s*:/gm)].map((m) => m[1] ?? "");
+    expect(fields.length, "premise: the field list parsed").toBeGreaterThan(3);
+    expect(fields.filter((f) => f.toLowerCase().includes("root"))).toEqual(["rootSelector"]);
   });
 });

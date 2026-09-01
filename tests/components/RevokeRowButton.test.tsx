@@ -16,6 +16,13 @@ import "@testing-library/jest-dom/vitest";
 // Stable mock of the Server Action; the test controls the resolved
 // value per case.
 const mockState = vi.hoisted(() => ({
+  // `gate` lets a case hold the action OPEN. Without it every dispatch settles
+  // immediately and the 12s watchdog branch is unreachable from a test — which
+  // is why that branch went unnoticed until the whole-diff review.
+  gate: null as Promise<void> | null,
+  // Real invocations of the action. A locally incremented counter proves
+  // nothing about whether the dispatch reached it.
+  calls: 0,
   nextResult: { kind: "ok" } as
     | { kind: "ok" }
     | { kind: "last_admin_lockout"; email: string }
@@ -24,7 +31,11 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/app/admin/settings/admins/actions", () => ({
-  revokeAdminAction: async () => mockState.nextResult,
+  revokeAdminAction: async () => {
+    mockState.calls += 1;
+    if (mockState.gate !== null) await mockState.gate;
+    return mockState.nextResult;
+  },
 }));
 
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
@@ -32,6 +43,8 @@ import { isTextAlignToken, tailwindTextAlignUtilities } from "@/tests/_shared/te
 
 beforeEach(() => {
   mockState.nextResult = { kind: "ok" };
+  mockState.gate = null;
+  mockState.calls = 0;
 });
 
 afterEach(() => {
@@ -200,18 +213,63 @@ describe("RevokeRowButton — AC-4: focus after a NON-SUCCESS confirm", () => {
     // The retry is where a naive repair breaks R5/AC-6: a stale refused result
     // plus a synchronous disable cancels the native submit. The dispatch count
     // is the evidence, not the focus.
-    let dispatches = 0;
     mockState.nextResult = { kind: "self_revoke_forbidden", email: "self@example.com" };
     render(<RevokeRowButton email="self@example.com" disabled={false} />);
     await armAndConfirm();
     await waitFor(() =>
       expect(screen.getByTestId("admin-allowlist-self-revoke-error")).toBeVisible(),
     );
-    dispatches += 1;
+    expect(mockState.calls, "the first confirm must have reached the action").toBe(1);
     await armAndConfirm();
-    dispatches += 1;
-    expect(dispatches, "both confirms must have reached the action").toBe(2);
+    // The evidence is the ACTION's own call count, not a number this test
+    // increments. The previous version counted its own lines and would have
+    // passed with the dispatch cancelled — which is the exact regression R5
+    // exists to prevent.
+    expect(mockState.calls, "the retry must also have reached the action").toBe(2);
     await waitFor(() => expect(trigger()).toHaveFocus());
+  });
+
+  it("watchdog: focus moves to the Refresh control that branch renders", async () => {
+    // Whole-diff review P1. The restore effect handled effectiveUi === "idle"
+    // only, so when the 12s watchdog flips resolving to couldnt_confirm the
+    // operator was left on the submitter that had just gone away. The plan named
+    // this branch; Task 5 covered the two REFUSAL results instead.
+    //
+    // TIMER ORDER IS LOAD-BEARING. Arming runs under REAL timers, because
+    // waitFor polls on timers and deadlocks against a frozen clock. Fake timers
+    // start only once the row is armed, since the watchdog is scheduled by the
+    // confirm click. Every assertion after the advance is plain, for the same
+    // reason.
+    mockState.nextResult = { kind: "ok" };
+    // Typed as the resolver rather than a nullable union: TS cannot see the
+    // executor's assignment, so a `| null` union narrows to null and the later
+    // call is rejected as not callable.
+    let releaseAction: () => void = () => {};
+    mockState.gate = new Promise<void>((r) => {
+      releaseAction = r;
+    });
+    render(<RevokeRowButton email="peer@example.com" disabled={false} />);
+    fireEvent.click(screen.getByTestId("admin-allowlist-revoke-button"));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-allowlist-revoke-cancel-button")).toHaveFocus(),
+    );
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("admin-allowlist-revoke-confirm-button"));
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(12_001);
+      });
+      // Premise: the watchdog branch is the one on screen.
+      expect(screen.getByTestId("admin-allowlist-couldnt-confirm")).toBeVisible();
+      expect(screen.getByTestId("admin-allowlist-couldnt-confirm-refresh")).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+      releaseAction();
+      mockState.gate = null;
+    }
   });
 
   it("confirm does NOT steal focus planted outside the row", async () => {

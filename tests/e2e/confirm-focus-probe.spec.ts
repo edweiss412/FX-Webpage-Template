@@ -45,6 +45,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { ensureActorActive, hardDeleteAdminEmail, insertActivePeer } from "./helpers/seedAdminPeer";
 import {
   assertFocusReadings,
+  captureBySelector,
   captureRestoreTarget,
   measureCancelPath,
   measureConfirmPath,
@@ -234,12 +235,10 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
     const settledTarget: CapturedTarget = await captureRestoreTarget(page, archive);
     // Archive is the control where the two DIFFER: cancel returns to its own
     // trigger, while the settled focus lands on the hub opener.
-    const cancelTarget: CapturedTarget = await page.evaluate(() => {
-      const el = document.querySelector('[data-testid="archive-show-button"]');
-      return el === null
-        ? { testid: null, id: null }
-        : { testid: el.getAttribute("data-testid"), id: el.id === "" ? null : el.id };
-    });
+    const cancelTarget: CapturedTarget = await captureBySelector(
+      page,
+      '[data-testid="archive-show-button"]',
+    );
     const readings: FocusReading[] = [];
     readings.push(await measureCancelPath(page, archive));
     readings.push(...(await measureConfirmPath(page, archive)));
@@ -290,12 +289,10 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       };
 
       const settledTarget: CapturedTarget = await captureRestoreTarget(page, revoke);
-      const cancelTarget: CapturedTarget = await page.evaluate(() => {
-        const el = document.querySelector('[data-testid="admin-allowlist-revoke-button"]');
-        return el === null
-          ? { testid: null, id: null }
-          : { testid: el.getAttribute("data-testid"), id: el.id === "" ? null : el.id };
-      });
+      const cancelTarget: CapturedTarget = await captureBySelector(
+        page,
+        '[data-testid="admin-allowlist-revoke-button"]',
+      );
       const readings: FocusReading[] = [];
       readings.push(await measureCancelPath(page, revoke));
       readings.push(...(await measureConfirmPath(page, revoke)));
