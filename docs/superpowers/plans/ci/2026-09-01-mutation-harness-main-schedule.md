@@ -124,9 +124,12 @@ Ten is the smallest count at which the makespan reaches its floor — the heavie
 surface — and no larger count moves it. **That is the derivation for `SOURCE_SHARD_COUNT = 10`, and the
 reason it is not eight** even though eight passes. The budget compares ELAPSED leg seconds, and the
 measured legs run above their child time by a margin that is itself measured rather than assumed:
-across the eight legs of run `33404224554` the overhead is 179 s at least, 264 s at most, 209 s
-median. At the median that puts the binding leg near 3076 s elapsed at N=8, 524 s of headroom, and
-near 2699 s at N=10, 901 s; at the worst observed overhead, 2754 s and 846 s.
+across the eight legs of run `33404224554` the overhead sorts to 178.817, 195.097, 196.181, 200.758,
+208.738, 210.598, 259.274 and 263.873 s. Eight values, so the median is the mean of the middle pair —
+204.748 s — the way `lib/mutationWeight/weights.ts:16` computes one. (An earlier draft took the fifth
+element, 208.738, which is not the median of an even sample.) Against the exact modelled makespans of
+2866.564 s and 2490.111 s that is **3071 s elapsed and 529 s of headroom at N=8**, and **2695 s and
+905 s at N=10**; at the worst observed overhead, 2754 s and 846 s.
 
 Enrolment growth between the two runs on record is about 490 s/day, measured on the ELAPSED leg sums
 because that is what both runs recorded (52 surfaces on 2026-08-26 summing 22,158 s; 60 on
@@ -316,9 +319,9 @@ balanced sets leaves one part's rows under an antecedent that is no longer in fr
 
 ```
 A  controlOutlineResidueRewrites     equality-flip, statement-removal, regex-quantifier-bound
-                                     139 mutants, boots 140, 1923 s, rate 13736,  0 accepted rows
+                                     139 mutants, boots 140, 1,923,298 ms, rate 13738,  0 accepted
 B  controlOutlineResidueBoundaries   integer-literal, relational-boundary, logical-connector
-                                     116 mutants, boots 117, 2490 s, rate 21282, 14 accepted rows
+                                     116 mutants, boots 117, 2,490,104 ms, rate 21283, 14 accepted
                                      139 + 116 = 255, the whole surface
 ```
 
@@ -331,8 +334,10 @@ which is why A is expected to be clean — but both parts get their own scored r
 stated separately.
 
 Costs, both of them real: the split adds one modelled boot (`bootsOf` adds `+ suites` per row), and
-choosing family over balance costs 176 s of makespan, 2490 s instead of 2314 s. Both are in the
-table above.
+choosing family over balance costs **157 s of makespan** — 2490.111 s against the balanced split's
+2333.122 s at N=10, both pinned by their own heaviest remaining part. An earlier draft said 176 s,
+which subtracted the balanced split's PART cost from the family split's MAKESPAN; the comparison has
+to be makespan against makespan or it is not a comparison.
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -364,7 +369,13 @@ raise `SOURCE_SHARD_COUNT` to 10 with nothing else changed. Run the command agai
 shard-file set, the workflow matrix, the budget-step env and the `mutation:guards` target list;
 `_metaShardRangeTracked` reporting shard8 and shard9 as ignored, which is the `.gitignore` scratch
 rule at line 137 still keyed to the old count; `_metaLedgerKindsDeclarationParity` on the two new ids if their declarations are not yet in place;
-and `_metaE2eWorkflowCoverage` on the allowlisted value text for the budget-step env.
+**and NOT `_metaE2eWorkflowCoverage`**, which an earlier draft claimed and which does not red here:
+at this checkpoint the workflow's budget-step env and the allowlist both still read `"8"`, so the
+pair agrees and the suite passes. It reds only if the workflow env moves to `"10"` while the
+allowlist does not. That is a LOCKSTEP constraint rather than a red in this task's sequence, and it
+is why the two move in one command — `apply-count` writes both or refuses. The suite stays in the
+task's command because it is what catches the lockstep being broken, not because it is expected to
+fail at Step B.
 
 `tests/mutation/guardSurfaces.gates.test.ts` also compares the exact id set
 (`tests/mutation/guardSurfaces.gates.test.ts:17`) and is deliberately NOT in the marker's command:
@@ -418,8 +429,8 @@ green, and claiming it were would be a plan asserting a red it does not have. Th
 its own red on the same command — `_metaSourceShardIntegrity` and `_metaShardRangeTracked`, both
 derived from `SOURCE_SHARD_COUNT`, fail the moment it moves and the workflow, the script list and the
 ignore rule have not followed. Its JUSTIFICATION is the headroom arithmetic above and not an
-assertion: 2867 s modelled is about 3076 s elapsed at the median measured overhead, 524 s of margin
-against measured growth of 61 s/day per leg, so eight is a repair with a nine-day fuse. Ten is the
+assertion: 2866.564 s modelled is 3071 s elapsed at the median measured overhead of 204.748 s, 529 s
+of margin against measured growth of 61 s/day per leg, so eight is a repair with a nine-day fuse. Ten is the
 smallest count at which the makespan reaches the floor no count can go below.
 
 The three moves are one task because they are inseparable in the tree, not because they share a
@@ -631,9 +642,9 @@ fingerprints moved, and the by-operator and by-kind census is unmoved.
   the same 2490 s. So the floor is no longer a surface somebody else enrolled — it is
   `controlOutlineResidueBoundaries`, and the next count raise would be measuring nothing. The next
   breach is a surface that outgrew a leg, and the repair is another split or a cheaper deciding
-  suite. Worth naming: the family-preserving split costs 176 s of makespan against the
-  operator-balanced one (2490 vs 2314), and that 176 s was spent deliberately to keep two rationale
-  banners from losing their antecedents. Re-file trigger: a `budget` FAILURE on a scheduled `main`
+  suite. Worth naming: the family-preserving split costs 157 s of makespan against the
+  operator-balanced one (2490.111 s against 2333.122 s at N=10, both makespans), and that 157 s was
+  spent deliberately to keep two rationale banners from losing their antecedents. Re-file trigger: a `budget` FAILURE on a scheduled `main`
   run at N=10.
 - **The AC-3 control case cannot tell a genuine kill from a TIMEOUT** — both are a non-zero code at
   `tests/mutation/source/surfaceCases.ts:262-266`. A signal kill is a different matter and is
