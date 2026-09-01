@@ -231,12 +231,17 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       // a detached root cannot answer where focus went afterwards.
       const revoke: ConfirmControl = {
         name: "revoke-admin",
-        root: activeList,
-        // Root is the SECTION, not the active list: the ratified restore target
-        // is the section heading, which sits OUTSIDE the list, so rooting on the
-        // list left `insideRoot` unable to observe the very element the repair
-        // must hit (round 2, finding 1).
-        rootSelector: "#admin-settings-admins-heading",
+        // ROOT IS THE SECTION, and `root` and `rootSelector` must name the SAME
+        // element. Round 2 moved the reading root off the active list because the
+        // ratified restore target — the heading — sits outside it. Round 4 caught
+        // that the move went too far in one place and not at all in another: the
+        // selector became the HEADING, which contains no controls, so `insideRoot`
+        // is false for the trigger and the cancel arm fails before the settled
+        // assertion is ever reached, while the Locator still pointed at the list.
+        // The section wraps both the heading and the list, so it is the only root
+        // under which every element this case touches is inside.
+        root: page.getByTestId("admin-settings-admins-section"),
+        rootSelector: '[data-testid="admin-settings-admins-section"]',
         restoreTargetSelector: "#admin-settings-admins-heading",
         trigger: "admin-allowlist-revoke-button",
         confirm: "admin-allowlist-revoke-confirm-button",
