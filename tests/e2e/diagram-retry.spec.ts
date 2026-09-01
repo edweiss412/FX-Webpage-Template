@@ -33,8 +33,8 @@
  *   - The failure is driven by failing the ASSET REQUEST, the component's own
  *     path to `onError`, not by dispatching a synthetic event.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -68,6 +68,37 @@ const HEADERS = { "cache-control": "private, max-age=0, must-revalidate" };
 let server: Server;
 let baseUrl: string;
 let workDir: string;
+
+/**
+ * A per-case hook the harness server consults BEFORE serving files.
+ *
+ * Every other case in this file intercepts the asset with `page.route`, so the
+ * request never reaches this server at all. The U-1 case cannot do that: what it
+ * measures is what the SERVER sees when the browser gives up on a request, and a
+ * Playwright route handler stands between the two. Returning true means the hook
+ * answered; null restores ordinary file serving for every other case.
+ */
+let assetHook: ((req: IncomingMessage, res: ServerResponse) => boolean) | null = null;
+
+/**
+ * The check-in deadline, DERIVED from the shipped constant rather than retyped,
+ * and read out of source rather than imported: `RETRY_CHECK_IN_MS` is exported
+ * from GalleryLightbox.tsx, which is JSX, and Playwright's babel transform
+ * rewrites JSX in a spec-imported .tsx into a component-testing payload. The
+ * throw is the premise, so a rename fails loudly instead of leaving this spec
+ * waiting on a number of its own invention.
+ */
+const RETRY_CHECK_IN_MS = (() => {
+  const src = readFileSync(
+    resolve(REPO_ROOT, "components", "diagrams", "GalleryLightbox.tsx"),
+    "utf8",
+  );
+  const m = /export const RETRY_CHECK_IN_MS = ([0-9_]+)/.exec(src);
+  if (m?.[1] === undefined) {
+    throw new Error("RETRY_CHECK_IN_MS was not found in components/diagrams/GalleryLightbox.tsx");
+  }
+  return Number(m[1].replace(/_/g, ""));
+})();
 
 test.beforeAll(() => {
   workDir = mkdtempSync(join(tmpdir(), "diagram-retry-"));
@@ -104,6 +135,7 @@ test.beforeAll(() => {
 
   server = createServer((req, res) => {
     const url = (req.url ?? "/").split("?")[0] ?? "/";
+    if (assetHook !== null && url.startsWith("/api/asset/") && assetHook(req, res)) return;
     const file = url === "/" || url === "" ? "live.html" : url.replace(/^\//, "");
     try {
       const body = readFileSync(join(workDir, file));
@@ -217,4 +249,165 @@ test("one tap is one request, and the node that loads is the node that stays", a
   const candidates = (afterSrcSet ?? "").split(",").map((c) => c.trim().split(" ")[0] ?? "");
   const originalOffered = candidates.some((c) => /embedded-obj-1\.png(?!@)/.test(c));
   expect(originalOffered, "AC-2: a laddered entry offers no original-tier candidate").toBe(false);
+});
+
+/**
+ * AC-2, AC-8, AC-9 and AC-D3 — the check-in in a real engine, and U-1 measured.
+ *
+ * Why a browser at all: jsdom issues no requests, so "Restart issues a SECOND
+ * request while the first is unanswered" is invisible to every jsdom assertion
+ * in this arc. And U-1 — whether removing a mid-fetch `<img>` abandons its
+ * request — is a question about the network, which is why the asset here is
+ * served by the HARNESS SERVER rather than intercepted: a Playwright route
+ * handler stands between the browser and the socket whose fate is the subject.
+ *
+ * This case waits the real thirty seconds. `RETRY_CHECK_IN_MS` is a module
+ * constant read at call time, so shortening it would need a test-only prop, and
+ * one slow case is cheaper than that prop and cheaper than the round it earns.
+ *
+ * SCOPE, stated rather than implied: the harness mounts <Gallery> and no
+ * lightbox, so the real-browser evidence here is gallery-only. The lightbox
+ * check-in is covered by the jsdom suite and the shared implementation, and this
+ * spec claims no browser measurement it does not take.
+ */
+test("the check-in appears, Restart re-requests, and U-1 is measured", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(RETRY_CHECK_IN_MS + 120_000);
+
+  let attempts = 0;
+  /** Set when the held request's socket goes away. THE U-1 OBSERVABLE. */
+  let heldEndedAt: number | null = null;
+  let heldStartedAt: number | null = null;
+  const release: Array<() => void> = [];
+
+  assetHook = (req, res) => {
+    if (!(req.url ?? "").includes("embedded-obj-1")) return false;
+    attempts += 1;
+    if (attempts === 1) {
+      // The component's OWN path to onError, so the failed branch is reached the
+      // way a crew member reaches it rather than by a synthetic event.
+      res.statusCode = 502;
+      res.end("nope");
+      return true;
+    }
+    if (attempts === 2) {
+      // HELD: headers only, no body, never ended. This is the request Restart
+      // walks away from, and the one whose socket answers U-1.
+      heldStartedAt = Date.now();
+      const mark = () => {
+        heldEndedAt ??= Date.now();
+      };
+      req.on("aborted", mark);
+      res.on("close", mark);
+      res.writeHead(200, { "content-type": "image/png", ...HEADERS });
+      release.push(() => {
+        try {
+          res.end();
+        } catch {
+          /* the socket may already be gone, which is the answer, not an error */
+        }
+      });
+      return true;
+    }
+    // The REPLACEMENT request Restart issues. Held too, so the case ends with
+    // the cell still in flight rather than resolving under the assertions.
+    release.push(() => {
+      try {
+        res.end();
+      } catch {
+        /* as above */
+      }
+    });
+    res.writeHead(200, { "content-type": "image/png", ...HEADERS });
+    return true;
+  };
+
+  try {
+    await page.goto(baseUrl);
+
+    const failedControl = page.getByTestId("diagram-retry-0");
+    // The readiness gate is the control existing, never `networkidle` — this
+    // case deliberately leaves a request open forever, so the network is never
+    // idle by construction.
+    await expect(failedControl, "the first load failed, so the cell offers a retry").toBeVisible();
+
+    await failedControl.click();
+    const overlay = page.getByTestId("diagram-retrying-0");
+    await expect(overlay).toBeVisible();
+    expect(attempts, "the tap issued exactly one new request").toBe(2);
+    expect(
+      await overlay.getAttribute("aria-disabled"),
+      "before the deadline the control does nothing, and says so",
+    ).toBe("true");
+
+    // AC-2: the copy changes at the deadline, in a real engine.
+    await expect(overlay).toContainText("Still loading", { timeout: RETRY_CHECK_IN_MS + 30_000 });
+    await expect(overlay).toContainText("Restart");
+    expect(
+      await overlay.getAttribute("aria-disabled"),
+      "at the check-in the control acts, so it is no longer aria-disabled",
+    ).toBeNull();
+    expect(
+      await overlay.getAttribute("aria-busy"),
+      "and the request IS still in flight, so aria-busy holds",
+    ).toBe("true");
+    expect(attempts, "no request was issued by the deadline passing").toBe(2);
+
+    // Tag the in-flight image so the remount is identity, not presence: a
+    // remounted <img> is also "an image".
+    const tagged = await page.evaluate(() => {
+      const img = document.querySelector('[data-testid="diagram-slot-0"] img');
+      if (!img) return false;
+      img.setAttribute("data-u1-original", "yes");
+      return true;
+    });
+    expect(tagged, "the in-flight image was there to tag").toBe(true);
+
+    // AC-8: Restart issues a SECOND request while the first is unanswered.
+    await overlay.click();
+    await expect
+      .poll(() => attempts, { timeout: 15_000, message: "Restart issued a replacement request" })
+      .toBe(3);
+    expect(
+      await page.locator('[data-testid="diagram-slot-0"] img[data-u1-original]').count(),
+      "the original element is gone, which is what makes the replacement a new request",
+    ).toBe(0);
+    await expect(overlay, "and the control is back to plain in-flight copy").toContainText(
+      "Retrying",
+    );
+
+    // U-1, MEASURED. The held request has now been abandoned by the document for
+    // several seconds if the browser abandons it at all. Neither answer fails
+    // this case: what is asserted is that an answer was OBSERVED, and the
+    // observation is written out for the spec to record.
+    await page.waitForTimeout(5_000);
+    const verdict = heldEndedAt === null ? "CONTINUED" : "ABANDONED";
+    const observation = {
+      verdict,
+      heldForMs: heldEndedAt === null ? null : heldEndedAt - (heldStartedAt ?? heldEndedAt),
+      browser: testInfo.project.name,
+      measuredAt: new Date().toISOString().slice(0, 10),
+      case: "the check-in appears, Restart re-requests, and U-1 is measured",
+    };
+    await testInfo.attach("u1-observation.json", {
+      body: JSON.stringify(observation, null, 2),
+      contentType: "application/json",
+    });
+    // Written to a fixed path as well as attached, because the recording step
+    // reads it: an attachment lives inside a report a human opens, and the gate
+    // that follows is a script.
+    mkdirSync(join(REPO_ROOT, "test-results"), { recursive: true });
+    writeFileSync(
+      join(REPO_ROOT, "test-results", "u1-observation.json"),
+      JSON.stringify(observation, null, 2),
+    );
+    expect(
+      ["ABANDONED", "CONTINUED"],
+      "U-1 resolves to one of the two tokens the spec's gate accepts",
+    ).toContain(verdict);
+  } finally {
+    for (const r of release) r();
+    assetHook = null;
+  }
 });
