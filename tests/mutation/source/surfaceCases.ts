@@ -7,7 +7,7 @@ import { EXPECTED_LEDGER_KINDS } from "./expectedLedgerKinds";
 import { type GateResult, evaluateGate } from "./gate";
 import { emitRunRecord } from "./records";
 import type { GuardSurface } from "./registry";
-import { type RunResult, runControl, runSurface } from "./runner";
+import { type ControlVerdict, type RunResult, runControl, runSurface } from "./runner";
 
 const root = process.cwd();
 
@@ -31,6 +31,42 @@ const root = process.cwd();
  * silently dropping the channel. That is what makes this WIRING rather than
  * rendering: a helper the registrar could stop calling would prove nothing.
  */
+/**
+ * AC-3's decision, as a pure function of what the control child was observed to do.
+ *
+ * Extracted so the decision is testable without running the registrar: its
+ * generated cases live inside a `describe.each` at collection scope, so an
+ * assertion about them can only be reached by running a real surface. This is
+ * the same reason `lib/ci/shardBudget.ts` keeps its decision in a function and
+ * its CLI in another file.
+ *
+ * Returns `null` when the surface passes, and otherwise a message naming the
+ * cause the verdict actually establishes. THAT is the point. The version this
+ * replaces said "the suite did not notice this surface's control mutant" for
+ * every non-zero outcome, which reads as a dead overlay -- and on 2026-08-31 the
+ * overlay was live, the control row was simply false, and two nights of triage
+ * went to the wrong surface.
+ */
+export function controlProblem(verdict: ControlVerdict): string | null {
+  if (verdict.kind === "noticed") return null;
+  if (verdict.kind === "no-observations") {
+    return (
+      `the control child produced NO OBSERVATIONS from ${verdict.dark.join(", ")}: ` +
+      `it either never ran or collected zero tests. This is an INFRASTRUCTURE fault, not a ` +
+      `verdict about the control -- a collection failure, a mistyped suitePaths entry, a dead ` +
+      `overlay and an OOM all exit non-zero, and reading that exit as "the suite noticed" is ` +
+      `the fail-open this check exists to close`
+    );
+  }
+  const ran = verdict.observations.map((o) => `${o.suite} (${String(o.totalTests)} tests)`);
+  return (
+    `every declared suite RAN and none rejected the control mutant: ${ran.join(", ")}. ` +
+    `The overlay is live -- a run that could not apply the mutant would report no observations ` +
+    `instead. So either this surface's registry \`control\` row is wrong, or its deciding suite ` +
+    `has no case that distinguishes the control's edit`
+  );
+}
+
 export function evaluateSurface(
   surface: GuardSurface,
   options: { write?: (text: string) => void; root?: string; recordDir?: string } = {},
@@ -245,6 +281,12 @@ export function registerSurfaceCases(
         // PERFECT score -- every mutant running against clean source -- and every
         // other assertion here still passes.
         //
+        // The exit code alone could not carry this verdict. Three outcomes reach
+        // one number -- a suite that rejected the mutant (exit 1), a suite that
+        // ran and did not notice (exit 0), and a child that collected NOTHING
+        // (exit 1, and the fail-open) -- so `runControl` reports observations and
+        // `controlProblem` names which of the three happened.
+        //
         // The previous version READ as if it made this assertion and did not: it
         // computed `broken`, asserted it differed from the source, and then called
         // runSurface with the surface's own operators, never passing `broken` to
@@ -260,10 +302,7 @@ export function registerSurfaceCases(
           broken,
           "control did not apply; validateSurface should have rejected this row",
         ).not.toBe(source);
-        expect(
-          runControl(root, surface, broken),
-          "the suite did not notice this surface's control mutant",
-        ).not.toBe(0);
+        expect(controlProblem(runControl(root, surface, broken))).toBeNull();
         // Explicit budget, because this case SPAWNS A FULL CHILD SUITE RUN and
         // the shared 30s default is a per-test budget meant for in-process work.
         // The gate's other cases run runSurface at module scope, outside any
