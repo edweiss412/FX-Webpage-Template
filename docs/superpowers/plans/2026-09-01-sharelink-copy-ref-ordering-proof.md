@@ -222,7 +222,7 @@ The red is the command in the marker, observed at plan time (exit 2, output past
   const { readFileSync } = require("node:fs");
   const src = readFileSync("scripts/share-link-flash-adversary-matrix.mjs", "utf8");
   const m = src.match(/const VITEST_SUITES = \[([\s\S]*?)\]/);
-  const files = (m ? m[1].match(/"([^"]+)"/g) || [] : []).map((x) => x.slice(1, -1));
+  const files = ((m?.[1] ?? "").match(/"([^"]+)"/g) ?? []).map((x) => x.slice(1, -1));
   const KNOWN = "tests/components/admin/shareLinkCopyButtonRotate.test.tsx";
   if (!files.includes(KNOWN)) {
     console.error(`PREMISE: the parsed VITEST_SUITES list does not contain ${KNOWN}; the scan saw ${files.length} files and is not reading the real list`);
@@ -232,7 +232,8 @@ The red is the command in the marker, observed at plan time (exit 2, output past
   for (const id of ["T-ORDER-STALE", "T-ORDER-FRESH"]) {
     const carrying = files.filter((f) => readFileSync(f, "utf8").includes(id));
     const defs = carrying.flatMap((f) => readFileSync(f, "utf8").split("\n").filter((l) => l.includes(`it("${id}`)));
-    const ok = carrying.length === 1 && defs.length === 1 && carrying[0].endsWith("shareLinkCopyButtonOrdering.test.tsx");
+    const only = carrying.length === 1 ? carrying[0] : undefined;
+    const ok = only !== undefined && defs.length === 1 && only.endsWith("shareLinkCopyButtonOrdering.test.tsx");
     console.log(`${id} files=${carrying.length} defs=${defs.length} ${carrying.join(",")} ${ok ? "OK" : "FAIL"}`);
     if (!bad && !ok) bad = 1;
   }
