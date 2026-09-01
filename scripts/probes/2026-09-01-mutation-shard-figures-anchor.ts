@@ -106,7 +106,7 @@ export const MEASURED_AFTER_ANCHOR: ReadonlyArray<{ id: string; measuredByRun: s
   // Enrolled by feat/forced-colors-pass. Scored 32/32 with zero unaccepted
   // survivors on its enrolment run, which is where its declared 1472 ms/boot
   // comes from; that run postdates the anchor and is not part of it.
-  { id: "forcedColorsScan", measuredByRun: "enrolment run, feat/forced-colors-pass" },
+  { id: "forcedColorsScan", measuredByRun: "re-score at 6f2766520, feat/forced-colors-pass" },
 ];
 export const SPLIT_SOURCE = "tests/styles/controlOutlineResidue.ts";
 export const ANCHOR_PATH = join(__dirname, "2026-09-01-mutation-shard-figures-input.json");

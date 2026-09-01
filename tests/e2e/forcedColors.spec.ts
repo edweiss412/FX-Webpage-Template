@@ -207,11 +207,32 @@ test.describe("forced colors", () => {
   // emulation took effect, and asking the engine is the answer that stays
   // correct when WebKit ships the feature.
   test.beforeEach(async ({ page }) => {
+    // Asks the engine what it DOES, not what it SAYS. The first version of this
+    // gate read `matchMedia("(forced-colors: active)").matches`, and WebKit answers
+    // true: the emulation sets the media query and then does not perform the
+    // forced-colors adjustment. AC-6 went on failing there, which is how the wrong
+    // predicate announced itself. Dropping `box-shadow` is the adjustment every
+    // case in this file depends on, so that is the thing to measure.
     await page.emulateMedia({ forcedColors: "active" });
-    const live = await page.evaluate(() => matchMedia("(forced-colors: active)").matches);
+    const adjusts = await page.evaluate(() => {
+      const el = document.createElement("div");
+      el.style.boxShadow = "0 0 0 2px rgb(255, 0, 0)";
+      document.body.appendChild(el);
+      const dropped = getComputedStyle(el).boxShadow === "none";
+      el.remove();
+      return dropped;
+    });
+
+    // Hand the state back exactly as it was found. A gate that leaves forced colors
+    // ON is not a gate, it is a fixture, and it broke AC-5 the moment it landed:
+    // that case screenshots a NORMAL baseline before emulating, so both of its
+    // shots came back forced, compared equal, and it failed on both projects while
+    // asserting something that was still perfectly true. Every case below sets its
+    // own media state, and it should be the only thing that does.
+    await page.emulateMedia({ forcedColors: "none" });
     test.skip(
-      !live,
-      "this engine does not implement forced-colors, so every assertion here would pass or fail for an unrelated reason (spec §8 limit 11)",
+      !adjusts,
+      "this engine reports the forced-colors media query but does not perform the adjustment, so every assertion here would pass or fail for an unrelated reason (spec §8 limit 11)",
     );
   });
 
@@ -353,6 +374,11 @@ test.describe("forced colors", () => {
   }) => {
     const bar = page.getByTestId("wizard-step2-progressbar");
 
+    // Stated rather than inherited. This is the one case whose baseline is the
+    // UNFORCED render, so it says so: relying on the surrounding state to be off
+    // is what let the engine gate silently turn both of its screenshots into the
+    // same picture.
+    await page.emulateMedia({ forcedColors: "none" });
     await page.goto(origin);
     await expect(bar).toBeVisible();
     const normal = await bar.screenshot();

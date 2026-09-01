@@ -3092,7 +3092,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "forcedColorsScan",
-    millisPerBoot: 1472,
+    // Re-measured after the whole-diff R1 repair, which added real branches to the
+    // surface (`isDroppedGradient` gained the `background` shorthand and a `var()`
+    // arm; the keyframe predicate went from all-uniform to any-survives). That moved
+    // the mutant population 32 -> 34, so the 1472 measured at enrolment described
+    // bytes that no longer exist. 54 s of child wall clock over 35 modelled boots.
+    millisPerBoot: 1533,
     sourcePath: "tests/styles/forcedColorsScan.ts",
     suitePaths: ["tests/styles/_metaForcedColors.test.ts"],
     operators: [...OPERATOR_NAMES],
