@@ -34,6 +34,16 @@ const root = process.cwd();
 /**
  * AC-3's decision, as a pure function of what the control child was observed to do.
  *
+ * DOCUMENTED LIMIT, and it is the reason the `ran-clean` message names two causes rather than
+ * one. A clean report does NOT establish that the overlay applied the mutant: `overlay.ts:8`
+ * records that a hook failing to recognise its target falls through to clean source and every
+ * case passes. So a dead overlay and a live overlay with an inadequate control produce the same
+ * observations, and no arrangement of THIS function's inputs tells them apart. An earlier version
+ * of this message asserted "the overlay is live", which was a liveness claim the verdict had not
+ * earned -- the same defect the whole ControlVerdict exists to remove, one level up. Closing it
+ * for real needs the child to report whether the hook fired, which is a change to the overlay's
+ * own contract and to what every mutant run costs.
+ *
  * Extracted so the decision is testable without running the registrar: its
  * generated cases live inside a `describe.each` at collection scope, so an
  * assertion about them can only be reached by running a real surface. This is
@@ -61,9 +71,13 @@ export function controlProblem(verdict: ControlVerdict): string | null {
   const ran = verdict.observations.map((o) => `${o.suite} (${String(o.ranTests)} tests)`);
   return (
     `every declared suite RAN and none rejected the control mutant: ${ran.join(", ")}. ` +
-    `The overlay is live -- a run that could not apply the mutant would report no observations ` +
-    `instead. So either this surface's registry \`control\` row is wrong, or its deciding suite ` +
-    `has no case that distinguishes the control's edit`
+    `TWO causes produce this, and this verdict does not separate them: either the control row or ` +
+    `the deciding suite is wrong -- the registry \`control\` names an edit no case distinguishes ` +
+    `-- OR the overlay never applied the mutant at all, because a load hook that does not ` +
+    `recognise its target falls through to CLEAN source and every case passes ` +
+    `(tests/mutation/source/overlay.ts:8). Check the control row against the suite FIRST, since ` +
+    `AC-3 runs beside AC-4 and the other surfaces on this leg; an overlay dead for every surface ` +
+    `would not report only this one`
   );
 }
 

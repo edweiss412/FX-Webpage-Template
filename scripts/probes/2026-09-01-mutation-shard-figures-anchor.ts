@@ -268,12 +268,30 @@ export function anchorProblems(A: Anchor, text: string): string[] {
         `bootsAtRun is evaluated on the block's tree rather than the body's`,
     );
   }
-  // DOCUMENTED LIMIT: this function is pure over the anchor's own contents and takes no git, so
-  // it cannot tell a real commit sha from a well-formed invented one. That check lives in the
-  // deciding suite, which can ask git -- see the "names a commit that exists" case in
-  // tests/mutation/figuresAnchorReconciliation.test.ts. Round 2 demonstrated the gap with a
-  // one-character head typo, and splitting it this way is deliberate rather than a shortfall: a
-  // validator that shelled out could not run where this one does.
+  // DOCUMENTED LIMIT: PROVENANCE IS BOUNDED, AND THIS IS WHERE IT STOPS.
+  //
+  // These checks answer "is this identity plausible for a later run", never "is this identity the
+  // run that produced these tables". They catch what an ordinary contributor gets wrong -- the
+  // body's identity copied by mistake, an earlier run's, a malformed sha, a date out of order --
+  // and they cannot catch a deliberate relabel. Whole-diff round 3 demonstrated both remaining
+  // shapes with single-field edits: `runId` one higher than the real one, and `runHeadSha` set to
+  // another commit that genuinely exists.
+  //
+  // Neither is closable from inside this file, and widening again would not help. The anchor's
+  // own contents cannot witness which run produced them; only GitHub can, and this function is
+  // pure and offline by design so that it runs where the suite runs. The real closure is a
+  // network check of the declared runId's head sha against the Actions API, which belongs to
+  // whatever process regenerates the block rather than to the gate that reads it.
+  //
+  // That places it OUTSIDE this arc's stated threat fence -- ordinary contributor error, not an
+  // author constructing an anchor to deceive -- so it is written here, on the surface that owns
+  // it, rather than chased one edit at a time. RE-FILE TRIGGER: a recalibration block whose
+  // figures are found to disagree with the run it names, on any real run.
+  //
+  // The sha's EXISTENCE, separately, is checkable and is checked -- in the deciding suite, which
+  // can ask git: see the "names a commit that exists" case in
+  // tests/mutation/figuresAnchorReconciliation.test.ts. Round 2 demonstrated that gap with a
+  // one-character typo. Splitting it that way is deliberate rather than a shortfall.
   const bodyDate = Date.parse(A.thisRunDateISO);
   const blockDate = Date.parse(R.dateISO);
   if (!Number.isFinite(blockDate)) {

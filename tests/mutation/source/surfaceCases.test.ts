@@ -560,17 +560,24 @@ describe("AC-3 rejects every verdict but NOTICED, and says which one it got", ()
     expect(controlProblem({ kind: "noticed", observations: [obs("a.test.ts", 60, 1)] })).toBeNull();
   });
 
-  it("rejects RAN-CLEAN, and blames the control row rather than the overlay", () => {
+  it("rejects RAN-CLEAN, and names BOTH causes rather than ruling one out", () => {
     const problem = controlProblem({
       kind: "ran-clean",
       observations: [obs("a.test.ts", 60, 0)],
     });
     expect(problem).not.toBeNull();
-    // The exact misdiagnosis this repair exists to stop: on 2026-08-31 this case
-    // was reported as "the suite did not notice", read as a dead overlay, and the
-    // overlay was live.
-    expect(problem).toContain("The overlay is live");
     expect(problem).toContain("60 tests");
+    // NAMES BOTH CAUSES, and claims neither. Whole-diff round 3: an earlier version said "the
+    // overlay is live", which a clean report cannot establish -- overlay.ts:8 records that a hook
+    // failing to recognise its target falls through to clean source and every case passes, so a
+    // dead overlay produces exactly this. A message that ruled that out would be the arc's own
+    // defect one level up, and this case pinned the false claim until round 3 found it.
+    expect(problem).toContain("TWO causes");
+    expect(problem).toContain("the registry `control` names an edit no case distinguishes");
+    expect(problem).toContain("overlay never applied the mutant");
+    expect(problem, "must not assert a liveness the verdict did not observe").not.toContain(
+      "The overlay is live",
+    );
   });
 
   it("rejects NO-OBSERVATIONS, names the dark suite, and calls it infrastructure", () => {
