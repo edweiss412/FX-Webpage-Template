@@ -103,6 +103,53 @@ describe("PickerResetControl (everyone-only)", () => {
     expect(memberMock).not.toHaveBeenCalled();
   });
 
+  // AC-2 — the confirm path. Cancel and the arm-expiry timer restore the trigger
+  // through closeConfirm; CONFIRM writes the flag nowhere, so the operator who
+  // committed the reset is left on the document once the disable blurs the
+  // button they pressed.
+  it("close focus on CONFIRM (ok): the trigger regains focus once the reset settles", async () => {
+    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    fireEvent.click(confirmGo());
+    // Premise: the ok branch was actually reached, so this is the settled state.
+    await vi.waitFor(() => expect(screen.getByTestId("picker-reset-ok")).toBeVisible());
+    await vi.waitFor(() => expect(allBtn()).toHaveFocus());
+  });
+
+  it("close focus on CONFIRM (non-ok): the trigger regains focus once the reset settles", async () => {
+    epochMock.mockResolvedValue({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
+    fireEvent.click(allBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    fireEvent.click(confirmGo());
+    await vi.waitFor(() => expect(screen.getByTestId("picker-reset-error")).toBeVisible());
+    await vi.waitFor(() => expect(allBtn()).toHaveFocus());
+  });
+
+  it("confirm does NOT steal focus planted outside the row", async () => {
+    // The negative control: the repair must inherit closeConfirm's containment
+    // test rather than focusing unconditionally.
+    epochMock.mockResolvedValue({ ok: true, epoch: 2 });
+    render(
+      <>
+        <PickerResetControl showId={SHOW_ID} crew={CREW} />
+        <button type="button" data-testid="external-btn">
+          elsewhere
+        </button>
+      </>,
+    );
+    fireEvent.click(allBtn());
+    await vi.waitFor(() => expect(cancelBtn()).toHaveFocus());
+    const external = screen.getByTestId("external-btn");
+    act(() => external.focus());
+    fireEvent.click(confirmGo());
+    await vi.waitFor(() => expect(screen.getByTestId("picker-reset-ok")).toBeVisible());
+    expect(external).toHaveFocus();
+    expect(allBtn()).not.toHaveFocus();
+  });
+
   it("a THROWN resetPickerEpoch settles to the generic error banner (no stranded resolving)", async () => {
     epochMock.mockRejectedValue(new Error("network death"));
     render(<PickerResetControl showId={SHOW_ID} crew={CREW} />);
