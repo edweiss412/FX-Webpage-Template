@@ -309,6 +309,43 @@ which says the same thing.
 Outputs and per-hit dispositions land in the commit for each task, since all three sweeps name
 files this diff edits.
 
+## Red-command coverage, derived and run at plan time
+
+Rounds 1 and 2 returned thirteen findings and nine of them were one class: **a task's `red=` claims
+a verdict its command cannot observe.** Round 1 found it on Tasks 3, 6, 7 and 8; round 2 found it
+again on Tasks 5, 6 and 7 — including on repairs written in response to round 1. Patching the named
+instance is what let it recur, so this section is the derivation that replaces the patching.
+
+Every file each task edits is assigned to exactly one column:
+
+- **red-observed** — the red command reads it, and the marker's `why=` may claim it moves the verdict.
+- **kept-green** — the task edits it so an EXISTING assertion keeps passing. The `why=` claims
+  nothing about it; the suite that would red if the edit were missed is named, and it is in the
+  task's verification list rather than its red command.
+
+A file in neither column is the defect. Derived by walking each task's `**Files:**` list against
+the suite names in its own `red=`:
+
+| task | red-observed | kept-green (and the suite that would red) |
+| --- | --- | --- |
+| 1 | `tests/observe/describeClientValue.test.ts`, through the control-verdict probe | — |
+| 2 | `tests/mutation/source/runner.ts`, `runner.test.ts`, `surfaceCases.ts` via `surfaceCases.test.ts` | — |
+| 3 | `tests/scripts/ledgerClaimsCheck.test.ts`, through the probe's `--mutant` and `--only-case` | — |
+| 4 | `registry.ts` and `expectedLedgerKinds.ts` via the two registry metas | `BACKLOG-archive.md` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts`, in the command) |
+| 5 | the anchor JSON and its validator via the two anchor metas; the workflow step via `tests/ci/_metaE2eWorkflowCoverage.test.ts` | `tests/mutation/source/registry.ts` (the parity meta, in the command) |
+| 6 | `lib/ci/shardBudget.ts` via `tests/ci/shardBudget.test.ts` | `tests/mutation/source/shardPartition.ts` and its suite (`shardPartition.test.ts`, in the command) |
+| 7 | `shardPartition.ts`, the workflow, the gitignore range and the shard files via the four metas; `_workflowCoverageScan.ts` via `tests/ci/_metaE2eWorkflowCoverage.test.ts` | the root package.json (`tests/mutation/_metaSourceShardIntegrity.test.ts`, in the command) |
+| 8 | `AGENTS.md`, the fixture, the two docs, through the citation probe | `tests/docs/agentsHeavyPhaseRule.test.ts` (itself — the fixture byte-pin at `tests/docs/agentsHeavyPhaseRule.test.ts:442`) |
+
+Two entries above are the round-2 findings made mechanical rather than argued: Task 5's workflow
+edit had NO reader in its command at all, and Task 7's `why=` named the workflow-coverage allowlist
+while none of its four suites imported that module. Both now appear in a column, or they would not
+appear at all.
+
+**The walk cannot see a suite that reads a file by directory glob rather than by name** — the
+workflow-coverage meta walks `.github/workflows/` — so those two cells are asserted by reading the
+suite, and are marked as such here rather than left to look derived.
+
 ## Tasks
 
 <!-- tasks: depth=3 red-contract -->
@@ -349,7 +386,7 @@ the guard.
 
 ### Task 2 — AC-3 asserts observations, not an exit code
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/source/runner.test.ts` red-state=authored red-target=`tests/mutation/source/runner.ts:284` why=`runControl returns the child exit code and nothing else, so a child that collected zero tests exits 1 and is indistinguishable from a child that rejected the mutant; the new case drives a suite path matching no file and asserts a no-observations verdict, which cannot be produced until runControl reports test counts` ac=AC-2,AC-3 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/source/runner.test.ts tests/mutation/source/surfaceCases.test.ts` red-state=authored red-target=`tests/mutation/source/runner.ts:284` why=`runControl returns the child exit code and nothing else, so a child that collected zero tests exits 1 and is indistinguishable from a child that rejected the mutant; the new case drives a suite path matching no file and asserts a no-observations verdict, which cannot be produced until runControl reports test counts, and surfaceCases.test.ts is in the command because AC-3's own registrar is edited in the same task` ac=AC-2,AC-3 -->
 
 **Files:** `tests/mutation/source/runner.ts`, `tests/mutation/source/runner.test.ts`,
 `tests/mutation/source/surfaceCases.ts`.
@@ -412,7 +449,7 @@ empty map from a function that never ran.
 
 ### Task 4 — the row goes, and the backlog entry with it
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaLedgerKindsDeclarationParity.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:295` why=`this line declares ledgerGit as carrying one accepted-gap row, the row Task 4 deletes, so the parity assertion reds the moment the row leaves the registry and passes only once the declaration follows it` ac=AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaLedgerKindsDeclarationParity.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:295` why=`this line declares ledgerGit as carrying one accepted-gap row, the row Task 4 deletes, so the parity assertion reds the moment the row leaves the registry and passes only once the declaration follows it` ac=AC-5 -->
 
 **Files:** `tests/mutation/source/registry.ts`, `tests/mutation/source/expectedLedgerKinds.ts`,
 `BACKLOG-archive.md`.
@@ -428,11 +465,19 @@ No row is created, and none is deleted.
 
 ### Task 5 — the rates say what the newest run measured
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts tests/mutation/figuresAnchorReconciliation.test.ts` red-state=authored red-target=`scripts/probes/2026-09-01-mutation-shard-figures-input.json:59` why=`this line records psqlStartupScan at 1349908 ms from run 33404224554, and the anchor holds that run only, so once the registry declares the rates run 33501574343 measured, the declared-equals-anchor assertion reds against the old numbers and passes only once the recalibration block exists and the parity test reads it` ac=AC-6,AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts tests/mutation/figuresAnchorReconciliation.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`scripts/probes/2026-09-01-mutation-shard-figures-input.json:59` why=`this line records psqlStartupScan at 1349908 ms from run 33404224554 and the file holds that run only, so once the recalibration block lands and the parity test is pointed at it, 48 surfaces declare a rate the block disagrees with and the assertion reds naming them; the same command also carries the workflow-coverage suite, which reds on the ref-count instrument step this task adds until its allowlist row exists` ac=AC-6,AC-7 -->
 
 **Files:** `scripts/probes/2026-09-01-mutation-shard-figures-input.json`,
 `scripts/probes/2026-09-01-mutation-shard-figures-anchor.ts`,
-`tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts`, `tests/mutation/source/registry.ts`.
+`tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts`, `tests/mutation/source/registry.ts`,
+`.github/workflows/mutation-harness.yml`, `tests/ci/_workflowCoverageScan.ts`.
+
+**The order inside this task, because the obvious one has no honest red.** Pointing the parity test
+at a block that does not exist fails to parse, which is not the marker's reason. So: (1) the
+`recalibration` block lands as DATA, with no test reading it yet; (2) the parity test is pointed at
+it, and 48 surfaces now declare a rate the block disagrees with — the assertion reds, naming them,
+which is exactly the marker's `why=`; (3) the registry's 48 rates follow, and it greens. Same
+command, red for the stated reason, green on the same command.
 
 The anchor keeps its run-`33404224554` body: `splitSurfaceOperatorMs` prices the split against a
 surface that no longer exists as one row, so regenerating it would destroy the record that
@@ -467,7 +512,7 @@ halves to the two excluded ledger surfaces, which is the deliberate edit that te
 
 ### Task 6 — the floor is a named prediction, not a crossed budget
 
-<!-- task: red=`pnpm exec vitest run tests/ci/shardBudget.test.ts` red-state=authored red-target=`lib/ci/shardBudget.ts:66` why=`checkBudget decides only from RECORDED elapsed values and this module exports nothing that decides from the MODELLED partition, so the new fit cases cannot import legFitProblems and the suite fails to collect; the failure is that named absent export, not an assertion` ac=AC-8,AC-9 -->
+<!-- task: red=`pnpm exec vitest run tests/ci/shardBudget.test.ts tests/mutation/source/shardPartition.test.ts` red-state=authored red-target=`lib/ci/shardBudget.ts:69` why=`checkBudget returns a BudgetVerdict computed from recorded elapsed values alone, so a call carrying a modelled makespan of 3500 s and a 205 s per-leg overhead against a 3600 s budget reports no makespan problem at all; the new case asserts that problem is present and fails on the verdict's CONTENT, not on an unresolved import` ac=AC-8,AC-9 -->
 
 **Files:** `lib/ci/shardBudget.ts`, `tests/ci/shardBudget.test.ts`,
 `tests/mutation/source/shardPartition.ts`, `tests/mutation/source/shardPartition.test.ts`.
@@ -477,16 +522,28 @@ registry, `makespan + overhead` and `floor + overhead` are both 3240 s against a
 a task that only added them would ship a guard that passes the moment it is written. That is
 rejected statically by this repo's own rule, and rightly.
 
-So the decision moves into a PURE function with CONSTRUCTED inputs, and the live-registry
-assertions become its call site rather than the proof:
+**Round 2 then rejected the first repair, and was right about that too.** Putting the decision in a
+new `legFitProblems` export makes the RED an unresolved import, which `docs/agents/writing-plans.md`
+rejects: no constructed case executes, so nothing is observed failing.
+
+So the decision goes into `checkBudget`, which already exists and is already imported by the suite,
+as a fourth optional argument. The RED is then an assertion on the verdict's CONTENT:
 
 ```ts
-export function legFitProblems(
-  legs: { makespanSeconds: number; floorSeconds: number; floorSurface: string },
-  overheadSeconds: number,
-  budgetSeconds: number,
-): string[]
+// today: no makespan problem is reported, because checkBudget has no modelled input at all
+const v = checkBudget(records, legs, 3600, {
+  makespanSeconds: 3500,
+  floorSeconds: 1000,
+  floorSurface: "synthetic",
+  overheadSeconds: 205,
+});
+expect(v.failures.filter((f) => /makespan/.test(f))).toHaveLength(1);
 ```
+
+The extra argument is ignored by the shipped three-parameter function, so the call runs, the
+verdict comes back without the problem, and the assertion fails on what it contains. `pnpm
+typecheck` also reds on the arity until the parameter lands, which is the ordinary TDD
+intermediate state and not the red this marker names.
 
 The constructed cases, each naming the failure it catches:
 
@@ -502,9 +559,10 @@ The first row is the defect in one line: it is the case the shipped
 `tests/mutation/source/shardPartition.test.ts:259` comparison admits, because it compares child
 milliseconds against a budget denominated in elapsed seconds.
 
-`shardPartition.test.ts` then calls `legFitProblems` with the live registry's makespan, its floor
-and the derived overhead, and asserts an empty list. That call site is a REGRESSION check on the
-shipped partition; the discrimination is proven by the constructed cases above.
+`shardPartition.test.ts` then calls `checkBudget` with the live registry's makespan, its floor and
+the derived overhead, and asserts no problems. That call site is a REGRESSION check on the shipped
+partition; the discrimination is proven by the constructed cases above. It is in the red command
+because this task edits that file, not because it is red first.
 
 `legOverhead` is the median of the recalibration block's per-leg `elapsedS - childMs/1000`, derived
 in code from the block rather than typed as a literal. Premise: the derivation asserts the block
@@ -513,7 +571,7 @@ pass.
 
 ### Task 7 — the shard count buys runway, and says so
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/cross-cutting/vitest-projects-partition.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:49` why=`this line declares SOURCE_SHARD_COUNT = 10, whose runway against the recalibrated registry is 11.8 days, so the runway assertion this task adds fails at ten and passes only once the count reaches twelve and every follower that carries the number as DATA follows it: the two new shard files, the workflow matrix, the workflow env literal, the package.json mutation:guards file list, the workflow-coverage allowlist value, and the gitignore scratch range` ac=AC-10,AC-11 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/cross-cutting/vitest-projects-partition.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:49` why=`this line declares SOURCE_SHARD_COUNT = 10, whose runway against the recalibrated registry is 11.8 days, so the runway assertion this task adds fails at ten and passes only once the count reaches twelve and every follower that carries the number as DATA follows it: the two new shard files, the workflow matrix, the workflow env literal, the package.json mutation:guards file list, the workflow-coverage allowlist value, and the gitignore scratch range` ac=AC-10,AC-11 -->
 
 **Files:** `tests/mutation/source/shardPartition.ts`, two new shard files shard10 and shard11 under
 `tests/mutation/`, the root gitignore, `.github/workflows/mutation-harness.yml`, the root
