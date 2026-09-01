@@ -269,8 +269,14 @@ function readTile(section: HTMLElement, i = 0) {
     isAnchor: box.tagName === "A",
     img: box.querySelector("img"),
     message: cell.querySelector<HTMLElement>("[data-diagram-message]"),
-    absentGlyph: box.querySelector("svg.lucide-triangle-alert"),
-    loadFailedGlyph: box.querySelector("svg.lucide-image-off"),
+    // Glyphs are read from the CELL, not the box, and the difference is not
+    // cosmetic. Scoped to the box, three mutants survive: a `TriangleAlert`
+    // added inside the live anchor, and the OPPOSITE glyph placed beside the
+    // box in either failed cell. All three put a contradictory glyph on screen
+    // in the place a reader actually looks, and a box-scoped query cannot see
+    // any of them. Diff review round 1 demonstrated all three.
+    absentGlyph: cell.querySelector("svg.lucide-triangle-alert"),
+    loadFailedGlyph: cell.querySelector("svg.lucide-image-off"),
   };
 }
 
@@ -286,6 +292,11 @@ function expectState(section: HTMLElement, state: TileState, i = 0) {
     expect(t.message).toBeNull();
     expect(t.cell.textContent).not.toContain(ABSENT_COPY);
     expect(t.cell.textContent).not.toContain(LOAD_FAILED_COPY);
+    // A live tile wears NEITHER failure glyph. The earlier version returned
+    // here without checking, so a failure glyph added anywhere in a live cell
+    // passed — the state's whole visual signal contradicted, silently.
+    expect(t.absentGlyph, "a live tile wears no absent glyph").toBeNull();
+    expect(t.loadFailedGlyph, "a live tile wears no load-failed glyph").toBeNull();
     return;
   }
   expect(t.isAnchor).toBe(false);

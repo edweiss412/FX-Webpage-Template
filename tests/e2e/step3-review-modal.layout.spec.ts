@@ -1439,7 +1439,21 @@ for (const { w, h } of TILE_VIEWPORTS) {
           }
           if (s.position === "fixed") break;
         }
+        // Effective opacity, walking to the stop element: opacity composites
+        // down the tree, so an ancestor at 0 hides the message just as
+        // completely as the message itself at 0. Diff review round 1 showed
+        // `opacity-0` on the shared message class surviving all eight cases —
+        // display, visibility, line-clamp, clipping and containment all stay
+        // true of a fully transparent element, and Playwright's own
+        // `toBeVisible()` does not read opacity either.
+        let effectiveOpacity = 1;
+        for (let n: Element | null = msg; n; n = n.parentElement) {
+          const o = parseFloat(getComputedStyle(n).opacity);
+          if (Number.isFinite(o)) effectiveOpacity *= o;
+          if (getComputedStyle(n).position === "fixed") break;
+        }
         return {
+          effectiveOpacity,
           text: (msg.textContent ?? "").trim(),
           insideBox: box.contains(msg),
           display: cs.display,
@@ -1483,6 +1497,13 @@ for (const { w, h } of TILE_VIEWPORTS) {
       `the message is not clipped by its own scroll box (${d.scrollH} vs ${d.clientH}) @ ${w}px`,
     ).toBeLessThanOrEqual(TOL);
 
+    // Clause 3, and the opacity half of it is not decoration: a message at
+    // `opacity: 0` is unreadable while remaining display:block, visible,
+    // unclamped, unclipped and contained.
+    expect(
+      d.effectiveOpacity,
+      `the message is not transparent (effective opacity ${d.effectiveOpacity}) @ ${w}px`,
+    ).toBeGreaterThan(0);
     // Clause 3: rendered, and not clamped to a line count.
     expect(d.display, `the message is not display:none @ ${w}px`).not.toBe("none");
     expect(d.visibility, `the message is visible @ ${w}px`).toBe("visible");
