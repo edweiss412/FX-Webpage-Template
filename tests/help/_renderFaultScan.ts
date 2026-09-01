@@ -757,13 +757,17 @@ export function scanCandidates(): Candidate[] {
       // published and wizard. RE-DERIVED by running the probe, never
       // incremented -- an incremented pin is right the day it is written and
       // unverifiable afterwards, and this figure has gone stale before.
+      // 747 -> 749 on 2026-09-01 by fix/lightbox-pair-and-retry-checkin: the
+      // diagram check-in adds one phase ternary per surface, gallery and
+      // lightbox. RE-DERIVED the same way -- the meta-test reported 749 against
+      // the tree and this figure was set to what it computed, not bumped by two.
       // The 78 is unchanged; the meta-test compares BOTH against the tree.
       //
       // ASYMMETRY, DECLINED AND DOCUMENTED rather than closed. The IfStatement
       // arm above falls back to a vocabulary probe and reports an unclassifiable
       // guard as `unknown` residue. This arm drops it, deliberately.
       //
-      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // Probed: 749 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
