@@ -125,7 +125,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // restore target gave this button a `ref` and moved the restore effect
     // below the `effectiveUi` derivation, both above this line. Re-MEASURED by
     // identity (data-testid admin-allowlist-couldnt-confirm-refresh).
-    line: 317,
+    line: 319,
     tag: "button",
     category: "inline-prose-link",
     reason:
