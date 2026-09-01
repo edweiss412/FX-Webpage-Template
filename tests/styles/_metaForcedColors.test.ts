@@ -22,8 +22,10 @@ import { describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../_shared/premise";
 
-import { CARRIER_CENSUS } from "./forcedColorsCensus";
+import { CARRIER_CENSUS, COLLAPSE_CENSUS } from "./forcedColorsCensus";
 import { scanCarrierLoss, type CarrierLoss } from "./forcedColorsScan";
+import { findCollisions, findUndecidable, loadTokenSurvival } from "./forcedColorsProjection";
+import { scanInteractiveElements } from "./interactiveScanCore";
 
 const ROOT = join(__dirname, "..", "..");
 const GLOBALS = join(ROOT, "app", "globals.css");
@@ -38,6 +40,24 @@ premiseHolds(
   CSS.includes("@keyframes share-link-flash-ring"),
 );
 premise("the stylesheet declares rules to walk", CSS.split("{").length, 100);
+
+// The scan options are load-bearing, not tidy. State-carrying classes commonly sit
+// on a painted CHILD rather than on the interactive ancestor — the onboarding step
+// pill is exactly that shape — so default options are blind to the very sites this
+// pass exists to find.
+const UNRESOLVED: string[] = [];
+const ELEMENTS = scanInteractiveElements(ROOT, {
+  textEntry: true,
+  paintedChildren: true,
+  onUnresolvedComponent: (i) => UNRESOLVED.push(`${i.file}:${i.line} <${i.tag}>`),
+});
+
+premise("the scanner reaches the component tree", ELEMENTS.length, 200);
+
+// Module scope rather than a hook: logic inside `beforeAll` is untestable by
+// construction, and a premise inside a callback whose case count can be zero never
+// executes in exactly the degenerate case it exists for.
+const SURVIVAL = await loadTokenSurvival(ELEMENTS, GLOBALS);
 
 describe("forced-colors carrier loss (Arm 2)", () => {
   it("reaches the stylesheet and reports something", () => {
@@ -137,5 +157,136 @@ describe("forced-colors carrier loss (Arm 2)", () => {
       `@keyframes k { from { background-color: red; outline-width: 0; } to { background-color: blue; outline-width: 4px; } }`,
     );
     expect(mixed, "an animation that also moves a surviving property still paints").toEqual([]);
+  });
+});
+
+describe("forced-colors state collapse (Arm 1)", () => {
+  it("sees a painted child, which default options cannot", () => {
+    // The discriminating case for the options themselves. Under default options the
+    // wizard's step pill is invisible: the scanner reports its <Link> ancestor with
+    // one path. This case fails if `paintedChildren` is ever dropped.
+    const pill = ELEMENTS.find(
+      (el) => el.file.endsWith("OnboardingWizard.tsx") && el.admittedAs === "painted-child",
+    );
+    expect(
+      pill,
+      "the step pill is a painted child; without that option it is unseen",
+    ).toBeDefined();
+    expect(new Set(pill?.paths.map((p) => p.join(" "))).size).toBeGreaterThan(1);
+  });
+
+  it("reports the collapsing pairs as pairs, not as element unions", () => {
+    const collisions = findCollisions(ELEMENTS, SURVIVAL);
+    premiseHolds("some element collapses on today's tree", collisions.length > 0);
+
+    // CrewSubNav's tab has eight paths and only some pairs collide. A union over all
+    // eight would report tokens that have nothing to do with the collision, which is
+    // why the unit is the pair.
+    const tab = collisions.find((c) => c.file.endsWith("CrewSubNav.tsx"));
+    expect(tab, "the crew tab bar collapses and must be reported").toBeDefined();
+    expect(tab?.differing).toContain("border-transparent");
+    expect(tab?.differing).toContain("border-accent");
+  });
+
+  it("does not treat a shadow or ring utility as a survivor", () => {
+    // The instrument bug plan review R2 found: candidatesToCss returns the
+    // candidate's rule PLUS the @property definitions its custom properties need,
+    // and those declare syntax/inherits/initial-value. Scanning the whole string
+    // reads shadow-tile and every ring utility as author-controlled, which HIDES
+    // collapses. Silent, and it looks like a smaller inventory.
+    // Derived over the tokens the scan actually found, not a typed list: a named
+    // token the corpus stops wearing would make a hardcoded assertion vacuous, and
+    // `shadow-popover` is exactly that case today (no scanned element wears it).
+    const shadowish = [...SURVIVAL.keys()].filter((t) =>
+      /^(shadow-|ring-\d|ring-offset-\d)/.test(t.replace(/^[a-z0-9@:[\]()<>_-]*:/, "")),
+    );
+    premise("the corpus wears at least one shadow or ring utility", shadowish.length, 0);
+    const survivors = shadowish.filter((t) => SURVIVAL.get(t) !== false);
+    expect(survivors, "a dropped carrier reported as a survivor hides collapses").toEqual([]);
+  });
+
+  it("leaves no collapsing element outside the census", () => {
+    const collisions = findCollisions(ELEMENTS, SURVIVAL);
+    const sites = new Set(collisions.map((c) => `${c.file}:${c.line}`));
+    const censused = new Set(COLLAPSE_CENSUS.map((r) => r.site));
+    const undisposed = [...sites].filter((s) => !censused.has(s)).sort();
+    expect(
+      undisposed,
+      "a collapsing element with no disposition — repair it, or name the carrier that survives",
+    ).toEqual([]);
+  });
+
+  it("holds exactly 42 collapse rows, each disposed once", () => {
+    // The anti-vacuity literal. A subset assertion passes while the census grows
+    // silently, and the family sum is what stops a new site landing in no family.
+    expect(COLLAPSE_CENSUS).toHaveLength(42);
+    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
+    const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
+    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(14);
+  });
+
+  it("gives every non-repair row a reason that names something", () => {
+    // A census whose reasons are empty is a filter wearing a census's clothes.
+    //
+    // `"same"` is a legal back-reference to the row above, which keeps a run of
+    // sibling sites readable — but ONLY when that row states a real reason, so a
+    // run cannot start with one and carry nothing. Checked rather than trusted.
+    const SUBSTANTIVE = 20;
+    const thin: string[] = [];
+    COLLAPSE_CENSUS.forEach((row, i) => {
+      if (row.disposition === "repaired") return;
+      if (row.reason.trim().length >= SUBSTANTIVE) return;
+      const previous = COLLAPSE_CENSUS[i - 1];
+      const backReferenceOk =
+        row.reason.trim() === "same" &&
+        previous !== undefined &&
+        previous.disposition === row.disposition &&
+        previous.reason.trim().length >= SUBSTANTIVE;
+      if (!backReferenceOk) thin.push(row.site);
+    });
+    expect(thin, "a disposition without a stated carrier is not a disposition").toEqual([]);
+  });
+
+  it("rejects a back-reference chain, which is what makes one unreadable", () => {
+    // The discriminating half. Without it the case above passes on a census whose
+    // rows all say "same" — the exact degenerate it exists to forbid — and it also
+    // has to reject a CHAIN, because the second "same" in a row points at a row
+    // that itself named nothing. Three switch-track rows were written that way and
+    // this is what caught them.
+    const chain = [
+      {
+        site: "a.tsx:1",
+        disposition: "deliberate-flatten" as const,
+        reason: "a real stated reason, long enough",
+      },
+      { site: "b.tsx:2", disposition: "deliberate-flatten" as const, reason: "same" },
+      { site: "c.tsx:3", disposition: "deliberate-flatten" as const, reason: "same" },
+    ];
+    const SUBSTANTIVE = 20;
+    const thin = chain.filter((row, i) => {
+      if (row.reason.trim().length >= SUBSTANTIVE) return false;
+      const previous = chain[i - 1];
+      return !(
+        row.reason.trim() === "same" &&
+        previous !== undefined &&
+        previous.disposition === row.disposition &&
+        previous.reason.trim().length >= SUBSTANTIVE
+      );
+    });
+    expect(
+      thin.map((r) => r.site),
+      "the SECOND same in a chain points at nothing",
+    ).toEqual(["c.tsx:3"]);
+  });
+
+  it("reports what it cannot decide instead of passing it", () => {
+    const undecidable = findUndecidable(ELEMENTS, UNRESOLVED);
+    // AC-4c. A component the resolver cannot name used to vanish from the cover in
+    // silence, which is the one outcome the consequence bound forbids.
+    expect(undecidable.length).toBeGreaterThan(0);
+    expect(
+      undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
+      "every cannot-decide row names a site",
+    ).toBe(true);
   });
 });
