@@ -588,7 +588,17 @@ describe("AC-3 rejects every verdict but NOTICED, and says which one it got", ()
     });
     expect(problem).not.toBeNull();
     expect(problem).toContain("b.test.ts");
-    expect(problem).toContain("INFRASTRUCTURE");
+    expect(problem).toContain("infrastructure fault");
+    // Whole-diff round 4: an earlier version said the child "either never ran or collected zero
+    // tests" and that a dead overlay exits non-zero. Neither is what this verdict establishes --
+    // it also fires for a report that was unreadable or short a counter AFTER tests ran, and the
+    // ran-clean branch correctly says a missed overlay passes rather than exiting non-zero. The
+    // message must not name a cause the observations do not carry.
+    expect(problem).toContain("no test EXECUTED there, or its report could not be read");
+    expect(problem, "must not claim the child never started").not.toContain("never ran or");
+    expect(problem, "must not contradict the ran-clean branch on a dead overlay").not.toContain(
+      "a dead overlay",
+    );
   });
 
   it("gives the two rejections DIFFERENT text, or the distinction buys nothing", () => {

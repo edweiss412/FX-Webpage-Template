@@ -135,6 +135,30 @@ export const loadAnchor = (): Anchor => JSON.parse(readFileSync(ANCHOR_PATH, "ut
  */
 export function anchorProblems(A: Anchor, text: string): string[] {
   const bad: string[] = [];
+  /**
+   * A leg's ELAPSED time contains its CHILD time, so elapsed can never be less.
+   *
+   * Positivity alone accepted a dropped digit in either table, and both are now read by gates:
+   * the body's elapsed feeds `growthSecondsPerDay` (2912 -> 912 moved growth from 491.6 to 91.6
+   * s/day and inflated every runway fivefold) and the block's feeds `legOverheadSeconds` (3236 ->
+   * 236 moved the median overhead 195 -> 185). Measured by whole-diff round 4 as ordinary
+   * dropped-digit transcription errors, which is squarely inside the threat fence.
+   *
+   * The bound is physical rather than chosen: the children ran inside the leg, serially, so
+   * `elapsedS >= childMs / 1000` for any honest pair, with the difference being setup.
+   */
+  const elapsedCoversChild = (label: string, elapsedS: unknown, childMs: unknown) => {
+    if (typeof elapsedS !== "number" || typeof childMs !== "number") return;
+    if (!Number.isFinite(elapsedS) || !Number.isFinite(childMs)) return;
+    if (elapsedS < childMs / 1000) {
+      bad.push(
+        `${label} reports ${elapsedS}s elapsed but ${childMs}ms of child time (${(
+          childMs / 1000
+        ).toFixed(1)}s); a leg cannot finish before the children it ran`,
+      );
+    }
+  };
+
   const positive = (label: string, v: unknown) => {
     if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
       bad.push(`${label} is ${JSON.stringify(v)}; a measurement must be a positive finite number`);
@@ -157,6 +181,7 @@ export function anchorProblems(A: Anchor, text: string): string[] {
   for (const [n, leg] of Object.entries(A.legs)) {
     positive(`legs[${n}].elapsedS`, leg?.elapsedS);
     positive(`legs[${n}].childMs`, leg?.childMs);
+    elapsedCoversChild(`legs[${n}]`, leg?.elapsedS, leg?.childMs);
   }
 
   const surfaceIds = Object.keys(A.surfaceMs).sort();
@@ -312,6 +337,7 @@ export function anchorProblems(A: Anchor, text: string): string[] {
   for (const [n, leg] of Object.entries(R.legs)) {
     positive(`recalibration.legs[${n}].elapsedS`, leg?.elapsedS);
     positive(`recalibration.legs[${n}].childMs`, leg?.childMs);
+    elapsedCoversChild(`recalibration.legs[${n}]`, leg?.elapsedS, leg?.childMs);
   }
   const rSurfaceIds = Object.keys(R.surfaceMs).sort();
   for (const [label, table] of [

@@ -89,6 +89,23 @@ describe("declared millisPerBoot matches the committed measurement anchor", () =
     expect([...DECLARED_FROM.rateExcluded].sort()).toEqual(["ledgerClaimsCore", "ledgerGit"]);
   });
 
+  it("an EXCLUDED surface still declares the rate the OLDER run measured", () => {
+    // Whole-diff round 4, and it was squarely inside the threat fence: excluding a surface from
+    // the recalibration removed it from every parity check, so `millisPerBoot: 1` on `ledgerGit`
+    // passed and priced it at 0.107 s instead of 264.718 s in the partition. Excluded means "not
+    // declared from the NEW measurement", never "declared from nothing" -- these two keep the
+    // rate the anchor's body measured, and that is checkable.
+    const excluded = DECLARED_FROM.rateExcluded;
+    premiseHolds("there are excluded surfaces to check", excluded.length > 0);
+    const wrong = GUARD_SURFACES.filter((s) => excluded.includes(s.id))
+      .filter((s) => s.millisPerBoot !== ANCHOR.rates[s.id]?.observedPerBoot)
+      .map(
+        (s) =>
+          `${s.id}: declares ${s.millisPerBoot}, run ${ANCHOR.runId} measured ${String(ANCHOR.rates[s.id]?.observedPerBoot)}`,
+      );
+    expect(wrong, "an excluded surface's rate matches neither measurement").toEqual([]);
+  });
+
   it("names the surfaces the recalibration does NOT cover, rather than passing over them in silence", () => {
     // A surface enrolled AFTER the recalibration run has no row. That is legitimate, and it is
     // also exactly where an unmeasured rate would hide -- so the set is asserted rather than

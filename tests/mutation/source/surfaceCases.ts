@@ -62,10 +62,12 @@ export function controlProblem(verdict: ControlVerdict): string | null {
   if (verdict.kind === "no-observations") {
     return (
       `the control child produced NO OBSERVATIONS from ${verdict.dark.join(", ")}: ` +
-      `it either never ran or collected zero tests. This is an INFRASTRUCTURE fault, not a ` +
-      `verdict about the control -- a collection failure, a mistyped suitePaths entry, a dead ` +
-      `overlay and an OOM all exit non-zero, and reading that exit as "the suite noticed" is ` +
-      `the fail-open this check exists to close`
+      `no test EXECUTED there, or its report could not be read. This says nothing about the ` +
+      `control mutant either way. Causes, and this verdict does not separate them: the child ` +
+      `never started; it started and collected nothing (a mistyped suitePaths entry, a ` +
+      `collection failure, a name filter matching nothing); it ran and its report was missing, ` +
+      `unparseable or short a counter, which is DARK by design rather than counted as zero. ` +
+      `Read it as an infrastructure fault and look at the leg's log, not at the registry row`
     );
   }
   const ran = verdict.observations.map((o) => `${o.suite} (${String(o.ranTests)} tests)`);
