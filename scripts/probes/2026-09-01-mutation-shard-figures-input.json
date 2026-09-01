@@ -1,0 +1,359 @@
+{
+  "runId": "33404224554",
+  "note": "Measurements from the scheduled mutation-harness run on main at 47e9544e6, 2026-08-31. Immutable anchor for every figure the plan states.",
+  "legs": {
+    "0": {
+      "elapsedS": 4624,
+      "childMs": 4413402
+    },
+    "1": {
+      "elapsedS": 2912,
+      "childMs": 2733183
+    },
+    "2": {
+      "elapsedS": 2007,
+      "childMs": 1811903
+    },
+    "3": {
+      "elapsedS": 2518,
+      "childMs": 2258726
+    },
+    "4": {
+      "elapsedS": 2427,
+      "childMs": 2218262
+    },
+    "5": {
+      "elapsedS": 3610,
+      "childMs": 3413819
+    },
+    "6": {
+      "elapsedS": 3255,
+      "childMs": 3054242
+    },
+    "7": {
+      "elapsedS": 3263,
+      "childMs": 2999127
+    }
+  },
+  "surfaceMs": {
+    "controlOutlineResidue": 4413402,
+    "sourceShardPartition": 34127,
+    "browserMutate": 80785,
+    "controlOutlineScan": 196841,
+    "heavyReapClassify": 25829,
+    "renderedTextHaystack": 48859,
+    "observeTransport": 13657,
+    "connectionCensus": 2333085,
+    "retryableRpcVolatilityScan": 68817,
+    "tapTargetScan": 2516,
+    "supabaseRetryEligibility": 22319,
+    "citationIntent": 21302,
+    "reviewRoundFiling": 165058,
+    "reviewRoundInstant": 178354,
+    "paneCompactionCore": 1321729,
+    "describeClientValue": 31808,
+    "captureRenderFault": 9579,
+    "perItemStateScanner": 41858,
+    "spawnBounded": 12145,
+    "psqlStartupScan": 1349908,
+    "supabaseRetryingFetch": 92629,
+    "replacementString": 216573,
+    "configBranchProbe": 27164,
+    "ledgerGit": 267166,
+    "declaredLimitPins": 241704,
+    "specLintGate": 22287,
+    "sendAuthScan": 1215753,
+    "popoverOverlayExtract": 147601,
+    "modal-wait-disposition": 240137,
+    "rowScanOpener": 70924,
+    "claimSweep": 462536,
+    "mutationSurfaceTotality": 43880,
+    "executionMethodsDerivation": 15144,
+    "reviewRoundCorpus": 225777,
+    "shardBudget": 47073,
+    "modal-wait-helper-scan": 607256,
+    "reviewRoundCount": 22769,
+    "specLintUniversals": 347612,
+    "reportDraftStore": 34321,
+    "destructiveFileAnalysis": 468569,
+    "interactiveScanCore": 1549406,
+    "clientErrorTransport": 111036,
+    "mutationWeightWeights": 238318,
+    "specLintExpectContract": 108754,
+    "fixtureContract": 422656,
+    "redContract": 683779,
+    "serializeErrorStructure": 98659,
+    "specLintNumerics": 789482,
+    "phantomGapExecuted": 19728,
+    "premiseScan": 662505,
+    "mutationWeightRecords": 30361,
+    "sameOriginServerAction": 26233,
+    "taskContract": 397865,
+    "fieldNearMiss": 124300,
+    "acCoverage": 456809,
+    "browserRegistry": 86494,
+    "mutationSurfaceEnumerate": 708260,
+    "ledgerClaimsCore": 214897,
+    "interactionTimingScan": 963014,
+    "pgCronSmokes": 21255
+  },
+  "splitSurfaceOperatorMs": {
+    "equality-flip": 828947,
+    "integer-literal": 1269906,
+    "logical-connector": 737389,
+    "relational-boundary": 482809,
+    "statement-removal": 1094351
+  },
+  "splitSurfaceOutcomes": 255,
+  "rates": {
+    "reportDraftStore": {
+      "declaredAtRun": 970,
+      "observedPerBoot": 1907
+    },
+    "specLintExpectContract": {
+      "declaredAtRun": 1170,
+      "observedPerBoot": 2175
+    },
+    "redContract": {
+      "declaredAtRun": 1432,
+      "observedPerBoot": 2600
+    },
+    "controlOutlineResidue": {
+      "declaredAtRun": 9737,
+      "observedPerBoot": 17240
+    },
+    "reviewRoundInstant": {
+      "declaredAtRun": 1205,
+      "observedPerBoot": 2098
+    },
+    "reviewRoundCorpus": {
+      "declaredAtRun": 1082,
+      "observedPerBoot": 1821
+    },
+    "controlOutlineScan": {
+      "declaredAtRun": 1983,
+      "observedPerBoot": 2982
+    },
+    "shardBudget": {
+      "declaredAtRun": 980,
+      "observedPerBoot": 1471
+    },
+    "specLintUniversals": {
+      "declaredAtRun": 1796,
+      "observedPerBoot": 2695
+    },
+    "pgCronSmokes": {
+      "declaredAtRun": 945,
+      "observedPerBoot": 1417
+    },
+    "spawnBounded": {
+      "declaredAtRun": 1400,
+      "observedPerBoot": 934
+    },
+    "phantomGapExecuted": {
+      "declaredAtRun": 941,
+      "observedPerBoot": 1409
+    },
+    "browserRegistry": {
+      "declaredAtRun": 996,
+      "observedPerBoot": 1491
+    },
+    "citationIntent": {
+      "declaredAtRun": 1328,
+      "observedPerBoot": 888
+    },
+    "paneCompactionCore": {
+      "declaredAtRun": 6980,
+      "observedPerBoot": 4670
+    },
+    "clientErrorTransport": {
+      "declaredAtRun": 1331,
+      "observedPerBoot": 1983
+    },
+    "mutationWeightWeights": {
+      "declaredAtRun": 1015,
+      "observedPerBoot": 1508
+    },
+    "mutationWeightRecords": {
+      "declaredAtRun": 977,
+      "observedPerBoot": 1446
+    },
+    "captureRenderFault": {
+      "declaredAtRun": 935,
+      "observedPerBoot": 1368
+    },
+    "heavyReapClassify": {
+      "declaredAtRun": 985,
+      "observedPerBoot": 1435
+    },
+    "declaredLimitPins": {
+      "declaredAtRun": 2342,
+      "observedPerBoot": 1611
+    },
+    "interactiveScanCore": {
+      "declaredAtRun": 2674,
+      "observedPerBoot": 3874
+    },
+    "taskContract": {
+      "declaredAtRun": 1126,
+      "observedPerBoot": 1631
+    },
+    "renderedTextHaystack": {
+      "declaredAtRun": 1903,
+      "observedPerBoot": 2714
+    },
+    "observeTransport": {
+      "declaredAtRun": 969,
+      "observedPerBoot": 1366
+    },
+    "describeClientValue": {
+      "declaredAtRun": 1034,
+      "observedPerBoot": 1446
+    },
+    "replacementString": {
+      "declaredAtRun": 4963,
+      "observedPerBoot": 6768
+    },
+    "destructiveFileAnalysis": {
+      "declaredAtRun": 1450,
+      "observedPerBoot": 1969
+    },
+    "sourceShardPartition": {
+      "declaredAtRun": 4207,
+      "observedPerBoot": 5688
+    },
+    "interactionTimingScan": {
+      "declaredAtRun": 4280,
+      "observedPerBoot": 5767
+    },
+    "fixtureContract": {
+      "declaredAtRun": 4184,
+      "observedPerBoot": 5635
+    },
+    "mutationSurfaceTotality": {
+      "declaredAtRun": 2660,
+      "observedPerBoot": 1995
+    },
+    "sameOriginServerAction": {
+      "declaredAtRun": 1406,
+      "observedPerBoot": 1874
+    },
+    "browserMutate": {
+      "declaredAtRun": 1489,
+      "observedPerBoot": 1970
+    },
+    "perItemStateScanner": {
+      "declaredAtRun": 1100,
+      "observedPerBoot": 1443
+    },
+    "fieldNearMiss": {
+      "declaredAtRun": 2124,
+      "observedPerBoot": 2762
+    },
+    "supabaseRetryEligibility": {
+      "declaredAtRun": 762,
+      "observedPerBoot": 970
+    },
+    "popoverOverlayExtract": {
+      "declaredAtRun": 2367,
+      "observedPerBoot": 1868
+    },
+    "tapTargetScan": {
+      "declaredAtRun": 1008,
+      "observedPerBoot": 1258
+    },
+    "ledgerClaimsCore": {
+      "declaredAtRun": 2537,
+      "observedPerBoot": 3160
+    },
+    "modal-wait-helper-scan": {
+      "declaredAtRun": 4840,
+      "observedPerBoot": 6012
+    },
+    "reviewRoundFiling": {
+      "declaredAtRun": 1955,
+      "observedPerBoot": 1603
+    },
+    "retryableRpcVolatilityScan": {
+      "declaredAtRun": 1073,
+      "observedPerBoot": 1229
+    },
+    "sendAuthScan": {
+      "declaredAtRun": 4708,
+      "observedPerBoot": 4164
+    },
+    "ledgerGit": {
+      "declaredAtRun": 2197,
+      "observedPerBoot": 2474
+    },
+    "mutationSurfaceEnumerate": {
+      "declaredAtRun": 2487,
+      "observedPerBoot": 2788
+    },
+    "psqlStartupScan": {
+      "declaredAtRun": 18212,
+      "observedPerBoot": 16462
+    },
+    "connectionCensus": {
+      "declaredAtRun": 6276,
+      "observedPerBoot": 6842
+    },
+    "specLintGate": {
+      "declaredAtRun": 900,
+      "observedPerBoot": 969
+    },
+    "rowScanOpener": {
+      "declaredAtRun": 2441,
+      "observedPerBoot": 2288
+    },
+    "configBranchProbe": {
+      "declaredAtRun": 1976,
+      "observedPerBoot": 2090
+    },
+    "claimSweep": {
+      "declaredAtRun": 2825,
+      "observedPerBoot": 2984
+    },
+    "specLintNumerics": {
+      "declaredAtRun": 1435,
+      "observedPerBoot": 1515
+    },
+    "premiseScan": {
+      "declaredAtRun": 3206,
+      "observedPerBoot": 3363
+    },
+    "acCoverage": {
+      "declaredAtRun": 5006,
+      "observedPerBoot": 5191
+    },
+    "reviewRoundCount": {
+      "declaredAtRun": 1309,
+      "observedPerBoot": 1339
+    },
+    "modal-wait-disposition": {
+      "declaredAtRun": 3504,
+      "observedPerBoot": 3431
+    },
+    "supabaseRetryingFetch": {
+      "declaredAtRun": 1856,
+      "observedPerBoot": 1853
+    },
+    "executionMethodsDerivation": {
+      "declaredAtRun": 1261,
+      "observedPerBoot": 1262
+    },
+    "serializeErrorStructure": {
+      "declaredAtRun": 1494,
+      "observedPerBoot": 1495
+    }
+  },
+  "ratesNote": "declaredAtRun is what tests/mutation/source/registry.ts carried when the run executed; observedPerBoot is what that run's check-rate-drift step measured. observedPerBoot is STORED rather than derived from surfaceMs because bootsOf moves with the source, so dividing today's boots into that run's milliseconds would answer a question the run never asked.",
+  "priorRun": {
+    "runId": "32958581720",
+    "note": "The N=8 validation run recorded in BACKLOG-archive.md under BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH: eight legs at 3165 + 2494 + 1720 + 3260 + 2873 + 2726 + 2807 + 3113 = 22158 s elapsed, at 52 enrolled surfaces. Kept as the earlier point of the only two-point growth measurement this arc has. ELAPSED, not child: that is what the archived row recorded, and mixing the two is a defect this plan already made once.",
+    "surfaces": 52,
+    "legsElapsedS": [3165, 2494, 1720, 3260, 2873, 2726, 2807, 3113],
+    "dateISO": "2026-08-26"
+  },
+  "thisRunDateISO": "2026-08-31"
+}

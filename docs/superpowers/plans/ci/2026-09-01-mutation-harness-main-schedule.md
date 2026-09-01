@@ -137,6 +137,50 @@ because that is what both runs recorded (52 surfaces on 2026-08-26 summing 22,15
 would re-red in about nine days and ten in about eighteen. Nine days is a timer on the defect this
 arc exists to clear, not a repair of it.
 
+## Every load-bearing number here is emitted, not typed
+
+All four findings of plan review round 3, and six of round 2's eleven instances, were one defect: a
+figure produced by a probe, transcribed into prose, and then wrong or stale. A cost that subtracted a
+PART from a MAKESPAN and so compared nothing. Two rates divided from child totals already rounded to
+whole seconds. A median taken as the fifth of eight values instead of the mean of the middle pair.
+Repairing that class twice did not close it. It closes by the numbers not being prose.
+
+```
+$ node --import tsx scripts/probes/2026-09-01-mutation-shard-figures.ts
+RUN 33404224554
+legs elapsed    4624 2912 2007 2518 2427 3610 3255 3263
+legs child s    4413 2733 1812 2259 2218 3414 3054 2999
+overheads       178.817, 195.097, 196.181, 200.758, 208.738, 210.598, 259.274, 263.873
+overhead median 204.748 s   (mean of the middle pair of 8)
+total child     22902.664 s
+rate directions 48 up, 12 down, 0 unchanged, of 60
+growth          22158 s at 52 surfaces (2026-08-26) -> 24616 s at 60 (2026-08-31) = 491.6 s/day elapsed across the matrix
+part Rewrites    ops=equality-flip,statement-removal,regex-quantifier-bound mutants=139 boots=140 ms=1923298 rate=13738
+part Boundaries  ops=integer-literal,relational-boundary,logical-connector mutants=116 boots=117 ms=2490104 rate=21283
+mutants summed  255   (whole surface: 255)
+family    N=8  makespan 2866.564 s  (79.6%)  elapsed ~3071 s  headroom 529 s  fuse ~9 days
+family    N=9  makespan 2548.444 s  (70.8%)  elapsed ~2753 s  headroom 847 s  fuse ~16 days
+family    N=10 makespan 2490.111 s  (69.2%)  elapsed ~2695 s  headroom 905 s  fuse ~18 days
+family    N=11 makespan 2490.111 s  (69.2%)  elapsed ~2695 s  headroom 905 s  fuse ~20 days
+family    N=12 makespan 2490.111 s  (69.2%)  elapsed ~2695 s  headroom 905 s  fuse ~22 days
+balanced  N=8  makespan 2869.149 s  (79.7%)  elapsed ~3074 s  headroom 526 s  fuse ~9 days
+balanced  N=9  makespan 2547.459 s  (70.8%)  elapsed ~2752 s  headroom 848 s  fuse ~16 days
+balanced  N=10 makespan 2333.122 s  (64.8%)  elapsed ~2538 s  headroom 1062 s  fuse ~22 days
+balanced  N=11 makespan 2333.122 s  (64.8%)  elapsed ~2538 s  headroom 1062 s  fuse ~24 days
+balanced  N=12 makespan 2333.122 s  (64.8%)  elapsed ~2538 s  headroom 1062 s  fuse ~26 days
+```
+
+The measurements are an IMMUTABLE ANCHOR rather than a live artifact read: Actions artifacts expire,
+and `scripts/probes/2026-09-01-mutation-shard-figures-input.json` holds what run `33404224554`
+measured, so this answers the same way in a year. Everything else — boots, mutant counts, the
+partition — is computed against the LIVE registry, so a drifted figure shows up as a changed line
+rather than as silence. `observedPerBoot` is stored rather than recomputed, because `bootsOf` moves
+with the source and dividing today's boots into that run's milliseconds answers a question the run
+never asked; that is how `controlOutlineScan` once put 5.8 s between two of this arc's own corpus
+totals. `SHARD_BUDGET_SECONDS` is imported, not typed.
+
+**A figure appearing in this document but not in that output is a figure nothing derives.**
+
 ### B — `source-shards`, a verdict that MOVES
 
 Different shard on almost every night, absent entirely on four. The 2026-08-31 instance, job
