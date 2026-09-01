@@ -11,6 +11,51 @@
 // The gate was unreachable from a test while it lived inside a CLI-shaped script, which
 // is why three rounds of it were proved by hand and the fourth hole survived all three.
 // Deciding suite: tests/mutation/figuresAnchorReconciliation.test.ts.
+// DOCUMENTED LIMIT, ruled 2026-09-01 by bl-orch on the round-4 escalation: this gate
+// reconciles the DECISION-BEARING tables and does not pin the descriptive ones.
+//
+// Sweeping every single-digit deletion of every numeric leaf OUTSIDE the three
+// reconciled tables produces 391 mutants, of which 266 render a figure rather than
+// refusing. The consequence was measured, not argued. The 234 in
+// `rates.*.declaredAtRun`, `splitSurfaceOutcomes` and `priorRun.surfaces` reach only
+// descriptive lines -- the rate-direction count and two parentheticals -- and never
+// the partition, the makespan or the budget. The 32 in `legs.*.elapsedS` do reach the
+// reported elapsed, through the overhead median, and move family N=10 by at most 6 s
+// (2695 to 2689, headroom 905 to 911); ZERO of them cross the 3600 s budget, because
+// the overhead is a median of eight legs and one corrupted leg cannot move it far.
+// A worst case of a number still honest to within noise is the filing bar's demotion
+// shape, so this is a limit rather than a finding, and it is written here on the
+// surface that owns it rather than filed as a row.
+//
+// RE-FILE TRIGGER, two arms, either one sufficient. Re-measure this sweep whenever the
+// anchor is regenerated. And any survivor that either moves a candidate family across
+// the 3600 s budget or feeds a partition decision is a FINDING, not a limit -- that is
+// the consequence the bound forbids, and it comes to the orchestrator before a repair.
+//
+// SECOND DOCUMENTED LIMIT, ruled 2026-09-01 by bl-orch: THE RATES ARE PROVEN, THE BALANCE IS NOT.
+//
+// The figures this anchor produces are a prediction, and run 33501574343 measured how good a one.
+// The corrected rates are broadly right: predicted total 24944 s against 27097 s measured, within
+// 8.6%. What the model does NOT predict is the LPT SPREAD. It expects every leg within 235 s of
+// the others and they landed within 1042 s, so the binding leg came in at 3307 s against a
+// predicted 2695 s, a factor of 1.227.
+//
+//   leg     0     1     2     3     4     5     6     7     8     9
+//   pred 2695  2538  2462  2468  2464  2468  2467  2461  2461  2460
+//   meas 3236  2306  2957  2465  3307  2504  2791  2265  2785  2481
+//
+// CONSEQUENCE FOR EVERY FIGURE DOWNSTREAM OF `headroom`. Measured headroom against the 3600 s
+// budget is 293 s, not the 905 s this probe prints, so the fuse is roughly a third of the printed
+// one: about six days, not eighteen. The printed numbers are the MODEL's and must never be quoted
+// as measurements. The old model understated the binding leg by 1.77x and that was the defect this
+// arc repaired; the corrected model still understates it by 1.227x, which is smaller, real, and
+// somebody else's to close.
+//
+// RE-MEASURE TRIGGER: re-run this comparison against the elapsed-source-shards artifacts of any
+// full harness run at a new head. If the binding leg's ratio exceeds the 1.227 measured here, or
+// measured headroom falls under 120 s, the balance gap has become a budget breach and is a finding
+// rather than a limit. Assigned with B and D to the successor arc, because a six-day fuse with
+// nobody holding it is a timer on the next red night.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
