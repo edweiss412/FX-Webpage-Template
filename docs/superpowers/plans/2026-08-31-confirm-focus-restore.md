@@ -187,3 +187,40 @@ pairs, 4 states give 6.
 
 **Gaps: none.** Every pair maps to a deciding assertion or a stated
 unreachability.
+
+## 12. Invariant-8 impeccable dual gate
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
+
+Three P1s were raised: one fixed, one refuted against live code, one carried as
+an unfixed peer. Zero P0. The table below is the disposition of each.
+
+Both halves ran with the canonical v3 setup gates (the context script loading
+PRODUCT.md + DESIGN.md, then the `product` register reference — admin UI where
+design serves the product). Critique ran Assessment A and Assessment B as two
+ISOLATED sub-agents, so the run is not degraded and owes no banner.
+
+**Assessment B did not drive a browser**, deliberately: this machine is under a
+fleet-wide strict-serial-heavy constraint and a second browser tree would have
+collided with the arc's own granted playwright turn. Stated rather than implied,
+because the reference forbids claiming an overlay that did not exist.
+
+### Findings and dispositions
+
+| # | finding | disposition |
+| --- | --- | --- |
+| P1 | The focus move fires for pointer users and the CSS focus-visible pseudo-class does not match programmatic focus after a pointer interaction, so the operator got a scroll and a focus move with no indicator | **FIXED** `2864c9501` — the heading carries a plain focus style rather than a focus-visible one |
+| P1 | Rotate's success is silent to a screen reader | **REFUTED.** Rotate announces through the admin layout channel (`app/admin/show/[slug]/RotateShareTokenButton.tsx:208`). Assessment A read only the local `sr-only` region, which carries the arm-expiry string alone. Recorded so it is not re-derived |
+| P1 | Revoke's only outcome cue is a decremented count; nothing says "revoked" | **UNFIXED PEER.** Real. Adding a success announcement is announcement-channel scope, which the ratified decision fenced out of this arc ("the announcement is not merged into the focus move"). Carried to the PR body and the readiness message for bl-orch to rule on |
+| P2 | `ReAddRowButton.tsx` has zero focus machinery and unmounts by the same revalidation; the container guard early-returns for it because re-add ADDS to the active list | **UNFIXED PEER.** Verified: the file exists and contains no `restoreFocusRef`/`triggerRef`. Same class, uncovered |
+| P3 | The heading is both the focus target and the section's `aria-labelledby` target, so some screen readers may speak the region and the heading as one string | **NOTED.** Not fixed: changing the labelling relationship to serve focus would trade a real semantic for a cosmetic one |
+| audit P3 | `activeEmails` was a fresh array per render, so the effect body ran every parent render | **FIXED** `17b9ec0b9` — the effect keys on a joined membership string |
+
+### Audit scores (the diff, not the whole app)
+
+Accessibility 3 (tap targets and focus indicators present on every touched
+control; one cosmetic inconsistency — revoke's Cancel relies on the global
+focus-visible outline while its siblings suppress it and draw a ring).
+Theming 4 (zero hardcoded hex, px or ms in added lines). Responsive 4 (zero
+fixed widths added). Performance 4 after `17b9ec0b9`. Anti-patterns: detector
+`--json` returned `[]`, exit 0.
