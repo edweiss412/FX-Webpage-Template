@@ -26,7 +26,7 @@ screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is no
 
 ### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
 
-**Effort:** L
+**Status:** IN PROGRESS · **Branch:** test/sharelink-copy-ref-ordering-proof · **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — un-defer trigger is a scheduler harness that can resolve a promise between commit and passive effects; no such harness exists today.
 
 `ShareLinkCopyButton` writes `urlRef` in a `useLayoutEffect` so the captured-url
