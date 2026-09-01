@@ -84,6 +84,13 @@ export function AdministratorsSection({
 
   const heading = (
     <div className="flex items-center gap-2">
+      {/* `focus:`, deliberately, NOT `focus-visible:`. This heading is focused
+          PROGRAMMATICALLY after a revoke, and :focus-visible does not match a
+          programmatic focus that followed a pointer interaction — so a sighted
+          operator who TAPS Confirm would get the scroll and the focus move with
+          no indicator at all. Correct focus, invisible to the person it moved.
+          The keyboard operator is served either way; this is what the pointer
+          operator gets from the change besides a scroll. */}
       {/* tabIndex -1, not 0: a PROGRAMMATIC focus target, never a tab stop.
           A successful revoke removes the row by revalidation, so the trigger the
           operator pressed is gone and there is nothing to restore focus to. This
@@ -95,7 +102,7 @@ export function AdministratorsSection({
       <h2
         id="admin-settings-admins-heading"
         tabIndex={-1}
-        className="text-lg font-semibold text-text-strong"
+        className="rounded-sm text-lg font-semibold text-text-strong focus:outline-none focus:ring-2 focus:ring-focus-ring focus:ring-offset-2 focus:ring-offset-surface"
       >
         Administrators ({active.length})
       </h2>
