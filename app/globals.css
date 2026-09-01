@@ -1596,6 +1596,31 @@ details[open] > summary [data-agenda-day-count] {
     color: HighlightText;
   }
 
+  /* Keyboard focus ON a selected control. The pair exists for exactly this.
+
+     MEASURED, and it is why this rule is here rather than left to compose: with a
+     selected control focused, Chromium computes the focus outline and the
+     selection fill as the SAME value (both `rgba(5, 0, 73, 0.8)`), separated only
+     by the 2px offset. Focus is still discernible — the ring's outer edge meets
+     Canvas at 19:1 — but the affordance reads as one thick shape with a hairline
+     gap rather than a ring around a filled control. Firefox happens not to
+     collide (white on blue), which is the sort of difference no single-engine
+     screenshot would have caught.
+
+     `HighlightText` is defined by the OS to contrast with `Highlight`, so using it
+     for the ring is the palette answering its own question. The offset goes
+     negative so the ring sits ON the fill, where that contrast is what the user
+     sees, rather than outside it on Canvas. */
+  :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
+      [aria-current="page"],
+      [aria-current="true"],
+      [aria-current="step"],
+      [aria-pressed="true"]
+    ):not([data-fc-skip]):focus-visible {
+    outline: 2px solid HighlightText;
+    outline-offset: -4px;
+  }
+
   /* Two states that no ARIA describes, so each gets its own hook rather than a
      borrowed one. Both hooks were added to their components in this pass, and
      both are the minimum that makes the state addressable: an empty data

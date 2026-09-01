@@ -725,5 +725,60 @@ so the live items are the token classes the repairs use.
 
 ## 12. Closeout
 
-Written by Task 15, in its own commit, together with the marker line. Empty until
-then, deliberately: Task 15 states why a pending marker is not expressible.
+impeccable-gate: critique=RAN audit=RAN p0=1 p1=2 dispositions=recorded
+
+Run 2026-09-01 against the whole UI diff: `app/globals.css`, `DESIGN.md`,
+`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`,
+`components/admin/UndoChangeButton.tsx`,
+`components/admin/telemetry/AutoRefreshControl.tsx`. Canonical v3 setup gates: the
+skill's context load (PRODUCT.md + DESIGN.md), then the register reference read
+(the skill's product register: app UI, design SERVES the product).
+
+### critique — Assessment A and B as isolated sub-agents, NOT degraded
+
+`detect.mjs --json app/show components/admin/UndoChangeButton.tsx` returned `[]`,
+exit 0: zero deterministic findings. Everything below is design review and
+measurement. (A first assessment pair died to a five-hour machine sleep; both
+transcripts were scraped before re-dispatch and held nothing recoverable.)
+
+| # | Finding | Sev | Disposition |
+|---|---|---|---|
+| 1 | `[data-lead]` collided with a shipped hook. `components/crew/primitives/PersonRow.tsx:156` has emitted `data-lead="true"` on every department-lead row all along, so an unscoped rule painted a crew surface this pass never examined — on a row whose state is already carried by a rendered "Lead" chip and which by rule 3 needs no repair. | **P0** | FIXED. Both new hooks namespaced `data-fc-*`; the block records why the prefix is load-bearing. |
+| 2 | The selected rule was unscoped, reaching 18 emission sites in 13 files where the pass audited eight: a bare `<li aria-current="page">` breadcrumb, a `<div>` jump-highlight, a `<span>` picker marker, and a 44px tap box wrapping a 34×20 switch. | **P1** | FIXED. The selector requires an interactive element, excluding the first three by construction; `AutoRefreshControl` takes the new `[data-fc-skip]`, because its state is already a ruled deliberate flatten and the stylesheet should defer to the census rather than contradict it. |
+| 3 | Selected (`-2px`) and freshly-changed (`+2px`) differed only in the sign of an offset; an element that was both drew two concentric rings 4px apart. | **P1** | FIXED with #4. Selection is a fill, the transient cue is the only ring, so the states differ in kind. |
+| 4 | `outline-offset: -2px` was cramped against a flattened border, and DESIGN.md §17.3 promised a `Highlight` + `HighlightText` pair that no rule delivered. | **P2** | FIXED. Selection is `background-color: Highlight; color: HighlightText`. Measurement supports it: the engines' emulated palettes are near-inverses (Highlight vs Canvas 19.04:1 Chromium, 2.94:1 Firefox), so a ring's contrast is theme-dependent where the pair is not. |
+| 5 | §17.4 names the review rail's indicator as broken and stops without stating its repair. | **P2** | ACCEPTED. The section explains why a geometric-looking carrier is not one; the repair is §17.3's fill. Naming a per-site repair inside a rule's rationale is the sample-of-one shape this pass avoids. |
+| 6 | `data-lead=""` vs `data-lead="true"` disagreed on value shape. | **P3** | MOOT after the rename; the `data-fc-*` attributes are empty-valued, matching `data-share-link-flash`. |
+
+**Refuted, recorded so a later round does not re-derive it.** Assessment B flagged four
+`ShowReviewSurface` sites and `components/admin/review/AttentionBanner.tsx:259` as deep-link
+jump targets given a persistent ring. Half right: the four `ShowReviewSurface` sites
+carry `aria-current` on the SAME button that opens at
+`components/admin/review/ShowReviewSurface.tsx:805` and its three siblings,
+with `isActive` and an `onClick` — selection within a set, correctly in scope.
+`AttentionBanner.tsx:259` is genuinely transient and is a `<div>`, which the
+interactive scoping already excludes.
+
+### audit — five dimensions
+
+| # | Dimension | Score | Key finding |
+|---|---|---|---|
+| 1 | Accessibility | 3 | Focus on a SELECTED control computed the same colour as its fill in Chromium (both `rgba(5, 0, 73, 0.8)`), separated only by the 2px offset. Discernible, since the ring's outer edge meets Canvas at 19:1, but it read as one thick shape with a hairline gap. FIXED with a `HighlightText` ring at `-4px`, which is the palette answering its own question. Firefox did not collide, so no single-engine check would have found it. |
+| 2 | Performance | 4 | The block declares no layout property, no filter, no transform, and adds no animation; the two cues it repairs set `animation: none`. |
+| 3 | Theming | 4 | Zero hex literals. Every value is a system keyword (`Highlight`, `HighlightText`, `Canvas`, `ButtonFace`), which is the only correct vocabulary in this mode. |
+| 4 | Responsive | 4 | No sizing, no breakpoint, no tap-target declaration. The only nested media query is the reduced-motion arm, which is a state and not a viewport. |
+| 5 | Anti-patterns | 4 | Clean against every shared absolute ban: no side-stripe border, no gradient text, no glassmorphism, no bounce easing, no `!important`. No em dash in added user-visible copy. |
+| **Total** | | **19/20** | Excellent (minor polish). |
+
+Pre-code mechanical checklist: no em dashes in user-visible copy (0 in the added
+`.tsx` lines), no tap-target change, canonical token classes only, no new
+apostrophe literals.
+
+### What neither half caught, and CI must
+
+The local Playwright `webServer` timed out at 300s twice on this box, so AC-4 has
+not been observed green since the fill replaced the ring. That is the gate
+amendment's case exactly: CI is the oracle. `tests/e2e/forcedColors.spec.ts` was
+wired into both browser projects and into NO CI job — `.github/workflows/app-e2e.yml`
+runs an explicit spec list, the same silent-coverage failure one altitude up — and
+is in that list now.
