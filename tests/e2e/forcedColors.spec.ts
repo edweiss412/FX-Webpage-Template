@@ -125,6 +125,27 @@ test.describe("forced colors", () => {
     expect(idle.outlineStyle, "an idle row must carry no cue").toBe("none");
   });
 
+  test("AC-2: the step-3 warning cue is visible, animated and reduced-motion alike", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(origin);
+    await expect
+      .poll(async () => (await paint(page, "fc-step3-flash")).outlineStyle)
+      .not.toBe("none");
+    expect((await paint(page, "fc-step3-idle")).outlineStyle).toBe("none");
+
+    // The reduced-motion half is not a duplicate. This cue marks a jump target the
+    // user must LOCATE, so unlike the share-link cue its reduced-motion fallback is
+    // a steady tint rather than nothing (app/globals.css:1121-1128). That tint is a
+    // background, so it flattens too, and the fallback needs its own carrier.
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await page.reload();
+    await expect
+      .poll(async () => (await paint(page, "fc-step3-flash")).outlineStyle)
+      .not.toBe("none");
+  });
+
   test("the component still emits the attribute the stylesheet keys on", () => {
     // The page above is synthetic in exactly one respect: it wears the attribute
     // rather than rendering ShareHub. This is what stops that becoming a fixture

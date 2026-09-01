@@ -1538,4 +1538,23 @@ details[open] > summary [data-agenda-day-count] {
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }
+
+  /* Step-3 review modal, the one-shot warning-row highlight after a callout jump
+     (spec §5.2). Its only carrier is a background, which forces to one value, so
+     the animated form paints nothing.
+
+     BOTH forms need the outline, and that is the difference from the cue above.
+     This one marks a JUMP TARGET the user must still locate, so its reduced-motion
+     fallback is deliberately a steady tint rather than nothing
+     (app/globals.css:1100-1103, and the contrast drawn at
+     app/globals.css:1121-1128). A tint is a background. Repairing only the
+     animated form would leave a reduced-motion user in forced colors with a jump
+     they cannot find, which is the worse of the two failures because it is the
+     persistent one. The rule below is unconditional for that reason: it holds
+     whether or not the animation runs. */
+  [data-step3-warning-flash] {
+    animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
 }
