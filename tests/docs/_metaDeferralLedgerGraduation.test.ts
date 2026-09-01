@@ -70,6 +70,12 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // feat/nav-badge-arrival-announce (2026-08-31). Graduated by the product
+  // decision it was blocked on being taken, not by the requirement being
+  // waived: Eric ruled that the nav announces on the FIRST resolution only and
+  // only above zero, which is the entry's own suggested narrowing and the
+  // answer to the question it said only Doug could settle.
+  "NAV-BADGE-ARRIVAL-ANNOUNCE-1",
   // docs/paired-chrome-stale-text (2026-08-31). Graduated by the decision it was
   // deferred for having ALREADY been taken: the pairing clause shipped on
   // 2026-08-25 in `e6408222c`, moving both chips, and the queue row was archived
