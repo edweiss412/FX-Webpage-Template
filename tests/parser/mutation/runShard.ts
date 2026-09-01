@@ -142,7 +142,16 @@ export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Pro
   const collectDir = process.env.COLLECT_MUTATION_ALARMS;
   if (collectDir) {
     mkdirSync(collectDir, { recursive: true });
-    writeFileSync(join(collectDir, `alarms-shard${shardIndex}.json`), JSON.stringify({ alarms }));
+    // PROVENANCE, not decoration. The re-bless tool must be able to refuse a set of
+    // files that did not all come from one run, and a FILENAME cannot establish that:
+    // the reader chooses it. `shard` catches a file renamed onto the wrong index;
+    // `runId` catches a stale file sitting among fresh ones, which is the shape that
+    // would re-bless a mixed snapshot while every presence check passed. Local runs
+    // share the `local` sentinel, where the whole set is produced in one go.
+    writeFileSync(
+      join(collectDir, `alarms-shard${shardIndex}.json`),
+      JSON.stringify({ alarms, shard: shardIndex, runId: process.env.GITHUB_RUN_ID ?? "local" }),
+    );
   }
   return { alarms, allSiteIds, cosmeticViolations, noOps, assignment: A };
 }

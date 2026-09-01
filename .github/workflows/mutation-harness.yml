@@ -30,7 +30,17 @@ name: mutation-harness
 on:
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC nightly (off-peak)
-  workflow_dispatch: {}
+  # OPT-IN ALARM COLLECTION, default off. The parser ledger's fingerprints drift
+  # whenever an intentional parser or fixture change lands, and re-blessing them
+  # needs a full harness run's alarms -- which only this workflow produces. The
+  # input exists so that run can be asked for on a branch instead of being
+  # reconstructed by hand for the sixth time.
+  workflow_dispatch:
+    inputs:
+      collect_alarms:
+        description: "Collect parser mutation alarms as artifacts, for a ledger re-bless. Leave false for an ordinary validation run."
+        required: false
+        default: "false"
   # pull_request path-filtered (Codex whole-diff R2 [medium]): workflow_dispatch on a NEW workflow
   # only works once the file is on the default branch, so it CANNOT validate this PR pre-merge. A
   # path-filtered pull_request trigger runs the workflow AS IT EXISTS ON THE PR HEAD, giving real-
@@ -111,6 +121,11 @@ jobs:
       - name: Run parser mutation shard ${{ matrix.shard }}
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
+          # EMPTY unless this dispatch asked for a collection, and empty is what
+          # tests/parser/mutation/runShard.ts tests -- `if (collectDir)`. So on the
+          # schedule and on a pull request the collector does not run, and the only
+          # difference from before is an env key holding "".
+          COLLECT_MUTATION_ALARMS: ${{ github.event.inputs.collect_alarms == 'true' && 'alarms' || '' }}
         run: pnpm exec vitest run --project mutation tests/parser/mutationHarness.shard${{ matrix.shard }}.test.ts
       # SECONDS, and the start explicitly captured. Integer minutes lose the
       # boundary — 60m59s records as 60 and slips past an "above 60" comparison.
@@ -125,6 +140,20 @@ jobs:
         with:
           name: elapsed-parser-shards-${{ matrix.shard }}
           path: elapsed.txt
+      # NOT named `elapsed-*`: that prefix is what the budget job's ceiling
+      # derivation uses to decide a job is MEASURED, and a second elapsed-shaped
+      # artifact would pull this job into an accounting it has no business in.
+      # `always()` is load-bearing: the collector writes its file BEFORE the ledger
+      # assertion fails, and that assertion failing is the whole reason a collection
+      # run is asked for, so a condition that does not tolerate failure uploads
+      # nothing exactly when it matters.
+      - name: Upload collected alarms
+        if: ${{ always() && github.event.inputs.collect_alarms == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: alarms-parser-shards-${{ matrix.shard }}
+          path: alarms/
+          if-no-files-found: error
 
   parser-gates:
     runs-on: ubuntu-latest
