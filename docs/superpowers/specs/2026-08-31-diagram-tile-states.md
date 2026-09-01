@@ -154,6 +154,7 @@ explanation hangs below rather than displacing it.
   cannot answer which diagram is dark, and `title` recovers it only on hover.
 
   **The evidence is 320 and 390, and not 640, and an earlier draft of this paragraph overreached.**
+  <!-- record-sweep-allow: this sentence quotes the refuted claim in order to reject it -->
   It cited the copy-fit probe for a 21-character name needing two lines at 640, but that probe
   measures the name INSIDE the old box, with its 4px horizontal padding and its icon; the shipped
   caption is outside that box and has neither constraint. Measured against the real wrapper the name

@@ -24,6 +24,182 @@ import { activatedRunScalars } from "../_shared/workflowActivation";
 const ROOT = process.cwd();
 const PROJECT = "standalone-webkit-a11y";
 
+/**
+ * Every project the config resolves to WebKit, derived rather than listed.
+ *
+ * Added 2026-08-31. This file was pinned to ONE project by the PROJECT constant below,
+ * so `standalone-webkit-load-eligibility` had no wiring assertion at all and a third
+ * WebKit leg would have made two uncovered. A gate proves only what it is told to check.
+ *
+ * `browserName` is read before `defaultBrowserType` because it is an overridable worker
+ * option that merely DEFAULTS from the device spread, so an explicit override decides
+ * which engine launches — the same lesson the R5 escaping mutant below already paid for.
+ */
+function webkitProjects() {
+  return (standaloneConfig.projects ?? []).filter((p) => {
+    const use = (p.use ?? {}) as { browserName?: string; defaultBrowserType?: string };
+    return (use.browserName ?? use.defaultBrowserType) === "webkit";
+  });
+}
+
+/**
+ * Blank the CONTENTS of every template literal, leaving the backticks and every other
+ * byte in place so offsets and line numbers survive.
+ *
+ * The bare-identifier ban below is deliberately blunt — `use` and `browserName` as
+ * whole words, because R10 on the a11y leg evaded a `/test\.use\s*\(/` scan by
+ * destructuring the fixture key. That bluntness is only sound over files with no
+ * innocent occurrence, and the a11y spec's comment records that its own zero-occurrence
+ * property was VERIFIED rather than assumed. It does not generalise: the finalize
+ * layout spec writes its fixture pages as template literals, and one of them contains
+ * an HTML comment reading "happen to use the same utilities". `stripCommentsSafely`
+ * correctly protects literal contents, so that `use` survived and the generalized ban
+ * red on innocent prose the first time it ran.
+ *
+ * The repair NARROWS the region scanned rather than widening the pattern (the
+ * repair-direction rule in AGENTS.md): text inside a template literal is data the
+ * runtime never evaluates as a fixture override, so no ban has business reading it.
+ * String literals are deliberately left alone — `test["use"]` must still be visible to
+ * the bracket-access arm.
+ */
+function blankTemplateLiterals(src: string): string {
+  const sf = ts.createSourceFile("__tpl", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const spans: [number, number][] = [];
+  const collect = (n: ts.Node): void => {
+    if (
+      ts.isNoSubstitutionTemplateLiteral(n) ||
+      ts.isTemplateHead(n) ||
+      ts.isTemplateMiddle(n) ||
+      ts.isTemplateTail(n)
+    ) {
+      // Inside the backticks/braces only, so the delimiters stay and the file's shape
+      // (and every offset after it) is unchanged.
+      const text = n.getText(sf);
+      const start = n.getStart(sf);
+      const open = text.startsWith("`") || text.startsWith("}") ? 1 : 0;
+      const close = text.endsWith("`") || text.endsWith("${") ? (text.endsWith("${") ? 2 : 1) : 0;
+      spans.push([start + open, n.getEnd() - close]);
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(sf);
+  let out = src;
+  for (const [a, b] of spans) {
+    out = out.slice(0, a) + out.slice(a, b).replace(/[^\n]/g, " ") + out.slice(b);
+  }
+  return out;
+}
+
+describe("every standalone WebKit leg is wired", () => {
+  it("finds the WebKit projects at all", () => {
+    // Guards the walk. A filter that matched nothing would make the case below
+    // vacuously true, which is this file's own subject one level up.
+    expect(
+      webkitProjects()
+        .map((p) => p.name)
+        .sort(),
+    ).toEqual([
+      "standalone-webkit-a11y",
+      "standalone-webkit-finalize-progress",
+      "standalone-webkit-load-eligibility",
+    ]);
+  });
+
+  it.each(webkitProjects().map((p) => p.name as string))(
+    "%s resolves tests that actually run, unquarantined, on WebKit",
+    (name) => {
+      // Whole-diff review R1 finding 5. The first version of this walk asserted only
+      // that `--list` was non-empty, which leaves BOTH ordinary escapes open on every
+      // leg but the a11y one: a file-scoped `test.use({ browserName: "chromium" })`
+      // (project options resolve first, parent/file `use` overrides them) and a
+      // `test.fail()` quarantine. Neither changes project name, test title or spec id,
+      // so `--list`, the standalone baseline and the run's exit code all stay green
+      // while the WebKit proof is dark. The a11y leg already paid for both lessons
+      // (R7 and R11 escaping mutants); everything below is those checks stated over
+      // the DERIVED set of WebKit legs instead of the one constant they were written
+      // against.
+      //
+      // Resolution, not the testMatch regex, decides which files a leg covers: the
+      // regex is a matcher over a tree that changes, and what this guard is about is
+      // the files Playwright actually selects.
+      const out = execFileSync(
+        "pnpm",
+        [
+          "exec",
+          "playwright",
+          "test",
+          "--config",
+          "tests/e2e/standalone.config.ts",
+          `--project=${name}`,
+          "--list",
+          "--reporter=json",
+        ],
+        { cwd: ROOT, encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+      );
+      const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
+      const tests: { file: string; title: string; expectedStatus: string }[] = [];
+      const walk = (suites: unknown[]): void => {
+        for (const suite of suites) {
+          const s = suite as {
+            suites?: unknown[];
+            specs?: { title: string; file: string; tests?: { expectedStatus?: string }[] }[];
+          };
+          for (const spec of s.specs ?? [])
+            tests.push({
+              file: spec.file,
+              title: spec.title,
+              expectedStatus: spec.tests?.[0]?.expectedStatus ?? "unknown",
+            });
+          if (s.suites) walk(s.suites);
+        }
+      };
+      walk(parsed.suites ?? []);
+
+      // A project whose testMatch or grep selects nothing reports green while running
+      // nothing. Measured when this walk was added: load-eligibility 5, a11y 1,
+      // finalize-progress 1.
+      expect(tests.length, `${name} selects no tests`).toBeGreaterThan(0);
+
+      expect(
+        tests.filter((t) => t.expectedStatus !== "passed").map((t) => t.title),
+        `${name} resolves a test.fail() test — a quarantined proof expected-fails before ` +
+          "asserting anything, while the leg and the run both stay green",
+      ).toEqual([]);
+
+      // The engine, at all three levels of Playwright's precedence. R8 (HIGH) on the
+      // a11y leg: a TOP-LEVEL `use: { browserName: "chromium" }` beats every project's
+      // device default at once, and webkitProjects() above reads only the project's own
+      // `use` — so without this line one config-level override darkens every WebKit leg
+      // while the membership assertion still lists all three.
+      const project = standaloneConfig.projects?.find((p) => p.name === name);
+      const engine =
+        project!.use?.browserName ??
+        standaloneConfig.use?.browserName ??
+        (project!.use as { defaultBrowserType?: string } | undefined)?.defaultBrowserType;
+      expect(engine, `${name} must launch WebKit`).toBe("webkit");
+
+      // And the file-scope override, banned at the source of every file this leg
+      // selects. Refuse the construct rather than model its precedence: `--list` cannot
+      // see it, and the resolved config object still answers "webkit".
+      for (const file of [...new Set(tests.map((t) => t.file))]) {
+        const src = blankTemplateLiterals(
+          stripCommentsSafely(
+            readFileSync(join(ROOT, "tests/e2e", file), "utf8"),
+            ts.ScriptKind.TS,
+          ),
+        );
+        expect(
+          [/\buse\b/, /\bbrowserName\b/, /test\s*\[/, /\.fail\s*\(/]
+            .filter((re) => re.test(src))
+            .map(String),
+          `tests/e2e/${file} names use/browserName, bracket-accesses test, or quarantines ` +
+            `with .fail(); any of them can darken the ${name} leg invisibly`,
+        ).toEqual([]);
+      }
+    },
+  );
+});
+
 describe("standalone WebKit a11y leg wiring", () => {
   it(`${PROJECT} actually runs on WebKit`, () => {
     // Whole-diff review R1 (HIGH) escaping mutant: swapping `devices["Desktop Safari"]` for

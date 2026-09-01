@@ -1694,7 +1694,7 @@ for (const { w, h } of MESSAGE_VIEWPORTS) {
     ).toBe(true);
 
     // Clause 1: more than one line-height. The load-failed sentence is the
-    // longer of the two at 53 characters, so a one-line result here means it is
+    // longer of the two at 54 characters, so a one-line result here means it is
     // being truncated rather than wrapped.
     expect(
       d.msgRect.h,

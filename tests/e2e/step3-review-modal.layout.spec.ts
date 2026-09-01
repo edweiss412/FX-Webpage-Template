@@ -1587,7 +1587,7 @@ for (const { w, h } of TILE_VIEWPORTS) {
  * (docs/superpowers/specs/probes/2026-08-31-diagram-tile-grid-probe.mjs)
  * reports `name truncated` at 320px and 390px, and the copy-fit probe measures
  * a realistic 21-character name ("Main stage plot rev 4") needing two lines at
- * 320, 390 AND 640 — three of the four widths. The only recovery was the
+ * 320 and 390. The only recovery was the
  * `title` attribute, which requires hover, and PRODUCT.md names a phone on a
  * venue floor as one of Doug's two primary contexts. There is no hover there.
  *

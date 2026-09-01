@@ -505,11 +505,20 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // `step3-review-modal.interactions.spec.ts` add none, because they reuse the
     // goto that spec already had.
     //
+    // fix/finalize-progress-polish adds four, all in the one spec file it
+    // introduces, `tests/e2e/step3-finalize-progress.layout.spec.ts`. Three serve
+    // `bars.html` from a mkdtemp workdir over node:http — a page of bare
+    // <progress> elements with no React tree, so the accent paint, the
+    // reduced-motion parse and the indeterminate resting frame are measured
+    // against the stylesheet and nothing else — and the fourth serves
+    // `live.html?r=compact`, the real component tree, for the 375px footer
+    // geometry. All four are harness navigations; none is ever the /admin loader.
+    //
     // A declared count is a population claim, so growing the population is an
     // edit here by design — and this rule is a SUBJECT of
     // _metaScratchRootCleanup, so a stale count here fails that suite's premise
     // downstream, which is how the strip-dock bump was found.
-    expectedCount: 83,
+    expectedCount: 87,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {

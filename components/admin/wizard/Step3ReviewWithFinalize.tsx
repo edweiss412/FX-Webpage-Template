@@ -247,6 +247,11 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
       tabIndex={-1}
       role="group"
       aria-label="Show setup progress"
+      // Same reason as the panel group's: every visible string in here is aria-hidden
+      // and the CAS bar carries no value, so a virtual-cursor operator re-reading the
+      // focused group between announcements found a named group with no perceivable
+      // state. Unconditional because this element only renders while the run is live.
+      aria-busy="true"
       data-testid="wizard-step3-tracking"
       className="flex w-full flex-col gap-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
@@ -254,7 +259,17 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
         <>
           <div className="flex items-baseline justify-between gap-2">
             <span
-              className="font-semibold text-text-strong"
+              // min-w-0 + truncate: a flex item defaults to min-width:auto and will not
+              // shrink below its content, so without these the heading is the item that
+              // yields when the count grows, and it yields by WRAPPING — which grows the
+              // sticky footer whose height the 2026-08-29 spec proves invariant. The
+              // heading is fixed copy and the count is the variable one, so the heading
+              // is the correct thing to truncate. Measured at 375px: this never engages
+              // below a six-digit count, so it changes nothing anyone will see; it makes
+              // the one-line guarantee structural instead of a property of the counts
+              // that happened to be sampled, which matters because state.total is
+              // unbounded.
+              className="min-w-0 truncate font-semibold text-text-strong"
               data-testid="wizard-step3-tracking-heading"
               aria-hidden="true"
             >
@@ -262,7 +277,8 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
             </span>
             {state.total > 0 ? (
               <span className="shrink-0 tabular-nums text-text-subtle" aria-hidden="true">
-                {Math.min(state.done, state.total)} of {state.total}
+                {Math.min(state.done, state.total)} of {state.total} show
+                {state.total === 1 ? "" : "s"}
               </span>
             ) : null}
           </div>
@@ -286,10 +302,40 @@ function Step3CompactTracking({ run }: { run: FinalizeRun }) {
         </>
       ) : (
         <>
-          <span className="font-semibold text-text-strong" aria-hidden="true">
-            Finishing setup…
-          </span>
-          <span className="text-text-subtle" aria-hidden="true">
+          {/* The CAS heading row is built the same way as the batch one, and that is
+              load-bearing rather than cosmetic: it inherits the same min-w-0 + truncate
+              one-line guarantee, so the sticky footer's height holds here too. */}
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="min-w-0 truncate font-semibold text-text-strong" aria-hidden="true">
+              Finishing setup…
+            </span>
+            {state.settledTotal > 0 ? (
+              <span
+                className="shrink-0 tabular-nums text-text-subtle"
+                data-testid="wizard-step3-tracking-settled"
+                aria-hidden="true"
+              >
+                {state.settledDone} of {state.settledTotal} show
+                {state.settledTotal === 1 ? "" : "s"} set up
+              </span>
+            ) : null}
+          </div>
+          <progress
+            data-testid="wizard-finalize-progressbar"
+            className="h-1.5 w-full"
+            aria-label="Show setup progress"
+          />
+          {/* empty:hidden, not a conditional. casPhaseLabel returns "" before the
+              first phase event and React leaves ZERO child nodes for an empty string,
+              so :empty matches. DESIGN.md §7a is the ratified idiom and prefers keeping
+              the documented slot over collapsing it, and without it this zero-height
+              in-flow child still charges the column's gap — measured at 4px, the whole
+              of gap-1. */}
+          <span
+            className="text-text-subtle empty:hidden"
+            data-testid="wizard-step3-tracking-cas-phase"
+            aria-hidden="true"
+          >
             {casPhaseLabel(state.casPhase)}
           </span>
         </>
