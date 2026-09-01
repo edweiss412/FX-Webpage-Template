@@ -131,12 +131,6 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // confirm episode (cancel clears the timer; the timer cannot race a consumed
   // restore because the effect runs on the very next render, before any later
   // macro-task timer callback).
-  useEffect(() => {
-    if (ui === "idle" && restoreFocusRef.current) {
-      restoreFocusRef.current = false;
-      triggerRef.current?.focus();
-    }
-  }, [ui]);
 
   // When a result arrives, the action did NOT hang, clear the watchdog so a
   // late timer can't override the resolved (ok / infra_error / lockout) path.
@@ -161,6 +155,19 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   // watchdog, but guard defensively so a late render never re-derives idle).
   const effectiveUi: UiState = ui === "couldnt_confirm" ? "couldnt_confirm" : refused ? "idle" : ui;
 
+  // Keyed on effectiveUi, not on raw `ui`, and this is the whole repair for the
+  // non-success branches. A refused result never leaves `ui === "resolving"` —
+  // only `effectiveUi` snaps to idle (see the effectiveUi derivation above) — so
+  // an effect gated on raw `ui` can fire for cancel and the arm-expiry timer and
+  // never for a refusal, a lockout, or a retry. The rendered branch is what the
+  // operator is looking at, so the rendered branch is what focus must follow.
+  useEffect(() => {
+    if (effectiveUi === "idle" && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [effectiveUi]);
+
   const onRevokeClick = () => {
     clearAutoRevert();
     setExpired(false);
@@ -182,6 +189,12 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
     clearAutoRevert();
     setExpired(false);
     clearWatchdog();
+    // C5 on the CONFIRM path, captured at click time: once the submitter is
+    // disabled on isPending the containment question has no answer. Same test
+    // closeConfirm uses, so focus planted outside the row is not stolen.
+    if (confirmRowRef.current) {
+      restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+    }
     setUi("resolving");
     // Start the no-response watchdog. If we're still resolving with no result
     // when it fires, the action hung, go conservative.
