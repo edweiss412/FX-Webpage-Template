@@ -123,16 +123,23 @@ export function weightOf(surface: GuardSurface): number {
  * Measured rather than chosen, and re-derived from the file rather than typed, so a later
  * recalibration moves it without anyone remembering to.
  */
-export function legOverheadSeconds(): number {
-  const legs = Object.values(loadAnchor().recalibration.legs);
+export function medianOverheadSeconds(
+  legs: readonly { elapsedS: number; childMs: number }[],
+): number {
   if (legs.length === 0) {
     // A block with no legs would otherwise yield a median of NaN or 0, and a zero overhead makes
     // every fit trivially generous — the exact direction a missing figure must not fail in.
-    throw new Error("legOverheadSeconds: the recalibration block records no legs");
+    throw new Error("medianOverheadSeconds: no legs to take a median of");
   }
   const deltas = legs.map((l) => l.elapsedS - Math.round(l.childMs / 1000)).sort((a, b) => a - b);
   const mid = Math.floor(deltas.length / 2);
   return deltas.length % 2 === 1 ? deltas[mid]! : Math.round((deltas[mid - 1]! + deltas[mid]!) / 2);
+}
+
+/** The committed block's overhead. The DECISION is `medianOverheadSeconds`, which takes its legs
+ *  and is therefore pinnable at its boundaries; this is the one-line read of the anchor. */
+export function legOverheadSeconds(): number {
+  return medianOverheadSeconds(Object.values(loadAnchor().recalibration.legs));
 }
 
 /** The heaviest SINGLE surface, in modelled child seconds, and which one it is. No shard count
@@ -157,16 +164,29 @@ export function modelledFloor(surfaces: readonly GuardSurface[] = GUARD_SURFACES
  * reconciled by its gate, so this is a reading of committed measurements rather than a figure
  * anyone chose.
  */
-export function growthSecondsPerDay(): number {
-  const A = loadAnchor();
-  const later = Object.values(A.legs).reduce((n, l) => n + l.elapsedS, 0);
-  const days = (Date.parse(A.thisRunDateISO) - Date.parse(A.priorRun.dateISO)) / 86_400_000;
+export function growthPerDay(
+  later: { totalS: number; dateISO: string },
+  earlier: { totalS: number; dateISO: string },
+): number {
+  const days = (Date.parse(later.dateISO) - Date.parse(earlier.dateISO)) / 86_400_000;
   if (!(days > 0)) {
     // Equal or absent dates would divide by zero and report infinite runway, which is the one
     // direction a missing figure must not fail in.
-    throw new Error("growthSecondsPerDay: the anchor's two runs carry no positive day gap");
+    throw new Error("growthPerDay: the two runs carry no positive day gap");
   }
-  return (later - A.priorRun.legsElapsedTotalS) / days;
+  return (later.totalS - earlier.totalS) / days;
+}
+
+/** The committed anchor's two points. The DECISION is `growthPerDay`, which takes them. */
+export function growthSecondsPerDay(): number {
+  const A = loadAnchor();
+  return growthPerDay(
+    {
+      totalS: Object.values(A.legs).reduce((n, l) => n + l.elapsedS, 0),
+      dateISO: A.thisRunDateISO,
+    },
+    { totalS: A.priorRun.legsElapsedTotalS, dateISO: A.priorRun.dateISO },
+  );
 }
 
 /**
@@ -197,7 +217,7 @@ export function runwayDays(
  * a larger count is permitted, a smaller one is a red. Twelve is the smallest count that satisfies
  * it against the recalibrated registry, at 24.0 days; ten carries 11.7.
  */
-export const REQUIRED_RUNWAY_DAYS = 21;
+export const REQUIRED_RUNWAY_DAYS = 3 * 7;
 
 export function sourceShardAssignment(
   surfaces: readonly GuardSurface[] = GUARD_SURFACES,

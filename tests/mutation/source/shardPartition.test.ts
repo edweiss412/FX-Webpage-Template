@@ -8,7 +8,9 @@ import {
   SOURCE_SHARD_COUNT,
   bootsOf,
   REQUIRED_RUNWAY_DAYS,
+  growthPerDay,
   growthSecondsPerDay,
+  medianOverheadSeconds,
   legOverheadSeconds,
   modelledFloor,
   runwayDays,
@@ -240,6 +242,64 @@ describe("source-mutation shard partition", () => {
   it("declares a budget below the per-job timeout, in seconds", () => {
     expect(SHARD_BUDGET_SECONDS).toBeGreaterThan(0);
     expect(SHARD_BUDGET_SECONDS).toBeLessThan(90 * 60);
+  });
+
+  it("medianOverheadSeconds takes the MEDIAN, at both parities, and subtracts child from elapsed", () => {
+    // The decision, at its boundaries, against constructed legs. The committed-anchor wrapper
+    // below reads one number and cannot discriminate any of this — which is why the CI gate found
+    // seventeen surviving mutants in these functions before they took their inputs.
+    const leg = (elapsedS: number, childMs: number) => ({ elapsedS, childMs });
+    // Odd: the middle element after sorting, and the input is deliberately unsorted.
+    expect(medianOverheadSeconds([leg(310, 100_000), leg(105, 5_000), leg(220, 20_000)])).toBe(200);
+    // Even: the mean of the two middle elements, ROUNDED. 100 and 201 -> 150.5 -> 151.
+    expect(medianOverheadSeconds([leg(200, 100_000), leg(401, 200_000)])).toBe(151);
+    // A single leg is its own median.
+    expect(medianOverheadSeconds([leg(250, 50_000)])).toBe(200);
+    // Elapsed MINUS child, not either alone: same elapsed, different child.
+    expect(medianOverheadSeconds([leg(300, 100_000)])).not.toBe(
+      medianOverheadSeconds([leg(300, 200_000)]),
+    );
+    // Empty THROWS rather than yielding 0, because a zero overhead makes every fit generous.
+    expect(() => medianOverheadSeconds([])).toThrow(/no legs/);
+  });
+
+  it("growthPerDay divides the total delta by the DAY gap, and refuses a non-positive one", () => {
+    const later = { totalS: 24_616, dateISO: "2026-08-31" };
+    const earlier = { totalS: 22_158, dateISO: "2026-08-26" };
+    // (24616 - 22158) / 5 = 491.6. Derived from the fixture on both sides.
+    expect(growthPerDay(later, earlier)).toBeCloseTo((24_616 - 22_158) / 5, 6);
+    // The DAY divisor is load-bearing: the same delta over ten days is half the rate.
+    expect(growthPerDay({ ...later, dateISO: "2026-09-05" }, earlier)).toBeCloseTo(
+      (24_616 - 22_158) / 10,
+      6,
+    );
+    // Equal dates and reversed dates both THROW rather than reporting an infinite rate.
+    expect(() => growthPerDay(later, { ...earlier, dateISO: later.dateISO })).toThrow(/day gap/);
+    expect(() => growthPerDay(earlier, later)).toThrow(/day gap/);
+  });
+
+  it("the required runway is three weeks, stated as such", () => {
+    // Pinned against its own rationale rather than against itself: a bare `toBe(21)` is a literal
+    // compared to a literal and survives any edit that moves both.
+    expect(REQUIRED_RUNWAY_DAYS).toBe(3 * 7);
+  });
+
+  it("runwayDays is N*floor - total over the growth rate, derived from constructed surfaces", () => {
+    // `weightOf` reads a real file, so the surfaces are real and only their suite/ledger fields
+    // vary; the expected value is computed from those same weights rather than written down.
+    const light = fakeSurface({ id: "light", suitePaths: ["a"], accepted: [] });
+    const heavy = fakeSurface({
+      id: "heavy",
+      suitePaths: ["a", "b", "c", "d", "e", "f", "g", "h"],
+      accepted: [],
+    });
+    const surfaces = [light, heavy];
+    const total = (weightOf(light) + weightOf(heavy)) / 1000;
+    const floor = Math.max(weightOf(light), weightOf(heavy)) / 1000;
+    premise("the two fixtures differ in weight", weightOf(heavy) - weightOf(light), 0);
+    for (const n of [2, 5, 9]) {
+      expect(runwayDays(n, surfaces)).toBeCloseTo((n * floor - total) / growthSecondsPerDay(), 6);
+    }
   });
 
   it("the shard count carries at least the required runway (AC-10)", () => {
