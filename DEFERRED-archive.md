@@ -1,3 +1,46 @@
+### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips read lighter than the control they sat beside — CLOSED 2026-08-25 (`feat/ui-polish-class-sweep`, SHIPPED in `e6408222c`); prose retired 2026-08-31 (`docs/paired-chrome-stale-text`)
+
+**Effort:** S per site, M as a rule
+
+Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P1,
+audit P2 — recorded at the higher call). Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F1 and F2).
+
+**The finding, as it stood in 2026-08-16.** The ruling that day moved 21 CONTROLS to
+`border-text-faint`. DESIGN.md §1.2a kept `--color-border-strong` for non-interactive chrome, so two
+elements that shared a recipe with a swapped control stayed put, and each became the quieter half of
+a pair a reader sees at once:
+
+- `components/diagrams/GalleryLightbox.tsx:773`, the `aria-hidden` demote chip, against the Reset
+  chip at `:708` it matches (same `rounded-pill bg-surface-raised px-4`, same shadow; `bottom-2`
+  and `top-2` of the same image). 1.59/1.50 versus 3.35/3.53.
+- `components/admin/StagedPreviewBanner.tsx:65`, the `aria-current` chip, standing in a row of
+  picker links at `:75` that moved. The entry marked current carried the weakest boundary in its
+  own row. (The two line anchors in these bullets are the 2026-08-16 file; both have since drifted.)
+
+**Why deferred rather than repaired in-branch — reason (b) plus (a).** Spec
+`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §4.4 ratifies the
+second site verbatim ("non-interactive chrome: outside the census, keeps its token") and §1.2a's
+scope paragraph ratifies the first, so moving either would move an element under a ruling the user
+took against a mockup of BUTTONS resting on cards. The general question is a design decision:
+should chrome that visually PAIRS with a control follow that control's outline weight, or does
+chrome follow chrome? Neither site is a contrast finding — both are non-interactive, so SC 1.4.11
+does not reach them, and both carry their state programmatically.
+
+**RESOLVED 2026-08-25, and this entry is a record rather than an open item.** The design decision
+the deferral was waiting on was taken: §1.2a gained the pairing clause, both chips moved in
+`e6408222c`, and the queue row was archived at `BACKLOG-archive.md:1288`. The product owner
+confirmed the same ruling independently on 2026-08-31, not knowing it had already shipped.
+
+The §1.2a documented-limit entries this paragraph used to point at are gone with the resolution;
+that section now carries the clause and a dated historical note instead. Past-tensed here on
+2026-08-31 by the invariant-8 gate on `docs/paired-chrome-stale-text`, which found this body still
+asserting the pre-resolution state in the present tense. Same defect as the one that branch exists
+to repair, in a file it was already editing, which is not a deferral reason.
+
+**Un-defer trigger:** a decision on whether §1.2a gains a pairing clause or an explicit "chrome
+follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
+
 ### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome — CLOSED 2026-08-31 (`feat/telemetry-retry-outcome`, SHIPPED)
 
 **Effort:** S for the mechanism, M with the prop threading and its tests
