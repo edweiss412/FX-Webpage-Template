@@ -11,7 +11,12 @@ import { CRON_JOBS } from "@/lib/cron/runSummary";
 vi.mock("@/lib/auth/requireDeveloper", () => ({
   requireDeveloperIdentity: async () => ({ email: "a@b.c" }),
 }));
-vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-29T12:00:00.000Z") }));
+// Mutable so a case can advance the page's per-render clock between renders, which is
+// what the retry control reads to tell a settled failure from a tap it has not heard
+// back from. Every other case leaves it at the fixed instant it has always been.
+const PAGE_NOW_DEFAULT = "2026-06-29T12:00:00.000Z";
+let pageNow = new Date(PAGE_NOW_DEFAULT);
+vi.mock("@/lib/time/now", () => ({ nowDate: async () => pageNow }));
 // HealthAlertsPanel is an async Server Component (own loadHealthAlerts reads);
 // stub it here so the page-render test doesn't hit Supabase (alert-audience-split §6.6).
 vi.mock("@/components/admin/telemetry/HealthAlertsPanel", () => ({
@@ -44,6 +49,7 @@ vi.mock("next/navigation", () => ({
 
 afterEach(() => {
   cleanup();
+  pageNow = new Date(PAGE_NOW_DEFAULT);
   // mockReset, not mockClear: the retry cases install an implementation that re-renders the
   // page, and a leaked implementation would drive a later case's click into a stale tree.
   routerRefresh.mockReset();
@@ -136,6 +142,52 @@ describe("TelemetryPage", () => {
     expect(routerReplace).not.toHaveBeenCalled();
     expect(retry).toHaveAttribute("type", "button");
     expect(retry).not.toHaveAttribute("href");
+  });
+
+  // TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1, end to end through the real page: the
+  // announcement's signal is the page's own per-render timestamp, so a case that
+  // renders the control in isolation cannot prove the wiring. DIFFERENT, not later,
+  // deliberately: the contract is any-difference, and direction coverage lives in the
+  // control's own suite.
+  test("a re-read that still fails announces the outcome to the live region", async () => {
+    const loadCronHealth = vi.fn(async () => ({ kind: "infra_error", message: "x" }));
+    vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth }));
+    vi.doMock("@/lib/admin/loadAppEvents", () => ({
+      loadAppEvents: async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }),
+    }));
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
+    const { retryOutcomeAnnouncement } =
+      await import("@/components/admin/telemetry/TelemetryRetryButton");
+
+    const renderPage = async () => await Page({ searchParams: Promise.resolve({}) });
+    const utils = render(await renderPage());
+    premise(
+      "the fallback branch is the one rendered",
+      screen.queryAllByTestId("cron-health-degraded").length,
+      0,
+    );
+
+    const status = screen.getByTestId("cron-health-retry-status");
+    premise("the live region starts empty", 1, (status.textContent ?? "").length);
+
+    routerRefresh.mockImplementation(() => {
+      // The server render the tap provoked, at a different instant, still failing.
+      pageNow = new Date("2026-06-29T12:00:20.000Z");
+      void act(async () => {
+        utils.rerender(await renderPage());
+      });
+    });
+
+    fireEvent.click(
+      within(screen.getByTestId("cron-health-degraded")).getByTestId("cron-health-retry"),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("cron-health-retry-status").textContent).toContain(
+        retryOutcomeAnnouncement("scheduled-job health"),
+      ),
+    );
+    expect(loadCronHealth.mock.calls.length).toBe(2);
   });
 
   test("a retry that succeeds replaces the fallback, and takes the control with it", async () => {

@@ -377,3 +377,56 @@ reads `scrollTop`/`scrollLeft` on the unscrolled path, where both reads follow t
 cap-restore writes and both are provably no-ops. Every measurement of every
 uncapped popover on every surface composing the helper takes that path. **No
 review round in six ever faulted it.**
+
+## BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS — every two-tap destructive control restores focus on Cancel and drops it on Confirm
+
+**Status:** OPEN · **Filed:** 2026-08-31 (`fix/sharelink-cue-focus`, PR #956, from the SHARELINK-CUE-FOCUS-OBSCURED-1 probe) · **Facing:** product · **Severity:** MEDIUM (keyboard and switch operators are returned to the top of the document after every destructive confirm on the admin surface) · **Class:** focus management on two-tap confirm · **Effort:** M · **Class-sweep exception:** (c) — repairing it spans five UI files and carries the invariant-8 impeccable dual gate, which would have converted a docs-only probe PR into a five-file UI arc; bl-orch ruled it a fresh arc rather than growth of #956 · **Reachability:** PROBED 2026-08-31 on the rotate control; the other four are derived, not observed.
+
+Confirming a destructive action drops `document.activeElement` to `<body>`, and
+nothing puts it back. The operator is returned to the start of the document with
+no focus anywhere in the popover, so a keyboard or switch user has to tab back in
+from the top. The action itself is announced through the admin layout's live
+region, so the outcome is not silent, but the focus position is lost.
+
+**Probe evidence.** Measured on the share-hub rotate control at 390x560 and
+390x460, WebKit and Chromium, driving the real arm-and-confirm flow
+(`tests/e2e/admin-lifecycle-layout.spec.ts` harness; rect tables, commands and the
+reproduction case in
+`docs/superpowers/specs/ci/probes/2026-08-31-sharelink-cue-focus-probe.md`). Focus
+is `<body>` from the confirm click onward, and `scrollTop` is unchanged between
+the armed and just-confirmed measurements in every run, so no scrolling is
+involved. The control that makes it a finding rather than an observation: the
+identical keyboard journey ending in Cancel restores focus to the trigger. Only
+Confirm loses it.
+
+**Mechanism.** `onConfirmClick` sets `ui = "resolving"`, which disables the button
+the operator just activated
+(`app/admin/show/[slug]/RotateShareTokenButton.tsx:179-182`,
+`app/admin/show/[slug]/RotateShareTokenButton.tsx:370-371`). Disabling a focused
+element blurs it. Focus never returns, because the close-focus restore is gated on
+`restoreFocusRef`, written only inside `closeConfirm()`
+(`app/admin/show/[slug]/RotateShareTokenButton.tsx:123-132`), whose callers are
+Cancel and the arm-expiry timer.
+
+**It is a class, swept by derivation over the flag's writers rather than by
+listing components.** `grep -rn "restoreFocusRef.current = " app/ components/`
+returns five two-tap destructive controls. In four the only setter is
+`closeConfirm()`; in the fifth it is Cancel's own `onClick`. **No confirm or
+submit handler writes the flag anywhere in the repo.**
+
+1. `app/admin/show/[slug]/RotateShareTokenButton.tsx` — rotate share link (measured)
+2. `app/admin/settings/admins/RevokeRowButton.tsx` — revoke admin
+3. `app/admin/show/[slug]/PickerResetControl.tsx` — picker reset
+4. `app/admin/show/[slug]/ResetPickerEpochButton.tsx` — reset picker epoch
+5. `components/admin/ArchiveShowButton.tsx` — archive show
+
+**One constraint the repair has to survive.** `app/admin/settings/admins/RevokeRowButton.tsx:380-390`
+already moved its disable from the synchronous `isResolving` to `isPending`,
+because the synchronous disable cancelled the native form submit outright. That
+fix moves WHEN the button is disabled by a tick; it does not keep it enabled, so
+the focus outcome there is the same and the repair must not undo it.
+
+**First scheduled step:** extend the shipped probe to the other four controls, so
+the four derived sites are measured before they are repaired. Then repair all
+five in one PR (class-sweep default, one shape one PR), with the invariant-8
+impeccable dual gate.

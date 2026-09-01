@@ -47,6 +47,61 @@ the admin shell's own announce region. The guard whose subject is regions born p
 see the one region the whole app announces through. Widened here, with planted cases for both
 spellings, per the class-sweep default.
 
+### TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1 — impeccable P1: the retry announces intent, never outcome — CLOSED 2026-08-31 (`feat/telemetry-retry-outcome`, SHIPPED)
+
+**Effort:** S for the mechanism, M with the prop threading and its tests
+
+Surfaced by the invariant-8 dual gate on branch `feat/telemetry-fallback-retry` (critique P1,
+audit P2 — recorded at the higher call). Findings and dispositions are in the closeout beside
+`docs/superpowers/plans/2026-08-27-telemetry-fallback-retry.md`.
+
+**The finding.** `components/admin/telemetry/TelemetryRetryButton.tsx` announces `Retrying <what>`
+into its live region on every activation. On success the component unmounts with the branch it
+lives in; on a repeated failure it re-renders the same phrase, distinguished only by a parity
+toggle. Either way a screen-reader user hears the intent and never the outcome. A sighted user
+sees the content appear or the fallback persist; a listener gets nothing that separates the two.
+
+**Why it is deferred rather than fixed, with the probes that settle it.** The control has no
+completion signal to announce, and this was measured rather than assumed:
+
+1. `router.refresh(): void` — `node_modules/next/dist/shared/lib/app-router-context.shared-runtime.d.ts:32`.
+   No promise, so nothing to await.
+2. `bfcacheId` is the one router value that tracks navigation identity, and its own doc comment
+   at `:57` says it "stays the same for ... `router.refresh()`". It is explicitly not this signal.
+3. A SYNC `useTransition` around `router.refresh()` never exposes a pending state in this harness:
+   a throwaway probe rendering exactly that shape asserted `isPending` after the click and FAILED.
+   An ASYNC transition does expose one, mid-flight and cleared on settle, and passed — but it needs
+   something real to await, and (1) says there is nothing. A timer would make `aria-busy` report a
+   duration unrelated to the refresh, which is a lie rather than a fix.
+
+**The mechanism that would fix it, so the next arc does not re-derive any of the above.** The only
+honest completion signal is one the SERVER render changes. All three call sites already hold a
+per-render timestamp in scope (`app/admin/dev/telemetry/page.tsx` awaits `nowDate()`,
+`EventTimeline` receives `now`, `HealthAlertsPanel` computes its own). Threading it as a prop lets
+the control record the value it saw at the tap and compare: a changed value while still mounted
+means the retry completed and did not fix the branch, which is a settled outcome worth announcing.
+
+**Its known fragility, stated up front.** That couples the announcement's correctness to a display
+clock. If `nowDate()` were ever memoized to a stable value the announcement would silently stop,
+and no test would red. Any implementation therefore owes a guard on the signal itself, not only on
+the announcement.
+
+**Un-defer trigger:** a second surface needing an outcome announcement from a `router.refresh()`
+that reports nothing, OR a Next release giving `refresh()` a completion signal, OR a report of a
+screen-reader user unable to tell a failed retry from a successful one on this page.
+
+---
+
+**Shipped 2026-08-31, PR #957.** The mechanism is the one this entry named: each of the three fallbacks threads its own per-render server timestamp as `renderedAt`, the control records the value it saw at the tap, and a later render carrying a different finite value means a re-read completed and the branch still failed. Any difference settles it, in either direction, never an ordering test; both guards are `Number.isFinite`, because zero is a valid instant and an infinity is not a completed render. Success stays silent by construction.
+
+**The owed guard landed.** `tests/time/now.test.ts` pins the SIGNAL rather than the announcement: a cache planted on `nowDate`'s production path reds exactly that case. The head-of-function plant that reds seven cases is recorded as the strawman it is.
+
+**Two things the arc changed that this entry did not anticipate.** The impeccable gate replaced the hand-rolled `role="status"` swap with the repo's shared append channel (`components/admin/announceLog.tsx`), which DESIGN.md §15 mandates whenever the same message text can recur, so the sequence counter and the parity suffix are gone rather than extended. And the announcement's cadence is one outcome per settled CYCLE, not one per tap or per response.
+
+**What did NOT ship, recorded so it is not mistaken for done.** A retry that never lands is still silent, and the timer that would fix it is declined on the record: it would assert an outcome nobody observed. The sighted half of the same defect is also still open, since tapping leaves the header's "Updated Ns ago" chip stale. Both are in the spec's documented limits and the PR body's unfixed peers.
+
+---
+
 ### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session — CLOSED 2026-08-29 (`feat/diagram-failure-retry`, SHIPPED)
 
 **Resolution: SHIPPED.** The entry deferred under class-sweep exception (a) — it needed a
@@ -2286,3 +2341,23 @@ Queue row `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` is archived RESOLVED
 **Why it was deferred rather than fixed in that arc.** Class-sweep exception (a): the repair has to reopen a ratified §D2 contract, which the filing arc could not settle. The critique proposed `railCount: 1` while the draft is non-empty, leaving `hideDot: true` intact, so the rail gains a count without gaining a status dot. That is plausible and cheap, and it is exactly the thing this row cannot settle alone — §D2 ratified this section as the one with no status, and a pending draft arguably IS status. A second candidate the critique raised and the spec declined on a weaker ground is expanding the disclosure on mount when a draft was restored. The arc shipped the guarantee in copy ("Kept on this device until you close the tab."), which helps the operator who navigates back to Report on purpose; what is left is the operator who does not.
 
 **GRADUATED 2026-08-30** by `fix/pill-size-draft-restored-note`. Eric's decision 6B: a transient note ships instead of the critique's `railCount: 1`, so the §D2 contract is untouched in both directions — the report section still shows no status dot, and the operator is still told. `components/admin/wizard/DraftRestoredNote.tsx`, mounted first in the step-3 content pane so it is visible without scrolling, announced through the shell's existing `AdminAnnounceProvider` rather than a new live region. The copy is past tense on purpose: the operator can clear or submit inside the five-second window, and a note claiming the draft is waiting would then be false on screen with nothing to correct it. Spec and plan as above.
+
+### SHARELINK-CUE-FOCUS-OBSCURED-1 — the scroll cue may push the focused rotate control out of view (2026-08-07, arc A) — CLOSED 2026-08-31 (`fix/sharelink-cue-focus`, REFUTED BY PROBE)
+
+**Resolution: REFUTED.** The row was filed `Reachability: INFERRED, NOT PROBED` and named its own probe as the first scheduled step. The probe ran and the claim does not hold: after the cue's glide settles there is no focused element for the cue to obscure, and the rotate control returns fully inside the popover's visible band. The row graduates on the evidence, not on the requirement being waived. What the probe found instead is a different defect on a different element with a different cause, and it is filed on its own terms as `BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS`.
+
+**Effort:** S · **Facing:** product
+
+**Reachability:** PROBED 2026-08-31 on `fix/sharelink-cue-focus`. REFUTED.
+
+**Probe result.** At 390x560 and at 390x460, in WebKit and in Chromium, `document.activeElement` after the cue's glide settles is `<body>`. No element inside the popover holds focus, so the cue cannot obscure a focused control, under either reading of 2.4.11. When the idle rotate control returns it renders fully inside the popover's visible band: 53.1 of 53.1 CSS px visible at both heights, zero clipping. Full rect tables, the exact commands, and the reproduction case: `docs/superpowers/specs/ci/probes/2026-08-31-sharelink-cue-focus-probe.md`.
+
+**What the probe did turn up, recorded rather than filed.** Focus is dropped to `<body>` at the moment the rotation is CONFIRMED, before any scrolling: `scrollTop` is unchanged between the armed and just-confirmed measurements in every run, so the cue is not the cause. `onConfirmClick` sets `ui = "resolving"`, which disables the button the operator just activated (`app/admin/show/[slug]/RotateShareTokenButton.tsx:179-182` and `app/admin/show/[slug]/RotateShareTokenButton.tsx:370-371`), and disabling a focused element blurs it. Focus never returns, because the C5 close-focus restore is gated on `restoreFocusRef`, written only inside `closeConfirm()` (`app/admin/show/[slug]/RotateShareTokenButton.tsx:123-132`), which Cancel and the arm-expiry timer reach and the confirm path does not. The control that makes this a finding rather than an observation is in the probe record: the identical keyboard journey ending in Cancel restores focus to the rotate trigger. Only Confirm loses it. This is a different element, a different cause, and a different defect from the one this row predicted. It is also a CLASS, not a site: `grep -rn "restoreFocusRef.current = " app/ components/` returns five two-tap destructive controls (rotate, revoke-admin, picker-reset, reset-picker-epoch, archive-show), and in every one of them the only setter is Cancel's own path. No confirm or submit handler writes the flag anywhere in the repo. The focus outcome was measured on rotate only; the other four are predicted by the same mechanism, not observed. Filed as `BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CONTROLS` (BACKLOG.md, product-facing) on bl-orch's 2026-08-31 ruling, and repaired in a fresh arc rather than here: the repair spans five UI files and carries the invariant-8 dual gate, which would have converted this docs-only probe PR into a five-file UI arc.
+
+From the impeccable audit of `feat/a11y-privacy-cluster` (P2). The new rotation cue scrolls the crew-URL row into view inside the share hub's `overflow-y-auto` popover. The URL row sits ABOVE the rotate control, so the scroll moves the viewport up and can push the just-activated control — which still holds focus — below the visible band. WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum, AA).
+
+**Not fixed, because the obvious repair fights the feature.** The cue exists precisely to move the view off the rotate control and onto the link that changed; scrolling the focused control back into view would undo it. `block: "nearest"` already minimizes the movement, and does nothing at all when the row is already visible. Whether the residual case is a real 2.4.11 failure also turns on a question this arc did not settle: 2.4.11 is written about author-created content covering the focused element (sticky headers, overlays), and an author-initiated scroll within a scroll container is a greyer reading.
+
+**The probe that settled it.** Run as specified above, at 390x560 and also at 390x460, the tallest swept height where the popover overflows enough for the cue to move anything (measured `maxScrollTop` 97 at 560 against a URL-row bottom of 127, `docs/superpowers/specs/ci/2026-08-26-lifecycle-popover-docked-geometry-repair.md` §4), so the worst case for this claim was included rather than assumed away. Both refute it. The record carries the rect tables, the commands, and the reproduction case.
+
+**Un-defer trigger:** the probe is spent and refuted this row's claim, so nothing reopens it as written. A share-hub change that moves the rotate control BELOW the fold at rest, or that reintroduces focus inside the popover across the cue, would need re-probing against the same record.
