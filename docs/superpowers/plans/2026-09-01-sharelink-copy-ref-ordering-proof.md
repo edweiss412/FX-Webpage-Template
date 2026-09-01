@@ -132,7 +132,7 @@ Full mode is a non-interactive Playwright run and therefore a heavy phase: every
 - AC-3 The harness states its own premises executably, so a future React or setup change that closes the window fails loudly instead of passing vacuously.
 - AC-4 A mirror row proves the harness's window does not itself suppress confirmations: a commit that does not change the url, released in the same window, still confirms.
 - AC-5 The layout-to-passive swap is registered as adversary `A39` in the matrix, the new file is in `VITEST_SUITES`, and a scoped matrix run records `A39 REJECTED`. No whitelist row, no `EQUIVALENT_SURVIVORS` row, no exemption.
-- AC-6 Every row the new file adds rejects at least one registered adversary, so spec §9.0's no-vacuous-row rule holds for the rows this arc introduces.
+- AC-6 Every row the new file adds rejects at least one registered adversary, so spec §9.0's no-vacuous-row rule holds for the rows this arc introduces. Attribution is by a row id proven unique across `VITEST_SUITES`, because the matrix records a rejected row by title alone and a shared title would credit this file with another suite's failure.
 - AC-7 The two prose sites this change makes false are repaired in the same branch, and the three dated historical records plus the frozen ledger-mass fixture are left alone with the reason recorded.
 - AC-8 The row is graduated in the PR's last commit: moved to `DEFERRED-archive.md`, added to `GRADUATED`, IN PROGRESS marker removed.
 
@@ -163,8 +163,8 @@ The red is the command in the marker, observed at plan time (exit 2, output past
   5. the microtask drain preceded the passive flush, which is the window itself.
 
   The act environment is SET to false rather than asserted. A premise that checks a value the same file just assigned proves nothing; what is worth asserting is the consequence, which is premises 3 and 5. The setting is documented at the site instead, because a future global setup file that turned the flag on would reinstate the act queue and close the window.
-- [ ] **Step 3: The discriminating row.** After the release lands in the window and the tree settles, the button reads `Copy` and the announcer's text is empty. Scoped to the two testids separately, so a passing label cannot stand in for a passing announcement. This is the row that reds under `A39` (AC-2) and also under `A32` (AC-6, family 2).
-- [ ] **Step 4: The mirror row.** Same harness, but the second `root.render` passes the SAME url. The commit still happens and the probe still releases inside the window, but nothing rotated, so the guard must let the confirmation through: the button reads `Copied` and the announcer reads `URL copied to clipboard`. Without this row the discriminating row is satisfied by a harness that suppresses everything. It reds under `A35` (AC-6, family 3).
+- [ ] **Step 3: The discriminating row.** After the release lands in the window and the tree settles, the button reads `Copy` and the announcer's text is empty. Scoped to the two testids separately, so a passing label cannot stand in for a passing announcement. This is `T-ORDER-STALE`, the row that reds under `A39` (AC-2) and also under `A32` (AC-6, family 2).
+- [ ] **Step 4: The mirror row.** Same harness, but the second `root.render` passes the SAME url. The commit still happens and the probe still releases inside the window, but nothing rotated, so the guard must let the confirmation through: the button reads `Copied` and the announcer reads `URL copied to clipboard`. Without this row the discriminating row is satisfied by a harness that suppresses everything. This is `T-ORDER-FRESH`. It reds under `A35` (AC-6, family 3).
 - [ ] **Step 5: Register the adversary and the suite.** Add the file to `VITEST_SUITES` in `scripts/share-link-flash-adversary-matrix.mjs`, and push `A39`:
 
   ```js
@@ -190,14 +190,44 @@ The red is the command in the marker, observed at plan time (exit 2, output past
 
   The residual gap is exactly this one and nothing else, which is worth stating because it bounds what the baseline has to cover. `runVitest` already refuses to score a run whose requested suites did not all report (`scripts/share-link-flash-adversary-matrix.mjs:918-929`), a suite that collected zero tests (`scripts/share-link-flash-adversary-matrix.mjs:932-939`), or a test neither passed nor failed (`scripts/share-link-flash-adversary-matrix.mjs:940-945`); each throws as an infrastructure fault rather than counting as a rejection. Absence of a baseline was the one way left for `REJECTED` to be true and worthless.
 
-- [ ] **Step 7: Non-vacuity of both new rows (AC-6), read by row title and not by exit code.** `node scripts/share-link-flash-adversary-matrix.mjs --only A32,A35,A39 --quick`, then read the matrix JSON at tmp/adversary-matrix.json, which the run writes for every invocation including a scoped one. Exit 0 alone is not the evidence: the matrix credits an adversary when ANY row reds, so all three could pass on rows this arc did not write. The check is on the `rows` array of each result object:
+- [ ] **Step 7: Non-vacuity of both new rows (AC-6), attributed by a row id that only this file can produce.**
+
+  The matrix records a rejected row as `a.fullName ?? a.title` and discards the suite path (`scripts/share-link-flash-adversary-matrix.mjs:955-960`), so a title alone cannot say WHICH file produced it, and a title shared with another suite would let someone else's failure be read as this file's coverage. Both existing collision candidates are real: `A32` already credits the rotate suite's in-flight row and `A35` already credits its current-url row. So the two new cases are named `T-ORDER-STALE` and `T-ORDER-FRESH`, following the `T-FLASH-*` convention the browser spec already uses, and the check has two halves.
+
+  First, uniqueness, DERIVED from the script's own suite list rather than from a list typed here, so a suite added later is covered by default. Run as a scratch script with `node`, from the worktree root:
+
+  ```js
+  const { readFileSync } = require("node:fs");
+  const src = readFileSync("scripts/share-link-flash-adversary-matrix.mjs", "utf8");
+  const m = src.match(/const VITEST_SUITES = \[([\s\S]*?)\]/);
+  const files = (m ? m[1].match(/"([^"]+)"/g) || [] : []).map((x) => x.slice(1, -1));
+  const KNOWN = "tests/components/admin/shareLinkCopyButtonRotate.test.tsx";
+  if (!files.includes(KNOWN)) {
+    console.error(`PREMISE: the parsed VITEST_SUITES list does not contain ${KNOWN}; the scan saw ${files.length} files and is not reading the real list`);
+    process.exit(1);
+  }
+  let bad = 0;
+  for (const id of ["T-ORDER-STALE", "T-ORDER-FRESH"]) {
+    const carrying = files.filter((f) => readFileSync(f, "utf8").includes(id));
+    const defs = carrying.flatMap((f) => readFileSync(f, "utf8").split("\n").filter((l) => l.includes(`it("${id}`)));
+    const ok = carrying.length === 1 && defs.length === 1 && carrying[0].endsWith("shareLinkCopyButtonOrdering.test.tsx");
+    console.log(`${id} files=${carrying.length} defs=${defs.length} ${carrying.join(",")} ${ok ? "OK" : "FAIL"}`);
+    if (!bad && !ok) bad = 1;
+  }
+  process.exit(bad ? 1 : 0);
+  ```
+
+  It exits non-zero rather than printing for a human to read, and it was probed both ways at plan time. Against the live tree it exits 1 with `T-ORDER-STALE files=0 defs=0 FAIL` and the same for `T-ORDER-FRESH`, because the suite does not exist yet; that is this step's red. Against a planted stub whose `VITEST_SUITES` holds one unrelated file it exits 1 on the PREMISE branch instead, which is the arm that stops a regex matching nothing from reporting a clean scan. The positive control that the scan reads real files: substituting the rotate suite's existing title `a copy still in flight when the url rotates never announces success` reports `files=1 defs=1`.
+
+  Second, attribution. `node scripts/share-link-flash-adversary-matrix.mjs --only A32,A35,A39 --quick`, then read the matrix JSON at tmp/adversary-matrix.json, which the run writes for every invocation including a scoped one. Exit 0 alone is not the evidence: the matrix credits an adversary when ANY row reds, so all three could pass on rows this arc did not write.
 
   ```
   node -e "const r=require('./tmp/adversary-matrix.json');for(const x of r)console.log(x.id,x.status,JSON.stringify(x.rows))"
   ```
 
-  The discriminating row's title must appear under `A39` and under `A32`; the mirror row's title under `A35`. A new row appearing under no adversary is a §9.0 violation and is fixed here, not deferred.
-- [ ] **Step 8: The four string-presence mutants.** The rows assert on rendered text, so run all four before the review dispatch and record each: (a) the announcer's text emptied at the source; (b) the expected label with an appended suffix; (c) the label present but not live, moved behind a false condition; (d) each discriminating parameter varied, which here is the url passed to the second `root.render` and the identity of the url captured at click time. Each must red the row that claims to see it.
+  `T-ORDER-STALE` must appear under `A39` and under `A32`; `T-ORDER-FRESH` under `A35`. A new row appearing under no adversary is a §9.0 violation and is fixed here, not deferred.
+
+- [ ] **Step 8: The four string-presence mutants.** The rows assert on rendered text, so run all four before the review dispatch and record each: (a) the announcer's text emptied at the source; (b) the expected label with an appended suffix; (c) the label present but not live, moved behind a false condition; (d) each discriminating parameter varied, which here is the url passed to the second `root.render` and the identity of the url captured at click time. Each must red the row that claims to see it, identified by its `T-ORDER-*` id rather than by prose, for the reason Step 7 gives.
 - [ ] **Step 9: Repair the prose this task falsifies.** `docs/superpowers/plans/2026-07-24-share-link-chrome-adversary-matrix.md:8` currently ends with the clause about the adversary being unregistered rather than exempted; it now records that the adversary IS registered, as `A39`, and that the whitelist stayed rejected. The SCOPE paragraph at `tests/components/admin/shareLinkCopyButtonRotate.test.tsx:27-49` states the timing is unproven and that a jsdom probe cannot beat `act()`; it now points at the new file and says what changed, keeping the `act()` sentence as the reason RTL is not used there rather than deleting the history.
 - [ ] **Step 10: Gates.** `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, each as its own command. Commit `test(admin): prove the copy button's urlRef write must be a layout effect`.
 
@@ -228,7 +258,7 @@ This is the PR's last commit. It is authored red, not live red: the failing case
 
 <!-- gate: cmd=`pnpm exec tsx scripts/spec-lint.ts docs/superpowers/plans/2026-09-01-sharelink-copy-ref-ordering-proof.md` probed=`run against this file before the plan-stage dispatch; a draft with a task marker missing its why= exits non-zero` -->
 
-**Full-mode confirmation.** The gate above runs `A39` in FULL mode, browser leg included, because the recorded evidence for an adversary should not come from the leg that skips half the suite. It is one adversary, not thirty-nine.
+**Full-mode confirmation.** The first gate above runs `A39` in FULL mode, browser leg included, because the recorded evidence for an adversary should not come from the leg that skips half the suite. It is one adversary, not thirty-nine. Its exit code is not the whole reading: full mode adds the browser rows to the same credit pool, so the matrix JSON is read for `T-ORDER-STALE` under `A39` exactly as in Task 1 Step 7. `A39 REJECTED` credited only to a browser row would mean the jsdom harness did not fire, which is a failure of this arc however green the command looks.
 
 **The report doc's generated block.** `scripts/share-link-flash-adversary-matrix.mjs:1244` refuses to write the report on any `--only` or `--quick` run, deliberately, so a partial run cannot record a truthful-looking table over an incomplete matrix. That means the generated block keeps saying `38 adversaries` until somebody spends a full 39-adversary run, which is a heavy Playwright phase repeated once per adversary. This arc does NOT hand-edit the generated block: hand-transcribed totals drifting is the exact defect the generator was built to end. Two honest outcomes, and bl-orch picks:
 
