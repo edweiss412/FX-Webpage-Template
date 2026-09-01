@@ -123,12 +123,16 @@ makespan with observed rates substituted, `controlOutlineResidue` split in two, 
 Ten is the smallest count at which the makespan reaches its floor — the heaviest single remaining
 surface — and no larger count moves it. **That is the derivation for `SOURCE_SHARD_COUNT = 10`, and the
 reason it is not eight** even though eight passes. The budget compares ELAPSED leg seconds, and the
-measured legs run about 200 s above their child time (leg 0: 4624 elapsed against 4413 child; leg 1:
-2912 against 2733). At N=8 that puts the binding leg near 3069 s elapsed, 531 s of headroom; at N=10
-near 2533 s, 1067 s. Measured enrolment growth between the two runs on record is about 490 s/day of
-total child time (52 surfaces on 2026-08-26 summing 22,158 s elapsed; 60 on 2026-08-31 summing
-24,616 s), which is roughly 61 s/day per leg at N=8 and 49 s/day at N=10. Eight would re-red inside
-two weeks of merging, which is a timer on the defect this arc exists to clear, not a repair of it.
+measured legs run above their child time by a margin that is itself measured rather than assumed:
+across the eight legs of run `33404224554` the overhead is 179 s at least, 264 s at most, 209 s
+median. At the median that puts the binding leg near 3076 s elapsed at N=8, 524 s of headroom, and
+near 2699 s at N=10, 901 s; at the worst observed overhead, 2754 s and 846 s.
+
+Enrolment growth between the two runs on record is about 490 s/day, measured on the ELAPSED leg sums
+because that is what both runs recorded (52 surfaces on 2026-08-26 summing 22,158 s; 60 on
+2026-08-31 summing 24,616 s). That is roughly 61 s/day per leg at N=8 and 49 s/day at N=10, so eight
+would re-red in about nine days and ten in about eighteen. Nine days is a timer on the defect this
+arc exists to clear, not a repair of it.
 
 ### B — `source-shards`, a verdict that MOVES
 
@@ -280,8 +284,9 @@ Every symbol, path and line below was grepped against the live tree at `30884550
 
 ### The split, computed rather than asserted — and chosen against a sweep, not a hunch
 
-The first draft split on the operator sets that BALANCE best: `integer-literal` + `equality-flip`
-against the other four, 2099 s and 2314 s. The class sweep the split's own rationale demanded then
+The first draft split on the operator sets that BALANCE best: `equality-flip`, `integer-literal` and
+`regex-quantifier-bound` against the other three, 2099 s and 2314 s (`regex-quantifier-bound` has no
+site in this file, so it costs nothing and sits on whichever side needs the name). The class sweep the split's own rationale demanded then
 overturned it.
 
 ```
@@ -333,7 +338,7 @@ table above.
 
 ## Task 1 — the weight model tells the truth, the indivisible surface stops being indivisible, and ten shards fit
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/mutation/_metaLedgerKindsDeclarationParity.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:3086` why=`this line declares 9737 ms per boot for controlOutlineResidue while run 33404224554 measured 17240, and every one of the sixty declared rates is wrong in the same direction, so the derived makespan assertion at shardPartition.test.ts:259 passes today on prices that do not match the legs it is meant to bound; correcting the rates makes it fail at 4413s against a 3600s budget and only the split plus the higher count makes it pass again` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/mutation/_metaLedgerKindsDeclarationParity.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:3086` why=`this line declares 9737 ms per boot for controlOutlineResidue while run 33404224554 measured 17240, and all sixty declared rates are wrong, 48 of them too low and 12 too high, so the derived makespan assertion at shardPartition.test.ts:259 passes today on prices that do not match the legs it is meant to bound; correcting the rates makes it fail at 4413s against a 3600s budget and only the split makes it pass again` ac=AC-1,AC-2,AC-3,AC-4 -->
 
 **RED, in two recorded steps, both failing before anything is made to pass, both quoted in the
 commit message.**
@@ -408,14 +413,14 @@ sweep run before the edits verifies a tree that no longer exists.
 
 **Which red belongs to which move, stated exactly, because they are not the same red.** The makespan
 assertion is red after step A and green once the SPLIT lands: recalibrated and split at the old count
-of 8 it already reads 2869 s against 3600 s. So the count raise is not what turns that assertion
+of 8 it already reads 2867 s against 3600 s. So the count raise is not what turns that assertion
 green, and claiming it were would be a plan asserting a red it does not have. The count raise carries
 its own red on the same command — `_metaSourceShardIntegrity` and `_metaShardRangeTracked`, both
 derived from `SOURCE_SHARD_COUNT`, fail the moment it moves and the workflow, the script list and the
 ignore rule have not followed. Its JUSTIFICATION is the headroom arithmetic above and not an
-assertion: 2869 s modelled is about 3069 s elapsed, 531 s of margin against measured growth of 61
-s/day per leg, so eight is a repair with a two-week fuse. Ten is the smallest count at which the
-makespan reaches the floor no count can go below.
+assertion: 2867 s modelled is about 3076 s elapsed at the median measured overhead, 524 s of margin
+against measured growth of 61 s/day per leg, so eight is a repair with a nine-day fuse. Ten is the
+smallest count at which the makespan reaches the floor no count can go below.
 
 The three moves are one task because they are inseparable in the tree, not because they share a
 failure: `_metaSourceShardIntegrity` pins the constant against the workflow matrix, the budget env
@@ -442,6 +447,23 @@ either. The red here is on a production surface: adding `COLLECT_MUTATION_ALARMS
 env block with no allowlist row makes `unreviewedLivePairs` report the pair and
 `tests/ci/_metaE2eWorkflowCoverage.test.ts:1981` fail. The re-bless module's own suite is ordinary
 TDD inside the task and is not what the marker claims.
+
+**The suite is tests/parser/mutation/rebless.test.ts**, a new file beside runShard.test.ts, and
+it is collected by the DEFAULT vitest project — `vitest.projects.ts:148` includes
+`tests/mutation/**` and the parser tree is picked up by the ordinary `tests/**` include, so no
+wiring is added and none is needed; the env-gated `mutation` project is not involved because this
+suite spawns nothing. Its own cycle, on its own command:
+
+```
+pnpm vitest run tests/parser/mutation/rebless.test.ts
+```
+
+RED once the cases exist against the not-yet-written module, GREEN once
+tests/parser/mutation/rebless.ts lands. That cycle is ORDINARY TDD inside this task and is
+deliberately not what the task marker claims as its red — an unresolved import goes green when the
+test file changes rather than when an implementation lands, which is why the marker points at the
+workflow scanner instead. Both statements are true at once and an earlier draft of this task stated
+neither, which is the finding.
 
 Cases for that suite, each named with the failure it catches:
 
@@ -471,11 +493,28 @@ Cases for that suite, each named with the failure it catches:
    and a run identity (`GITHUB_RUN_ID`, or `local`), and the tool refuses when a file's declared
    index disagrees with its filename or when the identities differ across files. The existing
    collector case at `tests/parser/mutation/runShard.test.ts:65` compares `dumped.alarms` to
-   `r.alarms` and is unaffected by the added fields.
+   `r.alarms` and is unaffected by the added fields — **but leaving it there is not coverage of the
+   new ones.** A consumer test built from constructed JSON cannot show that `runShard` writes the
+   shard it was CALLED with, or the real `GITHUB_RUN_ID`; an implementation stamping one constant
+   passes every such test and then lets mixed-run files satisfy case 7 silently. So the producer
+   side is proved at the producer: that case is extended to assert the stamped `shard` equals the
+   argument for TWO different shard indices (a constant fails the second), and that `runId` tracks a
+   stubbed `GITHUB_RUN_ID` rather than any fixed string.
 
-Cases 5, 6 and 7 are one class seen from three sides — the collected set must be exactly one run's
+8. Given a LEDGER carrying two rows with the same `(siteId, kind)`, the tool REFUSES — the exact
+   twin of case 6, on the other side. One current alarm for that pair makes `reconcileLedger`
+   classify BOTH old rows as `driftedStale` while `newHoles` and `fixedHoles` stay empty; rewriting
+   both to the current fingerprint preserves order, count and the header census, and the internal
+   `Set` then deduplicates them so the next reconciliation reports clean. The ledger is 1019 rows
+   over 1019 distinct pairs today (probed), so this is one ordinary edit away rather than live —
+   which is exactly why it is checked rather than argued. The `rewritten !== drifted` cross-check
+   does catch it, but it reports "the ledger text and the parsed ledger disagree", which is not a
+   diagnosis anyone can act on.
+
+Cases 5, 6, 7 and 8 are one class seen from four sides — the collected set must be exactly one run's
 whole output, and neither a missing file, a duplicated pair, nor a stale file may pass as that.
-They are why the tool takes a directory and a shard COUNT rather than a glob.
+They are why the tool takes a directory and a shard COUNT rather than a glob, and why cardinality is
+checked on BOTH sides rather than only where today's data could break it.
 
 **Inertness is executable at BOTH boundary values**, in `tests/parser/mutation/runShard.test.ts`
 beside its existing positive control. A schedule produces the env key PRESENT AND EMPTY where today
@@ -492,7 +531,9 @@ with an `inputs:` block carrying one boolean-shaped input, default `"false"`, st
 `${{ inputs.collect_alarms == 'true' && 'alarms' || '' }}` — empty when unset, and
 `runShard.ts:142` treats empty as absent, so schedule and pull-request behaviour are byte-identical
 with the input unset. Add one `actions/upload-artifact` step named
-`alarms-parser-shards-<n>` and conditioned on `always() && <the same input test>`.
+`alarms-parser-shards-<n>`, with `path: alarms/` — the action has no default and uploads nothing
+without it — and `if-no-files-found: error`, matching the records upload beside it. Condition it on
+`always() && <the same input test>`.
 
 **The `always()` is load-bearing and an earlier draft of this task omitted it.** The collector writes
 its file inside `runShard` before returning (`tests/parser/mutation/runShard.ts:142`), but the ledger
@@ -511,10 +552,11 @@ already carries `if: always()` for this exact reason
 - a new static workflow `env:` key needs a row in `tests/ci/_workflowCoverageScan.ts:692`'s
   allowlist, beside the mutation-harness keys already at `tests/ci/_workflowCoverageScan.ts:1578`.
 
-**GREEN.** Write the tool as rebless-parser-ledger.ts under the scripts tree, importing
-`reconcileLedger` from
+**GREEN.** Write tests/parser/mutation/rebless.ts and the thin adapter rebless-parser-ledger.ts
+under the scripts tree, importing `reconcileLedger` from
 `tests/parser/mutation/knownHoles.ts` — one reconciliation implementation, never a second copy of
-the bucket logic. Land the workflow edits. Both suites green.
+the bucket logic. Land the workflow edits. All three suites green: the workflow scanner, runShard.test.ts, and
+tests/parser/mutation/rebless.test.ts.
 
 ## Task 3 — the ledger, re-blessed from a real collected run
 
@@ -534,7 +576,11 @@ the tool's own `--check` exit against those artifacts.
 Steps:
 
 1. Push Task 1 and Task 2. `gh workflow run mutation-harness.yml --ref fix/mutation-harness-main-schedule -f collect_alarms=true`.
-2. Download the `alarms-parser-shards-*` artifacts. Run the tool in `--check` mode: it exits
+2. Download the `alarms-parser-shards-*` artifacts into a fresh directory. **`gh run download` with
+   a `--pattern` lays each artifact down in its OWN directory named after the artifact**, so the
+   files arrive one level down, under a directory named for the artifact, and not flat. The tool
+   therefore searches one level below its `--alarms` root as well as the root itself, and accepts
+   both layouts; nothing flattens anything by hand. Run the tool in `--check` mode: it exits
    non-zero, reporting drift-only reconciliation across all eight shards and naming the counts.
    **If it reports any `newHoles` or `fixedHoles`, STOP** — that is not a re-bless, it is a parser
    regression or a coverage change, and it goes to bl-orch rather than into the ledger.
