@@ -912,6 +912,15 @@ describe("AC-20: the transition audit", () => {
             ts.isReturnStatement(s) || (ts.isBlock(s) && s.statements.some(ts.isReturnStatement));
           if (isReturn(branch)) earlyReturns.push(norm(node.expression));
         }
+        // A JSX SPREAD makes this element unclassifiable: `{...{ initial: x }}`
+        // compiles to the very attribute this census asserts is absent. Refused
+        // rather than parsed, which closes the family in one check and matches
+        // the nav-scoped live-region scan. These are three files this arc owns
+        // and none carries a spread today, so refusal costs nothing here. It is
+        // NOT done repo-wide, where firing on spreads floods ordinary code.
+        if (ts.isJsxSpreadAttribute(node)) {
+          animationProps.push(`${rel}: UNCLASSIFIABLE JSX spread`);
+        }
         // The animation surface, which must stay empty.
         if (ts.isJsxAttribute(node)) {
           const name = node.name.getText();
@@ -943,6 +952,24 @@ describe("AC-20: the transition audit", () => {
     // an effect or selector guard that renders nothing. A change to any number
     // here is a real change to the component's branching and must be read
     // against §3.8 before this table is updated.
+    // WHAT THIS PINS, and what it does not. Stated because diff R4 showed the
+    // previous framing over-claimed, and because the honest repair for a
+    // recogniser that has grown once per round is to narrow the claim rather
+    // than grow it again.
+    //
+    // It pins: the SET of conditions under which these three files branch, as
+    // normalised texts, plus an empty animation surface. A substituted condition
+    // fails it even though the count is unchanged; an added or removed branch
+    // fails it; a spread is refused as unclassifiable.
+    //
+    // It does NOT pin REACHABILITY or NESTING. Wrapping an existing guard in
+    // another condition leaves this set identical, because the set is of
+    // conditions present, not of paths through them. That mutant is caught
+    // BEHAVIOURALLY, by AC-6's two terminality cases, which is the right layer
+    // for it: whether a guard still runs is a question about execution, and
+    // this is a question about source. Chasing nesting here would grow the
+    // recogniser a fourth time, which is what the last three rounds already did.
+    //
     // Each identity was verified against the source. They are CONDITION TEXTS,
     // so a substituted guard fails even though the tally is unchanged, and an
     // added guard fails wherever it sits in its block.

@@ -364,31 +364,36 @@ source branch fails. The inventory table the rule requires in the task body is
 | spoken | settled-silent | Unreachable. The spoken ref is set once and never cleared, so no transition out of either terminal state exists |
 
 The rule requires the task to LIST every conditional site, so it does, and the
-list is derived rather than asserted: the audit takes the arc's own added lines
-from `git diff origin/main...HEAD -- components/admin/nav/`, strips comments
-with `stripCommentsForFile` (`tests/_shared/stripComments.ts:215`), and
-enumerates every ternary render, `&&` render, early return and `AnimatePresence`
-among them. Deriving from the diff rather than from a hand-written list is what
-makes a site added later fail by default instead of being silently outside a
-list nobody updated.
+list is derived from the TREE rather than from a diff or a hand-written set: the
+audit walks the AST of the three files this arc touches and pins the identity of
+every conditional render and early return in them, as normalised condition
+texts, alongside an empty animation-prop set.
 
-The expected enumeration, which the audit asserts EXACTLY rather than as a
-lower bound. Round 4 refuted the previous table on both readings at once: it
-listed `NotifBell`'s badge pill and called it pre-existing and unchanged, which
-cannot appear in an ADDED-line set (`git blame` puts those lines before this
-branch), while a whole-FILE scan would sweep in the degraded trigger, the open
-panel and three `AdminNav` conditions the table omitted. Neither reading gave
-the asserted equality, so the task's red could never have gone green.
+**An earlier revision derived the list from `git diff` against the merge base,
+and this paragraph described that.** It was removed for being non-portable by
+construction: on a push to `main` the merge base IS `HEAD`, so the derived set is
+empty and the premise fails, and any later branch not touching these files fails
+it too. It went red in real CI while passing locally. Deriving from the tree
+cannot go silently empty, and a membership change surfaces as an ordinary diff
+to the pinned table.
 
-The derivation is added lines, and the table is now only what this arc adds:
+The consequence for THIS table is that it covers the whole population of the
+three files, not only the lines this arc added: fourteen branches, including
+pre-existing renders this arc never touches and the pure selector's own guards.
+That is the trade the portable form makes, and it is the better one, because a
+population that includes untouched neighbours still fails on a real change
+whereas an empty one fails on nothing.
 
 | Site | Kind | Treatment |
 |---|---|---|
-| `AdminNav`, the attention-promise subscription's `!attentionCountPromise` bail | early return inside an effect | instant. No render, no DOM |
-| `AdminNav`, the announce effect's `spokenRef.current` terminality guard | early return inside an effect | instant. This is what makes the utterance once-per-mount |
-| `AdminNav`, the announce effect's `!bellSettled \|\| !attentionSettled` guard | early return inside an effect | instant, and invisible. When it falls through it appends to an `sr-only` region (`components/admin/announceLog.tsx:134`), so there is nothing to animate |
-| `NotifBell`, the report effect's `!onBellState` bail | early return inside an effect | instant. The four existing call sites pass no prop and take this branch |
-| `NotifBell`, the report effect's `lastReport.current === key` dedup | early return inside an effect | instant. No render, no DOM |
+| `AdminNav`, three conditional renders: `healthRollup`, `showBadge`, `overflow` | ternary and `&&` renders | instant. All pre-existing, none touched by this arc; they are in the population because the census is whole-file |
+| `AdminNav`, the attention-promise subscription's `!attentionCountPromise` bail | early return inside an effect | instant. No render, no DOM. Added here |
+| `AdminNav`, the announce effect's `spokenRef.current` terminality guard | early return inside an effect | instant. This is what makes the utterance once-per-mount. Added here |
+| `AdminNav`, the announce effect's `!bellSettled \|\| !attentionSettled` guard | early return inside an effect | instant, and invisible. When it falls through it appends to an `sr-only` region (`components/admin/announceLog.tsx:134`), so there is nothing to animate. Added here |
+| `NotifBell`, three conditional renders: the degraded/normal trigger, the badge pill, the panel | ternary renders | instant. Text and chrome swaps on already-mounted elements |
+| `NotifBell`, the report effect's `!onBellState` bail | early return inside an effect | instant. The four existing call sites pass no prop and take this branch. Added here |
+| `NotifBell`, the report effect's `lastReport.current === key` dedup | early return inside an effect | instant. No render, no DOM. Added here |
+| `navArrivalAnnounce`, the selector's `degraded` and not-finite guards, and the both-halves composition | early returns in a pure function | instant by construction: no React, no DOM |
 
 FIVE sites, every one an effect guard, ZERO conditional renders and zero
 animation props. An earlier revision of this table said two, counting only the
