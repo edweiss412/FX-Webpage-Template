@@ -90,7 +90,26 @@ export function scanCarrierLoss(cssSource: string): CarrierLoss[] {
     return chain;
   };
 
+  /**
+   * A rule scoped to `forced-colors: active` is the TREATMENT, not the affordance.
+   * Judging it by the same criterion is a category error: the criterion asks
+   * whether an affordance survives forced colors, and such a rule applies only
+   * under forced colors, so it is the answer rather than the question.
+   *
+   * Found by the guard reporting this pass's OWN repair. `[data-quiet]` inside the
+   * block declares `border-color: Canvas` and nothing else, which is exactly the
+   * shape A2a looks for, and it is correct: naming the off state by its colour is
+   * what rule 2 asks for where a width is load-bearing.
+   */
+  const insideForcedColors = (node: postcss.Node): boolean => {
+    for (let p = node.parent; p; p = p.parent) {
+      if (p.type === "atrule" && /forced-colors/.test((p as postcss.AtRule).params)) return true;
+    }
+    return false;
+  };
+
   root.walkRules((rule) => {
+    if (insideForcedColors(rule)) return;
     const parent = rule.parent;
     if (parent && parent.type === "atrule" && /keyframes/.test((parent as postcss.AtRule).name)) {
       return; // keyframe steps belong to A2b, judged as a whole animation
@@ -118,6 +137,7 @@ export function scanCarrierLoss(cssSource: string): CarrierLoss[] {
   });
 
   root.walkAtRules(/^(-\w+-)?keyframes$/, (atRule) => {
+    if (insideForcedColors(atRule)) return;
     const animated = new Set<string>();
     atRule.walkDecls((d) => {
       animated.add(isDroppedGradient(d.prop, d.value) ? "background-image(gradient)" : d.prop);

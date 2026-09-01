@@ -246,7 +246,11 @@ export function PickerInterstitial({
                     >
                       <span className="min-w-0 truncate text-base font-semibold">{c.name}</span>
                       {c.role && (
-                        <span data-testid="picker-role-chip" className={chipClasses}>
+                        <span
+                          data-testid="picker-role-chip"
+                          {...(isLead ? { "data-lead": "" } : {})}
+                          className={chipClasses}
+                        >
                           {c.role}
                         </span>
                       )}

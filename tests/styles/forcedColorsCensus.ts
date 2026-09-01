@@ -193,15 +193,15 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   {
     site: "components/crew/primitives/RunOfShowList.tsx:93",
-    disposition: "repaired",
+    disposition: "carrier-survives",
     reason:
-      "crew-facing title tone; the ancestor's border carries SYNTHETIC, not this element's own state",
+      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:48), the SAME condition that gives the ancestor border-l border-border pl-2 at :78 - a border WIDTH and an indent, both of which survive",
   },
   {
     site: "components/admin/OnboardingWizard.tsx:260",
-    disposition: "repaired",
+    disposition: "deliberate-flatten",
     reason:
-      "step pill; ACTIVE and DONE are carried by a Check glyph and font-weight, but the pill's own active fill is colour-only",
+      "ACTIVE and DONE are carried by a Check glyph and font-weight; VISITED against UNREACHED flattens, and the spec records that pair as a deliberate limit (spec 8 limit 2) since both are non-current steps",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:838",
@@ -227,14 +227,15 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:823",
-    disposition: "repaired",
+    disposition: "carrier-survives",
     reason:
-      "rail label tone; its parent's carrier is itself a forced background, so the whole item goes flat together",
+      "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:945",
-    disposition: "repaired",
-    reason: "same",
+    disposition: "carrier-survives",
+    reason:
+      "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
   },
   {
     site: "components/admin/UndoChangeButton.tsx:51",

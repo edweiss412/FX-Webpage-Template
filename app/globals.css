@@ -1558,6 +1558,60 @@ details[open] > summary [data-agenda-day-count] {
     }
   }
 
+  /* SELECTED STATE, the Highlight slot applied per affordance (rule 4).
+     Spec §3.3, §5.4.
+
+     Ten of the fourteen collapsing controls already expose their state through
+     `aria-current` or `aria-pressed`, so ONE rule repairs them rather than ten
+     bespoke ones. That is not a contradiction of rule 3, which says ARIA is not a
+     CARRIER: it is not, because it renders nothing. It is an excellent SELECTOR,
+     and what this rule does is hang a visible carrier off it. The distinction is
+     the whole design — a screen-reader user already had the state, and this is
+     what gives it to someone who can see but has asked the OS to flatten colour.
+
+     `outline` and not `border`, because these controls declare their borders on
+     BOTH paths and vary only the colour; adding width to one would reflow it
+     (spec §5.7). `outline-offset: -2px` keeps the ring inside the control's own
+     box so a tab strip does not overlap its neighbour.
+
+     Highlight and HighlightText are the palette's own name for "this one is
+     chosen", and every OS high-contrast theme guarantees the pair contrasts. */
+  [aria-current="page"],
+  [aria-current="true"],
+  [aria-current="step"],
+  [aria-pressed="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  /* Two states that no ARIA describes, so each gets its own hook rather than a
+     borrowed one. Both hooks were added to their components in this pass, and
+     both are the minimum that makes the state addressable: an empty data
+     attribute set only in the state it names.
+
+     The picker's role chip means "this person is the LEAD". Its tone is the only
+     thing that says so, and the chip renders the same {c.role} text either way, so
+     under forced colors a lead is indistinguishable from anyone else on a page
+     whose whole job is picking yourself out of a list. Crew-facing. */
+  [data-lead] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  /* The undo button's quiet variant. Its file says the distinction is
+     load-bearing — "a consequential control must not be a visual twin of the safe
+     one" (components/admin/UndoChangeButton.tsx:46) — and under forced colors it
+     becomes exactly that twin, because both variants declare `border` and vary
+     only its colour.
+
+     The colour goes to the background system colour rather than the style to
+     `none`, which is rule 2's first branch: the width IS load-bearing here, since
+     the loud variant declares the same border and removing the quiet one's width
+     would shift the row. */
+  [data-quiet] {
+    border-color: Canvas;
+  }
+
   /* Step-3 review modal, the one-shot warning-row highlight after a callout jump
      (spec §5.2). Its only carrier is a background, which forces to one value, so
      the animated form paints nothing.

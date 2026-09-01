@@ -22,6 +22,7 @@
  * below reads computed style through `expect.poll` rather than a single frame, and
  * resolves its handle after any attribute change rather than holding one across it.
  */
+import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +30,8 @@ import { join } from "node:path";
 
 import { test, expect } from "./helpers/fontFidelityFixture";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
+import type { RepairPair } from "./_forcedColorsPairsHarness";
+import { COLLAPSE_CENSUS } from "../styles/forcedColorsCensus";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 
@@ -44,6 +47,28 @@ let workDir: string;
 let server: Server;
 let origin: string;
 
+let repairPairs: RepairPair[] = [];
+
+/**
+ * One row per repaired site: the two colliding class strings, the first carrying
+ * the state markers the repair keys on and the second carrying none. If the block
+ * paints the selected state, the two differ in a surviving property; if it does
+ * not, they are identical, which is the collapse.
+ */
+function pairsMarkup(): string {
+  // The "on" element carries ONLY the marker its component actually sets, derived
+  // by the harness from the source. A first version stamped aria-current and
+  // aria-pressed on every one, which made this case pass for the six sites whose
+  // components set no marker at all: the fixture was testing the fixture.
+  return repairPairs
+    .map(
+      (pair, i) => `
+  <div id="pair-${i}-on" data-testid="fc-pair-${i}-on" ${pair.stateAttribute ?? ""} class="${pair.a}">on</div>
+  <div id="pair-${i}-off" data-testid="fc-pair-${i}-off" class="${pair.b}">off</div>`,
+    )
+    .join("");
+}
+
 function harnessHtml(): string {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><link rel="stylesheet" href="/out.css"></head>
@@ -54,11 +79,24 @@ function harnessHtml(): string {
   <div id="step3-flash" ${STEP3_FLASH_ATTR} data-testid="fc-step3-flash">step3, flashing</div>
   <div id="fresh-idle" data-testid="fc-fresh-idle">freshness, idle</div>
   <div id="fresh-flash" ${FRESHNESS_FLASH_ATTR}="1" data-testid="fc-fresh-flash">freshness, flashing</div>
+  ${pairsMarkup()}
 </body></html>`;
 }
 
 test.beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), "forced-colors-"));
+
+  // Arm 1 runs OUTSIDE the Playwright worker: it parses the TSX corpus with the
+  // TypeScript compiler and loads Tailwind's design system, and the step-3 layout
+  // spec uses the same subprocess shape for the same reason.
+  const pairsJson = join(workDir, "pairs.json");
+  execFileSync(
+    join(REPO_ROOT, "node_modules", ".bin", "tsx"),
+    [join(REPO_ROOT, "tests", "e2e", "_forcedColorsPairsHarness.ts"), pairsJson],
+    { cwd: REPO_ROOT, stdio: "pipe", timeout: 300_000 },
+  );
+  repairPairs = (JSON.parse(readFileSync(pairsJson, "utf8")) as { pairs: RepairPair[] }).pairs;
+
   writeFileSync(join(workDir, "harness.html"), harnessHtml());
 
   const entryCss = join(workDir, "entry.css");
@@ -98,10 +136,39 @@ async function paint(page: import("@playwright/test").Page, testId: string) {
       outlineStyle: s.outlineStyle,
       outlineWidth: s.outlineWidth,
       outlineColor: s.outlineColor,
+      // Borders too. A first version of AC-4 compared outline properties only,
+      // and the undo button's repair is a BORDER colour, so a correct repair read
+      // as no repair at all. The comparison must range over every property forced
+      // colors leaves author-visible, not over the one the first repair happened
+      // to use.
+      borderTopColor: s.borderTopColor,
+      borderTopStyle: s.borderTopStyle,
+      borderTopWidth: s.borderTopWidth,
+      borderBottomColor: s.borderBottomColor,
+      borderBottomStyle: s.borderBottomStyle,
+      borderBottomWidth: s.borderBottomWidth,
       boxShadow: s.boxShadow,
       background: s.backgroundColor,
     };
   });
+}
+
+/**
+ * A data-driven case over an empty set passes while asserting nothing, so the row
+ * count is a premise rather than an incidental.
+ *
+ * DERIVED from the census, not a literal. A first version required more than ten
+ * pairs, which was the repair count at the moment it was written; re-dispositioning
+ * four rows during this task took the set to exactly ten and the premise failed for
+ * a reason that had nothing to do with the guard's subject. The census is the
+ * authority on how many repairs there are, so it is the authority here too.
+ */
+function premiseRows(count: number): void {
+  const expected = COLLAPSE_CENSUS.filter((row) => row.disposition === "repaired").length;
+  expect(expected, "the census records no repairs at all").toBeGreaterThan(0);
+  expect(count, "the harness emitted a pair for fewer sites than the census calls repaired").toBe(
+    expected,
+  );
 }
 
 test.describe("forced colors", () => {
@@ -190,6 +257,45 @@ test.describe("forced colors", () => {
     await expect
       .poll(async () => (await paint(page, "fc-fresh-flash")).outlineStyle)
       .not.toBe("none");
+  });
+
+  test("AC-4: every repaired state is distinguishable from its unselected twin", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(origin);
+
+    // Data-driven over the census's repair rows rather than over the spec's five
+    // worked examples, which left twenty unasserted in an earlier draft. The class
+    // strings are DERIVED by Arm 1 from the live components, so a component edit
+    // moves them and the census assertion in the scanner suite moves with it.
+    premiseRows(repairPairs.length);
+
+    const identical: string[] = [];
+    for (const [i, pair] of repairPairs.entries()) {
+      const on = await paint(page, `fc-pair-${i}-on`);
+      const off = await paint(page, `fc-pair-${i}-off`);
+      // Every property the M-table says forced colors leaves under author control.
+      // `background` and `boxShadow` are deliberately NOT here: both are forced or
+      // dropped, so a difference in them is not a difference the user sees.
+      const surviving = [
+        "outlineStyle",
+        "outlineWidth",
+        "outlineColor",
+        "borderTopColor",
+        "borderTopStyle",
+        "borderTopWidth",
+        "borderBottomColor",
+        "borderBottomStyle",
+        "borderBottomWidth",
+      ] as const;
+      const differs = surviving.some((key) => on[key] !== off[key]);
+      if (!differs) identical.push(pair.site);
+    }
+    expect(
+      identical,
+      "a repaired state that still renders identically to its unselected twin",
+    ).toEqual([]);
   });
 
   test("the component still emits the attribute the stylesheet keys on", () => {

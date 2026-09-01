@@ -119,6 +119,20 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     expect(new Set(CARRIER_CENSUS.map((r) => r.subject)).size).toBe(17);
   });
 
+  it("does not report the pass's own repairs as defects", () => {
+    // The cure is not the disease. A rule scoped to forced-colors IS the treatment,
+    // so applying the carrier criterion to it is a category error — and the guard
+    // found this by reporting this pass's own `[data-quiet]` repair, which declares
+    // a border colour and nothing else.
+    const repair = scanCarrierLoss(
+      `@media (forced-colors: active) { .x { border-color: Canvas; } }`,
+    );
+    expect(repair, "a rule that applies only under forced colors is the answer").toEqual([]);
+    // And the same declaration OUTSIDE the block is still reported, so the
+    // exclusion is scoped rather than a hole.
+    expect(scanCarrierLoss(`.x { border-color: Canvas; }`)).toHaveLength(1);
+  });
+
   it("reads the SOURCE stylesheet, where a utility is not an affordance", () => {
     // Run the same criterion over compiled output and it reports an order of
     // magnitude more, every extra one a Tailwind .shadow-*/.ring-* utility that
@@ -222,7 +236,7 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(COLLAPSE_CENSUS).toHaveLength(42);
     expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
-    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(14);
+    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(10);
   });
 
   it("gives every non-repair row a reason that names something", () => {
