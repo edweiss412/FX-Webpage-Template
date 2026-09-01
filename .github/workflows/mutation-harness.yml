@@ -30,7 +30,17 @@ name: mutation-harness
 on:
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC nightly (off-peak)
-  workflow_dispatch: {}
+  # OPT-IN ALARM COLLECTION, default off. The parser ledger's fingerprints drift
+  # whenever an intentional parser or fixture change lands, and re-blessing them
+  # needs a full harness run's alarms -- which only this workflow produces. The
+  # input exists so that run can be asked for on a branch instead of being
+  # reconstructed by hand for the sixth time.
+  workflow_dispatch:
+    inputs:
+      collect_alarms:
+        description: "Collect parser mutation alarms as artifacts, for a ledger re-bless. Leave false for an ordinary validation run."
+        required: false
+        default: "false"
   # pull_request path-filtered (Codex whole-diff R2 [medium]): workflow_dispatch on a NEW workflow
   # only works once the file is on the default branch, so it CANNOT validate this PR pre-merge. A
   # path-filtered pull_request trigger runs the workflow AS IT EXISTS ON THE PR HEAD, giving real-
@@ -111,6 +121,11 @@ jobs:
       - name: Run parser mutation shard ${{ matrix.shard }}
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
+          # EMPTY unless this dispatch asked for a collection, and empty is what
+          # tests/parser/mutation/runShard.ts tests -- `if (collectDir)`. So on the
+          # schedule and on a pull request the collector does not run, and the only
+          # difference from before is an env key holding "".
+          COLLECT_MUTATION_ALARMS: ${{ github.event.inputs.collect_alarms == 'true' && 'alarms' || '' }}
         run: pnpm exec vitest run --project mutation tests/parser/mutationHarness.shard${{ matrix.shard }}.test.ts
       # SECONDS, and the start explicitly captured. Integer minutes lose the
       # boundary — 60m59s records as 60 and slips past an "above 60" comparison.
@@ -125,6 +140,20 @@ jobs:
         with:
           name: elapsed-parser-shards-${{ matrix.shard }}
           path: elapsed.txt
+      # NOT named `elapsed-*`: that prefix is what the budget job's ceiling
+      # derivation uses to decide a job is MEASURED, and a second elapsed-shaped
+      # artifact would pull this job into an accounting it has no business in.
+      # `always()` is load-bearing: the collector writes its file BEFORE the ledger
+      # assertion fails, and that assertion failing is the whole reason a collection
+      # run is asked for, so a condition that does not tolerate failure uploads
+      # nothing exactly when it matters.
+      - name: Upload collected alarms
+        if: ${{ always() && github.event.inputs.collect_alarms == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: alarms-parser-shards-${{ matrix.shard }}
+          path: alarms/
+          if-no-files-found: error
 
   parser-gates:
     runs-on: ubuntu-latest
@@ -158,12 +187,14 @@ jobs:
   source-shards:
     # NIGHTLY-ONLY on pull requests, ruled 2026-08-26.
     #
-    # The full matrix is 20 job rows, 18 of them full test legs, and it ran on
+    # The full matrix is 22 job rows, 20 of them full test legs, and it ran on
     # EVERY harness-touching PR -- competing with that PR's own required checks.
     # Measured 2026-08-26: 16 full-matrix fan-outs in one day across four
     # branches, ELEVEN cancelled by the next push before producing any verdict.
-    # A harness-touching PR now sends 2 jobs to runners instead of 19 (`notify`
-    # was already skipped on PRs, so it never cost a runner).
+    # A harness-touching PR now sends 2 jobs to runners instead of 21 (`notify`
+    # was already skipped on PRs, so it never cost a runner). The three figures
+    # follow SOURCE_SHARD_COUNT, which went 8 -> 10 on 2026-09-01; they were
+    # left at the old count once and caught in review.
     #
     # The TRIGGER and its ten path globs are deliberately unchanged: each covers
     # a path whose edit can change a verdict, and dropping globs would trade a
@@ -180,14 +211,14 @@ jobs:
     # THE ESCAPE, so the next arc does not rediscover it: `workflow_dispatch` is
     # enabled above, so any branch can have a real full run on demand with
     #   gh workflow run mutation-harness.yml --ref <branch>
-    # A branch dispatch sends 19 (`notify` is gated to schedule or the default
+    # A branch dispatch sends 21 (`notify` is gated to schedule or the default
     # branch). That is also the ONLY way to validate a change to this trigger,
     # since a trigger cannot validate its own removal.
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
     runs-on: ubuntu-latest
     timeout-minutes: 125
     permissions:
@@ -219,6 +250,9 @@ jobs:
       # 32958581720: leg 5 held 8 surfaces and 7 reported nothing).
       #
       # MEASURED COST: 84 s per leg (setup-cli 2 s + bootstrap 82 s, off
+      # NOTE 2026-09-01: the leg COUNT below moved 8 -> 10 with SOURCE_SHARD_COUNT, so the
+      # aggregate figures in this paragraph are the eight-leg ones and are kept as the dated
+      # measurement they were. The per-leg 84 s is unchanged; the total is now ten times it.
       # unit-suite-db job 98210351983), against legs of 2494-3267 s. The binding
       # leg goes to about 93% of the 3600 s budget. Documented limit L-1: a
       # conditional bring-up would pay this on one leg instead of eight and was
@@ -360,7 +394,7 @@ jobs:
           ELAPSED_DIR: elapsed
           SHARD_BUDGET_SECONDS: "3600"
           PARSER_SHARD_COUNT: "8"
-          SOURCE_SHARD_COUNT: "8"
+          SOURCE_SHARD_COUNT: "10"
         run: pnpm tsx scripts/check-shard-budget.ts
       # The RECORDS, not the elapsed stamps: drift is per SURFACE, and only the
       # per-surface record carries the child wall clock a rate is derived from.
@@ -490,7 +524,7 @@ jobs:
               "",
               "C) BUDGET — job `budget` (scripts/check-shard-budget.ts).",
               "   This job failing is NOT a coverage failure. Either a leg exceeded the 3,600 s per-shard budget, or a leg reported no elapsed record at all.",
-              "   - over budget: the design reporting on itself as surfaces enrol. Raise SOURCE_SHARD_COUNT in tests/mutation/source/shardPartition.ts — NOT timeout-minutes.",
+              "   - over budget: NOT a count problem any more. SOURCE_SHARD_COUNT reached its floor at 10 on 2026-09-01 — the makespan now equals the heaviest single surface, and 11 and 12 give the same number. A leg over budget is a SURFACE that outgrew a leg: split it into separately-enrolled parts, or make its deciding suite cheaper. Never timeout-minutes.",
               "   - no elapsed record: a leg was cancelled, timed out, or never ran. Fix that leg first; the budget verdict says nothing until every leg reports.",
               "",
               "Auto-filed by mutation-harness.yml; auto-closes on the next green scheduled run.",

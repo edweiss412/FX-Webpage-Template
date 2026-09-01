@@ -6,6 +6,7 @@
 // multi-minute beforeAll never yields, so console interception could flush
 // everything at the end; setImmediate yields let each progress line flush), and
 // an optional alarm-collector side channel for ledger regen.
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { boundedMutants, MUTANT_BUDGET, OPERATOR_NAMES } from "./operators";
@@ -59,6 +60,28 @@ export const VERDICT_ALARM_KIND: Record<Verdict, Alarm["kind"] | null> = {
   SILENT_SIGNAL_LOSS: "signal_loss",
   SIGNAL_TEXT_DRIFT: "text_drift",
 };
+
+/**
+ * The commit the alarms describe.
+ *
+ * On Actions `GITHUB_SHA` is authoritative and free. Off it, the working tree's HEAD is
+ * the honest answer, and a checkout with no git (a tarball, a sandbox) gets the empty
+ * string rather than a guess -- which the re-bless tool refuses on, because an
+ * unidentified tree is precisely the input the binding exists to reject.
+ *
+ * NOTE for a `pull_request` run: `GITHUB_SHA` is the synthetic merge commit, not the
+ * branch head, so its alarms will not bind to a local HEAD. That is correct and not a
+ * bug -- the collector is dispatched deliberately, and a re-bless across trees is the
+ * tool's `--allow-head` decision rather than something it should infer.
+ */
+function collectedHeadSha(): string {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
 
 export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Promise<ShardResult> {
   const fixtures = opts.fixtures ?? FIXTURES;
@@ -142,7 +165,29 @@ export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Pro
   const collectDir = process.env.COLLECT_MUTATION_ALARMS;
   if (collectDir) {
     mkdirSync(collectDir, { recursive: true });
-    writeFileSync(join(collectDir, `alarms-shard${shardIndex}.json`), JSON.stringify({ alarms }));
+    // PROVENANCE, not decoration. The re-bless tool must be able to refuse a set of
+    // files that did not all come from one run, and a FILENAME cannot establish that:
+    // the reader chooses it. `shard` catches a file renamed onto the wrong index;
+    // `runId` catches a stale file sitting among fresh ones, which is the shape that
+    // would re-bless a mixed snapshot while every presence check passed. Local runs
+    // share the `local` sentinel, where the whole set is produced in one go.
+    //
+    // `headSha` is the third, and it closes the one those two cannot see: a COMPLETE
+    // and internally consistent set from an OLDER commit. Every index present, every
+    // file agreeing on one run -- and the fingerprints are the ones that source
+    // produced, so re-blessing rolls the ledger backwards while both checks pass. A
+    // review probed exactly that, partitioning an older commit's rows through the live
+    // assignment, and the tool accepted it. Provenance about WHICH RUN is not
+    // provenance about WHICH TREE, and the ledger is a claim about a tree.
+    writeFileSync(
+      join(collectDir, `alarms-shard${shardIndex}.json`),
+      JSON.stringify({
+        alarms,
+        shard: shardIndex,
+        runId: process.env.GITHUB_RUN_ID || "local",
+        headSha: collectedHeadSha(),
+      }),
+    );
   }
   return { alarms, allSiteIds, cosmeticViolations, noOps, assignment: A };
 }

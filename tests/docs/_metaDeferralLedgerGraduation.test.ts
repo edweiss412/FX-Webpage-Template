@@ -70,6 +70,13 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // test/sharelink-copy-ref-ordering-proof (2026-09-01). Graduated by its
+  // un-defer trigger being met rather than waived: the row asked for a harness
+  // that can settle a promise between commit and passive effects, and
+  // tests/components/admin/shareLinkCopyButtonOrdering.test.tsx is it. The
+  // ordering is registered as adversary A39 in the share-link matrix, so the
+  // whitelist round-11 review rejected stays rejected in both directions.
+  "SHARELINK-COPY-REF-ORDERING-PROOF",
   // fix/lightbox-pair-and-retry-checkin (2026-09-01). The soft 30-second
   // check-in: the copy changes, Restart is offered, and the in-flight request
   // is never cancelled. This row asked for a deadline nobody had chosen; the

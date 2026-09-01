@@ -1627,13 +1627,34 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       "malformed value must not yield a SMALLER expected set: expectedLegNames throws on a " +
       "non-positive-integer instead, which is how an absent leg cannot stop being absent.",
   },
+  COLLECT_MUTATION_ALARMS: {
+    values: [
+      {
+        text: "${{ github.event.inputs.collect_alarms == 'true' && 'alarms' || '' }}",
+        governs: [],
+      },
+    ],
+    reason:
+      "Directory the parser legs dump their per-shard alarm sets into, read by " +
+      "tests/parser/mutation/runShard.ts. EMPTY on every trigger except a workflow_dispatch that " +
+      "asked for a collection, and empty is exactly what that reader tests -- `if (collectDir)` -- " +
+      "so on the schedule and on a pull request the collector does not run and the only difference " +
+      'from before this key existed is an env entry holding "". Governs no spec: it selects ' +
+      "nothing and skips nothing, and a wrong value here can only produce an unwanted artifact or " +
+      "none, never a mutation shard silently green. It exists because the parser ledger's " +
+      "fingerprints drift whenever an intentional parser or fixture change lands, and re-blessing " +
+      "them needs a full harness run's alarms, which only this workflow produces.",
+  },
   SOURCE_SHARD_COUNT: {
-    values: [{ text: "8", governs: [] }],
+    values: [{ text: "10", governs: [] }],
     reason:
       "Source-mutation shard count, same derive-don't-list contract and same integrity pin as " +
-      "PARSER_SHARD_COUNT (tests/mutation/source/shardPartition.ts SOURCE_SHARD_COUNT). Raising " +
-      "the partition is the sanctioned response to an over-budget shard; raising timeout-minutes " +
-      "is not, and the notify job's copy says so.",
+      "PARSER_SHARD_COUNT (tests/mutation/source/shardPartition.ts SOURCE_SHARD_COUNT). Went " +
+      "8 -> 10 on 2026-09-01, and that is the LAST time the count moves usefully: at ten the " +
+      "makespan equals the heaviest single surface and no larger count changes it. The " +
+      "response to an over-budget leg is therefore a surface split or a cheaper deciding " +
+      "suite, never a higher count and never timeout-minutes; the notify job's triage copy " +
+      "says the same thing.",
   },
   // The notify job's two inputs. Both are expression TEXT here: what an
   // expression resolves to at runtime is out of universe (spec §5 LS1).

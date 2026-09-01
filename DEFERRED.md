@@ -24,41 +24,6 @@ screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is no
 
 **Pass kit (2026-08-29, `docs/voiceover-spotcheck-kit`):** `docs/agents/voiceover-spotcheck-kit.md` carries the step script, every expected utterance quoted from the shipped code with a verified `file:line`, and a fill-in recording form whose completed copy IS the evidence this row's un-defer trigger asks for. It settles three things the body did not. First, the panel is titled **Sheet warnings** (`components/admin/wizard/step3ReviewSections.tsx:5004`); "Parse warnings" survives only in code comments and in the jump-button copy, so the body's stale parenthetical is now removed rather than annotated. (The 2026-08-04 note above stays as the dated record it is. Its citations have partly drifted since: `OverviewSection.tsx:18,65` still resolve, `step3ReviewSections.tsx:615` still lands on a Parse-warnings comment, and `:570` and `:698` no longer do. Read it as history, not as a map.) Second, there are now TWO surfaces to run, not one: PR #943 (`feat/wizard-warning-ignore-controls`) put Ignore and Un-ignore on the onboarding wizard's step-3 panel and gave every surface mount the real announce channel (`components/admin/review/ShowReviewSurface.tsx:873-880`), so a silent state change there is an a11y defect too. Third, the pass cannot be run on `/admin/dev/attention-gallery`: that page answers every mutating call with a synthetic 403 (`components/admin/dev/GalleryWriteGuard.tsx:118-119`) and its bulk-ignore script admits only partial, fail, and pending outcomes (`lib/dev/attentionScenarios/types.ts:180`). The fetch-success branch every announcement fires on is unreachable there, so the silence would mean nothing. Row stays OPEN; the pass itself is still the owner's to perform.
 
-### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
-
-**Effort:** L
-**l-wave-screen 2026-08-06:** PREREQ — un-defer trigger is a scheduler harness that can resolve a promise between commit and passive effects; no such harness exists today.
-
-`ShareLinkCopyButton` writes `urlRef` in a `useLayoutEffect` so the captured-url
-guard compares against a ref that is already current when a clipboard promise
-resolves. The LAYOUT part is deliberate: with a passive `useEffect`, a promise
-settling between commit and the passive flush compares against a stale url, the
-guard waves it through, and "Copied" appears beside a token that is already dead
-for the whole crew.
-
-**What is proven:** the guard's existence, in jsdom
-(`shareLinkCopyButtonRotate.test.tsx`) and in a real engine
-(`share-link-flash.spec.ts` T-FLASH-COPY-RACE). Both red when the comparison is
-removed.
-
-**What is NOT proven:** that the effect must be a LAYOUT effect. Swapping it for
-`useEffect` reds nothing. Two attempts failed: Playwright cannot schedule a
-promise resolution inside the commit-to-passive-effect window, and a jsdom probe
-releasing from a sibling `useLayoutEffect` does not beat React either — `act()`
-flushes passive effects before yielding to the microtask, so the passive write
-always lands first.
-
-**Why deferred rather than exempted:** round-11 review rejected a bespoke
-`UNPROVEN_SURVIVORS` whitelist in the matrix script as laundering — correctly, and
-for a reason worth recording: it had no bidirectional check, so a later
-regression back to survival would still have passed. Spec §9.0 requires every
-registered adversary to be rejected, so the adversary is removed rather than
-exempted, and the gap is recorded here where deferrals are actually reviewed.
-
-**Un-defer trigger:** a harness that can resolve a promise between commit and
-passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
-Register the mutation as an adversary at that point and confirm it reds.
-
 ### TRAVEL-SUPPRESSION-PARTIAL-EXPLANATION-1 — a partly-suppressed Travel section explains nothing (2026-08-07, arc A)
 
 **Effort:** M

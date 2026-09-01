@@ -5,7 +5,7 @@ against a committed tree, full mode (browser spec included).
 
 **One declared survivor, and only one kind.** `EQUIVALENT_SURVIVORS` holds A4 alone: it changes nothing observable, which is proven rather than assumed, and the check runs in both directions — an A4 that comes back REJECTED fails the run, because that means something unrelated broke. Anything else that survives fails the run.
 
-There is deliberately no second category for "wrong but uncaught". One existed briefly (`UNPROVEN_SURVIVORS`, for the `useLayoutEffect` ordering) and round-11 review rejected it as laundering — correctly: it had no bidirectional check, so a later regression back to survival would still have passed. That gap is now `SHARELINK-COPY-REF-ORDERING-PROOF` in DEFERRED.md, where deferrals get reviewed, and the adversary is unregistered rather than exempted.
+There is deliberately no second category for "wrong but uncaught". One existed briefly (`UNPROVEN_SURVIVORS`, for the `useLayoutEffect` ordering) and round-11 review rejected it as laundering — correctly: it had no bidirectional check, so a later regression back to survival would still have passed. That gap was `SHARELINK-COPY-REF-ORDERING-PROOF` in DEFERRED.md, and it is now closed: `tests/components/admin/shareLinkCopyButtonOrdering.test.tsx` settles a clipboard promise inside the commit-to-passive window, and the ordering is registered as adversary `A39` rather than whitelisted. The round-11 ruling stands in both directions: no exemption row was added for it.
 
 **What a row means.** A row is a TEST, not an assertion. Both collectors record test titles, so an adversary that reds any one of a test's assertions credits the whole row; removing a single assertion need not change this table. The matrix shows every registered wrong implementation is caught by SOME row — not that each assertion is load-bearing. Assertions with a history of being vacuous were mutation-checked by hand and say so at the site.
 
@@ -18,6 +18,19 @@ proven-equivalent mutant rather than a coverage hole — see the section after t
 > (`node scripts/share-link-flash-adversary-matrix.mjs`, no `--only`/`--quick`).
 > Do not hand-edit between the markers: a hand-transcribed total is what drifted
 > out of sync with the code last round. Prose outside the markers is authored.
+
+**The generated block below is 38 adversaries; the register is 39. `A39` is evidenced here instead, and this note is that evidence.** Regenerating the block means a full run, which mutates and re-runs the whole suite once per adversary, thirty-nine times, with the browser leg on each. bl-orch ruled on 2026-09-01 that one documentation row does not buy hours of local heavy time, and that the scoped rejection is the evidence that matters. So the block keeps the totals its last full run wrote, and nothing between the markers is hand-edited. **Regen trigger: the next full-mode run picks `A39` up with no further action.**
+
+`A39` was run alone, in FULL mode with the browser leg included, on 2026-09-01. Verbatim:
+
+```
+$ pnpm heavy node scripts/share-link-flash-adversary-matrix.mjs --only A39
+A39  REJECTED  (1 rows)  copy button: urlRef written in a PASSIVE effect, so a promise settling before the passive flush confirms a dead url
+
+1 adversaries · 1 rejected · 0 SURVIVED · 0 unapplied
+```
+
+One row, and it is the jsdom harness's `T-ORDER-STALE`. That single number is the whole point rather than a detail: all seven browser rows RAN under the mutant and all seven passed, `T-FLASH-COPY-RACE` included. The row this adversary comes from said exactly that would happen, and the reason is visible in the row itself: `T-FLASH-COPY-RACE` releases the clipboard promise only after `await rotate(page)` returns (`tests/e2e/share-link-flash.spec.ts:466-469`), by which point a passive effect would have written `urlRef` too. So the full-mode run establishes that no SHIPPED browser row rescues the credit, which is what matters here. It does not establish that no Playwright test could reach the window; nobody has built one.
 
 
 <!-- BEGIN GENERATED -->
