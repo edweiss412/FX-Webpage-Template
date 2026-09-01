@@ -26,9 +26,9 @@ so every rule in this pass is new and there is no prior art to reconcile with.
 
 | # | Decision | Ratification |
 |---|---|---|
-| R1 | **Option C.** Property substitution for the affordances a UA drops, plus a NARROW token mapping limited to the three slots the forced palette actually has a correct answer for. Not a full 34-token swap. | bl-orch, 2026-09-01, answering this arc's pre-implementation pattern gate. The against-argument is §3.4. |
+| R1 | **Option C.** Property substitution for the affordances a UA drops, plus the three semantic slots the forced palette has a correct answer for. Not a full 34-token swap. The slots were ratified as a token re-point and are shipped PER AFFORDANCE: spec review R1 showed no selected, disabled or link token exists to re-point, and bl-orch approved the mechanism change on 2026-09-01 as C's goal without its plumbing. §3.3 carries the argument. | bl-orch, 2026-09-01, at this arc's pre-implementation pattern gate and again at the R1 repair. The against-argument for the full swap is §3.4. |
 | R2 | **A full token mapping is declined, and the reason is that it would have to be invented.** The forced palette has no warning slot and no danger slot (probe limits, `docs/superpowers/specs/probes/2026-09-01-forced-colors-mechanism.md`). Mapping `--color-warning-bg` onto `Mark` is a guess, and a guess in `globals.css` is inherited by every future surface. | Same ruling. This is the row's own "sample of one" fence applied to the token table. |
-| R3 | **Colour-only semantic collapse is sole-carrier-only.** A distinction that flattens under forced colors is a defect only where colour was the sole carrier. Where words, an icon, or an ordering also carry it, the flattening is correct behaviour and is documented as deliberate in §8, not repaired. | Same ruling. Flattening is what the user asked for by turning forced colors on. |
+| R3 | **Colour-only semantic collapse is sole-carrier-only.** A distinction that flattens under forced colors is a defect only where colour was the sole carrier. Where words, an icon, or an ordering also carry it, the flattening is correct behaviour: it is recorded in the Arm 1 census with its reason, and §8 names the CLASS that reason falls into. One mechanism, two readers. The census is machine-checked and per-site; §8 is the human-readable index of why whole families are left alone, and it never carries per-site rows. | Same ruling. Flattening is what the user asked for by turning forced colors on. A first draft made §8 and the census sound like alternative dispositions, which review R2 counted across five sections. |
 | R4 | **Whether severity callouts should stay distinguishable under forced colors is a REVISITABLE ruling, queued for Eric, and does not block.** It is CSS-reversible in one block. If he wants distinguishable severities, the repair is additive and lands later. | bl-orch, same message: "queuing the callout-distinguishability question for Eric as a REVISITABLE ruling. It is CSS-reversible, so it does not block; note that in the spec limits." Noted at §8.1. |
 | R5 | **Focus is already safe and this pass does not touch it.** `app/globals.css:899` is unlayered, beats Tailwind's `@layer utilities`, and paints an outline that survives forced colors. Measured in both engines. | `docs/superpowers/specs/probes/2026-09-01-forced-colors-mechanism.md`, cascade table. The pass PINS this rather than changing it (§5.6). |
 | R6 | **The ~253 `focus-visible:outline-none focus-visible:ring-*` declarations stay.** Only the `outline-none` half is inert; the ring DOES paint in normal mode, alongside the outline (probe cascade rows with forced colors off read `box-shadow=present`). Removing them is a 253-site sweep with a real, unreviewed visual effect. Filed as an Unfixed peer in the PR body, not repaired here. | Probe cascade table. Class-sweep exception (c): the repair spans enough sites to blow the review scope AND changes rendered pixels, so it is its own arc. A first draft of this row said the declarations were inert and that the sweep was zero-pixel; spec review R1 refuted both. |
@@ -76,10 +76,10 @@ an OUTLINE, which forced colors keeps. The `ring` half of that idiom is a separa
 question and it is NOT suppressed: with forced colors off the probe reads
 `box-shadow=present`, so the ring paints in normal mode alongside the outline.
 Under forced colors the ring goes and the outline stays, which is the whole of why
-focus is safe. It is the only affordance in
-the repo that already works under forced colors, and it works by accident: it
-was written for direct-sunlight readability on the venue floor
-(`app/globals.css:895-897`), not for this.
+focus is safe. It works by accident: it was written for direct-sunlight readability on the venue
+floor (`app/globals.css:895-897`), not for this. It is not the only accident of
+that kind. §5.3 finds a second, the freshness cue, for the same reason, and both
+survive because they are outlines.
 
 That accident is the pattern. §3 states it as a rule.
 
@@ -169,8 +169,12 @@ re-derived:
 A full swap re-points all 34 distinct `--color-*-runtime` tokens onto system
 keywords (`grep -oE -- '--color-[a-z-]+-runtime' app/globals.css | sort -u | wc -l`,
 34 on `059bd1bd4`). It is tempting because it is one place and the mechanism works.
-It fails on two counts. It repairs none of §5.1 through §5.5, because those are
-property problems and not value problems (M12). And the forced palette has nine
+It fails on two counts. It repairs none of the cue and gradient work in §5.1,
+§5.2 and §5.5, because a dropped carrier is a property problem and not a value
+problem (M12). The §5.4 state repairs and the §5.5 fill ARE value changes, and a
+token swap still does not reach them: they need the right value at the selector
+that means the state, which is §3.3's per-affordance point, not a global re-point
+of a token those selectors share with everything else. And the forced palette has nine
 semantic pairs, none of which means "warning" or "danger", so mapping the
 severity tokens requires inventing a correspondence. Inventing one in
 `globals.css` is exactly the "pre-commit that pattern from a sample of one"
@@ -318,6 +322,18 @@ Repair: under forced colors the ring leg animates `outline-color` between
 exists outside it. The background leg is left to flatten; it carries nothing the
 outline does not.
 
+**And the reduced-motion arm names its off state, which the first version of this
+repair did not.** `app/globals.css:1157-1159` sets `animation: none` for
+`[data-share-link-flash]` under reduced motion, deliberately: this cue has no
+correct steady state (`app/globals.css:1129-1132`). With the animation off, a base
+`outline: 2px solid transparent` is all that is left, and M5/M6 force it opaque, so
+a reduced-motion user in forced colors would get a PERMANENT outline on the
+share-link row. That is the §5.3 defect this pass exists to avoid, reintroduced by
+its own repair. Spec review R2 caught it. So inside the block the reduced-motion
+arm sets `outline-style: none` for this selector, which is §3.1 rule 2's second
+branch: the width is not load-bearing here, because no sibling state declares an
+outline.
+
 ### 5.2 The step-3 warning flash
 
 `app/globals.css:1104-1120`. Animates `background-color` only, and its
@@ -361,8 +377,11 @@ with the attribute. The keyframes animate `outline-color` between two values tha
 both force to the same used value, so the FADE is gone. The SIGNAL is not. A
 steady outline for 1600ms is a working cue.
 
-So the freshness cue is the third thing in this repo that already survives forced
-colors, and like `app/globals.css:899` it survives because it is an outline. That
+So the freshness cue is the SECOND thing in this repo that already survives forced
+colors, after the focus outline at `app/globals.css:899` (§2.2), and like it the
+cue survives because it is an outline. Two, not three: this sentence said "third"
+in the R2 repair and §2.2 said "second" four hundred lines earlier, which is
+review R2's finding 5 recurring inside its own fix. That
 is the pattern's own evidence, and the draft nearly deleted it: the specified
 `outline-style: none` would have left both colour-only keyframes with nothing to
 paint, turning the one working cue into no cue at all.
@@ -479,17 +498,16 @@ first three rather than replacing them, so the table enumerates the crossings.
 | FLASHING to IDLE, normal | Existing animation end. Unchanged. |
 | IDLE to FLASHING, reduced motion | share-link and section-freshness: no cue, existing. step-3: steady tint today, steady OUTLINE after §5.2 under forced colors only. |
 | IDLE to FLASHING, forced colors | Outline-based flash for share-link (§5.1) and step-3 (§5.2). The freshness cue is UNCHANGED: its gating attribute arrives, its already-outline base rule forces opaque, and the outline is simply present rather than fading (§5.3). |
-| IDLE to FLASHING, forced colors AND reduced motion | share-link and section-freshness: no cue, matching the normal reduced-motion arm. The reduced-motion decision is about whether a one-shot signal has a correct steady state, and forced colors does not change that answer (`app/globals.css:1129-1132`). step-3: steady outline. |
+| IDLE to FLASHING, forced colors AND reduced motion | The three cues differ here and the first draft of this row said they did not. **share-link:** no cue, because §5.1's repair names its off state in this arm; without that naming the base transparent outline would force opaque and give a reduced-motion user a permanent ring. **section-freshness:** a steady outline, NOT no cue: its arm sets `outline-color: transparent` (`app/globals.css:1224-1227`) and M6 forces that opaque. Measured in both engines, and left as §8 limit 8 rather than repaired. **step-3:** steady outline. |
 | FORCED-COLORS toggled while FLASHING | The animation continues; the media query re-evaluates and the surviving leg swaps. No restart, and none is wanted: a cue that restarts because the user changed an OS setting mid-flash would be a false signal. Instant, no animation needed. |
 | Theme toggled while FLASHING under forced colors | Instant, no animation needed. Under forced colors the theme tokens are already overridden, so a theme change is a no-op on the cue. |
-| IDLE to IDLE across a forced-colors toggle | Instant. This is the §5.3 phantom-outline case: before the repair the card gains a permanent outline at the toggle, after it nothing changes. |
+| IDLE to IDLE across a forced-colors toggle | Instant, and nothing paints. This row asserted the opposite in the first draft, on the §5.3 phantom-outline claim the overturn removed: an idle card carries no freshness attribute, so no rule applies and the toggle changes nothing about it. AC-3's idle half is the assertion that keeps this true. |
 
 Compound case worth naming because the freshness cue alternates `-1` and `-2`
-keyframe names to restart (`app/globals.css:1218-1223`). Neither body is touched
-by this pass, so the existing drift pin keeping them identical is undisturbed and
+keyframe names to restart (`app/globals.css:1218-1223`). Neither body is touched by
+this pass, so the existing drift pin keeping them identical is undisturbed, and
 toggling forced colors between a `-1` and a `-2` flash cannot leave one leg under
-different rules than the other. This row was written when §5.3 specified a repair;
-it survives the overturn as a statement about why no repair is needed here.
+different rules than the other.
 
 ## 7. Acceptance criteria
 
@@ -501,6 +519,7 @@ it survives the overturn as a statement about why no repair is needed here.
 | AC-4 | Under forced colors, each §5.4 worked example's states are distinguishable: the selected path's computed style differs from the unselected path's in at least one surviving property. | Real-browser Playwright assertion. |
 | AC-4b | Every element Arm 1 reports is either repaired or carries a census row with a reason, and the census row count is pinned by an exact literal. | Vitest. The literal is the anti-vacuity case: a census that silently grows passes a subset assertion. |
 | AC-4c | Arm 1's CANNOT-DECIDE set (unresolvable components, and single-path elements carrying state variants) is pinned by an exact literal, so a new member fails loudly rather than passing unseen. | Vitest. This is §4.1's "reported by name, never silently dropped" made executable. |
+| AC-4d | Under forced colors AND reduced motion, the share-link row shows NO outline at any point, and a freshness-capable card shows one only while its gating attribute is present. Both are asserted because the two cues differ in this compound state, which is the state the transition table's first draft got wrong for both of them. | Real-browser, `emulateMedia` with both settings. |
 | AC-5 | Under forced colors, the indeterminate progress bar paints a non-empty fill in both engines. | Real-browser. |
 | AC-6 | An element wearing the shipped focus idiom has a visible outline under forced colors, and the assertion fails if `app/globals.css:899` is moved into a cascade layer. | Real-browser plus a planted-defect check. |
 | AC-7 | Arm 2 reports no rule outside the census on the live tree, and its premise asserts it parsed a known member. | Vitest. |
@@ -524,8 +543,27 @@ the condition that would re-open it.
    rather than to shape a reading hierarchy.
 3. **Elevation flattens.** `shadow-tile` and `shadow-popover` are dropped. Nine of
    the ten popover sites also carry a border, so they keep an edge. Not repaired
-   as a class. **Re-open when:** Arm 2 reports a floating surface whose only
-   boundary is its shadow.
+   as a class.
+
+   **Neither arm can raise this, and saying so is part of the limit.** Arm 2 reads
+   `app/globals.css` only, and a Tailwind shadow carrier lives in TSX.
+   `components/admin/BellPanel.tsx:1279` is a live instance, and the precise form
+   is worth keeping: it wears `shadow-popover` unconditionally and `sm:border`
+   only from 640px, so BELOW the `sm` breakpoint its shadow is its only boundary.
+   On a phone, in forced colors, that panel has no edge. This is a mobile-first
+   product, so that is the interesting half of the example rather than a caveat
+   on it.
+   Arm 1 reads TSX but compares PATHS, so a single-path floating surface with one
+   unconditional `shadow-popover` and no border never reaches its comparison. A
+   first draft of this limit said "re-open when Arm 2 reports" one, a trigger that
+   could never fire; spec review R2 caught it, and the honest repair is to state
+   the blind spot rather than point at an arm that cannot see it.
+   **Re-open when:** a person observes a floating surface whose only boundary is
+   its shadow, or the pass gains a third arm that reads shadow carriers at the
+   element. The second is the real fix and it is deliberately not in this pass: it
+   is a different question (does this element have a boundary at all) from the two
+   this pass answers, and bolting it onto either arm widens a recognizer §4.4
+   keeps narrow.
 4. **Layout-spacer transparent borders are left alone.** Sites where
    `border-transparent` reserves layout beside a bordered peer, rather than
    expressing an off state, gain a phantom edge that changes nothing about what
@@ -556,9 +594,29 @@ the condition that would re-open it.
    "this changed", and a steady outline for the same window says it.
    **Re-open when:** a surface needs to distinguish two simultaneous freshness
    cues by their phase, which the fade would carry and a steady outline does not.
-8. **Safari is out of scope.** WebKit does not implement `forced-colors`. No claim
+8. **A reduced-motion user sees the freshness cue under forced colors, and in
+   normal mode would see nothing.** `app/globals.css:1224-1227` sets
+   `outline-color: transparent` in that arm, and M6 forces it opaque. Measured in
+   both engines: with reduced motion and forced colors the outline reads
+   `solid 2px` in a system colour, against `rgba(0,0,0,0)` with forced colors off.
+   Not repaired, and the reason is symmetry rather than cost. Under forced colors
+   the fade is gone for EVERY user (limit 7), so the cue is steady-or-nothing for
+   everyone; the reduced-motion rationale, that a one-shot signal has no correct
+   steady state, then applies identically to both groups, and suppressing it for
+   only one of them is the inconsistent branch. The repair is available and scoped
+   (`outline-style: none` in that arm) if the owner decides otherwise, which makes
+   this a product decision and not a defect. Ratified as revisitable by bl-orch,
+   2026-09-01. **Re-open when:** the owner rules that reduced-motion users should
+   see no cue under forced colors either.
+
+   The share-link cue is NOT in this limit. Its reduced-motion arm declares no
+   outline at all today, and §5.1's repair names its off state explicitly, so it
+   shows nothing in that compound state in both modes. That difference is the
+   whole content of §3.1 rule 2: a cue that names its off state behaves under
+   forced colors, and one that leaves it `transparent` does not.
+9. **Safari is out of scope.** WebKit does not implement `forced-colors`. No claim
    in this spec covers it. **Re-open when:** WebKit ships the feature.
-9. **The probe measures emulation, not a user's theme.** No assertion in this pass
+10. **The probe measures emulation, not a user's theme.** No assertion in this pass
    may depend on a specific forced colour value; every assertion is about whether
    a property survives and whether two states differ.
 ## 9. Convergence
@@ -569,13 +627,13 @@ carrier set is empty under the §2.1 M-table has a surviving carrier declared in
 the §3.2 block, where a carrier set is empty whether its members are dropped,
 forced onto the palette, or a mixture of the two; (b) no rule states an off state
 as a transparent border or outline colour without naming that off state in the
-block; (c) no element has two render paths with equal forced projections unless it
-is repaired or the census records the collapse with a reason, a non-CSS carrier
-being a sufficient reason; (d) every rule the pass adds is unlayered. A finding
+block; (c) no element has two render paths with equal forced projections unless it is
+repaired or the Arm 1 census records the collapse with a reason, a non-CSS carrier
+being a sufficient reason, and §8 names the class that reason belongs to; (d) every rule the pass adds is unlayered. A finding
 outside those four is admissible only with a probe showing a user cannot tell two
 states apart while all four hold. The acceptance posture is that every affordance
 the pass touches is either carried correctly under forced colors or recorded as a
-deliberate flatten in §8, never silently wrong, so a worst case of a conservative
+deliberate flatten in the census under a class §8 names, never silently wrong, so a worst case of a conservative
 flatten plus a documented limit is a documented limit and not a finding.
 
 Condition (a) said "drawn from the dropped properties" in the first draft, which

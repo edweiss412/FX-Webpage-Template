@@ -82,7 +82,15 @@ const M12 = `#M12-boxshadow-inside-forced { box-shadow: 0 0 0 2px #e06000; }
 
 /**
  * M13 asks whether a custom property re-pointed inside a forced-colors block
- * reaches a property that survives. This is the narrow token-mapping leg.
+ * reaches a property that survives.
+ *
+ * It answered YES, and the spec does NOT use it. The mechanism works; the mapping
+ * it would carry does not exist, because this repo has no selected, disabled or
+ * link token to re-point (spec §3.3). The three semantic slots ship per affordance
+ * instead. The case stays because a future author WILL ask whether a token
+ * re-point works, and the honest answer is "yes, and that is not the reason it was
+ * declined" — a case deleted for being unused reads later as a question nobody
+ * asked.
  */
 const M13 = `:root { --probe-edge: #7a3d00; }
 @media (forced-colors: active) { :root { --probe-edge: Highlight; } }
