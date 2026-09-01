@@ -159,6 +159,8 @@ afterEach(() => {
 
 /** Check-in callbacks captured at schedule time, newest last. */
 let pendingCheckIns: Array<() => void> = [];
+/** Handles of the check-in timers only, so cleanup is asserted on identity. */
+let checkInHandles: unknown[] = [];
 
 /**
  * Install a `setTimeout` spy that captures the check-in callbacks.
@@ -170,18 +172,19 @@ let pendingCheckIns: Array<() => void> = [];
 function captureCheckIns(): void {
   vi.useFakeTimers();
   pendingCheckIns = [];
+  checkInHandles = [];
   const fake = globalThis.setTimeout;
   vi.spyOn(globalThis, "setTimeout").mockImplementation(((
     fn: (...a: unknown[]) => void,
     ms?: number,
     ...rest: unknown[]
   ) => {
-    if (ms === RETRY_CHECK_IN_MS) pendingCheckIns.push(() => fn());
-    return (fake as unknown as (...a: unknown[]) => unknown)(
-      fn,
-      ms,
-      ...rest,
-    ) as unknown as ReturnType<typeof globalThis.setTimeout>;
+    const handle = (fake as unknown as (...a: unknown[]) => unknown)(fn, ms, ...rest);
+    if (ms === RETRY_CHECK_IN_MS) {
+      pendingCheckIns.push(() => fn());
+      checkInHandles.push(handle);
+    }
+    return handle as unknown as ReturnType<typeof globalThis.setTimeout>;
   }) as unknown as typeof globalThis.setTimeout);
 }
 
@@ -398,6 +401,94 @@ describe("the lightbox check-in", () => {
       vi.advanceTimersByTime(1);
     });
     expect(overlay(container)?.textContent).toContain("Still loading");
+  });
+
+  test("unmount clears the lightbox's check-in timers, asserted on handle identity", () => {
+    // Whole-diff review finding 2, second half: the gallery had a cleanup case
+    // (weak, now repaired) and the LIGHTBOX had none at all, so its mount-scoped
+    // cleanup could be deleted with every suite green. Closing a lightbox with a
+    // retry in flight is the ordinary way out of this state, so an armed timer
+    // surviving it is a leak per open-and-close.
+    captureCheckIns();
+    const cleared: unknown[] = [];
+    const realClear = globalThis.clearTimeout;
+    vi.spyOn(globalThis, "clearTimeout").mockImplementation(((h: unknown) => {
+      cleared.push(h);
+      return (realClear as unknown as (h: unknown) => void)(h);
+    }) as unknown as typeof globalThis.clearTimeout);
+
+    const view = open([item(1), item(2)]);
+    failActive(view.container);
+    tapRetry(view.container);
+    premiseHolds("a check-in timer was scheduled to clear", checkInHandles.length > 0);
+
+    act(() => {
+      view.unmount();
+    });
+
+    // Identity, not a count: React silently ignores a post-unmount setState, so
+    // "fire it and assert nothing happened" passes either way. Only the CLEAR is
+    // observable, and only its handle says WHICH timer was cleared.
+    const missed = checkInHandles.filter((h) => !cleared.includes(h));
+    expect(
+      missed.length,
+      `unmount left ${missed.length} of ${checkInHandles.length} check-in timers armed`,
+    ).toBe(0);
+  });
+
+  test("a REORDER that makes the slide inactive abandons it too, with no Embla select", () => {
+    vi.useFakeTimers();
+    const said: string[] = [];
+    const a = item(1);
+    const b = item(2);
+    const view = open([a, b], (m) => said.push(m));
+    failActive(view.container);
+    tapRetry(view.container);
+    premiseHolds(
+      "the active slide is in flight before the reorder",
+      overlay(view.container) !== null,
+    );
+
+    // Whole-diff review finding 1, reproduced from its own probe. Reordering the
+    // props makes slide A inactive WITHOUT Embla emitting `select`, so an
+    // abandonment that lives only in the select handler never runs: A's timer
+    // stayed armed while A was invisible, and A came back checked-in and
+    // announced late. The repair derives abandonment from the RENDER — an id
+    // that is not the active slide's is abandoned however it got there — so this
+    // case does not depend on which event fired.
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[b, a]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={(m) => said.push(m)}
+      />,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(RETRY_CHECK_IN_MS * 2);
+    });
+    expect(
+      said.filter((m) => m.includes("still loading")),
+      "no check-in is announced for a slide nobody is looking at",
+    ).toEqual([]);
+
+    // And bringing it back offers the failed control, not a resurrected check-in
+    // for a request that was abandoned.
+    view.rerender(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[a, b]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={(m) => said.push(m)}
+      />,
+    );
+    expect(overlay(view.container), "no phantom in-flight overlay on return").toBeNull();
+    expect(failedControl(view.container), "the honest state is the failed control").not.toBeNull();
   });
 
   test("the swipe-away abandons the retry, so swiping back offers the control again", () => {

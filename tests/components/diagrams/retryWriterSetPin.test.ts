@@ -29,7 +29,7 @@
 import { describe, expect, it } from "vitest";
 
 import { premiseHolds } from "../../_shared/premise";
-import { PHASE_COMPONENTS, PHASE_SETTER, phaseWriters } from "./phaseWriters";
+import { PHASE_COMPONENTS, PHASE_SETTER, directPhaseWrites, phaseWriters } from "./phaseWriters";
 
 /**
  * Writers of the phase state, counted across BOTH components.
@@ -48,13 +48,20 @@ import { PHASE_COMPONENTS, PHASE_SETTER, phaseWriters } from "./phaseWriters";
  * walk agreed, which is the count tracking real membership rather than being
  * retyped to match.
  *
+ * TWELVE, not thirteen, since whole-diff review finding 1. The lightbox's Embla
+ * `select` handler used to write the phase to abandon a departing slide's retry;
+ * that write is gone, because abandonment now derives from the render sweep and
+ * covers every route to inactivity rather than the one route `select` reports.
+ * The count went DOWN because a writer was deliberately deleted, which is the
+ * direction this pin is least used to and exactly why it is a pin.
+ *
  * The timer callback is the writer this pin exists for. It reads `prev.get(id)`
  * before writing, which is what makes a callback that fires after its item has
  * gone a no-op rather than a stale write the next retry inherits. The count
- * moved because writers were added on purpose; a count that moves on its own is
- * the failure this guards.
+ * moved because writers were added and removed on purpose; a count that moves on
+ * its own is the failure this guards.
  */
-const EXPECTED_PHASE_WRITERS = 13;
+const EXPECTED_PHASE_WRITERS = 12;
 
 describe("retry phase writers are a pinned, closed set", () => {
   const writers = PHASE_COMPONENTS.flatMap(phaseWriters);
@@ -70,6 +77,35 @@ describe("retry phase writers are a pinned, closed set", () => {
         `found ${writers.length} at ${writers.map((w) => `${w.file}:${w.line}`).join(", ")}. ` +
         "A new writer is not a test failure to route around: add it deliberately and say so.",
     ).toBe(EXPECTED_PHASE_WRITERS);
+  });
+
+  it("every DIRECT setter call is one of the two the sweep owns, and nothing else", () => {
+    // Whole-diff review finding 3. Every other assertion in this file discovers
+    // writers by the functional form, so a plain `setRetryPhase(new Map())` was
+    // not a writer that failed the shape check — it was not a writer at all, and
+    // both the count and the `new Map(prev)` assertion stayed green with one
+    // added to each component (the reviewer's probe: 13 discovered before AND
+    // after the mutation).
+    //
+    // The direct form is not banned, because it is already correct twice: the
+    // render sweep hands back an ALREADY-SWEPT map, and routing that through
+    // `(prev) => …` would discard the value it just computed. So the closure is
+    // asserted on the SHAPE of the argument rather than on the call's absence —
+    // an accept-set, which fails closed on the write nobody predicted, which is
+    // the right direction for a guard whose whole job is to notice one.
+    const direct = PHASE_COMPONENTS.flatMap(directPhaseWrites);
+    premiseHolds("the direct-write walk found the sweep's own calls", direct.length > 0);
+    const unexpected = direct
+      .filter((d) => !/setRetryPhase\(sweptRetryPhase\)/.test(d.text))
+      .map((d) => `${d.file}:${d.line} ${d.text.trim()}`);
+    expect(
+      unexpected,
+      `a direct ${PHASE_SETTER} call that is not the sweep's write-back bypasses every shape ` +
+        "assertion in this file. Add it deliberately and say why, or use the functional form.",
+    ).toEqual([]);
+    expect(direct.length, "one sweep write-back per component, and no more").toBe(
+      PHASE_COMPONENTS.length,
+    );
   });
 
   it("every writer builds the next state with `new Map(prev)`", () => {

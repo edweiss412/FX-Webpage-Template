@@ -571,34 +571,14 @@ export function GalleryLightbox({
       // also resets so the next keyboard +/- bases targets on 1.
       setActiveScale(1);
       requestedScaleRef.current = 1;
-      // R1 finding 2: leaving a slide ABANDONS its in-flight retry, so the
-      // state has to end with it. Previously only the RENDERING stopped (the
-      // overlay is gated on `isActive`) while `retrying` kept the id, so
-      // swiping back resurrected `Retrying…` for a request nobody is waiting
-      // on and could remount a second image request. The sweep could not catch
-      // this: it keys on availability, and an inactive slide is still available.
-      //
-      // `failedKeys` regains the id in the same breath. The item did fail, the
-      // retry that would have cleared it was abandoned, so the honest state on
-      // return is the failed cell with its retry control -- not a loaded image
-      // and not a phantom spinner.
-      setRetryPhase((prev) => {
-        if (prev.size === 0) return prev;
-        const leaving = itemsRef.current.filter((entry, i) => i !== index && prev.has(entry.id));
-        if (leaving.length === 0) return prev;
-        const next = new Map(prev);
-        for (const entry of leaving) next.delete(entry.id);
-        return next;
-      });
-      setFailedKeys((prev) => {
-        const leaving = itemsRef.current.filter(
-          (entry, i) => i !== index && retryingStateRef.current.has(entry.id),
-        );
-        if (leaving.length === 0) return prev;
-        const next = new Set(prev);
-        for (const entry of leaving) next.add(entry.id);
-        return next;
-      });
+      // ABANDONMENT IS NOT HERE ANY MORE. It used to write `retryPhase` and
+      // `failedKeys` from this handler, which keyed it on ONE ROUTE to
+      // inactivity: a reorder of `items` that leaves `activeIndex` alone makes a
+      // slide inactive and emits no `select`, so the retry survived invisibly and
+      // announced late when the slide came back (whole-diff review finding 1).
+      // The render sweep now derives it from the active slide, so every route is
+      // covered and there is one mechanism rather than two. What stays here is
+      // the focus and scale work, which genuinely belongs to a navigation event.
       // The announcement is owed by THIS handler, not by the chevrons: a swipe
       // changes the slide with no button involved, and since the inactive
       // slides left the accessibility tree the change is otherwise silent.
@@ -894,17 +874,53 @@ export function GalleryLightbox({
   // `sweepSet` serves `failedKeys` and `wantsOriginal`, which stay Sets; making it
   // generic to serve one new Map-valued caller would widen a helper two other
   // states depend on. The plan for this arc records the choice and the reason.
+  // An in-flight retry belongs to the ACTIVE slide, and this is where that is
+  // enforced — in the render, not in the `select` handler.
+  //
+  // Whole-diff review finding 1 is why. Abandonment used to live only in Embla's
+  // `select` callback, so it was keyed on ONE ROUTE to inactivity rather than on
+  // inactivity itself. Reordering `items` from [A, B] to [B, A] without moving
+  // `activeIndex` makes A inactive and emits no `select`, so A kept its phase and
+  // its armed timer while invisible, then came back checked-in and announced
+  // late. The reviewer's probe: LIVE_CHECKIN_TIMERS_AFTER_REORDER=1.
+  //
+  // Derived, not enumerated: any route to inactivity abandons, including ones
+  // nobody has thought of yet. The `select` handler keeps the focus and scale
+  // work that genuinely belongs to a navigation event and no longer writes the
+  // retry state, so there is exactly ONE mechanism rather than a fast path and
+  // an invariant that can disagree.
+  // `activeId` is the one declared above for the slide-scoped chrome; the same
+  // value, so a second binding would be two names for one fact.
+  const abandonedPhases: string[] = [];
   const sweepPhases = (prev: ReadonlyMap<string, RetryPhase>): ReadonlyMap<string, RetryPhase> => {
     let changed = false;
     const next = new Map<string, RetryPhase>();
     for (const [id, phase] of prev) {
-      if (liveIds.has(id)) next.set(id, phase);
-      else changed = true;
+      if (liveIds.has(id) && id === activeId) next.set(id, phase);
+      else {
+        changed = true;
+        // Only a LIVE id earns the failure back. One that left `items` has no
+        // cell to show it in, and re-adding it would strand a key the other
+        // sweep just dropped.
+        if (liveIds.has(id)) abandonedPhases.push(id);
+      }
     }
     return changed ? next : prev;
   };
-  const sweptFailed = sweepSet(failedKeys);
   const sweptRetryPhase = sweepPhases(retryPhase);
+  // ORDER MATTERS, and it is the same composition the gallery uses: sweep the
+  // failures first, then add the abandoned ids back on top. The item did fail,
+  // the retry that would have cleared it was abandoned, so the honest state on
+  // return is the failed cell with its retry control.
+  const sweptFailedBase = sweepSet(failedKeys);
+  const sweptFailed =
+    abandonedPhases.length === 0
+      ? sweptFailedBase
+      : (() => {
+          const next = new Set(sweptFailedBase);
+          for (const id of abandonedPhases) next.add(id);
+          return next;
+        })();
   const sweptWantsOriginal = sweepSet(wantsOriginal);
   if (sweptFailed !== failedKeys) setFailedKeys(sweptFailed);
   if (sweptRetryPhase !== retryPhase) setRetryPhase(sweptRetryPhase);

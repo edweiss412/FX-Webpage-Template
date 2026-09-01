@@ -493,7 +493,7 @@ These go in the PR body under "Unfixed peers". None is "same defect, different f
 
 | finding | why not here |
 |---|---|
-| the announcement says "is still loading." and never that a control became pressable | The string is SPEC-PINNED (design §5.0, AC-14) and changing it is an amendment, not a copy tweak. A product call, not an implementation one |
+| the announcement says "is still loading." and never that a control became pressable | The string is SPEC-PINNED by the copy table at design spec `:476` (AC-14 pins the FREQUENCY, not the wording) and changing it is an amendment, not a copy tweak. A product call, not an implementation one |
 | `aria-busy` retained on the node whose name and text change at the check-in | The `aria-busy` posture is ratified at spec §6 and pinned by AC-3/AC-10; the audit's own fix says keep it. The residual risk is carried by the announcement, which is the row above |
 | the two-line check-in may clip out of the `overflow-hidden` cell under text-only zoom | The two halves DISAGREE and neither probed it in a browser: audit computed a clip at ~150%, critique derived ~45px of headroom at 1x and called it hierarchy rather than overflow. A finding two gates cannot agree on needs a real-browser probe at zoom, which the shipped `AC-13` case pins at 1x only |
 | the Reset chip and the retry overlay share `top-2 z-dropdown` in the lightbox | Pre-existing: the overlay's position is untouched by this diff. Reachable only by pinching an in-flight slide |

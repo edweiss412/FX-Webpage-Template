@@ -61,6 +61,8 @@ const imageIn = (i: number) => within(slot(i)).queryByRole("img") as HTMLImageEl
 
 /** Check-in callbacks captured at schedule time, newest last. */
 let pendingCheckIns: Array<() => void> = [];
+/** The handles of the check-in timers only, so cleanup is asserted on identity. */
+let checkInHandles: unknown[] = [];
 let realSetTimeout: typeof globalThis.setTimeout;
 
 function failThumb(i: number): void {
@@ -116,6 +118,7 @@ describe("the check-in mechanism, judged rather than described", () => {
 
   beforeEach(() => {
     pendingCheckIns = [];
+    checkInHandles = [];
     seen.clear();
     // ORDER MATTERS. `useFakeTimers` installs its own `setTimeout`, so the
     // delegate has to be captured AFTER it: an earlier draft captured the REAL
@@ -131,12 +134,16 @@ describe("the check-in mechanism, judged rather than described", () => {
       ms?: number,
       ...rest: unknown[]
     ) => {
-      if (ms === RETRY_CHECK_IN_MS) pendingCheckIns.push(() => fn());
-      return (realSetTimeout as unknown as (...a: unknown[]) => unknown)(
-        fn,
-        ms,
-        ...rest,
-      ) as unknown as ReturnType<typeof globalThis.setTimeout>;
+      const handle = (realSetTimeout as unknown as (...a: unknown[]) => unknown)(fn, ms, ...rest);
+      if (ms === RETRY_CHECK_IN_MS) {
+        pendingCheckIns.push(() => fn());
+        // The HANDLE too, and it is what whole-diff review finding 2 turned on:
+        // asserting that unmount cleared SOMETHING is satisfied by the announce
+        // log's own TTL timer, so the assertion passed with both cleanup bodies
+        // deleted (the reviewer's mutant ran 7 suites, 59/59 green).
+        checkInHandles.push(handle);
+      }
+      return handle as unknown as ReturnType<typeof globalThis.setTimeout>;
     }) as unknown as typeof globalThis.setTimeout);
   });
   afterEach(() => {
@@ -308,8 +315,18 @@ describe("the check-in mechanism, judged rather than described", () => {
     // and assert nothing happened" passes whether or not the timer was cleared.
     // A cleanup that HAPPENED is observable; a state update that did not happen
     // is not. This is the case that had to change.
-    expect(cleared.length, "unmount clears at least the live check-in timer").toBeGreaterThan(
-      before,
-    );
+    // IDENTITY, not a count. `cleared.length > before` was the first version and
+    // whole-diff review finding 2 showed it is satisfied by the announce log's
+    // TTL timer alone: with BOTH components' mount-scoped cleanup bodies removed,
+    // all seven component suites stayed green at 59/59. What has to be true is
+    // that the check-in's OWN handles were the ones passed to clearTimeout.
+    premiseHolds("a check-in handle was captured to look for", checkInHandles.length > 0);
+    const missed = checkInHandles.filter((h) => !cleared.includes(h));
+    expect(
+      missed.length,
+      `unmount left ${missed.length} of ${checkInHandles.length} check-in timers armed; ` +
+        "a post-unmount setState is silently ignored by React, so only the CLEAR is observable",
+    ).toBe(0);
+    expect(cleared.length, "and the clear actually ran").toBeGreaterThan(before);
   });
 });

@@ -28,6 +28,36 @@ export const PHASE_COMPONENTS = [
 
 export type Writer = { file: string; line: number; body: string };
 
+/**
+ * Every DIRECT call to the setter — one that does not take the functional form.
+ *
+ * Whole-diff review finding 3: the walk below only ever discovered
+ * `setRetryPhase((prev) => …)`, so an ordinary `setRetryPhase(new Map())` or
+ * `setRetryPhase(retryPhase)` was invisible to it. Both the writer COUNT and the
+ * "every writer copies through `new Map(prev)`" assertion stayed green with one
+ * added to each component: the reviewer's probe reported
+ * ORIGINAL_DISCOVERED_WRITERS=13 and MUTATED_DISCOVERED_WRITERS=13.
+ *
+ * The recognizer is deliberately CRUDE and errs toward reporting: any
+ * `setRetryPhase(` whose next non-space characters are not `(prev)` counts. A
+ * direct write is not forbidden by anything here — it is surfaced, so the pin
+ * can decide, rather than silently exempted by the shape of the search.
+ */
+export function directPhaseWrites(file: string): { file: string; line: number; text: string }[] {
+  const src = readFileSync(join(ROOT, file), "utf8");
+  const out: { file: string; line: number; text: string }[] = [];
+  for (const m of src.matchAll(new RegExp(`${PHASE_SETTER}\\(`, "g"))) {
+    const at = (m.index ?? 0) + m[0].length;
+    if (/^\s*\(\s*prev\s*\)\s*=>/.test(src.slice(at, at + 40))) continue;
+    out.push({
+      file,
+      line: src.slice(0, m.index ?? 0).split("\n").length,
+      text: src.slice(m.index ?? 0, at + 60).split("\n")[0] ?? "",
+    });
+  }
+  return out;
+}
+
 /** Every `setRetryPhase((prev) => { ... })` call in one file, with its body. */
 export function phaseWriters(file: string): Writer[] {
   const src = readFileSync(join(ROOT, file), "utf8");

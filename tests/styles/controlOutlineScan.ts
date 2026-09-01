@@ -244,7 +244,8 @@ export const CENSUS: readonly CensusRow[] = [
   // offset is right only until two edits land in one file.
   // 928 -> 970 on the R2 class-level repairs. FOURTH key this arc; the element
   // has never changed.
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 988 },
+  // 988 -> 1165 on the retry check-in arc, which inserted a phase map, three effects and the check-in branch above it. FIFTH key; the element has still never changed, and this key was found by stepping to the opening tag rather than by adding the diff's delta.
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 1165 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.

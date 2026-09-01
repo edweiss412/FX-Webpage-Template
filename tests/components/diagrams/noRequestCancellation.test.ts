@@ -49,6 +49,25 @@ const CANCELLERS = [
   // assigning "" or null to a live element's src abandons the fetch in every
   // engine, and it reads as cleanup rather than as a cancel.
   { what: "an <img> src being cleared", pattern: /\.src\s*=\s*(""|''|null|undefined)/ },
+  // WHOLE-DIFF REVIEW FINDING 4. The row above matches the PROPERTY assignment
+  // and nothing else, so the three ordinary attribute routes to the same
+  // cancellation were invisible: the reviewer injected `removeAttribute("src")`
+  // into both Restart handlers and every component suite stayed green, 59/59.
+  //
+  // Widening here rather than narrowing, and the direction is deliberate: these
+  // are not obfuscations a hostile author reaches for, they are the three ways
+  // an ordinary contributor clears an attribute, which is exactly the threat
+  // model this guard declares. The property form and the attribute forms are one
+  // defect wearing three spellings.
+  { what: 'removeAttribute("src")', pattern: /removeAttribute\(\s*["'`]src["'`]\s*\)/ },
+  {
+    what: 'setAttribute("src", "")',
+    pattern: /setAttribute\(\s*["'`]src["'`]\s*,\s*(""|''|``)\s*\)/,
+  },
+  {
+    what: 'toggleAttribute("src", false)',
+    pattern: /toggleAttribute\(\s*["'`]src["'`]\s*,\s*false\s*\)/,
+  },
 ] as const;
 
 describe("AC-9: the check-in cancels nothing", () => {
