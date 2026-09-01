@@ -83,7 +83,19 @@ export function AdministratorsSection({
 
   const heading = (
     <div className="flex items-center gap-2">
-      <h2 id="admin-settings-admins-heading" className="text-lg font-semibold text-text-strong">
+      {/* tabIndex -1, not 0: a PROGRAMMATIC focus target, never a tab stop.
+          A successful revoke removes the row by revalidation, so the trigger the
+          operator pressed is gone and there is nothing to restore focus to. This
+          heading is the only candidate that exists unconditionally after that
+          unmount — every next-row scheme dies on the last-row case — and it
+          reorients a screen-reader user by naming where they are. Ratified
+          2026-08-31; the outcome announcement stays on its own channel and is
+          deliberately not merged into this focus move. */}
+      <h2
+        id="admin-settings-admins-heading"
+        tabIndex={-1}
+        className="text-lg font-semibold text-text-strong"
+      >
         Administrators ({active.length})
       </h2>
       <HoverHelp
