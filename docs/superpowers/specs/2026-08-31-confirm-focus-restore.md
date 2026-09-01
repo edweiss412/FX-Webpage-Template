@@ -88,6 +88,27 @@ Two constraints ride with the ruling. Scroll movement on that focus is
 channel**: heading focus gives position, the announcement gives result, and the
 two are not merged.
 
+## 2.5 Narrowing against round 2 — dated, so it is not read as drift
+
+**2026-08-31, ratified by bl-orch.** Round 2's repair introduced a requirement
+that focus move to the trigger at the `confirm → resolving` moment. Round 3
+proved no control renders a trigger then: `app/admin/show/[slug]/PickerResetControl.tsx:224` folds `confirm` and
+`resolving` into a single `inConfirm` branch, and rotate and revoke render theirs
+only in their respective idle branches. The requirement named elements absent
+from the DOM.
+
+That vector is **deleted, not weakened**. An in-flight focus target no control
+renders is invented design, and the doctrine is to delete the refutable surface
+rather than specify around it. Concretely, from this date:
+
+- **Focus placement applies to SETTLED outcomes only** — the state the probe
+  actually measured.
+- **In-flight behaviour is documented as it is**, not as this spec would prefer:
+  during `resolving` the confirm row remains rendered and the activated control
+  is disabled, so the browser blurs it. No requirement is placed on that moment.
+- This narrows what round 2 asserted. It is a correction of a claim that was
+  never measured and never ratified, not a reduction of the arc's ratified scope.
+
 ## 3. Requirements
 
 - **R1 (rotate, picker reset).** When the confirm resolves and the trigger
