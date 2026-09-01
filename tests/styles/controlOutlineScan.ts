@@ -278,8 +278,8 @@ export const CENSUS: readonly CensusRow[] = [
   // swap` case in the suite still covers them, now asserting the token they
   // moved TO.
   // ---------------------------------------------------------------------------
-  { file: "app/admin/show/[slug]/PickerResetControl.tsx", line: 255 },
-  { file: "app/admin/show/[slug]/RotateShareTokenButton.tsx", line: 379 },
+  { file: "app/admin/show/[slug]/PickerResetControl.tsx", line: 266 },
+  { file: "app/admin/show/[slug]/RotateShareTokenButton.tsx", line: 391 },
   { file: "app/me/meShowSections.tsx", line: 174 },
   { file: "app/me/meShowSections.tsx", line: 213 },
   { file: "app/me/meShowSections.tsx", line: 258 },
