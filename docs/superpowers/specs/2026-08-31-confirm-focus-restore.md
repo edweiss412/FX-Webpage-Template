@@ -118,7 +118,7 @@ two are not merged.
     behaviours no committed case drives.
   - **Plan owes an exact-trigger assertion for Cancel (R4).** `insideRoot` plus
     non-`BODY` does not establish "unchanged".
-  - **Plan owes an assertion on the `:just-after-confirm` reading**, which is
+  - **Plan owes an assertion on the just-after-confirm reading**, which is
     currently captured and then never examined.
   - **Plan owes non-focus evidence** for R2's `tabIndex={-1}` and nearest-only
     scroll (rendered attribute plus scroll position), for R5 (the action ran),
