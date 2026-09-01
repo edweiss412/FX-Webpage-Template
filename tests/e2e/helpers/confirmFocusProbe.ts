@@ -223,7 +223,19 @@ export async function measureCancelPath(
  * this file records the defect executably before the repair lands and flips
  * them. Each expectation carries the control name so a failure says which one.
  */
-export function assertFocusReadings(readings: FocusReading[], expected: CapturedTarget): void {
+/**
+ * `expected` carries TWO targets because the arms do not share one.
+ *
+ * Cancel restores to the TRIGGER; the settled focus goes to whatever the spec
+ * names for that control, and for archive those are different elements
+ * (`archive-show-button` versus `share-hub-kebab`). A single expected value
+ * passes both arms only when a fixture happens to make them equal, which is a
+ * fixture that cannot express the difference it is supposed to check.
+ */
+export function assertFocusReadings(
+  readings: FocusReading[],
+  expected: { readonly cancel: CapturedTarget; readonly settled: CapturedTarget },
+): void {
   expect(readings.length, "every step must produce a reading").toBe(5);
 
   const at = (suffix: string): FocusReading => {
@@ -241,6 +253,14 @@ export function assertFocusReadings(readings: FocusReading[], expected: Captured
     true,
   );
   expect(cancel.tag, `${cancel.at}: cancel must not strand focus on the document`).not.toBe("BODY");
+  // R4 claims the cancel path is UNCHANGED, and "unchanged" means the trigger,
+  // not merely something inside the surface. Compared against the target
+  // captured before the action, for the same reason the settled assertion is:
+  // an expectation taken from the readings could not discriminate.
+  expect(
+    { testid: cancel.testid, id: cancel.id },
+    `${cancel.at}: cancel must restore focus to the trigger itself, not to another control in the surface`,
+  ).toEqual(expected.cancel);
 
   // Arming focuses the SAFE control, not the destructive one.
   const armed = at(":armed");
@@ -261,5 +281,5 @@ export function assertFocusReadings(readings: FocusReading[], expected: Captured
   expect(
     { testid: settled.testid, id: settled.id },
     `${settled.at}: settled focus must land on the target captured BEFORE the action`,
-  ).toEqual(expected);
+  ).toEqual(expected.settled);
 }

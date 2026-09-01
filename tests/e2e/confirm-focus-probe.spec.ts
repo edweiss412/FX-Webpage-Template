@@ -154,7 +154,8 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       cancel: "picker-reset-cancel-button",
     };
 
-    const target: CapturedTarget = await captureRestoreTarget(page, pickerReset);
+    const settledTarget: CapturedTarget = await captureRestoreTarget(page, pickerReset);
+    const cancelTarget: CapturedTarget = settledTarget;
     const readings: FocusReading[] = [];
     // Cancel FIRST for this control: the confirm is destructive and would
     // change the state the control arm needs. Order is the reason, not habit.
@@ -165,7 +166,7 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
 
     // The premise: every reading came from a control that was actually there.
     // Without this the whole case passes vacuously if a testid ever moves.
-    assertFocusReadings(readings, target);
+    assertFocusReadings(readings, { cancel: cancelTarget, settled: settledTarget });
   });
 
   test("390x560: archive show, confirm path against cancel path", async ({ page }) => {
@@ -195,14 +196,22 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
       cancel: "archive-show-cancel-button",
     };
 
-    const target: CapturedTarget = await captureRestoreTarget(page, archive);
+    const settledTarget: CapturedTarget = await captureRestoreTarget(page, archive);
+    // Archive is the control where the two DIFFER: cancel returns to its own
+    // trigger, while the settled focus lands on the hub opener.
+    const cancelTarget: CapturedTarget = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="archive-show-button"]');
+      return el === null
+        ? { testid: null, id: null }
+        : { testid: el.getAttribute("data-testid"), id: el.id === "" ? null : el.id };
+    });
     const readings: FocusReading[] = [];
     readings.push(await measureCancelPath(page, archive));
     readings.push(...(await measureConfirmPath(page, archive)));
 
     console.log(`PROBE-ARCHIVE-SHOW ${JSON.stringify(readings)}`);
 
-    assertFocusReadings(readings, target);
+    assertFocusReadings(readings, { cancel: cancelTarget, settled: settledTarget });
   });
 
   test("390x560: revoke admin, confirm path against cancel path", async ({ page }) => {
@@ -245,14 +254,20 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
         cancel: "admin-allowlist-revoke-cancel-button",
       };
 
-      const target: CapturedTarget = await captureRestoreTarget(page, revoke);
+      const settledTarget: CapturedTarget = await captureRestoreTarget(page, revoke);
+      const cancelTarget: CapturedTarget = await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="admin-allowlist-revoke-button"]');
+        return el === null
+          ? { testid: null, id: null }
+          : { testid: el.getAttribute("data-testid"), id: el.id === "" ? null : el.id };
+      });
       const readings: FocusReading[] = [];
       readings.push(await measureCancelPath(page, revoke));
       readings.push(...(await measureConfirmPath(page, revoke)));
 
       console.log(`PROBE-REVOKE-ADMIN ${JSON.stringify(readings)}`);
 
-      assertFocusReadings(readings, target);
+      assertFocusReadings(readings, { cancel: cancelTarget, settled: settledTarget });
     } finally {
       await hardDeleteAdminEmail(peerEmail);
     }
