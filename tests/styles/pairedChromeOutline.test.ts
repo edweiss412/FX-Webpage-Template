@@ -158,22 +158,53 @@ describe("chrome in a frame with a control takes that control's outline weight",
    * anchor that makes it checkable. The negative half catches a straight revert.
    */
   it("records the closure rather than restating the pre-2026-08-25 state", () => {
-    const design = readFileSync(join(ROOT, "DESIGN.md"), "utf8").replace(/\s+/g, " ").toLowerCase();
-    // Premise: the section this asserts about is actually present. Without it a
-    // renamed or deleted §1.2a would satisfy every `not.toContain` below by
-    // containing nothing at all.
+    // SCOPED TO §1.2a, not to the file. The first version of this greped all of
+    // DESIGN.md, so the closure anchor could be satisfied by any other section
+    // mentioning it and the stale-claim check ranged over prose this rule has no
+    // business policing. The invariant-8 gate on `docs/paired-chrome-stale-text`
+    // raised both halves.
+    const raw = readFileSync(join(ROOT, "DESIGN.md"), "utf8");
+    const start = raw.indexOf("### 1.2a ");
+    premiseHolds("§1.2a is present to extract", start !== -1);
+    // To the next same-level heading, so the section is bounded by structure
+    // rather than by a line count that drifts with every edit.
+    const rest = raw.indexOf("\n### ", start + 1);
+    const section = (rest === -1 ? raw.slice(start) : raw.slice(start, rest))
+      .replace(/\s+/g, " ")
+      .toLowerCase();
     premiseHolds(
-      "DESIGN.md still carries the did-not-move record the closure attaches to",
-      design.includes("what did not move with the 21"),
+      "the extracted section is the did-not-move record's home",
+      section.includes("what did not move with the 21"),
     );
 
     expect(
-      design,
+      section,
       "the closure is recorded with its archive anchor, so the record cannot read as open",
     ).toContain("backlog-archive.md:1288");
 
-    for (const stale of ["and now reads lighter beside it", "is now the quieter half"]) {
-      expect(design, `§1.2a still asserts the pre-2026-08-25 state: "${stale}"`).not.toContain(
+    // THE TENSE IS DECLARED, NOT INFERRED. A negative list of phrasings is blind
+    // to a rephrase, which is the defect the gate found in the first version: two
+    // literals were pinned and any third wording passed. So the positive
+    // requirement is that the historical block SAYS which state it describes and
+    // when that state ended. A rewrite that drops the marker reds here even if it
+    // avoids every phrase below.
+    expect(
+      section,
+      "the did-not-move record must date the state it describes, so a reader cannot take it as current",
+    ).toContain("until 2026-08-25");
+
+    // The negative arm stays, widened past the two literals it started with. It
+    // catches a straight revert; the dated marker above is what catches a
+    // rephrase. Neither is sufficient alone and the file says so rather than
+    // implying the pair is exhaustive.
+    for (const stale of [
+      "and now reads lighter beside it",
+      "is now the quieter half",
+      "are now the quieter half",
+      "now read lighter",
+      "carries the weakest boundary",
+    ]) {
+      expect(section, `§1.2a still asserts the pre-2026-08-25 state: "${stale}"`).not.toContain(
         stale,
       );
     }
