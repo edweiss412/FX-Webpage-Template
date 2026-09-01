@@ -440,7 +440,13 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // dominated one step downstream, and a float boundary outside its function's domain — that last
   // one enumerated over all 256 inputs rather than argued. Per-site arguments, each with its
   // falsifier, are on the registry rows.
-  controlOutlineResidue: { equivalent: 14 },
+  controlOutlineResidueBoundaries: { equivalent: 14 },
+  // The other half of that split: equality flips, statement removals and quantifier bounds.
+  // Declared EMPTY, and that is a measurement rather than an absence -- the 2026-08-31 run's
+  // fourteen survivors are every one an `integer-literal`, `relational-boundary` or
+  // `logical-connector` site, so nothing this half generates survived. A row appearing here
+  // later is a coverage regression to repair, not a number to bump.
+  controlOutlineResidueRewrites: {},
   // The shared core is this arc's mutation-relevant surface: the in-scope
   // predicate, the resolver and both token grammars live here, and three suites
   // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
