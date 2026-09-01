@@ -16,7 +16,7 @@ is REFUTED by measurement and must not be touched (spec §1.1, §2.3).
 - AC-6 `RevokeRowButton`'s native submit still fires; no synchronous disable of the submitter in its own `onClick`.
 - AC-7 a `ConfirmControl` whose `root` and `rootSelector` name different elements is caught by a test rather than by a reviewer.
 - AC-8 the revoke outcome announcement is not merged into the focus move.
-- AC-9 `ArchiveShowButton` and `ShareHub` are absent from the diff.
+- AC-9 `ArchiveShowButton` and `ShareHub` are absent from the diff (discharged by the closeout)
 
 ## Meta-test inventory
 
@@ -77,91 +77,90 @@ Two facts from the round-1 probe changed the shape as well:
 
 ## Task 1 — reject a ConfirmControl whose two root forms disagree
 
-<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/confirmFocusProbe.decide.test.ts` red-state=authored red-target=`tests/e2e/helpers/confirmFocusProbe.ts:186` why=`measureConfirmPath reads through rootSelector and looks controls up through root, and nothing compares them, which is how the revoke case shipped with a Locator on the list and a selector on the heading` ac=AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/confirmFocusProbe.decide.test.ts` red-state=authored red-target=`tests/e2e/helpers/confirmFocusProbe.ts:166` why=`measureConfirmPath looks controls up through control.root while every reading goes through control.rootSelector, and no line compares the two, which is how the revoke case shipped with a Locator on the list and a selector on the heading` ac=AC-7 -->
 
-RED: a deciding case constructing a control whose `root` and `rootSelector`
-resolve to different elements, expecting a throw. GREEN: `assertRootParity`
-compares the two resolved elements and throws naming both; called at the top of
-`measureConfirmPath` and `measureCancelPath`.
+RED: a deciding case constructing a control whose two root forms resolve to
+different elements, expecting a throw. GREEN: `assertRootParity` compares the
+resolved elements and throws naming both, called from `measureConfirmPath` and
+`measureCancelPath` before any lookup.
 
 ## Task 2 — Cancel is asserted against the exact trigger
 
-<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/confirmFocusProbe.decide.test.ts` red-state=authored red-target=`tests/e2e/helpers/confirmFocusProbe.ts:232` why=`the cancel arm asserts insideRoot and non-BODY only, so a cancel restoring to the WRONG in-surface control passes` ac=AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/confirmFocusProbe.decide.test.ts` red-state=authored red-target=`tests/e2e/helpers/confirmFocusProbe.ts:224` why=`the cancel arm asserts insideRoot only, so a cancel that restores to the WRONG in-surface control passes` ac=AC-5 -->
 
 RED: a deciding case where cancel restores to a different in-surface control.
 GREEN: the cancel arm compares against the captured trigger identity.
 
 ## Task 3 — rotate restores focus on both settled branches
 
-<!-- task: red=`pnpm exec vitest run tests/components/RotateShareTokenButton.test.tsx` red-state=authored red-target=`app/admin/show/[slug]/RotateShareTokenButton.tsx:179` why=`onConfirmClick never writes restoreFocusRef, so the C5 effect at :145 sees false and the trigger is never refocused on the OK or refused branch` ac=AC-1 -->
+<!-- task: red=`pnpm exec vitest run tests/components/RotateShareTokenButton.test.tsx` red-state=authored red-target=`app/admin/show/[slug]/RotateShareTokenButton.tsx:179` why=`onConfirmClick never writes restoreFocusRef, so the C5 effect sees false and the trigger is never refocused on the OK or the refused branch` ac=AC-1 -->
 
-RED: jsdom cases for the OK and refused branches asserting the trigger holds
-focus once the row returns to idle, with a per-case premise that the result
-actually arrived (the banner for that branch is rendered). GREEN: the confirm
-path sets the restore flag before returning to idle.
+RED: jsdom cases for OK and refused, each with a premise that the result arrived
+(that branch's banner is rendered). GREEN: the confirm path sets the restore
+flag before returning to idle.
 
 ## Task 4 — picker reset restores focus on both settled branches
 
-<!-- task: red=`pnpm exec vitest run tests/admin/pickerResetControl.test.tsx` red-state=authored red-target=`app/admin/show/[slug]/PickerResetControl.tsx:160` why=`onConfirm never writes restoreFocusRef, so the restore effect at :104 sees false on both the ok and non-ok outcomes` ac=AC-2 -->
+<!-- task: red=`pnpm exec vitest run tests/admin/pickerResetControl.test.tsx` red-state=authored red-target=`app/admin/show/[slug]/PickerResetControl.tsx:160` why=`onConfirm never writes restoreFocusRef, so the restore effect sees false on both the ok and non-ok outcomes` ac=AC-2 -->
 
-Same shape as Task 3, against `outcome.kind`.
+Same shape, against `outcome.kind`.
 
-## Task 5 — revoke non-success branches, in jsdom
+## Task 5 — revoke non-success branches, and the submission that must survive them
 
-<!-- task: red=`pnpm exec vitest run tests/components/RevokeRowButton.test.tsx` red-state=authored red-target=`app/admin/settings/admins/RevokeRowButton.tsx:181` why=`onConfirmClick never writes restoreFocusRef, so refused, couldnt_confirm and the effectiveUi-idle branch all leave focus where the disabled submitter was` ac=AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/components/RevokeRowButton.test.tsx` red-state=authored red-target=`app/admin/settings/admins/RevokeRowButton.tsx:134` why=`the restore effect gates on RAW ui === "idle" and depends on [ui], but a refused result leaves ui === "resolving" while only effectiveUi renders idle, so the effect never fires on any non-success branch` ac=AC-4,AC-6 -->
 
-Cases for: a refused `result.kind`, the watchdog reaching `couldnt_confirm`, a
-late non-OK under sticky `couldnt_confirm`, and refused-then-retried. **Each
-carries an executable premise that the branch was actually reached** — the
-rendered branch marker for that state, and for the retry case a submit count of
-two — so a case cannot pass by finding the initial idle trigger focused. GREEN:
-the confirm path sets the restore flag for the branches that re-render idle, and
-`couldnt_confirm` focuses the Refresh control that branch renders.
+RED cases: refused `result.kind`; the watchdog reaching `couldnt_confirm`; a late
+non-OK under sticky `couldnt_confirm`; refused-then-retried. Each carries an
+executable premise that the branch was REACHED — that branch's rendered marker,
+and for retry a dispatch count of two. The dispatch-count assertion lives HERE,
+in the same task, because it is the regression a wrong repair of THIS code
+causes: it is not a separate verification pass.
+
+GREEN, and round 2 was right that the first statement of it was insufficient:
+the restore must key on the branch actually RENDERED, not on raw `ui`. Either the
+effect's condition and dependency move to `effectiveUi`, or the refused path
+settles `ui` to idle. The retry case additionally needs the stale refused
+`result` cleared, or the second `setUi("resolving")` leaves `effectiveUi`
+computing from it.
 
 ## Task 6 — the heading becomes a focus target, and revoke success uses it
 
-<!-- task: red=`pnpm exec vitest run tests/components/settings/administratorsSectionFocusTarget.test.tsx` red-state=authored red-target=`components/admin/settings/AdministratorsSection.tsx:86` why=`the live heading renders without tabIndex, so it cannot receive programmatic focus and a rendered-attribute assertion fails` ac=AC-3,AC-8 -->
+<!-- task: red=`pnpm exec vitest run tests/components/settings/administratorsSectionFocusTarget.test.tsx` red-state=authored red-target=`components/admin/settings/AdministratorsSection.tsx:86` why=`the live heading renders without tabIndex, so it cannot receive programmatic focus and every assertion in the new suite fails` ac=AC-3,AC-8 -->
 
-RED: assert the live heading (`components/admin/settings/AdministratorsSection.tsx:86`, not the list-failed heading at `components/admin/settings/AdministratorsSection.tsx:64`)
-renders `tabIndex={-1}`, that the success path focuses it, that the focus call
-passes `block: "nearest"`, and that the announcement region's content is
-unchanged by the focus move. GREEN: the attribute plus the focus call.
+RED asserts four things about the live heading (`components/admin/settings/AdministratorsSection.tsx:86`, not the list-failed
+heading at `components/admin/settings/AdministratorsSection.tsx:64`): it renders `tabIndex={-1}`; the success path focuses it;
+**the focus call passes `block: "nearest"`, asserted on the call itself** (AC-3's
+nearest-only scrolling, which round 2 correctly found unstated in the GREEN); and
+the announcement region's content is unchanged by the focus move. GREEN delivers
+all four.
 
-## Task 7 — the submit still fires
+## Task 7 — e2e: the drivable paths, end to end
 
-<!-- task: red=`pnpm exec vitest run tests/components/RevokeRowButton.test.tsx` red-state=authored red-target=`app/admin/settings/admins/RevokeRowButton.tsx:378` why=`no test asserts the native submission reaches the action, so a repair that disables the submitter synchronously would pass every focus assertion while silently cancelling the dispatch` ac=AC-6 -->
+<!-- task: red=`pnpm exec playwright test --project=mobile-safari tests/e2e/confirm-focus-probe.spec.ts` red-state=authored red-target=`tests/e2e/helpers/confirmFocusProbe.ts:189` why=`the spec file has no rotate case, so the e2e coverage for AC-1 does not exist; adding it exercises measureConfirmPath against a control the file never drove` ac=AC-1,AC-3 -->
 
-RED: assert the action receives exactly one dispatch per confirm, including on
-the retry path. This is the regression the `isPending` disable exists to prevent
-(`app/admin/settings/admins/RevokeRowButton.tsx:381-389`).
+Adds the rotate case and keeps picker, archive and revoke success. The `why=` is
+deliberately about the MISSING CASE rather than a production defect: by this
+point Tasks 3 and 6 have repaired the components, so the honest red is "this
+coverage does not exist", and the same command is green once the case lands.
+Needs a granted playwright turn from bl-orch under strict serial heavy.
 
-## Task 8 — transition audit, row by row
+## Task 8 — the transition matrix, as the last repair
 
-<!-- task: red=`pnpm exec vitest run tests/components/settings/administratorsSectionFocusTarget.test.tsx` red-state=authored red-target=`app/admin/settings/admins/RevokeRowButton.tsx:162` why=`no test enumerates the branches effectiveUi selects, so a compound transition that strands focus passes` ac=AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/components/settings/administratorsSectionFocusTarget.test.tsx` red-state=authored red-target=`app/admin/settings/admins/RevokeRowButton.tsx:162` why=`no test enumerates the branches effectiveUi selects, so the compound rows in the spec inventories have no deciding assertion and the matrix case fails on the rows it cannot map` ac=AC-4 -->
 
-A matrix with one row per pair from the spec's inventories — 3 for rotate and
+A matrix with one row per pair from the spec's two inventories — 3 for rotate and
 picker, 6 for revoke — plus the three compound rows, each mapped to the
-executable assertion that decides it or to an explicit "unreachable, and the
-reason". A row with neither is a gap this task must close.
-
-## Task 9 — e2e: the drivable paths, end to end
-
-<!-- task: red=`pnpm exec playwright test --project=mobile-safari tests/e2e/confirm-focus-probe.spec.ts` red-state=authored red-target=`app/admin/show/[slug]/RotateShareTokenButton.tsx:179` why=`with the jsdom repairs in place the e2e rotate and revoke-success cases still fail until the same confirm-path flag lands, and the settled assertion compares against the captured target` ac=AC-1,AC-3 -->
-
-Add the rotate case; keep picker, archive and revoke success. Needs a granted
-playwright turn from bl-orch under strict serial heavy.
-
-## Task 10 — structural: the refuted control stays untouched
-
-<!-- task: red=`pnpm exec vitest run tests/docs/confirmFocusScope.test.ts` red-state=authored red-target=`components/admin/ArchiveShowButton.tsx:201` why=`nothing asserts the arc leaves ArchiveShowButton and ShareHub alone, so a later edit could silently repair a control the probe REFUTED` ac=AC-9 -->
-
-Assert both files are absent from the branch diff against `origin/main`.
+executable assertion that decides it or to an explicit "unreachable, and why".
+It is RED when authored because the compound rows have no assertion yet, and
+GREEN when this task adds them. It is last because it can only map assertions
+that exist.
 
 <!-- tasks: end -->
 
 ## Checklist
 
 - [ ] Tasks 1-8, TDD each, scoped runs only
+- [ ] Closeout, NOT a TDD task: confirm `components/admin/ArchiveShowButton.tsx` and `components/admin/showpage/ShareHub.tsx` are absent from the branch diff (AC-9). Round 2 was right that this cannot be a red-then-green task — it is true from the first commit and stays true, so it is a closeout check rather than a task with an implementation step.
 - [ ] Self-review
 - [ ] Adversarial review (cross-model)
 - [ ] invariant-8 impeccable pair (`app/` and `components/` are touched)
