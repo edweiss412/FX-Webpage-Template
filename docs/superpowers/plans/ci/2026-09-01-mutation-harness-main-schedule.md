@@ -624,7 +624,13 @@ tests/parser/mutation/rebless.test.ts.
 
 ## Task 3 — the ledger, re-blessed from a real collected run
 
-<!-- task: red=`node --import tsx scripts/rebless-parser-ledger.ts --check --alarms .alarms --shards 8` red-state=authored red-target=`tests/parser/mutation/knownHoles.ts:250` why=`the ledger rows from this line on carry fingerprints main's own nightly contradicts, 74 of them in shard 0 alone, so the check-mode invocation this task introduces exits non-zero against alarms collected from the current tree and exits 0 only once those rows carry the new fingerprints` ac=AC-7 -->
+<!-- task: red=`node --import tsx scripts/rebless-parser-ledger.ts --check --alarms .alarms` red-state=authored red-target=`tests/parser/mutation/knownHoles.ts:250` why=`the ledger rows from this line on carry fingerprints main's own nightly contradicts, 74 of them in shard 0 alone, so the check-mode invocation this task introduces exits non-zero against alarms collected from the current tree and exits 0 only once those rows carry the new fingerprints` ac=AC-7 -->
+
+**The shard count is DERIVED, not passed.** An earlier draft of this command carried `--shards 8`, a
+literal that goes stale the next time the parser partition changes. `check-shard-budget.ts` refuses
+defaults on the grounds that a default is how a script becomes a second copy of a constant it CANNOT
+import — the clause is load-bearing and it points the other way here, because this tool CAN import
+`SHARD_COUNT`. So it does, and `--shards` survives only as a test override.
 
 **The marker is `authored` and not `live`, and the distinction is not cosmetic.** The command exits
 non-zero on today's tree too, but for the wrong reason: the tool does not exist until Task 2 lands.
