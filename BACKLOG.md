@@ -410,14 +410,15 @@ Cancel and the arm-expiry timer.
 
 **It is a class, swept by derivation over the flag's writers rather than by
 listing components.** `grep -rn "restoreFocusRef.current = " app/ components/`
-returns five two-tap destructive controls. In four the only setter is
+returns five two-tap destructive controls. One of the five, entry 4 below, turned
+out to render nowhere; the reachable class is four. In four the only setter is
 `closeConfirm()`; in the fifth it is Cancel's own `onClick`. **No confirm or
 submit handler writes the flag anywhere in the repo.**
 
 1. `app/admin/show/[slug]/RotateShareTokenButton.tsx` — rotate share link (measured)
 2. `app/admin/settings/admins/RevokeRowButton.tsx` — revoke admin
 3. `app/admin/show/[slug]/PickerResetControl.tsx` — picker reset
-4. `app/admin/show/[slug]/ResetPickerEpochButton.tsx` — reset picker epoch
+4. ~~`app/admin/show/[slug]/ResetPickerEpochButton.tsx` — reset picker epoch~~ — **struck 2026-08-31 on `fix/confirm-focus-restore`.** It was imported by no source file, so it rendered on no route and could not be measured; `git grep` returned only its own definition, docs prose, its jsdom unit test, and a `tests/e2e/picker-flow.spec.ts` click inside a `test.skip`. Deleted in that branch per bl-orch's ruling rather than repaired, because dead code repaired is a maintained lie and git history preserves it. **The reachable class is FOUR.**
 5. `components/admin/ArchiveShowButton.tsx` — archive show
 
 **One constraint the repair has to survive.** `app/admin/settings/admins/RevokeRowButton.tsx:380-390`
