@@ -228,6 +228,8 @@ crash", which overstates it in the direction that would have excused the very de
 Parser legs were GREEN 08-22 through 08-28 and went red again on 08-29, so this is not the same
 continuous failure as 08-16. Run `33404224554`, job `99527677390`:
 
+<!-- plan-fences: ignore FENCE_EM_DASH — verbatim assertion text from tests/parser/mutationHarness.shard5.test.ts:62; the em dash is the product's, and editing the quote would misreport what CI printed -->
+
 ```
 AssertionError: DRIFTED fingerprints — benign IF output changed on purpose; regenerate the ledger
 (BL-MUTATION-LEDGER-*):  … expected [ …(74) ] to deeply equal []
@@ -686,9 +688,10 @@ fingerprints moved, and the by-operator and by-kind census is unmoved.
   because a pull-request run skips both matrices.
 - AC-9: the thirteen required checks green on the shipping head, read by name from the
   branch-protection API.
-- AC-10: B re-observed on that run. If the AC-3 control case fails again with A landed, the
-  starvation reading is dead by construction (see the refutation above) and B is a fail-open needing
-  its own probe; if it passes, record that and leave the documented limit standing.
+- AC-10: B re-observed on that run. If the control case fails again with A landed, the starvation
+  reading is dead by construction (see the refutation above, which names AC-3 as that control) and B
+  is a fail-open needing its own probe; if it passes, record that and leave the documented limit
+  standing.
 - After merge: the SCHEDULED run on main green, which is this arc's actual done condition. The
   nightly fires at 07:00 UTC; a `workflow_dispatch` on `main` is the same content and is the
   acceptable substitute the archived budget row already treats as evidence, but the scheduled run is
