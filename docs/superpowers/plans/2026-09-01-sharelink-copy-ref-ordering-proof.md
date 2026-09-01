@@ -18,7 +18,7 @@ impeccable-gate: N/A — no UI surface
 - **Invariant 6 (commit per task).** `test(admin)` for the harness, `docs(plan)` for plan and ledger commits.
 - **Invariant 8.** Not a UI arc. No file under `app/` or `components/` changes; `DESIGN.md` and the Tailwind config are untouched. The marker line above is the `N/A` form.
 - **Invariant 11.** All work in `/Users/ericweiss/FX-worktrees/copyref`, branch `test/sharelink-copy-ref-ordering-proof`.
-- **Invariant 12.** The row is marked IN PROGRESS on `d6e90d893` and pushed; the marker comes off in the PR's last commit, in the same commit that archives the row.
+- **Invariant 12.** The row is marked IN PROGRESS on `d6e90d893` and pushed; the marker comes off in the same commit that archives the row, and that commit lands BEFORE the whole-diff review rather than literally last, per the 2026-08-18 ruling: no ledger commit can be literally last once a review follows it, because `codex-guard` writes its own review-round row into the reviewed tree and the owed filing is written after the final verdict. What the invariant protects is that no marker reaches main, and none does.
 - **No new ledger rows**, of any facing, under any exception clause (arc brief). Anything found and not repaired goes in the PR body under "Unfixed peers" and into the readiness message.
 - **No whitelist.** Round-11 review rejected `UNPROVEN_SURVIVORS` as laundering; this arc does not reintroduce it, does not add an `EQUIVALENT_SURVIVORS` row for `A39`, and does not exempt anything. `A39` is registered and REJECTED, or the arc reports failure to bl-orch.
 
@@ -134,7 +134,7 @@ Full mode is a non-interactive Playwright run and therefore a heavy phase: every
 - AC-5 The layout-to-passive swap is registered as adversary `A39` in the matrix, the new file is in `VITEST_SUITES`, and a scoped matrix run records `A39 REJECTED`. No whitelist row, no `EQUIVALENT_SURVIVORS` row, no exemption.
 - AC-6 Every row the new file adds rejects at least one registered adversary, so spec §9.0's no-vacuous-row rule holds for the rows this arc introduces. Attribution is by a row id proven unique across `VITEST_SUITES`, because the matrix records a rejected row by title alone and a shared title would credit this file with another suite's failure.
 - AC-7 The two prose sites this change makes false are repaired in the same branch, and the three dated historical records plus the frozen ledger-mass fixture are left alone with the reason recorded.
-- AC-8 The row is graduated in the PR's last commit: moved to `DEFERRED-archive.md`, added to `GRADUATED`, IN PROGRESS marker removed.
+- AC-8 The row is graduated before the whole-diff review and never reaches main marked: moved to `DEFERRED-archive.md`, added to `GRADUATED`, IN PROGRESS marker removed, all in one commit.
 
 ## Tasks
 
@@ -289,7 +289,7 @@ The red is the command in the marker, observed at plan time (exit 2, output past
 
 **Files:** `tests/docs/_metaDeferralLedgerGraduation.test.ts`, `DEFERRED.md`, `DEFERRED-archive.md`.
 
-This is the PR's last commit. It is authored red, not live red: the failing case is one this task writes.
+It is authored red, not live red: the failing case is one this task writes. It is also the LAST commit this arc can place before the whole-diff review, which is where a ledger commit belongs under the 2026-08-18 ruling: no ledger commit can be literally last once a review follows it, because `codex-guard` writes its own review-round row into the reviewed tree and the owed filing is written after the final verdict. Commits after it are the review's own corpus rows and the filing those rounds oblige.
 
 - [x] **Step 1: Add the id to `GRADUATED`** with a comment saying what closed it: the un-defer trigger's harness exists, and the adversary is registered rather than whitelisted.
 - [x] **Step 2: Observed red** on the marker's command, for the stated reason.
