@@ -224,3 +224,38 @@ focus-visible outline while its siblings suppress it and draw a ring).
 Theming 4 (zero hardcoded hex, px or ms in added lines). Responsive 4 (zero
 fixed widths added). Performance 4 after `17b9ec0b9`. Anti-patterns: detector
 `--json` returned `[]`, exit 0.
+
+## 13. Closeout note — two rules this arc paid for
+
+**A deletion sweeps the REGISTRIES THAT NAME the thing; prose is not the cover.**
+Deleting `ResetPickerEpochButton` swept `BACKLOG.md`, `DEFERRED.md` and
+`DESIGN.md`, and stopped there. Three EXECUTABLE rows still named the file —
+`tests/styles/_metaDestructiveConfirm.test.ts` and two in
+`tests/styles/controlOutlineScan.ts` — and both suites were deterministically
+red. Nothing in the prose sweep could have found them, because the thing that
+breaks is a registry entry, not a sentence. The sweep for a deletion is
+`git grep <symbol>` over `tests/` as much as over the docs.
+
+**An expected value must be captured independently of the received one.**
+Four assertions in this arc could not fail, and all four looked like real
+assertions:
+
+1. a reading count plus "an `armed` sample exists" — true of a run where focus
+   never moved;
+2. `toMatchObject({ control: settled.at })` — a value compared to itself;
+3. a dispatch counter the test incremented itself, then asserted equalled two —
+   it never observed the action, and would have passed with the dispatch
+   cancelled, which is the exact regression the requirement exists to prevent;
+4. a literal built without a `root` key, asserted to have no `root` key.
+
+The common shape is that the expected value came from inside the received
+object, or from the test's own bookkeeping. The rule: **capture the expectation
+from a different source, at a different moment** — `captureRestoreTarget` reads
+the target from the DOM BEFORE the action; the dispatch count comes from the
+mocked action itself; the shape assertion parses the type declaration out of
+source. And prove it: every one of these now has a planted mutant on record that
+turns it red.
+
+None of the four was caught by running the suite. A green suite and an inert
+suite are indistinguishable from the outside, which is why the deciding suite is
+browser-free and the mutants are planted rather than assumed.
