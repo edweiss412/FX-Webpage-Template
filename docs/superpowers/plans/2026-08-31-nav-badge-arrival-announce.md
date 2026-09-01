@@ -739,22 +739,32 @@ setup gates: `context.mjs (impeccable v3 setup)` context load (PRODUCT.md, and D
 surface touches it), then the product register reference, since this is admin
 tooling where design serves the product rather than a brand surface.
 
-impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=0 dispositions=none
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=1 dispositions=recorded
 
-**Why the critique half is RAN-DEGRADED, stated rather than rounded up.** The
-impeccable critique contract requires Assessment A (design review) and
-Assessment B (detector plus browser evidence) to run as two ISOLATED sub-agents,
-and treats an inline run as degraded with a mandatory banner. Two sub-agents were
-spawned and both went idle without ever delivering a report, as did a third
-earlier in the arc; a direct request to each produced nothing. Both assessments
-were therefore completed inline, which is the fallback the contract names, and
-the banner is this paragraph. Two consequences a reader should weigh: the two
-assessments were not isolated from each other, and Assessment A was performed by
-the same session that wrote the code, so it is self-review rather than fresh
-eyes. Browser evidence was separately unavailable, because a fleet-wide order in
-force at the time forbade starting any playwright or dev-server process. The
-deterministic half was NOT skipped: `detect.mjs (impeccable v3 detector)` ran over
-`components/admin/nav` and returned exit 0 with an empty finding array.
+**Why the critique half is RAN-DEGRADED, corrected against my own earlier
+account.** The first version of this section said both assessments ran INLINE,
+as self-review by the session that wrote the code, because two spawned
+sub-agents went idle without delivering and a direct request to each produced
+nothing. That was what the evidence supported at the time and it was wrong.
+
+Both assessments HAD run, isolated from each other, exactly as the contract
+requires. Their results arrived roughly three hours later, after this closeout
+was written and after the branch had merged. So the isolation property was never
+lost; what failed was DELIVERY, and I recorded a worse account of the run than
+the run deserved. It is corrected here in the direction that costs me the claim:
+the assessments were real and independent, and the conclusions below are theirs,
+not mine.
+
+The half remains RAN-DEGRADED for a different and narrower reason, which is
+Assessment B's own: no browser evidence exists. A fleet-wide order forbidding
+new heavy processes ruled out playwright, a build and a dev server, so rendered
+contrast sampling, real `getBoundingClientRect()` tap measurement, screen-reader
+delivery of the live region, and the 840px crossing are UNMEASURED, not passed.
+B says so explicitly and its tap-target and contrast conclusions rest on
+class-level reading. The deterministic half was not skipped: `detect.mjs (impeccable v3 detector)` over
+`components/admin/nav` returned exit 0 with an empty array, and B judged that
+accurate rather than a false negative, since the diff adds no JSX element, no
+className and no token.
 
 The independent-eyes property this run lacks is supplied by the whole-diff
 cross-model review that follows, which is a different model reading the same
@@ -808,15 +818,21 @@ Strengths worth keeping named, because a later edit could remove any of them:
 
 ### Dispositions
 
-**P0: none. P1: none**, which is why the marker above reads
-`dispositions=none`. That field is the disposition of P0 and P1 findings, and
-the guard cross-checks it: a zero count with `dispositions=recorded` is rejected
-as malformed, correctly, because there is nothing at that severity to have
-disposed of. The three records below are P2 and P3 and live in this prose. Nothing required a fix under the arc's rule that P0 and
-P1 are repaired in-branch.
+**P0: none. P1: ONE, fixed.** The marker above therefore reads `p1=1
+dispositions=recorded`, and an earlier revision of it read `p1=0
+dispositions=none`. That line shipped to main before the assessments arrived and
+is corrected by the follow-up that carries this rewrite; a machine-readable gate
+claim that disagrees with the run it describes is the same defect class this arc
+spent four diff rounds repairing, so it is corrected rather than explained.
 
-Three lower-severity findings, all recorded rather than fixed, each with its
-reason:
+- **P1, and it is a real gap in the documentation rather than in the code.**
+  Assessment A: §6 omitted the live half of the original defect. At
+  `(bell = 0, attention = 3)` the mount speaks the attention half, latches, and a
+  later bell push to 4 flips that accessible name unheard for the visit. FIXED,
+  as spec §6 limit 8, with the case written verbatim, the ratified cadence named
+  as the reason it is by-design, and a re-file trigger. A's framing of the cause
+  is kept because it generalises: §3.2's `(0, 0)` paragraph proved a special case
+  and was read, by its author, as proving the class.
 
 - **P2-1, the utterance carries no context anchor.** A listener whose focus is
   elsewhere hears "3 unseen notifications. 2 items need attention." with nothing
@@ -838,7 +854,36 @@ reason:
   ordering is argued in the spec with a reason, and reversing it on a coin-flip
   at closeout would replace one defensible order with another.
 
-No `DEFERRED.md` entry is filed for any of the three. This arc files no new row
+- **P3, Assessment A: the bell-first rationale argued for the opposite order.**
+  §3.3 said the attention sentence goes second BECAUSE a desktop listener may
+  have no control for it, which argues for first. FIXED: the order stands on
+  peak-end grounds, the actionable half last, and the broken reason is gone
+  before a later reader could weaponise it into a reordering.
+- **P3, Assessment B: `bellAccessibleName`'s degraded arm is unreachable in
+  production.** Its only production call site sits in the non-degraded arm of
+  `NotifBell`'s ternary, so `degraded` is false by construction there and only
+  tests reach it. NOT fixed, defensibly: the function is specified TOTAL on
+  `bellAnnounceableCount` (§3.3), and making it partial would let the two callers
+  of that one decision disagree about the degraded case, which is the drift the
+  construction exists to prevent. `bellAnnounceableCount`'s own degraded guard is
+  live via `AdminNav`.
+- **P3, Assessment B: `bellStateRef.current.settled` is stored and never read.**
+  The latch is carried by the `bellSettled` state; `settled` is read from the
+  callback ARGUMENT, not from the ref. NOT fixed, defensibly: `{settled,
+  announceable}` is the documented report contract and storing the tuple whole is
+  simpler to read than destructuring one field out of it at the write site. A
+  genuine, if small, piece of reader load, recorded rather than argued away.
+- **P3, Assessment B: §6's limits were numbered 1, 2, 3, 4, 7, 5, 6.** My own
+  limit-7 insertion landed above the two tail limits. FIXED by renumbering to
+  1 through 8 in reading order.
+
+Assessment B additionally re-verified, independently of this session, that the
+announce region is mounted unconditionally above the announcer through all three
+layout returns, that both accessible names say something true in every state
+including degraded and pending, that no interactive target is added or altered,
+and that the copy carries no em dash and no curly apostrophe.
+
+No `DEFERRED.md` entry is filed for any of the P2 or P3 items. This arc files no new row
 of any facing, and none of these is a P0 or P1 that the rule would require to be
 fixed. They are recorded here, which is where a reader looking at this surface
 will find them.

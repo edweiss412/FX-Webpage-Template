@@ -315,9 +315,17 @@ supplied here, matching `undoneAnnouncement`'s reasoning at
 `components/admin/undoAnnounceContext.ts:33-38` — screen readers use
 sentence-final punctuation for prosody.
 
-**Why the bell sentence leads.** The bell is present at every width (§2.3) and
-its panel is the destination for what it counts. The attention sentence is the
-one a desktop listener may have no nav control for, so it goes second.
+**Why the bell sentence leads.** The listener hears the LAST sentence most
+clearly and acts on it, so the actionable half goes last: items needing
+attention are work, unseen notifications are information. The bell is also
+present at every width (§2.3) and its panel is the destination for what it
+counts, which makes it the safer opener.
+
+An earlier revision gave the opposite reason, that the attention sentence goes
+second BECAUSE a desktop listener may have no nav control for it. That argues
+for putting it FIRST, not second, so the sentence justified the wrong order and
+a later reader could have "corrected" the order using it. The order was always
+right; the reason was not (impeccable critique P3, delivered after merge).
 
 ### 3.4 Why there is no viewport gate
 
@@ -622,6 +630,15 @@ Filed here rather than as ledger rows, per the arc's no-new-rows rule.
    `tests/components/admin/nav/badgeSeedInterleavings.test.tsx:171-183`. Recorded
    here as a corrected claim rather than deleted, so the next reader does not
    re-derive it. AC-19 pins it.
+5. **The utterance is polite, so a screen reader may drop it** if it lands while
+   something higher-priority is speaking. Inherent to `role="log"`; the same
+   limit every announcement on this channel carries.
+6. **The sentence is true when spoken, not afterwards.** The announceable value
+   is read at announce time (§3.2), so an interaction one tick later can leave a
+   spoken count no longer on screen. That is a property of speech, not a defect,
+   and the alternative is worse: R2 forbids a correction, and a retraction on a
+   polite channel would be more chatter than the count was worth.
+
 7. **At desktop widths the attention sentence explains no control, and its
    number is a second snapshot.** Above 840px the attention tab is out of the
    accessibility tree, so the referent invariant (§3.3) is silent for that half
@@ -638,14 +655,30 @@ Filed here rather than as ledger rows, per the arc's no-new-rows rule.
    §3.4's congruence argument is narrowed accordingly: the desktop panel makes
    the count RELEVANT at that width, not identical.
 
-5. **The utterance is polite, so a screen reader may drop it** if it lands while
-   something higher-priority is speaking. Inherent to `role="log"`; the same
-   limit every announcement on this channel carries.
-6. **The sentence is true when spoken, not afterwards.** The announceable value
-   is read at announce time (§3.2), so an interaction one tick later can leave a
-   spoken count no longer on screen. That is a property of speech, not a defect,
-   and the alternative is worse: R2 forbids a correction, and a retraction on a
-   polite channel would be more chatter than the count was worth.
+
+8. **A half that settles at ZERO and later goes nonzero is never announced, and
+   §3.2's `(0, 0)` paragraph does not cover it.** Concrete case, verified against
+   this spec as merged: `(bell = 0, attention = 3)`. Both halves settle, the
+   mount speaks "3 items need attention." and is marked spoken. A later push
+   takes the bell 0 to 4, so `NotifBell`'s accessible name flips from
+   `"Notifications"` to `"Notifications: 4 unseen"` with nothing announcing it,
+   for the rest of the visit. That is the exact defect this design exists to
+   close, occurring on the other half, and it is BY DESIGN: the ratified cadence
+   is first resolution only, nonzero only, later changes silent (§1.1). Changing
+   it is the repo owner's call, not this spec's.
+
+   **Why it was missed, which is the part worth keeping.** §3.2 walks the
+   `(0, 0)` case and concludes that nothing went stale, because at zero the name
+   is `"Notifications"`, the same name the pending window showed. That is true,
+   and it is true only of `(0, 0)`. The paragraph proved a SPECIAL CASE and was
+   read, by its own author, as proving the CLASS. The asymmetric pair `(0, n)`
+   settles the same way and does go stale, and no limit recorded it until an
+   impeccable critique arrived after merge. A worked example that proves one
+   cell of a matrix is not a proof about the matrix.
+
+   **Re-file trigger:** the owner rules that a half arriving nonzero after a
+   silent-or-partial first resolution should speak, OR an a11y pass finds a real
+   screen-reader user affected by this second-half staleness.
 
 ## 7. Acceptance criteria
 
