@@ -353,7 +353,11 @@
     "note": "The N=8 validation run recorded in BACKLOG-archive.md under BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH: eight legs at 3165 + 2494 + 1720 + 3260 + 2873 + 2726 + 2807 + 3113 = 22158 s elapsed, at 52 enrolled surfaces. Kept as the earlier point of the only two-point growth measurement this arc has. ELAPSED, not child: that is what the archived row recorded, and mixing the two is a defect this plan already made once.",
     "surfaces": 52,
     "legsElapsedS": [3165, 2494, 1720, 3260, 2873, 2726, 2807, 3113],
-    "dateISO": "2026-08-26"
+    "dateISO": "2026-08-26",
+    "legsElapsedTotalS": 22158,
+    "totalNote": "Declared independently of the per-leg list so that dropping a leg is a mismatch rather than a smaller total. 22158 is the figure BACKLOG-archive.md records under BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH; the list must reproduce it."
   },
-  "thisRunDateISO": "2026-08-31"
+  "thisRunDateISO": "2026-08-31",
+  "splitSourceBlobSha": "c4ef9be08c2cd18ba0b37e79d8d6af3b9672405a",
+  "splitSourceNote": "The git blob sha of tests/styles/controlOutlineResidue.ts as run 33404224554 measured it. splitSurfaceOperatorMs prices OPERATORS against THIS text; applied to a different text the per-operator milliseconds are a measurement of something else, so the probe refuses rather than repricing. Recover it with `git hash-object tests/styles/controlOutlineResidue.ts`."
 }
