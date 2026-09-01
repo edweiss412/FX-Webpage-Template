@@ -70,6 +70,15 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // docs/paired-chrome-stale-text (2026-08-31). Graduated by the decision it was
+  // deferred for having ALREADY been taken: the pairing clause shipped on
+  // 2026-08-25 in `e6408222c`, moving both chips, and the queue row was archived
+  // the same day. The product owner confirmed the same ruling independently on
+  // 2026-08-31 without knowing it had shipped. What this branch closed was the
+  // bookkeeping: the row stayed open and DESIGN.md §1.2a kept describing the
+  // pre-resolution state in the present tense, four lines above the clause that
+  // settled it.
+  "CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1",
   // fix/pill-size-draft-restored-note (2026-08-30). Eric ruled both on the
   // 2026-08-29 decision board: the pill's type moves one size up at phone
   // widths (decision 5B, both segments kept), and a transient note ships

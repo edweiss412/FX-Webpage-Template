@@ -267,20 +267,36 @@ carry a `switch-track` residue row citing this ruling, and the ruling itself is
 untouched. Becoming visible to a census is a registration duty, not a reopening:
 the tracks are out for the ON/OFF RELATIONSHIP, never for the ratio.
 
-**What did not move with the 21, and now reads lighter beside it** (2026-08-16
-invariant-8 gate). Two elements share a recipe with a swapped control and stayed
-put, so each is now the quieter half of a visible pair: the lightbox's
-`aria-hidden` demote chip (`components/diagrams/GalleryLightbox.tsx:773`, same
-`rounded-pill bg-surface-raised` as the Reset chip it can share a frame with) and
-the staged-preview banner's `aria-current` chip
-(`components/admin/StagedPreviewBanner.tsx:65`, standing in a row of picker links
-that moved). Both are non-interactive chrome, so the scope paragraph below made them
-correct in isolation — and the 2026-08-14 rationale for moving six controls was
-that a control they render WITH had already moved, which points the other way.
-That contradiction was filed as `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+**What did not move with the 21, and read lighter beside it until 2026-08-25** (2026-08-16
+invariant-8 gate). Two elements shared a recipe with a swapped control and stayed put, so each
+became the quieter half of a visible pair: the lightbox's `aria-hidden` demote chip
+(`data-testid="lightbox-demote-chip"` in `components/diagrams/GalleryLightbox.tsx`, same
+`rounded-pill bg-surface-raised` as the `lightbox-reset-chip` it can share a frame with) and the
+staged-preview banner's `aria-current` chip (`components/admin/StagedPreviewBanner.tsx`, standing in
+a row of picker links that moved). The lightbox pair is the one with a clean measurement: 1.59/1.50
+for the chip against 3.35/3.53 for its Reset twin, `text-faint` on `surface-raised` per the §1.2 row
+above. The staged pair has no such pair of figures and is not comparable to it, because the picker
+link stands on the banner's `warning-bg` plate rather than a neutral ground: the 2026-08-16 swap took
+that link to 3.04 light / 2.79 dark, and the dark figure is the one recorded against
+`BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE`, not a clearing number. An earlier version of this paragraph
+quoted the lightbox's 3.35/3.53 as if it were the links', which substituted a clearing figure for a
+sub-3:1 one; caught by the invariant-8 gate on this branch. Both ARE non-interactive chrome, so the
+scope paragraph below makes them correct in isolation, while the
+2026-08-14 rationale for moving six controls was that a control they render WITH had already moved,
+which points the other way. That contradiction was filed as
+`BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`, and it is closed: the clause below settled it on
+2026-08-25, both chips moved in `e6408222c`, and the row is archived at `BACKLOG-archive.md:1288`.
+Kept as the record of why the clause exists rather than deleted, the same way the tinted-plate
+paragraph below keeps its own superseded did-not-move claim.
 
 **The pairing clause, ruled 2026-08-25.** Chrome rendered in-frame with a
-control of the same recipe takes that control's outline weight. A rule rather
+control of the same recipe takes that control's outline weight. "Same recipe"
+means the shape and stroke treatment a reader compares at a glance: the border
+utility, the radius and the padding scale. It does NOT require the same fill, and
+the two shipped pairs differ there on purpose — the lightbox chip and its Reset
+twin share `bg-surface-raised`, while the staged chip is `bg-surface` beside a
+`bg-transparent` link. Fill is what each element stands on; the stroke is what
+the pairing is about. A rule rather
 than two judgments: a per-site call closes neither site and says nothing about
 the third one. Both chips moved — the lightbox demote chip to
 `--color-text-faint` (its twin the Reset chip's token) and the staged-preview
@@ -288,6 +304,16 @@ the third one. Both chips moved — the lightbox demote chip to
 link's, because that row stands on the banner's `warning-bg` plate). Note what
 the clause does: it points at the TWIN, not at a named colour, so a pair cannot
 drift apart later by the control moving again.
+
+**Where this clause stops, and the carve-out it must not swallow.** The scope
+paragraph below, and the `--color-border-strong` row in §1.2, both reserve that
+token for the status-emphasis outline on non-interactive chrome: the flagged
+"Needs a look" pill and the section-header judgment chip. Those are NOT paired
+chrome. Nothing renders in-frame with them sharing their recipe, so this clause
+never reaches them and they keep `border-strong`. The test is the twin: no twin,
+no pairing, and the carve-out governs. Stated in both directions because a
+designer meeting one of the two paragraphs without the other would apply the
+wrong rule, which the invariant-8 gate on this branch raised.
 
 This is HIERARCHY, not accessibility. Neither element is interactive, so SC
 1.4.11 does not reach either one and there was never a contrast failure here to
@@ -473,7 +499,9 @@ inactive controls, and the disabled state is a documented limit, not a finding.
 contradiction.** This rule governs the OUTLINE OF A CONTROL whose fill is the
 near-ground. `--color-border-strong` keeps every other job it had: tile and card
 edges, hover borders, focus-adjacent chrome, and the status-emphasis outline on
-non-interactive chrome (the flagged pill, the judgment chip). A card is not a
+non-interactive chrome (the flagged pill, the judgment chip) — which the 2026-08-25
+pairing clause above does NOT reach, because neither has a twin rendered in-frame
+with it sharing its recipe. A card is not a
 control, and its edge is read against the fill beside it rather than as a
 standalone stroke. Controls whose fill is a SURFACE rather than the page ground
 WERE the open question. **That question is closed: ruled 2026-08-16**, and the
