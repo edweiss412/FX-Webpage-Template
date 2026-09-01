@@ -24,6 +24,7 @@ import {
   TelemetryRetryButton,
   TELEMETRY_RETRY_TEXT,
   retryAnnouncement,
+  retryOutcomeAnnouncement,
   retryLabel,
 } from "@/components/admin/telemetry/TelemetryRetryButton";
 
@@ -31,7 +32,11 @@ import {
 // this file owns the control's contract, which is the same at every site.
 const WHAT = "scheduled-job health";
 const TEST_ID = "cron-health-retry";
-const renderControl = () => render(<TelemetryRetryButton what={WHAT} testId={TEST_ID} />);
+// An arbitrary finite instant for the cases that do not care about the value. The
+// outcome cases name their own, because for them the value IS the subject.
+const RENDERED_AT = 1_000;
+const renderControl = (renderedAt: number = RENDERED_AT) =>
+  render(<TelemetryRetryButton what={WHAT} testId={TEST_ID} renderedAt={renderedAt} />);
 
 afterEach(() => {
   cleanup();
@@ -41,6 +46,11 @@ afterEach(() => {
 });
 
 const statusText = () => screen.getByTestId(`${TEST_ID}-status`).textContent ?? "";
+/** The channel is APPEND-shaped, so each announcement is its own keyed child. Read them
+ *  as a list wherever the case is about one utterance rather than the whole log. */
+const announcements = () =>
+  Array.from(screen.getByTestId(`${TEST_ID}-status`).children).map((c) => c.textContent ?? "");
+const lastAnnouncement = () => announcements().at(-1) ?? "";
 
 describe("TelemetryRetryButton", () => {
   // Mounted-then-filled. A control that renders its region only once it has something to
@@ -57,16 +67,18 @@ describe("TelemetryRetryButton", () => {
     fireEvent.click(screen.getByTestId(TEST_ID));
     expect(statusText()).toContain(retryAnnouncement(WHAT));
     // Not decoration. Every string contains the empty string, so with the constant
-    // emptied `toContain` passes, and the parity space still separates attempt one from
-    // attempt two, so the repeat case passes too. Asserted on the RENDERED text rather
-    // than on the constant, so the constant alone cannot satisfy it.
+    // emptied `toContain` passes, and a second appended entry still separates attempt one
+    // from attempt two, so the repeat case passes too. Asserted on the RENDERED text
+    // rather than on the constant, so the constant alone cannot satisfy it.
     expect(statusText().trim().length).toBeGreaterThan(0);
   });
 
   // The case this file exists for. A second failed attempt that re-renders the identical
   // string into the region is SILENT to a screen reader, which is the same silence the
-  // ledger row exists to fix. Compared against the captured first value rather than a
-  // literal, so the case states the property and not today's encoding of it.
+  // ledger row exists to fix. Under the append channel the second attempt is a separate
+  // keyed addition, so the region's text grows rather than being rewritten; compared
+  // against the captured first value rather than a literal, so the case states the
+  // property and not today's encoding of it.
   test("a second activation is distinguishable from the first", () => {
     renderControl();
     fireEvent.click(screen.getByTestId(TEST_ID));
@@ -135,6 +147,233 @@ describe("TelemetryRetryButton", () => {
     for (const ns of ["window", "location", "history", "document"]) {
       expect(new RegExp(`\\b${ns}\\b`).test(src), `${rel} reaches for ${ns}`).toBe(false);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // The outcome half (TELEMETRY-RETRY-OUTCOME-ANNOUNCEMENT-1). A tap records the
+  // timestamp it saw; a later render carrying a DIFFERENT one means a server re-read
+  // completed and this branch still failed, which is a settled outcome worth saying.
+  // Success needs no case here: it unmounts the control with its branch.
+  // ---------------------------------------------------------------------------
+
+  const rerenderAt = (view: ReturnType<typeof render>, renderedAt: number) =>
+    view.rerender(<TelemetryRetryButton what={WHAT} testId={TEST_ID} renderedAt={renderedAt} />);
+
+  test("a changed timestamp after a tap announces the outcome, once", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 2_000);
+    // EXACT, on the appended entry itself. `toContain` over the whole region was the
+    // shape here first and a planted mutant walked straight through it: an appended
+    // suffix is still contained, so the shipped copy could drift by any amount of
+    // trailing text with the whole suite green.
+    expect(lastAnnouncement()).toBe("Still couldn’t load scheduled-job health");
+
+    // Once: the baseline cleared with the announcement, so a further changed value
+    // appends nothing until the next tap.
+    const settled = announcements();
+    rerenderAt(view, 3_000);
+    expect(announcements()).toEqual(settled);
+  });
+
+  test("a changed timestamp with no tap in flight announces nothing", () => {
+    const view = renderControl(1_000);
+    rerenderAt(view, 2_000);
+    expect(statusText()).toBe("");
+  });
+
+  test("an unchanged timestamp after a tap leaves the intent standing", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    const intent = statusText();
+    premise("the tap announced the intent", intent.length, 0);
+    rerenderAt(view, 1_000);
+    expect(statusText()).toBe(intent);
+  });
+
+  // Zero is a valid instant on BOTH sides of the comparison. A truthiness test in
+  // place of either finite check compiles, passes every other case here, and
+  // silently drops the announcement for an epoch-zero render.
+  test("zero is a valid instant at the tap", () => {
+    const view = renderControl(0);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 1_000);
+    expect(statusText()).toContain(retryOutcomeAnnouncement(WHAT));
+  });
+
+  test("zero is a valid instant at the settlement", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 0);
+    expect(statusText()).toContain(retryOutcomeAnnouncement(WHAT));
+  });
+
+  // The whole non-finite domain, not NaN alone: `!Number.isNaN(x)` is strict-clean,
+  // passes a NaN-only case, and accepts ±Infinity as a completed server render.
+  const NON_FINITE = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+
+  test("a non-finite timestamp at the tap records no baseline", () => {
+    for (const value of NON_FINITE) {
+      const view = renderControl(value);
+      fireEvent.click(screen.getByTestId(TEST_ID));
+      expect(statusText()).toContain(retryAnnouncement(WHAT));
+      rerenderAt(view, 5_000);
+      expect(statusText(), `${String(value)} recorded a baseline`).not.toContain(
+        retryOutcomeAnnouncement(WHAT),
+      );
+      cleanup();
+    }
+  });
+
+  test("a non-finite timestamp arriving never settles the outcome", () => {
+    for (const value of NON_FINITE) {
+      const view = renderControl(1_000);
+      fireEvent.click(screen.getByTestId(TEST_ID));
+      rerenderAt(view, value);
+      expect(statusText(), `${String(value)} settled the outcome`).not.toContain(
+        retryOutcomeAnnouncement(WHAT),
+      );
+      cleanup();
+    }
+  });
+
+  // The rule is ANY difference, never an ordering test: a server clock correction
+  // moves the value backwards and that render still settled a re-read. A fixture
+  // that only ever moves forward cannot see `renderedAt > baseline`.
+  test("a decreasing timestamp settles the outcome too", () => {
+    const view = renderControl(2_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 1_000);
+    expect(statusText()).toContain(retryOutcomeAnnouncement(WHAT));
+  });
+
+  // The property AC-6 actually states, walked rather than predicted. Asserting arithmetic
+  // about any particular pair is a claim about the implementation and goes stale with it,
+  // as the deleted parity counter did; this reads what rendered. Each step declares whether it should
+  // SPEAK, and the two halves are asserted separately: a speaking step must change the
+  // region text (an identical re-render is silence to a screen reader), and a silent
+  // step must leave it exactly as it was. Recording only the changes would make the
+  // first half true by construction.
+  test("every announcement in a mixed sequence differs from the one before it", () => {
+    const view = renderControl(1_000);
+    let previous = statusText();
+    const step = (label: string, speaks: boolean, act: () => void) => {
+      act();
+      const current = statusText();
+      if (speaks) {
+        expect(current, `${label} repeated its predecessor verbatim`).not.toBe(previous);
+      } else {
+        expect(current, `${label} spoke when it should have been silent`).toBe(previous);
+      }
+      previous = current;
+    };
+    const tap = (label: string) =>
+      step(label, true, () => fireEvent.click(screen.getByTestId(TEST_ID)));
+
+    tap("first tap");
+    // Two intents in a row carry identical text, so this is the pair that separates an
+    // appending channel from a rewriting one.
+    tap("second tap, same text as the first");
+    step("the re-read that settled", true, () => rerenderAt(view, 2_000));
+    tap("tap after an outcome");
+    step("the second re-read that settled", true, () => rerenderAt(view, 3_000));
+    // The baseline cleared with the previous announcement, so this one has nothing to
+    // report and must not re-speak the outcome.
+    step("a further render with no tap in flight", false, () => rerenderAt(view, 4_000));
+  });
+
+  // The recurrence property, and the reason this control takes the sanctioned APPEND
+  // channel rather than a text swap: an identical text change may not re-announce,
+  // while an identical addition always does (DESIGN.md section 15). Two taps in a row
+  // carry byte-identical copy, so they are the case that separates the two shapes.
+  test("two identical announcements are two appended entries, not one rewritten node", () => {
+    renderControl();
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    expect(announcements()).toEqual([retryAnnouncement(WHAT), retryAnnouncement(WHAT)]);
+    // Distinctly keyed, so an assistive technology reading additions is handed two.
+    const ids = Array.from(screen.getByTestId(`${TEST_ID}-status`).children).map((c) =>
+      c.getAttribute("data-announce-id"),
+    );
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  // The cadence spec section 3.7 states, which is one outcome per settled CYCLE and not
+  // one per tap or one per server response. A double tap arms one baseline; the first
+  // differing render answers it and disarms, so a second response has nothing
+  // outstanding to answer and is silent. Its answer would be the same answer.
+  test("a double tap that provokes two responses hears one outcome, not two", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    rerenderAt(view, 2_000);
+    rerenderAt(view, 3_000);
+    const outcomes = announcements().filter((t) => t === retryOutcomeAnnouncement(WHAT));
+    expect(outcomes).toHaveLength(1);
+  });
+
+  // The pruning rule, both halves. Impatient taps inside ONE cycle must accumulate, or a
+  // text-diffing assistive technology hears the second one as nothing (the silence the
+  // deleted parity trick used to work around); a settled cycle must be cleared by the
+  // next tap, or the region grows for the whole visit.
+  test("a settled cycle is cleared by the next tap; taps within one cycle accumulate", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    expect(announcements(), "taps with no settlement between them must accumulate").toHaveLength(2);
+
+    rerenderAt(view, 2_000);
+    expect(announcements()).toEqual([
+      retryAnnouncement(WHAT),
+      retryAnnouncement(WHAT),
+      retryOutcomeAnnouncement(WHAT),
+    ]);
+
+    // The cycle settled, so the next tap starts clean rather than adding a fourth.
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    expect(announcements()).toEqual([retryAnnouncement(WHAT)]);
+  });
+
+  test("the region is the sanctioned log shape, not a hand-rolled status swap", () => {
+    renderControl();
+    const region = screen.getByTestId(`${TEST_ID}-status`);
+    expect(region).toHaveAttribute("role", "log");
+    // No explicit aria-live / aria-atomic / aria-relevant: role="log" carries them, and
+    // writing them by hand is what the shared module exists to stop.
+    for (const attr of ["aria-live", "aria-atomic", "aria-relevant"]) {
+      expect(region).not.toHaveAttribute(attr);
+    }
+
+    // The region is named for its CONTENT, never with the button's command string. A log
+    // labelled "Try again to load X" reads as a second control in browse mode and the
+    // rotor, and says the same words twice to anyone arrowing past the button. Compared
+    // against the button's own rendered name rather than a literal, so the two cannot
+    // converge later without failing here.
+    const commandName = screen.getByTestId(TEST_ID).getAttribute("aria-label") ?? "";
+    premise("the button has an accessible name to collide with", commandName.length, 0);
+    const regionName = region.getAttribute("aria-label") ?? "";
+    expect(regionName).not.toBe(commandName);
+    expect(regionName).toContain(WHAT);
+  });
+
+  test("the intent and outcome strings differ", () => {
+    expect(retryOutcomeAnnouncement(WHAT)).not.toBe(retryAnnouncement(WHAT));
+    expect(retryOutcomeAnnouncement(WHAT)).toContain(WHAT);
+  });
+
+  // BOTH literals, pinned on the RENDERED text. Every other intent assertion in this file
+  // derives its expectation from `retryAnnouncement` itself, which is the right shape for
+  // asserting a property but pins no copy: rewriting the constant to `Retried ${what}`
+  // leaves all of them green while announcing a settled outcome before any server re-read
+  // has happened (whole-diff review round 1, finding 1). The outcome half already had its
+  // literal; this is the intent half of the same pin, and the two live together so a
+  // future reader cannot add a third string and miss the pattern.
+  test("both announcements say exactly what the copy decision settled", () => {
+    const view = renderControl(1_000);
+    fireEvent.click(screen.getByTestId(TEST_ID));
+    expect(lastAnnouncement()).toBe("Retrying scheduled-job health");
+    rerenderAt(view, 2_000);
+    expect(lastAnnouncement()).toBe("Still couldn’t load scheduled-job health");
   });
 
   // The prop pair exists so a call site cannot spell the label and the announcement

@@ -410,11 +410,15 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   // the row disagreed.
   {
     file: "components/admin/nav/AdminNav.tsx",
-    line: 232,
+    // Renumbered 232 -> 301 by feat/nav-badge-arrival-announce, which inserted
+    // the arrival-announcement join above this JSX. Same SITE: the bottom-tab
+    // Link, located by its `admin-bottom-tab-` testid, not by assuming the
+    // offset. Line-keyed rows shift under any insertion above them.
+    line: 301,
     tag: "Link",
     category: "padding-arithmetic",
     reason:
-      "Bottom-tab link: `flex flex-col items-center justify-center gap-1 self-stretch py-2 text-xs` around a `size-5` icon and one text-xs line = 8 + 20 + 4 + 16 + 8 = 56px. `self-stretch` then matches every tab to the tallest. The bar itself (`fixed inset-x-0 bottom-0 flex border-t`, AdminNav.tsx:219) declares NO height, so it is the CONTENT that clears the floor here — the row said `full-bleed` and named a fixed-height bar that does not exist (whole-diff R2 F2).",
+      "Bottom-tab link: `flex flex-col items-center justify-center gap-1 self-stretch py-2 text-xs` around a `size-5` icon and one text-xs line = 8 + 20 + 4 + 16 + 8 = 56px. `self-stretch` then matches every tab to the tallest. The bar itself (`fixed inset-x-0 bottom-0 flex border-t`, AdminNav.tsx:288) declares NO height, so it is the CONTENT that clears the floor here — the row said `full-bleed` and named a fixed-height bar that does not exist (whole-diff R2 F2).",
   },
   {
     file: "app/me/meShowSections.tsx",
