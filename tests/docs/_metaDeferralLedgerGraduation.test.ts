@@ -70,6 +70,12 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // feat/nav-badge-arrival-announce (2026-08-31). Graduated by the product
+  // decision it was blocked on being taken, not by the requirement being
+  // waived: Eric ruled that the nav announces on the FIRST resolution only and
+  // only above zero, which is the entry's own suggested narrowing and the
+  // answer to the question it said only Doug could settle.
+  "NAV-BADGE-ARRIVAL-ANNOUNCE-1",
   // fix/pill-size-draft-restored-note (2026-08-30). Eric ruled both on the
   // 2026-08-29 decision board: the pill's type moves one size up at phone
   // widths (decision 5B, both segments kept), and a transient note ships

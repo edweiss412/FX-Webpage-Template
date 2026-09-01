@@ -130,7 +130,7 @@ heading whose content BEGINS with the id.
 
 ### Task 1: the shared selectors and the copy builder
 
-<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter, with HARDCODED PLURAL nouns, and with bellAnnounceableCount ignoring its degraded argument, so the guard cases, the singular cases, the cross-wiring cases, the non-integer case and the degraded selector case all fail; measured 15 failed 4 passed, the four being (3,2), both positive bellAnnounceableCount rows and bellAccessibleName(12,false)` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17 -->
+<!-- task: red=`pnpm vitest run tests/components/admin/nav/navArrivalAnnounce.test.ts` red-state=authored red-target=`components/admin/nav/navArrivalAnnounce.ts:40` why=`the module ships first as an unconditional joiner with no zero/NaN/negative filter, with HARDCODED PLURAL nouns, and with bellAnnounceableCount ignoring its degraded argument, so the guard cases, the singular cases, the cross-wiring cases, the non-integer case and the degraded selector case all fail; measured 15 failed 4 passed, the four being (3,2), both positive bellAnnounceableCount rows and bellAccessibleName(12,false)` ac=AC-2,AC-3,AC-7,AC-8,AC-13,AC-17 -->
 
 **What is red and why.** The module lands in the RED step as an unconditional
 joiner with hardcoded plural nouns: it builds both sentences from whatever it is
@@ -718,3 +718,114 @@ All FOUR tracked line targets were range-checked against the live files:
 `tests/docs/_metaDeferralLedgerGraduation.test.ts:72` against 1881. All in
 range. An earlier revision said two, counting only the production files and
 missing both test targets.
+
+## 12. Closeout: the invariant-8 dual gate
+
+Both halves of the v3 pair ran against the diff on 2026-08-31, with the canonical
+setup gates: `context.mjs (impeccable v3 setup)` context load (PRODUCT.md, and DESIGN.md where the
+surface touches it), then the product register reference, since this is admin
+tooling where design serves the product rather than a brand surface.
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=0 dispositions=none
+
+**Why the critique half is RAN-DEGRADED, stated rather than rounded up.** The
+impeccable critique contract requires Assessment A (design review) and
+Assessment B (detector plus browser evidence) to run as two ISOLATED sub-agents,
+and treats an inline run as degraded with a mandatory banner. Two sub-agents were
+spawned and both went idle without ever delivering a report, as did a third
+earlier in the arc; a direct request to each produced nothing. Both assessments
+were therefore completed inline, which is the fallback the contract names, and
+the banner is this paragraph. Two consequences a reader should weigh: the two
+assessments were not isolated from each other, and Assessment A was performed by
+the same session that wrote the code, so it is self-review rather than fresh
+eyes. Browser evidence was separately unavailable, because a fleet-wide order in
+force at the time forbade starting any playwright or dev-server process. The
+deterministic half was NOT skipped: `detect.mjs (impeccable v3 detector)` ran over
+`components/admin/nav` and returned exit 0 with an empty finding array.
+
+The independent-eyes property this run lacks is supplied by the whole-diff
+cross-model review that follows, which is a different model reading the same
+diff without having written it.
+
+### Critique half
+
+No AI-slop tells. The change adds no element, no class, no color, no token and
+no motion; the only rendered output is one entry appended to an existing
+`sr-only` region. The product register's test is whether a user fluent in the
+category would trust the surface, and the surface here is a sentence.
+
+Heuristics, scored where they apply and marked where they do not:
+
+| Heuristic | Score | Reason |
+|---|---|---|
+| Visibility of system status | 4/4 | This change IS the repair for a status-visibility gap: a count that arrived with nothing announcing it |
+| Match with the real world | 4/4 | The nouns are taken verbatim from the control names the sentence explains, so the utterance and the label say the same words |
+| User control and freedom | N/A | A polite, once-per-mount utterance blocks nothing and needs no escape |
+| Consistency and standards | 4/4 | Rides the one existing announce channel; terminal punctuation matches `undoneAnnouncement`'s precedent for prosody |
+| Error prevention | N/A | No input, no destructive action |
+| Recognition over recall | 3/4 | The sentence carries counts but no anchor naming where they live. See P2-1 |
+| Flexibility and efficiency | N/A | No path to accelerate |
+| Aesthetic and minimalist design | 4/4 | One sentence per half and nothing else, and silence when there is nothing true to say |
+| Error recovery | N/A | A failed read is silent by ratified fail-quiet D-4, and the degraded control carries its own Doug-facing label |
+| Help and documentation | N/A | Not a documented surface |
+
+Cognitive load is low by construction: at most two short sentences, at most once
+per admin-shell mount. Emotional journey: the arrival was the silent moment and
+is now the resolved one, which is the peak this change exists to fix.
+
+Strengths worth keeping named, because a later edit could remove any of them:
+
+1. One decision with two callers. `bellAccessibleName` is DEFINED on
+   `bellAnnounceableCount`, so the label and the utterance cannot drift, and a
+   source assertion pins the construction because no behavioural test can.
+2. Silence is terminal. A both-zero or both-failed arrival consumes the
+   once-per-mount allowance, so the surface can never become chatty later.
+3. It speaks the true count, never the `9+` pill, because the pill is a
+   decorative width constraint and the accessible name is the referent.
+
+### Audit half
+
+| Dimension | Score | Evidence |
+|---|---|---|
+| Accessibility | 4/4 | The announce region is mounted UNCONDITIONALLY above `{children}` (`components/admin/AdminAnnounceProvider.tsx:55-56`), so it is born empty and stable rather than born populated, which is the defect class the widened guard exists for. Both `aria-label` branches say something true in every state including degraded and zero. No interactive target is added or altered |
+| Performance | 4/4 | The bell VALUE lands in a ref and triggers no render; only the settled latch does. Every dependency of the announce effect is stable: `announce` is memoised at `components/admin/AdminAnnounceProvider.tsx:52`, and `onBellState` is a `useCallback` with empty deps. The report path dedupes on a string key so an unchanged tuple re-reports nothing |
+| Theming | N/A | The diff adds zero colors, tokens, classes or theme-dependent values. Scored N/A rather than 4/4, because a vacuous full mark is the kind of number that later reads as evidence |
+| Responsive | 4/4 | No layout is added and the 840px behaviour is unchanged. The one cross-breakpoint consequence, that the attention sentence explains no control above 840px, is recorded as §6 limit 7 of the spec rather than left implicit |
+| Anti-patterns | 4/4 | `detect.mjs (impeccable v3 detector)` over `components/admin/nav`: exit 0, `[]` |
+
+### Dispositions
+
+**P0: none. P1: none**, which is why the marker above reads
+`dispositions=none`. That field is the disposition of P0 and P1 findings, and
+the guard cross-checks it: a zero count with `dispositions=recorded` is rejected
+as malformed, correctly, because there is nothing at that severity to have
+disposed of. The three records below are P2 and P3 and live in this prose. Nothing required a fix under the arc's rule that P0 and
+P1 are repaired in-branch.
+
+Three lower-severity findings, all recorded rather than fixed, each with its
+reason:
+
+- **P2-1, the utterance carries no context anchor.** A listener whose focus is
+  elsewhere hears "3 unseen notifications. 2 items need attention." with nothing
+  naming where those counts live. NOT fixed. The copy is spec §3.3, it survived
+  four adversarial rounds, and an anchor lengthens every utterance to serve a
+  case the once-per-mount cadence already bounds. Changing it now would be a
+  spec amendment taken under closeout pressure, which is the worst moment to
+  take one.
+- **P2-2, the desktop attention half explains no control.** Above 840px the
+  attention tab is out of the accessibility tree, so that sentence has no
+  referent there and its number is a second snapshot of a count the dashboard
+  reads through a different call. NOT fixed, and already carried as §6 limit 7
+  with the two call sites cited. Closing it means sharing a snapshot across two
+  subtrees this arc does not otherwise touch.
+- **P3-1, the bell sentence leads.** Spec §3.3 argues bell-first because the
+  bell is present at every width while the attention tab is not. PRODUCT.md's
+  "lead with the answer" could argue the other way, since items needing
+  attention are work and unseen notifications are information. NOT fixed: the
+  ordering is argued in the spec with a reason, and reversing it on a coin-flip
+  at closeout would replace one defensible order with another.
+
+No `DEFERRED.md` entry is filed for any of the three. This arc files no new row
+of any facing, and none of these is a P0 or P1 that the rule would require to be
+fixed. They are recorded here, which is where a reader looking at this surface
+will find them.
