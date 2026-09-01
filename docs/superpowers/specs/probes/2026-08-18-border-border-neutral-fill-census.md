@@ -29,7 +29,7 @@ scanInteractiveElements(process.cwd()).filter(
 | Entry cites                                               | Live element line | Cause                          |
 | --------------------------------------------------------- | ----------------- | ------------------------------ |
 | `components/admin/ArchiveShowButton.tsx:344`               | `components/admin/ArchiveShowButton.tsx:333`            | `className=` line vs tag line  |
-| `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`     | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260`            | `className=` line vs tag line  |
+| `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266 (deleted in fa5d3fffb)`     | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260 (deleted in fa5d3fffb)`            | `className=` line vs tag line  |
 | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:240`            | intervening edits since filing |
 | `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103`   | `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:109`            | intervening edits since filing |
 | `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:121`   | `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:127`            | intervening edits since filing |
@@ -41,8 +41,8 @@ Crew-facing marked `C` (thirteen, by render chain; the four marked `C*` are reac
 | #   | File:line                                                  | Tag      | Crew | Shape   |
 | --- | ---------------------------------------------------------- | -------- | ---- | ------- |
 | 1   | `app/admin/show/[slug]/PickerResetControl.tsx:255`          | `button` |      | outline |
-| 2   | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178`      | `button` |      | branch  |
-| 3   | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260`      | `button` |      | outline |
+| 2   | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178 (deleted in fa5d3fffb)`      | `button` |      | branch  |
+| 3   | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260 (deleted in fa5d3fffb)`      | `button` |      | outline |
 | 4   | `app/admin/show/[slug]/RotateShareTokenButton.tsx:379`      | `button` |      | outline |
 | 5   | `app/me/meShowSections.tsx:174`                             | `Link`   | C    | tile    |
 | 6   | `app/me/meShowSections.tsx:213`                             | `Link`   | C    | tile    |
@@ -170,14 +170,14 @@ Each is the escape route from a destructive confirm whose trigger the 2026-08-16
 | Cancel                                                | Paired destructive confirm                                    |
 | ----------------------------------------------------- | ------------------------------------------------------------- |
 | `components/admin/ArchiveShowButton.tsx:333`           | `components/admin/ArchiveShowButton.tsx:436` `bg-warning-text`, "Confirm archive"                    |
-| `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260` | `bg-warning-text`, "Confirm reset"                             |
+| `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260 (deleted in fa5d3fffb)` | `bg-warning-text`, "Confirm reset"                             |
 | `app/admin/show/[slug]/RotateShareTokenButton.tsx:379` | `bg-warning-text`, "Confirm rotate"                            |
 | `app/admin/show/[slug]/PickerResetControl.tsx:255`     | `bg-warning-text`, "Confirm reset"                             |
 | `components/admin/ShowRowActions.tsx:821`              | `bg-warning-text`, tier-2 archive confirm                      |
 
 ## 6. The regression pin is green on a control that renders at 1.27:1 — and that was known
 
-`app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` is census row 2 of the cover **and** a row of the 2026-08-16 census (`tests/styles/controlOutlineScan.ts:46`). It is one `<button>` with a two-branch `className` (`app/admin/show/[slug]/ResetPickerEpochButton.tsx:185`):
+`app/admin/show/[slug]/ResetPickerEpochButton.tsx:178 (deleted in fa5d3fffb)` is census row 2 of the cover **and** a row of the 2026-08-16 census (`tests/styles/controlOutlineScan.ts:46`). It is one `<button>` with a two-branch `className` (`app/admin/show/[slug]/ResetPickerEpochButton.tsx:185 (deleted in fa5d3fffb)`):
 
 - `compact` branch: `border border-text-faint bg-surface` — **3.35:1**, moved by the 2026-08-16 swap.
 - non-`compact` branch: `border border-border bg-surface` — **1.27:1**, untouched.

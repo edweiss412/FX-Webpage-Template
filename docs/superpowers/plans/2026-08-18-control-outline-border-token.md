@@ -67,7 +67,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | AC | Spec § | Executable step that PROVES it | Channel the proof arrives on |
 | --- | --- | --- | --- |
 | AC-1 | §4.3 | 1.2 red (73 failures at 1.6) → 1.12 green | `vitest` exit status on `tests/styles/_metaControlOutlineFill.test.ts` |
-| AC-2 | §3.4, §5.2 | 1.2 applied to the original 21; `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` red at 1.6, green at 1.12; `components/admin/Mi11GateActions.tsx:69` green at BOTH | per-row `vitest` case names |
+| AC-2 | §3.4, §5.2 | 1.2 applied to the original 21; `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178 (deleted in fa5d3fffb)` red at 1.6, green at 1.12; `components/admin/Mi11GateActions.tsx:69` green at BOTH | per-row `vitest` case names |
 | AC-3 | §3.3 | **1.3** — resolves, CARRIES `border-border`, and is absent from `CENSUS`, three assertions per divider | five named `vitest` cases |
 | AC-4 | §3.5 | **1.13** (the pin and the source are unchanged) **AND 7.1** (the ShareHub row is FILED) — §3.5 is a two-part claim and 1.13 proves only the first | `diff` printing `IDENTICAL` plus an empty `--stat`; and the row present in `BACKLOG.md` with the 7.2 field checklist ticked |
 | AC-5 | §3.2, §5.4 | **1.14** | empty `--stat` for four files; hunk headers read by eye for the fifth |
@@ -86,7 +86,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | --- | --- |
 | Scanner universe | 362 elements; 13 `unresolved` |
 | Elements carrying `border-border` (whole token, unprefixed) | 42 |
-| Swap set | **37** elements, **36** census additions (`app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` is already a census row) |
+| Swap set | **37** elements, **36** census additions (`app/admin/show/[slug]/ResetPickerEpochButton.tsx:178 (deleted in fa5d3fffb)` is already a census row) |
 | Census length after Task 1 | **57** (21 + 36), NOT 58 |
 | Swap files / source edit lines | **26** / **32** |
 | `border-border` occurrences in those 26 files | **63** = 32 control edits + **1** intentionally-updated comment + **30** untouched |
@@ -114,7 +114,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 
 ### RED
 
-- [ ] **1.1** Add **36** rows to `CENSUS`. The swap set is 37 elements but `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` IS ALREADY A CENSUS ROW (the half-swapped control of spec §3.4); adding it again breaks the identity-distinct assertion. Final length is **57**. Rows come from probe record §2 (class A, minus row 13) and spec §3.2's table (class B).
+- [ ] **1.1** Add **36** rows to `CENSUS`. The swap set is 37 elements but `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178 (deleted in fa5d3fffb)` IS ALREADY A CENSUS ROW (the half-swapped control of spec §3.4); adding it again breaks the identity-distinct assertion. Final length is **57**. Rows come from probe record §2 (class A, minus row 13) and spec §3.2's table (class B).
 - [ ] **1.2** Add the per-row negation, mirroring the existing `border-border-strong` case at `tests/styles/_metaControlOutlineFill.test.ts:121`:
       ```ts
       it(`no longer carries border-border (${label})`, () => {
@@ -127,11 +127,11 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 - [ ] **1.4** Update the census-length premise from 21 to **57** and the distinct-identity assertion to 57. If it reads 58, step 1.1 double-added the overlapping row.
 - [ ] **1.5** Three fixtures, each with its own `premise("fixture parsed and produced an element", cover.length, 0)` **inside its own case**, so a fixture that fails to parse cannot pass vacuously:
       - **(a)** `border border-border bg-surface` → found by the scan, FAILS the negation. *Catches:* a negation that never runs.
-      - **(b)** two ternary arms, one `border-text-faint`, one `border-border` → PASSES the pre-existing `carries(…,"border-text-faint")` check and FAILS the negation. *Catches:* the strengthening being cosmetic. This is the `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` shape.
+      - **(b)** two ternary arms, one `border-text-faint`, one `border-border` → PASSES the pre-existing `carries(…,"border-text-faint")` check and FAILS the negation. *Catches:* the strengthening being cosmetic. This is the `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178 (deleted in fa5d3fffb)` shape.
       - **(c)** two ternary arms, one `border-text-faint`, one with NO border utility → PASSES both. *Catches:* collateral damage to a legitimately outline-free branch, the `components/admin/Mi11GateActions.tsx:69` shape.
 - [ ] **1.6** **The complete expected RED, so a correct red is distinguishable from a broken one.** Run `pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts`:
       - **36** failures from the PRE-EXISTING "carries border-text-faint" assertion — the 36 additions do not carry it yet.
-      - **37** failures from the NEW negation — the 36 additions plus the already-present `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178`.
+      - **37** failures from the NEW negation — the 36 additions plus the already-present `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178 (deleted in fa5d3fffb)`.
       - **73 row-test failures in total.**
       - Fixtures (a), (b), (c) PASS; the five divider cases PASS; `components/admin/Mi11GateActions.tsx:69` PASSES.
       A run where `Mi11GateActions` fails means `everyPathCarries` crept in. A run showing 37 total failures means 1.1 was skipped. **Do not commit here** — the cycle finishes below.
