@@ -817,6 +817,74 @@ function atRepo<T>(
   }
 }
 
+describe("fileOids runs against a constructed ref namespace, not the ambient one", () => {
+  it("reads a constructed origin ref's ledger blobs, so its line loop is exercised in EVERY environment", () => {
+    // BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT, and this case is the falsifier
+    // that entry named for itself: "give any case a constructed repository
+    // carrying one refs/remotes/origin/* ref and drive resolveClaims through it.
+    // One call is enough."
+    //
+    // WHY IT MATTERS AND WHAT IT REPLACES. `fileOids` runs once per
+    // refs/remotes/origin/* ref. Until this case existed, the only reader of it
+    // in either registered suite was the AMBIENT one at :570, which reads
+    // whatever refs the checkout happens to carry -- 14 calls against a
+    // developer's full clone, 0 against CI's zero-ref checkout. So the
+    // `logical-connector:259:20:&&>||` mutant was killed locally and survived in
+    // CI, and its verdict was set by how the repository was cloned rather than
+    // by anything the suite asserted. That is the one site where this surface's
+    // stated environment-independence failed, and the sweep in the archived
+    // entry bounds it to exactly this one.
+    //
+    // The mutant it kills: `if (m?.[1] && m[2])` becomes `if (m?.[1] || m[2])`.
+    // The two forms agree whenever the regex matched, because both of its groups
+    // are mandatory; they diverge only when `m` is NULL, where `||` evaluates
+    // `m[2]` on null and throws. `m` is null on the trailing empty line that
+    // splitting always yields, so the mutant throws wherever this function runs
+    // at all -- and survives wherever it does not.
+    const repo = throwawayRepo();
+    // main stays at the base commit; the feature ref gets its own, so it is NOT
+    // merged into main and survives the candidate filter
+    // (scripts/lib/ledger-claims-core.ts:173-179). A merged ref is dropped, and
+    // this case would then drive zero calls while still passing.
+    repo.g("update-ref", "refs/remotes/origin/main", repo.head);
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "# BACKLOG.md\n\nno rows.\n", "utf8");
+    repo.g("add", "BACKLOG.md");
+    repo.g("commit", "--quiet", "-m", "ledgered");
+    const tip = repo.g("rev-parse", "HEAD").trim();
+    repo.g("update-ref", "refs/remotes/origin/feat/constructed-ledger", tip);
+
+    // PREMISE, on this case's OWN inputs: the ref must exist and must not be
+    // merged into main, or `candidates` is empty, `fileOids` is never called, and
+    // every assertion below is satisfied by a function that never ran.
+    premise(
+      "the constructed namespace carries a non-main origin ref",
+      repo
+        .g("for-each-ref", "--format=%(refname)", "refs/remotes/origin/")
+        .trim()
+        .split("\n")
+        .filter((r) => r.endsWith("/feat/constructed-ledger")).length,
+      0,
+    );
+
+    const oids = atRepo(repo.dir, (git) => git.fileOids(tip, ["BACKLOG.md", "DEFERRED.md"]));
+    // Derived from git, never a literal: the expected oid is what the repository
+    // says the blob is, so a reader that returned a plausible-looking constant
+    // fails.
+    const expected = repo.g("rev-parse", `${tip}:BACKLOG.md`).trim();
+    expect(oids.get("BACKLOG.md")).toBe(expected);
+    // DEFERRED.md is absent at this ref, and absent is not an error: the loop
+    // must simply not map it. This is also the line that produces the trailing
+    // empty split entry the mutant dies on.
+    expect(oids.has("DEFERRED.md")).toBe(false);
+
+    // And through the real path, which is what the falsifier asked for: one
+    // resolveClaims call over the constructed namespace reaches fileOids for the
+    // candidate ref. Under the mutant this throws rather than returning.
+    const res = atRepo(repo.dir, (git) => resolveClaims(git, { fetch: false }));
+    expect(res.candidates).toEqual(["origin/feat/constructed-ledger"]);
+  });
+});
+
 /**
  * A fake `gh` first on PATH.
  *

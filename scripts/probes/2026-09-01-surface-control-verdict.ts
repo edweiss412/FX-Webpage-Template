@@ -20,6 +20,14 @@
 // whether a new case kills it. `--only-case` narrows the child with vitest's `-t`, and reading the
 // report rather than the exit code is what makes that safe -- a `-t` matching nothing exits 0 and
 // would otherwise read as a pass.
+//
+// DOCUMENTED LIMIT of `--only-case` on a MULTI-SUITE surface, measured 2026-09-01 rather than
+// imagined. The filter names a case that lives in one declared suite, so every OTHER declared suite
+// runs nothing and is dark by construction. The verdict is still correct in direction -- a run
+// where the filtered case does not kill exits non-zero -- but its KIND reads `no-observations`
+// naming the sibling suite, when the fact of interest is that the filtered case ran and did not
+// fail. Use the unfiltered form to distinguish those two; the filtered form answers "did this
+// named case kill this mutant" and nothing else.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

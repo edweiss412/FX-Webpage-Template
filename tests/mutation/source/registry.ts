@@ -1276,16 +1276,34 @@ export const GUARD_SURFACES: GuardSurface[] = [
       "tests/scripts/ledgerGitSpawnSeam.test.ts",
     ],
     operators: [...OPERATOR_NAMES],
-    // Measured 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap) on
-    // fix/mutation-ledgergit-site-drift, after 229563b76 grew the file by 3
-    // mutants and relocated six ledgered sites. Every verdict is
-    // environment-INDEPENDENT by construction: each case builds the
-    // repository, remote, ref namespace or environment it asserts against, so
-    // none of them can read differently on a developer's full clone than in
-    // CI's zero-ref checkout (spec AC-6, limit L-6). That claim was measured
-    // FALSE 2026-08-08 for the diffHunks count pair (killed locally, survived
-    // CI) and re-established by the constructed multi-line hunk case in
-    // ledgerClaimsCheck.test.ts (BL-MUTATION-LEDGERGIT-SITE-DRIFT).
+    // Every verdict is environment-INDEPENDENT by construction: each case builds
+    // the repository, remote, ref namespace or environment it asserts against, so
+    // none of them can read differently on a developer's full clone than in CI's
+    // zero-ref checkout (spec AC-6, limit L-6).
+    //
+    // THE CLAIM ABOVE HAS NOW FAILED TWICE AND BEEN RE-ESTABLISHED TWICE, and
+    // both times at a site nobody had constructed an environment for. First
+    // 2026-08-08, the diffHunks count pair, killed locally and survived CI,
+    // closed by the constructed multi-line hunk case
+    // (BL-MUTATION-LEDGERGIT-SITE-DRIFT). Then `logical-connector:259:20:&&>||`,
+    // whose only reader was the AMBIENT one at ledgerClaimsCheck.test.ts:570 --
+    // 14 fileOids calls against a full clone, 0 against a zero-ref checkout -- so
+    // its verdict was set by how the repository had been cloned. That one carried
+    // an accepted-gap row and BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT until
+    // 2026-09-01, when the falsifier the entry named for itself landed: a
+    // constructed refs/remotes/origin/* namespace driven through resolveClaims,
+    // in the same commit that deleted the row.
+    //
+    // The pattern is worth the paragraph. Twice the surface has claimed
+    // environment independence while one reader read the ambient checkout, and
+    // twice the repair was to construct that reader's environment rather than to
+    // re-reason about the mutant. A THIRD site would be the third instance of one
+    // shape, and the sweep that bounds it is a list of every realGitSurface()
+    // read in the registered suites that is not under a constructed
+    // LEDGER_GIT_ROOT.
+    //
+    // Rate and score figures are deliberately absent: they are measured, they
+    // move, and the surrounding comments that quoted them rotted before.
     scoreFloor: 0.9,
     // Inverting the origin/HEAD exclusion makes localRefs return ONLY a ref
     // named HEAD, which the constructed-namespace case in the suite notices.
@@ -1327,14 +1345,6 @@ export const GUARD_SURFACES: GuardSurface[] = [
         kind: "equivalent",
         reason:
           "headRepo's three inputs all end at the same answer under `&&`: an unset GITHUB_EVENT_PATH still returns null (existsSync(undefined) is false, not a throw), a set-but-missing path falls through to readFileSync, which throws into the function's own catch and returns null, and a readable path takes the identical branch either way",
-      },
-      // ---- accepted-gap: killable, but not from CI's checkout ------------
-      {
-        siteId: "logical-connector:259:20:&&>||",
-        kind: "accepted-gap",
-        ref: "BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT",
-        reason:
-          "NOT equivalent, and killed locally: the regex has two mandatory groups, so the forms agree whenever `m` is non-null and diverge only when it is NULL, where the mutant evaluates `m[2]` on null and throws. `m` is null on every call, because splitting on a trailing newline always yields an empty final line the regex rejects. PREMISE, which is what makes this a gap rather than a kill: the only reader of this line in either registered suite is ledgerClaimsCheck.test.ts:570, which calls `resolveClaims(realGitSurface(), { fetch: false })` against the AMBIENT checkout, and `fileOids` runs once per `refs/remotes/origin/*` ref. CI checks out with none, so the function never executes there. Measured 2026-08-24 by instrumenting `fileOids` with one variable changed: 14 calls and a kill against the live worktree, 0 calls and a survivor against a constructed zero-ref repo. The other three `realGitSurface()` reads in these suites (:443, :487, and :811 inside `atRepo`) all run under a constructed LEDGER_GIT_ROOT, so :570 is the sole ambient reader and this is the sole site the surface's environment-independence claim fails at. FALSIFIER: give any case a constructed repository carrying one `refs/remotes/origin/*` ref and drive `resolveClaims` through it. One call is enough, and the mutant is then killable in every environment, at which point this row is wrong and must be deleted rather than re-reasoned",
       },
     ],
   },

@@ -285,14 +285,15 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // spawn seam makes every bound observable and
   // tests/scripts/ledgerGitSpawnSeam.test.ts kills all six
   // (chore/guard-completeness-wave, BL-LEDGER-GIT-TIMEOUT-CONSTANTS).
-  // The accepted-gap is `logical-connector:259:20:&&>||`, and it is a new family
-  // carrying its own backlog entry as this line has always required:
-  // BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT. It is the surface's first row
-  // whose verdict is environment-DEPENDENT, which the row above it claims none
-  // are, so it is also the falsifier for that claim. It is killed on a full
-  // clone and survives CI's zero-ref checkout, and it closes by construction
-  // rather than by a bumped number: give a case an origin ref and delete the row.
-  ledgerGit: { equivalent: 6, "accepted-gap": 1 },
+  // The accepted-gap `logical-connector:259:20:&&>||` is GONE as of 2026-09-01,
+  // and it closed the way it said it would: "give a case an origin ref and delete
+  // the row." Both halves landed in one commit, because the gate is symmetric --
+  // tests/mutation/source/gate.ts:115 rejects a survivor with no ledger row and
+  // :121 rejects a ledger row whose site no longer survives -- so either half
+  // alone reds the nightly. The falsifier is the constructed
+  // refs/remotes/origin/* namespace in ledgerClaimsCheck.test.ts, and
+  // BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT is resolved.
+  ledgerGit: { equivalent: 6 },
   // Counted from the surface: count.ts carries NO blessed survivor at all. Its
   // floor is 1, so any row appearing here is a coverage regression to repair
   // rather than a number to update.
