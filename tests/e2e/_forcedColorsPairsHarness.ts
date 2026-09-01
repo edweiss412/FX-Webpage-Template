@@ -53,10 +53,21 @@ export type RepairPair = {
 
 /** Ordered by specificity: the first match is the marker the site actually uses. */
 const STATE_ATTRIBUTES: readonly (readonly [RegExp, string])[] = [
+  // Every token `aria-current` accepts, each carried through as ITSELF. A first
+  // version mapped any recognized emission to `page`, which meant the fixture kept
+  // passing while a component moved to a value the stylesheet did not match —
+  // whole-diff review R1 found exactly that concealment.
   [/aria-current=\{[^}]*"step"/, 'aria-current="step"'],
+  [/aria-current=\{[^}]*"location"/, 'aria-current="location"'],
+  [/aria-current=\{[^}]*"date"/, 'aria-current="date"'],
+  [/aria-current=\{[^}]*"time"/, 'aria-current="time"'],
   [/aria-current=\{[^}]*"page"/, 'aria-current="page"'],
   [/aria-current=\{[^}]*"true"/, 'aria-current="true"'],
-  [/aria-current=/, 'aria-current="page"'],
+  [/aria-current="step"/, 'aria-current="step"'],
+  [/aria-current="location"/, 'aria-current="location"'],
+  [/aria-current="page"/, 'aria-current="page"'],
+  [/aria-current="true"/, 'aria-current="true"'],
+  [/aria-current=/, 'aria-current="true"'],
   [/aria-pressed=/, 'aria-pressed="true"'],
   // Hooks this pass added, for states no ARIA describes. Detected the same way as
   // the ARIA markers — read out of the component's own source — so a hook that is

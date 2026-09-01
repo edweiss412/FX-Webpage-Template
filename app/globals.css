@@ -1587,9 +1587,7 @@ details[open] > summary [data-agenda-day-count] {
      rules deliberately flattened, so the stylesheet and the census cannot
      disagree. */
   :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
-      [aria-current="page"],
-      [aria-current="true"],
-      [aria-current="step"],
+      [aria-current]:not([aria-current="false"]),
       [aria-pressed="true"]
     ):not([data-fc-skip]) {
     background-color: Highlight;
@@ -1612,9 +1610,7 @@ details[open] > summary [data-agenda-day-count] {
      negative so the ring sits ON the fill, where that contrast is what the user
      sees, rather than outside it on Canvas. */
   :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
-      [aria-current="page"],
-      [aria-current="true"],
-      [aria-current="step"],
+      [aria-current]:not([aria-current="false"]),
       [aria-pressed="true"]
     ):not([data-fc-skip]):focus-visible {
     outline: 2px solid HighlightText;

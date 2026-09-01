@@ -71,11 +71,23 @@ export function findCollisions(
     }
     for (const group of grouped.values()) {
       if (group.length < 2) continue;
-      const [first, second] = group as [string, string];
-      const a = new Set(first.split(/\s+/).filter(Boolean));
-      const b = new Set(second.split(/\s+/).filter(Boolean));
-      const differing = [...new Set([...a, ...b])].filter((t) => !(a.has(t) && b.has(t))).sort();
-      out.push({ file: el.file, line: el.line, tag: el.tag, pair: [first, second], differing });
+      // EVERY pair in the group, not the first two. A group of three paths sharing
+      // one projection is three indistinguishable pairs, and keeping `[0], [1]`
+      // dropped the rest — whole-diff review R1 counted five such groups live,
+      // including both `meShowSections` chips and the wizard pill. The unit is the
+      // pair, and a unit that silently keeps one member of a set is not that unit.
+      for (let i = 0; i < group.length; i += 1) {
+        for (let j = i + 1; j < group.length; j += 1) {
+          const first = group[i]!;
+          const second = group[j]!;
+          const a = new Set(first.split(/\s+/).filter(Boolean));
+          const b = new Set(second.split(/\s+/).filter(Boolean));
+          const differing = [...new Set([...a, ...b])]
+            .filter((t) => !(a.has(t) && b.has(t)))
+            .sort();
+          out.push({ file: el.file, line: el.line, tag: el.tag, pair: [first, second], differing });
+        }
+      }
     }
   }
   return out;

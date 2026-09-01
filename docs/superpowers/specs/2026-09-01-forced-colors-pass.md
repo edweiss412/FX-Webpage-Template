@@ -598,7 +598,17 @@ the condition that would re-open it.
    because closing it means teaching the arm to evaluate variant selectors, which
    grows the recognizer in the direction §4.4 declines. What ships instead is
    REPORTING: such elements land in the CANNOT-DECIDE set, pinned by AC-4c, so a
-   new one is loud rather than silent. **Re-open when:** the cannot-decide set
+   new one is loud rather than silent.
+
+   The class is live rather than hypothetical, and one of its members is
+   crew-facing. `pnpm vitest run tests/styles/_metaForcedColors.test.ts -t "cannot
+   decide"` prints the set; at authoring time it held eleven single-path
+   state-variant sites, among them `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx`
+   and six in `components/admin/ShowRowActions.tsx`, all expressing state through an
+   `aria-expanded:` variant inside one unconditional class string. They are reported
+   and not repaired, which is the limit doing its job: the repair is a variant-aware
+   projection, and building one under review pressure is the recognizer growth §4.4
+   declines. **Re-open when:** the cannot-decide set
    grows past the point where a person can read it, at which point the answer is
    probably a variant-aware projection rather than a bigger list.
 7. **The freshness cue loses its fade, and keeps its signal.** Under forced colors
@@ -628,7 +638,25 @@ the condition that would re-open it.
    shows nothing in that compound state in both modes. That difference is the
    whole content of §3.1 rule 2: a cue that names its off state behaves under
    forced colors, and one that leaves it `transparent` does not.
-9. **Blink paints `<progress>` itself under forced colors, and author CSS cannot
+9. **AC-4 proves the CSS repair, not the live component.** The case renders each
+   repair row's colliding class strings against the live COMPILED stylesheet and
+   requires them to differ in a surviving property. That proves the block does what
+   it claims given those classes, and the classes are derived from the components by
+   Arm 1 on every run rather than typed, so a component edit moves them. What it
+   does NOT do is navigate to the component: no route, no seed, no interaction. A
+   live condition could invert, or an emitter stop rendering, and the synthetic case
+   would stay green.
+
+   Whole-diff review R1 named this and it is the honest state rather than a
+   dismissal. Every repair row now carries a `binding` — a real locator and the
+   toggle that moves the control between its two states — and a `bound` flag that a
+   guard pins at zero today, so the number can only move deliberately and a repair
+   added later cannot skip the question. Twelve of twelve rows have a locator; one
+   (`components/admin/nav/AdminNav.tsx:236`, the desktop nav links) needs a
+   `data-testid` before it can be used. **Re-open when:** the browser suite can
+   reach an authenticated admin route with a seed, at which point the bound count
+   rises row by row and this limit shrinks to whatever is left.
+10. **Blink paints `<progress>` itself under forced colors, and author CSS cannot
    reach it.** Measured 2026-09-01 while implementing §5.5: with forced colors
    active, deleting the -webkit-progress-bar background, the
    -webkit-progress-value background, or both, leaves the rendered bar
@@ -644,9 +672,9 @@ the condition that would re-open it.
    with a fill-only deletion as the control. **Re-open when:** Blink ships author
    control of progress pseudo-elements under forced colors, or a probe shows the
    UA rendering is itself unreadable.
-10. **Safari is out of scope.** WebKit does not implement `forced-colors`. No claim
+11. **Safari is out of scope.** WebKit does not implement `forced-colors`. No claim
    in this spec covers it. **Re-open when:** WebKit ships the feature.
-11. **The probe measures emulation, not a user's theme.** No assertion in this pass
+12. **The probe measures emulation, not a user's theme.** No assertion in this pass
    may depend on a specific forced colour value; every assertion is about whether
    a property survives and whether two states differ.
 ## 9. Convergence

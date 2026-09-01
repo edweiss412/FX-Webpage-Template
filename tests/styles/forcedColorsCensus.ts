@@ -25,6 +25,16 @@ export type CarrierDisposition =
 export type CarrierCensusRow = {
   /** The rule's selector or `@keyframes <name>`, exactly as the arm reports it. */
   readonly subject: string;
+  /**
+   * The at-rule chain the subject sits inside, outermost first, exactly as the arm
+   * reports it. Empty at top level.
+   *
+   * Part of the KEY, not decoration. `[data-step3-warning-flash]` exists in the
+   * base context and again inside `@media (prefers-reduced-motion: reduce)`, so a
+   * subject-only match let the reduced-motion row license a base-context candidate
+   * silently while the fixed row count stayed green. Whole-diff review R1.
+   */
+  readonly context: readonly string[];
   readonly disposition: CarrierDisposition;
   /** Names the carrier that survives, or the spec limit that accepts the flatten. */
   readonly reason: string;
@@ -40,21 +50,25 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
   // ── The three cues, and the gradient. Repaired by the pass. ──
   {
     subject: "@keyframes share-link-flash-ring",
+    context: [],
     disposition: "repaired",
     reason: "the cue this pass is named for; its only carrier is a dropped box-shadow (spec §5.1)",
   },
   {
     subject: "@keyframes share-link-flash-bg",
+    context: [],
     disposition: "repaired",
     reason: "the background leg of the same cue; both endpoints force to one value (spec §5.1)",
   },
   {
     subject: "@keyframes step3-warning-flash",
+    context: [],
     disposition: "repaired",
     reason: "a jump-target highlight whose only carrier is a forced background (spec §5.2)",
   },
   {
     subject: "[data-step3-warning-flash]",
+    context: ["@media (prefers-reduced-motion: reduce)"],
     disposition: "repaired",
     reason:
       "the steady reduced-motion fallback for the same cue. Its carrier is FORCED rather than dropped, which is the case the first Arm 2 criterion could not see (spec §5.2)",
@@ -62,6 +76,7 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
   {
     subject:
       'progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,\nprogress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar',
+    context: [],
     disposition: "repaired",
     reason:
       "the indeterminate shimmer, on BOTH the step-2 and finalize bars: the rule is a grouped selector and this pass repairs both (spec §5.5)",
@@ -69,6 +84,7 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
   {
     subject:
       'progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar,\nprogress[data-testid="wizard-finalize-progressbar"]:indeterminate::-moz-progress-bar',
+    context: [],
     disposition: "repaired",
     reason: "the same shimmer in Gecko, whose rule also sets a transparent background (spec §5.5)",
   },
@@ -76,17 +92,20 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
   // ── The freshness cue. NOT repaired: it already survives. ──
   {
     subject: "@keyframes section-freshness-flash-1",
+    context: [],
     disposition: "deliberate-flatten",
     reason:
       "the fade is lost and the signal is not: the gating attribute is present only during a flash, so the forced opaque outline IS the cue (spec §5.3, §8 limit 7)",
   },
   {
     subject: "@keyframes section-freshness-flash-2",
+    context: [],
     disposition: "deliberate-flatten",
     reason: "the alternate body of the same cue, kept identical by an existing drift pin",
   },
   {
     subject: "[data-section-freshness-flash]",
+    context: ["@media (prefers-reduced-motion: reduce)"],
     disposition: "deliberate-flatten",
     reason:
       "its reduced-motion arm; under forced colors a reduced-motion user sees the steady outline the normal-mode design withholds, accepted for symmetry since the fade is gone for everyone (spec §8 limit 8)",
@@ -95,26 +114,31 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
   // ── Base reading colour. Flattening these is what forced colors is FOR. ──
   {
     subject: "html",
+    context: [],
     disposition: "deliberate-flatten",
     reason: "the page's base colour pair; the user asked for the palette (spec §8 limit 2)",
   },
   {
     subject: ".help-prose > h1",
+    context: ["@layer base"],
     disposition: "deliberate-flatten",
     reason: "a reading-hierarchy heading colour, not a state (spec §8 limit 2)",
   },
   {
     subject: ".help-prose > h2",
+    context: ["@layer base"],
     disposition: "deliberate-flatten",
     reason: "same",
   },
   {
     subject: ".help-prose > h3",
+    context: ["@layer base"],
     disposition: "deliberate-flatten",
     reason: "same",
   },
   {
     subject: '.help-prose > table[data-stack="true"] .th-label',
+    context: ["@layer base", "@media (max-width: 480px)"],
     disposition: "deliberate-flatten",
     reason: "a stacked-table label colour under 480px; hierarchy, not state (spec §8 limit 2)",
   },
@@ -123,18 +147,21 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
   {
     subject:
       'progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-bar,\nprogress[data-testid="wizard-finalize-progressbar"]::-webkit-progress-bar',
+    context: [],
     disposition: "repaired",
     reason: "the determinate track, repaired alongside the fill so the two stay distinguishable",
   },
   {
     subject:
       'progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-value,\nprogress[data-testid="wizard-finalize-progressbar"]::-webkit-progress-value',
+    context: [],
     disposition: "repaired",
     reason: "the determinate fill; it is the half AC-5's negative control deletes",
   },
   {
     subject:
       'progress[data-testid="wizard-step2-progressbar"]::-moz-progress-bar,\nprogress[data-testid="wizard-finalize-progressbar"]::-moz-progress-bar',
+    context: [],
     disposition: "repaired",
     reason: "the same fill in Gecko, a separate declaration and a separate control",
   },
@@ -157,6 +184,25 @@ export type CollapseCensusRow = {
   readonly disposition: CollapseDisposition;
   /** For a non-repair, the carrier that survives, named. */
   readonly reason: string;
+  /**
+   * How to reach this control in a real browser. REQUIRED on a repair row.
+   *
+   * Whole-diff review R1: AC-4 renders the colliding class strings against the
+   * live compiled stylesheet, which proves the CSS repair, and does NOT render the
+   * component. A row holding only a site and a token pair cannot be navigated to,
+   * so a live condition could inverate and the synthetic case would stay green.
+   * Naming the locator here is what makes the gap addressable rather than
+   * invisible — and `bound` says plainly whether a browser case actually uses it
+   * yet.
+   */
+  readonly binding?: {
+    /** A `data-testid`, or another attribute selector that resolves to the element. */
+    readonly locator: string;
+    /** What moves the control between the two colliding states. */
+    readonly toggle: string;
+    /** Whether a browser case currently navigates to it. */
+    readonly bound: boolean;
+  };
 };
 
 /**
@@ -182,12 +228,22 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     site: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:249",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid="picker-role-chip"]',
+      toggle: "a crew member with LEAD in role_flags versus one without",
+      bound: false,
+    },
     reason:
       "crew-facing role chip; both paths render the same {c.role}, no glyph, no aria, no size or weight difference",
   },
   {
     site: "components/crew/CrewSubNav.tsx:114",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid="crew-sub-nav"] [data-section]',
+      toggle: "navigating between crew sections",
+      bound: false,
+    },
     reason:
       "crew-facing tabs; border-b-2 on BOTH paths so only its colour differs, same icon either way, aria-current toggles nothing rendered",
   },
@@ -206,23 +262,43 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     site: "components/admin/review/ShowReviewSurface.tsx:838",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid*="-review-chip-item-"]',
+      toggle: "clicking another chip",
+      bound: false,
+    },
     reason:
       "nav pill; border width is in the shared base so both are 1px, icon tint unconditional, label unchanged",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:1019",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid*="-review-chip-item-"]',
+      toggle: "clicking another chip",
+      bound: false,
+    },
     reason: "same pair; the sr-only text and dot are status-derived, not active-derived",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:805",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid$="-review-rail-item-"]',
+      toggle: "clicking another rail item",
+      bound: false,
+    },
     reason:
       "rail item; active fills at rest and inactive only on hover, and the rail indicator's own paint is a background that flattens with it",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:926",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid*="-review-rail-item-"]',
+      toggle: "clicking another rail item",
+      bound: false,
+    },
     reason: "same; railCount and the dot are data-derived",
   },
   {
@@ -240,23 +316,43 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     site: "components/admin/UndoChangeButton.tsx:51",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid="change-feed-undo"]',
+      toggle: "the quiet prop, set by the feed row's density",
+      bound: false,
+    },
     reason:
       "the quiet/consequential safety distinction; `border` on both branches so no width change, and children are keyed on `pending` rather than on `quiet`",
   },
   {
     site: "components/admin/nav/AdminNav.tsx:236",
     disposition: "repaired",
+    binding: {
+      locator: "nav a[href]",
+      toggle: "navigating to another admin route (needs a data-testid; see the plan)",
+      bound: false,
+    },
     reason: "desktop nav; aria-current only, and icon and label render unchanged in both states",
   },
   {
     site: "components/admin/nav/AdminNav.tsx:301",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid^="admin-bottom-tab-"]',
+      toggle: "navigating to another admin route",
+      bound: false,
+    },
     reason:
       "mobile tab; aria-current only, and the attention badge is keyed on showBadge rather than on active",
   },
   {
     site: "components/admin/telemetry/EventFilters.tsx:97",
     disposition: "repaired",
+    binding: {
+      locator: '[data-testid^="filter-level-"]',
+      toggle: "toggling a level filter",
+      bound: false,
+    },
     reason: "level filter; aria-pressed only, and the visible text is the level either way",
   },
 
@@ -270,14 +366,25 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   { site: "app/me/meShowSections.tsx:278", disposition: "carrier-survives", reason: "same" },
   {
     site: "components/admin/DashboardBucketSegmentedControl.tsx:56",
-    disposition: "carrier-survives",
+    disposition: "repaired",
+    binding: {
+      locator: '[data-testid="dashboard-bucket-active"]',
+      toggle: "switching bucket",
+      bound: false,
+    },
     reason:
-      "the segment renders its own label and the archived twin renders a count; selection is additionally exposed by aria-current, documented at :11 as the intended mechanism",
+      "an interactive Link whose selected state was carried by bg-surface, shadow-tile and a text tone, all of which flatten or drop; its label is static across both paths and aria-current renders nothing, so the selected fill is what repairs it",
   },
   {
     site: "components/admin/DashboardBucketSegmentedControl.tsx:76",
-    disposition: "carrier-survives",
-    reason: "same, and its disabled branch changes element type from anchor to span",
+    disposition: "repaired",
+    binding: {
+      locator: '[data-testid="dashboard-bucket-archived"]',
+      toggle: "switching bucket",
+      bound: false,
+    },
+    reason:
+      "an interactive Link whose selected state was carried by bg-surface, shadow-tile and a text tone, all of which flatten or drop; its label is static across both paths and aria-current renders nothing, so the selected fill is what repairs it",
   },
   {
     site: "components/admin/ShowRowActions.tsx:647",
@@ -337,12 +444,14 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     site: "components/admin/showpage/PublishedReviewModal.tsx:1376",
     disposition: "carrier-survives",
-    reason: "a chevron that also ROTATES",
+    reason:
+      "monitoringOnly also selects the attention mark's SHAPE at :1189 via attentionMarkClass (filled, triangular or hollow), which is what carries it; the chevron is aria-hidden decoration whose tone echoes that. Its rotation is driven by menuOpen, a different variable, so rotation distinguishes nothing within a colliding pair",
   },
   {
     site: "components/admin/wizard/Step3ReviewModal.tsx:729",
     disposition: "carrier-survives",
-    reason: "a chevron that also ROTATES, which survives forced colors outright",
+    reason:
+      "same shape as PublishedReviewModal:1376: the mark's shape carries the state and the chevron's rotation is driven by a different variable",
   },
   {
     site: "components/crew/CrewSubNav.tsx:125",

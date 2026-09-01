@@ -102,8 +102,16 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     // plan review caught that an inventory which only prints is not a gate: a
     // contributor adding a new carrier-loss rule to globals.css would see it
     // reported and nothing would fail. This is what makes AC-7 bite.
-    const censused = new Set(CARRIER_CENSUS.map((row) => row.subject));
-    const uncensused = FINDINGS.map((f) => f.subject).filter((s) => !censused.has(s));
+    // Keyed on subject AND context, because a subject alone aliases across at-rule
+    // contexts: `[data-step3-warning-flash]` exists at the top level and again
+    // inside the reduced-motion arm, so a subject-only match let one row license a
+    // candidate in the other while the fixed row count stayed green. Whole-diff R1.
+    const key = (subject: string, context: readonly string[]) =>
+      `${context.join(" > ")}||${subject}`;
+    const censused = new Set(CARRIER_CENSUS.map((row) => key(row.subject, row.context)));
+    const uncensused = FINDINGS.filter((f) => !censused.has(key(f.subject, f.context))).map((f) =>
+      key(f.subject, f.context),
+    );
     expect(
       uncensused,
       "a carrier-loss rule with no disposition — repair it or give it a census row naming what survives",
@@ -198,6 +206,38 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     premise("the producer defines probe cases at all", defined.size, 5);
     const dangling = [...cited].filter((row) => !defined.has(row)).sort();
     expect(dangling, "the spec cites a probe row the probe does not measure").toEqual([]);
+  });
+
+  it("recognises a dropped gradient in every form an author writes it", () => {
+    // Three forms whole-diff R1 probed and the first criterion missed, each one
+    // ordinary refactor from the live progress rules.
+    for (const [label, css] of [
+      ["background shorthand", `.x { background: linear-gradient(red, blue); }`],
+      ["gradient behind a variable", `.x { background-image: var(--fc-gradient); }`],
+      ["shorthand behind a variable", `.x { background: var(--fc-gradient); }`],
+    ] as const) {
+      expect(scanCarrierLoss(css), `${label} is a dropped carrier`).toHaveLength(1);
+    }
+    // And a non-gradient image is NOT one, so the widening is not a blanket.
+    expect(scanCarrierLoss(`.x { background-image: url(/a.png); }`)).toEqual([]);
+  });
+
+  it("reports an animation whose properties are a MIXTURE of dropped and forced", () => {
+    // The uniform-set requirement let a mixture through: nothing author-visible
+    // moves, but neither `allDropped` nor `allForced` held.
+    expect(
+      scanCarrierLoss(
+        `@keyframes k { from { background-color: red; box-shadow: 0 0 0 2px red; } to { background-color: blue; box-shadow: none; } }`,
+      ),
+      "a mixture paints nothing either",
+    ).toHaveLength(1);
+    // A surviving property in the set still exempts it, so the rule is "does
+    // ANYTHING survive", not "are they all the same kind of doomed".
+    expect(
+      scanCarrierLoss(
+        `@keyframes k { from { background-color: red; outline-width: 0; } to { background-color: blue; outline-width: 4px; } }`,
+      ),
+    ).toEqual([]);
   });
 
   it("does not report the pass's own repairs as defects", () => {
@@ -341,7 +381,35 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(COLLAPSE_CENSUS).toHaveLength(42);
     expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
-    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(10);
+    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(12);
+  });
+
+  it("gives every repair row a binding, and says which are not yet browser-bound", () => {
+    // Whole-diff review R1's first finding: AC-4 renders the colliding class
+    // strings against the live compiled stylesheet, which proves the CSS repair,
+    // and does not render the component. A row holding only a site and a token pair
+    // cannot be navigated to, so a live condition could invert and the synthetic
+    // case would stay green.
+    //
+    // Requiring the binding is what turns that from invisible into addressable. It
+    // does not by itself close the gap — `bound` says so per row — but a repair
+    // added later cannot skip the question.
+    const repairs = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
+    const unbound = repairs.filter((r) => r.binding === undefined).map((r) => r.site);
+    expect(unbound, "a repair row with no stated way to reach the control").toEqual([]);
+
+    const thin = repairs
+      .filter((r) => (r.binding?.locator.length ?? 0) < 3 || (r.binding?.toggle.length ?? 0) < 10)
+      .map((r) => r.site);
+    expect(thin, "a binding that names no real locator or no real toggle").toEqual([]);
+
+    // The honest count, pinned so it can only move deliberately. Every repair is
+    // currently proved at the CSS level and none is proved through its live
+    // component; spec §8 records that and names the re-open trigger.
+    const bound = repairs.filter((r) => r.binding?.bound === true).length;
+    expect(bound, "browser-bound repair rows; raising this is the point of the binding field").toBe(
+      0,
+    );
   });
 
   it("gives every non-repair row a reason that names something", () => {
@@ -402,7 +470,15 @@ describe("forced-colors state collapse (Arm 1)", () => {
     const undecidable = findUndecidable(ELEMENTS, UNRESOLVED);
     // AC-4c. A component the resolver cannot name used to vanish from the cover in
     // silence, which is the one outcome the consequence bound forbids.
-    expect(undecidable.length).toBeGreaterThan(0);
+    //
+    // EXACT, not "non-empty". Whole-diff R1: a growth-only check stays green as the
+    // set grows, which is the whole failure it exists to catch — and it made the
+    // plan's claimed `aria-current:bg-accent` plant unable to go red. The literal
+    // is the anti-vacuity case here exactly as it is for the two censuses.
+    expect(
+      undecidable.length,
+      "the cannot-decide set moved; read the new rows and either resolve them or re-pin",
+    ).toBe(124);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

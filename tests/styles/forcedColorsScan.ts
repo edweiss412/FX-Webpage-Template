@@ -51,8 +51,25 @@ function isSurvivingCarrier(property: string): boolean {
   );
 }
 
+/**
+ * A gradient the UA drops, in any of the forms an author actually writes it.
+ *
+ * Three were missing and whole-diff review R1 probed all three: the `background`
+ * SHORTHAND, which is one refactor away from the live progress rules; a gradient
+ * behind a custom property, where the literal is in the variable's definition
+ * rather than at the use site; and both under any `*-image` longhand. The first
+ * version matched `background-image` with a literal `gradient(` and nothing else,
+ * which is a spelling rather than a rule.
+ *
+ * `var(` is treated as a POSSIBLE gradient rather than a certain one, and that is
+ * deliberate: the arm reports candidates, so a false report costs a census row
+ * with a reason while a false pass costs a silently invisible affordance. The
+ * asymmetry is the whole reason this arm errs toward reporting.
+ */
 function isDroppedGradient(property: string, value: string): boolean {
-  return property === "background-image" && /gradient\(/.test(value);
+  const paintsAnImage = property === "background-image" || property === "background";
+  if (!paintsAnImage) return false;
+  return /gradient\(/.test(value) || /\bvar\(--[a-z0-9-]*gradient/i.test(value);
 }
 
 export type CarrierLossKind = "a2a-rule" | "a2b-animation";
@@ -144,11 +161,15 @@ export function scanCarrierLoss(cssSource: string): CarrierLoss[] {
     });
     if (animated.size === 0) return;
     const properties = [...animated];
-    const allDropped = properties.every(
-      (p) => DROPPED_PROPERTIES.has(p) || p === "background-image(gradient)",
-    );
-    const allForced = properties.every((p) => FORCED_PROPERTIES.has(p));
-    if (!allDropped && !allForced) return;
+    // A MIXTURE is the third form and it was missing: an animation moving a forced
+    // `background-color` and a dropped `box-shadow` has no author-visible effect
+    // either, and requiring the set to be uniform let it through. Whole-diff R1
+    // probed exactly that against the live step-3 keyframe. The question is
+    // whether ANY animated property survives, not whether they all fail the same
+    // way.
+    const survives = (p: string) =>
+      !DROPPED_PROPERTIES.has(p) && !FORCED_PROPERTIES.has(p) && p !== "background-image(gradient)";
+    if (properties.some(survives)) return;
     findings.push({
       subject: `@keyframes ${atRule.params}`,
       kind: "a2b-animation",
