@@ -50,8 +50,9 @@ const checkOnly = process.argv.includes("--check");
 
 let files: string[];
 let missing: number[];
+let duplicated: string[];
 try {
-  ({ files, missing } = findShardFiles(alarmsDir, shards));
+  ({ files, missing, duplicated } = findShardFiles(alarmsDir, shards));
 } catch (e) {
   die((e as Error).message);
 }
@@ -59,6 +60,13 @@ if (missing.length > 0) {
   die(
     `alarms for shard(s) ${missing.join(", ")} are missing under ${alarmsDir}; reconciling a ` +
       `partial run against the whole ledger would read every absent shard's rows as fixed holes`,
+  );
+}
+if (duplicated.length > 0) {
+  die(
+    `more than one file claims the same shard under ${alarmsDir}, so which one was measured is ` +
+      `unknowable:\n` +
+      duplicated.map((m) => `    ${m}\n`).join(""),
   );
 }
 

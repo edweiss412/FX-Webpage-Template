@@ -23,21 +23,28 @@ import { enumerateSites } from "./operators";
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
 
 /**
- * Eight, and it is the point past which the shard count stops being the variable.
+ * Ten, and the count is now FINISHED as a lever.
  *
- * The premise that chose FOUR was that max load is pinned by the heaviest surface from
- * n=4 on. Enrolment falsified it: the heaviest surface no longer dominates an even split
- * at four, so four legs were each carrying a genuine share and the partition ran roughly
- * 30% over the per-leg budget. From EIGHT on the old premise is true again -- the
- * makespan equals the heaviest single surface and no larger count moves it.
+ * The history in one line: four was chosen on the premise that max load is pinned by the
+ * heaviest surface, enrolment falsified it, and eight restored it. Eight then failed for
+ * a different reason -- one surface cost 4,413 s of child time and sat alone on a leg, so
+ * LPT had already isolated it and no larger count could move it. That is the state the
+ * 2026-08-16 wall-clock design's L-2 predicted, and the way out was making the unit
+ * smaller, not the count larger.
  *
- * The number is not derived here and could not be: it comes from measured seconds rather
- * than from modelled weight, because the declared rates under-price by about 1.19x in
- * aggregate and the budget is checked against a leg's whole elapsed time rather than its
- * child seconds. The arithmetic is in
- * docs/superpowers/specs/ci/2026-08-26-mutation-shard-budget-fit.md §1.3, which is a
- * dated record; the live figures come from re-running the command that spec's header
- * carries, never from a number copied into this comment.
+ * So `controlOutlineResidue` was split in two (2026-09-01), and ten is the smallest count
+ * at which the makespan reaches the floor no count can go below -- the heaviest single
+ * remaining part. Eleven and twelve give the same number. **A future over-budget leg is
+ * therefore NOT a count problem**: it is a surface that outgrew a leg, and the repair is
+ * another split or a cheaper deciding suite.
+ *
+ * THE RATES ARE NO LONGER WRONG, which this comment used to say they were. All sixty were
+ * recalibrated on 2026-09-01 to what GitHub Actions run 33404224554 measured (48 up, 12
+ * down). The budget still bounds a leg's whole ELAPSED time rather than its child
+ * seconds, so the modelled makespan runs about 205 s under what a leg costs.
+ *
+ * Every figure above is emitted, not typed:
+ * `node --import tsx scripts/probes/2026-09-01-mutation-shard-figures.ts`.
  */
 export const SOURCE_SHARD_COUNT = 10;
 

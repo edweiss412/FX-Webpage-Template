@@ -1649,9 +1649,12 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [{ text: "10", governs: [] }],
     reason:
       "Source-mutation shard count, same derive-don't-list contract and same integrity pin as " +
-      "PARSER_SHARD_COUNT (tests/mutation/source/shardPartition.ts SOURCE_SHARD_COUNT). Raising " +
-      "the partition is the sanctioned response to an over-budget shard; raising timeout-minutes " +
-      "is not, and the notify job's copy says so.",
+      "PARSER_SHARD_COUNT (tests/mutation/source/shardPartition.ts SOURCE_SHARD_COUNT). Went " +
+      "8 -> 10 on 2026-09-01, and that is the LAST time the count moves usefully: at ten the " +
+      "makespan equals the heaviest single surface and no larger count changes it. The " +
+      "response to an over-budget leg is therefore a surface split or a cheaper deciding " +
+      "suite, never a higher count and never timeout-minutes; the notify job's triage copy " +
+      "says the same thing.",
   },
   // The notify job's two inputs. Both are expression TEXT here: what an
   // expression resolves to at runtime is out of universe (spec §5 LS1).

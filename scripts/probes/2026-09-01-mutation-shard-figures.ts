@@ -108,7 +108,26 @@ const weightsFor = (split: Record<string, readonly OperatorName[]>, announce: bo
     const sites = enumerateSites(SPLIT_SOURCE, text, ops);
     const { mutants } = generateMutants(SPLIT_SOURCE, text, ops, sites);
     const boots = mutants.length + 1;
-    const ms = ops.reduce((a, o) => a + (A.splitSurfaceOperatorMs[o] ?? 0), 0);
+    // NO SILENT ZERO. `?? 0` priced a missing measurement at nothing, so deleting any
+    // one of the five measured operators from the anchor made this probe report a
+    // DIFFERENT makespan -- 2333.122 s instead of 2490.111 -- and exit successfully.
+    // A tool whose whole purpose is that figures are derived rather than typed cannot
+    // have a path where an absent figure reads as a real one.
+    const ms = ops.reduce((a, o) => {
+      const v = A.splitSurfaceOperatorMs[o];
+      if (typeof v === "number" && Number.isFinite(v)) return a + v;
+      // An operator with NO SITES in this file legitimately has no measurement, and
+      // zero is its true cost. An operator WITH sites and no measurement is a hole in
+      // the anchor, and pricing it at zero silently changes every figure below --
+      // deleting `integer-literal` made this probe report N=10 as 2333.122 s instead
+      // of 2490.111 and exit successfully. So the zero is DERIVED from the source
+      // rather than assumed from the operator's name.
+      if (enumerateSites(SPLIT_SOURCE, text, [o]).length === 0) return a;
+      throw new Error(
+        `anchor has no measurement for operator "${o}", which HAS sites in ${SPLIT_SOURCE}; ` +
+          `an absent measurement cannot be priced at zero`,
+      );
+    }, 0);
     const rate = Math.round(ms / boots);
     mutantTotal += mutants.length;
     out.push({ key: name, w: boots * rate });

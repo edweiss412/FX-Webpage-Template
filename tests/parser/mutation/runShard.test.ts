@@ -134,6 +134,23 @@ describe("runShard slice filter + progress + collector", () => {
     expect([s0.runId, s1.runId]).toEqual(["run-abc", "run-abc"]);
   });
 
+  // CATCHES: `process.env.X ?? "local"`, which treats a PRESENT BUT EMPTY env var as a
+  // real value -- an empty string is not nullish. The collector would then stamp
+  // `runId: ""` on a runner where GITHUB_RUN_ID exists and is blank, and an empty
+  // identity is indistinguishable from every other empty identity, so a stale file
+  // would pass the re-bless tool's provenance check.
+  it("uses the sentinel when GITHUB_RUN_ID is present but EMPTY, not just when absent", async () => {
+    scratch = mkdtempSync(join(tmpdir(), "mut-collect-blank-"));
+    vi.stubEnv("COLLECT_MUTATION_ALARMS", scratch);
+    vi.stubEnv("GITHUB_RUN_ID", "");
+    await runShard(0, OPTS);
+    const s0 = JSON.parse(readFileSync(join(scratch, "alarms-shard0.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(s0.runId).toBe("local");
+  });
+
   it("falls back to a local sentinel when GITHUB_RUN_ID is absent", async () => {
     scratch = mkdtempSync(join(tmpdir(), "mut-collect-local-"));
     vi.stubEnv("COLLECT_MUTATION_ALARMS", scratch);

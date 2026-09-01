@@ -150,7 +150,7 @@ export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Pro
     // share the `local` sentinel, where the whole set is produced in one go.
     writeFileSync(
       join(collectDir, `alarms-shard${shardIndex}.json`),
-      JSON.stringify({ alarms, shard: shardIndex, runId: process.env.GITHUB_RUN_ID ?? "local" }),
+      JSON.stringify({ alarms, shard: shardIndex, runId: process.env.GITHUB_RUN_ID || "local" }),
     );
   }
   return { alarms, allSiteIds, cosmeticViolations, noOps, assignment: A };

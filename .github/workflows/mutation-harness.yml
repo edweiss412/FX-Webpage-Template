@@ -187,12 +187,14 @@ jobs:
   source-shards:
     # NIGHTLY-ONLY on pull requests, ruled 2026-08-26.
     #
-    # The full matrix is 20 job rows, 18 of them full test legs, and it ran on
+    # The full matrix is 22 job rows, 20 of them full test legs, and it ran on
     # EVERY harness-touching PR -- competing with that PR's own required checks.
     # Measured 2026-08-26: 16 full-matrix fan-outs in one day across four
     # branches, ELEVEN cancelled by the next push before producing any verdict.
-    # A harness-touching PR now sends 2 jobs to runners instead of 19 (`notify`
-    # was already skipped on PRs, so it never cost a runner).
+    # A harness-touching PR now sends 2 jobs to runners instead of 21 (`notify`
+    # was already skipped on PRs, so it never cost a runner). The three figures
+    # follow SOURCE_SHARD_COUNT, which went 8 -> 10 on 2026-09-01; they were
+    # left at the old count once and caught in review.
     #
     # The TRIGGER and its ten path globs are deliberately unchanged: each covers
     # a path whose edit can change a verdict, and dropping globs would trade a
@@ -209,7 +211,7 @@ jobs:
     # THE ESCAPE, so the next arc does not rediscover it: `workflow_dispatch` is
     # enabled above, so any branch can have a real full run on demand with
     #   gh workflow run mutation-harness.yml --ref <branch>
-    # A branch dispatch sends 19 (`notify` is gated to schedule or the default
+    # A branch dispatch sends 21 (`notify` is gated to schedule or the default
     # branch). That is also the ONLY way to validate a change to this trigger,
     # since a trigger cannot validate its own removal.
     if: github.event_name != 'pull_request'
@@ -519,7 +521,7 @@ jobs:
               "",
               "C) BUDGET — job `budget` (scripts/check-shard-budget.ts).",
               "   This job failing is NOT a coverage failure. Either a leg exceeded the 3,600 s per-shard budget, or a leg reported no elapsed record at all.",
-              "   - over budget: the design reporting on itself as surfaces enrol. Raise SOURCE_SHARD_COUNT in tests/mutation/source/shardPartition.ts — NOT timeout-minutes.",
+              "   - over budget: NOT a count problem any more. SOURCE_SHARD_COUNT reached its floor at 10 on 2026-09-01 — the makespan now equals the heaviest single surface, and 11 and 12 give the same number. A leg over budget is a SURFACE that outgrew a leg: split it into separately-enrolled parts, or make its deciding suite cheaper. Never timeout-minutes.",
               "   - no elapsed record: a leg was cancelled, timed out, or never ran. Fix that leg first; the budget verdict says nothing until every leg reports.",
               "",
               "Auto-filed by mutation-harness.yml; auto-closes on the next green scheduled run.",

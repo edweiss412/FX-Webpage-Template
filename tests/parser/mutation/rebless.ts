@@ -22,7 +22,7 @@ import { join } from "node:path";
 
 import { type Alarm, type KnownHole, reconcileLedger } from "./knownHoles";
 
-export type ShardScan = { files: string[]; missing: number[] };
+export type ShardScan = { files: string[]; missing: number[]; duplicated: string[] };
 
 /** One collected file, with the provenance its producer stamped. */
 export type ShardFile = {
@@ -48,6 +48,7 @@ export type ShardFile = {
 export function findShardFiles(root: string, shards: number): ShardScan {
   const files: string[] = [];
   const missing: number[] = [];
+  const duplicated: string[] = [];
   // An unreadable root is a USAGE error, not "every shard is missing". The two read
   // identically downstream -- both produce a refusal -- but only one of them tells the
   // caller their path was wrong, and a refusal that blames the artifacts for a typo in
@@ -61,17 +62,23 @@ export function findShardFiles(root: string, shards: number): ShardScan {
   for (let i = 0; i < shards; i++) {
     const name = `alarms-shard${String(i)}.json`;
     const candidates = [join(root, name), ...entries.map((e) => join(root, e, name))];
-    const found = candidates.find((c) => {
+    const found = candidates.filter((c) => {
       try {
         return statSync(c).isFile();
       } catch {
         return false;
       }
     });
-    if (found === undefined) missing.push(i);
-    else files.push(found);
+    // EXACTLY once, not at least once. `find` returned the first match and silently
+    // dropped the rest, so a flat copy beside a nested one -- or two nested artifact
+    // directories -- read as a clean set while one of the two was chosen arbitrarily.
+    // That is licensing condition 1 stated but not enforced, and the tool would have
+    // re-blessed from whichever file the directory order happened to surface.
+    if (found.length === 0) missing.push(i);
+    else if (found.length > 1) duplicated.push(`shard ${String(i)}: ${found.join(", ")}`);
+    else files.push(found[0]!);
   }
-  return { files, missing };
+  return { files, missing, duplicated };
 }
 
 /** Throws rather than returning a partial list: a file that parsed to something
@@ -106,7 +113,23 @@ export function provenanceProblems(files: readonly ShardFile[]): string[] {
       problems.push(`${f.path} declares shard ${String(f.shard)} but sits at index ${f.index}`);
     }
   }
-  const runs = new Set(files.map((f) => String(f.runId)));
+  // A run identity must be PRESENT, a STRING, and NON-EMPTY before it can be compared.
+  // `String(runId)` accepted every one of: missing, null, "", {} and [] -- and made
+  // `1` and `"1"` indistinguishable. A set of files that all declare nothing is not a
+  // set that came from one run; it is a set with no provenance at all, which is the
+  // condition this function exists to refuse.
+  for (const f of files) {
+    if (typeof f.runId !== "string" || f.runId === "") {
+      problems.push(
+        `${f.path} declares no usable runId (${JSON.stringify(f.runId)}); provenance cannot be established`,
+      );
+    }
+  }
+  const runs = new Set(
+    files
+      .filter((f) => typeof f.runId === "string" && f.runId !== "")
+      .map((f) => f.runId as string),
+  );
   if (runs.size > 1) {
     problems.push(`files come from ${runs.size} different runs: ${[...runs].sort().join(", ")}`);
   }

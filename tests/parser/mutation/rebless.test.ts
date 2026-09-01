@@ -68,6 +68,24 @@ describe("findShardFiles", () => {
     expect(() => findShardFiles(join(scratch(), "no-such-dir"), 1)).toThrow(/not readable/);
   });
 
+  // CATCHES: two files claiming the same shard, where `find` kept the first and
+  // silently dropped the rest. "Present exactly once" is the licensing condition; a
+  // flat copy beside a nested one -- or two nested artifact directories -- read as a
+  // clean set while the tool re-blessed from whichever the directory order surfaced.
+  it("refuses two files claiming the same shard rather than picking one", () => {
+    const root = scratch();
+    mkdirSync(join(root, "alarms-parser-shards-0"));
+    writeFileSync(join(root, "alarms-shard0.json"), JSON.stringify({ alarms: [] }));
+    writeFileSync(
+      join(root, "alarms-parser-shards-0", "alarms-shard0.json"),
+      JSON.stringify({ alarms: [] }),
+    );
+    const scan = findShardFiles(root, 1);
+    expect(scan.missing).toEqual([]);
+    expect(scan.files).toEqual([]);
+    expect(scan.duplicated).toEqual([expect.stringContaining("shard 0")]);
+  });
+
   // CATCHES: the per-artifact layout `gh run download` actually produces being
   // treated as "missing", which would refuse every real download.
   it("finds a shard laid down inside its own artifact directory", () => {
@@ -80,6 +98,7 @@ describe("findShardFiles", () => {
     expect(findShardFiles(root, 1)).toEqual({
       files: [join(root, "alarms-parser-shards-0", "alarms-shard0.json")],
       missing: [],
+      duplicated: [],
     });
   });
 });
@@ -181,6 +200,30 @@ describe("provenanceProblems", () => {
 
   it("accepts one run's consistent set", () => {
     expect(provenanceProblems([f(0, 0, "111"), f(1, 1, "111")])).toEqual([]);
+  });
+
+  // CATCHES: every value that `String(runId)` flattened into a comparable. Missing,
+  // null, empty, object and array all compared equal to each other, so a set of files
+  // declaring NOTHING passed as a set from one run -- which is not a weaker form of
+  // provenance, it is the absence of any.
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["empty string", ""],
+    ["an object", {}],
+    ["an array", []],
+    ["a number", 7],
+  ])("refuses a runId that is %s", (_label, bad) => {
+    expect(provenanceProblems([f(0, 0, bad)])).toEqual([
+      expect.stringContaining("no usable runId"),
+    ]);
+  });
+
+  // CATCHES: `1` and `"1"` stringifying equal, so two genuinely different runs passed
+  // as one. Both are now refused for not being usable strings, which is the same
+  // repair seen from the other side.
+  it("does not let a number and a string of the same digits pass as one run", () => {
+    expect(provenanceProblems([f(0, 0, 1), f(1, 1, "1")]).length).toBeGreaterThan(0);
   });
 });
 
