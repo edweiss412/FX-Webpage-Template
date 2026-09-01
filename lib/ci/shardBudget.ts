@@ -12,6 +12,31 @@
 
 export type ElapsedRecord = { leg: string; seconds: number };
 
+/**
+ * The partition's own PREDICTION, checked in the units the budget is denominated in.
+ *
+ * `checkBudget`'s other input is RECORDED elapsed values, read after a run. This is the same
+ * question asked before one, and the reason it needs an overhead at all: the modelled numbers are
+ * CHILD time, the budget bounds a leg's whole ELAPSED time, and the difference is the per-leg
+ * setup the model cannot see. Measured across the ten legs of run 33501574343 it is 142 to 239 s.
+ *
+ * `floorSurface` is carried rather than derived because the message is the point. A leg over
+ * budget because ONE surface outgrew it is not a shard-count problem — every larger count gives
+ * the same makespan, since the makespan cannot go below the heaviest single part — and a message
+ * saying only "over budget" sends the reader to the count, which is the one lever that cannot
+ * help. The repair is a surface split or a cheaper deciding suite.
+ */
+export type ModelledFit = {
+  /** The heaviest LEG's modelled child seconds, from the shipped assignment. */
+  makespanSeconds: number;
+  /** The heaviest SINGLE SURFACE's modelled child seconds. No shard count goes below this. */
+  floorSeconds: number;
+  /** The surface `floorSeconds` belongs to, so a failure names the thing to repair. */
+  floorSurface: string;
+  /** Per-leg elapsed minus child, derived from a measured run rather than chosen. */
+  overheadSeconds: number;
+};
+
 export type BudgetVerdict = {
   ok: boolean;
   failures: string[];
@@ -66,6 +91,12 @@ export function checkBudget(
   records: readonly ElapsedRecord[],
   expectedLegs: readonly string[],
   budgetSeconds: number,
+  /**
+   * OPTIONAL, so every existing three-argument call site is unchanged by construction. Absent
+   * means "no prediction was supplied", never "the prediction is fine": a missing fit reports
+   * nothing rather than inventing an all-clear.
+   */
+  fit?: ModelledFit,
 ): BudgetVerdict {
   const failures: string[] = [];
   const warnings: string[] = [];
@@ -116,6 +147,36 @@ export function checkBudget(
       // failure would make the annotation useless as a leading indicator.
       warnings.push(
         `leg ${r.leg} took ${r.seconds}s, over ${WARN_FRACTION * 100}% of the ${budgetSeconds}s budget`,
+      );
+    }
+  }
+
+  if (fit !== undefined) {
+    // Strictly above, matching the recorded-elapsed comparison above it: a leg landing exactly at
+    // budget is compliant, and a fit check that disagreed would have moved the budget rather than
+    // enforced it.
+    const leg = fit.makespanSeconds + fit.overheadSeconds;
+    const floorOver =
+      Number.isFinite(budgetSeconds) && fit.floorSeconds + fit.overheadSeconds > budgetSeconds;
+    // The floor REPLACES the makespan message rather than joining it. `makespan >= floor` always,
+    // so a floor over budget puts the makespan over too, and the two have DIFFERENT repairs: the
+    // makespan's is a bigger shard count, the floor's is a surface split. Reporting both would
+    // offer the reader the lever that cannot work alongside the one that can.
+    if (!floorOver && Number.isFinite(budgetSeconds) && leg > budgetSeconds) {
+      failures.push(
+        `the modelled makespan is ${String(fit.makespanSeconds)}s of child time, which is ` +
+          `${String(leg)}s of leg time at ${String(fit.overheadSeconds)}s of per-leg overhead, ` +
+          `over the ${String(budgetSeconds)}s budget`,
+      );
+    }
+    const floor = fit.floorSeconds + fit.overheadSeconds;
+    if (floorOver) {
+      failures.push(
+        `the modelled floor is the single surface ${fit.floorSurface} at ` +
+          `${String(fit.floorSeconds)}s of child time, which is ${String(floor)}s of leg time ` +
+          `and over the ${String(budgetSeconds)}s budget. NO shard count repairs this: the ` +
+          `makespan cannot go below the heaviest single surface, so the repair is to split that ` +
+          `surface into separately-enrolled parts or to make its deciding suite cheaper`,
       );
     }
   }

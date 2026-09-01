@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import { type ShardAssignment, lptAssign } from "../../parser/mutation/shardPartition";
 import { generateMutants } from "./generate";
 import { enumerateSites } from "./operators";
+import { loadAnchor } from "../../../scripts/probes/2026-09-01-mutation-shard-figures-anchor";
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
 
 /**
@@ -97,6 +98,43 @@ export function weightOf(surface: GuardSurface): number {
   // `lptAssign`'s documented integer arithmetic stays true. A rounding step here
   // would be dead code, and the gate would eventually say so.
   return bootsOf(surface) * surface.millisPerBoot;
+}
+
+/**
+ * The per-leg overhead the modelled numbers cannot see, DERIVED from the recalibration block.
+ *
+ * `weightOf` is child milliseconds; `SHARD_BUDGET_SECONDS` bounds a leg's whole ELAPSED time. The
+ * difference is per-leg setup — checkout, install, browser, database — and it is the reason a
+ * comparison of the first against the second is short by a constant nobody wrote down. The MEDIAN
+ * of the block's ten legs, not the max: one slow leg's setup should not price every other leg's.
+ *
+ * Measured rather than chosen, and re-derived from the file rather than typed, so a later
+ * recalibration moves it without anyone remembering to.
+ */
+export function legOverheadSeconds(): number {
+  const legs = Object.values(loadAnchor().recalibration.legs);
+  if (legs.length === 0) {
+    // A block with no legs would otherwise yield a median of NaN or 0, and a zero overhead makes
+    // every fit trivially generous — the exact direction a missing figure must not fail in.
+    throw new Error("legOverheadSeconds: the recalibration block records no legs");
+  }
+  const deltas = legs.map((l) => l.elapsedS - Math.round(l.childMs / 1000)).sort((a, b) => a - b);
+  const mid = Math.floor(deltas.length / 2);
+  return deltas.length % 2 === 1 ? deltas[mid]! : Math.round((deltas[mid - 1]! + deltas[mid]!) / 2);
+}
+
+/** The heaviest SINGLE surface, in modelled child seconds, and which one it is. No shard count
+ *  puts a makespan below this: a surface is indivisible by the partition. */
+export function modelledFloor(surfaces: readonly GuardSurface[] = GUARD_SURFACES): {
+  seconds: number;
+  surface: string;
+} {
+  let best = { seconds: -1, surface: "" };
+  for (const s of surfaces) {
+    const seconds = weightOf(s) / 1000;
+    if (seconds > best.seconds) best = { seconds, surface: s.id };
+  }
+  return best;
 }
 
 export function sourceShardAssignment(

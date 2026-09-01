@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../../_shared/premise";
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
+import { checkBudget } from "@/lib/ci/shardBudget";
 import {
   SHARD_BUDGET_SECONDS,
   SOURCE_SHARD_COUNT,
   bootsOf,
+  legOverheadSeconds,
+  modelledFloor,
   shardOfSurface,
   sourceShardAssignment,
   surfacesForShard,
@@ -234,6 +237,53 @@ describe("source-mutation shard partition", () => {
   it("declares a budget below the per-job timeout, in seconds", () => {
     expect(SHARD_BUDGET_SECONDS).toBeGreaterThan(0);
     expect(SHARD_BUDGET_SECONDS).toBeLessThan(90 * 60);
+  });
+
+  it("the modelled floor IS the heaviest surface, derived from the same weights", () => {
+    // The live-registry fit check below cannot catch a wrong floor: a floor that is too SMALL
+    // still fits the budget, so `modelledFloor` returning the lightest surface passes it. Measured
+    // as an escaping mutant on 2026-09-01 and pinned here instead.
+    //
+    // Derived on both sides from `weightOf`, never a named surface id: the expected value is the
+    // maximum over the live registry, so enrolment moves it without touching this case.
+    const f = modelledFloor();
+    const heaviestMs = Math.max(...GUARD_SURFACES.map((x) => weightOf(x)));
+    expect(f.seconds).toBe(heaviestMs / 1000);
+    expect(weightOf(GUARD_SURFACES.find((x) => x.id === f.surface)!)).toBe(heaviestMs);
+    // And it is a MAXIMUM, not merely a member: nothing may exceed it.
+    for (const x of GUARD_SURFACES) expect(weightOf(x)).toBeLessThanOrEqual(heaviestMs);
+    // PREMISE: a registry whose surfaces all weighed the same would make the three assertions
+    // above true for any pick at all.
+    premise(
+      "the registry's weights actually differ, so picking the maximum is a choice",
+      new Set(GUARD_SURFACES.map((x) => weightOf(x))).size,
+      1,
+    );
+  });
+
+  it("the binding leg AND the floor fit the budget, in the units the budget is in", () => {
+    // REPLACES a comparison of child MILLISECONDS against a budget denominated in elapsed
+    // SECONDS, which was short by the per-leg overhead and therefore admitted a partition whose
+    // legs do not fit. The discrimination is proven against constructed numbers in
+    // tests/ci/shardBudget.test.ts; this call is the REGRESSION check on the shipped partition.
+    //
+    // Both halves are derived: the makespan from the live registry through `weightOf` and the
+    // shipped assignment, the floor from the heaviest single surface, the overhead from the
+    // recalibration block's ten measured legs. A literal on either side would rot the way the
+    // comparison this replaces did.
+    const floor = modelledFloor();
+    const overheadSeconds = legOverheadSeconds();
+    // PREMISE: a zero overhead makes this no stronger than the comparison it replaces, and a
+    // floor of zero makes the floor half vacuous.
+    premise("the derived per-leg overhead is real", overheadSeconds, 0);
+    premise("the modelled floor is a real surface cost", floor.seconds, 0);
+    const verdict = checkBudget([], [], SHARD_BUDGET_SECONDS, {
+      makespanSeconds: makespan / 1000,
+      floorSeconds: floor.seconds,
+      floorSurface: floor.surface,
+      overheadSeconds,
+    });
+    expect(verdict.failures.filter((f) => /modelled/.test(f))).toEqual([]);
   });
 
   it("the binding leg fits the budget, derived from the live registry", () => {
