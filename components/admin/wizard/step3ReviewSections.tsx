@@ -4203,9 +4203,21 @@ export function DiagramTile({
    * the move: the tile-count assertion selects with
    * `[data-testid^="…-diagram-tile-"]`, a PREFIX match, so any testid derived
    * from the tile's own would be counted AS a tile — that read 24 where 12 was
-   * correct at every breakpoint. The `title` attribute is the handle instead,
-   * and it doubles as the untruncated value, since the line is `truncate` and a
-   * tile is ~74px wide at 320px.
+   * correct at every breakpoint. The `title` attribute is the handle instead.
+   *
+   * TWO LINES, not one, and `truncate` was the wrong inheritance. While the
+   * caption lived INSIDE the `overflow-hidden aspect-4/3` box it could not be
+   * allowed to grow, so it was ellipsised to a single line. Out here growth is
+   * the whole point of the move, and a single line does not fit the names this
+   * surface actually carries: the grid probe reports `name truncated` at 320
+   * and 390, and the copy-fit probe measures a realistic 21-character name
+   * needing two lines at 640 as well — three of the four widths. A cut-off name
+   * does not answer WHICH diagram is dark, which is the entire job of the line,
+   * and `title` recovers it only on hover, which the venue floor does not have.
+   *
+   * Still BOUNDED at two, so one pathological name cannot push the grid around;
+   * a name past two lines is ellipsised as before, and `wrap-break-word` keeps
+   * a single very long token from overflowing sideways instead.
    *
    * `announced` is false ONLY in the live state, where the anchor already
    * carries the name and a visible duplicate would be heard twice. In the
@@ -4218,7 +4230,7 @@ export function DiagramTile({
       <span
         title={strippedAlt}
         aria-hidden={announced ? undefined : "true"}
-        className="max-w-full truncate text-xs text-text-subtle"
+        className="line-clamp-2 max-w-full wrap-break-word text-xs text-text-subtle"
       >
         {strippedAlt}
       </span>

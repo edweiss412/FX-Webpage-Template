@@ -47,8 +47,16 @@ body{font-family:"Inter",ui-sans-serif,system-ui,sans-serif;font-optical-sizing:
 .box{aspect-ratio:4/3;width:100%;display:grid;place-items:center;overflow:hidden;
   border:1px solid #999;border-radius:12px}
 .icon{width:16px;height:16px}
+/* The name line as SHIPPED: a two-line clamp, not a single ellipsised line.
+   It was truncate-to-one-line while the caption lived inside the
+   overflow-hidden box and could not grow; out here growth is the point, and one
+   line does not hold the names this surface carries. This probe reported
+   "name truncated" at 320 and 390 against the old rule, which is the
+   measurement the impeccable critique acted on.
+   Mirrors line-clamp-2 max-w-full wrap-break-word text-xs. */
 .name{font-size:.75rem;line-height:1.4;max-width:100%;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;display:block}
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  overflow-wrap:break-word}
 .msg{font-size:.75rem;line-height:1.625;display:block}
 </style></head><body><div id="out"></div></body></html>`);
 await page.evaluate(() => document.fonts.ready);

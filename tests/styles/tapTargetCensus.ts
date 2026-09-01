@@ -365,7 +365,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // and one lucide import line above this element. Located the same way: the
     // scanner reports one unclassified site in this file, 4265, and it is still that
     // same tile anchor. Same element, same reason below.
-    line: 4265,
+    // 4265 -> 4277 on the impeccable-critique P1 repair, which replaced the name
+    // line's single-line truncate with a two-line clamp and recorded why in the
+    // comment above it. Located by running the scanner: one unclassified site,
+    // 4277, still that same tile anchor.
+    line: 4277,
     tag: "a",
     category: "full-bleed",
     reason:

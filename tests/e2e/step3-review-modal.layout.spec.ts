@@ -1516,3 +1516,91 @@ for (const { w, h } of TILE_VIEWPORTS) {
     }
   });
 }
+
+/**
+ * The name line is READABLE, not merely present.
+ *
+ * `DIAGRAMTILE-LIVE-TILE-UNLABELLED-1` is closed by rendering the diagram's
+ * name under every tile. A name the tile cuts in half does not close it: the
+ * question the name exists to answer is WHICH diagram is dark, and two sheet
+ * tabs whose names share a prefix render identically once they are ellipsised.
+ *
+ * Measured, not assumed. The arc's own grid probe
+ * (docs/superpowers/specs/probes/2026-08-31-diagram-tile-grid-probe.mjs)
+ * reports `name truncated` at 320px and 390px, and the copy-fit probe measures
+ * a realistic 21-character name ("Main stage plot rev 4") needing two lines at
+ * 320, 390 AND 640 — three of the four widths. The only recovery was the
+ * `title` attribute, which requires hover, and PRODUCT.md names a phone on a
+ * venue floor as one of Doug's two primary contexts. There is no hover there.
+ *
+ * The assertion is clipping, not a class: a name is readable when its own
+ * scroll box holds all of it. Under `truncate` (`white-space: nowrap` plus
+ * `overflow: hidden`) a name that does not fit reports `scrollWidth >
+ * clientWidth`, which is exactly the state this case forbids.
+ *
+ * What this does NOT claim: that a name of any length whatsoever renders in
+ * full. The caption is bounded at two lines on purpose, so one pathological
+ * name cannot push the whole grid around. This pins the realistic case the
+ * harness fixture and the probe both measure.
+ */
+for (const { w, h } of TILE_VIEWPORTS) {
+  test(`T-DIAGRAM-NAME: the tile's name is not cut off @ ${w}px`, async ({ page }) => {
+    await openHarness(page, { width: w, height: h });
+
+    const m = await page.evaluate(
+      ({ dfid, servable }) => {
+        const failedIndex = servable === 0 ? 1 : 0;
+        const read = (i: number) => {
+          const cell = document.querySelector(
+            `[data-testid="wizard-step3-card-${dfid}-diagram-cell-${i}"]`,
+          );
+          const name = cell?.querySelector<HTMLElement>("[title]") ?? null;
+          if (!name) return null;
+          const cs = getComputedStyle(name);
+          return {
+            title: name.getAttribute("title") ?? "",
+            text: (name.textContent ?? "").trim(),
+            scrollW: name.scrollWidth,
+            clientW: name.clientWidth,
+            scrollH: name.scrollHeight,
+            clientH: name.clientHeight,
+            whiteSpace: cs.whiteSpace,
+            height: name.getBoundingClientRect().height,
+            lineHeight: parseFloat(cs.lineHeight),
+          };
+        };
+        return { live: read(servable), failed: read(failedIndex) };
+      },
+      { dfid: HARNESS_DFID, servable: SERVABLE_DIAGRAM_INDEX },
+    );
+
+    expect(m.live, `the live tile's name resolves @ ${w}px (premise)`).not.toBeNull();
+    expect(m.failed, `the failed tile's name resolves @ ${w}px (premise)`).not.toBeNull();
+
+    for (const [label, d] of [
+      ["live", m.live!],
+      ["failed", m.failed!],
+    ] as const) {
+      // Premise: the name is long enough that fitting it is a real question at
+      // this width. A one-character name would satisfy every assertion below
+      // without the layout doing anything.
+      expect(
+        d.title.length,
+        `the ${label} tile's name is long enough to be worth measuring @ ${w}px (premise)`,
+      ).toBeGreaterThan(8);
+      // The rendered text is the WHOLE name. An ellipsis is painted by the
+      // browser and never enters textContent, so this alone would pass under
+      // `truncate` — which is why the clipping checks below carry the weight.
+      expect(d.text, `the ${label} tile renders its whole name @ ${w}px`).toBe(d.title);
+
+      expect(
+        d.scrollW - d.clientW,
+        `the ${label} name is not cut off horizontally (${d.scrollW} vs ${d.clientW}) @ ${w}px`,
+      ).toBeLessThanOrEqual(TOL);
+      expect(
+        d.scrollH - d.clientH,
+        `the ${label} name is not cut off vertically (${d.scrollH} vs ${d.clientH}) @ ${w}px`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+  });
+}
