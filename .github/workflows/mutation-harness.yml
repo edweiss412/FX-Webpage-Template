@@ -228,6 +228,24 @@ jobs:
         id: stamp-start
         run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
+      # The ambient ref count, printed by every leg on every trigger.
+      #
+      # `ledgerGit` and `ledgerClaimsCore` are EXCLUDED from the declared rates in
+      # scripts/probes/2026-09-01-mutation-shard-figures-input.json: they measured 2.2x apart
+      # between two runs and are the only two surfaces sharing an ambient-git reader
+      # (tests/scripts/ledgerClaimsCheck.test.ts:570). The archived entry
+      # BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT names this exact probe as the one that would
+      # settle whether the trigger type is the cause, and records that it has never run.
+      #
+      # One `git for-each-ref` per leg, so the exclusion becomes retirable from evidence: two runs
+      # of the same trigger whose counts agree re-derive both rates. NOT `env:`-bearing on purpose
+      # -- it needs nothing -- which is why tests/mutation/_metaSourceShardIntegrity.test.ts pins
+      # it by name: the workflow-coverage scanner reads env pairs and sees a bare `run:` step as
+      # no change at all.
+      - name: Record ambient origin-ref count
+        run: |
+          echo "refs/remotes/origin/* count: $(git for-each-ref --format='%(refname)' 'refs/remotes/origin/*' | wc -l)"
+          git for-each-ref --format='  %(refname)' 'refs/remotes/origin/*'
       - uses: ./.github/actions/setup
       # Browser install, chromium only. The registry enrols `captureRenderFault`
       # (tests/mutation/source/registry.ts) whose deciding suite,

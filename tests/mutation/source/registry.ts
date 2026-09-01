@@ -195,7 +195,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // together. This comment deliberately quotes NO figure: the enrolling comments here each
     // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
     // every rate without moving them, which cost three review rounds.
-    millisPerBoot: 2090,
+    millisPerBoot: 2826,
     sourcePath: "tests/ci/_configBranchProbe.ts",
     suitePaths: ["tests/ci/_metaConfigBranchStaleness.test.ts"],
     // The full declared set. This surface is a RECOGNIZER over Playwright
@@ -320,7 +320,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // together. This comment deliberately quotes NO figure: the enrolling comments here each
     // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
     // every rate without moving them, which cost three review rounds.
-    millisPerBoot: 1907,
+    millisPerBoot: 1935,
     sourcePath: "lib/admin/reportDraftStore.ts",
     suitePaths: ["tests/admin/reportDraftStore.test.ts"],
     operators: ["relational-boundary", "equality-flip", "integer-literal", "statement-removal"],
@@ -361,7 +361,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "captureRenderFault",
-    millisPerBoot: 1368,
+    millisPerBoot: 1730,
     sourcePath: "scripts/capture-render-fault.ts",
     suitePaths: ["tests/help/renderFaultDetector.test.ts"],
     operators: ["relational-boundary", "equality-flip", "integer-literal"],
@@ -399,7 +399,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // together. This comment deliberately quotes NO figure: the enrolling comments here each
     // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
     // every rate without moving them, which cost three review rounds.
-    millisPerBoot: 1443,
+    millisPerBoot: 2019,
     sourcePath: "tests/components/diagrams/perItemStateScanner.ts",
     suitePaths: ["tests/components/diagrams/perItemStateLifetime.probe.test.ts"],
     // The full declared set. This surface is a RECOGNIZER, and plan review R4
@@ -457,7 +457,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "premiseScan",
-    millisPerBoot: 3363,
+    millisPerBoot: 3411,
     sourcePath: "tests/mutation/source/premiseScan.ts",
     suitePaths: [
       "tests/mutation/source/premiseScan.test.ts",
@@ -518,7 +518,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // every rule is reachable from a literal row table, which is why the module is
     // pure and the CLI is not the enrolled surface.
     id: "heavyReapClassify",
-    millisPerBoot: 1435,
+    millisPerBoot: 1434,
     sourcePath: "lib/heavyReap/classify.ts",
     suitePaths: ["tests/heavyReap/classify.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -685,7 +685,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // AC-3). Authored as an importable module with a referring suite from the
     // start, so enrolment is a registry row rather than a restructuring.
     id: "modal-wait-helper-scan",
-    millisPerBoot: 6012,
+    millisPerBoot: 4783,
     sourcePath: "tests/ci/modalWaitHelper/scan.ts",
     // TWO deciding suites since the candidate-contract v2 arc (2026-08-17): the
     // corpus suite, and the premise proofs, whose constructed fixtures are the
@@ -765,7 +765,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // survivor can hide in. Registry-expressible shape by construction — an
     // importable module whose two referring suites already exist.
     id: "modal-wait-disposition",
-    millisPerBoot: 3431,
+    millisPerBoot: 3890,
     sourcePath: "tests/ci/modalWaitHelper/disposition.ts",
     suitePaths: [
       "tests/ci/_metaModalWaitHelper.test.ts",
@@ -852,7 +852,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // wiring suite is listed because it holds the span-exclusion coordinates,
     // which no other suite observes.
     id: "redContract",
-    millisPerBoot: 2600,
+    millisPerBoot: 2601,
     sourcePath: "lib/specLint/redContract.ts",
     suitePaths: [
       "tests/specLint/redContract.test.ts",
@@ -924,7 +924,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // deciding assertion. If a survivor turns out to need it, it belongs here —
     // placement outside suitePaths buys zero score (the #831 lesson).
     id: "declaredLimitPins",
-    millisPerBoot: 1611,
+    millisPerBoot: 2383,
     sourcePath: "lib/specLint/declaredLimitPins.ts",
     suitePaths: [
       "tests/specLint/declaredLimitPins.test.ts",
@@ -988,7 +988,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "fixtureContract",
-    millisPerBoot: 5635,
+    millisPerBoot: 5937,
     sourcePath: "lib/specLint/fixtureContract.ts",
     suitePaths: [
       "tests/specLint/fixtureContract.test.ts",
@@ -1023,7 +1023,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "taskContract",
-    millisPerBoot: 1631,
+    millisPerBoot: 1630,
     sourcePath: "lib/specLint/taskContract.ts",
     // BOTH suites, and the second one is load-bearing: `compareFindings` is
     // exercised only by the ordering suite, so without it every mutant inside
@@ -1360,7 +1360,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "destructiveFileAnalysis",
-    millisPerBoot: 1969,
+    millisPerBoot: 1966,
     sourcePath: "tests/db/_destructiveFileAnalysis.ts",
     suitePaths: ["tests/db/destructiveFileAnalysis.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -1473,7 +1473,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "pgCronSmokes",
-    millisPerBoot: 1417,
+    millisPerBoot: 1418,
     sourcePath: "tests/cross-cutting/pgCronSmokes.ts",
     suitePaths: ["tests/cross-cutting/pgCronSmokesUnit.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -1524,7 +1524,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "acCoverage",
-    millisPerBoot: 5191,
+    millisPerBoot: 5190,
     sourcePath: "lib/specLint/acCoverage.ts",
     suitePaths: [
       "tests/specLint/acCoverage.test.ts",
@@ -1605,7 +1605,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "claimSweep",
-    millisPerBoot: 2984,
+    millisPerBoot: 3112,
     sourcePath: "lib/specLint/claimSweep.ts",
     suitePaths: [
       "tests/specLint/claimSweepNumeric.test.ts",
@@ -1799,7 +1799,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "reviewRoundInstant",
-    millisPerBoot: 2098,
+    millisPerBoot: 2885,
     sourcePath: "lib/reviewRounds/instant.ts",
     suitePaths: [
       "tests/reviewRounds/instant.test.ts",
@@ -2228,7 +2228,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "specLintExpectContract",
-    millisPerBoot: 2175,
+    millisPerBoot: 1478,
     sourcePath: "lib/specLint/expectContract.ts",
     suitePaths: [
       "tests/specLint/expectContract.test.ts",
@@ -2376,7 +2376,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "reviewRoundCorpus",
-    millisPerBoot: 1821,
+    millisPerBoot: 1841,
     sourcePath: "lib/reviewRounds/corpus.ts",
     suitePaths: ["tests/docs/_metaReviewRoundEconomy.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2447,7 +2447,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // feeds the brief's GUARD SURFACE: line that the new codex-guard dispatch
     // gate checks.
     id: "reviewRoundFiling",
-    millisPerBoot: 1603,
+    millisPerBoot: 2082,
     sourcePath: "lib/reviewRounds/filing.ts",
     suitePaths: ["tests/reviewRounds/filing.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2517,7 +2517,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "phantomGapExecuted",
-    millisPerBoot: 1409,
+    millisPerBoot: 1410,
     // A `.mjs` module, unlike every row above it: the phantom-gap job's diagram
     // step needs a plain-node CLI, so the logic ships as ESM the wrapper can
     // import without a transpile step.
@@ -2548,7 +2548,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "popoverOverlayExtract",
-    millisPerBoot: 1868,
+    millisPerBoot: 1888,
     sourcePath: "tests/components/admin/showpage/_popoverOverlayExtract.ts",
     suitePaths: ["tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2578,7 +2578,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "renderedTextHaystack",
-    millisPerBoot: 2714,
+    millisPerBoot: 2657,
     sourcePath: "tests/help/_renderedTextHaystack.ts",
     suitePaths: ["tests/help/_metaUiLabelCrosswalk.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2593,7 +2593,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "interactionTimingScan",
-    millisPerBoot: 5767,
+    millisPerBoot: 3712,
     sourcePath: "scripts/scan-interaction-timings.ts",
     suitePaths: [
       "tests/docs/_metaInteractionTimingInventory.test.ts",
@@ -2770,7 +2770,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   //    its own file rather than part of `_helpers.ts`.
   {
     id: "fieldNearMiss",
-    millisPerBoot: 2762,
+    millisPerBoot: 2774,
     sourcePath: "lib/parser/fieldNearMiss.ts",
     // The per-class suite decides first (it is the cheaper boot and kills most mutants),
     // the 65-row corpus baseline second: guard-calibration mutants that keep every
@@ -2803,7 +2803,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "rowScanOpener",
-    millisPerBoot: 2288,
+    millisPerBoot: 3002,
     sourcePath: "lib/parser/blocks/_rowScan.ts",
     suitePaths: [
       "tests/parser/fieldNearMiss.test.ts",
@@ -2851,7 +2851,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // meta-test plus the enrolment run itself.
   {
     id: "browserRegistry",
-    millisPerBoot: 1491,
+    millisPerBoot: 1492,
     sourcePath: "tests/mutation/browser/registry.ts",
     suitePaths: ["tests/mutation/browser/registry.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -2899,7 +2899,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "interactiveScanCore",
-    millisPerBoot: 3874,
+    millisPerBoot: 3872,
     sourcePath: "tests/styles/interactiveScanCore.ts",
     // All three suites: the core's own unit + fixture cases, plus the two
     // guards that consume it. A mutant that survives the unit cases can still
@@ -3055,7 +3055,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // than an honest absence: the gate's no-mutants condition exists to say so.
   {
     id: "tapTargetScan",
-    millisPerBoot: 1258,
+    millisPerBoot: 1007,
     sourcePath: "tests/styles/tapTargetScan.ts",
     suitePaths: ["tests/styles/_metaTapTargetFloor.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3081,7 +3081,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // resolver operators. Re-scored at 65/65 with zero unaccepted survivors.
   {
     id: "controlOutlineScan",
-    millisPerBoot: 2982,
+    millisPerBoot: 2973,
     sourcePath: "tests/styles/controlOutlineScan.ts",
     suitePaths: ["tests/styles/_metaControlOutlineFill.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3104,7 +3104,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "controlOutlineResidueBoundaries",
-    millisPerBoot: 21283,
+    millisPerBoot: 25939,
     sourcePath: "tests/styles/controlOutlineResidue.ts",
     suitePaths: ["tests/styles/_metaControlOutlineResidue.test.ts"],
     operators: ["integer-literal", "relational-boundary", "logical-connector"],
@@ -3291,7 +3291,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // empty `accepted` list is the strongest claim a row can make, and the moment it
     // stops being true the gate says so.
     id: "controlOutlineResidueRewrites",
-    millisPerBoot: 13738,
+    millisPerBoot: 16510,
     sourcePath: "tests/styles/controlOutlineResidue.ts",
     suitePaths: ["tests/styles/_metaControlOutlineResidue.test.ts"],
     operators: ["equality-flip", "statement-removal", "regex-quantifier-bound"],
@@ -3318,7 +3318,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "executionMethodsDerivation",
-    millisPerBoot: 1262,
+    millisPerBoot: 1725,
     sourcePath: "scripts/execution-methods/lib.ts",
     suitePaths: ["tests/db/executionMethodsManifest.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3350,7 +3350,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // this pair is 48 sites, 20-30 min. A wider subset is a future registry
     // change carrying its own numbers, not a finding against this row.
     id: "psqlStartupScan",
-    millisPerBoot: 16462,
+    millisPerBoot: 25952,
     sourcePath: "tests/cross-cutting/psqlStartupFiles/scan.ts",
     suitePaths: ["tests/cross-cutting/psqlStartupFileSuppression.test.ts"],
     operators: ["relational-boundary", "regex-quantifier-bound"],
@@ -3715,7 +3715,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "sameOriginServerAction",
-    millisPerBoot: 1874,
+    millisPerBoot: 1406,
     sourcePath: "lib/auth/sameOriginServerAction.ts",
     suitePaths: ["tests/auth/sameOriginServerAction.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3753,7 +3753,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "sourceShardPartition",
-    millisPerBoot: 5688,
+    millisPerBoot: 5687,
     sourcePath: "tests/mutation/source/shardPartition.ts",
     // TWO deciding suites, and the second is load-bearing rather than tidy. The
     // unit suite decides every BEHAVIOUR in this module, but it reads
@@ -3800,7 +3800,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "mutationSurfaceEnumerate",
-    millisPerBoot: 2788,
+    millisPerBoot: 2804,
     sourcePath: "tests/log/mutationSurface/enumerate.ts",
     suitePaths: [
       "tests/log/mutationSurface/enumerate.test.ts",
@@ -3876,7 +3876,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "mutationSurfaceTotality",
-    millisPerBoot: 1995,
+    millisPerBoot: 2269,
     sourcePath: "tests/log/mutationSurface/totality.ts",
     suitePaths: [
       "tests/log/mutationSurface/enumerate.test.ts",
@@ -3921,7 +3921,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "spawnBounded",
-    millisPerBoot: 934,
+    millisPerBoot: 1401,
     sourcePath: "tests/mutation/source/spawnBounded.ts",
     suitePaths: ["tests/mutation/source/spawnBounded.test.ts"],
     operators: ["equality-flip", "logical-connector", "integer-literal", "statement-removal"],
@@ -3965,7 +3965,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "sendAuthScan",
-    millisPerBoot: 4164,
+    millisPerBoot: 4731,
     sourcePath: "tests/paneCompaction/sendAuthScan.ts",
     suitePaths: ["tests/paneCompaction/_metaSendAuthSingleRead.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -3995,7 +3995,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "connectionCensus",
-    millisPerBoot: 6842,
+    millisPerBoot: 6346,
     sourcePath: "tests/db/_connectionCensus.ts",
     suitePaths: ["tests/db/connectionCensus.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -4057,7 +4057,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "mutationWeightRecords",
-    millisPerBoot: 1446,
+    millisPerBoot: 1445,
     sourcePath: "lib/mutationWeight/records.ts",
     suitePaths: ["tests/mutationWeight/instrument.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -4200,7 +4200,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
    */
   {
     id: "supabaseRetryingFetch",
-    millisPerBoot: 1853,
+    millisPerBoot: 2308,
     sourcePath: "lib/supabase/retryingFetch.ts",
     suitePaths: [
       "tests/supabase/retryingFetch.test.ts",
@@ -4219,7 +4219,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // it — and a scan-anywhere match then claimed Storage writes and retried them. A module that
     // decides "is this request ours to retry" is exactly the shape the registry exists to hold.
     id: "supabaseRetryEligibility",
-    millisPerBoot: 970,
+    millisPerBoot: 1451,
     sourcePath: "lib/supabase/retryEligibility.ts",
     suitePaths: ["tests/supabase/retryEligibility.test.ts"],
     operators: [...OPERATOR_NAMES],
@@ -4259,7 +4259,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "retryableRpcVolatilityScan",
-    millisPerBoot: 1229,
+    millisPerBoot: 1048,
     sourcePath: "tests/supabase/retryableRpcVolatilityScan.ts",
     // Two deciding suites, split by whether they need a database. The walk file carries the
     // mkdtemp fixtures and runs anywhere; the other asserts against the live catalog. That
@@ -4283,7 +4283,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   },
   {
     id: "replacementString",
-    millisPerBoot: 6768,
+    millisPerBoot: 6878,
     sourcePath: "tests/cross-cutting/replacementString/scan.ts",
     suitePaths: ["tests/cross-cutting/replacementString.test.ts"],
     // All six declared operators, deliberately. A scoped subset leaves the excluded operators'
@@ -4328,7 +4328,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // actually ships. The shard
     // partition is priced in this, so a guessed number would weight it by something
     // nobody measured.
-    millisPerBoot: 1983,
+    millisPerBoot: 1982,
     // Flips the prefix scrub's floor comparison so the loop runs one iteration short
     // of the shortest prefix it must replace. A live behaviour change on the exact
     // branch diff review R3 added, and the suite asserts a 20-character prefix is gone.
@@ -4351,7 +4351,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // together. This comment deliberately quotes NO figure: the enrolling comments here each
     // quoted the measurement that produced their rate, and the 2026-09-01 recalibration moved
     // every rate without moving them, which cost three review rounds.
-    millisPerBoot: 1446,
+    millisPerBoot: 1927,
     // Drops the empty-string guard, so a field present but empty starts joining into
     // the message. The suite pins the exact message for that case.
     control: { from: 'typeof v === "string" && v !== ""', to: 'typeof v === "string"' },

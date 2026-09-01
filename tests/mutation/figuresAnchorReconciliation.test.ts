@@ -74,6 +74,33 @@ function mutants(base: Anchor): Mutant[] {
       out.push({ label: `bootsAtRun.${id} ${base.bootsAtRun[id]} -> ${v}`, anchor: a });
     }
   }
+  // The RECALIBRATION block's three tables, on the same footing. It is where the registry's
+  // declared rates come from, so a wrong number there is a partition priced by a figure nobody
+  // measured -- the same consequence the body's sweep exists to forbid. Round 3 measured that
+  // `anchorProblems` returned [] for an anchor carrying an INVALID recalibration block: a
+  // validator only knows about tables that existed when it was written, and a sweep only mutates
+  // the ones it was pointed at.
+  const R = base.recalibration;
+  for (const id of Object.keys(R.rates).sort()) {
+    for (const v of digitDeletions(R.rates[id]!.observedPerBoot)) {
+      const a = clone(base);
+      a.recalibration.rates[id]!.observedPerBoot = v;
+      out.push({
+        label: `recalibration.rates.${id}.observedPerBoot ${R.rates[id]!.observedPerBoot} -> ${v}`,
+        anchor: a,
+      });
+    }
+    for (const v of digitDeletions(R.surfaceMs[id]!)) {
+      const a = clone(base);
+      a.recalibration.surfaceMs[id] = v;
+      out.push({ label: `recalibration.surfaceMs.${id} ${R.surfaceMs[id]} -> ${v}`, anchor: a });
+    }
+    for (const v of digitDeletions(R.bootsAtRun[id]!)) {
+      const a = clone(base);
+      a.recalibration.bootsAtRun[id] = v;
+      out.push({ label: `recalibration.bootsAtRun.${id} ${R.bootsAtRun[id]} -> ${v}`, anchor: a });
+    }
+  }
   return out;
 }
 
@@ -99,20 +126,39 @@ describe("the figures anchor reconciles its rate table against its millisecond t
 
   const generated = mutants(base);
 
-  it("generates a mutant for every digit of every number on the three tables", () => {
-    const expected = Object.keys(base.rates).reduce(
-      (n, id) =>
-        n +
-        digitDeletions(base.rates[id]!.observedPerBoot).length +
-        digitDeletions(base.surfaceMs[id]!).length +
-        digitDeletions(base.bootsAtRun[id]!).length,
-      0,
-    );
+  it("generates a mutant for every digit of every number on the SIX reconciled tables", () => {
+    const tablesOf = (
+      rates: Record<string, { observedPerBoot: number }>,
+      surfaceMs: Record<string, number>,
+      bootsAtRun: Record<string, number>,
+    ) =>
+      Object.keys(rates).reduce(
+        (n, id) =>
+          n +
+          digitDeletions(rates[id]!.observedPerBoot).length +
+          digitDeletions(surfaceMs[id]!).length +
+          digitDeletions(bootsAtRun[id]!).length,
+        0,
+      );
+    const expected =
+      tablesOf(base.rates, base.surfaceMs, base.bootsAtRun) +
+      tablesOf(
+        base.recalibration.rates,
+        base.recalibration.surfaceMs,
+        base.recalibration.bootsAtRun,
+      );
     expect(generated.length).toBe(expected);
-    expect(generated.length).toBeGreaterThan(3 * Object.keys(base.rates).length);
+    // Both halves are non-empty, so a sweep that silently stopped covering one of them cannot
+    // pass this by matching a total the other half alone could reach.
+    expect(generated.filter((m) => m.label.startsWith("recalibration.")).length).toBeGreaterThan(
+      3 * Object.keys(base.recalibration.rates).length,
+    );
+    expect(generated.filter((m) => !m.label.startsWith("recalibration.")).length).toBeGreaterThan(
+      3 * Object.keys(base.rates).length,
+    );
   });
 
-  it("refuses every single-digit deletion on all three tables", () => {
+  it("refuses every single-digit deletion on all SIX tables", () => {
     const survivors = generated.filter((m) => anchorProblems(m.anchor, SPLIT_TEXT).length === 0);
     expect(survivors.map((s) => s.label)).toEqual([]);
   });

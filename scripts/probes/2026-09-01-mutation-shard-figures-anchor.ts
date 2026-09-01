@@ -75,6 +75,27 @@ export type Anchor = {
    *  third, independently measured number that binds `surfaceMs` to `rates`. */
   bootsAtRun: Record<string, number>;
   splitSourceBlobSha: string;
+  /**
+   * A LATER full run, measured on its own head, from which the registry's rates are declared.
+   *
+   * Separate from the body above rather than replacing it: `splitSurfaceOperatorMs` prices
+   * `controlOutlineResidue` as ONE registry row, and that row no longer exists as one, so a
+   * regenerated anchor would destroy the record that licensed the split. The body is the
+   * measurement that motivated a decision; this block is the measurement the rates follow.
+   *
+   * `rateExcluded` names surfaces this block MEASURED and does not declare from. Recording and
+   * excluding are different acts, and omitting them would leave the exclusion invisible.
+   */
+  recalibration: {
+    runId: string;
+    runHeadSha: string;
+    dateISO: string;
+    legs: Record<string, { elapsedS: number; childMs: number }>;
+    surfaceMs: Record<string, number>;
+    bootsAtRun: Record<string, number>;
+    rates: Record<string, { observedPerBoot: number }>;
+    rateExcluded: string[];
+  };
   priorRun: {
     runId: string;
     surfaces: number;
@@ -203,6 +224,76 @@ export function anchorProblems(A: Anchor, text: string): string[] {
         `reprice a source nobody measured. Re-measure, or state the figures from a run on ` +
         `this text.`,
     );
+  }
+
+  // THE RECALIBRATION BLOCK, judged on the SAME footing and by the same shapes. It is the block
+  // the registry's declared rates come from, so a hole here is a rate nobody measured, which is
+  // exactly the defect the body above is judged whole to prevent -- and a validator that knew only
+  // about tables written before it was added would return clean for an invalid block. Measured
+  // 2026-09-01: it did.
+  const R = A.recalibration;
+  if (!/^\d+$/.test(R.runId))
+    bad.push(`recalibration.runId ${JSON.stringify(R.runId)} is not a run id`);
+  if (!/^[0-9a-f]{40}$/.test(R.runHeadSha)) {
+    bad.push(`recalibration.runHeadSha ${JSON.stringify(R.runHeadSha)} is not a commit sha`);
+  }
+  const rLegIdx = Object.keys(R.legs)
+    .map(Number)
+    .sort((x, y) => x - y);
+  if (rLegIdx.length === 0 || !rLegIdx.every((n, i) => n === i)) {
+    bad.push(`recalibration legs are [${rLegIdx.join(", ")}], not a contiguous matrix 0..n-1`);
+  }
+  for (const [n, leg] of Object.entries(R.legs)) {
+    positive(`recalibration.legs[${n}].elapsedS`, leg?.elapsedS);
+    positive(`recalibration.legs[${n}].childMs`, leg?.childMs);
+  }
+  const rSurfaceIds = Object.keys(R.surfaceMs).sort();
+  for (const [label, table] of [
+    ["rates", Object.keys(R.rates).sort()],
+    ["bootsAtRun", Object.keys(R.bootsAtRun).sort()],
+  ] as const) {
+    if (table.join("\u0000") !== rSurfaceIds.join("\u0000")) {
+      bad.push(`recalibration.${label} describes different surfaces from recalibration.surfaceMs`);
+    }
+  }
+  for (const id of rSurfaceIds) {
+    positive(`recalibration.surfaceMs.${id}`, R.surfaceMs[id]);
+    positive(`recalibration.bootsAtRun.${id}`, R.bootsAtRun[id]);
+    positive(`recalibration.rates.${id}.observedPerBoot`, R.rates[id]?.observedPerBoot);
+  }
+  // The same two-tables-one-quantity cross-check the body gets: every surface ran on exactly one
+  // leg, so a difference means one table lost a row.
+  const rLegChild = Object.values(R.legs).reduce((a, l) => a + (l?.childMs ?? 0), 0);
+  const rSurfChild = Object.values(R.surfaceMs).reduce((a, b) => a + (b ?? 0), 0);
+  if (rLegChild !== rSurfChild) {
+    bad.push(
+      `recalibration legs total ${rLegChild} child ms but the per-surface table totals ` +
+        `${rSurfChild}; every surface ran on exactly one leg`,
+    );
+  }
+  // THE RATE RELATION, and it ROUNDS. `observedPerBoot` is an integer and `surfaceMs` is a
+  // measurement, so an exact product rejects ordinary rounding: 56 of the body's own 60 rows fail
+  // it. This is the relation the anchor already satisfies, stated so the block cannot drift into a
+  // rate nobody derived.
+  for (const id of rSurfaceIds) {
+    const b = R.bootsAtRun[id];
+    const ms = R.surfaceMs[id];
+    const rate = R.rates[id]?.observedPerBoot;
+    if (b === undefined || ms === undefined || rate === undefined || b <= 0) continue;
+    if (rate !== Math.round(ms / b)) {
+      bad.push(
+        `recalibration.rates.${id} declares ${rate} ms/boot, but ${ms} ms over ${b} boots ` +
+          `rounds to ${Math.round(ms / b)}`,
+      );
+    }
+  }
+  for (const id of R.rateExcluded) {
+    if (R.rates[id] === undefined) {
+      bad.push(
+        `recalibration.rateExcluded names ${id}, which the block does not measure; excluding a ` +
+          `surface means RECORDING it and not declaring from it, so an unmeasured id is a typo`,
+      );
+    }
   }
 
   const priorSum = A.priorRun.legsElapsedS.reduce((a, b) => a + b, 0);

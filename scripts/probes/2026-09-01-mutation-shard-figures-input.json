@@ -423,5 +423,366 @@
   },
   "thisRunDateISO": "2026-08-31",
   "splitSourceBlobSha": "c4ef9be08c2cd18ba0b37e79d8d6af3b9672405a",
-  "splitSourceNote": "The git blob sha of tests/styles/controlOutlineResidue.ts as run 33404224554 measured it. splitSurfaceOperatorMs prices OPERATORS against THIS text; applied to a different text the per-operator milliseconds are a measurement of something else, so the probe refuses rather than repricing. Recover it with `git hash-object tests/styles/controlOutlineResidue.ts`."
+  "splitSourceNote": "The git blob sha of tests/styles/controlOutlineResidue.ts as run 33404224554 measured it. splitSurfaceOperatorMs prices OPERATORS against THIS text; applied to a different text the per-operator milliseconds are a measurement of something else, so the probe refuses rather than repricing. Recover it with `git hash-object tests/styles/controlOutlineResidue.ts`.",
+  "recalibration": {
+    "runId": "33501574343",
+    "runHeadSha": "d540739b586e368dc5af57abf9c8fa3e6b3e7aac",
+    "dateISO": "2026-09-01",
+    "legs": {
+      "0": {
+        "elapsedS": 3236,
+        "childMs": 3034823
+      },
+      "1": {
+        "elapsedS": 2306,
+        "childMs": 2164054
+      },
+      "2": {
+        "elapsedS": 2957,
+        "childMs": 2717943
+      },
+      "3": {
+        "elapsedS": 2465,
+        "childMs": 2295149
+      },
+      "4": {
+        "elapsedS": 3307,
+        "childMs": 3072719
+      },
+      "5": {
+        "elapsedS": 2504,
+        "childMs": 2316232
+      },
+      "6": {
+        "elapsedS": 2791,
+        "childMs": 2608824
+      },
+      "7": {
+        "elapsedS": 2265,
+        "childMs": 2056353
+      },
+      "8": {
+        "elapsedS": 2785,
+        "childMs": 2550417
+      },
+      "9": {
+        "elapsedS": 2481,
+        "childMs": 2302409
+      }
+    },
+    "surfaceMs": {
+      "acCoverage": 456751,
+      "browserMutate": 80761,
+      "browserRegistry": 86533,
+      "captureRenderFault": 12110,
+      "citationIntent": 21305,
+      "claimSweep": 482305,
+      "clientErrorTransport": 110988,
+      "configBranchProbe": 36732,
+      "connectionCensus": 2164054,
+      "controlOutlineResidueBoundaries": 3034823,
+      "controlOutlineResidueRewrites": 2311359,
+      "controlOutlineScan": 190267,
+      "declaredLimitPins": 357505,
+      "describeClientValue": 42388,
+      "destructiveFileAnalysis": 468017,
+      "executionMethodsDerivation": 20696,
+      "fieldNearMiss": 124848,
+      "fixtureContract": 445258,
+      "heavyReapClassify": 25804,
+      "interactionTimingScan": 619888,
+      "interactiveScanCore": 1548966,
+      "ledgerClaimsCore": 501135,
+      "ledgerGit": 576430,
+      "modal-wait-disposition": 272272,
+      "modal-wait-helper-scan": 483087,
+      "mutationSurfaceEnumerate": 712243,
+      "mutationSurfaceTotality": 49926,
+      "mutationWeightRecords": 30350,
+      "mutationWeightWeights": 238308,
+      "observeTransport": 13660,
+      "paneCompactionCore": 1321579,
+      "perItemStateScanner": 58547,
+      "pgCronSmokes": 21266,
+      "phantomGapExecuted": 19737,
+      "popoverOverlayExtract": 149161,
+      "premiseScan": 671877,
+      "psqlStartupScan": 2128104,
+      "redContract": 684091,
+      "renderedTextHaystack": 47820,
+      "replacementString": 220081,
+      "reportDraftStore": 34823,
+      "retryableRpcVolatilityScan": 58699,
+      "reviewRoundCorpus": 228291,
+      "reviewRoundCount": 22766,
+      "reviewRoundFiling": 214405,
+      "reviewRoundInstant": 245204,
+      "rowScanOpener": 93077,
+      "sameOriginServerAction": 19684,
+      "sendAuthScan": 1381314,
+      "serializeErrorStructure": 98660,
+      "shardBudget": 47075,
+      "sourceShardPartition": 34119,
+      "spawnBounded": 18215,
+      "specLintExpectContract": 73876,
+      "specLintGate": 22279,
+      "specLintNumerics": 789195,
+      "specLintUniversals": 347682,
+      "supabaseRetryEligibility": 33381,
+      "supabaseRetryingFetch": 115413,
+      "tapTargetScan": 2013,
+      "taskContract": 397720
+    },
+    "bootsAtRun": {
+      "acCoverage": 88,
+      "browserMutate": 41,
+      "browserRegistry": 58,
+      "captureRenderFault": 7,
+      "citationIntent": 24,
+      "claimSweep": 155,
+      "clientErrorTransport": 56,
+      "configBranchProbe": 13,
+      "connectionCensus": 341,
+      "controlOutlineResidueBoundaries": 117,
+      "controlOutlineResidueRewrites": 140,
+      "controlOutlineScan": 64,
+      "declaredLimitPins": 150,
+      "describeClientValue": 22,
+      "destructiveFileAnalysis": 238,
+      "executionMethodsDerivation": 12,
+      "fieldNearMiss": 45,
+      "fixtureContract": 75,
+      "heavyReapClassify": 18,
+      "interactionTimingScan": 167,
+      "interactiveScanCore": 400,
+      "ledgerClaimsCore": 68,
+      "ledgerGit": 108,
+      "modal-wait-disposition": 70,
+      "modal-wait-helper-scan": 101,
+      "mutationSurfaceEnumerate": 254,
+      "mutationSurfaceTotality": 22,
+      "mutationWeightRecords": 21,
+      "mutationWeightWeights": 158,
+      "observeTransport": 10,
+      "paneCompactionCore": 283,
+      "perItemStateScanner": 29,
+      "pgCronSmokes": 15,
+      "phantomGapExecuted": 14,
+      "popoverOverlayExtract": 79,
+      "premiseScan": 197,
+      "psqlStartupScan": 82,
+      "redContract": 263,
+      "renderedTextHaystack": 18,
+      "replacementString": 32,
+      "reportDraftStore": 18,
+      "retryableRpcVolatilityScan": 56,
+      "reviewRoundCorpus": 124,
+      "reviewRoundCount": 17,
+      "reviewRoundFiling": 103,
+      "reviewRoundInstant": 85,
+      "rowScanOpener": 31,
+      "sameOriginServerAction": 14,
+      "sendAuthScan": 292,
+      "serializeErrorStructure": 66,
+      "shardBudget": 32,
+      "sourceShardPartition": 6,
+      "spawnBounded": 13,
+      "specLintExpectContract": 50,
+      "specLintGate": 23,
+      "specLintNumerics": 521,
+      "specLintUniversals": 129,
+      "supabaseRetryEligibility": 23,
+      "supabaseRetryingFetch": 50,
+      "tapTargetScan": 2,
+      "taskContract": 244
+    },
+    "rates": {
+      "acCoverage": {
+        "observedPerBoot": 5190
+      },
+      "browserMutate": {
+        "observedPerBoot": 1970
+      },
+      "browserRegistry": {
+        "observedPerBoot": 1492
+      },
+      "captureRenderFault": {
+        "observedPerBoot": 1730
+      },
+      "citationIntent": {
+        "observedPerBoot": 888
+      },
+      "claimSweep": {
+        "observedPerBoot": 3112
+      },
+      "clientErrorTransport": {
+        "observedPerBoot": 1982
+      },
+      "configBranchProbe": {
+        "observedPerBoot": 2826
+      },
+      "connectionCensus": {
+        "observedPerBoot": 6346
+      },
+      "controlOutlineResidueBoundaries": {
+        "observedPerBoot": 25939
+      },
+      "controlOutlineResidueRewrites": {
+        "observedPerBoot": 16510
+      },
+      "controlOutlineScan": {
+        "observedPerBoot": 2973
+      },
+      "declaredLimitPins": {
+        "observedPerBoot": 2383
+      },
+      "describeClientValue": {
+        "observedPerBoot": 1927
+      },
+      "destructiveFileAnalysis": {
+        "observedPerBoot": 1966
+      },
+      "executionMethodsDerivation": {
+        "observedPerBoot": 1725
+      },
+      "fieldNearMiss": {
+        "observedPerBoot": 2774
+      },
+      "fixtureContract": {
+        "observedPerBoot": 5937
+      },
+      "heavyReapClassify": {
+        "observedPerBoot": 1434
+      },
+      "interactionTimingScan": {
+        "observedPerBoot": 3712
+      },
+      "interactiveScanCore": {
+        "observedPerBoot": 3872
+      },
+      "ledgerClaimsCore": {
+        "observedPerBoot": 7370
+      },
+      "ledgerGit": {
+        "observedPerBoot": 5337
+      },
+      "modal-wait-disposition": {
+        "observedPerBoot": 3890
+      },
+      "modal-wait-helper-scan": {
+        "observedPerBoot": 4783
+      },
+      "mutationSurfaceEnumerate": {
+        "observedPerBoot": 2804
+      },
+      "mutationSurfaceTotality": {
+        "observedPerBoot": 2269
+      },
+      "mutationWeightRecords": {
+        "observedPerBoot": 1445
+      },
+      "mutationWeightWeights": {
+        "observedPerBoot": 1508
+      },
+      "observeTransport": {
+        "observedPerBoot": 1366
+      },
+      "paneCompactionCore": {
+        "observedPerBoot": 4670
+      },
+      "perItemStateScanner": {
+        "observedPerBoot": 2019
+      },
+      "pgCronSmokes": {
+        "observedPerBoot": 1418
+      },
+      "phantomGapExecuted": {
+        "observedPerBoot": 1410
+      },
+      "popoverOverlayExtract": {
+        "observedPerBoot": 1888
+      },
+      "premiseScan": {
+        "observedPerBoot": 3411
+      },
+      "psqlStartupScan": {
+        "observedPerBoot": 25952
+      },
+      "redContract": {
+        "observedPerBoot": 2601
+      },
+      "renderedTextHaystack": {
+        "observedPerBoot": 2657
+      },
+      "replacementString": {
+        "observedPerBoot": 6878
+      },
+      "reportDraftStore": {
+        "observedPerBoot": 1935
+      },
+      "retryableRpcVolatilityScan": {
+        "observedPerBoot": 1048
+      },
+      "reviewRoundCorpus": {
+        "observedPerBoot": 1841
+      },
+      "reviewRoundCount": {
+        "observedPerBoot": 1339
+      },
+      "reviewRoundFiling": {
+        "observedPerBoot": 2082
+      },
+      "reviewRoundInstant": {
+        "observedPerBoot": 2885
+      },
+      "rowScanOpener": {
+        "observedPerBoot": 3002
+      },
+      "sameOriginServerAction": {
+        "observedPerBoot": 1406
+      },
+      "sendAuthScan": {
+        "observedPerBoot": 4731
+      },
+      "serializeErrorStructure": {
+        "observedPerBoot": 1495
+      },
+      "shardBudget": {
+        "observedPerBoot": 1471
+      },
+      "sourceShardPartition": {
+        "observedPerBoot": 5687
+      },
+      "spawnBounded": {
+        "observedPerBoot": 1401
+      },
+      "specLintExpectContract": {
+        "observedPerBoot": 1478
+      },
+      "specLintGate": {
+        "observedPerBoot": 969
+      },
+      "specLintNumerics": {
+        "observedPerBoot": 1515
+      },
+      "specLintUniversals": {
+        "observedPerBoot": 2695
+      },
+      "supabaseRetryEligibility": {
+        "observedPerBoot": 1451
+      },
+      "supabaseRetryingFetch": {
+        "observedPerBoot": 2308
+      },
+      "tapTargetScan": {
+        "observedPerBoot": 1007
+      },
+      "taskContract": {
+        "observedPerBoot": 1630
+      }
+    },
+    "rateExcluded": ["ledgerClaimsCore", "ledgerGit"],
+    "note": "The 2026-09-01 recalibration, from GitHub Actions run 33501574343 on d540739b5 -- the first full run at SOURCE_SHARD_COUNT=10 and the first with the split surface's two halves as separate rows. The anchor's own body above is run 33404224554 and STAYS: its splitSurfaceOperatorMs prices `controlOutlineResidue` as one registry row, which no longer exists as one, so regenerating it would destroy the record that licensed the split. bootsAtRun is evaluated on the tree at runHeadSha, not today's.",
+    "rateExcludedNote": "ledgerGit and ledgerClaimsCore are MEASURED here and deliberately not declared from. Per modelled boot they moved 2474 -> 5337 ms and 3160 -> 7370 ms between runs 33404224554 and 33501574343. They sit on different legs, so different runners, and the one thing they share is tests/scripts/ledgerClaimsCheck.test.ts, which neither run changed. A rate is a prediction of the next run's cost, and a surface observed to double between two runs has no single rate to declare. The CAUSE is open: an earlier draft blamed workflow_dispatch carrying refs/remotes/origin/* refs that a schedule checkout lacks, and that fails its own arithmetic -- fileOids executing makes the ledgerGit `&&` mutant THROW, and a thrown mutant bails at its first case, which is CHEAPER. The source-shards job now prints its own ambient ref count, so the two rates are re-derivable, and this exclusion retired, from any two runs of the same trigger type whose counts agree."
+  }
 }
