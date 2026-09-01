@@ -30,6 +30,7 @@ import { HoverHelp } from "@/components/admin/HoverHelp";
 import { ReAddRowButton } from "@/app/admin/settings/admins/ReAddRowButton";
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
 import { AddAdminDisclosure } from "@/components/admin/settings/AddAdminDisclosure";
+import { AdminListFocusRestore } from "@/components/admin/settings/AdminListFocusRestore";
 import { DeveloperToggleButton } from "@/components/admin/settings/DeveloperToggleButton";
 
 export function AdministratorsSection({
@@ -115,6 +116,12 @@ export function AdministratorsSection({
 
   const list = (
     <>
+      {/* Container-level focus restore (spec §2.3, the ShareHub pattern). A
+          successful revoke revalidates and the RSC payload replaces this whole
+          section, so the ROW cannot restore focus — the element it focuses is
+          swapped out from under it. This section is a server component, so the
+          behaviour lives in a client child. */}
+      <AdminListFocusRestore activeEmails={active.map((r) => r.email)} />
       <div data-testid="admin-active-list">
         {active.length === 0 ? (
           <p

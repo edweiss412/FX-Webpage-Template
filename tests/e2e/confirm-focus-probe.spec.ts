@@ -169,6 +169,41 @@ test.describe("confirm-path focus probe (BL-CONFIRM-FOCUS-RESTORE-DESTRUCTIVE-CO
     assertFocusReadings(readings, { cancel: cancelTarget, settled: settledTarget });
   });
 
+  test("390x560: rotate share link, confirm path against cancel path", async ({ page }) => {
+    // AC-1 end to end. Rotate was the ONLY control measured before this arc, and
+    // its measurement lived in an uncommitted probe on the merged branch — so
+    // until this case existed, the control whose defect started the whole class
+    // had no committed coverage at all.
+    test.setTimeout(180_000);
+    await page.setViewportSize({ width: 390, height: 560 });
+
+    const modal = await openShowReviewModal(page, seeded.slug, { timeoutMs: 30_000 });
+    const popover = modal.getByTestId("share-hub-popover");
+    await expect(async () => {
+      await modal.getByTestId("share-hub-kebab").click();
+      await expect(popover).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
+
+    const rotate: ConfirmControl = {
+      name: "rotate-share-link",
+      rootSelector: '[data-testid="share-hub-popover"]',
+      restoreTargetSelector: '[data-testid="admin-rotate-share-token-button"]',
+      trigger: "admin-rotate-share-token-button",
+      confirm: "admin-rotate-share-token-confirm-button",
+      cancel: "admin-rotate-share-token-cancel-button",
+    };
+
+    const settledTarget: CapturedTarget = await captureRestoreTarget(page, rotate);
+    const cancelTarget: CapturedTarget = settledTarget;
+    const readings: FocusReading[] = [];
+    readings.push(await measureCancelPath(page, rotate));
+    readings.push(...(await measureConfirmPath(page, rotate)));
+
+    console.log(`PROBE-ROTATE ${JSON.stringify(readings)}`);
+
+    assertFocusReadings(readings, { cancel: cancelTarget, settled: settledTarget });
+  });
+
   test("390x560: archive show, confirm path against cancel path", async ({ page }) => {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 390, height: 560 });

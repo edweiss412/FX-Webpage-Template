@@ -138,6 +138,14 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
     if (result !== null) clearWatchdog();
   }, [result]);
 
+  // NOTE: the success path deliberately does NOT restore focus here. This row is
+  // removed by revalidation, and three browser runs showed the row's own effect
+  // focusing a heading that the RSC replacement then swapped out, leaving focus
+  // on <body> after the move. That branch belongs to
+  // components/admin/settings/AdminListFocusRestore.tsx, the surface that
+  // survives the unmount — the same reason ShareHub owns the archive rescue
+  // (spec §2.3).
+
   // R8 MEDIUM FIX (refined at R9): when the Server Action returns a
   // non-ok terminal result (last_admin_lockout, invalid_email), the
   // page does NOT revalidate so the component stays mounted with
