@@ -201,7 +201,11 @@ export function ArchiveShowButton({
   useEffect(() => {
     if (asRow && !armed && restoreFocusRef.current) {
       restoreFocusRef.current = false;
-      triggerRef.current?.focus();
+      // preventScroll, swept in with the other three two-tap controls on
+      // 2026-08-31. Cancel-only here, so this one was never the live defect —
+      // it carries the same recipe, and leaving one member unrepaired is how the
+      // class comes back.
+      triggerRef.current?.focus({ preventScroll: true });
     }
   }, [asRow, armed]);
 

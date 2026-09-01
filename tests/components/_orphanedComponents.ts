@@ -12,6 +12,27 @@
 // importers, which is exactly why a "zero importers anywhere" probe never saw
 // it. Production importers are the only ones that count here.
 //
+// DOCUMENTED LIMIT — the candidate set is `components/` only, so a component
+// that lives under `app/` can never be reported here, however many importers it
+// has. `componentFiles()` walks `join(root, "components")` and nothing else,
+// while `productionSourceFiles()` walks all of PROD_ROOTS: the IMPORTER side is
+// repo-wide, the CANDIDATE side is one directory. That asymmetry is not
+// theoretical. `app/admin/show/[slug]/ResetPickerEpochButton.tsx` sat with zero
+// importers of any kind from the M11.5 pivot until 2026-08-31, when
+// `fix/confirm-focus-restore` found it by hand while enumerating a different
+// class; this guard was green throughout and could not have been otherwise.
+// Its only e2e reference sat inside a `test.skip` and its jsdom test mounted it
+// directly, so nothing else noticed either.
+//
+// NOT WIDENED HERE, deliberately. Adding `app/` to the candidate set is a
+// one-line change that would surface an unknown number of further orphans, each
+// needing a delete-or-allowlist decision, which is a different arc's scope
+// (class-sweep exception (c)). Recorded rather than filed: under the process
+// mint freeze a guard-fidelity gap is a documented limit, not a queue row.
+// RE-FILE TRIGGER: a second dead component found under `app/` by any means
+// other than this guard. One instance is a gap; two is a pattern with a cost
+// someone can count.
+//
 // WE DO NOT IMPLEMENT MODULE RESOLUTION, AND WE DO NOT SCAN FOR IMPORTS.
 // Seven rounds of spec review produced fourteen live mutants against
 // successively better home-made rules: basename matching, extensionless

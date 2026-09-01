@@ -145,7 +145,12 @@ export function RotateShareTokenButton({
   useEffect(() => {
     if (ui === "idle" && restoreFocusRef.current) {
       restoreFocusRef.current = false;
-      triggerRef.current?.focus();
+      // preventScroll, because this restore now fires on the CONFIRM path too and
+      // the trigger sits BELOW the URL row: a scrolling focus drags the popover
+      // back down and undoes the `scrollIntoView(url row)` the rotation performs
+      // (SHARELINK-CUE-VISIBILITY-1, the previous arc's ratified contract).
+      // Focus returns; the scroll position is left to whoever owns it.
+      triggerRef.current?.focus({ preventScroll: true });
     }
   }, [ui]);
 
@@ -179,6 +184,18 @@ export function RotateShareTokenButton({
   const onConfirmClick = () => {
     clearAutoRevert();
     setExpired(false);
+    // C5 on the CONFIRM path. `closeConfirm` writes this flag for cancel and for
+    // the arm-expiry timer, and nothing wrote it here, so the operator who
+    // COMMITTED the destructive action was the one left on <body> — the disable
+    // below blurs the button they just pressed and no restore ever fired.
+    //
+    // Captured HERE rather than when the action settles, because by then the
+    // disable has already moved focus to the document and the answer to "was the
+    // operator inside this row" is no longer available. Same containment test
+    // `closeConfirm` uses, so focus planted outside the row is still not stolen.
+    if (confirmRowRef.current) {
+      restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+    }
     setUi("resolving");
     startTransition(async () => {
       try {

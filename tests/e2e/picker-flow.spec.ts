@@ -473,15 +473,13 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     expect(newRes?.status()).toBe(200);
     await expect(page.getByTestId("crew-shell")).toBeVisible();
 
-    // 10+11: reset picker selections (two-tap) -> success banner.
-    await openShowReviewModalAt(page, `/admin?show=${show.slug}`, {
-      gotoOptions: { waitUntil: "networkidle" },
-    });
-    await page.getByTestId("admin-reset-picker-epoch-button").click();
-    await page.getByTestId("admin-reset-picker-epoch-confirm-button").click();
-    await expect(page.getByTestId("admin-reset-picker-epoch-ok")).toHaveText(
-      "Picker selections reset.",
-    );
+    // Steps 10+11 drove `ResetPickerEpochButton`, which is deleted in this
+    // arc: it was imported by no source file, so it rendered on no route and
+    // these clicks addressed elements that could never exist. They survived
+    // only because this whole case is `test.skip`. The picker-reset affordance
+    // that IS mounted lives in the share hub as `PickerResetControl`, reached
+    // by `picker-reset-all-button`, and its own confirm path is measured in
+    // tests/e2e/confirm-focus-probe.spec.ts.
   } finally {
     await ctx.close();
   }

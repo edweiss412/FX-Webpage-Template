@@ -211,6 +211,22 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
       expect(contrast(accentOnBg, mode.surface)).toBeGreaterThanOrEqual(TEXT_FLOOR);
     });
 
+    it(`${mode.name}: accent-on-bg clears >=4.5:1 on the sunken and raised retry grounds`, () => {
+      // The diagram retry controls put an accent ACTION on two grounds this file
+      // did not previously reach: the gallery's in-flight overlay is
+      // `bg-surface-sunken` and the lightbox's in-flight chip is
+      // `bg-surface-raised`. The invariant-8 critique of 2026-09-01 raised the
+      // gap — the shipped pairing carried no measured number anywhere, while a
+      // comment recorded 3.80:1 for a variant that was REJECTED. Measured:
+      // light 5.02 / 5.57, dark 9.65 / 8.30, pinned in DESIGN.md §1.2.
+      expect(
+        contrast(accentOnBg, tokenIn(mode.src, "--color-surface-sunken-runtime")),
+      ).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      expect(
+        contrast(accentOnBg, tokenIn(mode.src, "--color-surface-raised-runtime")),
+      ).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+
     it(`${mode.name}: accent-on-bg AS TEXT clears >=4.5:1 on every audited tinted fill`, () => {
       expect(contrast(accentOnBg, blend(accent, 0.1, mode.bg))).toBeGreaterThanOrEqual(TEXT_FLOOR);
       expect(contrast(accentOnBg, blend(accent, 0.15, mode.bg))).toBeGreaterThanOrEqual(TEXT_FLOOR);

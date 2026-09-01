@@ -66,11 +66,8 @@ export const CENSUS: readonly CensusRow[] = [
     line: 361,
     outline: "control-outline-tinted",
   },
-  // spec §4.2 row 3 — only its `compact` branch carries the token (§6: the
-  // non-compact branch stays `border-border bg-surface` at 1.27:1)
-  { file: "app/admin/show/[slug]/ResetPickerEpochButton.tsx", line: 178 },
   // spec §4.2 row 4 — two-arm ternary, BOTH arms carry the token
-  { file: "components/admin/ArchiveShowButton.tsx", line: 365 },
+  { file: "components/admin/ArchiveShowButton.tsx", line: 369 },
   // spec §4.2 row 5
   { file: "components/admin/BellPanel.tsx", line: 858 },
   // spec §4.2 row 6
@@ -244,7 +241,8 @@ export const CENSUS: readonly CensusRow[] = [
   // offset is right only until two edits land in one file.
   // 928 -> 970 on the R2 class-level repairs. FOURTH key this arc; the element
   // has never changed.
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 988 },
+  // 988 -> 1165 on the retry check-in arc, which inserted a phase map, three effects and the check-in branch above it. FIFTH key; the element has still never changed, and this key was found by stepping to the opening tag rather than by adding the diff's delta.
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 1167 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.
@@ -281,16 +279,15 @@ export const CENSUS: readonly CensusRow[] = [
   // swap` case in the suite still covers them, now asserting the token they
   // moved TO.
   // ---------------------------------------------------------------------------
-  { file: "app/admin/show/[slug]/PickerResetControl.tsx", line: 255 },
-  { file: "app/admin/show/[slug]/ResetPickerEpochButton.tsx", line: 260 },
-  { file: "app/admin/show/[slug]/RotateShareTokenButton.tsx", line: 379 },
+  { file: "app/admin/show/[slug]/PickerResetControl.tsx", line: 269 },
+  { file: "app/admin/show/[slug]/RotateShareTokenButton.tsx", line: 396 },
   { file: "app/me/meShowSections.tsx", line: 174 },
   { file: "app/me/meShowSections.tsx", line: 213 },
   { file: "app/me/meShowSections.tsx", line: 258 },
   { file: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx", line: 240 },
   { file: "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", line: 109 },
   { file: "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", line: 127 },
-  { file: "components/admin/ArchiveShowButton.tsx", line: 333 },
+  { file: "components/admin/ArchiveShowButton.tsx", line: 337 },
   { file: "components/admin/HoverHelp.tsx", line: 562 },
   { file: "components/admin/NeedsAttentionInbox.tsx", line: 101 },
   { file: "components/admin/NeedsAttentionInbox.tsx", line: 130 },

@@ -443,12 +443,14 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
   });
 
   test("the adopted-site counts ARE the §4.2 arithmetic, asserted not retyped", () => {
-    // 30 G (this arc's 28 plus the parent arc's 2 in admin-changes-feed-layout),
-    // 9 U, 1 U-frame, 13 N edit locations = 53 adopted sites discharging 53
-    // member opens.
+    // 34 G (this arc's 28, the parent arc's 2 in admin-changes-feed-layout,
+    // and the 2026-08-31 confirm-focus arc's 4 in confirm-focus-probe.spec.ts),
+    // 8 U, 1 U-frame, 13 N edit locations = 56 adopted sites discharging 56
+    // member opens. U fell 9 -> 8 with that arc's deletion of the dead
+    // ResetPickerEpochButton and the picker-flow.spec.ts case that opened it.
     const byId = new Map(DISPOSITION_RULES.map((r) => [r.id, r.expectedCount]));
-    expect(byId.get("f/member-shape-G")).toBe(30);
-    expect(byId.get("f/member-shape-U")).toBe(9);
+    expect(byId.get("f/member-shape-G")).toBe(34);
+    expect(byId.get("f/member-shape-U")).toBe(8);
     expect(byId.get("f/member-shape-U-frame")).toBe(1);
     // DERIVED, never retyped: the N count is `N_WAIT_SITES.length`, so the
     // registry and the arithmetic cannot disagree about how many waits exist.
@@ -465,7 +467,10 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
       // `?? 0` only satisfies the optional type: the sibling rule-shape test
       // above pins every rule to a numeric count, so a missing one reds there.
     ).reduce((sum, r) => sum + (r.expectedCount ?? 0), 0);
-    expect(adopted, "51 edit locations in this arc plus the parent arc's 2").toBe(53);
+    expect(
+      adopted,
+      "50 edit locations in this arc, the parent arc's 2, the confirm-focus arc's 4",
+    ).toBe(56);
   });
 
   test("a constructed candidate with no disposition FAILS the check", () => {

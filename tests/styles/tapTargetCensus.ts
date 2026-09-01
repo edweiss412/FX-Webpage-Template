@@ -121,7 +121,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   // carries that exception forward for this project.
   {
     file: "app/admin/settings/admins/RevokeRowButton.tsx",
-    line: 284,
+    // 284 -> 317 on the 2026-08-31 confirm-focus arc: the couldnt_confirm
+    // restore target gave this button a `ref` and moved the restore effect
+    // below the `effectiveUi` derivation, both above this line. Re-MEASURED by
+    // identity (data-testid admin-allowlist-couldnt-confirm-refresh).
+    line: 319,
     tag: "button",
     category: "inline-prose-link",
     reason:
@@ -369,7 +373,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 560 and 615, and its `block size-full cursor-zoom-in` className is 41 lines
     // below the tag, which is why reading the tag line alone looks wrong.
     // 572 -> 633 on the R2 repairs; still the only button in its span.
-    line: 655,
+    // 655 -> 793 on the retry check-in arc. Same element, same reason: the `block size-full cursor-zoom-in` thumbnail button, whose className now sits well below its tag because the check-in branch grew between them. Keyed by stepping to the tag.
+    line: 813,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
@@ -381,7 +386,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // key: still the `motion.div` carrying `fixed inset-0 z-overlay flex`,
     // confirmed by reading that className at the new key.
     // 822 -> 864 on the R2 repairs; still the `fixed inset-0 z-overlay` surface.
-    line: 882,
+    // 882 -> 1059 on the retry check-in arc; still that surface, confirmed by reading the className at the new key rather than trusting the delta.
+    line: 1061,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",

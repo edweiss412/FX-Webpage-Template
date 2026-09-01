@@ -530,3 +530,36 @@ A dead branch is invisible to `--list` by construction — the resolved set is i
 **Not filed as a row, deliberately.** Process-facing under the 2026-08-25 freeze, and it fails the admission test on its own terms: the done condition would be a property of the walker (does it resolve every import edge), which is refutable once per review round and finishes never. It earns a row when it blocks a product arc — a component edit that reached `main` with its gate green and its cases unrun — and the `**Incident:**` then names that arc.
 
 **Re-file trigger:** a second arc naming it, OR one measured instance of a component edit merging with its workflow green and its specs unexecuted. A workflow filter merely LOOKING incomplete is not the trigger; the filter legitimately omits paths whose specs it does not run.
+
+## LIM-OUT-OF-RENDER-SNAPSHOT-READ
+
+**Shape:** A spec or component makes state validity a property evaluated during RENDER (an
+intersection, a derived predicate, a "stale entries are inert" rule) and then relies on that rule in
+code that does not run during render: a `setTimeout` callback, a passive effect, a subscriber
+registered once. Each such reader closes over the state of the render that scheduled it, so the rule
+governs what the render produces and nothing else. The tempting repair is a ref mirroring the state,
+consulted by each reader — and it fails when the mirror is synced in a passive effect, because
+React flushes pending passive effects before the next render, so the mirror and the reader learn
+about a removal on the same schedule. **A mechanism that learns about a removal on the same schedule
+as the reader it protects protects nothing.** The reader set is also open: an inventory of it fails
+open by construction, and a criterion scoped to "the readers named in section X" cannot see the ones
+the inventory missed.
+
+**Named by:** 1 arc — fix/lightbox-pair-and-retry-checkin/47e9544e65dd.md (spec, R1 finding 3, R3
+findings 1 and 2, R4 findings 1 and 3: five of seventeen findings across three of four rounds, and
+the axis the stage ended on at the round cap without an APPROVE)
+
+**Owning record:** this index, plus the spec section of that filing. The untested candidate recorded
+there is the writer-side twin: every call site that mutates the state also updates the mirror
+synchronously, which is a CLOSED and greppable set where the reader set is not. No round proposed it
+and that arc did not adopt it.
+
+**Not filed as a row.** Process-facing under the 2026-08-25 freeze; no product arc was blocked, and
+the recurrence exception excludes it by name because both hits are inside one arc. It also fails the
+admission test on its own terms: a lint would have to decide, per function reachable from an effect
+or timer, whether a value it reads is a render snapshot and whether acting on a stale one is
+observable, which is dataflow over an open input space with no done condition outside the process.
+
+**Re-file trigger:** a second INDEPENDENT arc measuring this class as its non-decaying axis, with its
+corpus row. What would NOT settle it: another mirror synced in an effect, which is the refuted
+repair, or a longer reader inventory, which is the fail-open shape.
