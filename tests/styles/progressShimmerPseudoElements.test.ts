@@ -18,6 +18,8 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 
+import { stripCssComments } from "../_shared/stripComments";
+
 const raw = readFileSync("app/globals.css", "utf8");
 /**
  * Comments stripped from the WHOLE source before scanning.
@@ -27,8 +29,17 @@ const raw = readFileSync("app/globals.css", "utf8");
  * the comma split runs too late — the comment has already been torn in half and
  * both halves survive as phantom selectors. The block comment at
  * app/globals.css:682-689 produced exactly that.
+ *
+ * Through the shared module, not a local regex. `tests/cross-cutting/
+ * _metaStripCommentsSingleSource.test.ts` walks every test file for exactly the
+ * `/\*[\s\S]*?\*\/` idiom this line used to carry, and it is right to: the regex
+ * form has no string state, so a rule declaring `content: "/*"` would have opened
+ * a comment at that quote and swallowed the stylesheet from there to the next
+ * `*\/`. `stripCssComments` tracks quotes and escapes, and blanks with spaces
+ * rather than deleting, so every offset and line number this scanner reports
+ * still points at the real file.
  */
-const css = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+const css = stripCssComments(raw);
 
 const TESTIDS = ["wizard-step2-progressbar", "wizard-finalize-progressbar"] as const;
 const sel = (testid: string, tail: string) => `progress[data-testid="${testid}"]${tail}`;

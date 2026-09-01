@@ -272,7 +272,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/FinalizeButton.tsx",
-    line: 787,
+    line: 880,
     tag: "button",
     category: "full-bleed",
     reason: "Finalize details scrim: `absolute inset-0 bg-overlay-scrim`.",
