@@ -1,3 +1,54 @@
+### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog) — CLOSED 2026-09-01 (`test/sharelink-copy-ref-ordering-proof`, SHIPPED)
+
+**Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — un-defer trigger is a scheduler harness that can resolve a promise between commit and passive effects; no such harness exists today.
+
+`ShareLinkCopyButton` writes `urlRef` in a `useLayoutEffect` so the captured-url
+guard compares against a ref that is already current when a clipboard promise
+resolves. The LAYOUT part is deliberate: with a passive `useEffect`, a promise
+settling between commit and the passive flush compares against a stale url, the
+guard waves it through, and "Copied" appears beside a token that is already dead
+for the whole crew.
+
+**What is proven:** the guard's existence, in jsdom
+(`shareLinkCopyButtonRotate.test.tsx`) and in a real engine
+(`share-link-flash.spec.ts` T-FLASH-COPY-RACE). Both red when the comparison is
+removed.
+
+**What is NOT proven:** that the effect must be a LAYOUT effect. Swapping it for
+`useEffect` reds nothing. Two attempts failed: nobody found a way to schedule a
+promise resolution inside the commit-to-passive-effect window from Playwright, and a jsdom probe
+releasing from a sibling `useLayoutEffect` does not beat React either — `act()`
+flushes passive effects before yielding to the microtask, so the passive write
+always lands first.
+
+**Why deferred rather than exempted:** round-11 review rejected a bespoke
+`UNPROVEN_SURVIVORS` whitelist in the matrix script as laundering — correctly, and
+for a reason worth recording: it had no bidirectional check, so a later
+regression back to survival would still have passed. Spec §9.0 requires every
+registered adversary to be rejected, so the adversary is removed rather than
+exempted, and the gap is recorded here where deferrals are actually reviewed.
+
+**Un-defer trigger:** a harness that can resolve a promise between commit and
+passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
+Register the mutation as an adversary at that point and confirm it reds.
+
+**CLOSED 2026-09-01.** The un-defer trigger asked for a harness that can settle a promise between
+commit and passive effects. `tests/components/admin/shareLinkCopyButtonOrdering.test.tsx` is that
+harness, and it needed no scheduler mock: `scheduler/unstable_mock` is not resolvable from this
+repo's module graph under pnpm, and React's REAL scheduler already puts the commit and the passive
+flush in different tasks. What had to go was `act()`. The file drives `createRoot` with
+`IS_REACT_ACT_ENVIRONMENT` false, commits the rotate with a bare `root.render`, and settles the
+stalled clipboard promise from a sibling layout effect ordered after the button, which lands the
+promise continuation in the microtask drain between the layout and passive phases. `T-ORDER-STALE` is green on the
+shipped component and red with the effect swapped for a passive one, which is the proof the row
+asked for.
+
+The mutation is registered as adversary `A39` in `scripts/share-link-flash-adversary-matrix.mjs`,
+and the whitelist stayed rejected: no `EQUIVALENT_SURVIVORS` row, no exemption, nothing that would
+let a regression back to survival pass. That was the round-11 ruling and it is honoured in both
+directions.
+
 ### DIAGRAMTILE-FAILURE-STATE-COPY-1 — impeccable P1: the failed diagram tile cannot say WHY it is dark, on the surface that gates publishing (2026-08-27) — CLOSED 2026-09-01 (`fix/diagram-tile-states`, SHIPPED)
 
 **Effort:** S-M · **Facing:** product · **Un-defer trigger:** any work that opens `DiagramTile`'s placeholder branch, or the first report of a diagram publishing absent.
