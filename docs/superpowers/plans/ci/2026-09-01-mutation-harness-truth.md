@@ -199,7 +199,7 @@ target range. It is derived, not chosen: the assertion this plan ships is one-si
 | --- | --- | --- |
 | B1 suite case | turns `source-shards (2)` green | — |
 | B2 observations | no change tonight; closes the fail-open that would hide the next one | — |
-| D | no change where `fileOids` never runs; removes a row that is false where it does | — |
+| D | no change where `fileOids` never runs; removes a row that is false where it does, atomically because the gate rejects either half alone | — |
 | E1 rates | binding leg 3307 s -> ~3240 s | stops LPT packing around a 778 s under-price |
 | E2 floor gate | none | makes "a surface outgrew a leg" a named red instead of a crossed budget |
 | E3 N = 12 | none | runway 11.8 -> 24.2 days |
@@ -239,14 +239,14 @@ in `suitePaths` moving is as much a re-score trigger as the source moving.
 - AC-2 a control child that produces no observations is a distinct, loud verdict from one that ran and found nothing. (discharged by Task 2)
 - AC-3 AC-3 in `surfaceCases.ts` cannot pass on a non-zero exit that carries no failed test. (discharged by Task 2)
 - AC-4 `fileOids` is driven through a constructed `refs/remotes/origin/*` ref by a registered suite. (discharged by Task 3)
-- AC-5 the `ledgerGit` accepted-gap row and its backlog entry are gone, and the kind counts follow. (discharged by Task 4)
-- AC-6 every declared rate equals what the newest measurement records, or is named as excluded with its reason. (discharged by Task 5)
-- AC-7 the recalibration block is judged whole, by the same gate the anchor is. (discharged by Task 5)
-- AC-8 the modelled makespan is compared against the budget in the same units the budget is in. (discharged by Task 6)
-- AC-9 a surface heavier than one leg is a red that names the surface. (discharged by Task 6)
-- AC-10 the shard count carries at least three weeks of runway against derived growth. (discharged by Task 7)
-- AC-11 the count, the shard files, the gitignore range and the workflow matrix agree. (discharged by Task 7)
-- AC-12 the heavy-phase rule's four citation sites name the line the call is on. (discharged by Task 8)
+- AC-5 the `ledgerGit` accepted-gap row is gone, its archived entry is resolved, and the kind counts follow. (discharged by Task 3)
+- AC-6 every declared rate equals what the newest measurement records, or is named as excluded with its reason. (discharged by Task 4)
+- AC-7 the recalibration block is judged whole, by the same gate the anchor is. (discharged by Task 4)
+- AC-8 the modelled makespan is compared against the budget in the same units the budget is in. (discharged by Task 5)
+- AC-9 a surface heavier than one leg is a red that names the surface. (discharged by Task 5)
+- AC-10 the shard count carries at least three weeks of runway against derived growth. (discharged by Task 6)
+- AC-11 the count, the shard files, the gitignore range and the workflow matrix agree. (discharged by Task 6)
+- AC-12 the heavy-phase rule's line-form citation sites name the lines the calls are on. (discharged by Task 7)
 - AC-13 the scheduled `mutation-harness` run on `main` is green with zero known-red legs. (RETIRED: superseded by the closeout)
 
 ## Sweeps, run at plan time
@@ -329,13 +329,12 @@ the suite names in its own `red=`:
 | task | red-observed | kept-green (and the suite that would red) |
 | --- | --- | --- |
 | 1 | `tests/observe/describeClientValue.test.ts`, through the control-verdict probe | — |
-| 2 | `tests/mutation/source/runner.ts` via `runner.test.ts`; `surfaceCases.ts` via the NEW verdict cases in `surfaceCases.test.ts` | — |
-| 3 | `tests/scripts/ledgerClaimsCheck.test.ts`, through the probe's `--mutant` and `--only-case` | — |
-| 4 | `registry.ts` and `expectedLedgerKinds.ts` via the two registry metas | `BACKLOG-archive.md` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts`, in the command) |
-| 5 | the anchor JSON and `anchorProblems` via the two anchor metas, whose deletion sweep this task extends to the new block; the workflow step via the NEW case in `tests/mutation/_metaSourceShardIntegrity.test.ts` | `tests/mutation/source/registry.ts` (the parity meta, in the command) |
-| 6 | `lib/ci/shardBudget.ts` via `tests/ci/shardBudget.test.ts` | `tests/mutation/source/shardPartition.ts` and its suite (`shardPartition.test.ts`, in the command) |
-| 7 | `shardPartition.ts`, the workflow, the gitignore range and the shard files via the four metas; `_workflowCoverageScan.ts` via `tests/ci/_metaE2eWorkflowCoverage.test.ts` | the root package.json (`tests/mutation/_metaSourceShardIntegrity.test.ts`, in the command) |
-| 8 | `AGENTS.md`, the fixture, the two docs, through the citation probe | `tests/docs/agentsHeavyPhaseRule.test.ts` (itself — the fixture byte-pin at `tests/docs/agentsHeavyPhaseRule.test.ts:442`) |
+| 2 | `tests/mutation/source/runner.ts` via `runner.test.ts`; `surfaceCases.ts` via the NEW verdict cases in `surfaceCases.test.ts`, which is in the Files list because those cases are the registrar's only proof | — |
+| 3 | `tests/scripts/ledgerClaimsCheck.test.ts`, through the probe's `--mutant` and `--only-case` | `registry.ts`, `expectedLedgerKinds.ts` and `BACKLOG-archive.md`, all in the same commit; the gate is what rejects a half-landed state, and it runs on the nightly rather than in this command |
+| 4 | the anchor JSON and `anchorProblems` via the two anchor metas, whose deletion sweep this task extends to the new block; the workflow step via the NEW case in `tests/mutation/_metaSourceShardIntegrity.test.ts` | `tests/mutation/source/registry.ts` (the parity meta, in the command) |
+| 5 | `lib/ci/shardBudget.ts` via `tests/ci/shardBudget.test.ts` | `tests/mutation/source/shardPartition.ts` and its suite (`shardPartition.test.ts`, in the command) |
+| 6 | `shardPartition.ts` and the NEW runway assertion in `shardPartition.test.ts`; the workflow, the gitignore range and the shard files via the four metas; `_workflowCoverageScan.ts` via `tests/ci/_metaE2eWorkflowCoverage.test.ts` | the root package.json (`tests/mutation/_metaSourceShardIntegrity.test.ts`, in the command) |
+| 7 | `AGENTS.md`, the fixture, the two docs, through the citation probe | `tests/docs/agentsHeavyPhaseRule.test.ts` (itself — the fixture byte-pin at `tests/docs/agentsHeavyPhaseRule.test.ts:442`) |
 
 Two entries above are the round-2 findings made mechanical rather than argued: Task 5's workflow
 edit had NO reader in its command at all, and Task 7's `why=` named the workflow-coverage allowlist
@@ -409,7 +408,7 @@ the guard.
 <!-- task: red=`pnpm exec vitest run tests/mutation/source/runner.test.ts tests/mutation/source/surfaceCases.test.ts` red-state=authored red-target=`tests/mutation/source/runner.ts:284` why=`runControl returns the child exit code and nothing else, so a child that collected zero tests exits 1 and is indistinguishable from a child that rejected the mutant; the new case drives a suite path matching no file and asserts a no-observations verdict, which cannot be produced until runControl reports test counts, and surfaceCases.test.ts is in the command because AC-3's own registrar is edited in the same task` ac=AC-2,AC-3 -->
 
 **Files:** `tests/mutation/source/runner.ts`, `tests/mutation/source/runner.test.ts`,
-`tests/mutation/source/surfaceCases.ts`.
+`tests/mutation/source/surfaceCases.ts`, `tests/mutation/source/surfaceCases.test.ts`.
 
 RED: a case in `runner.test.ts` driving the control path at a `MUTATION_SUITE` matching no file,
 asserting the verdict names it as producing no observations. Fails today because the only value the
@@ -440,12 +439,33 @@ invented ones.
 Premise: the case asserts a `no-observations` verdict against a constructed suite path, so the
 condition it rests on is built by the test rather than read from the ambient environment.
 
-### Task 3 — the ledgerGit gap's falsifier, before the row moves
+### Task 3 — the ledgerGit gap's falsifier and the row it retires, atomically
 
-<!-- task: red=`node --import tsx scripts/probes/2026-09-01-surface-control-verdict.ts --mutant ledgerGit 'logical-connector:259:20:&&>||' --only-case 'a constructed origin ref'` red-state=authored red-target=`scripts/lib/ledger-git.ts:259` why=`no case in either registered suite drives fileOids through a repository carrying a refs/remotes/origin/* ref, so with the && flipped to || and the run filtered to that case name the child collects ZERO tests, which the probe reports as no-observations and exits non-zero; it exits 0 only once the constructed-namespace case exists and that case reds under the mutant` ac=AC-4 -->
+<!-- task: red=`node --import tsx scripts/probes/2026-09-01-surface-control-verdict.ts --mutant ledgerGit 'logical-connector:259:20:&&>||' --only-case 'a constructed origin ref'` red-state=authored red-target=`scripts/lib/ledger-git.ts:259` why=`no case in either registered suite drives fileOids through a repository carrying a refs/remotes/origin/* ref, so with the && flipped to || and the run filtered to that case name the child collects ZERO tests, which the probe reports as no-observations and exits non-zero; it exits 0 only once the constructed-namespace case exists and that case reds under the mutant` ac=AC-4,AC-5 -->
 
-**Files:** `tests/scripts/ledgerClaimsCheck.test.ts`, and the control-verdict probe from Task 1
-(which gains `--mutant` and `--only-case`).
+**Files:** `tests/scripts/ledgerClaimsCheck.test.ts`, `tests/mutation/source/registry.ts`,
+`tests/mutation/source/expectedLedgerKinds.ts`, `BACKLOG-archive.md`, and the control-verdict probe
+from Task 1 (which gains `--mutant` and `--only-case`).
+
+**ONE task and ONE commit, and the reason is measured.** This plan and the arc brief above it both
+said the falsifier lands first and the row goes second, with the rationale that deleting first reds
+the nightly. Half of that is right. `evaluateGate` is symmetric — `tests/mutation/source/gate.ts:115`
+rejects a survivor with no ledger row, and `tests/mutation/source/gate.ts:121` rejects a ledger row
+whose site no longer survives — so BOTH orders leave a red intermediate commit. Driving the shipped
+`evaluateGate` directly with the `ledgerGit` row set:
+
+```
+before (survives on a zero-ref checkout, row present)   passed=true
+row deleted first, falsifier absent                     passed=false  unaccepted-survivor
+falsifier first, row still present                      passed=false  stale-ledger-row
+both in one commit                                      passed=true
+```
+
+So the two land together. Invariant 6's letter holds — one task, one commit — rather than being
+waived, and the alternative of a Task-4-first plus a no-op Task 3 is refused as the same commit
+wearing a label. The TDD cycle is unaffected: the red is the mutant-under-case-filter probe above,
+which is red before this commit and green after; it is only the GATE that cannot see a half-landed
+state. This paragraph is reproduced in the commit body so no future reader re-derives it.
 
 **Why the obvious RED is not available, stated because round 1 raised it.** The falsifier case
 passes against the shipped function the moment it is authored — `fileOids` already returns the
@@ -454,45 +474,39 @@ before and after. This is a COVERAGE task, not a defect repair, and a coverage t
 the mutant, not the suite.
 
 **Why the mutant alone is not available either.** In this worktree the mutant is ALREADY killed,
-by the ambient reader at `ledgerClaimsCheck.test.ts:570`, because a developer's checkout carries
-`refs/remotes/origin/*`. The difference the task makes is visible only where those refs are absent.
+by the ambient reader at `tests/scripts/ledgerClaimsCheck.test.ts:570`, because a developer's
+checkout carries `refs/remotes/origin/*`. The difference the task makes is visible only where those
+refs are absent.
 
 **So the red is the mutant under a case filter, and Task 2 is what makes it readable.** The probe
 applies the named mutant, runs the suite filtered by `-t` to the new case's name, and reads the
 JSON report rather than the exit code. Today that filter matches nothing: the child collects zero
-tests and exits 0, which is the `-t`-matches-nothing trap the repo already records, and reading
-the report is exactly what separates it from a pass. The probe reports `no-observations` and exits
+tests and exits 0, which is the `-t`-matches-nothing trap the repo already records, and reading the
+report is exactly what separates it from a pass. The probe reports `no-observations` and exits
 non-zero. Once the case exists it collects one test, that test reds under the mutant, and the probe
 exits 0. Same command, red then green, and it is the mutant that moves rather than the fixture.
 
-GREEN: a case built with the suite's existing `throwawayRepo()` and `atRepo()` helpers
-(`tests/scripts/ledgerClaimsCheck.test.ts:777` and `tests/scripts/ledgerClaimsCheck.test.ts:797`), carrying exactly one
-`refs/remotes/origin/*` ref, driving `resolveClaims` through it and asserting what `fileOids`
-returns for that ref. `atRepo` sets `LEDGER_GIT_ROOT`, which `gitRoot()` honours under vitest
-(`scripts/lib/ledger-git.ts:27-30`), so the case constructs its own environment and cannot read
-differently on a full clone than in CI's zero-ref checkout.
+GREEN, all in the one commit:
 
-Premise: the case asserts that its constructed repository actually carries the ref before
-asserting on `fileOids`, so a construction that silently produced none cannot pass by returning an
-empty map from a function that never ran.
+1. A case built with the suite's existing `throwawayRepo()` and `atRepo()` helpers
+   (`tests/scripts/ledgerClaimsCheck.test.ts:777` and `tests/scripts/ledgerClaimsCheck.test.ts:797`),
+   carrying exactly one `refs/remotes/origin/*` ref, driving `resolveClaims` through it and
+   asserting what `fileOids` returns for that ref. `atRepo` sets `LEDGER_GIT_ROOT`, which
+   `gitRoot()` honours under vitest (`scripts/lib/ledger-git.ts:27-30`), so the case constructs its
+   own environment and cannot read differently on a full clone than in CI's zero-ref checkout.
+2. The `logical-connector:259:20:&&>||` accepted-gap row deleted from the `ledgerGit` registry entry.
+3. `tests/mutation/source/expectedLedgerKinds.ts:295` following it, from
+   `{ equivalent: 6, "accepted-gap": 1 }` to `{ equivalent: 6 }`.
+4. `BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT` at `BACKLOG-archive.md:12419` moved from
+   `**Status:** OPEN` to `**Status:** RESOLVED`, with the falsifier that retired it. It is ALREADY
+   in the archive file — `grep -c` on `BACKLOG.md` returns 0 — so there is no move to perform and
+   no row is created or deleted.
 
-### Task 4 — the row goes, and the backlog entry with it
+Premise: the case asserts that its constructed repository actually carries the ref before asserting
+on `fileOids`, so a construction that silently produced none cannot pass by returning an empty map
+from a function that never ran.
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaLedgerKindsDeclarationParity.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:295` why=`this line declares ledgerGit as carrying one accepted-gap row, the row Task 4 deletes, so the parity assertion reds the moment the row leaves the registry and passes only once the declaration follows it` ac=AC-5 -->
-
-**Files:** `tests/mutation/source/registry.ts`, `tests/mutation/source/expectedLedgerKinds.ts`,
-`BACKLOG-archive.md`.
-
-Delete the `logical-connector:259:20:&&>||` accepted-gap row and follow the kind counts at
-`tests/mutation/source/expectedLedgerKinds.ts:295`. Not before Task 3 is green.
-
-`BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT` is ALREADY in `BACKLOG-archive.md:12419`,
-carrying `**Status:** OPEN` — an open row living in the archive file, which is the state on the
-merge base and not something this arc created. `grep -c` on `BACKLOG.md` returns 0. So there is no
-move to perform: the edit is `**Status:** RESOLVED` plus the falsifier that retired it, in place.
-No row is created, and none is deleted.
-
-### Task 5 — the rates say what the newest run measured
+### Task 4 — the rates say what the newest run measured
 
 <!-- task: red=`pnpm exec vitest run tests/mutation/_metaDeclaredRatesMatchAnchor.test.ts tests/mutation/figuresAnchorReconciliation.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts` red-state=authored red-target=`scripts/probes/2026-09-01-mutation-shard-figures-input.json:59` why=`this line records psqlStartupScan at 1349908 ms from run 33404224554 and the file holds that run only, so once the recalibration block lands and the parity test is pointed at it, 48 surfaces declare a rate the block disagrees with and the assertion reds naming them; the same command also carries the shard-integrity suite, whose new case pinning the ref-count instrument step reds until that step exists` ac=AC-6,AC-7 -->
 
@@ -557,7 +571,7 @@ is not, because Task 3 leaves the ambient reader at `ledgerClaimsCheck.test.ts:5
 48 of the 61 declared rates move. The parity test's uncovered-surface list moves from the two split
 halves to the two excluded ledger surfaces, which is the deliberate edit that test asks for.
 
-### Task 6 — the floor is a named prediction, not a crossed budget
+### Task 5 — the floor is a named prediction, not a crossed budget
 
 <!-- task: red=`pnpm exec vitest run tests/ci/shardBudget.test.ts tests/mutation/source/shardPartition.test.ts` red-state=authored red-target=`lib/ci/shardBudget.ts:69` why=`checkBudget returns a BudgetVerdict computed from recorded elapsed values alone, so a call carrying a modelled makespan of 3500 s and a 205 s per-leg overhead against a 3600 s budget reports no makespan problem at all; the new case asserts that problem is present and fails on the verdict's CONTENT, not on an unresolved import` ac=AC-8,AC-9 -->
 
@@ -621,13 +635,22 @@ in code from the block rather than typed as a literal. Premise: the derivation a
 holds legs at all, so an empty block cannot yield a median of zero and make every fit trivially
 pass.
 
-### Task 7 — the shard count buys runway, and says so
+### Task 6 — the shard count buys runway, and says so
 
 <!-- task: red=`pnpm exec vitest run tests/mutation/source/shardPartition.test.ts tests/mutation/_metaSourceShardIntegrity.test.ts tests/mutation/_metaShardRangeTracked.test.ts tests/cross-cutting/vitest-projects-partition.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`tests/mutation/source/shardPartition.ts:49` why=`this line declares SOURCE_SHARD_COUNT = 10, whose runway against the recalibrated registry is 11.8 days, so the runway assertion this task adds fails at ten and passes only once the count reaches twelve and every follower that carries the number as DATA follows it: the two new shard files, the workflow matrix, the workflow env literal, the package.json mutation:guards file list, the workflow-coverage allowlist value, and the gitignore scratch range` ac=AC-10,AC-11 -->
 
-**Files:** `tests/mutation/source/shardPartition.ts`, two new shard files shard10 and shard11 under
-`tests/mutation/`, the root gitignore, `.github/workflows/mutation-harness.yml`, the root
-package.json, `tests/ci/_workflowCoverageScan.ts`.
+**Files:** `tests/mutation/source/shardPartition.ts`, `tests/mutation/source/shardPartition.test.ts`,
+two new shard files shard10 and shard11 under `tests/mutation/`, the root gitignore,
+`.github/workflows/mutation-harness.yml`, the root package.json,
+`tests/ci/_workflowCoverageScan.ts`.
+
+**The runway assertion is authored in `tests/mutation/source/shardPartition.test.ts`, and round 4
+established why naming it matters.** No existing suite contains `runwayDays` or a 21-day
+comparison, so planting `SOURCE_SHARD_COUNT = 10` after the literal followers had moved would red
+the integrity suites on follower mismatch alone — step 2 would succeed without the runway
+assertion existing at all. The planted defect for THIS task is therefore the runway assertion's own
+threshold, not the count: with the assertion present, `N = 10` gives 11.8 days against a 21-day
+floor and reds for the marker's reason.
 
 `runwayDays(SOURCE_SHARD_COUNT) >= 21`, one-sided, with growth derived from the anchor's two
 committed points. Twelve is the smallest count that satisfies it.
@@ -669,7 +692,7 @@ count moves usefully", which is true of the makespan and false of the runway.
 Correct `tests/mutation/source/shardPartition.ts:26-46` to say what N levers: not the makespan, which the floor pins, but
 the number of enrolments before the average leg reaches the floor.
 
-### Task 8 — the heavy-phase rule cites the lines the calls are on
+### Task 7 — the heavy-phase rule cites the lines the calls are on
 
 <!-- task: red=`node --import tsx scripts/probes/2026-09-01-heavy-rule-citations.ts` red-state=authored red-target=`tests/docs/fixtures/agents-heavy-phase-rule.md:9` why=`this line is the byte-pin of the AGENTS.md heavy-phase paragraph and carries its two citations verbatim; it cites scripts/share-link-flash-adversary-matrix.mjs:1014 for the playwright invocation that sits at 1042 and line 1215 for the --quick guard that sits at 1243, so both citations resolve to a bare closing paren and a continue; the probe this task adds resolves each against the live script and exits non-zero until they name the constructs their prose claims` ac=AC-12 -->
 
