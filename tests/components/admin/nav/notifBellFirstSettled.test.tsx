@@ -227,11 +227,12 @@ describe("NotifBell onBellState reporting", () => {
     expect(reports[2]).toEqual({ settled: true, announceable: 5 });
   });
 
-  it("keeps reporting after a post-zero restoration", async () => {
-    // The plan's table specified this row and the first implementation of this
-    // suite did not ship it, which the whole-diff review caught. It is the
-    // report side of AC-16: the parent can only announce a restored count if
-    // NotifBell keeps reporting after the zero.
+  it("reports the FULL four-step sequence across a post-zero restoration", async () => {
+    // The plan's row is a SEQUENCE, and an earlier version of this case opened
+    // the panel while still pending and asserted only the last report. It never
+    // produced {true,4} at all, and would have accepted duplicates or a missing
+    // intermediate. The sequence is the contract: the parent reads the last
+    // pair, but a report that skips a state is a report that can go stale.
     const seed = deferred<BellCountResult>();
     const reports: Report[] = [];
     fetchSpy.mockImplementation((url: string) =>
@@ -246,17 +247,24 @@ describe("NotifBell onBellState reporting", () => {
     );
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId("admin-notif-bell"));
-    });
-    await act(async () => {
-      seed.resolve({ kind: "ok", count: 9 });
+      seed.resolve({ kind: "ok", count: 4 });
       await seed.promise;
     });
+    await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("4"));
 
+    // Opening zeroes the badge (zeroNow) and fires onOpened={refetch}, which
+    // commits 2. Both transitions must be reported, in order.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-notif-bell"));
+    });
     await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("2"));
-    // The LAST pair is what the parent reads at announce time. Not 9, the seed
-    // the claimed hook refused, and not null, the zero it passed through.
-    expect(reports.at(-1)).toEqual({ settled: true, announceable: 2 });
+
+    expect(reports).toEqual([
+      { settled: false, announceable: null },
+      { settled: true, announceable: 4 },
+      { settled: true, announceable: null },
+      { settled: true, announceable: 2 },
+    ]);
   });
 
   it("reports the SELECTOR output, never the raw zero, when the panel opens first", async () => {
@@ -297,6 +305,41 @@ describe("NotifBell aria-label is defined on bellAccessibleName", () => {
       "aria-label",
       bellAccessibleName(0, false),
     );
+  });
+
+  it("reports null for a RETAINED count under degraded, not the retained number", async () => {
+    // The plan's row is {count: 4, degraded: true}: the hook keeps its last-known
+    // count and marks degraded. An earlier version rendered only
+    // {kind:"infra_error"}, whose retained count is null, so it could not tell
+    // "returns null under degraded" from "there was no count anyway". This state
+    // is pinned reachable at badgeSeedInterleavings.test.tsx:525-536.
+    const reports: Report[] = [];
+    const { rerender } = render(
+      <NotifBell
+        initialCount={{ kind: "ok", count: 4 }}
+        onBellState={(r: Report) => reports.push(r)}
+        viewerIsDeveloper={false}
+      />,
+    );
+    premiseHolds("the bell committed a real count first", reports.at(-1)?.announceable === 4);
+
+    // An infra_error PROP marks degraded and leaves `count` untouched.
+    await act(async () => {
+      rerender(
+        <NotifBell
+          initialCount={{ kind: "infra_error" }}
+          onBellState={(r: Report) => reports.push(r)}
+          viewerIsDeveloper={false}
+        />,
+      );
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-notif-bell-degraded")).toBeInTheDocument(),
+    );
+
+    // The count is still 4 in the hook; it is simply not DISPLAYED, so it is not
+    // announceable. Reporting 4 here would speak a number no control shows.
+    expect(reports.at(-1)).toEqual({ settled: true, announceable: null });
   });
 
   it("keeps the degraded branch's own name, which the selector must NOT own", () => {

@@ -509,7 +509,14 @@ function hidingStatusRegions(text: string, file: string): Array<{ line: number; 
                 ts.isStringLiteral(init.expression)
               ? init.expression.text
               : null;
-        if (name === "role" && literal === "status") isStatus = true;
+        // `role="log"` is a live region exactly as `role="status"` is, and the
+        // HIDDEN-region scanner was still status-only after the conditional-mount
+        // scanner learned `log`. The consequence the review probed: changing the
+        // app's own region (announceLog.tsx:134) from `sr-only` to `hidden`,
+        // `inert`, `aria-hidden`, `display:none` or an `empty:hidden` class would
+        // silently escape this guard, which is the one that exists to catch a
+        // region nobody can hear.
+        if (name === "role" && (literal === "status" || literal === "log")) isStatus = true;
         if (name === "hidden" || name === "inert") reasons.push(name);
         if (
           name === "aria-hidden" &&
@@ -825,26 +832,22 @@ describe("AC-10: the admin nav mints no live region of its own", () => {
           // repo's own attrText already unwraps it.
           const role = navAttrText(node, "role");
           const live = navAttrText(node, "aria-live");
-          // A NON-LITERAL role (`role={LIVE_ROLE}`) is unresolvable here, and
-          // an unresolvable role on a nav element is itself the thing to
-          // refuse: this directory has no legitimate reason to compute a role,
-          // and letting one through unread is how the scan would be evaded.
-          // `getText()` returns the identifier, so anything that is not a known
-          // safe literal is reported.
-          const SAFE_ROLES = new Set([
-            "menu",
-            "menuitem",
-            "navigation",
-            "banner",
-            "list",
-            "listitem",
-            "dialog",
-            "button",
-            "presentation",
-            "none",
-          ]);
-          const unresolvableRole = role !== null && !SAFE_ROLES.has(role);
-          if (role === "log" || role === "status" || live !== null || unresolvableRole) {
+          // Refuse the two live-region roles and any aria-live, in every
+          // spelling. A NON-LITERAL role (`role={LIVE_ROLE}`, `role={x ? a : b}`)
+          // is unresolvable from source, and on a nav element that is worth
+          // refusing too, since it is the one shape that could hide a live role
+          // from this scan.
+          //
+          // What is NOT refused: ordinary non-live roles. An earlier revision
+          // allowlisted ten and rejected everything else, so adding
+          // `role="group"`, `role="toolbar"`, `tablist` or `tab` to the action
+          // cluster failed AC-10 while adding no live region at all. A guard
+          // that reds on correct edits gets exempted into uselessness, so the
+          // rule is now a denylist of live roles plus a resolvability check.
+          const LIVE_ROLES = new Set(["log", "status", "alert", "marquee", "timer"]);
+          const resolvable = role === null || /^[a-z]+$/.test(role);
+          const unresolvableRole = !resolvable;
+          if ((role !== null && LIVE_ROLES.has(role)) || live !== null || unresolvableRole) {
             offenders.push(
               `${rel}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`,
             );

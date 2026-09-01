@@ -14,8 +14,8 @@
  * components/admin/nav/ is accounted for in spec §3.8's inventory as instant.
  */
 import "@testing-library/jest-dom/vitest";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { join } from "node:path";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,15 +56,37 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-function renderNav(props: {
+/**
+ * Every prop is passed EXPLICITLY with a default rather than spread, because the
+ * project compiles with `exactOptionalPropertyTypes`: spreading an object whose
+ * optional keys may be `undefined` is not assignable to a prop that accepts
+ * `X | null` but not `undefined`.
+ *
+ * `initialBadgeCount` is `number | null` on AdminNav (`AdminNav.tsx:73`), NOT the
+ * discriminated result its bell counterpart takes. No case passes one, so only
+ * the compiler reading this signature could see the mismatch.
+ */
+function renderNav({
+  bellCountPromise = null,
+  attentionCountPromise = null,
+  bellCount = null,
+  initialBadgeCount = null,
+}: {
   bellCountPromise?: Promise<BellCountResult> | null;
   attentionCountPromise?: Promise<NeedsAttentionCountResult> | null;
   bellCount?: BellCountResult | null;
-  initialBadgeCount?: NeedsAttentionCountResult | null;
+  initialBadgeCount?: number | null;
 }) {
   return render(
     <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
-      <AdminNav email="doug@example.com" viewerIsDeveloper={false} {...props} />
+      <AdminNav
+        email="doug@example.com"
+        viewerIsDeveloper={false}
+        bellCount={bellCount}
+        bellCountPromise={bellCountPromise}
+        initialBadgeCount={initialBadgeCount}
+        attentionCountPromise={attentionCountPromise}
+      />
     </AdminAnnounceProvider>,
   );
 }
@@ -203,9 +225,16 @@ describe("the announcement is terminal, whatever resolved it", () => {
     });
     await waitFor(() => expect(entries()).toHaveLength(1));
 
-    fetchSpy.mockImplementation((url: string) =>
-      url === COUNT_ENDPOINT ? Promise.resolve(okResponse({ count: 9 })) : new Promise(() => {}),
-    );
+    // BOTH endpoints move, per the plan's row. An earlier version resolved only
+    // the bell and left attention pending, and its `waitFor(length === 1)` was
+    // already true before the rerender, so it also passed if no later count
+    // committed at all. The premise below is what makes the assertion mean
+    // something: a change really did land, and still nothing was appended.
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === COUNT_ENDPOINT) return Promise.resolve(okResponse({ count: 9 }));
+      if (url === ATTENTION_ENDPOINT) return Promise.resolve(okResponse({ count: 7 }));
+      return new Promise(() => {});
+    });
     mockPathname = "/admin/shows";
     await act(async () => {
       rerender(
@@ -220,8 +249,20 @@ describe("the announcement is terminal, whatever resolved it", () => {
       );
     });
 
-    await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()).toHaveLength(1);
+    await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("9"));
+    await waitFor(() =>
+      expect(screen.getByTestId("admin-bottom-tab-attention")).toHaveAttribute(
+        "aria-label",
+        "Needs attention, 7 items",
+      ),
+    );
+    premiseHolds(
+      "both counts really moved after the announcement",
+      screen.getByTestId("admin-notif-badge").textContent === "9",
+    );
+
+    // Still exactly the original entry, unchanged.
+    expect(entries()).toEqual(["3 unseen notifications. 2 items need attention."]);
   });
 
   it("AC-6: a SILENT resolution also consumes the once-per-mount allowance", async () => {
@@ -299,7 +340,13 @@ describe("the announcement is terminal, whatever resolved it", () => {
       );
     });
 
-    await waitFor(() => expect(entries()).toHaveLength(0));
+    // Prove the restoration actually landed: without this the case asserts an
+    // already-empty region and passes even if nothing ever committed.
+    await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("4"));
+    premiseHolds(
+      "a positive count reached the bell after the silent resolution",
+      screen.getByTestId("admin-notif-badge").textContent === "4",
+    );
     expect(entries()).toEqual([]);
   });
 });
@@ -482,12 +529,21 @@ describe("compound transitions (spec §3.8)", () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId("admin-notif-bell"));
     });
+    // BOTH reads resolve, per the plan's row. An earlier version left the bell
+    // promise pending forever, so it never exercised a bell seed arriving into
+    // an already-zeroed hook, which is the interesting half of this case.
     await act(async () => {
+      bell.resolve({ kind: "ok", count: 5 });
       attention.resolve({ kind: "ok", count: 2 });
-      await attention.promise;
+      await Promise.all([bell.promise, attention.promise]);
     });
 
-    // zeroNow committed 0, so the bell contributes nothing while it stays 0.
+    // zeroNow claimed the hook, so the late seed demotes to a fetch rather than
+    // painting 5, and the bell contributes nothing while it stays 0.
+    premiseHolds(
+      "the zeroed bell did not paint the late seed",
+      screen.queryByTestId("admin-notif-badge") === null,
+    );
     await waitFor(() => expect(entries()).toHaveLength(1));
     expect(entries()[0]).toBe("2 items need attention.");
   });
@@ -759,94 +815,123 @@ describe("AC-18: the attention name and the attention sentence carry the same nu
 });
 
 describe("AC-20: the transition audit", () => {
-  it("every conditional this arc adds is accounted for as instant", () => {
-    // Derived from the merge-base diff, not hand-listed: a site added later is
-    // in scope by default rather than outside a list nobody updated.
-    const base = execFileSync("git", ["merge-base", "origin/main", "HEAD"], {
-      encoding: "utf8",
-    }).trim();
-    const diff = execFileSync(
-      "git",
-      ["diff", `${base}...HEAD`, "--unified=0", "--", "components/admin/nav/"],
-      { encoding: "utf8" },
-    );
+  it("every conditional render and early return in the touched components is instant", () => {
+    // DERIVED FROM THE TREE, not from git history. The first version shelled out
+    // to `git merge-base origin/main HEAD` and diffed, which is non-portable by
+    // construction: on a push to main those are the same commit, so the derived
+    // set is empty and the premise fails, and any later branch that does not
+    // touch these files fails it too. It went red in CI while passing locally.
+    //
+    // It also matched single diff LINES with regexes, so block-form guards,
+    // `return null`, and multiline ternary or `&&` renders were invisible.
+    // Both defects are fixed the same way: walk the AST of the whole file and
+    // pin the FULL population. A membership change then surfaces as an ordinary
+    // diff to this table rather than as a silently-empty derivation.
+    const files = [
+      "components/admin/nav/AdminNav.tsx",
+      "components/admin/nav/NotifBell.tsx",
+      "components/admin/nav/navArrivalAnnounce.ts",
+    ];
 
-    // File-scoped, because the inventory is about EFFECT guards in the two
-    // components. The first version of this audit counted every `if (...)
-    // return` in the added lines, which swept in navArrivalAnnounce.ts's pure
-    // selector guards and reached seven, so deleting the real effect guards
-    // could leave it green. The whole-diff review probed exactly that.
-    const perFile = new Map<string, string[]>();
-    let current: string | null = null;
-    for (const line of diff.split("\n")) {
-      const header = /^\+\+\+ b\/(.+)$/.exec(line);
-      if (header) {
-        current = header[1]!;
-        perFile.set(current, []);
-        continue;
-      }
-      if (current && line.startsWith("+") && !line.startsWith("+++")) {
-        perFile.get(current)!.push(line.slice(1));
-      }
+    const census: Record<string, { jsxConditionals: number; earlyReturns: number }> = {};
+    const animationProps: string[] = [];
+
+    for (const rel of files) {
+      const src = readFileSync(join(process.cwd(), rel), "utf8");
+      const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      let jsxConditionals = 0;
+      let earlyReturns = 0;
+
+      const visit = (node: ts.Node): void => {
+        // A conditional RENDER: a ternary or `&&` whose branches produce JSX,
+        // counted wherever it appears rather than only as a JSX child. NotifBell
+        // assigns one to a `const trigger` before rendering it, and a walk gated
+        // on JsxExpression misses that entirely.
+        //
+        // Unwrap parentheses first. Every multiline JSX branch in these files is
+        // written `? (\n  <span/>\n) : null`, so the branch is a
+        // ParenthesizedExpression and a naive check sees no JSX at all. That is
+        // exactly the multiline blindness the review probed.
+        const unwrap = (n: ts.Node): ts.Node =>
+          ts.isParenthesizedExpression(n) ? unwrap(n.expression) : n;
+        const producesJsx = (n: ts.Node): boolean => {
+          const u = unwrap(n);
+          return ts.isJsxElement(u) || ts.isJsxSelfClosingElement(u) || ts.isJsxFragment(u);
+        };
+        if (
+          ts.isConditionalExpression(node) &&
+          (producesJsx(node.whenTrue) || producesJsx(node.whenFalse))
+        ) {
+          jsxConditionals += 1;
+        }
+        if (
+          ts.isBinaryExpression(node) &&
+          node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+          producesJsx(node.right)
+        ) {
+          jsxConditionals += 1;
+        }
+        // An early return under a condition, in BOTH spellings: `if (c) return;`
+        // and `if (c) { return; }`, and whether it returns a value or not.
+        if (ts.isIfStatement(node)) {
+          const branch = node.thenStatement;
+          const isReturn = (s: ts.Statement): boolean =>
+            ts.isReturnStatement(s) ||
+            (ts.isBlock(s) && s.statements.length > 0 && ts.isReturnStatement(s.statements[0]!));
+          if (isReturn(branch)) earlyReturns += 1;
+        }
+        // The animation surface, which must stay empty.
+        if (ts.isJsxAttribute(node)) {
+          const name = node.name.getText();
+          if (name === "exit" || name === "initial" || name === "animate") {
+            animationProps.push(`${rel}: ${name}`);
+          }
+        }
+        if (ts.isIdentifier(node) && node.text === "AnimatePresence") {
+          animationProps.push(`${rel}: AnimatePresence`);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sf);
+      census[rel] = { jsxConditionals, earlyReturns };
     }
 
-    const addedEverywhere = [...perFile.values()].flat();
-    premiseHolds("the diff carried added lines under components/admin/nav/", addedEverywhere.length > 0);
-
-    // No animation surface is added, anywhere, and the audit is what keeps it so.
-    expect(
-      addedEverywhere.filter((l) => /\bAnimatePresence\b|\bexit=|\binitial=|\banimate=/.test(l)),
-    ).toEqual([]);
-
-    // No conditional RENDER is added: not a ternary render, not an `&&` render.
-    // The one JSX conditional this arc touches, NotifBell's aria-label ternary,
-    // is REMOVED rather than added, so it leaves the added set.
-    const jsxConditionals = addedEverywhere.filter(
-      (l) => /^\s*\{.*\?.*:/.test(l) || /^\s*\{[^}]*&&\s*</.test(l),
-    );
-    expect(jsxConditionals).toEqual([]);
-
-    // The inventory: exactly two effect guards, one per component, and nothing
-    // else. Asserted as EQUALITY per file, so a missing guard and an unlisted
-    // extra both fail, and the pure module contributes none.
-    // An EFFECT guard returns bare (`return;`); a pure function's guard returns
-    // a VALUE (`return null;`). That is the discriminator, and it is why the
-    // pure selector module contributes nothing here without being special-cased
-    // by name. An earlier version matched any `if (...) return`, counted the
-    // selector's two guards, reached seven, and could have stayed green with
-    // the real effect guards deleted.
-    const effectGuards = (file: string) =>
-      (perFile.get(file) ?? []).filter((l) => /^\s*if \(.*\)\s*return\s*;\s*$/.test(l));
-
-    // The inventory, named guard by guard so the numbers are checkable rather
-    // than magic. All five are instant: none renders, none animates, and the
-    // only DOM any of them reaches is an append to an sr-only region.
-    //
-    //   AdminNav (3): the attention-promise subscription's `!attentionCountPromise`
-    //     bail; the announce effect's `spokenRef.current` terminality guard; and
-    //     its `!bellSettled || !attentionSettled` both-halves guard.
-    //   NotifBell (2): the report effect's `!onBellState` bail (the four existing
-    //     call sites pass none) and its `lastReport.current === key` dedup.
-    const inventory: Array<[string, number]> = [
-      ["components/admin/nav/AdminNav.tsx", 3],
-      ["components/admin/nav/NotifBell.tsx", 2],
-    ];
-    const observed = inventory.map(([file]) => [file, effectGuards(file).length] as const);
     premiseHolds(
-      "the audit enumerated the announce effect",
-      effectGuards("components/admin/nav/AdminNav.tsx").length > 0,
+      "the walk parsed the components and found their conditionals",
+      Object.values(census).some((c) => c.jsxConditionals + c.earlyReturns > 0),
     );
-    expect(Object.fromEntries(observed)).toEqual(Object.fromEntries(inventory));
 
-    // The pure selector module contributes NO effect guard, by the bare-return
-    // rule rather than by being excluded by name, so a future effect added
-    // there would still be caught.
-    expect(effectGuards("components/admin/nav/navArrivalAnnounce.ts")).toEqual([]);
+    // No animation surface anywhere in the three files. Spec §3.8's inventory is
+    // three states whose every transition is instant, so this is the whole
+    // animation claim and it is asserted as emptiness rather than as a count.
+    expect(animationProps).toEqual([]);
 
-    // Totality: every added bare-return guard in the whole diff is inside the
-    // inventory, so none is unclassified in a file the table does not name.
-    const inventoryTotal = inventory.reduce((sum, [, n]) => sum + n, 0);
-    const allEffectGuards = [...perFile.keys()].flatMap((f) => effectGuards(f));
-    expect(allEffectGuards).toHaveLength(inventoryTotal);
+    // The pinned population. Every entry is instant: the JSX conditionals are
+    // text or badge swaps on already-mounted elements, and every early return is
+    // an effect or selector guard that renders nothing. A change to any number
+    // here is a real change to the component's branching and must be read
+    // against §3.8 before this table is updated.
+    // Each number was verified against the source, not copied from a first run.
+    //
+    //   AdminNav, 3 renders: the health indicator (`healthRollup ? ... : null`,
+    //     AdminNav.tsx:269), the attention badge (`showBadge && ...`, :319), and
+    //     the overflow tab (`overflow && ...`, :333). All three are pre-existing
+    //     and this arc changes none of them. 3 early returns, all added here:
+    //     the attention-promise subscription's bail and the announce effect's
+    //     two guards.
+    //   NotifBell, 3 renders: the degraded/normal trigger ternary assigned to
+    //     `const trigger`, the badge pill, and the panel. 2 early returns, both
+    //     added here: the report effect's `!onBellState` bail and its dedup.
+    //   navArrivalAnnounce, 0 renders (no JSX) and 2 early returns, the pure
+    //     selector's degraded and not-finite guards.
+    //
+    // Every entry is instant: the renders are swaps on already-mounted chrome,
+    // and no early return renders anything. §3.8's three states have no
+    // animated transition, which the empty animation set above is the proof of.
+    expect(census).toEqual({
+      "components/admin/nav/AdminNav.tsx": { jsxConditionals: 3, earlyReturns: 3 },
+      "components/admin/nav/NotifBell.tsx": { jsxConditionals: 3, earlyReturns: 2 },
+      "components/admin/nav/navArrivalAnnounce.ts": { jsxConditionals: 0, earlyReturns: 2 },
+    });
   });
 });
