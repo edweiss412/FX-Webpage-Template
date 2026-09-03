@@ -103,9 +103,11 @@ export const SPLIT_SURFACE = "controlOutlineResidue";
  * failure this list exists to make visible rather than easy.
  */
 export const MEASURED_AFTER_ANCHOR: ReadonlyArray<{ id: string; measuredByRun: string }> = [
-  // Enrolled by feat/forced-colors-pass. Scored 32/32 with zero unaccepted
-  // survivors on its enrolment run, which is where its declared 1472 ms/boot
-  // comes from; that run postdates the anchor and is not part of it.
+  // Enrolled by feat/forced-colors-pass, and RE-SCORED after enrolment. The
+  // enrolment run read 32/32 at 1472 ms/boot; a later repair added branches to the
+  // surface and moved the mutant population to 34, so the declared rate comes from
+  // the re-score — 34/34 with zero unaccepted survivors at 1533 ms/boot. Both runs
+  // postdate the anchor and neither is part of it.
   { id: "forcedColorsScan", measuredByRun: "re-score at 6f2766520, feat/forced-colors-pass" },
 ];
 export const SPLIT_SOURCE = "tests/styles/controlOutlineResidue.ts";

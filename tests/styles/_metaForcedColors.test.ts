@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../_shared/premise";
 
-import { CARRIER_CENSUS, COLLAPSE_CENSUS } from "./forcedColorsCensus";
+import { CARRIER_CENSUS, COLLAPSE_CENSUS, type CollapseCensusRow } from "./forcedColorsCensus";
 import { scanCarrierLoss, type CarrierLoss } from "./forcedColorsScan";
 import { findCollisions, findUndecidable, loadTokenSurvival } from "./forcedColorsProjection";
 import { scanInteractiveElements } from "./interactiveScanCore";
@@ -182,6 +182,32 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     // And the ARIA distinction, which is the pass's sharpest finding and the one
     // most likely to be "simplified" away by someone who reads rule 3 alone.
     expect(design).toContain("ARIA is not a carrier, but it is an excellent selector");
+
+    // AC-9 used to say "verbatim", and whole-diff R3 was right that neither the
+    // deliverable nor this assertion met that: DESIGN.md carries the rules in an
+    // author's voice, and four `toContain` calls are a hand-picked sample rather
+    // than a claim about the whole. The contract is now the one that was always
+    // wanted — the SAME RULES, same count, same order — and the count is DERIVED
+    // from the spec instead of written here, so a fifth rule added to §3.1 and not
+    // to DESIGN.md fails rather than passing unexamined.
+    const specText = readFileSync(
+      join(ROOT, "docs/superpowers/specs/2026-09-01-forced-colors-pass.md"),
+      "utf8",
+    );
+    const specRules = (
+      /### 3\.1 The rule, as an author follows it\n([\s\S]*?)\n### /.exec(specText)?.[1] ?? ""
+    ).match(/^> {0,3}\d+\. /gm);
+    const designRules = (/### 17\.1 The rule\n([\s\S]*?)\n### /.exec(design)?.[1] ?? "").match(
+      /^\d+\. /gm,
+    );
+    // Both premises first: a regex that stops matching yields null on BOTH sides,
+    // and `null === null` would read as agreement about two sections neither one read.
+    premiseHolds("spec section 3.1 was located and holds numbered rules", specRules !== null);
+    premiseHolds("DESIGN section 17.1 was located and holds numbered rules", designRules !== null);
+    expect(
+      designRules?.length,
+      "DESIGN.md 17.1 states a different number of rules than spec 3.1",
+    ).toBe(specRules?.length);
   });
 
   it("cites no probe row the probe does not measure", () => {
@@ -422,6 +448,91 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(bound, "browser-bound repair rows; raising this is the point of the binding field").toBe(
       1,
     );
+  });
+
+  it("files every census row under a heading that its disposition agrees with", () => {
+    // The headings were decorative and had drifted: whole-diff R3 found the "Repair"
+    // section holding rows dispositioned `carrier-survives` and `deliberate-flatten`,
+    // and its stated count of 14 contradicting the 12 rows that actually say
+    // `repaired`. Six rows sat under a heading that denied what they declared.
+    //
+    // Two changes stop it recurring, and the second is the one that matters. The
+    // sections are homogeneous now, and the headings NO LONGER STATE A COUNT: a
+    // number written beside rows it describes is a second source for a fact the rows
+    // already carry, and it goes stale the moment one moves. The count is derived
+    // wherever it is needed.
+    //
+    // This reads the file as TEXT rather than the imported array, because heading
+    // membership is a property of the source layout and the array cannot see it.
+    const src = readFileSync(join(ROOT, "tests", "styles", "forcedColorsCensus.ts"), "utf8");
+    const decl = /export const COLLAPSE_CENSUS[^=]*=\s*\[/.exec(src);
+    const bodyStart = decl?.index ?? -1;
+    // The array ends at its own closing bracket, found by matching depth. An earlier
+    // draft looked for the NEXT `export const CARRIER_CENSUS`, which is declared ABOVE
+    // this one — so the search returned -1 and the walk would have read nothing. The
+    // premise below is what surfaced that rather than a silent green.
+    expect(bodyStart, "the collapse census is not where this guard looks").toBeGreaterThan(-1);
+    // The opening bracket comes from the MATCH, not from `indexOf("[")`: the
+    // declaration's type is `readonly CollapseCensusRow[]`, so a plain search finds
+    // the empty pair in the type annotation and the walk reads nothing.
+    const openAt = (decl?.index ?? 0) + (decl?.[0].length ?? 1) - 1;
+    let depth = 0;
+    let bodyEnd = openAt;
+    for (; bodyEnd < src.length; bodyEnd += 1) {
+      if (src[bodyEnd] === "[") depth += 1;
+      else if (src[bodyEnd] === "]") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    expect(bodyEnd, "the collapse census array does not close").toBeGreaterThan(openAt);
+
+    const HEADINGS: ReadonlyArray<readonly [RegExp, CollapseCensusRow["disposition"]]> = [
+      [/^\s*\/\/ ── Repair:/, "repaired"],
+      [/^\s*\/\/ ── Carrier survives:/, "carrier-survives"],
+      [/^\s*\/\/ ── Deliberate flatten:/, "deliberate-flatten"],
+      [/^\s*\/\/ ── Not a collapse\./, "not-a-state"],
+    ];
+    const bySite = new Map(COLLAPSE_CENSUS.map((r) => [r.site, r.disposition] as const));
+
+    let expected: CollapseCensusRow["disposition"] | null = null;
+    let filed = 0;
+    const misfiled: string[] = [];
+    const headingsSeen = new Set<string>();
+    for (const line of src.slice(openAt, bodyEnd).split("\n")) {
+      const heading = HEADINGS.find(([re]) => re.test(line));
+      if (heading) {
+        expected = heading[1];
+        headingsSeen.add(heading[1]);
+        continue;
+      }
+      const site = /site: "([^"]+)"/.exec(line)?.[1];
+      if (site === undefined) continue;
+      filed += 1;
+      const actual = bySite.get(site);
+      if (expected === null) misfiled.push(`${site} sits under no heading`);
+      else if (actual !== expected)
+        misfiled.push(`${site} is ${actual} under a ${expected} heading`);
+    }
+
+    // PREMISE, and not a formality: every regex above could stop matching after a
+    // rename, `expected` would stay null, every row would land in the first branch,
+    // and a guard that reported "0 misfiled" over 0 rows read would look identical to
+    // a clean one. Assert it SAW the whole census and found all four headings first.
+    expect(filed, "the walk read no rows, so what follows proves nothing").toBe(
+      COLLAPSE_CENSUS.length,
+    );
+    expect([...headingsSeen].sort(), "a heading this guard keys on has been renamed").toEqual(
+      [...new Set(COLLAPSE_CENSUS.map((r) => r.disposition))].sort(),
+    );
+    expect(misfiled, "a census row filed under a heading its disposition denies").toEqual([]);
+
+    // And no heading restates a count, which is the drift this closes.
+    const numbered = src
+      .slice(bodyStart, bodyEnd)
+      .split("\n")
+      .filter((l) => /\/\/ ── /.test(l) && /\d/.test(l));
+    expect(numbered, "a census heading states a count; derive it instead").toEqual([]);
   });
 
   it("gives every non-repair row a reason that names something", () => {

@@ -486,6 +486,44 @@ Verified by real-browser assertion: for each repaired element,
 `getBoundingClientRect()` with forced colors off and on agree to within 0.5px.
 jsdom cannot see this, so the assertion is Playwright.
 
+### 5.8 The browser suite runs in ONE project, and that is a claim about evidence
+
+`tests/e2e/forcedColors.spec.ts` is collected by `desktop-chromium` only
+(`playwright.config.ts:98`). It is deliberately absent from the `mobile-safari`
+alternation, and the reason is the whole subject of this pass rather than a cost
+saving.
+
+WebKit reports the forced-colors media query under Playwright's emulation and then
+does not perform the forced-colors adjustment. So in that project the UA drops
+nothing: `box-shadow` still paints, the two ends of a background animation stay
+distinct, and a case comparing a selected render against an unselected one passes
+because the DESIGN distinguishes them, which it does in normal mode too. The
+assertions were green there for a reason unrelated to what they measure.
+
+**How this was found, because the sequence is the argument.** The spec first shipped
+in both projects with a `beforeEach` that asked the engine whether the emulation had
+taken effect and skipped when it had not. `scripts/check-app-e2e-executed.mjs` then
+failed the branch, and it was right to: that oracle exists to catch "a `beforeEach`
+calling `test.skip()` [that] skips every case at RUNTIME while `--list` still
+reports them, so a collected-but-skipped suite exits green and the job proves
+nothing." The gate had built exactly that. Declaring an execution floor of 10 and
+noting the skip would have satisfied the oracle while committing the defect it
+guards.
+
+Two consequences worth stating rather than leaving implicit:
+
+- **The execution floor is 10, and it equals the resolved count.** `--list` reports
+  10 under one project; all 10 execute. A floor below the resolved count would let a
+  case go dark without failing anything.
+- **`components/admin/nav/AdminNav.tsx:301` cannot be browser-bound here.** Those
+  bottom tabs render only below 840px, so mobile-safari was their only project.
+  Binding that row needs a project on an engine that performs the adjustment at a
+  phone viewport, which is a config decision and not a fixture. Limit 9 records it.
+
+The runtime skip survives in the suite as a backstop, not as the mechanism: it fires
+if a future WebKit implements the adjustment, or if someone adds the spec to a
+project without reading this section. `testMatch` is what decides.
+
 ## 6. Transition inventory
 
 The three cues each have four states once forced colors is a dimension. States:
@@ -524,7 +562,7 @@ different rules than the other.
 | AC-6 | An element wearing the shipped focus idiom has a visible outline under forced colors, and the assertion fails if `app/globals.css:899` is moved into a cascade layer. | Real-browser plus a planted-defect check. |
 | AC-7 | Arm 2 reports no rule outside the census on the live tree, and its premise asserts it parsed a known member. | Vitest. |
 | AC-8 | Every forced-colors rule the pass adds is unlayered. | Compiled-CSS assertion via postcss. |
-| AC-9 | `DESIGN.md` carries §3.1 verbatim as its forced-colors section, including rule 4's per-affordance statement. | Vitest, text pin. |
+| AC-9 | `DESIGN.md` §17.1 carries the SAME RULES as §3.1 — the same count, in the same order, with the load-bearing clauses intact — in an author's voice rather than byte-for-byte. Whole-diff R3 was right that the earlier word "verbatim" described neither the deliverable nor its assertion. | Vitest: rule count derived from §3.1, plus a clause pin. |
 ## 8. Documented limits
 
 Per the row-0 documented-limits discipline. Each is a deliberate non-repair, with

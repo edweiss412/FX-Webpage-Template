@@ -224,7 +224,7 @@ export type CollapseCensusRow = {
  * one site and repaired at its twin.
  */
 export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
-  // ── Repair: colour is the sole visual carrier (14). ──
+  // ── Repair: colour is the sole visual carrier. ──
   {
     site: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:249",
     disposition: "repaired",
@@ -246,18 +246,6 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     },
     reason:
       "crew-facing tabs; border-b-2 on BOTH paths so only its colour differs, same icon either way, aria-current toggles nothing rendered",
-  },
-  {
-    site: "components/crew/primitives/RunOfShowList.tsx:93",
-    disposition: "carrier-survives",
-    reason:
-      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:48), the SAME condition that gives the ancestor border-l border-border pl-2 at :78 - a border WIDTH and an indent, both of which survive",
-  },
-  {
-    site: "components/admin/OnboardingWizard.tsx:260",
-    disposition: "deliberate-flatten",
-    reason:
-      "ACTIVE and DONE are carried by a Check glyph and font-weight; VISITED against UNREACHED flattens, and the spec records that pair as a deliberate limit (spec 8 limit 2) since both are non-current steps",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:838",
@@ -300,18 +288,6 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       bound: false,
     },
     reason: "same; railCount and the dot are data-derived",
-  },
-  {
-    site: "components/admin/review/ShowReviewSurface.tsx:823",
-    disposition: "carrier-survives",
-    reason:
-      "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
-  },
-  {
-    site: "components/admin/review/ShowReviewSurface.tsx:945",
-    disposition: "carrier-survives",
-    reason:
-      "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
   },
   {
     site: "components/admin/UndoChangeButton.tsx:51",
@@ -364,15 +340,6 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     },
     reason: "level filter; aria-pressed only, and the visible text is the level either way",
   },
-
-  // ── Carrier survives: something non-chromatic changes too (13). ──
-  {
-    site: "app/me/meShowSections.tsx:219",
-    disposition: "carrier-survives",
-    reason:
-      "the same value picks the tone AND renders the words: relativeDayChip returns Today/Tomorrow/In N days (lib/time/relative.ts:31)",
-  },
-  { site: "app/me/meShowSections.tsx:278", disposition: "carrier-survives", reason: "same" },
   {
     site: "components/admin/DashboardBucketSegmentedControl.tsx:56",
     disposition: "repaired",
@@ -395,6 +362,32 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason:
       "an interactive Link whose selected state was carried by bg-surface, shadow-tile and a text tone, all of which flatten or drop; its label is static across both paths and aria-current renders nothing, so the selected fill is what repairs it",
   },
+  // ── Carrier survives: something non-chromatic changes too. ──
+  {
+    site: "components/crew/primitives/RunOfShowList.tsx:93",
+    disposition: "carrier-survives",
+    reason:
+      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:48), the SAME condition that gives the ancestor border-l border-border pl-2 at :78 - a border WIDTH and an indent, both of which survive",
+  },
+  {
+    site: "components/admin/review/ShowReviewSurface.tsx:823",
+    disposition: "carrier-survives",
+    reason:
+      "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
+  },
+  {
+    site: "components/admin/review/ShowReviewSurface.tsx:945",
+    disposition: "carrier-survives",
+    reason:
+      "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
+  },
+  {
+    site: "app/me/meShowSections.tsx:219",
+    disposition: "carrier-survives",
+    reason:
+      "the same value picks the tone AND renders the words: relativeDayChip returns Today/Tomorrow/In N days (lib/time/relative.ts:31)",
+  },
+  { site: "app/me/meShowSections.tsx:278", disposition: "carrier-survives", reason: "same" },
   {
     site: "components/admin/ShowRowActions.tsx:647",
     disposition: "carrier-survives",
@@ -442,8 +435,6 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     disposition: "carrier-survives",
     reason: "an icon inside a rail item this pass repairs, so it inherits a repaired state",
   },
-
-  // ── Carrier survives, continued (4). ──
   {
     site: "components/admin/review/ShowReviewSurface.tsx:939",
     disposition: "carrier-survives",
@@ -467,8 +458,13 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     disposition: "carrier-survives",
     reason: "an icon inside the tab button this pass repairs",
   },
-
-  // ── Ruled design exemption: switch tracks (5). ──
+  // ── Deliberate flatten: a ruled exemption, or a limit the spec records. ──
+  {
+    site: "components/admin/OnboardingWizard.tsx:260",
+    disposition: "deliberate-flatten",
+    reason:
+      "ACTIVE and DONE are carried by a Check glyph and font-weight; VISITED against UNREACHED flattens, and the spec records that pair as a deliberate limit (spec 8 limit 2) since both are non-current steps",
+  },
   {
     site: "components/admin/PublishedToggle.tsx:517",
     disposition: "deliberate-flatten",
@@ -499,8 +495,6 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     disposition: "deliberate-flatten",
     reason: "switch track; the auto-refresh toggle wears the same ruled recipe (DESIGN.md 1.2a)",
   },
-
-  // ── Deliberate flattens with a spec limit (5). ──
   {
     site: "components/admin/PerShowActionableWarnings.tsx:458",
     disposition: "deliberate-flatten",
@@ -524,14 +518,13 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason:
       "sixteen paths colliding on shadow-tile alone, a raised variant against a flat one; spec 8 limit 3",
   },
+  // ── Not a collapse. ──
   {
     site: "components/admin/RescanSheetButton.tsx:209",
     disposition: "not-a-state",
     reason:
       "the two paths are one button on two surrounding plates (components/admin/RescanSheetButton.tsx:222), not two user-visible states",
   },
-
-  // ── Not a collapse (1). ──
   {
     site: "components/admin/NeedsAttentionSummaryCard.tsx:36",
     disposition: "not-a-state",

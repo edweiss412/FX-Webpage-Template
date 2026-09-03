@@ -40,8 +40,11 @@ read as an absence of coverage.
 
 CREATES: tests/styles/_metaForcedColors.test.ts (both scanner arms, premise-stated).
 CREATES: tests/e2e/forcedColors.spec.ts (real-browser assertions, AC-1 through AC-6, layout neutrality).
-EXTENDS: `playwright.config.ts` — `forced-colors` is added to the `testMatch` alternation of BOTH
-`mobile-safari` (`playwright.config.ts:83`) and `desktop-chromium` (`playwright.config.ts:97`).
+EXTENDS: `playwright.config.ts` — `forced-colors` is added to the `testMatch` alternation of
+`desktop-chromium` (`playwright.config.ts:98`) and NOT of `mobile-safari`. It went into both at
+first; the app-e2e execution oracle then failed the branch, correctly, because WebKit reports the
+forced-colors media query and does not perform the adjustment, so every case there ran and proved
+nothing. §5.8 records that decision.
 This is a wiring step and not a formality: those `testMatch` values are EXPLICIT
 ALLOWLIST regexes, not globs, so a new spec file matches nothing and would be
 committed, reviewed, and never executed while this plan and the PR both claim its
@@ -58,8 +61,8 @@ Chromium). Rather than add a Firefox project to `playwright.config.ts`, which
 changes the CI matrix for every existing suite, the cross-engine claims stay where
 they already live and already run: `scripts/probes/forced-colors-mechanism.mjs`,
 which drives both engines directly and whose transcript is regenerated on every
-repair commit. The e2e spec asserts the SHIPPED surfaces in the two configured
-projects; the probe asserts the MECHANISM in both engines. Stated so the split is a
+repair commit. The e2e spec asserts the SHIPPED surfaces in the one project that
+can observe them; the probe asserts the MECHANISM in both engines. Stated so the split is a
 decision rather than an omission.
 
 Server and readiness are inherited, not re-invented: the config's `webServer`
@@ -148,8 +151,8 @@ with `aria-current:bg-accent` on an unconditional string must make it grow.
 <!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`app/globals.css:1143` why=`app/globals.css has no forced-colors block, so under emulateMedia forcedColors active the share-link ring computes box-shadow none with no outline and the AC-1 case this task writes fails until the same task adds the block` ac=AC-1 -->
 
 Creates tests/e2e/forcedColors.spec.ts carrying AC-1, adds `forced-colors` to the
-`testMatch` alternation of `mobile-safari` (`playwright.config.ts:83`) and
-`desktop-chromium` (`playwright.config.ts:97`), AND adds the unlayered block with
+`testMatch` alternation of `desktop-chromium` (`playwright.config.ts:98`) — and NOT
+of `mobile-safari`, per §5.8 — AND adds the unlayered block with
 the share-link outline substitution. **All three in this task, because invariant 1
 requires the task to reach green before it commits.** An earlier draft split the
 suite from the block so the suite could be committed observed-red; plan review R3
@@ -165,12 +168,12 @@ collects nothing. Verification, in this commit:
 pnpm exec playwright test --list tests/e2e/forcedColors.spec.ts
 ```
 
-which must name cases under BOTH project names.
+which must name cases under the one project that claims the spec.
 
 **And the same gap exists one layer up, in CI.** `playwright.config.ts` decides
 which PROJECTS can collect a spec; `.github/workflows/app-e2e.yml` decides which
 SPECS the job actually runs, and it is an explicit file list, not a glob. A spec
-wired into both projects and absent from that list is collected by nothing in CI,
+a project collects but which is absent from that list is run by nothing in CI,
 which is the identical silent-coverage failure at a different altitude. Found while
 implementing, after the local server timed out twice on a starved box and the
 question "then CI is the oracle" turned into "is it running this at all". The spec
@@ -211,7 +214,7 @@ tasks so that this one has a real red: after Task 3 the ring is correct in the
 ordinary case and wrong in the compound one, which is exactly what AC-4d measures.
 
 ## Task 6 — the state-collapse repairs, and AC-4 over every one of them
-<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`components/crew/CrewSubNav.tsx:93` why=`the active and inactive tab paths compute identical border-color under forced colors, so the AC-4 case fails for that row until the block paints the selected state` ac=AC-4,AC-4b -->
+<!-- task: red=`pnpm exec playwright test tests/e2e/forcedColors.spec.ts` red-state=authored red-target=`components/crew/CrewSubNav.tsx:93` why=`the active and inactive tab paths compute identical border-color under forced colors, so the AC-4 case fails for that row until the block paints the selected state` ac=AC-4,AC-4b,AC-4e -->
 
 The repair set is the disposition's 12 Repair rows.
 
@@ -222,20 +225,34 @@ pair cannot reach a live component, so a data-driven case over those rows could 
 satisfied by a generated class-string fixture while the real component went
 unasserted. Both are true, and the repair is the same one: the row is the binding.
 
-Every repair row in tests/styles/forcedColorsCensus.ts carries four fields beyond
-its site: `route` (the URL the component renders at), `setup` (the seed or fixture
-state that puts it on screen), `locator` (a `data-testid` or role query resolving to
-the element), and `toggle` (the interaction or seed difference that moves it between
-the two colliding states). A row without all four does not compile, so a row cannot
-be added without saying how to reach it.
+**What this task actually shipped, which is less than the paragraph above once
+promised.** The four-field design — `route`, `setup`, `locator`, `toggle` on every
+repair row, with a per-row case that navigates, seeds, resolves, toggles and
+re-reads — was the plan. It is NOT what ships, and whole-diff R3 was right that
+leaving the promise here made the plan describe an architecture the diff does not
+contain.
 
-The case then, per row: navigate `route`, apply `setup`, resolve `locator`, read the
-computed style under forced colors, apply `toggle`, read again, and require the two
-readings to differ in at least one property that survives. Failing to RESOLVE the
-locator is a failure, not a skip — that is what stops a fixture standing in for the
-component.
+What ships is two fields and one live case:
 
-**Thirteen of the fourteen already have their locator**, which is the field most
+- Every repair row carries `binding: { locator, toggle, bound }`. A row without a
+  binding does not compile, so a row still cannot be added without saying how to
+  reach it — but `route` and `setup` are absent, which is exactly why eleven of the
+  twelve cannot be navigated yet.
+- AC-4 renders each row's DERIVED class strings against the live compiled stylesheet
+  and requires the pair to differ in a surviving property. That proves the rule and
+  says nothing about whether any component reaches it.
+- AC-4e is the one case that navigates: it signs in, opens `/admin`, and measures the
+  rendered desktop nav, binding `components/admin/nav/AdminNav.tsx:236`. `bound` is
+  pinned at 1, so the number moves only deliberately.
+
+The gap is recorded as spec §8 limit 9 with the per-row reason each remaining row is
+unbound, rather than being left as an unmet clause in a task description. The reason
+the eleven differ per row is the point: `ShowReviewSurface` needs a show in review
+state, `EventFilters` needs telemetry rows, the picker chip is behind a share token.
+Failing to RESOLVE a locator is still a failure and not a skip, wherever a case does
+navigate — that is what stops a fixture standing in for the component.
+
+**Eleven of the twelve already have their locator**, which is the field most
 easily faked by a fixture, so the binding work is smaller than it looks. Audited
 rather than assumed: `picker-role-chip`; the four
 `wizard-step3-card-<dfid>-review-{rail,chip}-item-<id>` ids covering the rail items
@@ -266,10 +283,21 @@ from the TRACK.** A computed-style assertion reads `rgba(0, 0, 0, 0)` for
 and "some pixel is not the background" is satisfied by the `ButtonFace` track with
 the `Highlight` fill entirely absent, which plan review R2 finding 6 named.
 
-Negative controls, both run and recorded in this commit: delete ONLY the
-`-webkit-` fill declaration, leave the track, require red; then the same for the
-`-moz-` fill. Two controls because they are separate declarations and one says
-nothing about the other.
+Negative controls, and only ONE of the two originally planned survives contact with
+the engine. The plan called for deleting the `-webkit-` fill, leaving the track,
+requiring red; then the same for `-moz-`. The Gecko control works and is run. **The
+Blink one cannot exist**: under forced colors Chromium paints `<progress>` entirely
+from the UA and ignores author pseudo-element styling, so deleting the `-webkit-`
+fill, the `-webkit-` track, or both leaves the render byte-identical. There is
+nothing author-side to delete that Blink was using, which is spec §8 limit 10, and a
+control that cannot go red is not a control.
+
+Whole-diff R3 was right that this paragraph still demanded the impossible mutation
+after Task 7's `red=` marker had already been moved to the probe. The demand is
+withdrawn here rather than only in the marker: the discriminating assertion is the
+Gecko one, and AC-5's Blink half asserts the weaker, true thing — that the bar
+renders DIFFERENTLY under forced colors, which is the UA repainting it in the
+palette rather than leaving an empty track.
 
 **Firefox is not a Playwright project in this repo** (the two configured browsers
 are Chromium and WebKit), so AC-5's cross-engine half cannot be a Playwright case.
@@ -357,7 +385,7 @@ stated rather than left to inference: silence from that arm is not a certificate
 
 ## Task 10 — DESIGN.md section and the token mapping
 
-Spec §3.1 verbatim, including rule 4's statement that the three slots apply PER
+Spec §3.1's rules in an author's voice — same count, same order, load-bearing clauses intact, NOT byte-for-byte — including rule 4's statement that the three slots apply PER
 AFFORDANCE and are not tokens. bl-orch made that a condition of approving the
 mechanism change, for a concrete reason: a future author who reads "selected takes
 Highlight" and goes looking for a selected token will not find one, and the next
@@ -502,9 +530,14 @@ printed 366, the DEFAULT-options universe, which is a different population.
 
 All 42 are dispositioned below, by family, each with the COLLIDING PAIR the
 prototype prints — the tokens that differ between the two paths sharing a
-projection. The families are exhaustive by construction: 25 + 5 + 5 + 2 + 1 + 2 + 1
-+ 1 = 42, and Task 2's suite asserts that sum against the arm's own output, so a
-new site cannot land in no family.
+projection. The families are exhaustive by construction and the census is now grouped by
+DISPOSITION rather than by an ad-hoc family list: 12 repaired + 18 carrier-survives
++ 10 deliberate-flatten + 2 not-a-state = 42. Task 2's suite asserts that sum
+against the arm's own output, so a new site cannot land in no family, and a
+companion guard asserts every row sits under a heading its disposition agrees with.
+The headings themselves no longer restate a count — whole-diff R3 found six rows
+filed under a heading that denied what they declared, and a number written beside
+rows it describes is a second source that goes stale the moment one moves.
 
 ### The rule the disposition applies, stated before the rows
 
@@ -589,7 +622,7 @@ treatment is not this pass's to make.
 | `components/admin/settings/AutoPublishToggle.tsx:123` |
 | `components/admin/settings/NotifyToggle.tsx:131` |
 | `components/admin/settings/DeveloperToggleButton.tsx:93` |
-| `components/admin/telemetry/AutoRefreshControl.tsx:105` |
+| `components/admin/telemetry/AutoRefreshControl.tsx:121` |
 
 FIVE, where the spec's §8 limit 5 says three. The census is the authority and the
 spec cites the command rather than a count.
@@ -782,9 +815,13 @@ apostrophe literals.
 
 ### What neither half caught, and CI must
 
-The local Playwright `webServer` timed out at 300s twice on this box, so AC-4 has
-not been observed green since the fill replaced the ring. That is the gate
-amendment's case exactly: CI is the oracle. `tests/e2e/forcedColors.spec.ts` was
-wired into both browser projects and into NO CI job — `.github/workflows/app-e2e.yml`
-runs an explicit spec list, the same silent-coverage failure one altitude up — and
-is in that list now.
+The local Playwright `webServer` times out at 300s on this box, so the e2e cases are
+observed in CI rather than locally. That is the gate amendment's case exactly: CI is
+the oracle — and the oracle has since spoken. app-e2e went GREEN on `1a851e98c`,
+which carried the AC-5/AC-6 repair, and again on `a52f54c6c`, which carried the
+desktop-only re-targeting and the derived execution floor.
+
+It said something else first, which is the more useful half. `tests/e2e/forcedColors.spec.ts`
+was collected by both browser projects and run by NO CI job — `.github/workflows/app-e2e.yml`
+runs an explicit spec list, the same silent-coverage failure one altitude up. It is in
+that list now, and it is claimed by one project rather than two (§5.8).
