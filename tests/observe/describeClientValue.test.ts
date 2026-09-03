@@ -49,6 +49,31 @@ describe("describeClientValue — the guard table (spec §6.3)", () => {
     expect(describeClientValue(value).message).toBe(expected);
   });
 
+  test("an empty field is not joined into the label, and a set field beside it still is", () => {
+    // The guard at lib/observe/describeClientValue.ts:129 is `typeof v === "string" && v !== ""`,
+    // and the second half is what this pins. Drop it and `parts` gains an empty string, so the
+    // label grows a separator describing a field nobody set: ": planted" rather than "planted".
+    //
+    // Derived from the fixture on both sides -- the expected label IS the value of the field that
+    // carries text, never a rendered literal -- so giving the empty field a value changes the
+    // expectation and the case cannot pass by ignoring emptiness.
+    const message = "planted";
+    expect(describeClientValue({ code: "", message }).message).toBe(message);
+    expect(describeClientValue({ name: "", message }).message).toBe(message);
+    expect(describeClientValue({ name: "", code: "", message }).message).toBe(message);
+  });
+
+  test("an object whose only text field is empty has no message to render", () => {
+    // The other side of the same guard. Without `v !== ""`, `parts` holds one empty string,
+    // `parts.length > 0` is true, and the label becomes "" -- a crash row that renders blank
+    // instead of saying it carried no message.
+    //
+    // All three keys in turn, so the case cannot pass because one particular key is special.
+    for (const key of ["name", "code", "message"] as const) {
+      expect(describeClientValue({ [key]: "" }).message, `only ${key}, empty`).toBe("(no message)");
+    }
+  });
+
   test("no input in the table renders as the bare string [object Object]", () => {
     for (const v of [{ a: 1 }, {}, [1, 2], "x", 0, false, NaN, null, undefined, new Map()]) {
       const { message, detail } = describeClientValue(v);

@@ -84,7 +84,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 const { premiseHolds } = await import("../../_shared/premise");
-const { evaluateSurface, registerSurfaceCases } = await import("./surfaceCases");
+const { controlProblem, evaluateSurface, registerSurfaceCases } = await import("./surfaceCases");
 type CaseRegistrar = import("./surfaceCases").CaseRegistrar;
 const { OPERATOR_NAMES } = await import("./operators");
 
@@ -537,5 +537,79 @@ describe("surfaceCases — one surface's fault does not silence its co-tenants (
     // upload with "no files found" -- a second, misleading red saying nothing
     // about the cause.
     expect(listRecords(isolationDir, "healthy-fixture")).toHaveLength(1);
+  });
+});
+
+describe("AC-3 rejects every verdict but NOTICED, and says which one it got", () => {
+  /**
+   * The decisive half of the AC-3 repair, and it needs its own cases because
+   * proving `runControl` CAN return `no-observations` says nothing about whether
+   * AC-3 rejects it. The assertion this replaced -- `expect(...).not.toBe(0)` --
+   * accepted every object verdict, so the producer could be repaired with the
+   * registrar still fail-open.
+   */
+  const obs = (suite: string, ranTests: number, failedTests: number) => ({
+    suite,
+    reportRead: true,
+    ranTests,
+    failedTests,
+    exitCode: failedTests > 0 ? 1 : 0,
+  });
+
+  it("passes a NOTICED control", () => {
+    expect(controlProblem({ kind: "noticed", observations: [obs("a.test.ts", 60, 1)] })).toBeNull();
+  });
+
+  it("rejects RAN-CLEAN, and names BOTH causes rather than ruling one out", () => {
+    const problem = controlProblem({
+      kind: "ran-clean",
+      observations: [obs("a.test.ts", 60, 0)],
+    });
+    expect(problem).not.toBeNull();
+    expect(problem).toContain("60 tests");
+    // NAMES BOTH CAUSES, and claims neither. Whole-diff round 3: an earlier version said "the
+    // overlay is live", which a clean report cannot establish -- overlay.ts:8 records that a hook
+    // failing to recognise its target falls through to clean source and every case passes, so a
+    // dead overlay produces exactly this. A message that ruled that out would be the arc's own
+    // defect one level up, and this case pinned the false claim until round 3 found it.
+    expect(problem).toContain("TWO causes");
+    expect(problem).toContain("the registry `control` names an edit no case distinguishes");
+    expect(problem).toContain("overlay never applied the mutant");
+    expect(problem, "must not assert a liveness the verdict did not observe").not.toContain(
+      "The overlay is live",
+    );
+  });
+
+  it("rejects NO-OBSERVATIONS, names the dark suite, and calls it infrastructure", () => {
+    const problem = controlProblem({
+      kind: "no-observations",
+      observations: [obs("b.test.ts", 0, 0)],
+      dark: ["b.test.ts"],
+    });
+    expect(problem).not.toBeNull();
+    expect(problem).toContain("b.test.ts");
+    expect(problem).toContain("infrastructure fault");
+    // Whole-diff round 4: an earlier version said the child "either never ran or collected zero
+    // tests" and that a dead overlay exits non-zero. Neither is what this verdict establishes --
+    // it also fires for a report that was unreadable or short a counter AFTER tests ran, and the
+    // ran-clean branch correctly says a missed overlay passes rather than exiting non-zero. The
+    // message must not name a cause the observations do not carry.
+    expect(problem).toContain("no test EXECUTED there, or its report could not be read");
+    expect(problem, "must not claim the child never started").not.toContain("never ran or");
+    expect(problem, "must not contradict the ran-clean branch on a dead overlay").not.toContain(
+      "a dead overlay",
+    );
+  });
+
+  it("gives the two rejections DIFFERENT text, or the distinction buys nothing", () => {
+    // A repair that returned one message for both kinds would satisfy every
+    // assertion above while leaving a reader exactly where they were.
+    const clean = controlProblem({ kind: "ran-clean", observations: [obs("a.test.ts", 60, 0)] });
+    const dark = controlProblem({
+      kind: "no-observations",
+      observations: [obs("a.test.ts", 0, 0)],
+      dark: ["a.test.ts"],
+    });
+    expect(clean).not.toBe(dark);
   });
 });

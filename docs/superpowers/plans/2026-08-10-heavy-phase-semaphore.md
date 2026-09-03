@@ -11,7 +11,7 @@
 - Node spawn fd non-inheritance reproduced locally (spec §4.0 P3); flock-through-execvp + SIGKILL release probed (spec §4.0 P1/P2).
 - `vitest.projects.ts:34` `BASE_INCLUDE` collects tests/scripts/withHeavySlot.test.ts (new in this arc) with zero wiring.
 - `scripts/with-admin-dev-flag.mjs:216-220` — inner build lock is WORKTREE-LOCAL (`ROOT = process.cwd()`, R2 F1 probe); builds are IN the wrapped set (spec §1.1, fenced).
-- Transitive-shape members verified live (R10 F1): `tests/admin/build-artifact-gate.test.ts:73` spawns `pnpm build`; `scripts/share-link-flash-adversary-matrix.mjs:1014` spawns playwright.
+- Transitive-shape members verified live (R10 F1): `tests/admin/build-artifact-gate.test.ts:73` spawns `pnpm build`; `scripts/share-link-flash-adversary-matrix.mjs:1042` spawns playwright.
 - `tests/docs/_metaAgentsMarkerContract.test.ts` pins invariant-12 prose only — an appended cross-cutting bullet cannot trip it.
 - Python 3.12.5 machine-wide.
 

@@ -7,7 +7,7 @@ import { EXPECTED_LEDGER_KINDS } from "./expectedLedgerKinds";
 import { type GateResult, evaluateGate } from "./gate";
 import { emitRunRecord } from "./records";
 import type { GuardSurface } from "./registry";
-import { type RunResult, runControl, runSurface } from "./runner";
+import { type ControlVerdict, type RunResult, runControl, runSurface } from "./runner";
 
 const root = process.cwd();
 
@@ -31,6 +31,58 @@ const root = process.cwd();
  * silently dropping the channel. That is what makes this WIRING rather than
  * rendering: a helper the registrar could stop calling would prove nothing.
  */
+/**
+ * AC-3's decision, as a pure function of what the control child was observed to do.
+ *
+ * DOCUMENTED LIMIT, and it is the reason the `ran-clean` message names two causes rather than
+ * one. A clean report does NOT establish that the overlay applied the mutant: `overlay.ts:8`
+ * records that a hook failing to recognise its target falls through to clean source and every
+ * case passes. So a dead overlay and a live overlay with an inadequate control produce the same
+ * observations, and no arrangement of THIS function's inputs tells them apart. An earlier version
+ * of this message asserted "the overlay is live", which was a liveness claim the verdict had not
+ * earned -- the same defect the whole ControlVerdict exists to remove, one level up. Closing it
+ * for real needs the child to report whether the hook fired, which is a change to the overlay's
+ * own contract and to what every mutant run costs.
+ *
+ * Extracted so the decision is testable without running the registrar: its
+ * generated cases live inside a `describe.each` at collection scope, so an
+ * assertion about them can only be reached by running a real surface. This is
+ * the same reason `lib/ci/shardBudget.ts` keeps its decision in a function and
+ * its CLI in another file.
+ *
+ * Returns `null` when the surface passes, and otherwise a message naming the
+ * cause the verdict actually establishes. THAT is the point. The version this
+ * replaces said "the suite did not notice this surface's control mutant" for
+ * every non-zero outcome, which reads as a dead overlay -- and on 2026-08-31 the
+ * overlay was live, the control row was simply false, and two nights of triage
+ * went to the wrong surface.
+ */
+export function controlProblem(verdict: ControlVerdict): string | null {
+  if (verdict.kind === "noticed") return null;
+  if (verdict.kind === "no-observations") {
+    return (
+      `the control child produced NO OBSERVATIONS from ${verdict.dark.join(", ")}: ` +
+      `no test EXECUTED there, or its report could not be read. This says nothing about the ` +
+      `control mutant either way. Causes, and this verdict does not separate them: the child ` +
+      `never started; it started and collected nothing (a mistyped suitePaths entry, a ` +
+      `collection failure, a name filter matching nothing); it ran and its report was missing, ` +
+      `unparseable or short a counter, which is DARK by design rather than counted as zero. ` +
+      `Read it as an infrastructure fault and look at the leg's log, not at the registry row`
+    );
+  }
+  const ran = verdict.observations.map((o) => `${o.suite} (${String(o.ranTests)} tests)`);
+  return (
+    `every declared suite RAN and none rejected the control mutant: ${ran.join(", ")}. ` +
+    `TWO causes produce this, and this verdict does not separate them: either the control row or ` +
+    `the deciding suite is wrong -- the registry \`control\` names an edit no case distinguishes ` +
+    `-- OR the overlay never applied the mutant at all, because a load hook that does not ` +
+    `recognise its target falls through to CLEAN source and every case passes ` +
+    `(tests/mutation/source/overlay.ts:8). Check the control row against the suite FIRST, since ` +
+    `AC-3 runs beside AC-4 and the other surfaces on this leg; an overlay dead for every surface ` +
+    `would not report only this one`
+  );
+}
+
 export function evaluateSurface(
   surface: GuardSurface,
   options: { write?: (text: string) => void; root?: string; recordDir?: string } = {},
@@ -245,6 +297,12 @@ export function registerSurfaceCases(
         // PERFECT score -- every mutant running against clean source -- and every
         // other assertion here still passes.
         //
+        // The exit code alone could not carry this verdict. Three outcomes reach
+        // one number -- a suite that rejected the mutant (exit 1), a suite that
+        // ran and did not notice (exit 0), and a child that collected NOTHING
+        // (exit 1, and the fail-open) -- so `runControl` reports observations and
+        // `controlProblem` names which of the three happened.
+        //
         // The previous version READ as if it made this assertion and did not: it
         // computed `broken`, asserted it differed from the source, and then called
         // runSurface with the surface's own operators, never passing `broken` to
@@ -260,10 +318,7 @@ export function registerSurfaceCases(
           broken,
           "control did not apply; validateSurface should have rejected this row",
         ).not.toBe(source);
-        expect(
-          runControl(root, surface, broken),
-          "the suite did not notice this surface's control mutant",
-        ).not.toBe(0);
+        expect(controlProblem(runControl(root, surface, broken))).toBeNull();
         // Explicit budget, because this case SPAWNS A FULL CHILD SUITE RUN and
         // the shared 30s default is a per-test budget meant for in-process work.
         // The gate's other cases run runSurface at module scope, outside any

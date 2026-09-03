@@ -134,7 +134,7 @@ __pycache__/
 #
 # A control in the tree rather than in anyone's intentions: "I will remember to stage
 # by path" is the shape of discipline that fails at hour six of an arc.
-tests/mutation/guardSurfaces.shard1[0-9].test.ts
+tests/mutation/guardSurfaces.shard1[2-9].test.ts
 
 # Scratch probe scripts for spec/plan calibration (the `.probe/` convention used by
 # this arc's authoring session; `docs/superpowers/plans/ci/2026-08-19-planlint-declared-limit-pin-collision-HANDOFF.md`

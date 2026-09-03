@@ -403,6 +403,24 @@ const DISPOSITIONS: readonly Disposition[] = [
       "and neither a mutation-harness child.",
   },
   {
+    // The recalibration's provenance guard asks git whether a sha names a real commit.
+    // A member: these are executed children, and the row's ceiling claim is satisfied by
+    // the literal `timeout: 10_000` at the single call site, so deleting it re-reds this
+    // row rather than passing quietly. The guard exists because `anchorProblems` is pure
+    // over the anchor's contents and cannot see an invented sha; asking git is the whole
+    // point, which is why the answer here is a bounded child rather than no child.
+    kind: "file",
+    file: "tests/mutation/figuresAnchorReconciliation.test.ts",
+    member: true,
+    reason:
+      "MEMBER — the figures anchor's provenance guard asks git two questions: whether this " +
+      "checkout is shallow, and whether the recalibration's head sha names a commit. Both " +
+      "run through one helper bounded by an explicit 10 s timeout, both are short local " +
+      "queries, and neither is a mutation-harness child. The ceiling matters because this " +
+      "suite runs inside `unit-suite`: a git blocked on a lock or a credential prompt would " +
+      "hang a REQUIRED check instead of failing it.",
+  },
+  {
     kind: "file",
     file: "tests/mutation/_metaSourceShardIntegrity.test.ts",
     member: false,

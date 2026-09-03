@@ -603,6 +603,24 @@ describe("source-shards stands up the environment its enrolled surfaces need", (
     expect(runs.some((r) => r.includes("scripts/ci/supabase-local-bootstrap.sh"))).toBe(true);
   });
 
+  it("records its own ambient origin-ref count, so the rate exclusion becomes settleable", () => {
+    // scripts/probes/2026-09-01-mutation-shard-figures-input.json excludes `ledgerGit` and
+    // `ledgerClaimsCore` from the declared rates: they measured 2.2x apart between two runs, and
+    // the two of them are the only surfaces sharing an ambient-git reader. The archived entry
+    // BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT names the probe that would settle whether the
+    // trigger type is the cause, and records that it has never run.
+    //
+    // This is that probe, run by every leg on every trigger. It costs one `git for-each-ref` and
+    // makes the exclusion retirable from evidence instead of from argument. Pinned by NAME here
+    // because nothing else observes a bare `run:` step: the workflow-coverage scanner reads `env:`
+    // pairs and this step declares none, so its output was byte-identical before and after the
+    // step was inserted -- measured 2026-09-01.
+    const refCount = runsOf("source-shards").filter(
+      (r) => r.includes("for-each-ref") && r.includes("refs/remotes/origin"),
+    );
+    expect(refCount, "the source-shards job records no ambient origin-ref count").toHaveLength(1);
+  });
+
   it("adds all of that WITHOUT disturbing the step accounting this file pins", () => {
     // Same case, deliberately: a repair that satisfies the requirements above by
     // breaking the contract below must not be able to pass. `steps[0]` is the

@@ -241,7 +241,7 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // filesystem, a network, a process or a clock.
   "tests/admin/reportDraftStore.test.ts": 0,
   "tests/auth/sameOriginServerAction.test.ts": 10,
-  "tests/scripts/ledgerClaimsCheck.test.ts": 16,
+  "tests/scripts/ledgerClaimsCheck.test.ts": 17,
   // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as
   // ledgerGit's second suite. All 16 of its cases import `realGitSurface`, so the scanner
   // classifies every one environment-touching — correctly by its own rule, even though

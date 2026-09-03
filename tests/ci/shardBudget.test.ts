@@ -204,3 +204,83 @@ describe("expected leg names", () => {
     expect(() => expectedLegNames(8, NaN)).toThrow();
   });
 });
+
+describe("the MODELLED fit, checked in the units the budget is denominated in", () => {
+  /**
+   * The shipped check reads RECORDED elapsed values after a run. This is the other half: the
+   * partition's own prediction, checked before one.
+   *
+   * Round 2 rejected a version of this that lived in a new `legFitProblems` export, because its
+   * RED was an unresolved import and no constructed case executed. Round 1 rejected the version
+   * before that, two assertions against the live registry which were green the moment they were
+   * written. So the decision lives in `checkBudget`, which this suite already imports, and the
+   * discrimination is proven HERE against constructed numbers; the live-registry call in
+   * tests/mutation/source/shardPartition.test.ts is a regression check, not the proof.
+   */
+  const fit = (makespanSeconds: number, floorSeconds: number, overheadSeconds: number) => ({
+    makespanSeconds,
+    floorSeconds,
+    floorSurface: "synthetic-surface",
+    overheadSeconds,
+  });
+  const clean = [rec(LEGS[0]!, 1), rec(LEGS[1]!, 1)];
+  const problems = (f: Parameters<typeof checkBudget>[3]) =>
+    checkBudget(clean, LEGS, BUDGET, f).failures.filter((x) => /modelled/.test(x));
+
+  it("reports a makespan the shipped comparison admits, because the overhead pushes it over", () => {
+    // THE DEFECT IN ONE CASE. tests/mutation/source/shardPartition.test.ts compares child
+    // MILLISECONDS against a budget denominated in elapsed SECONDS, so it passes 3500 <= 3600
+    // while the leg costs 3500 + 205 = 3705.
+    const p = problems(fit(3500, 1000, 205));
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain("3705");
+  });
+
+  it("reports a surface heavier than one leg, NAMES it, and does not ALSO blame the makespan", () => {
+    // 3400 + 205 = 3605. A message that says only "over budget" sends the reader to the shard
+    // count, and the count is exactly what cannot repair this: the floor is one surface, so every
+    // larger count gives the same makespan. The repair is a split or a cheaper deciding suite.
+    //
+    // ONE problem, not two. `makespan >= floor` always, so a floor over budget puts the makespan
+    // over as well — and reporting both would hand the reader the lever that cannot work beside
+    // the one that can.
+    const p = problems(fit(3400, 3400, 205));
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain("synthetic-surface");
+    expect(p[0]).toContain("NO shard count repairs this");
+  });
+
+  it("blames the MAKESPAN when the floor fits, because then the count IS the lever", () => {
+    // The discriminating pair for the rule above: same makespan, small floor. This one must say
+    // makespan and must NOT name a surface.
+    const p = problems(fit(3500, 1000, 205));
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain("modelled makespan");
+    expect(p[0]).not.toContain("synthetic-surface");
+  });
+
+  it("passes a leg landing EXACTLY at budget, which the module already documents as compliant", () => {
+    // 3395 + 205 = 3600. lib/ci/shardBudget.ts uses strict `>` for recorded legs and says so; a
+    // fit check that red here would have silently moved the budget rather than enforced it.
+    expect(problems(fit(3395, 3395, 205))).toEqual([]);
+  });
+
+  it("passes a partition that fits, because a guard that reds on correct input is broken", () => {
+    expect(problems(fit(3000, 1000, 205))).toEqual([]);
+  });
+
+  it("uses the overhead, so it is load-bearing rather than decoration", () => {
+    // The same makespan that fails at 205 s of overhead passes at 0. Without this, an
+    // implementation that ignored the argument would satisfy every case above.
+    expect(problems(fit(3500, 1000, 205))).toHaveLength(1);
+    expect(problems(fit(3500, 1000, 0))).toEqual([]);
+  });
+
+  it("says nothing at all when no modelled fit is supplied", () => {
+    // Every existing call site passes three arguments. The fourth is optional, and its absence
+    // must not invent a problem or suppress the recorded-elapsed ones.
+    const withOut = checkBudget(clean, LEGS, BUDGET);
+    expect(withOut.failures.filter((x) => /modelled/.test(x))).toEqual([]);
+    expect(withOut.ok).toBe(true);
+  });
+});

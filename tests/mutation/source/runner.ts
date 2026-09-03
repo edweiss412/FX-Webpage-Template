@@ -148,6 +148,13 @@ export function runSuiteRecorded(
    * as protection while being unreachable code.
    */
   timeoutMs: number = MUTANT_TIMEOUT_MS,
+  /**
+   * Appended to the child's argv, and EMPTY by default so the per-mutant path is
+   * unchanged BY CONSTRUCTION rather than by review. Only the control path passes
+   * anything, because only it needs a report, and it runs once per surface while
+   * the per-mutant path runs once per mutant.
+   */
+  extraArgs: readonly string[] = [],
 ): { code: number; record: ChildRecord } {
   const env = {
     ...process.env,
@@ -163,7 +170,11 @@ export function runSuiteRecorded(
   // never earned; a timeout is the mutant's own doing (see MUTANT_TIMEOUT_EXIT).
   // The group reap on the timeout and infra arms runs inside `spawnBounded`.
   const startedAt = Date.now();
-  const { outcome } = spawnBounded(["pnpm", ...CHILD_ARGS], { cwd: root, env, timeoutMs });
+  const { outcome } = spawnBounded(["pnpm", ...CHILD_ARGS, ...extraArgs], {
+    cwd: root,
+    env,
+    timeoutMs,
+  });
   const durationMs = Date.now() - startedAt;
   if (outcome.kind === "timeout") {
     return {
@@ -188,8 +199,9 @@ export function runSuite(
   suite: string,
   context: string,
   timeoutMs: number = MUTANT_TIMEOUT_MS,
+  extraArgs: readonly string[] = [],
 ): number {
-  return runSuiteRecorded(root, target, mutantFile, suite, context, timeoutMs).code;
+  return runSuiteRecorded(root, target, mutantFile, suite, context, timeoutMs, extraArgs).code;
 }
 
 const CHILD_ARGS = ["exec", "vitest", "run", "--config", CONFIG] as const;
@@ -272,31 +284,141 @@ export function runSurface(root: string, surface: GuardSurface): RunResult {
 }
 
 /**
- * Run ONE hand-written mutant against a surface's suites and return the child's
- * exit code. Non-zero means the suite noticed.
+ * Read one child's JSON report, or say plainly that there was none.
+ *
+ * A missing, unreadable or unparseable file is `reportRead: false` rather than a
+ * throw: a child that died before writing is exactly the case this exists to
+ * REPORT, and turning it into an exception would put it back in the same bucket
+ * as an infrastructure fault.
+ *
+ * `ranTests` is PASSED PLUS FAILED, deliberately, and NOT `numTotalTests`.
+ * Measured 2026-09-01 against vitest 4.1.5: a `-t` filter that matches nothing
+ * reports `numTotalTests: 29, numPassedTests: 0, numFailedTests: 0,
+ * numPendingTests: 29` and exits 0 -- every declared test counted, none of them
+ * run. Reading `numTotalTests` would call that a suite that ran and found
+ * nothing, which is the same fail-open this whole verdict exists to close, one
+ * level in. Only a test that actually EXECUTED is an observation.
+ *
+ * BOTH counters must be present and finite, and an absent one is DARK rather than zero. An earlier
+ * version coerced a missing counter to 0 while its comment claimed the opposite, so a report of
+ * `{"numPassedTests": 60}` with the child exiting 1 came back `ran-clean` — 60 tests ran, none
+ * failed — and `controlProblem` then blamed the control row for a report that never said whether
+ * anything failed. That is the same fail-open this verdict exists to close, one level further in.
+ * A report whose shape changed under a vitest upgrade goes dark, which is what the comment always
+ * promised and now what the code does.
+ */
+function readControlReport(path: string): {
+  reportRead: boolean;
+  ranTests: number;
+  failedTests: number;
+} {
+  const dark = { reportRead: false, ranTests: 0, failedTests: 0 };
+  try {
+    const r = JSON.parse(readFileSync(path, "utf8")) as {
+      numPassedTests?: unknown;
+      numFailedTests?: unknown;
+    };
+    const passed = r.numPassedTests;
+    const failed = r.numFailedTests;
+    if (
+      typeof passed !== "number" ||
+      !Number.isFinite(passed) ||
+      typeof failed !== "number" ||
+      !Number.isFinite(failed)
+    ) {
+      return dark;
+    }
+    return { reportRead: true, ranTests: passed + failed, failedTests: failed };
+  } catch {
+    return dark;
+  }
+}
+
+/**
+ * What a control child was OBSERVED to do, per declared suite.
+ *
+ * `reportRead` is FALSE for a child that wrote nothing at all, which is a
+ * different fact from one that wrote a report saying zero tests ran. Both are
+ * dark, and keeping them apart is what lets the message name the right cause.
+ */
+export type ControlObservation = {
+  suite: string;
+  reportRead: boolean;
+  /** Tests that actually EXECUTED: passed plus failed. A skipped test is not an
+   *  observation, and a filter that matches nothing skips every one of them. */
+  ranTests: number;
+  failedTests: number;
+  exitCode: number;
+};
+
+/**
+ * The control's verdict, as three kinds rather than one number.
+ *
+ * THE FAIL-OPEN THIS REPLACES, measured against this repo's own overlay config on
+ * 2026-09-01 rather than imagined:
+ *
+ *   a suite that rejected the mutant     numTotalTests 60  numFailedTests 1  exit 1
+ *   a suite that ran and did not notice  numTotalTests 60  numFailedTests 0  exit 0
+ *   a child that collected NOTHING       numTotalTests  0  numFailedTests 0  exit 1
+ *
+ * The previous version returned the exit code and AC-3 asserted it was not 0. The
+ * third row exits NON-ZERO, so a mistyped `suitePaths` entry, a collection
+ * failure, a dead overlay and an OOM all read as "the suite noticed" and
+ * certified an overlay liveness the run never earned. The second row is the
+ * other half: it reported as "the suite did not notice", which reads as a dead
+ * overlay, and sent two nights of triage at the wrong surface when the honest
+ * answer was that the registry's declared control was simply not killed.
+ *
+ * A dark suite OUTRANKS a clean one. A two-suite surface whose second child never
+ * ran would otherwise be reported as "did not notice" while half the evidence was
+ * missing.
+ */
+export type ControlVerdict =
+  | { kind: "noticed"; observations: ControlObservation[] }
+  | { kind: "ran-clean"; observations: ControlObservation[] }
+  | { kind: "no-observations"; observations: ControlObservation[]; dark: string[] };
+
+/**
+ * Run ONE hand-written mutant against a surface's suites and report what each
+ * child was observed to do.
  *
  * The liveness control needs this because the declared operator set cannot
  * synthesize an arbitrary edit, and the control's whole point is an edit a
  * human chose BECAUSE the suite must obviously notice it. The version this
  * replaces computed the mutant text and then never ran it, so it asserted only
- * that a string occurred in a file.
+ * that a string occurred in a file; the version after that ran it and read only
+ * the exit code, which is the fail-open documented above.
  */
-export function runControl(root: string, surface: GuardSurface, mutantText: string): number {
+export function runControl(
+  root: string,
+  surface: GuardSurface,
+  mutantText: string,
+): ControlVerdict {
   const dir = mkdtempSync(join(tmpdir(), "mutation-control-"));
   try {
     const mutantFile = join(dir, "control.ts");
     writeFileSync(mutantFile, mutantText, "utf8");
-    for (const suite of surface.suitePaths) {
+    const observations: ControlObservation[] = [];
+    for (const [n, suite] of surface.suitePaths.entries()) {
+      const reportPath = join(dir, `report-${String(n)}.json`);
       const code = runSuite(
         root,
         resolve(root, surface.sourcePath),
         mutantFile,
         suite,
         `${surface.id}:control`,
+        MUTANT_TIMEOUT_MS,
+        ["--reporter=json", `--outputFile=${reportPath}`],
       );
-      if (code !== 0) return code;
+      observations.push({ suite, exitCode: code, ...readControlReport(reportPath) });
+      // Short-circuit on a NOTICED suite only. A dark or clean one says nothing
+      // about the suites after it, and the verdict below needs all of them.
+      if (observations.at(-1)!.failedTests > 0) break;
     }
-    return 0;
+    const dark = observations.filter((o) => !o.reportRead || o.ranTests === 0).map((o) => o.suite);
+    if (observations.some((o) => o.failedTests > 0)) return { kind: "noticed", observations };
+    if (dark.length > 0) return { kind: "no-observations", observations, dark };
+    return { kind: "ran-clean", observations };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

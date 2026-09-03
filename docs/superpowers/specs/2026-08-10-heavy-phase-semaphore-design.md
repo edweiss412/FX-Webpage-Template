@@ -430,7 +430,7 @@ authoring changes to either tree):
   — scoped vitest, but its helper runs `pnpm build` twice
   (`tests/admin/build-artifact-gate.test.ts:73`): wrapped.
 - `node scripts/share-link-flash-adversary-matrix.mjs` (full mode) — runs
-  non-interactive playwright (`scripts/share-link-flash-adversary-matrix.mjs:1014`):
+  non-interactive playwright (`scripts/share-link-flash-adversary-matrix.mjs:1042`):
   wrapped. `--quick` mode spawns no playwright and stays unwrapped.
 
 MUST NOT be wrapped:

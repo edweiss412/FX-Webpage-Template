@@ -1646,15 +1646,19 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       "them needs a full harness run's alarms, which only this workflow produces.",
   },
   SOURCE_SHARD_COUNT: {
-    values: [{ text: "10", governs: [] }],
+    values: [{ text: "12", governs: [] }],
     reason:
       "Source-mutation shard count, same derive-don't-list contract and same integrity pin as " +
       "PARSER_SHARD_COUNT (tests/mutation/source/shardPartition.ts SOURCE_SHARD_COUNT). Went " +
-      "8 -> 10 on 2026-09-01, and that is the LAST time the count moves usefully: at ten the " +
-      "makespan equals the heaviest single surface and no larger count changes it. The " +
-      "response to an over-budget leg is therefore a surface split or a cheaper deciding " +
-      "suite, never a higher count and never timeout-minutes; the notify job's triage copy " +
-      "says the same thing.",
+      "8 -> 10 and then 10 -> 12 on 2026-09-01. An earlier version of this row said ten was the " +
+      "LAST useful move, because at ten the makespan equals the heaviest single surface and no " +
+      "larger count changes it. That is true of the MAKESPAN and false of what the count is for: " +
+      "once the binding leg holds a single surface, enrolment growth never lands on it, so the " +
+      "count buys the number of enrolments before the AVERAGE leg reaches the floor. " +
+      "`runwayDays` measures that and the partition suite asserts it. An over-budget leg is " +
+      "still read by WHICH failure it is: one surface outgrowing a leg wants a split or a " +
+      "cheaper deciding suite, and checkBudget names the surface; the average leg reaching the " +
+      "floor wants a higher count. Never timeout-minutes either way.",
   },
   // The notify job's two inputs. Both are expression TEXT here: what an
   // expression resolves to at runtime is out of universe (spec §5 LS1).
