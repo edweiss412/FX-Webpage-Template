@@ -1,4 +1,4 @@
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,23 @@ const PRISTINE = readFileSync(SOURCE, "utf8");
 type Outcome =
   | number
   | { status: null; signal?: string; code?: string; hang?: boolean }
-  | { code: number; sleepMs: number };
+  | { code: number; sleepMs: number }
+  /**
+   * A child that WRITES A REPORT, which is the only thing separating the three
+   * outcomes AC-3 must tell apart. `report: null` is a child that exits and
+   * writes nothing -- a collection failure, a dead overlay, an OOM -- and it is
+   * the fail-open case: it exits NON-ZERO, which the exit code alone reads as
+   * "the suite noticed".
+   */
+  | {
+      code: number;
+      report: {
+        numTotalTests: number;
+        numPassedTests: number;
+        numFailedTests: number;
+        numPendingTests: number;
+      } | null;
+    };
 
 /**
  * A VIRTUAL clock, armed only for the timeout cases.
@@ -87,6 +103,24 @@ vi.mock("node:child_process", async (importOriginal) => {
       if (typeof b === "number") {
         return { pid: FIXTURE_PID, status: b, signal: null, stdout: "", stderr: "", output: [] };
       }
+      if ("report" in b) {
+        // The real child is told where to write by `--outputFile=<path>` in its
+        // argv, so the fake reads the same argv rather than being handed a path.
+        // A fake that took the path some other way could pass while the shipped
+        // code never asked for a report at all.
+        const flag = args.find((a) => a.startsWith("--outputFile="));
+        if (b.report !== null && flag !== undefined) {
+          writeFileSync(flag.slice("--outputFile=".length), JSON.stringify(b.report), "utf8");
+        }
+        return {
+          pid: FIXTURE_PID,
+          status: b.code,
+          signal: null,
+          stdout: "",
+          stderr: "",
+          output: [],
+        };
+      }
       if ("sleepMs" in b) {
         sleepSync(b.sleepMs);
         return {
@@ -131,6 +165,7 @@ const {
   MUTANT_TIMEOUT_EXIT,
   MUTANT_TIMEOUT_MS,
   MutantRunInfraError,
+  runControl,
   runSuite,
   runSuiteRecorded,
   runMutantRecorded,
@@ -567,5 +602,172 @@ describe("runner — an ordinary child's durationMs is MEASURED, not fabricated 
     expect(short_!.durationMs).toBeGreaterThanOrEqual(SHORT_MS - 10);
     expect(long_!.durationMs).toBeGreaterThanOrEqual(LONG_MS - 10);
     expect(long_!.durationMs).toBeGreaterThan(short_!.durationMs);
+  });
+});
+
+describe("runControl — a verdict from OBSERVATIONS, not from an exit code (AC-2, AC-3)", () => {
+  /**
+   * The three outcomes that reach one exit code, measured against this repo's own
+   * overlay config on 2026-09-01 before any of this existed:
+   *
+   *   a suite that rejected the mutant    numTotalTests 60  numFailedTests 1  exit 1
+   *   a suite that ran and did not notice numTotalTests 60  numFailedTests 0  exit 0
+   *   a child that collected NOTHING      numTotalTests  0  numFailedTests 0  exit 1
+   *
+   * The third is why this exists. It exits NON-ZERO, and the shipped assertion
+   * `expect(runControl(...)).not.toBe(0)` read that as "the suite noticed" -- so a
+   * mistyped `suitePaths` entry, a collection failure, a dead overlay or an OOM
+   * all certified an overlay liveness the run never earned.
+   */
+  const surface = {
+    id: "fixture",
+    sourcePath: SOURCE,
+    suitePaths: ["a.test.ts"],
+    operators: [],
+    scoreFloor: 0.5,
+    millisPerBoot: 1000,
+    control: { from: "x", to: "y" },
+    accepted: [],
+  } as unknown as Parameters<typeof runControl>[1];
+
+  const twoSuites = {
+    ...(surface as object),
+    suitePaths: ["a.test.ts", "b.test.ts"],
+  } as unknown as Parameters<typeof runControl>[1];
+
+  it("reports NOTICED when a suite records a failed test", () => {
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 60, numPassedTests: 59, numFailedTests: 1, numPendingTests: 0 },
+      },
+    });
+    const v = runControl("/root", surface, "mutant");
+    expect(v.kind).toBe("noticed");
+    expect(v.observations.map((o) => [o.ranTests, o.failedTests])).toEqual([[60, 1]]);
+  });
+
+  it("reports RAN-CLEAN when every suite ran tests and none failed", () => {
+    // The honest diagnosis for main's 2026-08-31 nightly: the overlay was live and
+    // the registry's declared control simply was not killed. Reported as its own
+    // kind so it can carry its own message rather than "the overlay is dead".
+    reset({
+      "a.test.ts": {
+        code: 0,
+        report: { numTotalTests: 60, numPassedTests: 60, numFailedTests: 0, numPendingTests: 0 },
+      },
+    });
+    expect(runControl("/root", surface, "mutant").kind).toBe("ran-clean");
+  });
+
+  it("reports NO-OBSERVATIONS for a child that wrote no report, and NAMES the suite", () => {
+    // THE FAIL-OPEN. `code: 1` is what a collection failure exits with, and the
+    // shipped `.not.toBe(0)` accepted exactly this.
+    reset({ "a.test.ts": { code: 1, report: null } });
+    const v = runControl("/root", surface, "mutant");
+    expect(v.kind).toBe("no-observations");
+    expect(v.kind === "no-observations" ? v.dark : []).toEqual(["a.test.ts"]);
+  });
+
+  it("reports NO-OBSERVATIONS for a child that ran ZERO tests, even at a non-zero exit", () => {
+    // vitest's "No test files found" shape: exit 1, numTotalTests 0. A report that
+    // parses is not evidence the suite ran.
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 0, numPassedTests: 0, numFailedTests: 0, numPendingTests: 0 },
+      },
+    });
+    expect(runControl("/root", surface, "mutant").kind).toBe("no-observations");
+  });
+
+  it("a report where every test was SKIPPED is dark, not clean (the -t trap)", () => {
+    // Measured against vitest 4.1.5 on 2026-09-01: `-t` matching nothing reports
+    // numTotalTests 29, numPassedTests 0, numFailedTests 0, numPendingTests 29,
+    // and EXITS 0. Counting declared tests would call that "the suite ran and did
+    // not notice" -- the same fail-open this verdict exists to close, one level
+    // in, and the one Task 3's case-filtered red depends on being closed.
+    reset({
+      "a.test.ts": {
+        code: 0,
+        report: {
+          numTotalTests: 29,
+          numPassedTests: 0,
+          numFailedTests: 0,
+          numPendingTests: 29,
+        },
+      },
+    });
+    const v = runControl("/root", surface, "mutant");
+    expect(v.kind).toBe("no-observations");
+    expect(v.kind === "no-observations" ? v.dark : []).toEqual(["a.test.ts"]);
+  });
+
+  it("a report MISSING a counter is dark, not a suite that ran and found nothing", () => {
+    // Whole-diff review round 1. An earlier version coerced a missing counter to 0 while its
+    // comment claimed a changed report shape went dark, so `{"numPassedTests": 60}` with the child
+    // exiting 1 came back `ran-clean` and `controlProblem` blamed the control row for a report
+    // that never said whether anything failed.
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 60, numPassedTests: 60, numPendingTests: 0 } as never,
+      },
+    });
+    expect(runControl("/root", surface, "mutant").kind).toBe("no-observations");
+  });
+
+  it("a report with a NON-NUMERIC counter is dark too", () => {
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: {
+          numTotalTests: 60,
+          numPassedTests: 60,
+          numFailedTests: "1",
+          numPendingTests: 0,
+        } as never,
+      },
+    });
+    expect(runControl("/root", surface, "mutant").kind).toBe("no-observations");
+  });
+
+  it("a dark suite outranks a clean one, so a partial run cannot report RAN-CLEAN", () => {
+    // Otherwise a two-suite surface whose SECOND suite never ran would be reported
+    // as "the suite did not notice", sending the reader to the control row when the
+    // defect is that half the evidence is missing.
+    reset({
+      "a.test.ts": {
+        code: 0,
+        report: { numTotalTests: 12, numPassedTests: 12, numFailedTests: 0, numPendingTests: 0 },
+      },
+      "b.test.ts": { code: 1, report: null },
+    });
+    const v = runControl("/root", twoSuites, "mutant");
+    expect(v.kind).toBe("no-observations");
+    expect(v.kind === "no-observations" ? v.dark : []).toEqual(["b.test.ts"]);
+  });
+
+  it("asks the child for a report, and only on the control path", () => {
+    // The producer half of the contract: without `--reporter=json --outputFile=`,
+    // every verdict above would be `no-observations` for the wrong reason. Pinned
+    // on the ARGV the child actually received, and the per-mutant path is asserted
+    // NOT to carry it, because that path pays for every mutant.
+    reset({
+      "a.test.ts": {
+        code: 1,
+        report: { numTotalTests: 3, numPassedTests: 2, numFailedTests: 1, numPendingTests: 0 },
+      },
+    });
+    runControl("/root", surface, "mutant");
+    const control = calls.at(-1)!.args;
+    expect(control).toContain("--reporter=json");
+    expect(control.some((a) => a.startsWith("--outputFile="))).toBe(true);
+
+    reset({ "a.test.ts": 0 });
+    runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+    const perMutant = calls.at(-1)!.args;
+    expect(perMutant).not.toContain("--reporter=json");
+    expect(perMutant.some((a) => a.startsWith("--outputFile="))).toBe(false);
   });
 });

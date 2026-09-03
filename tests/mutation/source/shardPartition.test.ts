@@ -2,12 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../../_shared/premise";
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
+import { checkBudget } from "@/lib/ci/shardBudget";
 import {
   SHARD_BUDGET_SECONDS,
   SOURCE_SHARD_COUNT,
   bootsOf,
+  REQUIRED_RUNWAY_DAYS,
+  growthPerDay,
+  growthSecondsPerDay,
+  medianOverheadSeconds,
+  legOverheadSeconds,
+  modelledFloor,
+  runwayDays,
   shardOfSurface,
   sourceShardAssignment,
+  totalElapsedSeconds,
   surfacesForShard,
   weightOf,
 } from "./shardPartition";
@@ -234,6 +243,189 @@ describe("source-mutation shard partition", () => {
   it("declares a budget below the per-job timeout, in seconds", () => {
     expect(SHARD_BUDGET_SECONDS).toBeGreaterThan(0);
     expect(SHARD_BUDGET_SECONDS).toBeLessThan(90 * 60);
+  });
+
+  it("medianOverheadSeconds takes the MEDIAN, at both parities, and subtracts child from elapsed", () => {
+    // The decision, at its boundaries, against constructed legs. The committed-anchor wrapper
+    // below reads one number and cannot discriminate any of this — which is why the CI gate found
+    // seventeen surviving mutants in these functions before they took their inputs.
+    const leg = (elapsedS: number, childMs: number) => ({ elapsedS, childMs });
+    // Odd: the middle element after sorting, and the input is deliberately unsorted.
+    expect(medianOverheadSeconds([leg(310, 100_000), leg(105, 5_000), leg(220, 20_000)])).toBe(200);
+    // Even: the mean of the two middle elements, ROUNDED. 100 and 201 -> 150.5 -> 151.
+    expect(medianOverheadSeconds([leg(200, 100_000), leg(401, 200_000)])).toBe(151);
+    // A single leg is its own median.
+    expect(medianOverheadSeconds([leg(250, 50_000)])).toBe(200);
+    // The 1000 DIVISOR, not merely some divisor. Every other leg in this case rounds identically
+    // over 1000 and over 1001, which is why the gate found that literal unkillable until this
+    // line: 500_500 ms is 500.5 s and rounds UP to 501, while the same figure over 1001 is
+    // exactly 500. Half a second of child time is the whole discrimination.
+    expect(medianOverheadSeconds([leg(700, 500_500)])).toBe(199);
+    // Elapsed MINUS child, not either alone: same elapsed, different child.
+    expect(medianOverheadSeconds([leg(300, 100_000)])).not.toBe(
+      medianOverheadSeconds([leg(300, 200_000)]),
+    );
+    // Empty THROWS rather than yielding 0, because a zero overhead makes every fit generous.
+    expect(() => medianOverheadSeconds([])).toThrow(/no legs/);
+  });
+
+  it("growthPerDay divides the total delta by the DAY gap, and refuses a non-positive one", () => {
+    const later = { totalS: 24_616, dateISO: "2026-08-31" };
+    const earlier = { totalS: 22_158, dateISO: "2026-08-26" };
+    // (24616 - 22158) / 5 = 491.6. Derived from the fixture on both sides.
+    expect(growthPerDay(later, earlier)).toBeCloseTo((24_616 - 22_158) / 5, 6);
+    // The DAY divisor is load-bearing: the same delta over ten days is half the rate.
+    expect(growthPerDay({ ...later, dateISO: "2026-09-05" }, earlier)).toBeCloseTo(
+      (24_616 - 22_158) / 10,
+      6,
+    );
+    // A ONE-DAY gap is both the common case -- two consecutive nightlies -- and the exact
+    // boundary of the refusal: `days > 0` admits it and `days > 1` does not, and no other fixture
+    // in this case can tell those two apart.
+    expect(growthPerDay({ ...later, dateISO: "2026-08-27" }, earlier)).toBeCloseTo(
+      24_616 - 22_158,
+      6,
+    );
+    // Equal dates and reversed dates both THROW rather than reporting an infinite rate.
+    expect(() => growthPerDay(later, { ...earlier, dateISO: later.dateISO })).toThrow(/day gap/);
+    expect(() => growthPerDay(earlier, later)).toThrow(/day gap/);
+  });
+
+  it("the required runway is three weeks, stated as such", () => {
+    // Pinned against its own rationale rather than against itself: a bare `toBe(21)` is a literal
+    // compared to a literal and survives any edit that moves both.
+    expect(REQUIRED_RUNWAY_DAYS).toBe(3 * 7);
+  });
+
+  it("runwayDays is N*floor - total over the growth rate, derived from constructed surfaces", () => {
+    // `weightOf` reads a real file, so the surfaces are real and only their suite/ledger fields
+    // vary; the expected value is computed from those same weights rather than written down.
+    const light = fakeSurface({ id: "light", suitePaths: ["a"], accepted: [] });
+    const heavy = fakeSurface({
+      id: "heavy",
+      suitePaths: ["a", "b", "c", "d", "e", "f", "g", "h"],
+      accepted: [],
+    });
+    const surfaces = [light, heavy];
+    const total = (weightOf(light) + weightOf(heavy)) / 1000;
+    const floor = Math.max(weightOf(light), weightOf(heavy)) / 1000;
+    premise("the two fixtures differ in weight", weightOf(heavy) - weightOf(light), 0);
+    for (const n of [2, 5, 9]) {
+      expect(runwayDays(n, surfaces)).toBeCloseTo((n * floor - total) / growthSecondsPerDay(), 6);
+    }
+  });
+
+  it("the shard count carries at least the required runway (AC-10)", () => {
+    // ONE-SIDED, deliberately: over-provisioning is not a defect, and an equality would red the
+    // moment anyone raised the count for any other reason. What this catches is enrolment growth
+    // eating the count's travel — the failure the 2026-08-31 nightly discovered by crossing a
+    // budget instead, at N = 8 and a runway already negative.
+    //
+    // Every input derived: the floor from the live registry, the total from the same weights, the
+    // growth from the anchor's two committed points.
+    const days = runwayDays();
+    // PREMISE: a zero or negative growth rate makes the division meaningless and the comparison
+    // trivially satisfiable in one direction.
+    premise("the derived growth rate is positive", growthSecondsPerDay(), 0);
+    expect(days).toBeGreaterThanOrEqual(REQUIRED_RUNWAY_DAYS);
+  });
+
+  it("runway RISES with the count, so it is a lever and not a constant", () => {
+    // The claim this file used to make -- that the count is finished as a lever -- is true of the
+    // MAKESPAN and false of the runway, and that distinction is the whole of AC-10. A
+    // `runwayDays` that ignored its argument would satisfy the case above forever.
+    expect(runwayDays(SOURCE_SHARD_COUNT + 1)).toBeGreaterThan(runwayDays(SOURCE_SHARD_COUNT));
+    expect(runwayDays(SOURCE_SHARD_COUNT - 1)).toBeLessThan(runwayDays(SOURCE_SHARD_COUNT));
+  });
+
+  it("the count is the SMALLEST that carries the required runway", () => {
+    // Derived rather than chosen. Without this, any large count passes the one-sided assertion
+    // above and the number in the constant stops being an answer to anything.
+    expect(runwayDays(SOURCE_SHARD_COUNT - 1)).toBeLessThan(REQUIRED_RUNWAY_DAYS);
+  });
+
+  it("totalElapsedSeconds SUMS the legs, and an empty block totals zero", () => {
+    // The reduce that used to live inside the anchor-reading wrapper, where no constructed case
+    // could reach its seed. Three distinct values, so a maximum or a first-element read is
+    // excluded as well as a wrong seed.
+    expect(totalElapsedSeconds([{ elapsedS: 10 }, { elapsedS: 200 }, { elapsedS: 3_000 }])).toBe(
+      3_210,
+    );
+    // Zero, not one: the seed is the additive identity, and a seed of 1 would inflate every
+    // block's total by a second forever while every relative comparison still looked right.
+    expect(totalElapsedSeconds([])).toBe(0);
+  });
+
+  it("modelledFloor refuses an empty list, keeps the FIRST of a tie, and takes a lone surface", () => {
+    // Three boundaries the live-registry case below cannot reach -- the registry is never empty,
+    // never a single surface, and its weights differ. Each was a surviving mutant on 2026-09-01.
+    //
+    // EMPTY THROWS. A sentinel stood here and returned a NEGATIVE floor, which satisfies every
+    // budget comparison it is handed; that is the one direction a missing figure must not fail in.
+    expect(() => modelledFloor([])).toThrow(/no surfaces/);
+
+    // A TIE KEEPS THE FIRST. Both fixtures carry tapTargetScan's source, suites and ledger and
+    // differ only in id, so the tie is equal by construction rather than by luck. The surface
+    // NAMED is then the only observable, and it is where a budget failure sends its reader.
+    const alpha = fakeSurface({ id: "alpha" });
+    const omega = fakeSurface({ id: "omega" });
+    // PREMISE: two weightless surfaces would tie trivially and make the pick unobservable.
+    premise("the tied fixtures carry a real cost", weightOf(alpha), 0);
+    expect(weightOf(alpha)).toBe(weightOf(omega));
+    expect(modelledFloor([alpha, omega]).surface).toBe("alpha");
+    // And it is the FIRST, not a name-ordering: reversing the input reverses the answer.
+    expect(modelledFloor([omega, alpha]).surface).toBe("omega");
+
+    // A LONE surface is its own floor. This is the seeding boundary, where a start index off by
+    // one reads past the end of a one-element list.
+    expect(modelledFloor([alpha])).toEqual({ seconds: weightOf(alpha) / 1000, surface: "alpha" });
+  });
+
+  it("the modelled floor IS the heaviest surface, derived from the same weights", () => {
+    // The live-registry fit check below cannot catch a wrong floor: a floor that is too SMALL
+    // still fits the budget, so `modelledFloor` returning the lightest surface passes it. Measured
+    // as an escaping mutant on 2026-09-01 and pinned here instead.
+    //
+    // Derived on both sides from `weightOf`, never a named surface id: the expected value is the
+    // maximum over the live registry, so enrolment moves it without touching this case.
+    const f = modelledFloor();
+    const heaviestMs = Math.max(...GUARD_SURFACES.map((x) => weightOf(x)));
+    expect(f.seconds).toBe(heaviestMs / 1000);
+    expect(weightOf(GUARD_SURFACES.find((x) => x.id === f.surface)!)).toBe(heaviestMs);
+    // And it is a MAXIMUM, not merely a member: nothing may exceed it.
+    for (const x of GUARD_SURFACES) expect(weightOf(x)).toBeLessThanOrEqual(heaviestMs);
+    // PREMISE: a registry whose surfaces all weighed the same would make the three assertions
+    // above true for any pick at all.
+    premise(
+      "the registry's weights actually differ, so picking the maximum is a choice",
+      new Set(GUARD_SURFACES.map((x) => weightOf(x))).size,
+      1,
+    );
+  });
+
+  it("the binding leg AND the floor fit the budget, in the units the budget is in", () => {
+    // REPLACES a comparison of child MILLISECONDS against a budget denominated in elapsed
+    // SECONDS, which was short by the per-leg overhead and therefore admitted a partition whose
+    // legs do not fit. The discrimination is proven against constructed numbers in
+    // tests/ci/shardBudget.test.ts; this call is the REGRESSION check on the shipped partition.
+    //
+    // Both halves are derived: the makespan from the live registry through `weightOf` and the
+    // shipped assignment, the floor from the heaviest single surface, the overhead from the
+    // recalibration block's ten measured legs. A literal on either side would rot the way the
+    // comparison this replaces did.
+    const floor = modelledFloor();
+    const overheadSeconds = legOverheadSeconds();
+    // PREMISE: a zero overhead makes this no stronger than the comparison it replaces, and a
+    // floor of zero makes the floor half vacuous.
+    premise("the derived per-leg overhead is real", overheadSeconds, 0);
+    premise("the modelled floor is a real surface cost", floor.seconds, 0);
+    const verdict = checkBudget([], [], SHARD_BUDGET_SECONDS, {
+      makespanSeconds: makespan / 1000,
+      floorSeconds: floor.seconds,
+      floorSurface: floor.surface,
+      overheadSeconds,
+    });
+    expect(verdict.failures.filter((f) => /modelled/.test(f))).toEqual([]);
   });
 
   it("the binding leg fits the budget, derived from the live registry", () => {

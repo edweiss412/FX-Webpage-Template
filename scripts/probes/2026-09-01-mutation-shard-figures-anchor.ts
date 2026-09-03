@@ -75,6 +75,27 @@ export type Anchor = {
    *  third, independently measured number that binds `surfaceMs` to `rates`. */
   bootsAtRun: Record<string, number>;
   splitSourceBlobSha: string;
+  /**
+   * A LATER full run, measured on its own head, from which the registry's rates are declared.
+   *
+   * Separate from the body above rather than replacing it: `splitSurfaceOperatorMs` prices
+   * `controlOutlineResidue` as ONE registry row, and that row no longer exists as one, so a
+   * regenerated anchor would destroy the record that licensed the split. The body is the
+   * measurement that motivated a decision; this block is the measurement the rates follow.
+   *
+   * `rateExcluded` names surfaces this block MEASURED and does not declare from. Recording and
+   * excluding are different acts, and omitting them would leave the exclusion invisible.
+   */
+  recalibration: {
+    runId: string;
+    runHeadSha: string;
+    dateISO: string;
+    legs: Record<string, { elapsedS: number; childMs: number }>;
+    surfaceMs: Record<string, number>;
+    bootsAtRun: Record<string, number>;
+    rates: Record<string, { observedPerBoot: number }>;
+    rateExcluded: string[];
+  };
   priorRun: {
     runId: string;
     surfaces: number;
@@ -138,6 +159,30 @@ export const loadAnchor = (): Anchor => JSON.parse(readFileSync(ANCHOR_PATH, "ut
  */
 export function anchorProblems(A: Anchor, text: string): string[] {
   const bad: string[] = [];
+  /**
+   * A leg's ELAPSED time contains its CHILD time, so elapsed can never be less.
+   *
+   * Positivity alone accepted a dropped digit in either table, and both are now read by gates:
+   * the body's elapsed feeds `growthSecondsPerDay` (2912 -> 912 moved growth from 491.6 to 91.6
+   * s/day and inflated every runway fivefold) and the block's feeds `legOverheadSeconds` (3236 ->
+   * 236 moved the median overhead 195 -> 185). Measured by whole-diff round 4 as ordinary
+   * dropped-digit transcription errors, which is squarely inside the threat fence.
+   *
+   * The bound is physical rather than chosen: the children ran inside the leg, serially, so
+   * `elapsedS >= childMs / 1000` for any honest pair, with the difference being setup.
+   */
+  const elapsedCoversChild = (label: string, elapsedS: unknown, childMs: unknown) => {
+    if (typeof elapsedS !== "number" || typeof childMs !== "number") return;
+    if (!Number.isFinite(elapsedS) || !Number.isFinite(childMs)) return;
+    if (elapsedS < childMs / 1000) {
+      bad.push(
+        `${label} reports ${elapsedS}s elapsed but ${childMs}ms of child time (${(
+          childMs / 1000
+        ).toFixed(1)}s); a leg cannot finish before the children it ran`,
+      );
+    }
+  };
+
   const positive = (label: string, v: unknown) => {
     if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
       bad.push(`${label} is ${JSON.stringify(v)}; a measurement must be a positive finite number`);
@@ -160,6 +205,7 @@ export function anchorProblems(A: Anchor, text: string): string[] {
   for (const [n, leg] of Object.entries(A.legs)) {
     positive(`legs[${n}].elapsedS`, leg?.elapsedS);
     positive(`legs[${n}].childMs`, leg?.childMs);
+    elapsedCoversChild(`legs[${n}]`, leg?.elapsedS, leg?.childMs);
   }
 
   const surfaceIds = Object.keys(A.surfaceMs).sort();
@@ -227,6 +273,143 @@ export function anchorProblems(A: Anchor, text: string): string[] {
         `reprice a source nobody measured. Re-measure, or state the figures from a run on ` +
         `this text.`,
     );
+  }
+
+  // THE RECALIBRATION BLOCK, judged on the SAME footing and by the same shapes. It is the block
+  // the registry's declared rates come from, so a hole here is a rate nobody measured, which is
+  // exactly the defect the body above is judged whole to prevent -- and a validator that knew only
+  // about tables written before it was added would return clean for an invalid block. Measured
+  // 2026-09-01: it did.
+  const R = A.recalibration;
+  if (!/^\d+$/.test(R.runId))
+    bad.push(`recalibration.runId ${JSON.stringify(R.runId)} is not a run id`);
+  if (!/^[0-9a-f]{40}$/.test(R.runHeadSha)) {
+    bad.push(`recalibration.runHeadSha ${JSON.stringify(R.runHeadSha)} is not a commit sha`);
+  }
+  // A DIFFERENT, LATER run than the body, not merely a well-formed identity.
+  //
+  // Whole-diff review round 1 probed this: relabelling the block with the body's own runId, or
+  // with its runHeadSha, passed every check while the block claimed `psqlStartupScan` at 25952
+  // ms/boot and the body records the same run measuring 16462. Syntax cannot see a figure
+  // attributed to a run that demonstrably measured something else, and the declared-rate checks
+  // cannot either, since they read the block alone.
+  // LATER THAN EVERY RUN THE ANCHOR NAMES, derived rather than enumerated.
+  //
+  // An earlier version of this check rejected the body's exact runId and head sha, and whole-diff
+  // round 2 walked straight past it by relabelling the block with the anchor's PRIOR run
+  // (32958581720) instead. Two equality checks close two relabels; a run id must simply be the
+  // largest the file names, which closes the class -- GitHub's run ids are monotonic, so a later
+  // run always carries a larger one, and every id the anchor already holds is a lower bound.
+  const otherRunIds = [A.runId, A.priorRun.runId];
+  for (const other of otherRunIds) {
+    if (!/^\d+$/.test(other)) continue;
+    if (BigInt(R.runId) <= BigInt(other)) {
+      bad.push(
+        `recalibration.runId ${R.runId} is not later than ${other}, which this anchor also ` +
+          `names; the recalibration is the NEWEST measurement, and a block relabelled with an ` +
+          `earlier run's identity claims figures that run did not produce`,
+      );
+    }
+  }
+  if (R.runHeadSha === A.runHeadSha) {
+    bad.push(
+      `recalibration.runHeadSha is the body's own head; the two runs ran on different trees, and ` +
+        `bootsAtRun is evaluated on the block's tree rather than the body's`,
+    );
+  }
+  // DOCUMENTED LIMIT: PROVENANCE IS BOUNDED, AND THIS IS WHERE IT STOPS.
+  //
+  // These checks answer "is this identity plausible for a later run", never "is this identity the
+  // run that produced these tables". They catch what an ordinary contributor gets wrong -- the
+  // body's identity copied by mistake, an earlier run's, a malformed sha, a date out of order --
+  // and they cannot catch a deliberate relabel. Whole-diff round 3 demonstrated both remaining
+  // shapes with single-field edits: `runId` one higher than the real one, and `runHeadSha` set to
+  // another commit that genuinely exists.
+  //
+  // Neither is closable from inside this file, and widening again would not help. The anchor's
+  // own contents cannot witness which run produced them; only GitHub can, and this function is
+  // pure and offline by design so that it runs where the suite runs. The real closure is a
+  // network check of the declared runId's head sha against the Actions API, which belongs to
+  // whatever process regenerates the block rather than to the gate that reads it.
+  //
+  // That places it OUTSIDE this arc's stated threat fence -- ordinary contributor error, not an
+  // author constructing an anchor to deceive -- so it is written here, on the surface that owns
+  // it, rather than chased one edit at a time. RE-FILE TRIGGER: a recalibration block whose
+  // figures are found to disagree with the run it names, on any real run.
+  //
+  // The sha's EXISTENCE, separately, is checkable and is checked -- in the deciding suite, which
+  // can ask git: see the "names a commit that exists" case in
+  // tests/mutation/figuresAnchorReconciliation.test.ts. Round 2 demonstrated that gap with a
+  // one-character typo. Splitting it that way is deliberate rather than a shortfall.
+  const bodyDate = Date.parse(A.thisRunDateISO);
+  const blockDate = Date.parse(R.dateISO);
+  if (!Number.isFinite(blockDate)) {
+    bad.push(`recalibration.dateISO ${JSON.stringify(R.dateISO)} is not a date`);
+  } else if (Number.isFinite(bodyDate) && blockDate < bodyDate) {
+    bad.push(
+      `recalibration.dateISO ${R.dateISO} is BEFORE the body's ${A.thisRunDateISO}; the ` +
+        `recalibration is the newer measurement, and declaring rates from the older one silently ` +
+        `undoes it`,
+    );
+  }
+  const rLegIdx = Object.keys(R.legs)
+    .map(Number)
+    .sort((x, y) => x - y);
+  if (rLegIdx.length === 0 || !rLegIdx.every((n, i) => n === i)) {
+    bad.push(`recalibration legs are [${rLegIdx.join(", ")}], not a contiguous matrix 0..n-1`);
+  }
+  for (const [n, leg] of Object.entries(R.legs)) {
+    positive(`recalibration.legs[${n}].elapsedS`, leg?.elapsedS);
+    positive(`recalibration.legs[${n}].childMs`, leg?.childMs);
+    elapsedCoversChild(`recalibration.legs[${n}]`, leg?.elapsedS, leg?.childMs);
+  }
+  const rSurfaceIds = Object.keys(R.surfaceMs).sort();
+  for (const [label, table] of [
+    ["rates", Object.keys(R.rates).sort()],
+    ["bootsAtRun", Object.keys(R.bootsAtRun).sort()],
+  ] as const) {
+    if (table.join("\u0000") !== rSurfaceIds.join("\u0000")) {
+      bad.push(`recalibration.${label} describes different surfaces from recalibration.surfaceMs`);
+    }
+  }
+  for (const id of rSurfaceIds) {
+    positive(`recalibration.surfaceMs.${id}`, R.surfaceMs[id]);
+    positive(`recalibration.bootsAtRun.${id}`, R.bootsAtRun[id]);
+    positive(`recalibration.rates.${id}.observedPerBoot`, R.rates[id]?.observedPerBoot);
+  }
+  // The same two-tables-one-quantity cross-check the body gets: every surface ran on exactly one
+  // leg, so a difference means one table lost a row.
+  const rLegChild = Object.values(R.legs).reduce((a, l) => a + (l?.childMs ?? 0), 0);
+  const rSurfChild = Object.values(R.surfaceMs).reduce((a, b) => a + (b ?? 0), 0);
+  if (rLegChild !== rSurfChild) {
+    bad.push(
+      `recalibration legs total ${rLegChild} child ms but the per-surface table totals ` +
+        `${rSurfChild}; every surface ran on exactly one leg`,
+    );
+  }
+  // THE RATE RELATION, and it ROUNDS. `observedPerBoot` is an integer and `surfaceMs` is a
+  // measurement, so an exact product rejects ordinary rounding: 56 of the body's own 60 rows fail
+  // it. This is the relation the anchor already satisfies, stated so the block cannot drift into a
+  // rate nobody derived.
+  for (const id of rSurfaceIds) {
+    const b = R.bootsAtRun[id];
+    const ms = R.surfaceMs[id];
+    const rate = R.rates[id]?.observedPerBoot;
+    if (b === undefined || ms === undefined || rate === undefined || b <= 0) continue;
+    if (rate !== Math.round(ms / b)) {
+      bad.push(
+        `recalibration.rates.${id} declares ${rate} ms/boot, but ${ms} ms over ${b} boots ` +
+          `rounds to ${Math.round(ms / b)}`,
+      );
+    }
+  }
+  for (const id of R.rateExcluded) {
+    if (R.rates[id] === undefined) {
+      bad.push(
+        `recalibration.rateExcluded names ${id}, which the block does not measure; excluding a ` +
+          `surface means RECORDING it and not declaring from it, so an unmeasured id is a typo`,
+      );
+    }
   }
 
   const priorSum = A.priorRun.legsElapsedS.reduce((a, b) => a + b, 0);

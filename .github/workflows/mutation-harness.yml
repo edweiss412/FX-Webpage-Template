@@ -187,14 +187,14 @@ jobs:
   source-shards:
     # NIGHTLY-ONLY on pull requests, ruled 2026-08-26.
     #
-    # The full matrix is 22 job rows, 20 of them full test legs, and it ran on
+    # The full matrix is 24 job rows, 22 of them full test legs, and it ran on
     # EVERY harness-touching PR -- competing with that PR's own required checks.
     # Measured 2026-08-26: 16 full-matrix fan-outs in one day across four
     # branches, ELEVEN cancelled by the next push before producing any verdict.
-    # A harness-touching PR now sends 2 jobs to runners instead of 21 (`notify`
+    # A harness-touching PR now sends 2 jobs to runners instead of 23 (`notify`
     # was already skipped on PRs, so it never cost a runner). The three figures
-    # follow SOURCE_SHARD_COUNT, which went 8 -> 10 on 2026-09-01; they were
-    # left at the old count once and caught in review.
+    # follow SOURCE_SHARD_COUNT, which went 8 -> 10 and then 10 -> 12 on
+    # 2026-09-01; they were left at the old count once and caught in review.
     #
     # The TRIGGER and its ten path globs are deliberately unchanged: each covers
     # a path whose edit can change a verdict, and dropping globs would trade a
@@ -211,14 +211,14 @@ jobs:
     # THE ESCAPE, so the next arc does not rediscover it: `workflow_dispatch` is
     # enabled above, so any branch can have a real full run on demand with
     #   gh workflow run mutation-harness.yml --ref <branch>
-    # A branch dispatch sends 21 (`notify` is gated to schedule or the default
+    # A branch dispatch sends 23 (`notify` is gated to schedule or the default
     # branch). That is also the ONLY way to validate a change to this trigger,
     # since a trigger cannot validate its own removal.
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
     runs-on: ubuntu-latest
     timeout-minutes: 125
     permissions:
@@ -228,6 +228,24 @@ jobs:
         id: stamp-start
         run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
+      # The ambient ref count, printed by every leg on every trigger.
+      #
+      # `ledgerGit` and `ledgerClaimsCore` are EXCLUDED from the declared rates in
+      # scripts/probes/2026-09-01-mutation-shard-figures-input.json: they measured 2.2x apart
+      # between two runs and are the only two surfaces sharing an ambient-git reader
+      # (tests/scripts/ledgerClaimsCheck.test.ts:570). The archived entry
+      # BL-LEDGERGIT-FILEOIDS-AMBIENT-REF-VERDICT names this exact probe as the one that would
+      # settle whether the trigger type is the cause, and records that it has never run.
+      #
+      # One `git for-each-ref` per leg, so the exclusion becomes retirable from evidence: two runs
+      # of the same trigger whose counts agree re-derive both rates. NOT `env:`-bearing on purpose
+      # -- it needs nothing -- which is why tests/mutation/_metaSourceShardIntegrity.test.ts pins
+      # it by name: the workflow-coverage scanner reads env pairs and sees a bare `run:` step as
+      # no change at all.
+      - name: Record ambient origin-ref count
+        run: |
+          echo "refs/remotes/origin/* count: $(git for-each-ref --format='%(refname)' 'refs/remotes/origin/*' | wc -l)"
+          git for-each-ref --format='  %(refname)' 'refs/remotes/origin/*'
       - uses: ./.github/actions/setup
       # Browser install, chromium only. The registry enrols `captureRenderFault`
       # (tests/mutation/source/registry.ts) whose deciding suite,
@@ -250,9 +268,10 @@ jobs:
       # 32958581720: leg 5 held 8 surfaces and 7 reported nothing).
       #
       # MEASURED COST: 84 s per leg (setup-cli 2 s + bootstrap 82 s, off
-      # NOTE 2026-09-01: the leg COUNT below moved 8 -> 10 with SOURCE_SHARD_COUNT, so the
-      # aggregate figures in this paragraph are the eight-leg ones and are kept as the dated
-      # measurement they were. The per-leg 84 s is unchanged; the total is now ten times it.
+      # NOTE 2026-09-01: the leg COUNT below moved 8 -> 10 and then 10 -> 12 with
+      # SOURCE_SHARD_COUNT, so the aggregate figures in this paragraph are the eight-leg ones and
+      # are kept as the dated measurement they were. The per-leg 84 s is unchanged; the total is
+      # now twelve times it.
       # unit-suite-db job 98210351983), against legs of 2494-3267 s. The binding
       # leg goes to about 93% of the 3600 s budget. Documented limit L-1: a
       # conditional bring-up would pay this on one leg instead of eight and was
@@ -394,7 +413,7 @@ jobs:
           ELAPSED_DIR: elapsed
           SHARD_BUDGET_SECONDS: "3600"
           PARSER_SHARD_COUNT: "8"
-          SOURCE_SHARD_COUNT: "10"
+          SOURCE_SHARD_COUNT: "12"
         run: pnpm tsx scripts/check-shard-budget.ts
       # The RECORDS, not the elapsed stamps: drift is per SURFACE, and only the
       # per-surface record carries the child wall clock a rate is derived from.
@@ -524,7 +543,7 @@ jobs:
               "",
               "C) BUDGET — job `budget` (scripts/check-shard-budget.ts).",
               "   This job failing is NOT a coverage failure. Either a leg exceeded the 3,600 s per-shard budget, or a leg reported no elapsed record at all.",
-              "   - over budget: NOT a count problem any more. SOURCE_SHARD_COUNT reached its floor at 10 on 2026-09-01 — the makespan now equals the heaviest single surface, and 11 and 12 give the same number. A leg over budget is a SURFACE that outgrew a leg: split it into separately-enrolled parts, or make its deciding suite cheaper. Never timeout-minutes.",
+              "   - over budget: read WHICH failure it is. The MAKESPAN equals the heaviest single surface from SOURCE_SHARD_COUNT=10 onward, so a leg over budget because ONE surface outgrew it is not a count problem: split that surface into separately-enrolled parts, or make its deciding suite cheaper. checkBudget names the surface when that is the case. A count RAISE is the repair for the other failure — the AVERAGE leg reaching the floor as enrolment grows, which is what runwayDays measures and what took the count 8 -> 10 -> 12 on 2026-09-01. Never timeout-minutes.",
               "   - no elapsed record: a leg was cancelled, timed out, or never ran. Fix that leg first; the budget verdict says nothing until every leg reports.",
               "",
               "Auto-filed by mutation-harness.yml; auto-closes on the next green scheduled run.",
