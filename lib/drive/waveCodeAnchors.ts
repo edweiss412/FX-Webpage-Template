@@ -26,6 +26,7 @@ import { normalizeCellKey } from "@/lib/drive/unknownFieldAnchors";
 import { clean, splitRow } from "@/lib/parser/blocks/_helpers";
 import { normalizeLeadingColumn } from "@/lib/parser/leadingColumnNormalize";
 import { scanRefErrorLiterals } from "@/lib/parser/refErrorDetector";
+import { GENERIC_SECTION_KIND } from "@/lib/parser/sectionKind";
 import { scanFusedRows } from "@/lib/parser/rowWidthDiscriminator";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -45,6 +46,9 @@ export type WaveCodeSite = {
   kind: string;
   snippet: string | null;
   anchor: SourceAnchor | null;
+  /** The owning tab's OOXML visibility (`GridBlock.sheetHidden`); false for an opaque block.
+   *  Carried on every site so a consumer can pair it positionally like the anchor. */
+  hiddenTab: boolean;
 };
 
 export type SynthOpts = { includePullSheetFromTab?: string };
@@ -122,6 +126,7 @@ export function extractWaveCodeSites(
     const md = blockMarkdown(block);
     const grid = block.kind === "grid" ? block : null;
     const gid = grid ? titleToGid.get(grid.sheetName) : undefined;
+    const hiddenTab = grid?.sheetHidden ?? false;
     const anchorAt = (line: number, col: number | null): SourceAnchor | null => {
       if (!grid || typeof gid !== "number" || col === null) return null;
       const row = rowOfLine(line);
@@ -143,6 +148,7 @@ export function extractWaveCodeSites(
         kind: h.kind,
         snippet: h.snippet,
         anchor: ok ? anchorAt(h.line, owner) : null,
+        hiddenTab,
       });
     }
 
@@ -157,6 +163,7 @@ export function extractWaveCodeSites(
         kind: h.kind,
         snippet: h.snippet,
         anchor: anchorAt(h.line, first >= 0 ? first : null),
+        hiddenTab,
       });
     }
 
@@ -168,6 +175,7 @@ export function extractWaveCodeSites(
         kind: s.kind,
         snippet: null,
         anchor: anchorAt(s.from, 0),
+        hiddenTab,
       });
     }
   }
@@ -187,6 +195,16 @@ export function pairWaveCodeSites(
   sites: readonly WaveCodeSite[],
   code: WaveCode,
 ): (SourceAnchor | null)[] {
+  return pairWaveCodeHits(warnings, sites, code).map((hit) => hit?.anchor ?? null);
+}
+
+/** The pairing itself: the i-th warning of `code` with the i-th replay SITE, so a consumer
+ *  can read any field the site carries (anchor, hiddenTab) under one refusal rule. */
+export function pairWaveCodeHits(
+  warnings: readonly ParseWarning[],
+  sites: readonly WaveCodeSite[],
+  code: WaveCode,
+): (WaveCodeSite | null)[] {
   const parsed = warnings.filter((w) => w.code === code);
   const replayed = sites.filter((s) => s.code === code);
   const refuse = parsed.map(() => null);
@@ -203,7 +221,41 @@ export function pairWaveCodeSites(
       return refuse;
     }
   }
-  return replayed.map((r) => r.anchor);
+  return replayed;
+}
+
+/**
+ * Which warnings are `#REF!` artifacts of a HIDDEN lookup tab, aligned with `warnings`.
+ *
+ * A `#REF!` on a hidden tab in a GENERIC section (no recognised col0 label on either the
+ * parsed warning or the replay hit) is what an IMPORTRANGE lookup tab leaves behind when
+ * its source access lapses. Nobody sees that cell on the crew page and nobody can reach it
+ * from the deep link, because Google Sheets refuses to open a hidden gid and lands on the
+ * last visible tab instead (measured 2026-09-03 on "II - FinTech Forum CTO Summit 2026":
+ * five such warnings, every "Open in Sheet" link landing on DIAGRAMS).
+ *
+ * The rule is deliberately NARROW. Hidden tabs are still parsed (AGENDA is hidden on that
+ * same show), so a `#REF!` inside a recognised section renders on the crew page and keeps
+ * its warning whatever the tab's visibility. Every other code is untouched. The pairing is
+ * the same positional one the anchors use, so a count mismatch suppresses nothing.
+ */
+export function hiddenTabRefSuppressions(
+  warnings: readonly ParseWarning[],
+  sites: readonly WaveCodeSite[],
+): boolean[] {
+  const hits = pairWaveCodeHits(warnings, sites, "REF_ERROR_LITERAL");
+  let cursor = 0;
+  return warnings.map((w) => {
+    if (w.code !== "REF_ERROR_LITERAL") return false;
+    const hit = hits[cursor] ?? null;
+    cursor += 1;
+    return (
+      hit !== null &&
+      hit.hiddenTab &&
+      hit.kind === GENERIC_SECTION_KIND &&
+      w.blockRef?.kind === GENERIC_SECTION_KIND
+    );
+  });
 }
 
 export function pairAllWaveCodes(

@@ -431,7 +431,7 @@ describe("T4 the guards refuse, never mis-pair (spec §5 T4)", () => {
     kind: string,
     snippet: string | null,
     anchor: SourceAnchor | null,
-  ): WaveCodeSite => ({ code, kind, snippet, anchor });
+  ): WaveCodeSite => ({ code, kind, snippet, anchor, hiddenTab: false });
 
   const refSites = [
     site("REF_ERROR_LITERAL", "section", "\\#REF\\!", cell("A1")),
