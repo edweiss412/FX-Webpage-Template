@@ -24,7 +24,13 @@ import { loadAnchor } from "../../../scripts/probes/2026-09-01-mutation-shard-fi
 import { GUARD_SURFACES, type GuardSurface } from "./registry";
 
 /**
- * Ten, and the count is now FINISHED as a lever.
+ * Twelve, and the count is a lever for ENROLMENT RUNWAY rather than for makespan.
+ *
+ * That distinction is the whole of this block, and it has been got backwards twice. This
+ * line used to read "Ten, and the count is now FINISHED as a lever" -- a summary that was
+ * false about the number and, more expensively, right about the makespan and wrong about
+ * what anyone raises the count FOR. The refutation is four paragraphs down; a reader who
+ * only sees the first line should not have to reach it to avoid the same conclusion.
  *
  * The history in one line: four was chosen on the premise that max load is pinned by the
  * heaviest surface, enrolment falsified it, and eight restored it. Eight then failed for
