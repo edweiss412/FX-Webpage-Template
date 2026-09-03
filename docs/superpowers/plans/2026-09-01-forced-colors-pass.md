@@ -531,8 +531,9 @@ printed 366, the DEFAULT-options universe, which is a different population.
 All 42 are dispositioned below, by family, each with the COLLIDING PAIR the
 prototype prints — the tokens that differ between the two paths sharing a
 projection. The families are exhaustive by construction and the census is now grouped by
-DISPOSITION rather than by an ad-hoc family list: 12 repaired + 18 carrier-survives
-+ 10 deliberate-flatten + 2 not-a-state = 42. Task 2's suite asserts that sum
+DISPOSITION rather than by an ad-hoc family list, and the four counts sum to 42
+(repaired 12, carrier-survives 18, deliberate-flatten 10, not-a-state 2). Task 2's
+suite asserts that sum
 against the arm's own output, so a new site cannot land in no family, and a
 companion guard asserts every row sits under a heading its disposition agrees with.
 The headings themselves no longer restate a count — whole-diff R3 found six rows
