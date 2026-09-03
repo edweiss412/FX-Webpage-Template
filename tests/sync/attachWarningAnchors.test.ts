@@ -296,6 +296,73 @@ describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-t
     expect(refs(warnings)[0]!.sourceCell).toBeUndefined(); // link-less, as today without gids
   });
 
+  it("keeps a hidden AGENDA table's #REF! that the run-of-show renders (Codex R1 probe)", async () => {
+    const buffer = buildXlsx([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      {
+        name: "AGENDA",
+        hidden: true,
+        grid: [
+          [
+            "TRAVEL DAY",
+            "TRAVEL DAY",
+            "TRAVEL DAY",
+            "DAY 1",
+            "DAY 1",
+            "DAY 1",
+            "DAY 1",
+            "DAY 1",
+            "DAY 1",
+          ],
+          [
+            "9/3/25",
+            "9/3/25",
+            "9/3/25",
+            "9/5/25",
+            "9/5/25",
+            "9/5/25",
+            "9/5/25",
+            "9/5/25",
+            "9/5/25",
+          ],
+          [
+            "Wednesday",
+            "Wednesday",
+            "Wednesday",
+            "Friday",
+            "Friday",
+            "Friday",
+            "Friday",
+            "Friday",
+            "Friday",
+          ],
+          ["NAME", "ARRIVAL", "FLIGHT#", "START", "FINISH", "TRT", "TITLE", "ROOM", "AV"],
+          ["", "", "", "#REF!", "9:30 AM", "1:00", "Keynote", "Hall A", "LAV"],
+        ],
+      },
+    ]);
+    const parsedSheet = parseSheet(synthesizeMarkdownFromXlsx(buffer).markdown, "probe.xlsx");
+    const warnings = parsedSheet.warnings;
+    const entry = parsedSheet.runOfShow?.["2025-09-05"]?.entries[0];
+    premiseHolds(
+      "the parser stored the literal where a start time belongs",
+      entry?.start === "#REF!",
+    );
+    premiseHolds(
+      "one #REF! warning parsed, generic kind",
+      refs(warnings).length === 1 && refs(warnings)[0]!.blockRef?.kind === "section",
+    );
+    await attachWarningAnchors(warnings, buffer, () =>
+      Promise.resolve(
+        new Map([
+          ["INFO", 0],
+          ["AGENDA", 1490737099],
+        ]),
+      ),
+    );
+    expect(refs(warnings)).toHaveLength(1);
+  });
+
   it("suppresses nothing when the replay refuses (a synthOpts mismatch changes the hit count)", async () => {
     const OLD_TAB = "OLD PULL SHEET";
     const buffer = buildXlsx([

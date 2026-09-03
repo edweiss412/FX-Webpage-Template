@@ -12,12 +12,15 @@ import { premiseHolds } from "@/tests/_shared/premise";
 import { buildXlsx } from "../helpers/buildXlsx";
 
 /**
- * A `#REF!` on a HIDDEN tab in a GENERIC section is a lookup-table artifact nobody can see
- * or fix from the deep link (Google refuses to open a hidden gid, measured 2026-09-03 on
- * "II - FinTech Forum CTO Summit 2026": five such warnings, every link landing on DIAGRAMS).
- * The suppression is deliberately NARROW: a `#REF!` inside a recognised section keeps its
- * warning even on a hidden tab, because hidden tabs are still parsed (AGENDA is hidden on
- * that same show) and a recognised-section literal renders on the crew page.
+ * A `#REF!` on a DEAD LOOKUP TAB, a hidden tab whose every non-blank cell holds the literal,
+ * is the artifact an IMPORTRANGE leaves when its source access lapses: nobody can see it on
+ * the crew page and nobody can reach it from the deep link (Google refuses to open a hidden
+ * gid, measured 2026-09-03 on "II - FinTech Forum CTO Summit 2026": five such warnings, every
+ * link landing on DIAGRAMS). The suppression is deliberately NARROW. Hidden tabs are still
+ * parsed (AGENDA is hidden on that same show), and a section kind of "section" does NOT mean
+ * unrendered: the AGENDA token-header table, `Event Name:`, `VENUE NAME`, `COI` all track as
+ * generic and all render (Codex R1 probe). A tab of nothing but `#REF!` has no label to bind
+ * a value to, which is why the rule is the tab's whole content and not the section kind.
  */
 
 /** `#REF!` where a crew NAME belongs: a recognised section, kind "crew". */
@@ -27,6 +30,29 @@ const CREW_WITH_REF: string[][] = [
 ];
 /** The live shape: a lookup tab whose IMPORTRANGE failed, one `#REF!` cell, no label. */
 const LOOKUP_REF: string[][] = [["#REF!"]];
+/** Composite literals and a blank row: still nothing but `#REF!`, still dead. */
+const LOOKUP_REF_COMPOSITE: string[][] = [["#REF!", "#REF! - #REF!"], [], ["", "#REF!/NAME"]];
+/** A hidden tab with ONE label beside the literal: not dead, the label can bind a value. */
+const LOOKUP_REF_WITH_LABEL: string[][] = [["#REF!"], ["Event Name:", "#REF!"]];
+/** Codex R1 probe: a hidden AGENDA token-header table whose START cell is `#REF!`. The parser
+ *  stores it and the run-of-show renders it, while its section kind tracks as generic. */
+const AGENDA_WITH_REF: string[][] = [
+  ["TRAVEL DAY", "TRAVEL DAY", "TRAVEL DAY", "DAY 1", "DAY 1", "DAY 1", "DAY 1", "DAY 1", "DAY 1"],
+  ["9/3/25", "9/3/25", "9/3/25", "9/5/25", "9/5/25", "9/5/25", "9/5/25", "9/5/25", "9/5/25"],
+  [
+    "Wednesday",
+    "Wednesday",
+    "Wednesday",
+    "Friday",
+    "Friday",
+    "Friday",
+    "Friday",
+    "Friday",
+    "Friday",
+  ],
+  ["NAME", "ARRIVAL", "FLIGHT#", "START", "FINISH", "TRT", "TITLE", "ROOM", "AV"],
+  ["", "", "", "#REF!", "9:30 AM", "1:00", "Keynote", "Hall A", "LAV"],
+];
 
 const GIDS = new Map([
   ["INFO", 0],
@@ -48,16 +74,37 @@ const refWarnings = (ws: readonly ParseWarning[]) =>
   ws.filter((w) => w.code === "REF_ERROR_LITERAL");
 const refSites = (ss: readonly WaveCodeSite[]) => ss.filter((s) => s.code === "REF_ERROR_LITERAL");
 
-describe("extractWaveCodeSites carries the owning tab's hidden state", () => {
-  it("a site on a hidden tab reads hiddenTab true, a visible tab's false", () => {
+describe("extractWaveCodeSites names the dead lookup tab", () => {
+  it("a site on a hidden all-#REF! tab reads deadLookupTab true, a visible tab's false", () => {
     const { sites } = scenario([
       { name: "INFO", grid: CREW_WITH_REF },
       { name: "VENUE", grid: LOOKUP_REF, hidden: true },
     ]);
-    expect(refSites(sites).map((s) => [s.anchor?.title, s.hiddenTab])).toEqual([
+    expect(refSites(sites).map((s) => [s.anchor?.title, s.deadLookupTab])).toEqual([
       ["INFO", false],
       ["VENUE", true],
     ]);
+  });
+
+  it("a hidden tab with any non-#REF! content is not dead", () => {
+    const { sites } = scenario([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      { name: "VENUE", grid: CREW_WITH_REF, hidden: true },
+      { name: "ROLE", grid: LOOKUP_REF_WITH_LABEL, hidden: true },
+    ]);
+    expect(refSites(sites).map((s) => [s.anchor?.title, s.deadLookupTab])).toEqual([
+      ["VENUE", false],
+      ["ROLE", false],
+      ["ROLE", false],
+    ]);
+  });
+
+  it("a visible all-#REF! tab is not dead: visibility is half the rule", () => {
+    const { sites } = scenario([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      { name: "VENUE", grid: LOOKUP_REF },
+    ]);
+    expect(refSites(sites).map((s) => s.deadLookupTab)).toEqual([false]);
   });
 });
 
@@ -88,8 +135,40 @@ describe("hiddenTabRefSuppressions (hidden-tab #REF! suppression)", () => {
     const refs = refWarnings(warnings);
     premiseHolds("one #REF! warning parsed, crew kind", refs.length === 1);
     premiseHolds("the hit is a recognised section", refs[0]!.blockRef?.kind === "crew");
-    premiseHolds("the replay saw it on the hidden tab", refSites(sites)[0]?.hiddenTab === true);
     expect(hiddenTabRefSuppressions(warnings, sites).some(Boolean)).toBe(false);
+  });
+
+  it("keeps a hidden AGENDA table's #REF! even though its section kind is generic (Codex R1 probe)", () => {
+    const { warnings, sites } = scenario([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      { name: "AGENDA", grid: AGENDA_WITH_REF, hidden: true },
+    ]);
+    const refs = refWarnings(warnings);
+    premiseHolds("one #REF! warning parsed", refs.length === 1);
+    premiseHolds(
+      "and its kind is generic, the very case a kind gate would drop",
+      refs[0]!.blockRef?.kind === GENERIC_SECTION_KIND,
+    );
+    expect(hiddenTabRefSuppressions(warnings, sites).some(Boolean)).toBe(false);
+  });
+
+  it("keeps a hidden tab's #REF! when one label sits beside it: a label can bind a value", () => {
+    const { warnings, sites } = scenario([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      { name: "ROLE", grid: LOOKUP_REF_WITH_LABEL, hidden: true },
+    ]);
+    premiseHolds("two #REF! warnings parsed", refWarnings(warnings).length === 2);
+    expect(hiddenTabRefSuppressions(warnings, sites).some(Boolean)).toBe(false);
+  });
+
+  it("suppresses every #REF! on a hidden tab of composite literals and blank rows", () => {
+    const { warnings, sites } = scenario([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      { name: "VENUE", grid: LOOKUP_REF_COMPOSITE, hidden: true },
+    ]);
+    const refs = refWarnings(warnings);
+    premiseHolds("three #REF! warnings parsed", refs.length === 3);
+    expect(hiddenTabRefSuppressions(warnings, sites).filter(Boolean)).toHaveLength(3);
   });
 
   it("keeps a generic-section #REF! on a VISIBLE tab", () => {
@@ -102,7 +181,6 @@ describe("hiddenTabRefSuppressions (hidden-tab #REF! suppression)", () => {
       "one generic #REF! parsed",
       refs.length === 1 && refs[0]!.blockRef?.kind === GENERIC_SECTION_KIND,
     );
-    premiseHolds("the replay saw it on a visible tab", refSites(sites)[0]?.hiddenTab === false);
     expect(hiddenTabRefSuppressions(warnings, sites).some(Boolean)).toBe(false);
   });
 

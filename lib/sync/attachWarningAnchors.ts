@@ -37,8 +37,9 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
  * REFUSES (a link-less row), never mis-pairs.
  *
  * ONE REMOVAL, after the anchors are placed: a `REF_ERROR_LITERAL` that the replay names as
- * the artifact of a HIDDEN lookup tab (`hiddenTabRefSuppressions`) is spliced out of the
- * caller's array in place, so both ingestion paths persist without it. The order matters:
+ * the artifact of a DEAD lookup tab, hidden and holding nothing but `#REF!`
+ * (`hiddenTabRefSuppressions`), is spliced out of the caller's array in place, so both
+ * ingestion paths persist without it. The order matters:
  * the pairing is positional over the whole warnings array, so removing first would shift
  * every later `#REF!` off its hit and refuse the code. Visibility comes from the bytes, so a
  * failed or empty gid map still suppresses; only a refused replay (count mismatch) keeps
