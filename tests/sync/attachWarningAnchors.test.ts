@@ -6,6 +6,7 @@ import { parseSheet } from "@/lib/parser";
 import { premiseHolds } from "@/tests/_shared/premise";
 import * as crewMod from "@/lib/drive/crewRoleAnchors";
 import type { ParseWarning } from "@/lib/parser/types";
+import { buildXlsx } from "../helpers/buildXlsx";
 
 function xlsxBuffer(aoa: string[][]): ArrayBuffer {
   const wb = XLSX.utils.book_new();
@@ -215,5 +216,109 @@ describe("attachWarningAnchors forwards synthOpts to the wave-code replay (spec 
     for (const w of warnings.filter((w) => w.code === "REF_ERROR_LITERAL")) {
       expect(w.sourceCell).toBeUndefined();
     }
+  });
+});
+
+describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-tab #REF! suppression)", () => {
+  /** `#REF!` where a crew NAME belongs: a recognised section on the visible INFO tab. */
+  const CREW_WITH_REF: string[][] = [
+    ["CREW", "NAME", "ROLE", "PHONE"],
+    ["", "#REF!", "- A1", "555"],
+  ];
+  /** The live shape: an IMPORTRANGE lookup tab whose access lapsed, one unlabeled `#REF!`. */
+  const LOOKUP_REF: string[][] = [["#REF!"]];
+  const VENUE_GID = 354548247;
+  const gidsAll = () =>
+    Promise.resolve(
+      new Map([
+        ["INFO", 0],
+        ["VENUE", VENUE_GID],
+      ]),
+    );
+  const refs = (ws: ParseWarning[]) => ws.filter((w) => w.code === "REF_ERROR_LITERAL");
+  const nonRefCodes = (ws: ParseWarning[]) =>
+    ws.filter((w) => w.code !== "REF_ERROR_LITERAL").map((w) => w.code);
+  function parsed(buffer: ArrayBuffer, opts?: { includePullSheetFromTab?: string }) {
+    return parseSheet(synthesizeMarkdownFromXlsx(buffer, opts).markdown, "probe.xlsx").warnings;
+  }
+
+  it("removes the hidden generic #REF! from the caller's array and keeps the visible recognised one, anchored", async () => {
+    const buffer = buildXlsx([
+      { name: "INFO", grid: CREW_WITH_REF },
+      { name: "VENUE", grid: LOOKUP_REF, hidden: true },
+    ]);
+    const warnings = parsed(buffer);
+    premiseHolds("two #REF! warnings parsed before attachment", refs(warnings).length === 2);
+    const othersBefore = nonRefCodes(warnings);
+    await attachWarningAnchors(warnings, buffer, gidsAll);
+    expect(refs(warnings)).toHaveLength(1);
+    expect(refs(warnings)[0]!.blockRef?.kind).toBe("crew");
+    expect(refs(warnings)[0]!.sourceCell).toEqual({
+      title: "INFO",
+      gid: 0,
+      a1: "B2",
+      scope: "cell",
+    });
+    // Only the hidden lookup artifact left; every other warning is exactly where it was.
+    expect(nonRefCodes(warnings)).toEqual(othersBefore);
+  });
+
+  it("keeps a hidden-tab #REF! that sits inside a recognised section, and anchors it", async () => {
+    const buffer = buildXlsx([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      { name: "VENUE", grid: CREW_WITH_REF, hidden: true },
+    ]);
+    const warnings = parsed(buffer);
+    premiseHolds(
+      "one crew-kind #REF! parsed",
+      refs(warnings).length === 1 && refs(warnings)[0]!.blockRef?.kind === "crew",
+    );
+    await attachWarningAnchors(warnings, buffer, gidsAll);
+    expect(refs(warnings)).toHaveLength(1);
+    expect(refs(warnings)[0]!.sourceCell).toEqual({
+      title: "VENUE",
+      gid: VENUE_GID,
+      a1: "B2",
+      scope: "cell",
+    });
+  });
+
+  it("still suppresses when the gid map is empty (the onboarding scan's degraded path): visibility comes from the bytes, not the gids", async () => {
+    const buffer = buildXlsx([
+      { name: "INFO", grid: CREW_WITH_REF },
+      { name: "VENUE", grid: LOOKUP_REF, hidden: true },
+    ]);
+    const warnings = parsed(buffer);
+    premiseHolds("two #REF! warnings parsed before attachment", refs(warnings).length === 2);
+    await attachWarningAnchors(warnings, buffer, () => Promise.resolve(new Map<string, number>()));
+    expect(refs(warnings)).toHaveLength(1);
+    expect(refs(warnings)[0]!.blockRef?.kind).toBe("crew");
+    expect(refs(warnings)[0]!.sourceCell).toBeUndefined(); // link-less, as today without gids
+  });
+
+  it("suppresses nothing when the replay refuses (a synthOpts mismatch changes the hit count)", async () => {
+    const OLD_TAB = "OLD PULL SHEET";
+    const buffer = buildXlsx([
+      { name: "INFO", grid: CREW_WITH_REF },
+      {
+        name: OLD_TAB,
+        grid: [
+          ["PULL SHEET", "PULL SHEET"],
+          ["RIA - CHICAGO, IL"],
+          [],
+          ["QTY", "ITEM"],
+          ["2", "#REF!"],
+        ],
+      },
+      { name: "VENUE", grid: LOOKUP_REF, hidden: true },
+    ]);
+    const warnings = parsed(buffer, { includePullSheetFromTab: OLD_TAB });
+    premiseHolds(
+      "three #REF! warnings parsed with the OLD tab included",
+      refs(warnings).length === 3,
+    );
+    // Attach WITHOUT the override: the replay sees two sites against three warnings and refuses.
+    await attachWarningAnchors(warnings, buffer, gidsAll, {});
+    expect(refs(warnings)).toHaveLength(3);
   });
 });
