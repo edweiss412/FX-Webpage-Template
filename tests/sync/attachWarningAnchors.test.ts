@@ -363,6 +363,60 @@ describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-t
     expect(refs(warnings)).toHaveLength(1);
   });
 
+  // Codex R2 probe, verbatim: hidden tabs whose cells CONTAIN the literal beside other text.
+  // Each is parsed into a rendered value (show title, room name and dimensions, agenda link),
+  // so containment must not make the tab dead. Enumerated here so the class stays closed.
+  // Stored values keep the markdown escape (`\#REF\!`), so strip backslashes before matching.
+  const holdsRef = (v: string | null | undefined) => (v ?? "").replace(/\\/g, "").includes("#REF!");
+  const COMPOSITE_CASES: [string, string[][], (s: ReturnType<typeof parseSheet>) => boolean][] = [
+    ["title banner", [["Event #REF!", "Event #REF!"]], (s) => holdsRef(s.show.title)],
+    [
+      "general session room",
+      [["GENERAL SESSION Ballroom #REF!"], ["GS Setup #REF!"]],
+      (s) => s.rooms.some((r) => holdsRef(r.name)),
+    ],
+    [
+      "breakout room",
+      [["BREAKOUT\nBallroom #REF!\n60 x 45 #REF!\n2nd #REF!"]],
+      (s) => s.rooms.some((r) => holdsRef(r.name)),
+    ],
+    [
+      "agenda link",
+      [["AGENDA LINK #REF!", "agenda.pdf #REF!"]],
+      (s) => (s.show.agenda_links ?? []).some((l) => holdsRef(`${l.label} ${l.url}`)),
+    ],
+  ];
+  it.each(COMPOSITE_CASES)(
+    "keeps a hidden tab's composite #REF! cells the parser renders: %s (Codex R2 probe)",
+    async (_name, grid, rendered) => {
+      const buffer = buildXlsx([
+        { name: "HIDDEN", grid, hidden: true },
+        {
+          name: "INFO",
+          grid: [
+            ["RENTAL PICKUP", "Mon"],
+            ["CONTACT OFFICE", "555"],
+            ["Event Name:", "Real Show"],
+          ],
+        },
+      ]);
+      const parsedSheet = parseSheet(synthesizeMarkdownFromXlsx(buffer).markdown, "probe.xlsx");
+      const warnings = parsedSheet.warnings;
+      const before = refs(warnings).length;
+      premiseHolds("at least one #REF! warning parsed", before >= 1);
+      premiseHolds("the parser carried the literal into a rendered value", rendered(parsedSheet));
+      await attachWarningAnchors(warnings, buffer, () =>
+        Promise.resolve(
+          new Map([
+            ["HIDDEN", 1],
+            ["INFO", 0],
+          ]),
+        ),
+      );
+      expect(refs(warnings)).toHaveLength(before);
+    },
+  );
+
   it("suppresses nothing when the replay refuses (a synthOpts mismatch changes the hit count)", async () => {
     const OLD_TAB = "OLD PULL SHEET";
     const buffer = buildXlsx([

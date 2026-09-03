@@ -47,8 +47,8 @@ export type WaveCodeSite = {
   snippet: string | null;
   anchor: SourceAnchor | null;
   /** True when the owning tab is a DEAD LOOKUP TAB: hidden (`GridBlock.sheetHidden`) AND every
-   *  non-blank cell on the whole tab holds `#REF!`. False for an opaque block. Carried on every
-   *  site so a consumer can pair it positionally like the anchor. See `deadLookupTabs`. */
+   *  non-blank cell on the whole tab is exactly `#REF!`. False for an opaque block. Carried on
+   *  every site so a consumer can pair it positionally like the anchor. See `deadLookupTabs`. */
   deadLookupTab: boolean;
 };
 
@@ -117,16 +117,24 @@ function cellAnchor(block: GridBlock, gid: number, row: number, col: number): So
  * sees here byte for byte the text it sees inside the joined document (spec §2.2).
  */
 /**
- * The tabs whose every non-blank cell holds `#REF!`, restricted to HIDDEN tabs.
+ * The tabs whose every non-blank cell is EXACTLY `#REF!`, restricted to HIDDEN tabs.
  *
  * That is the shape an IMPORTRANGE lookup tab takes when its source access lapses: the
  * whole import collapses to one error cell (on "II - FinTech Forum CTO Summit 2026",
  * VENUE, CLIENT, TECH, VEHICLE and ROLE are each exactly `A1 = #REF!`). A tab with nothing
- * but the literal has no label or header to bind a value to, so no parser can carry one of
- * its cells onto the crew page. The rule is the tab's WHOLE content and never the section
- * kind: "section" (generic) does not mean unrendered, the AGENDA token-header table,
- * `Event Name:`, `VENUE NAME` and `COI` all track as generic and all render (Codex R1
- * probe, 2026-09-03). One non-`#REF!` cell anywhere on the tab keeps every warning on it.
+ * but the bare literal has no label or header to bind a value to, so no parser can carry
+ * one of its cells onto the crew page. Two things the rule is deliberately NOT:
+ *
+ * - Not the section kind. "section" (generic) does not mean unrendered: the AGENDA
+ *   token-header table, `Event Name:`, `VENUE NAME` and `COI` all track as generic and all
+ *   render (Codex R1 probe, 2026-09-03).
+ * - Not containment. A cell that merely CONTAINS the literal beside other text is content:
+ *   "Event #REF!" became the show title, "GENERAL SESSION Ballroom #REF!" a room name,
+ *   "AGENDA LINK #REF!" an agenda link (Codex R2 probe). Equality after `clean()` is what
+ *   makes a cell bare; `#REF! - #REF!` and `#REF!/NAME` keep their warnings.
+ *
+ * One cell that is anything other than blank or the bare literal keeps every warning on
+ * the tab.
  */
 function deadLookupTabs(blocks: readonly SynthesizedBlock[]): Set<string> {
   const verdict = new Map<string, boolean>(); // sheetName -> still all-#REF! so far
@@ -136,7 +144,7 @@ function deadLookupTabs(blocks: readonly SynthesizedBlock[]): Set<string> {
     for (const row of block.rows) {
       for (const cell of row.cells) {
         const text = clean(cell);
-        if (text !== "" && !text.includes(REF_LITERAL)) dead = false;
+        if (text !== "" && text !== REF_LITERAL) dead = false;
       }
     }
     verdict.set(block.sheetName, dead);
@@ -257,7 +265,7 @@ export function pairWaveCodeHits(
 /**
  * Which warnings are `#REF!` artifacts of a DEAD LOOKUP TAB, aligned with `warnings`.
  *
- * A dead lookup tab (`deadLookupTabs`: hidden, and nothing on it but `#REF!`) is what an
+ * A dead lookup tab (`deadLookupTabs`: hidden, and nothing on it but bare `#REF!` cells) is what an
  * IMPORTRANGE leaves behind when its source access lapses. Nobody sees those cells on the
  * crew page, because there is no label to bind one to, and nobody can reach them from the
  * deep link, because Google Sheets refuses to open a hidden gid and lands on the last

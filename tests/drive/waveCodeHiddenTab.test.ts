@@ -30,7 +30,11 @@ const CREW_WITH_REF: string[][] = [
 ];
 /** The live shape: a lookup tab whose IMPORTRANGE failed, one `#REF!` cell, no label. */
 const LOOKUP_REF: string[][] = [["#REF!"]];
-/** Composite literals and a blank row: still nothing but `#REF!`, still dead. */
+/** Several bare literals and a blank row: still nothing but `#REF!`, still dead. */
+const LOOKUP_REF_MANY: string[][] = [["#REF!", "#REF!"], [], ["", "#REF!"]];
+/** Composite cells: a literal with ANY other text beside it is content the parser can carry
+ *  (Codex R2 probe: "Event #REF!" became the show title, "GENERAL SESSION Ballroom #REF!" a
+ *  room name). Containment is the defect shape; only a cell that is exactly `#REF!` is bare. */
 const LOOKUP_REF_COMPOSITE: string[][] = [["#REF!", "#REF! - #REF!"], [], ["", "#REF!/NAME"]];
 /** A hidden tab with ONE label beside the literal: not dead, the label can bind a value. */
 const LOOKUP_REF_WITH_LABEL: string[][] = [["#REF!"], ["Event Name:", "#REF!"]];
@@ -161,14 +165,24 @@ describe("hiddenTabRefSuppressions (hidden-tab #REF! suppression)", () => {
     expect(hiddenTabRefSuppressions(warnings, sites).some(Boolean)).toBe(false);
   });
 
-  it("suppresses every #REF! on a hidden tab of composite literals and blank rows", () => {
+  it("suppresses every #REF! on a hidden tab of several bare literals and blank rows", () => {
+    const { warnings, sites } = scenario([
+      { name: "INFO", grid: [["Timestamp", "t"]] },
+      { name: "VENUE", grid: LOOKUP_REF_MANY, hidden: true },
+    ]);
+    const refs = refWarnings(warnings);
+    premiseHolds("three #REF! warnings parsed", refs.length === 3);
+    expect(hiddenTabRefSuppressions(warnings, sites).filter(Boolean)).toHaveLength(3);
+  });
+
+  it("keeps every #REF! on a hidden tab of composite cells: only a cell that is exactly #REF! is bare (Codex R2 probe)", () => {
     const { warnings, sites } = scenario([
       { name: "INFO", grid: [["Timestamp", "t"]] },
       { name: "VENUE", grid: LOOKUP_REF_COMPOSITE, hidden: true },
     ]);
     const refs = refWarnings(warnings);
     premiseHolds("three #REF! warnings parsed", refs.length === 3);
-    expect(hiddenTabRefSuppressions(warnings, sites).filter(Boolean)).toHaveLength(3);
+    expect(hiddenTabRefSuppressions(warnings, sites).some(Boolean)).toBe(false);
   });
 
   it("keeps a generic-section #REF! on a VISIBLE tab", () => {
