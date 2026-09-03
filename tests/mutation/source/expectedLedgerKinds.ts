@@ -431,6 +431,27 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // review dispatch. Declared EMPTY: the module is 21 census rows plus one
   // resolver, and the pin's own suite reds on every site — a row appearing here
   // later is a coverage regression to repair, not a number to bump.
+  // Enrolled 2026-09-01 with an EMPTY accepted set, and it is empty for a reason
+  // worth keeping: the first scored run reported 32 mutants at 29/32 with three
+  // unaccepted survivors, and all three were real coverage gaps rather than
+  // equivalences. A longhand `outline-style` reaches the surviving-carrier
+  // predicate through its regex branch and never through the shorthand equality
+  // that short-circuits above it, so no case exercised that branch; the other two
+  // shared one line on the gradient predicate, where widening either the connector
+  // or the equality makes a `mask-image` gradient count as a carrier the rule does
+  // not have. Two cases killed all three, both asserting in each direction, and the
+  // surface re-scored 32/32 on that population.
+  //
+  // The CURRENT figure is 34/34, and the difference is not a re-run. A later repair
+  // in this branch added branches to the surface — `isDroppedGradient` gained the
+  // `background` shorthand and a `var()` arm, and the keyframe predicate went from
+  // all-uniform to any-survives — which moved the mutant population from 32 to 34.
+  // The 32/32 above describes bytes that no longer exist, and is kept only as the
+  // history of how this set came to be empty. A score describes the bytes it ran on.
+  //
+  // An entry appearing here later would mean a survivor was ledgered rather than
+  // killed, which is the decision this file exists to make visible.
+  forcedColorsScan: {},
   controlOutlineScan: {},
   // Enrolled 2026-08-22. The first scored run reported 45 unaccepted survivors at 0.8052; nine
   // cases took it to 22 at 0.912, and eight more close every survivor that is KILLABLE. The

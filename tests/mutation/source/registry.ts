@@ -3079,6 +3079,49 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // written; the 2026-08-18 arc widened the census to 57 rows and added a
   // five-row DIVIDERS list, so the surface is now 62 line literals plus the
   // resolver operators. Re-scored at 65/65 with zero unaccepted survivors.
+  /**
+   * Arm 2 of the forced-colors pass: the criterion deciding whether a CSS rule's
+   * surviving carrier set is empty.
+   *
+   * ENROLLED BY ATTEMPT, not by analogy — the `subtleInteractiveScan` note above
+   * declines a pure filter on the grounds that a vacuous row is worse than an
+   * honest absence, and this module is in the same directory. It is not that
+   * shape: the criterion is built from property-set membership tests, a
+   * surviving-carrier predicate over four regexes, an emptiness comparison on the
+   * carrier list, and an all-dropped/all-forced pair over a keyframe's property
+   * set. Every one of those is a site an operator reaches, and flipping any of
+   * them changes which rules are reported, which the inventory and census cases
+   * observe directly.
+   *
+   * WHAT A SURVIVING MUTANT WOULD MEAN HERE. The arm's defect class is silence:
+   * a criterion that reports FEWER rules looks like a smaller inventory and reads
+   * as success. That already happened once on the sibling arm, where scanning the
+   * whole `candidatesToCss` output classified every shadow utility as surviving
+   * and HID collapses. A mutant that narrows this criterion without failing a case
+   * is the same failure with a different cause.
+   */
+  {
+    id: "forcedColorsScan",
+    // Re-measured after the whole-diff R1 repair, which added real branches to the
+    // surface (`isDroppedGradient` gained the `background` shorthand and a `var()`
+    // arm; the keyframe predicate went from all-uniform to any-survives). That moved
+    // the mutant population 32 -> 34, so the 1472 measured at enrolment described
+    // bytes that no longer exist. 54 s of child wall clock over 35 modelled boots.
+    millisPerBoot: 1533,
+    sourcePath: "tests/styles/forcedColorsScan.ts",
+    suitePaths: ["tests/styles/_metaForcedColors.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Drops the surviving-carrier check, so a rule that keeps an outline or border
+    // is reported alongside the ones that lose everything. The arm still LOOKS
+    // like it read the stylesheet, and its inventory still prints rows — it just
+    // reports the wrong set, which is the shape a census reader cannot see.
+    control: {
+      from: "if (declarations.some((d) => isSurvivingCarrier(d.prop))) return;",
+      to: "if (false) return;",
+    },
+    accepted: [],
+  },
   {
     id: "controlOutlineScan",
     millisPerBoot: 2973,

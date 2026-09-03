@@ -30,6 +30,14 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The forced-colors scanner's deciding suite, enrolled 2026-09-01 by
+  // feat/forced-colors-pass. MEASURED with classifyTests against this tree: 27
+  // classified, 0 environment-touching, every verdict `environment-free`. The suite
+  // reads `app/globals.css` and the component tree through `readFileSync` and runs
+  // both scanner arms over strings in memory; it never reads `process.env` and never
+  // writes the tree, which is what the classifier counts. Its one compiled-stylesheet
+  // case builds through the same in-memory path.
+  "tests/styles/_metaForcedColors.test.ts": 0,
   // The per-item state scanner's deciding suite, enrolled 2026-08-29. MEASURED
   // with classifyTests against this tree: 7 classified, 0 environment-touching,
   // every verdict `environment-free`. It reads component sources through

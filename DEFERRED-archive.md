@@ -1,3 +1,35 @@
+### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog) — CLOSED 2026-09-01 (`feat/forced-colors-pass`, SHIPPED)
+
+**Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — waits on a repo-wide forced-colors pass to set the pattern; solving it once here would pre-commit that pattern from a sample of one.
+
+The row was right to wait, and the pass proved it twice over. Under `forced-colors`
+the ShareHub cue was invisible: a UA drops the `box-shadow` ring outright and forces
+both ends of the background animation onto one value, so both tracks vanished.
+
+**What shipped.** The pattern, first, and the cue as its first customer rather than
+its origin: one unlayered `@media (forced-colors: active)` block at the foot of
+`app/globals.css`, and `DESIGN.md` §17 as the rule an author follows. Outline is the
+durable carrier and `transparent` is the trap. Both halves measured in Chromium and
+Firefox before anything was written (`scripts/probes/forced-colors-mechanism.mjs`).
+
+**Why a sample of one would have been wrong, concretely.** Deriving the inventory
+instead of reading it found 42 collapsing elements and 17 stylesheet rules, five of
+them crew-facing and none of those found by reading. It also refuted the row's own
+framing: the neighbouring section-freshness cue does NOT need repair — it already
+survives, because it is an outline — and the spec's first draft specified a repair
+that would have suppressed it. A local fix on this one surface would have shipped
+that repair to all three cues.
+
+**The pattern's sharpest clause**, which no single surface would have produced:
+ARIA is not a carrier, because `aria-current` renders nothing for a sighted
+high-contrast user; it is an excellent selector, and hanging a visible treatment off
+it is what gives that user the state a screen-reader user already had.
+
+Spec `docs/superpowers/specs/2026-09-01-forced-colors-pass.md`, plan
+`docs/superpowers/plans/2026-09-01-forced-colors-pass.md` (§12 carries the
+invariant-8 dispositions), PR #968.
+
 ### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog) — CLOSED 2026-09-01 (`test/sharelink-copy-ref-ordering-proof`, SHIPPED)
 
 **Effort:** L

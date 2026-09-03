@@ -1485,3 +1485,217 @@ details[open] > summary [data-agenda-day-count] {
     }
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FORCED COLORS.
+
+   Spec: docs/superpowers/specs/2026-09-01-forced-colors-pass.md.
+
+   THE RULE, which every addition below follows:
+
+     Outline is the durable carrier. `transparent` is the trap.
+
+     1. An affordance whose ONLY carrier is box-shadow, text-shadow or a gradient
+        has no existence under forced colors. It must gain an outline or border
+        carrier HERE. Changing the shadow's colour does not work and never will:
+        a box-shadow re-declared inside this block is dropped again.
+     2. An affordance whose OFF state is a transparent border or outline INVERTS:
+        the off state becomes visible. Name the off state here. Where the border's
+        width is load-bearing, because a sibling state declares the same border and
+        varies only its colour, name it by setting the colour to the background
+        system colour; where it is not, name it with `outline-style: none` or
+        `border-style: none`. Never leave it transparent, and never remove a width a
+        sibling state depends on.
+     3. Two states differing ONLY in properties forced colors flattens are one
+        state, UNLESS something outside CSS separates them: a glyph, a different
+        label, an icon. ARIA alone does not count — this reader can see. Give one of
+        them a carrier that survives, or record why it does not need one.
+     4. The three semantic slots are applied PER AFFORDANCE, at the selector that
+        means the thing. They are NOT tokens: this repo has no selected token, no
+        disabled token and no link token, and re-pointing a shared token recolours
+        every unrelated meaning it also paints.
+     5. `forced-color-adjust: none` is for content whose colour IS the information.
+        Every use gets a DESIGN.md row naming what the colour means.
+     6. Every rule here is UNLAYERED. A layered rule loses to app/globals.css:899.
+
+   THIS IS THE ONLY forced-colors block in the file, and a guard asserts it: a
+   second one would satisfy every per-rule assertion while splitting the pattern
+   in two.
+   ───────────────────────────────────────────────────────────────────────────── */
+@media (forced-colors: active) {
+  /* ShareHub crew-link cue (spec §5.1). Its two legs both die here: the ring is a
+     box-shadow, which a UA drops, and the background animates between two values
+     that force to one. What replaces them is a steady outline for the flash
+     window, ended by the attribute's removal rather than by the animation —
+     ShareHub clears it after SHARE_LINK_FLASH_MS, so the cue's duration is
+     unchanged and only its texture is.
+
+     `animation: none` because there is nothing left worth animating: an
+     outline-color pair whose endpoints both force to one value animates
+     invisibly, and a steady outline says "this just changed" as well as a fade
+     does. Section 5.3 records the same thing happening by accident to the
+     freshness cue, which is the evidence that it reads correctly. */
+  [data-share-link-flash] {
+    animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* And the share-link cue's OFF state, named, which rule 2 above demands and
+     which the rule right before this one makes necessary.
+
+     Under reduced motion the stylesheet already sets `animation: none` for this
+     cue and shows NOTHING, deliberately: a one-shot "this just changed" signal has
+     no correct steady state (app/globals.css:1129-1132). The rule above gives the
+     element an outline unconditionally, so without this a reduced-motion user in
+     forced colors would get a PERMANENT ring — the exact phantom this pass exists
+     to remove, reintroduced by the pass. AC-4d is the assertion that caught it.
+
+     `outline-style: none` and not a transparent colour, because transparent is
+     what forces opaque. No width is load-bearing here: no sibling state declares
+     an outline on this element, so removing the style reflows nothing. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-share-link-flash] {
+      outline-style: none;
+    }
+  }
+
+  /* SELECTED STATE, the Highlight slot applied per affordance (rule 4).
+     Spec §5.4, DESIGN.md §17.3.
+
+     A FILL, not a ring, and the domain is stated rather than left to the selector.
+     Both of those are corrections; the first version was an unscoped
+     `[aria-current], [aria-pressed="true"]` painting a 2px inset outline, and the
+     invariant-8 critique found what that reaches.
+
+     WHY A FILL. `Highlight` with `HighlightText` is the palette's own idiom for
+     "this one is chosen", and it is the pair DESIGN.md §17.3 promises — the ring
+     version delivered `Highlight` and never `HighlightText` at all. A fill also
+     fixes two things a ring could not. Rings STACK: an element that is both
+     selected and freshly-changed drew two concentric Highlight rings 4px apart,
+     which reads as one emphatic thing rather than two states, and the transient
+     cue's ring is now the only ring, so the two states differ in KIND rather than
+     in the sign of an offset. And these controls declare a border on both paths,
+     which is why an outline was chosen at all; under forced colors that border
+     flattens to the same system colour, so an inset ring rendered as a second
+     parallel line 2px inside the first.
+
+     WHY THE DOMAIN IS NARROWED. `aria-current` and `aria-pressed` appear at 35
+     sites in 16 files, and this pass audited eight. The selector now requires an
+     INTERACTIVE element, which keeps the rule to controls a user chooses between:
+     `app/help/_components/Breadcrumb.tsx:26` is a plain `<li aria-current="page">`,
+     a text node in a trail, and painting the current crumb was never selection.
+     `[data-fc-skip]` is the opt-out for a control whose state the census already
+     rules deliberately flattened, so the stylesheet and the census cannot
+     disagree. */
+  :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
+      [aria-current]:not([aria-current="false"]),
+      [aria-pressed="true"]
+    ):not([data-fc-skip]) {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+
+  /* Keyboard focus ON a selected control. The pair exists for exactly this.
+
+     MEASURED, and it is why this rule is here rather than left to compose: with a
+     selected control focused, Chromium computes the focus outline and the
+     selection fill as the SAME value (both `rgba(5, 0, 73, 0.8)`), separated only
+     by the 2px offset. Focus is still discernible — the ring's outer edge meets
+     Canvas at 19:1 — but the affordance reads as one thick shape with a hairline
+     gap rather than a ring around a filled control. Firefox happens not to
+     collide (white on blue), which is the sort of difference no single-engine
+     screenshot would have caught.
+
+     `HighlightText` is defined by the OS to contrast with `Highlight`, so using it
+     for the ring is the palette answering its own question. The offset goes
+     negative so the ring sits ON the fill, where that contrast is what the user
+     sees, rather than outside it on Canvas. */
+  :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
+      [aria-current]:not([aria-current="false"]),
+      [aria-pressed="true"]
+    ):not([data-fc-skip]):focus-visible {
+    outline: 2px solid HighlightText;
+    outline-offset: -4px;
+  }
+
+  /* Two states that no ARIA describes, so each gets its own hook rather than a
+     borrowed one. Both hooks were added to their components in this pass, and
+     both are the minimum that makes the state addressable: an empty data
+     attribute set only in the state it names.
+
+     The picker's role chip means "this person is the LEAD". Its tone is the only
+     thing that says so, and the chip renders the same {c.role} text either way, so
+     under forced colors a lead is indistinguishable from anyone else on a page
+     whose whole job is picking yourself out of a list. Crew-facing. */
+  [data-fc-lead] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  /* The undo button's quiet variant. Its file says the distinction is
+     load-bearing — "a consequential control must not be a visual twin of the safe
+     one" (components/admin/UndoChangeButton.tsx:46) — and under forced colors it
+     becomes exactly that twin, because both variants declare `border` and vary
+     only its colour.
+
+     The colour goes to the background system colour rather than the style to
+     `none`, which is rule 2's first branch: the width IS load-bearing here, since
+     the loud variant declares the same border and removing the quiet one's width
+     would shift the row. */
+  [data-fc-quiet] {
+    border-color: Canvas;
+  }
+
+  /* The indeterminate progress shimmer (spec §5.5), on both the step-2 and the
+     finalize bars — the source rules are grouped selectors covering both.
+
+     Its carrier is a gradient, which a UA drops, and the Gecko rule additionally
+     sets a transparent background so the moving shimmer shows instead of a
+     misleading full bar. Under forced colors that leaves NOTHING: an indeterminate
+     bar rendering as empty track, which asks "is it still working?" and answers
+     nothing.
+
+     A solid fill rather than a shimmer, and that is a fair trade rather than a
+     compromise: the animation is the texture, the fill is the information. Both
+     engines' pseudo-elements are named because they are separate declarations. AC-5's
+     negative control deletes the GECKO fill only: Chromium paints <progress> from the
+     UA under forced colors and ignores author pseudo-element styling, so deleting the
+     -webkit- declaration leaves the render byte-identical and proves nothing (spec §8
+     limit 10). */
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar {
+    background-color: ButtonFace;
+    background-image: none;
+  }
+
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-value,
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-value {
+    background-color: Highlight;
+  }
+
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar,
+  progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-moz-progress-bar {
+    background-color: Highlight;
+    background-image: none;
+  }
+
+  /* Step-3 review modal, the one-shot warning-row highlight after a callout jump
+     (spec §5.2). Its only carrier is a background, which forces to one value, so
+     the animated form paints nothing.
+
+     BOTH forms need the outline, and that is the difference from the cue above.
+     This one marks a JUMP TARGET the user must still locate, so its reduced-motion
+     fallback is deliberately a steady tint rather than nothing
+     (app/globals.css:1100-1103, and the contrast drawn at
+     app/globals.css:1121-1128). A tint is a background. Repairing only the
+     animated form would leave a reduced-motion user in forced colors with a jump
+     they cannot find, which is the worse of the two failures because it is the
+     persistent one. The rule below is unconditional for that reason: it holds
+     whether or not the animation runs. */
+  [data-step3-warning-flash] {
+    animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}

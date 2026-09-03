@@ -518,7 +518,15 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // edit here by design — and this rule is a SUBJECT of
     // _metaScratchRootCleanup, so a stale count here fails that suite's premise
     // downstream, which is how the strip-dock bump was found.
-    expectedCount: 87,
+    //
+    // feat/forced-colors-pass adds eight, all in
+    // `tests/e2e/forcedColors.spec.ts`: it serves a compiled-stylesheet fixture
+    // from a mkdtemp workdir over node:http and navigates to it once per case to
+    // measure what forced colors does to a render. The spec's harness URL is
+    // NAMED `baseUrl` for this rule rather than the recogniser being taught a
+    // ninth spelling; nothing there is ever the /admin loader.
+    // 87 -> 95, re-derived from the failure's own count, not incremented by hand.
+    expectedCount: 95,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
@@ -752,6 +760,17 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     expectedCount: 1,
     match: (c) => inFile(c, "admin-lifecycle-transitions.spec.ts"),
+  },
+  {
+    id: "e/standalone-harness-reload",
+    origin: "e-renavigation",
+    disposition: {
+      kind: "exclusion",
+      reason:
+        "a reload of a standalone harness page served from a mkdtemp workdir over node:http, not a route with a loader at all — forcedColors.spec.ts reloads its own fixture to re-arm the share-link cue's animation from a clean start",
+    },
+    expectedCount: 1,
+    match: (c) => inFile(c, "forcedColors.spec.ts"),
   },
   {
     id: "e/non-show-routes",

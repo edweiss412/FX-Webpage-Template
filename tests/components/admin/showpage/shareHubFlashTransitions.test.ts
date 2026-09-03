@@ -87,6 +87,29 @@ function normativeBlock(): string {
   return fence.trimEnd();
 }
 
+/**
+ * Every `@media (forced-colors: active)` block in the stylesheet, by brace matching.
+ *
+ * Returned as a LIST rather than a single string so the caller asserts how many there
+ * are. Finding one is the expected state; finding none would let a sum-based count pass
+ * vacuously, and finding two is itself the defect the forced-colors pass forbids.
+ */
+function forcedColorsBlocks(): string[] {
+  const out: string[] = [];
+  const re = /@media\s*\(forced-colors:\s*active\)\s*\{/g;
+  for (let m = re.exec(GLOBALS_CSS_CODE); m; m = re.exec(GLOBALS_CSS_CODE)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < GLOBALS_CSS_CODE.length && depth > 0; i += 1) {
+      const ch = GLOBALS_CSS_CODE[i];
+      if (ch === "{") depth += 1;
+      else if (ch === "}") depth -= 1;
+    }
+    out.push(GLOBALS_CSS_CODE.slice(m.index, i));
+  }
+  return out;
+}
+
 describe("share-link cue motion contract (N0/N1)", () => {
   it("N0: SHARE_LINK_FLASH_MS is 1600", () => {
     // A VALUE assertion, deliberately not an equality against the CSS: the two
@@ -140,8 +163,27 @@ describe("share-link cue motion contract (N0/N1)", () => {
     // What neither half covers is a rule that retunes the cue WITHOUT naming it
     // (by testid, class, or ancestor). Resolved style is the only place that is
     // visible, and T-FLASH-RUN pins every animation longhand there.
+    //
+    // THERE ARE NOW TWO SANCTIONED SITES, not one. feat/forced-colors-pass added a
+    // single unlayered `@media (forced-colors: active)` block that repairs this cue:
+    // under forced colors a UA drops the ring's box-shadow outright and forces both
+    // ends of the background animation onto one value, so both tracks vanish and the
+    // block restores the state on a surviving carrier. That is a deliberate second
+    // override of exactly the kind the paragraph above warns about, which is why it
+    // is named here rather than tolerated by a looser count.
+    //
+    // Both halves stay exact. The forced-colors block's own contribution is PINNED,
+    // so a mention added inside it is as loud as one added anywhere else; and the
+    // total still equals the sum, so a THIRD site outside both reds. A guard that
+    // merely subtracted the block would let it grow without limit.
     const count = (hay: string) => (hay.match(/share-link-flash/g) ?? []).length;
-    expect(count(GLOBALS_CSS)).toBe(count(normativeBlock()));
+    const blocks = forcedColorsBlocks();
+    expect(blocks.length, "the stylesheet must hold exactly one forced-colors block").toBe(1);
+    expect(
+      count(blocks[0]!),
+      "the forced-colors block's mentions of the cue; raising this is a deliberate edit",
+    ).toBe(2);
+    expect(count(GLOBALS_CSS)).toBe(count(normativeBlock()) + count(blocks[0]!));
   });
 
   it("N1: both keyframes are declared exactly once", () => {

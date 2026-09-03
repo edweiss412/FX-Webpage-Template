@@ -94,10 +94,26 @@ export function AutoRefreshControl() {
       {/* Switch: 34×20 track, thumb translateX. A toggle BUTTON (aria-pressed) — not
           role="switch" (which would require aria-checked). min-h/w-tap-min keeps a ≥44px
           tap target around the 34×20 visible track (WCAG 2.5.5). */}
+      {/* data-fc-skip opts this out of the forced-colors selected fill (app/globals.css
+          §17): the attribute sits on the 44px tap target while the visible control is the
+          34×20 track inside it, so a fill here paints the tap box rather than the switch.
+          The track's own state is already a ruled deliberate flatten (DESIGN.md §1.2a, and
+          the switch-track rows in tests/styles/forcedColorsCensus.ts), so the stylesheet
+          defers to the census rather than contradicting it.
+
+          Written ABOVE the element and not among its attributes. The §15 tween guard
+          (tests/styles/controlOutlineTransitions.test.ts) measures a 700-character window
+          from this button's test id down to the track's rounded border class, and the first
+          version of this comment sat between the two and pushed 320 characters to 858.
+          Widening someone else's proximity guard to fit a comment weakens it for every row
+          it covers. Note this text deliberately DESCRIBES those two strings instead of
+          quoting them: the guard anchors on its first match, and a comment that reproduces
+          them verbatim gets measured instead of the element. */}
       <button
         type="button"
         data-testid="autorefresh-toggle"
         aria-pressed={on}
+        data-fc-skip=""
         aria-label={`Auto-refresh ${on ? "on" : "off"}`}
         onClick={toggle}
         className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center"

@@ -109,11 +109,24 @@ describe("declared millisPerBoot matches the committed measurement anchor", () =
   it("names the surfaces the recalibration does NOT cover, rather than passing over them in silence", () => {
     // A surface enrolled AFTER the recalibration run has no row. That is legitimate, and it is
     // also exactly where an unmeasured rate would hide -- so the set is asserted rather than
-    // skipped, and adding to it is a deliberate edit. Empty today: run 33501574343 measured every
-    // enrolled surface, including both halves of the split, which the older run could not.
+    // skipped, and adding to it is a deliberate edit.
+    //
+    // It was empty for exactly one merge: run 33501574343 measured every surface enrolled at that
+    // moment, including both halves of the split, which the older run could not. This branch then
+    // enrolled `forcedColorsScan`, which that run predates and therefore cannot have measured. The
+    // registry holds 62 surfaces and the recalibration priced 61.
+    //
+    // DERIVED on the union, not taken from either side of the merge conflict. Both branches were
+    // green alone and both were wrong here — this file said three uncovered surfaces because the
+    // pre-recalibration anchor could not see the split halves, main said none because at its head
+    // nothing was unmeasured. Neither is the union's answer.
+    //
+    // Its declared rate is measured rather than guessed: 34/34 with zero unaccepted survivors at
+    // 1533 ms/boot, re-scored after a repair moved the mutant population off the 32 the enrolment
+    // run saw. That measurement is simply not THIS run's.
     const uncovered = GUARD_SURFACES.filter((s) => DECLARED_FROM.rates[s.id] === undefined)
       .map((s) => s.id)
       .sort();
-    expect(uncovered).toEqual([]);
+    expect(uncovered).toEqual(["forcedColorsScan"]);
   });
 });

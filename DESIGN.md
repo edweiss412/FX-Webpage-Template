@@ -259,7 +259,7 @@ like an oversight (ruled 2026-08-16). The ON boundary — `accent-edge` vs
 The five paths are `components/admin/PublishedToggle.tsx:305`,
 `components/admin/settings/AutoPublishToggle.tsx:136`,
 `components/admin/settings/NotifyToggle.tsx:144`,
-`components/admin/telemetry/AutoRefreshControl.tsx:106` and
+`components/admin/telemetry/AutoRefreshControl.tsx:122` and
 `components/admin/settings/DeveloperToggleButton.tsx:97`; the last two paint the
 track on a nested `<span>`, which is why an element-level census reported three.
 On 2026-08-26 the widened cover reached both, by two DIFFERENT mechanisms:
@@ -1035,3 +1035,73 @@ Restyle 2026-07-17 (`components/admin/BellPanel.tsx`; source design comp "Alert 
 7. **Row separation** — full-bleed rows separated by a 1px `bg-border` divider inset `mx-4`; unread rows keep a subtle `bg-stale-tint` wash (the pip is the primary unread cue). No per-row rounding.
 
 The **section eyebrow** ("Active · N") is an uppercase `text-text-faint` label; its `textContent` still carries "Active" + the count for a11y/tests.
+
+## 17. Forced colors — outline is the durable carrier, `transparent` is the trap
+
+Spec: `docs/superpowers/specs/2026-09-01-forced-colors-pass.md`. Every rule below is
+probe-measured in Chromium and Firefox; the transcript is
+`docs/superpowers/specs/probes/2026-09-01-forced-colors-mechanism.md`.
+
+Under `forced-colors: active` a UA drops `box-shadow`, `text-shadow` and gradients
+outright, and forces every colour onto its own palette. So an affordance carried
+only by those has no existence, and an off state written as a transparent border or
+outline INVERTS and becomes visible.
+
+### 17.1 The rule
+
+1. An affordance whose ONLY carrier is `box-shadow`, `text-shadow` or a gradient
+   must gain an outline or border carrier inside the single
+   `@media (forced-colors: active)` block at the foot of `app/globals.css`.
+   Changing the shadow's colour does not work: a `box-shadow` re-declared inside
+   that block is dropped again.
+2. An affordance whose OFF state is a transparent border or outline names that off
+   state in the block. Where the border's width is load-bearing, because a sibling
+   state declares the same border and varies only its colour, name it by setting
+   the colour to the background system colour; where it is not, name it with
+   `outline-style: none` or `border-style: none`. Never leave it transparent, and
+   never remove a width a sibling state depends on.
+3. Two states differing ONLY in properties forced colors flattens are one state,
+   UNLESS something outside CSS separates them: rendered text that differs, a glyph
+   differing in shape, a border or outline WIDTH, a padding or size difference, a
+   font-weight change, or an element present in one state and absent in the other.
+   Give one of them a carrier that survives, or record why it does not need one.
+4. **The three semantic slots are applied PER AFFORDANCE, at the selector that
+   means the thing. They are NOT tokens.** This repo has no selected token, no
+   disabled token and no link token, and re-pointing a shared token to reach them
+   recolours every unrelated meaning that token also paints.
+5. `forced-color-adjust: none` is for content whose colour IS the information.
+   Every use gets a row here naming what the colour means.
+6. Every rule in that block is UNLAYERED. A layered rule loses to the unlayered
+   `:focus-visible` rule and renders as if absent.
+
+### 17.2 ARIA is not a carrier, but it is an excellent selector
+
+Forced colors is used by SIGHTED people who need contrast, so `aria-current="page"`
+carries nothing for them: it renders nothing. That is rule 3, and it is why twelve
+collapsing controls needed repair despite all being correctly marked up.
+
+It is a fine SELECTOR, though, and the block uses it as one — hanging a visible
+outline off `[aria-current]` and `[aria-pressed="true"]` is what gives a sighted
+high-contrast user the state a screen-reader user already had. A state no ARIA
+describes gets its own data attribute instead.
+
+### 17.3 The three slots
+
+| Repo concept | Slot | Why |
+| --- | --- | --- |
+| selected / active | `Highlight` + `HighlightText` | the palette's own name for "this one is chosen", and every OS theme guarantees the pair contrasts |
+| disabled / de-emphasised | `GrayText` | the palette's only de-emphasis colour, and the one a UA already uses for disabled controls |
+| links | `LinkText` | a link that reads as body text is a navigation loss, not a style loss |
+
+There is no warning slot and no danger slot. Severity tints flatten, deliberately:
+every one of them sits behind text that states the severity in words, and inventing
+a correspondence the palette does not have would be a guess inherited by every
+future surface.
+
+### 17.4 A carrier painted in a forced property is not a carrier
+
+The subtler half of rule 3, and the one that moved four sites during the pass. A
+positioned element reads like a shape carrier, but if its only paint is a
+background it flattens to the same system colour as whatever is behind it. The
+review rail's active indicator is exactly that: positioned by `transform`, sized by
+`height`, and painted only by `bg-accent`.
