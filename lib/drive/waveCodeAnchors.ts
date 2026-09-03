@@ -21,6 +21,7 @@ import {
   renderRow,
   synthesizeBlocksFromXlsx,
   type GridBlock,
+  type SynthesizedBlock,
 } from "@/lib/drive/exportSheetToMarkdown";
 import { normalizeCellKey } from "@/lib/drive/unknownFieldAnchors";
 import { clean, splitRow } from "@/lib/parser/blocks/_helpers";
@@ -45,6 +46,10 @@ export type WaveCodeSite = {
   kind: string;
   snippet: string | null;
   anchor: SourceAnchor | null;
+  /** True when the owning tab is a DEAD LOOKUP TAB: hidden (`GridBlock.sheetHidden`) AND every
+   *  non-blank cell on the whole tab is exactly `#REF!`. False for an opaque block. Carried on
+   *  every site so a consumer can pair it positionally like the anchor. See `deadLookupTabs`. */
+  deadLookupTab: boolean;
 };
 
 export type SynthOpts = { includePullSheetFromTab?: string };
@@ -111,6 +116,42 @@ function cellAnchor(block: GridBlock, gid: number, row: number, col: number): So
  * per code. Rendering each block through `blockMarkdown` is what makes the text a scanner
  * sees here byte for byte the text it sees inside the joined document (spec §2.2).
  */
+/**
+ * The tabs whose every non-blank cell is EXACTLY `#REF!`, restricted to HIDDEN tabs.
+ *
+ * That is the shape an IMPORTRANGE lookup tab takes when its source access lapses: the
+ * whole import collapses to one error cell (on "II - FinTech Forum CTO Summit 2026",
+ * VENUE, CLIENT, TECH, VEHICLE and ROLE are each exactly `A1 = #REF!`). A tab with nothing
+ * but the bare literal has no label or header to bind a value to, so no parser can carry
+ * one of its cells onto the crew page. Two things the rule is deliberately NOT:
+ *
+ * - Not the section kind. "section" (generic) does not mean unrendered: the AGENDA
+ *   token-header table, `Event Name:`, `VENUE NAME` and `COI` all track as generic and all
+ *   render (Codex R1 probe, 2026-09-03).
+ * - Not containment. A cell that merely CONTAINS the literal beside other text is content:
+ *   "Event #REF!" became the show title, "GENERAL SESSION Ballroom #REF!" a room name,
+ *   "AGENDA LINK #REF!" an agenda link (Codex R2 probe). Equality after `clean()` is what
+ *   makes a cell bare; `#REF! - #REF!` and `#REF!/NAME` keep their warnings.
+ *
+ * One cell that is anything other than blank or the bare literal keeps every warning on
+ * the tab.
+ */
+function deadLookupTabs(blocks: readonly SynthesizedBlock[]): Set<string> {
+  const verdict = new Map<string, boolean>(); // sheetName -> still all-#REF! so far
+  for (const block of blocks) {
+    if (block.kind !== "grid" || !block.sheetHidden) continue;
+    let dead = verdict.get(block.sheetName) ?? true;
+    for (const row of block.rows) {
+      for (const cell of row.cells) {
+        const text = clean(cell);
+        if (text !== "" && text !== REF_LITERAL) dead = false;
+      }
+    }
+    verdict.set(block.sheetName, dead);
+  }
+  return new Set([...verdict].filter(([, dead]) => dead).map(([name]) => name));
+}
+
 export function extractWaveCodeSites(
   buffer: ArrayBuffer,
   titleToGid: Map<string, number>,
@@ -118,10 +159,12 @@ export function extractWaveCodeSites(
 ): WaveCodeSite[] {
   const out: WaveCodeSite[] = [];
   const { blocks } = synthesizeBlocksFromXlsx(buffer, synthOpts);
+  const dead = deadLookupTabs(blocks);
   for (const block of blocks) {
     const md = blockMarkdown(block);
     const grid = block.kind === "grid" ? block : null;
     const gid = grid ? titleToGid.get(grid.sheetName) : undefined;
+    const deadLookupTab = grid !== null && dead.has(grid.sheetName);
     const anchorAt = (line: number, col: number | null): SourceAnchor | null => {
       if (!grid || typeof gid !== "number" || col === null) return null;
       const row = rowOfLine(line);
@@ -143,6 +186,7 @@ export function extractWaveCodeSites(
         kind: h.kind,
         snippet: h.snippet,
         anchor: ok ? anchorAt(h.line, owner) : null,
+        deadLookupTab,
       });
     }
 
@@ -157,6 +201,7 @@ export function extractWaveCodeSites(
         kind: h.kind,
         snippet: h.snippet,
         anchor: anchorAt(h.line, first >= 0 ? first : null),
+        deadLookupTab,
       });
     }
 
@@ -168,6 +213,7 @@ export function extractWaveCodeSites(
         kind: s.kind,
         snippet: null,
         anchor: anchorAt(s.from, 0),
+        deadLookupTab,
       });
     }
   }
@@ -187,6 +233,16 @@ export function pairWaveCodeSites(
   sites: readonly WaveCodeSite[],
   code: WaveCode,
 ): (SourceAnchor | null)[] {
+  return pairWaveCodeHits(warnings, sites, code).map((hit) => hit?.anchor ?? null);
+}
+
+/** The pairing itself: the i-th warning of `code` with the i-th replay SITE, so a consumer
+ *  can read any field the site carries (anchor, deadLookupTab) under one refusal rule. */
+export function pairWaveCodeHits(
+  warnings: readonly ParseWarning[],
+  sites: readonly WaveCodeSite[],
+  code: WaveCode,
+): (WaveCodeSite | null)[] {
   const parsed = warnings.filter((w) => w.code === code);
   const replayed = sites.filter((s) => s.code === code);
   const refuse = parsed.map(() => null);
@@ -203,7 +259,57 @@ export function pairWaveCodeSites(
       return refuse;
     }
   }
-  return replayed.map((r) => r.anchor);
+  return replayed;
+}
+
+/**
+ * Which warnings are `#REF!` artifacts of a DEAD LOOKUP TAB, aligned with `warnings`.
+ *
+ * A dead lookup tab (`deadLookupTabs`: hidden, and nothing on it but bare `#REF!` cells) is what an
+ * IMPORTRANGE leaves behind when its source access lapses. Nobody sees those cells on the
+ * crew page, because there is no label to bind one to, and nobody can reach them from the
+ * deep link, because Google Sheets refuses to open a hidden gid and lands on the last
+ * visible tab instead (measured 2026-09-03 on "II - FinTech Forum CTO Summit 2026": five
+ * such warnings, every "Open in Sheet" link landing on DIAGRAMS).
+ *
+ * Hidden tabs are otherwise still parsed (AGENDA is hidden on that same show), so any
+ * `#REF!` on a hidden tab that holds other content keeps its warning. Every other code is
+ * untouched. The pairing is the same positional one the anchors use, so a count mismatch
+ * suppresses nothing.
+ */
+/**
+ * Did ANY `#REF!` reach a parsed field? The oracle the suppression is gated on.
+ *
+ * The dead-tab shape says a tab has no label to bind a value to, but that is not the only
+ * way a cell reaches the page: `parseGearTab` scans table rows across tab boundaries, so a
+ * dead tab that immediately FOLLOWS the GEAR tab has its bare cells appended to a room's
+ * equipment field (Codex R3 probe: 8 of 240 corpus insertions, every one right after GEAR).
+ * No shape rule can know which parsers continue across tabs, present or future, so the
+ * gate is the output itself: every parsed field except the warnings, serialized, stripped
+ * of markdown escapes (values keep the `\#REF\!` form), searched for the literal. True
+ * means SOME field renders a `#REF!`; the caller cannot tell which, so it keeps every
+ * `#REF!` warning, the conservative side. On the motivating show the parsed output holds no
+ * literal outside `warnings`, so the five dead-tab warnings still clear.
+ */
+export function parsedOutputHoldsRefLiteral(parsed: {
+  readonly warnings: readonly ParseWarning[];
+}): boolean {
+  const rendered = { ...parsed, warnings: undefined };
+  return JSON.stringify(rendered).replace(/\\/g, "").includes(REF_LITERAL); // jsonb-text-exempt: serialized only to search the parsed output for the literal, never a postgres.js param
+}
+
+export function hiddenTabRefSuppressions(
+  warnings: readonly ParseWarning[],
+  sites: readonly WaveCodeSite[],
+): boolean[] {
+  const hits = pairWaveCodeHits(warnings, sites, "REF_ERROR_LITERAL");
+  let cursor = 0;
+  return warnings.map((w) => {
+    if (w.code !== "REF_ERROR_LITERAL") return false;
+    const hit = hits[cursor] ?? null;
+    cursor += 1;
+    return hit !== null && hit.deadLookupTab;
+  });
 }
 
 export function pairAllWaveCodes(

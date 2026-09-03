@@ -1444,6 +1444,9 @@ async function prepareOnboardingFilesUnclassified(
         pullSheetOverrideApplied
           ? { includePullSheetFromTab: pullSheetOverrideApplied.tabName }
           : undefined,
+        // The parsed output is the oracle for the dead-tab #REF! removal: nothing is
+        // removed unless no literal reached any parsed field (attachWarningAnchors.ts).
+        parseResult,
       );
     } catch {
       /* belt-and-suspenders: best-effort, never wedges the scan */

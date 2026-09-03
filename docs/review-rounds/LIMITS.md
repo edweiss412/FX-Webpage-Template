@@ -392,6 +392,16 @@ offered as a class closure.
 
 **Re-file trigger:** named by a 3rd distinct arc
 
+## LIM-INPUT-SHAPE-PROXY-FOR-OUTPUT-PROPERTY
+
+**Shape:** Code needs a property of the OUTPUT (this cell is not rendered; this value is unused) and tests a proxy over the INPUT instead (its section kind, its tab's content, its position). Each review round then names one more input shape the proxy misjudges, the repair narrows the proxy, and the finding rate stays flat, because the proxy ranges over an open set of parser behaviours while the property is decidable from the output in one pass. Distinct from LIM-NONDISCRIMINATING-FIXTURE, where the assertion is too weak: here the assertion is over the wrong thing. The repair that held was to compute the property (serialize the parsed output, search it) and let the input shape be nothing more than the candidate set.
+
+**Named by:** 1 arc — fix/hidden-tab-ref-suppress/c6908827344f.md (diff), three rounds: section kind, then containment, then equality over the tab's cells, before the output oracle closed it.
+
+**Owning record:** `lib/drive/waveCodeAnchors.ts`, the `parsedOutputHoldsRefLiteral` docstring, which states the oracle and its conservative limit.
+
+**Re-file trigger:** named by a 3rd distinct arc
+
 ## LIM-OPTIN-GUARD-DORMANT
 
 **Shape:** A guard arm that names the defect exists in the repo, and does not reach the author, for two reasons that compound: it fires only inside a region the document must opt into by a keyword, and inside that region it is ADVISORY, landing in a list the author has usually been told to discount as heuristic noise. The defect then costs review rounds that the existing mechanism was written to prevent, and the post-mortem reads as "we should build a guard" when the guard is already there.

@@ -135,6 +135,7 @@ describe("blockMarkdown is the one renderer synthesizeMarkdownFromXlsx uses (spe
     const grid = {
       kind: "grid" as const,
       sheetName: "INFO",
+      sheetHidden: false,
       absCol0: 0,
       rows: [
         { absRow: 0, cells: ["A", "B"] },
@@ -142,5 +143,50 @@ describe("blockMarkdown is the one renderer synthesizeMarkdownFromXlsx uses (spe
       ],
     };
     expect(blockMarkdown(grid).split("\n")).toEqual(["| A | B |", "| :---: | :---: |", "| c |  |"]);
+  });
+});
+
+describe("synthesizeBlocksFromXlsx carries each tab's hidden state (hidden-tab #REF! suppression)", () => {
+  /** Independent read of the OOXML visibility the fixture claims to carry, so a helper that
+   *  silently dropped the flag could not let the assertions below pass on a visible tab. */
+  function hiddenFlags(buffer: ArrayBuffer): number[] {
+    const wb = XLSX.read(buffer, { type: "array" });
+    return wb.SheetNames.map((_, i) => wb.Workbook?.Sheets?.[i]?.Hidden ?? 0);
+  }
+
+  it("a hidden tab's grid blocks read sheetHidden true, a visible tab's false", () => {
+    const buf = buildXlsx([
+      { name: "INFO", grid: [["Console", "QU-16"]] },
+      { name: "VENUE", grid: [["#REF!"]], hidden: true },
+    ]);
+    expect(hiddenFlags(buf)).toEqual([0, 1]);
+    const grids = synthesizeBlocksFromXlsx(buf).blocks.filter((b) => b.kind === "grid");
+    expect(grids.map((b) => [b.sheetName, b.sheetHidden])).toEqual([
+      ["INFO", false],
+      ["VENUE", true],
+    ]);
+  });
+
+  it("a veryHidden tab (state=2) also reads sheetHidden true", () => {
+    const buf = buildXlsx([
+      { name: "INFO", grid: [["Console", "QU-16"]] },
+      { name: "ROLE", grid: [["#REF!"]], hidden: 2 },
+    ]);
+    expect(hiddenFlags(buf)).toEqual([0, 2]);
+    const grids = synthesizeBlocksFromXlsx(buf).blocks.filter((b) => b.kind === "grid");
+    expect(grids.map((b) => [b.sheetName, b.sheetHidden])).toEqual([
+      ["INFO", false],
+      ["ROLE", true],
+    ]);
+  });
+
+  it("a workbook written with no visibility metadata reads every tab as visible", () => {
+    const buf = buildXlsx([
+      { name: "INFO", grid: [["Console", "QU-16"]] },
+      { name: "GEAR", grid: [["Item", "Qty"]] },
+    ]);
+    expect(hiddenFlags(buf)).toEqual([0, 0]);
+    const grids = synthesizeBlocksFromXlsx(buf).blocks.filter((b) => b.kind === "grid");
+    expect(grids.every((b) => b.sheetHidden === false)).toBe(true);
   });
 });
