@@ -189,6 +189,11 @@ describe("the figures anchor reconciles its rate table against its millisecond t
         cwd: root,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
+        // An EXPLICIT ceiling, required of every member row in the spawn-disposition
+        // registry and checked per hit. These are short local queries, but this suite runs
+        // inside `unit-suite`, so a git that blocks on a lock or a credential prompt would
+        // hang a REQUIRED check rather than fail it.
+        timeout: 10_000,
       }).trim();
     const shallow = git(["rev-parse", "--is-shallow-repository"]) === "true";
     if (shallow) {
