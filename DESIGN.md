@@ -259,7 +259,7 @@ like an oversight (ruled 2026-08-16). The ON boundary — `accent-edge` vs
 The five paths are `components/admin/PublishedToggle.tsx:305`,
 `components/admin/settings/AutoPublishToggle.tsx:136`,
 `components/admin/settings/NotifyToggle.tsx:144`,
-`components/admin/telemetry/AutoRefreshControl.tsx:121` and
+`components/admin/telemetry/AutoRefreshControl.tsx:122` and
 `components/admin/settings/DeveloperToggleButton.tsx:97`; the last two paint the
 track on a nested `<span>`, which is why an element-level census reported three.
 On 2026-08-26 the widened cover reached both, by two DIFFERENT mechanisms:
