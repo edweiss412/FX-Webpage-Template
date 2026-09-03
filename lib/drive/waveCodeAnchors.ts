@@ -295,7 +295,7 @@ export function parsedOutputHoldsRefLiteral(parsed: {
   readonly warnings: readonly ParseWarning[];
 }): boolean {
   const rendered = { ...parsed, warnings: undefined };
-  return JSON.stringify(rendered).replace(/\\/g, "").includes(REF_LITERAL);
+  return JSON.stringify(rendered).replace(/\\/g, "").includes(REF_LITERAL); // jsonb-text-exempt: serialized only to search the parsed output for the literal, never a postgres.js param
 }
 
 export function hiddenTabRefSuppressions(
