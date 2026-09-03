@@ -1503,11 +1503,13 @@ details[open] > summary [data-agenda-day-count] {
         the off state becomes visible. Name the off state here. Where the border's
         width is load-bearing, because a sibling state declares the same border and
         varies only its colour, name it by setting the colour to the background
-        system colour; where it is not, use `outline-style: none`. Never leave it
-        transparent, and never remove a width a sibling state depends on.
+        system colour; where it is not, name it with `outline-style: none` or
+        `border-style: none`. Never leave it transparent, and never remove a width a
+        sibling state depends on.
      3. Two states differing ONLY in properties forced colors flattens are one
         state, UNLESS something outside CSS separates them: a glyph, a different
-        label, an icon. ARIA alone does not count — this reader can see.
+        label, an icon. ARIA alone does not count — this reader can see. Give one of
+        them a carrier that survives, or record why it does not need one.
      4. The three semantic slots are applied PER AFFORDANCE, at the selector that
         means the thing. They are NOT tokens: this repo has no selected token, no
         disabled token and no link token, and re-pointing a shared token recolours
@@ -1656,8 +1658,11 @@ details[open] > summary [data-agenda-day-count] {
 
      A solid fill rather than a shimmer, and that is a fair trade rather than a
      compromise: the animation is the texture, the fill is the information. Both
-     engines' pseudo-elements are named because they are separate declarations, and
-     AC-5's negative control deletes each in turn. */
+     engines' pseudo-elements are named because they are separate declarations. AC-5's
+     negative control deletes the GECKO fill only: Chromium paints <progress> from the
+     UA under forced colors and ignores author pseudo-element styling, so deleting the
+     -webkit- declaration leaves the render byte-identical and proves nothing (spec §8
+     limit 10). */
   progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
   progress[data-testid="wizard-finalize-progressbar"]:indeterminate::-webkit-progress-bar {
     background-color: ButtonFace;

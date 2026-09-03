@@ -208,6 +208,50 @@ describe("forced-colors carrier loss (Arm 2)", () => {
       designRules?.length,
       "DESIGN.md 17.1 states a different number of rules than spec 3.1",
     ).toBe(specRules?.length);
+
+    // COUNT is not parity, which whole-diff review at the union base said plainly:
+    // `border-style: none` was an off-state option in spec rule 2 and simply absent
+    // from DESIGN's rule 2, and rule 3's instruction — give one state a surviving
+    // carrier, or record why it does not need one — was absent too. Both survived a
+    // count check and four hand-picked fragments, because a dropped clause changes
+    // neither.
+    //
+    // What is asserted per rule is its DECLARATION spans: a backticked
+    // `property: value`. That is the actionable half of a rule, the part an author
+    // types, and it is derived by SHAPE rather than by an exemption list. Prose
+    // nouns and file names are excluded by that shape, not by being named — which
+    // matters, because DESIGN legitimately says "a gradient" where the spec says "a
+    // gradient `background-image`", and legitimately does not cite `DESIGN.md`
+    // inside DESIGN.md. An accept-list would have had to enumerate those and would
+    // fail open on the next one.
+    const declarations = (rule: string) =>
+      [
+        ...new Set(
+          [...rule.matchAll(/`([a-z-]+:\s*[^`]+)`/g)].map((m) => m[1]!.replace(/\s+/g, " ")),
+        ),
+      ].sort();
+    const specBody = (/### 3\.1 The rule, as an author follows it\n([\s\S]*?)\n### /.exec(
+      specText,
+    ) ?? [])[1];
+    const designBody = (/### 17\.1 The rule\n([\s\S]*?)\n### /.exec(design) ?? [])[1];
+    premiseHolds("both rule blocks were located", Boolean(specBody) && Boolean(designBody));
+    const specSplit = specBody!.split(/^> {0,3}(?=\d+\. )/m).slice(1);
+    const designSplit = designBody!.split(/^(?=\d+\. )/m).slice(1);
+
+    // PREMISE: a split that stops matching yields [] on both sides, and an empty
+    // loop reports no missing clause over rules it never read.
+    premise("spec rules split for the clause check", specSplit.length, 0);
+    expect(designSplit.length, "the two rule blocks split to different lengths").toBe(
+      specSplit.length,
+    );
+
+    const dropped: string[] = [];
+    for (const [i, rule] of specSplit.entries()) {
+      const want = declarations(rule);
+      const have = declarations(designSplit[i] ?? "");
+      for (const d of want) if (!have.includes(d)) dropped.push(`rule ${i + 1}: \`${d}\``);
+    }
+    expect(dropped, "a declaration the spec's rule states and DESIGN.md's does not").toEqual([]);
   });
 
   it("cites no probe row the probe does not measure", () => {

@@ -439,10 +439,18 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // that short-circuits above it, so no case exercised that branch; the other two
   // shared one line on the gradient predicate, where widening either the connector
   // or the equality makes a `mask-image` gradient count as a carrier the rule does
-  // not have. Two cases killed all three, both asserting in each direction, and
-  // the surface re-scored 32/32. An entry appearing here later would mean a
-  // survivor was ledgered rather than killed, which is the decision this file
-  // exists to make visible.
+  // not have. Two cases killed all three, both asserting in each direction, and the
+  // surface re-scored 32/32 on that population.
+  //
+  // The CURRENT figure is 34/34, and the difference is not a re-run. A later repair
+  // in this branch added branches to the surface — `isDroppedGradient` gained the
+  // `background` shorthand and a `var()` arm, and the keyframe predicate went from
+  // all-uniform to any-survives — which moved the mutant population from 32 to 34.
+  // The 32/32 above describes bytes that no longer exist, and is kept only as the
+  // history of how this set came to be empty. A score describes the bytes it ran on.
+  //
+  // An entry appearing here later would mean a survivor was ledgered rather than
+  // killed, which is the decision this file exists to make visible.
   forcedColorsScan: {},
   controlOutlineScan: {},
   // Enrolled 2026-08-22. The first scored run reported 45 unaccepted survivors at 0.8052; nine

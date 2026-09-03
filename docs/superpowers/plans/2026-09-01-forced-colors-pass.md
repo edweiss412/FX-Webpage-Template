@@ -48,9 +48,14 @@ nothing. §5.8 records that decision.
 This is a wiring step and not a formality: those `testMatch` values are EXPLICIT
 ALLOWLIST regexes, not globs, so a new spec file matches nothing and would be
 committed, reviewed, and never executed while this plan and the PR both claim its
-coverage. Plan review R1 finding 5. Both projects, because the repaired surfaces
-span admin (the cues, the review pills, the nav) and crew (CrewSubNav, `app/me`,
-the picker interstitial), so a single-project entry leaves half the pass unasserted.
+coverage. Plan review R1 finding 5.
+
+That reasoning argued for BOTH projects, because the repaired surfaces span admin
+(the cues, the review pills, the nav) and crew (CrewSubNav, `app/me`, the picker
+interstitial). It was overtaken: the spec is collected by `desktop-chromium` only,
+because WebKit reports the forced-colors media query and then does not perform the
+adjustment, so a mobile-safari entry asserted nothing it claimed to. Breadth of
+surface does not help when the engine will not drop a property. See spec §5.8.
 Contrast vitest, which IS glob-based: `tests/styles/**/*.test.{ts,tsx}` is already in
 `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:113`), so the scanner suite needs no wiring.
 
@@ -318,10 +323,14 @@ probe-domain rule, and that rule applies to the arc's own probes.
 Round 4 finding 4: `scripts/probes/forced-colors-mechanism.mjs` logs observations
 and exits 0 whatever it sees, so naming it as AC-5's Firefox owner would leave that
 half unguarded — deleting the live -moz-progress-bar fill would keep the Playwright
-command green and the probe silent. The progress case requires a fill
-distinguishable from the track in BOTH engines and exits non-zero when it is not,
-which makes the probe a command this task can be red on. Its plant is the same
-fill-only deletion, run per engine.
+command green and the probe silent. The progress case exits non-zero when the
+Gecko fill is not distinguishable from its track, which makes the probe a command this
+task can be red on.
+
+It asserts the weaker, true thing in Blink and does not plant there: Chromium paints
+`<progress>` from the UA under forced colors, so deleting the `-webkit-` fill leaves
+the render byte-identical and a control that cannot go red is not a control (spec §8
+limit 10). The plant is the fill-only deletion in GECKO alone.
 
 ## Task 8 — the documented limits that need a row
 <!-- task: red=`pnpm vitest run tests/styles/_metaForcedColors.test.ts` red-state=authored red-target=`app/globals.css:1224` why=`the case names the DISPOSITION, not a disjunction: the freshness reduced-motion arm must be recorded deliberate-flatten specifically. Task 1 already puts every live A2a hit in the census, so an "either repaired or carries a limit row" assertion would pass whichever way Task 1 called it and could never be observed red — that was the first draft of this line and whole-diff R2 was right to call it. Pinning the disposition fails while the row is anything else` ac=AC-3 -->

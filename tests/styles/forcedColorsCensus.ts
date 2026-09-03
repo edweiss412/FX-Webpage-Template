@@ -156,7 +156,8 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
       'progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-value,\nprogress[data-testid="wizard-finalize-progressbar"]::-webkit-progress-value',
     context: [],
     disposition: "repaired",
-    reason: "the determinate fill; it is the half AC-5's negative control deletes",
+    reason:
+      "the determinate fill; its Gecko counterpart is the half AC-5's negative control deletes, since deleting this -webkit- declaration leaves Blink's render byte-identical (spec limit 10)",
   },
   {
     subject:
@@ -306,9 +307,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     binding: {
       locator: 'nav [aria-current="page"]',
       toggle: "navigating to another admin route",
-      // Bound by AC-4e on desktop-chromium, where this row is the visible one:
-      // the top row is `hidden min-[840px]:flex`, so it renders at 1280 and not
-      // at 390. The mobile half of the same case binds :301.
+      // Bound by AC-4e, which runs under desktop-chromium — the only project that
+      // collects the forced-colors spec — where this row is the visible one: the
+      // top nav is `hidden min-[840px]:flex`, so it renders at 1280. There is no
+      // mobile half; :301 stays unbound because no collecting project reaches it.
       bound: true,
     },
     reason: "desktop nav; aria-current only, and icon and label render unchanged in both states",

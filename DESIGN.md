@@ -1057,13 +1057,14 @@ outline INVERTS and becomes visible.
 2. An affordance whose OFF state is a transparent border or outline names that off
    state in the block. Where the border's width is load-bearing, because a sibling
    state declares the same border and varies only its colour, name it by setting
-   the colour to the background system colour; where it is not, use
-   `outline-style: none`. Never leave it transparent, and never remove a width a
-   sibling state depends on.
+   the colour to the background system colour; where it is not, name it with
+   `outline-style: none` or `border-style: none`. Never leave it transparent, and
+   never remove a width a sibling state depends on.
 3. Two states differing ONLY in properties forced colors flattens are one state,
    UNLESS something outside CSS separates them: rendered text that differs, a glyph
    differing in shape, a border or outline WIDTH, a padding or size difference, a
    font-weight change, or an element present in one state and absent in the other.
+   Give one of them a carrier that survives, or record why it does not need one.
 4. **The three semantic slots are applied PER AFFORDANCE, at the selector that
    means the thing. They are NOT tokens.** This repo has no selected token, no
    disabled token and no link token, and re-pointing a shared token to reach them
@@ -1076,7 +1077,7 @@ outline INVERTS and becomes visible.
 ### 17.2 ARIA is not a carrier, but it is an excellent selector
 
 Forced colors is used by SIGHTED people who need contrast, so `aria-current="page"`
-carries nothing for them: it renders nothing. That is rule 3, and it is why ten
+carries nothing for them: it renders nothing. That is rule 3, and it is why twelve
 collapsing controls needed repair despite all being correctly marked up.
 
 It is a fine SELECTOR, though, and the block uses it as one — hanging a visible

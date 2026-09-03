@@ -198,8 +198,10 @@ function premiseRows(count: number): void {
 test.describe("forced colors", () => {
   // Every case in this file measures what forced colors DOES to a render, so
   // every one of them is meaningless in an engine that does not implement the
-  // feature. WebKit is that engine (spec §8 limit 11), and this file runs in
-  // mobile-safari as well as desktop-chromium.
+  // feature. WebKit is that engine (spec §8 limit 11), which is why `testMatch`
+  // collects this file under desktop-chromium ONLY (spec §5.8). The gate below is
+  // a backstop for a future WebKit or a project added without reading that section,
+  // not the mechanism.
   //
   // Whole-diff R2's board caught the consequence on AC-6, which asserts the
   // focus ring is DROPPED: WebKit keeps painting it, so the assertion failed
@@ -501,11 +503,13 @@ test.describe("forced colors", () => {
   // version would have measured a page with no nav on it. `signInAs` is the same
   // step every admin spec here takes (`admin-phase2-surfaces.spec.ts:83`).
   //
-  // It binds a different row per project, because AdminNav renders a different
-  // control per viewport: the top row at `AdminNav.tsx:236` is `hidden
-  // min-[840px]:flex`, so desktop-chromium gets it and mobile-safari gets the
-  // bottom tabs at `AdminNav.tsx:301`. Both set `aria-current="page"` on the
-  // active item, which is what the selected-state rule selects on.
+  // It binds ONE row, not one per project. AdminNav renders a different control
+  // per viewport — the top row at `AdminNav.tsx:236` is `hidden min-[840px]:flex`,
+  // the bottom tabs at `AdminNav.tsx:301` are its counterpart below 840px — and
+  // this file is collected under desktop-chromium only, so the top row is the one
+  // that renders here and the only one this case can bind. Both set
+  // `aria-current="page"`, which is what the selected-state rule selects on; the
+  // mobile row stays `bound: false` for want of an engine, not for want of a case.
   //
   // What makes it discriminating rather than a smoke test: forced colors is what
   // COLLAPSES these two elements together. The UA forces both backgrounds onto one
