@@ -491,7 +491,11 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "switch track; the developer toggle wears the same ruled recipe (DESIGN.md 1.2a)",
   },
   {
-    site: "components/admin/telemetry/AutoRefreshControl.tsx:113",
+    // :113 until the comment carrying this file's data-fc-skip note moved above the
+    // element to stop overflowing sec-15's 700-character tween window. Same eight-line
+    // shift that moved controlOutlineScan's row to :135; both are line-keyed, so both
+    // move together and neither is safe to carry over from a pre-move reading.
+    site: "components/admin/telemetry/AutoRefreshControl.tsx:121",
     disposition: "deliberate-flatten",
     reason: "switch track; the auto-refresh toggle wears the same ruled recipe (DESIGN.md 1.2a)",
   },

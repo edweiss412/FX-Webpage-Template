@@ -66,6 +66,17 @@ export const REQUIRED = {
   // 7 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
   // projects, --retries=0: 181 executed identities, zero skipped.
   "developer-tier.spec.ts": 7,
+  // 10 cases x 1 project — forcedColors resolves under desktop-chromium ONLY, and the
+  // single-project targeting is the POINT rather than a cost saving. WebKit reports the
+  // forced-colors media query under emulation and then does not perform the adjustment, so
+  // every case there compares a selected render against an unselected one that differs in
+  // normal mode anyway: green, proving nothing. That is the exact defect this oracle exists
+  // to catch, and it caught it — the spec shipped in both projects with a `beforeEach`
+  // runtime-skip, which is the shape named at the top of this file. The skip is kept as a
+  // backstop against a future WebKit that implements the feature, or a project added without
+  // reading this; `testMatch` is what actually decides. Measured with --list on the branch:
+  // 10 resolved, 10 executed, zero skipped.
+  "forcedColors.spec.ts": 10,
   // 4 cases x 1 project — empty-state-reachability resolves under mobile-safari
   // only. It came OUT of the desktop-chromium testMatch with the 2026-08-25
   // re-target (BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE): it is a live
