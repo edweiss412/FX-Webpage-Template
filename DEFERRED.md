@@ -44,20 +44,6 @@ From the same critique (P2). In the unsuppressed render each flight segment lead
 
 **Un-defer trigger:** the next deliberate visual pass on the Travel flight card, or a crew report of misreading which leg is which on a phone.
 
-### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog)
-
-**Status:** IN PROGRESS · **Branch:** feat/forced-colors-pass
-**Effort:** L
-**l-wave-screen 2026-08-06:** PREREQ — waits on a repo-wide forced-colors pass to set the pattern; solving it once here would pre-commit that pattern from a sample of one.
-
-Under `forced-colors` the cue is invisible: UAs drop `box-shadow` and force
-`background-color`, so both tracks vanish (`app/globals.css:884`). Systemic
-rather than local — the repo has zero `forced-colors` handling anywhere — and
-the local rotate path still carries its `role="status"` banner.
-
-**Un-defer trigger:** a repo-wide forced-colors pass, which should set the pattern
-once rather than have this one surface invent it.
-
 ### ATTENTION-INDEX-JUMP-FOCUS-1 — [P1] pressing an index row drops focus to `<body>`
 
 **Effort:** L
