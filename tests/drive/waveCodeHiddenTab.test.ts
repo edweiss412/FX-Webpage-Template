@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   extractWaveCodeSites,
   hiddenTabRefSuppressions,
+  parsedOutputHoldsRefLiteral,
   type WaveCodeSite,
 } from "@/lib/drive/waveCodeAnchors";
 import { parseSheet } from "@/lib/parser";
 import { GENERIC_SECTION_KIND } from "@/lib/parser/sectionKind";
 import type { ParseWarning } from "@/lib/parser/types";
 import { premiseHolds } from "@/tests/_shared/premise";
-import { buildXlsx } from "../helpers/buildXlsx";
+import { buildXlsx, withHiddenTabAfter } from "../helpers/buildXlsx";
 
 /**
  * A `#REF!` on a DEAD LOOKUP TAB, a hidden tab whose every non-blank cell holds the literal,
@@ -233,5 +236,58 @@ describe("hiddenTabRefSuppressions (hidden-tab #REF! suppression)", () => {
     warnings.forEach((w, i) => {
       if (w.code !== "REF_ERROR_LITERAL") expect(out[i]).toBe(false);
     });
+  });
+});
+
+describe("parsedOutputHoldsRefLiteral: the oracle that says whether any #REF! reached a parsed field", () => {
+  /** Read a committed workbook as a standalone ArrayBuffer (pooled Buffer, so slice it). */
+  function fixtureBuffer(relative: string): ArrayBuffer {
+    const b = readFileSync(join(process.cwd(), relative));
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+  }
+  const parse = (buffer: ArrayBuffer) =>
+    parseSheet(synthesizeMarkdownFromXlsx(buffer).markdown, "probe.xlsx");
+
+  it("is false when the literal appears only in warnings (a dead lookup tab nothing consumed)", () => {
+    const parsed = parse(
+      buildXlsx([
+        {
+          name: "INFO",
+          grid: [
+            ["Event Name:", "Real Show"],
+            ["RENTAL PICKUP", "Mon"],
+          ],
+        },
+        { name: "VENUE", grid: LOOKUP_REF, hidden: true },
+      ]),
+    );
+    premiseHolds("the warnings do carry the literal", refWarnings(parsed.warnings).length === 1);
+    expect(parsedOutputHoldsRefLiteral(parsed)).toBe(false);
+  });
+
+  it("is true when a parsed field carries the literal in its stored (escaped) form", () => {
+    const parsed = parse(buildXlsx([{ name: "INFO", grid: [["Event Name:", "Event #REF!"]] }]));
+    premiseHolds(
+      "the title holds the literal, escaped",
+      /\\#REF\\!|#REF!/.test(parsed.show.title ?? ""),
+    );
+    expect(parsedOutputHoldsRefLiteral(parsed)).toBe(true);
+  });
+
+  it("is true for the Codex R3 case: a dead tab right after GEAR feeds a room field", () => {
+    const rpas = fixtureBuffer("fixtures/shows/exporter-xlsx/rpas.xlsx");
+    const parsed = parse(withHiddenTabAfter(rpas, "GEAR", "ZZ_DEAD", LOOKUP_REF));
+    premiseHolds(
+      "parseGearTab carried the bare literal into rooms[*].other",
+      parsed.rooms.some((r) => (r.other ?? "").includes("#REF!")),
+    );
+    expect(parsedOutputHoldsRefLiteral(parsed)).toBe(true);
+  });
+
+  it("is false for the same dead tab placed after DIAGRAMS, where no parser continues into it", () => {
+    const rpas = fixtureBuffer("fixtures/shows/exporter-xlsx/rpas.xlsx");
+    const parsed = parse(withHiddenTabAfter(rpas, "DIAGRAMS", "ZZ_DEAD", LOOKUP_REF));
+    premiseHolds("the dead tab's warning is present", refWarnings(parsed.warnings).length >= 1);
+    expect(parsedOutputHoldsRefLiteral(parsed)).toBe(false);
   });
 });

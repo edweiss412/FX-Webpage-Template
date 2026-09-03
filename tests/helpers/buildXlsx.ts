@@ -28,3 +28,31 @@ export function buildXlsx(
   }
   return out as ArrayBuffer;
 }
+
+/**
+ * Splice a HIDDEN tab into an existing workbook right after `after`, keeping every other tab
+ * and its visibility. For probes that drop a dead lookup tab into a committed corpus workbook
+ * at a chosen position (Codex R3: position matters, `parseGearTab` scans across tab boundaries).
+ */
+export function withHiddenTabAfter(
+  buffer: ArrayBuffer,
+  after: string,
+  name: string,
+  grid: string[][],
+): ArrayBuffer {
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const at = workbook.SheetNames.indexOf(after);
+  if (at === -1) throw new Error(`withHiddenTabAfter: no tab named ${after}`);
+  const visibility = workbook.SheetNames.map(
+    (_, i) => workbook.Workbook?.Sheets?.[i] ?? ({ Hidden: 0 } as const),
+  );
+  workbook.SheetNames.splice(at + 1, 0, name);
+  workbook.Sheets[name] = XLSX.utils.aoa_to_sheet(grid);
+  visibility.splice(at + 1, 0, { Hidden: 1 });
+  workbook.Workbook = { ...(workbook.Workbook ?? {}), Sheets: visibility };
+  const out = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+  if (out instanceof Uint8Array) {
+    return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+  }
+  return out as ArrayBuffer;
+}

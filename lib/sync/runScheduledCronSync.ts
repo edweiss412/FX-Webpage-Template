@@ -3331,6 +3331,9 @@ export async function prepareProcessOneFile(
     // 2026-08-29 §2.4, "Same blocks"): the same override this export was synthesized with.
     // `{}` when there is no override, which the replay reads as no option.
     includeOpts,
+    // The parsed output is the oracle for the dead-tab #REF! removal: nothing is removed
+    // unless no literal reached any parsed field (attachWarningAnchors.ts).
+    enriched,
   );
 
   let currentBinding: Phase1Binding;

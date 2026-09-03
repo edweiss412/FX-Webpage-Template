@@ -10,6 +10,7 @@ import {
   extractWaveCodeSites,
   hiddenTabRefSuppressions,
   pairAllWaveCodes,
+  parsedOutputHoldsRefLiteral,
   type SynthOpts,
   type WaveCodeSite,
 } from "@/lib/drive/waveCodeAnchors";
@@ -37,13 +38,19 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
  * REFUSES (a link-less row), never mis-pairs.
  *
  * ONE REMOVAL, after the anchors are placed: a `REF_ERROR_LITERAL` that the replay names as
- * the artifact of a DEAD lookup tab, hidden and holding nothing but `#REF!`
+ * the artifact of a DEAD lookup tab, hidden and holding nothing but bare `#REF!` cells
  * (`hiddenTabRefSuppressions`), is spliced out of the caller's array in place, so both
- * ingestion paths persist without it. The order matters:
- * the pairing is positional over the whole warnings array, so removing first would shift
- * every later `#REF!` off its hit and refuse the code. Visibility comes from the bytes, so a
- * failed or empty gid map still suppresses; only a refused replay (count mismatch) keeps
- * every warning, which is the same failure direction the anchors take.
+ * ingestion paths persist without it. Two gates, both fail closed:
+ *
+ * - The shape gate is the replay's. The order matters: the pairing is positional over the
+ *   whole warnings array, so removing first would shift every later `#REF!` off its hit and
+ *   refuse the code. Visibility comes from the bytes, so a failed or empty gid map still
+ *   suppresses; a refused replay (count mismatch) keeps every warning.
+ * - The output gate is `parsedOutputHoldsRefLiteral(parsed)`: nothing is removed unless the
+ *   caller hands over the parsed output AND no `#REF!` reached any field of it. A
+ *   continuation parser can carry a dead tab's cells onto the page (Codex R3, `parseGearTab`
+ *   across a tab boundary); the output is the only oracle that sees every such path. No
+ *   `parsed` argument means no proof, so nothing is removed.
  */
 export async function attachWarningAnchors(
   warnings: ParseWarning[] | undefined,
@@ -51,6 +58,7 @@ export async function attachWarningAnchors(
   resolveGids: () => Promise<Map<string, number>>,
   regionAnchors?: Record<string, SourceAnchor>,
   synthOpts?: SynthOpts,
+  parsed?: { readonly warnings: readonly ParseWarning[] },
 ): Promise<void> {
   if (!bytes || !warnings || !hasCellAnchoredWarning(warnings)) return;
   let gids: Map<string, number>;
@@ -77,6 +85,8 @@ export async function attachWarningAnchors(
     wave: safe(() => pairAllWaveCodes(warnings, waveSites), {}),
     region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
   });
+  // Output gate first: with no parsed output, or a literal anywhere in it, keep everything.
+  if (parsed === undefined || safe(() => parsedOutputHoldsRefLiteral(parsed), true)) return;
   const drop = safe(() => hiddenTabRefSuppressions(warnings, waveSites), [] as boolean[]);
   let suppressed = 0;
   for (let i = drop.length - 1; i >= 0; i--) {

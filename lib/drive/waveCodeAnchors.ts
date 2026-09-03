@@ -277,6 +277,27 @@ export function pairWaveCodeHits(
  * untouched. The pairing is the same positional one the anchors use, so a count mismatch
  * suppresses nothing.
  */
+/**
+ * Did ANY `#REF!` reach a parsed field? The oracle the suppression is gated on.
+ *
+ * The dead-tab shape says a tab has no label to bind a value to, but that is not the only
+ * way a cell reaches the page: `parseGearTab` scans table rows across tab boundaries, so a
+ * dead tab that immediately FOLLOWS the GEAR tab has its bare cells appended to a room's
+ * equipment field (Codex R3 probe: 8 of 240 corpus insertions, every one right after GEAR).
+ * No shape rule can know which parsers continue across tabs, present or future, so the
+ * gate is the output itself: every parsed field except the warnings, serialized, stripped
+ * of markdown escapes (values keep the `\#REF\!` form), searched for the literal. True
+ * means SOME field renders a `#REF!`; the caller cannot tell which, so it keeps every
+ * `#REF!` warning, the conservative side. On the motivating show the parsed output holds no
+ * literal outside `warnings`, so the five dead-tab warnings still clear.
+ */
+export function parsedOutputHoldsRefLiteral(parsed: {
+  readonly warnings: readonly ParseWarning[];
+}): boolean {
+  const rendered = { ...parsed, warnings: undefined };
+  return JSON.stringify(rendered).replace(/\\/g, "").includes(REF_LITERAL);
+}
+
 export function hiddenTabRefSuppressions(
   warnings: readonly ParseWarning[],
   sites: readonly WaveCodeSite[],

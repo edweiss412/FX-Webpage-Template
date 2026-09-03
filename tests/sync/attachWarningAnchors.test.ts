@@ -6,7 +6,9 @@ import { parseSheet } from "@/lib/parser";
 import { premiseHolds } from "@/tests/_shared/premise";
 import * as crewMod from "@/lib/drive/crewRoleAnchors";
 import type { ParseWarning } from "@/lib/parser/types";
-import { buildXlsx } from "../helpers/buildXlsx";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildXlsx, withHiddenTabAfter } from "../helpers/buildXlsx";
 
 function xlsxBuffer(aoa: string[][]): ArrayBuffer {
   const wb = XLSX.utils.book_new();
@@ -227,6 +229,9 @@ describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-t
   ];
   /** The live shape: an IMPORTRANGE lookup tab whose access lapsed, one unlabeled `#REF!`. */
   const LOOKUP_REF: string[][] = [["#REF!"]];
+  /** A visible INFO tab with a stray `#REF!` in its own block after a blank row: warned, not
+   *  rendered, and on a VISIBLE tab, so it is never a dead-tab artifact. Its anchor is A3. */
+  const INFO_WITH_STRAY_REF: string[][] = [["Event Name:", "Real Show"], [], ["#REF!"]];
   const VENUE_GID = 354548247;
   const gidsAll = () =>
     Promise.resolve(
@@ -238,29 +243,53 @@ describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-t
   const refs = (ws: ParseWarning[]) => ws.filter((w) => w.code === "REF_ERROR_LITERAL");
   const nonRefCodes = (ws: ParseWarning[]) =>
     ws.filter((w) => w.code !== "REF_ERROR_LITERAL").map((w) => w.code);
+  function parsedSheetOf(buffer: ArrayBuffer, opts?: { includePullSheetFromTab?: string }) {
+    return parseSheet(synthesizeMarkdownFromXlsx(buffer, opts).markdown, "probe.xlsx");
+  }
   function parsed(buffer: ArrayBuffer, opts?: { includePullSheetFromTab?: string }) {
-    return parseSheet(synthesizeMarkdownFromXlsx(buffer, opts).markdown, "probe.xlsx").warnings;
+    return parsedSheetOf(buffer, opts).warnings;
+  }
+  function fixtureBuffer(relative: string): ArrayBuffer {
+    const b = readFileSync(join(process.cwd(), relative));
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
   }
 
-  it("removes the hidden generic #REF! from the caller's array and keeps the visible recognised one, anchored", async () => {
+  it("removes the dead tab's #REF! from the caller's array and keeps the visible tab's, anchored", async () => {
     const buffer = buildXlsx([
-      { name: "INFO", grid: CREW_WITH_REF },
+      { name: "INFO", grid: INFO_WITH_STRAY_REF },
       { name: "VENUE", grid: LOOKUP_REF, hidden: true },
     ]);
-    const warnings = parsed(buffer);
+    const sheet = parsedSheetOf(buffer);
+    const warnings = sheet.warnings;
     premiseHolds("two #REF! warnings parsed before attachment", refs(warnings).length === 2);
     const othersBefore = nonRefCodes(warnings);
-    await attachWarningAnchors(warnings, buffer, gidsAll);
+    await attachWarningAnchors(warnings, buffer, gidsAll, undefined, undefined, sheet);
     expect(refs(warnings)).toHaveLength(1);
-    expect(refs(warnings)[0]!.blockRef?.kind).toBe("crew");
     expect(refs(warnings)[0]!.sourceCell).toEqual({
       title: "INFO",
       gid: 0,
-      a1: "B2",
+      a1: "A3",
       scope: "cell",
     });
     // Only the hidden lookup artifact left; every other warning is exactly where it was.
     expect(nonRefCodes(warnings)).toEqual(othersBefore);
+  });
+
+  it("keeps every #REF! warning, dead tab included, when any #REF! renders (the documented limit)", async () => {
+    // A crew member literally named "#REF!" renders on the crew page. The output oracle cannot
+    // tell which warning belongs to the rendered cell, so it keeps all of them.
+    const buffer = buildXlsx([
+      { name: "INFO", grid: CREW_WITH_REF },
+      { name: "VENUE", grid: LOOKUP_REF, hidden: true },
+    ]);
+    const sheet = parsedSheetOf(buffer);
+    premiseHolds("two #REF! warnings parsed before attachment", refs(sheet.warnings).length === 2);
+    premiseHolds(
+      "the crew literal rendered",
+      sheet.crewMembers.some((m) => (m.name ?? "").replace(/\\/g, "").includes("#REF!")),
+    );
+    await attachWarningAnchors(sheet.warnings, buffer, gidsAll, undefined, undefined, sheet);
+    expect(refs(sheet.warnings)).toHaveLength(2);
   });
 
   it("keeps a hidden-tab #REF! that sits inside a recognised section, and anchors it", async () => {
@@ -285,14 +314,21 @@ describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-t
 
   it("still suppresses when the gid map is empty (the onboarding scan's degraded path): visibility comes from the bytes, not the gids", async () => {
     const buffer = buildXlsx([
-      { name: "INFO", grid: CREW_WITH_REF },
+      { name: "INFO", grid: INFO_WITH_STRAY_REF },
       { name: "VENUE", grid: LOOKUP_REF, hidden: true },
     ]);
-    const warnings = parsed(buffer);
+    const sheet = parsedSheetOf(buffer);
+    const warnings = sheet.warnings;
     premiseHolds("two #REF! warnings parsed before attachment", refs(warnings).length === 2);
-    await attachWarningAnchors(warnings, buffer, () => Promise.resolve(new Map<string, number>()));
+    await attachWarningAnchors(
+      warnings,
+      buffer,
+      () => Promise.resolve(new Map<string, number>()),
+      undefined,
+      undefined,
+      sheet,
+    );
     expect(refs(warnings)).toHaveLength(1);
-    expect(refs(warnings)[0]!.blockRef?.kind).toBe("crew");
     expect(refs(warnings)[0]!.sourceCell).toBeUndefined(); // link-less, as today without gids
   });
 
@@ -416,6 +452,58 @@ describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-t
       expect(refs(warnings)).toHaveLength(before);
     },
   );
+
+  it("fails closed: without the parsed output it cannot prove nothing rendered, so it suppresses nothing", async () => {
+    const buffer = buildXlsx([
+      { name: "INFO", grid: CREW_WITH_REF },
+      { name: "VENUE", grid: LOOKUP_REF, hidden: true },
+    ]);
+    const warnings = parsed(buffer);
+    premiseHolds("two #REF! warnings parsed before attachment", refs(warnings).length === 2);
+    await attachWarningAnchors(warnings, buffer, gidsAll);
+    expect(refs(warnings)).toHaveLength(2);
+  });
+
+  it("keeps the dead tab's #REF! when a continuation parser consumed it: a dead tab right after GEAR (Codex R3 probe)", async () => {
+    const rpas = fixtureBuffer("fixtures/shows/exporter-xlsx/rpas.xlsx");
+    const buffer = withHiddenTabAfter(rpas, "GEAR", "ZZ_DEAD", LOOKUP_REF);
+    const sheet = parsedSheetOf(buffer);
+    const before = refs(sheet.warnings).length;
+    premiseHolds(
+      "parseGearTab carried the bare literal into rooms[*].other",
+      sheet.rooms.some((r) => (r.other ?? "").includes("#REF!")),
+    );
+    await attachWarningAnchors(
+      sheet.warnings,
+      buffer,
+      () => Promise.resolve(new Map([["ZZ_DEAD", 7]])),
+      undefined,
+      undefined,
+      sheet,
+    );
+    expect(refs(sheet.warnings)).toHaveLength(before);
+  });
+
+  it("and suppresses that same dead tab when it sits after DIAGRAMS, where nothing consumed it (positive control)", async () => {
+    const rpas = fixtureBuffer("fixtures/shows/exporter-xlsx/rpas.xlsx");
+    const buffer = withHiddenTabAfter(rpas, "DIAGRAMS", "ZZ_DEAD", LOOKUP_REF);
+    const sheet = parsedSheetOf(buffer);
+    const before = refs(sheet.warnings).length;
+    premiseHolds("the dead tab added a #REF! warning", before >= 1);
+    premiseHolds(
+      "and no room field carries the literal",
+      !sheet.rooms.some((r) => (r.other ?? "").includes("#REF!")),
+    );
+    await attachWarningAnchors(
+      sheet.warnings,
+      buffer,
+      () => Promise.resolve(new Map([["ZZ_DEAD", 7]])),
+      undefined,
+      undefined,
+      sheet,
+    );
+    expect(refs(sheet.warnings)).toHaveLength(before - 1);
+  });
 
   it("suppresses nothing when the replay refuses (a synthOpts mismatch changes the hit count)", async () => {
     const OLD_TAB = "OLD PULL SHEET";

@@ -13,7 +13,13 @@
 import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { google } from "googleapis";
-import { synthesizeBlocksFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import {
+  synthesizeBlocksFromXlsx,
+  synthesizeMarkdownFromXlsx,
+} from "@/lib/drive/exportSheetToMarkdown";
+import { parsedOutputHoldsRefLiteral } from "@/lib/drive/waveCodeAnchors";
+import { parseSheet } from "@/lib/parser";
+import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import { premise } from "@/tests/_shared/premise";
 
 const LIVE = !!process.env.FXAV_LIVE_SHEETS;
@@ -68,5 +74,46 @@ describe.skipIf(!LIVE)("GridBlock.sheetHidden — live Google export smoke", () 
     for (const [title, hidden] of fromBytes) {
       expect({ title, hidden }).toEqual({ title, hidden: fromApi.get(title) });
     }
+  });
+
+  test("the motivating outcome: every dead-tab #REF! warning on the live show clears, nothing rendered holds the literal", async () => {
+    const auth = new google.auth.GoogleAuth({
+      credentials: serviceAccount(),
+      scopes: [
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+      ],
+    });
+    const drive = google.drive({ version: "v3", auth });
+    const sheets = google.sheets({ version: "v4", auth });
+    const exported = await drive.files.export(
+      { fileId: FINTECH, mimeType: XLSX_MIME },
+      { responseType: "arraybuffer" },
+    );
+    const bytes = exported.data as ArrayBuffer;
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: FINTECH,
+      fields: "sheets(properties(sheetId,title))",
+    });
+    const gids = new Map<string, number>();
+    for (const s of meta.data.sheets ?? []) {
+      if (s.properties?.title && typeof s.properties.sheetId === "number") {
+        gids.set(s.properties.title, s.properties.sheetId);
+      }
+    }
+    const parsed = parseSheet(synthesizeMarkdownFromXlsx(bytes).markdown, "fintech.xlsx");
+    const refs = () => parsed.warnings.filter((w) => w.code === "REF_ERROR_LITERAL");
+    // The premise must be able to fail: a show with no #REF! warning proves nothing here.
+    premise("#REF! warnings on the live show before attachment", refs().length, 0);
+    expect(parsedOutputHoldsRefLiteral(parsed)).toBe(false);
+    await attachWarningAnchors(
+      parsed.warnings,
+      bytes,
+      () => Promise.resolve(gids),
+      undefined,
+      undefined,
+      parsed,
+    );
+    expect(refs()).toHaveLength(0);
   });
 });
