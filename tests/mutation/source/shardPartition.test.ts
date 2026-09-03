@@ -16,6 +16,7 @@ import {
   runwayDays,
   shardOfSurface,
   sourceShardAssignment,
+  totalElapsedSeconds,
   surfacesForShard,
   weightOf,
 } from "./shardPartition";
@@ -255,6 +256,11 @@ describe("source-mutation shard partition", () => {
     expect(medianOverheadSeconds([leg(200, 100_000), leg(401, 200_000)])).toBe(151);
     // A single leg is its own median.
     expect(medianOverheadSeconds([leg(250, 50_000)])).toBe(200);
+    // The 1000 DIVISOR, not merely some divisor. Every other leg in this case rounds identically
+    // over 1000 and over 1001, which is why the gate found that literal unkillable until this
+    // line: 500_500 ms is 500.5 s and rounds UP to 501, while the same figure over 1001 is
+    // exactly 500. Half a second of child time is the whole discrimination.
+    expect(medianOverheadSeconds([leg(700, 500_500)])).toBe(199);
     // Elapsed MINUS child, not either alone: same elapsed, different child.
     expect(medianOverheadSeconds([leg(300, 100_000)])).not.toBe(
       medianOverheadSeconds([leg(300, 200_000)]),
@@ -271,6 +277,13 @@ describe("source-mutation shard partition", () => {
     // The DAY divisor is load-bearing: the same delta over ten days is half the rate.
     expect(growthPerDay({ ...later, dateISO: "2026-09-05" }, earlier)).toBeCloseTo(
       (24_616 - 22_158) / 10,
+      6,
+    );
+    // A ONE-DAY gap is both the common case -- two consecutive nightlies -- and the exact
+    // boundary of the refusal: `days > 0` admits it and `days > 1` does not, and no other fixture
+    // in this case can tell those two apart.
+    expect(growthPerDay({ ...later, dateISO: "2026-08-27" }, earlier)).toBeCloseTo(
+      24_616 - 22_158,
       6,
     );
     // Equal dates and reversed dates both THROW rather than reporting an infinite rate.
@@ -329,6 +342,43 @@ describe("source-mutation shard partition", () => {
     // Derived rather than chosen. Without this, any large count passes the one-sided assertion
     // above and the number in the constant stops being an answer to anything.
     expect(runwayDays(SOURCE_SHARD_COUNT - 1)).toBeLessThan(REQUIRED_RUNWAY_DAYS);
+  });
+
+  it("totalElapsedSeconds SUMS the legs, and an empty block totals zero", () => {
+    // The reduce that used to live inside the anchor-reading wrapper, where no constructed case
+    // could reach its seed. Three distinct values, so a maximum or a first-element read is
+    // excluded as well as a wrong seed.
+    expect(totalElapsedSeconds([{ elapsedS: 10 }, { elapsedS: 200 }, { elapsedS: 3_000 }])).toBe(
+      3_210,
+    );
+    // Zero, not one: the seed is the additive identity, and a seed of 1 would inflate every
+    // block's total by a second forever while every relative comparison still looked right.
+    expect(totalElapsedSeconds([])).toBe(0);
+  });
+
+  it("modelledFloor refuses an empty list, keeps the FIRST of a tie, and takes a lone surface", () => {
+    // Three boundaries the live-registry case below cannot reach -- the registry is never empty,
+    // never a single surface, and its weights differ. Each was a surviving mutant on 2026-09-01.
+    //
+    // EMPTY THROWS. A sentinel stood here and returned a NEGATIVE floor, which satisfies every
+    // budget comparison it is handed; that is the one direction a missing figure must not fail in.
+    expect(() => modelledFloor([])).toThrow(/no surfaces/);
+
+    // A TIE KEEPS THE FIRST. Both fixtures carry tapTargetScan's source, suites and ledger and
+    // differ only in id, so the tie is equal by construction rather than by luck. The surface
+    // NAMED is then the only observable, and it is where a budget failure sends its reader.
+    const alpha = fakeSurface({ id: "alpha" });
+    const omega = fakeSurface({ id: "omega" });
+    // PREMISE: two weightless surfaces would tie trivially and make the pick unobservable.
+    premise("the tied fixtures carry a real cost", weightOf(alpha), 0);
+    expect(weightOf(alpha)).toBe(weightOf(omega));
+    expect(modelledFloor([alpha, omega]).surface).toBe("alpha");
+    // And it is the FIRST, not a name-ordering: reversing the input reverses the answer.
+    expect(modelledFloor([omega, alpha]).surface).toBe("omega");
+
+    // A LONE surface is its own floor. This is the seeding boundary, where a start index off by
+    // one reads past the end of a one-element list.
+    expect(modelledFloor([alpha])).toEqual({ seconds: weightOf(alpha) / 1000, surface: "alpha" });
   });
 
   it("the modelled floor IS the heaviest surface, derived from the same weights", () => {

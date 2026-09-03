@@ -148,12 +148,16 @@ export function modelledFloor(surfaces: readonly GuardSurface[] = GUARD_SURFACES
   seconds: number;
   surface: string;
 } {
-  let best = { seconds: -1, surface: "" };
-  for (const s of surfaces) {
-    const seconds = weightOf(s) / 1000;
-    if (seconds > best.seconds) best = { seconds, surface: s.id };
+  if (surfaces.length === 0) {
+    // A sentinel `{ seconds: -1 }` stood here, and a NEGATIVE floor satisfies every budget
+    // comparison it is handed -- the same direction `medianOverheadSeconds` refuses to fail in.
+    // It was also unreachable from any constructed case, so the gate could not tell -1 from -2.
+    throw new Error("modelledFloor: no surfaces to take a maximum over");
   }
-  return best;
+  const priced = surfaces.map((s) => ({ seconds: weightOf(s) / 1000, surface: s.id }));
+  // A TIE keeps the FIRST, and that is observable rather than incidental: the budget failure
+  // names this surface, so the operator sent to the wrong one of two equals opens the wrong file.
+  return priced.reduce((best, x) => (x.seconds > best.seconds ? x : best));
 }
 
 /**
@@ -177,12 +181,24 @@ export function growthPerDay(
   return (later.totalS - earlier.totalS) / days;
 }
 
+/**
+ * The block's total elapsed leg seconds.
+ *
+ * A third DECISION that was living inline in the wrapper below, where nothing constructed could
+ * reach it -- the gate found its reduce seed unkillable for exactly that reason, the same shape
+ * as the three functions this file already extracted. Taking its legs makes the seed and the
+ * accumulator both reachable from a case.
+ */
+export function totalElapsedSeconds(legs: readonly { elapsedS: number }[]): number {
+  return legs.reduce((n, l) => n + l.elapsedS, 0);
+}
+
 /** The committed anchor's two points. The DECISION is `growthPerDay`, which takes them. */
 export function growthSecondsPerDay(): number {
   const A = loadAnchor();
   return growthPerDay(
     {
-      totalS: Object.values(A.legs).reduce((n, l) => n + l.elapsedS, 0),
+      totalS: totalElapsedSeconds(Object.values(A.legs)),
       dateISO: A.thisRunDateISO,
     },
     { totalS: A.priorRun.legsElapsedTotalS, dateISO: A.priorRun.dateISO },
