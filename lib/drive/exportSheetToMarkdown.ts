@@ -114,7 +114,18 @@ type TrackedGrid = GridBlockRow[];
 type TrackedBlock = { absCol0: number; rows: GridBlockRow[] };
 
 /** One block of the exporter's own segmentation, with the coordinates the markdown loses. */
-export type GridBlock = { kind: "grid"; sheetName: string; absCol0: number; rows: GridBlockRow[] };
+/** `sheetHidden` is the tab's OOXML visibility (`<sheet state="hidden"|"veryHidden">`), which
+ *  Google's xlsx export carries for a tab hidden in the Sheets UI and SheetJS surfaces as
+ *  `Workbook.Sheets[i].Hidden` (0 visible, 1 hidden, 2 very hidden). Read from the bytes both
+ *  ingestion paths already hold, so no extra Sheets API round-trip. A workbook with no
+ *  visibility metadata reads every tab as visible. */
+export type GridBlock = {
+  kind: "grid";
+  sheetName: string;
+  sheetHidden: boolean;
+  absCol0: number;
+  rows: GridBlockRow[];
+};
 /** An included OLD-tab pull-sheet region: collected from rendered markdown, so it has no grid. */
 export type OpaqueBlock = { kind: "opaque"; markdown: string };
 export type SynthesizedBlock = GridBlock | OpaqueBlock;
@@ -419,9 +430,12 @@ function synthesizeBlocksFromXlsxUnguarded(
   const blocks: SynthesizedBlock[] = [];
   const archivedPullSheetTabs: ArchivedPullSheetTab[] = [];
 
-  for (const sheetName of workbook.SheetNames) {
+  for (const [sheetIndex, sheetName] of workbook.SheetNames.entries()) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
+    // `Workbook.Sheets` is index-aligned with `SheetNames` (both come from workbook.xml's
+    // `<sheets>` in document order); 1 = hidden, 2 = veryHidden, absent/0 = visible.
+    const sheetHidden = (workbook.Workbook?.Sheets?.[sheetIndex]?.Hidden ?? 0) !== 0;
     // Archived tabs (e.g. "OLD PULL SHEET") are DROPPED from the synthesized markdown by
     // default. Their body is often a stale PRIOR show's data — Redefining FI's
     // "OLD PULL SHEET" holds RIA-Chicago gear from 4/15/24 — so ingesting it attributes
@@ -477,7 +491,13 @@ function synthesizeBlocksFromXlsxUnguarded(
     for (const block of splitBlocks(normalizePullSheetGrid(sheetName, grid), firstCol).map(
       normalizeBlock,
     )) {
-      blocks.push({ kind: "grid", sheetName, absCol0: block.absCol0, rows: block.rows });
+      blocks.push({
+        kind: "grid",
+        sheetName,
+        sheetHidden,
+        absCol0: block.absCol0,
+        rows: block.rows,
+      });
     }
   }
 
