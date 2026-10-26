@@ -223,6 +223,28 @@ async function dismissMenu(page: Page) {
  * O2 -> O1 flip cases). Callers poll this until it converges.
  */
 /**
+ * Wait for the menu's entrance `scale` to reach 1 before reading any rect.
+ *
+ * Settle on `scale`, NOT on `transform`. Tailwind v4 compiles `scale-*` to the
+ * individual `scale` property, so `transform` reads "none" for the whole
+ * entrance and a wait on it measures a 0.95x box. Every rect read mid-entrance
+ * is scaled with the panel: a 44px row measured 43.03px (0.978x) on a CI
+ * runner and failed the tap floor though the row's `min-h-tap-min` was intact.
+ */
+async function menuScaleSettled(page: Page) {
+  await page.waitForFunction(
+    (sel) => {
+      const el = document.querySelector(sel);
+      if (el === null) return false;
+      const settled = getComputedStyle(el).scale;
+      return settled === "1" || settled === "none";
+    },
+    MENU,
+    { timeout: 5_000 },
+  );
+}
+
+/**
  * Two samples that agree on the NUMBERS, not merely on two verdicts.
  *
  * `expect.poll` resolves on the first satisfying sample, so a correct
@@ -450,19 +472,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     }) => {
       await page.setViewportSize({ width: vw, height: vh });
       await openMenu(page, 10, 10, 10);
-      // Settle on `scale`, NOT on `transform`. Tailwind v4 compiles `scale-*` to
-      // the individual `scale` property, so `transform` reads "none" for the
-      // whole entrance and a wait on it measures a 0.95x box.
-      await page.waitForFunction(
-        (sel) => {
-          const el = document.querySelector(sel);
-          if (el === null) return false;
-          const settled = getComputedStyle(el).scale;
-          return settled === "1" || settled === "none";
-        },
-        MENU,
-        { timeout: 5_000 },
-      );
+      await menuScaleSettled(page);
       const m = await settledSample(page, "containment", () =>
         page.evaluate(
           ([panelSel, menuSel, pillSel]) => {
@@ -605,16 +615,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     // scroller is smaller than the cap and every comparison below passes
     // vacuously. The premise is asserted on this case's own inputs, below.
     await openMenu(page, 30, 30, 30);
-    await page.waitForFunction(
-      (sel) => {
-        const el = document.querySelector(sel);
-        if (el === null) return false;
-        const settled = getComputedStyle(el).scale;
-        return settled === "1" || settled === "none";
-      },
-      MENU,
-      { timeout: 5_000 },
-    );
+    await menuScaleSettled(page);
     const d = await settledSample(page, "dimensional-invariants", () =>
       page.evaluate(
         ([menuSel, scrollerSel]) => {
@@ -701,6 +702,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
     // floor here and nothing would say so.
     await page.setViewportSize({ width: 375, height: 667 });
     await openMenu(page, 3, 3, 3);
+    await menuScaleSettled(page);
     const heights = await page.evaluate(
       (menuSel) =>
         [...document.querySelectorAll(`${menuSel} button`)].map(
@@ -718,6 +720,7 @@ test.describe("§9 obligation 1+2 — AttentionMenu scroller fits inside the cli
   }) => {
     await page.setViewportSize({ width: 390, height: 560 });
     await openMenu(page, 10, 10, 10);
+    await menuScaleSettled(page);
 
     // The 10/10/10 fixture renders the ten monitoring rows LAST, so at MAX
     // scroll the last INTERACTIVE row sits above the visible window — scroll it
