@@ -252,13 +252,17 @@ describe("spec 2026-08-27-wizard-warning-row-links-copy §4: the control sentenc
     }
   });
 
-  it("only UNKNOWN_FIELD's note names Ignore, because Ignore's render is conditional on rawSnippet", () => {
+  it("only the notes of codes that always write a rawSnippet name Ignore, because Ignore's render is conditional on it", () => {
     // The prop promises "Report + Ignore are mounted", but Ignore is gated on
     // hasIgnorableSnippet (DataQualityWarningControls.tsx). UNKNOWN_FIELD always writes a
     // rawSnippet, so the promise holds for it. A SECOND code whose note names Ignore
     // would reopen the exact bug this arc closed - a sentence naming a button that did
     // not render - silently. Adding one is then a deliberate act that must re-check the
     // snippet condition first.
+    //
+    // VENUE_ADDRESS_MISSING, added 2026-10-25 (nearmiss-read-blocks-and-venue-address
+    // §4.3): it fires only when the trimmed venue name is non-empty, and its rawSnippet is
+    // that name, so hasIgnorableSnippet holds for every emission and Ignore always renders.
     const namesIgnore = Object.entries(CATALOG)
       .filter(
         ([, e]) =>
@@ -266,7 +270,7 @@ describe("spec 2026-08-27-wizard-warning-row-links-copy §4: the control sentenc
       )
       .map(([c]) => c)
       .sort();
-    expect(namesIgnore).toEqual(["UNKNOWN_FIELD"]);
+    expect(namesIgnore).toEqual(["UNKNOWN_FIELD", "VENUE_ADDRESS_MISSING"]);
   });
 
   it("no helpfulContext of a card code names a card control; the sentence lives in controlsNote", () => {

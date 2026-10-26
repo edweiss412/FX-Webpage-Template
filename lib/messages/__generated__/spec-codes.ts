@@ -1616,6 +1616,12 @@ export const SPEC_CODES = {
     "followUp": "Eric → enable the reset flag",
     "helpfulContext": "The Reset-validation-data action (Settings → Maintenance card) reached the correct project but the destructive-reset flag is turned off, which prevents any data from being wiped. The developer needs to enable the flag for this project before resets are allowed. Once enabled, the action will proceed normally.",
   },
+  "VENUE_ADDRESS_MISSING": {
+    "crewFacing": null,
+    "dougFacing": "We read _<venue>_ as the venue but found no address for it, so the crew page shows the venue with no street address. Fill in the venue address in the sheet, or check its row label.",
+    "followUp": "Doug → add the venue address in the sheet (or Ignore)",
+    "helpfulContext": "We read a venue name but no address for it, so crew see the venue with no street address. Fill in the venue address in your sheet, or check its row label.",
+  },
   "VENUE_GEOCODE_UNRESOLVED": {
     "crewFacing": null,
     "dougFacing": "We couldn't automatically look up the city for _<venue>_, so the crew page shows the venue address instead of a city name. This often clears on the next sync; if it sticks, double-check the venue address in the sheet.",

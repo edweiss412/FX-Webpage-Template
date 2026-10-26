@@ -197,6 +197,44 @@ export function emitOrphanedCrewRows(
 }
 
 /**
+ * Venue-with-no-address notice (2026-10-25 nearmiss-read-blocks-and-venue-address §4).
+ * Keyed on the PARSED venue, never on rows: an empty address cell and an address under
+ * a label the venue parser does not read both leave the crew page without a street
+ * address, and both should say so.
+ */
+export const VENUE_ADDRESS_MISSING = "VENUE_ADDRESS_MISSING";
+
+/**
+ * The venue name to report when the parsed venue has a name but no address, else
+ * `null`. Returns the name verbatim, which becomes `rawSnippet`: Ignore fingerprints on
+ * it, so an ignored notice comes back if the show moves to a different venue.
+ */
+export function venueAddressMissingName(
+  venue: { name: string; address: string } | null,
+): string | null {
+  if (venue === null) return null;
+  if (venue.name.trim() === "" || venue.address.trim() !== "") return null;
+  return venue.name;
+}
+
+/**
+ * `severity:"warn"` (operator surfaces); `blockRef.kind:"venue"` routes it to the
+ * review's Venue section. No `blockRef.field`: the review renders `"address"` as hotel
+ * wording. Takes the name string only, so it holds no reference to the parsed show.
+ * No-ops when `agg` is undefined.
+ */
+export function emitVenueAddressMissing(agg: ParseAggregator | undefined, venueName: string): void {
+  if (!agg) return;
+  agg.warnings.push({
+    severity: "warn",
+    code: "VENUE_ADDRESS_MISSING",
+    message: `We read "${venueName}" as the venue but found no address for it.`,
+    blockRef: { kind: "venue" },
+    rawSnippet: venueName,
+  });
+}
+
+/**
  * Emit an UNKNOWN_FIELD operator-review warning + a structured raw_unrecognized
  * entry for a row whose label resolved to no known field inside a block scope.
  * `block` names the source (diagnostic message + raw_unrecognized.block); `kind`
