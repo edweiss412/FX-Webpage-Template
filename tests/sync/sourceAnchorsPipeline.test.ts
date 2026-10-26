@@ -18,6 +18,7 @@ import postgres from "postgres";
 import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import * as XLSX from "xlsx";
+import { buildXlsx } from "@/tests/helpers/buildXlsx";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import type { Phase1Binding, Phase1Tx } from "@/lib/sync/phase1";
@@ -436,6 +437,66 @@ describe("sourceAnchors pipeline (Task 5)", () => {
     // ROLE col index 2 → C; data row grid index 1 → row 2 → C2.
     expect(roleWarning?.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C2" });
   });
+
+  // PULL_SHEET_ON_ARCHIVED_TAB is pushed by finalizeArchivedTabs AFTER attachWarningAnchors has
+  // run on the cron path, so it needs a pass of its own to carry a link.
+  for (const hidden of [false, true]) {
+    test(`cron path: the archived-tab warning ${hidden ? "on a HIDDEN tab stays link-less" : "links to its visible tab"}`, async () => {
+      const DRIVE_FILE_ID = "file-archived-1";
+      const OLD_REGION = [
+        ["PULL SHEET", "PULL SHEET"],
+        ["RIA - CHICAGO, IL"],
+        [],
+        ["QTY", "ITEM"],
+        ["2", "Shure SM58"],
+      ];
+      const BYTES = buildXlsx([
+        { name: "INFO", grid: [["CREW", "NAME"]] },
+        { name: "OLD PULL SHEET", grid: OLD_REGION, hidden },
+      ]);
+      const deps: ProcessOneFileDeps = {
+        captureBinding: async () => BINDING,
+        fetchMarkdownAtRevision: async () => "",
+        fetchXlsxBytes: async () => BYTES,
+        parseSheet: () => emptyParsedSheet(),
+        driveClient: {
+          async getFile() {
+            return {
+              driveFileId: DRIVE_FILE_ID,
+              headRevisionId: "rev-1",
+              md5Checksum: "a".repeat(32),
+              mimeType: "application/vnd.google-apps.spreadsheet",
+              modifiedTime: "2026-01-01T00:00:00.000Z",
+            };
+          },
+          async listFolder() {
+            return { folderId: "folder-1", files: [] };
+          },
+          listSpreadsheetSheets: async () => [
+            { title: "INFO", sheetId: 0 },
+            { title: "OLD PULL SHEET", sheetId: 77 },
+          ],
+        },
+      };
+
+      const prepared = await prepareProcessOneFile(
+        DRIVE_FILE_ID,
+        "cron",
+        makeFileMeta(DRIVE_FILE_ID),
+        deps,
+        async () => null,
+      );
+      expect(prepared.kind).toBe("ready");
+      if (prepared.kind !== "ready") return;
+      const warning = prepared.parseResult.warnings.find(
+        (w) => w.code === "PULL_SHEET_ON_ARCHIVED_TAB",
+      );
+      expect(warning).toBeDefined(); // premise: the warning fires on this workbook
+      expect(warning!.sourceCell ?? null).toEqual(
+        hidden ? null : { title: "OLD PULL SHEET", gid: 77, scope: "tab" },
+      );
+    });
+  }
 });
 
 // ── sourceAnchors fetch-failure preservation (audit idx12 + idx63) ────────────

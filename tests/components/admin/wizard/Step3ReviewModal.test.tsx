@@ -1613,16 +1613,23 @@ describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
     expect(hotelsHead.textContent).not.toMatch(countRe);
   });
 
-  test("every sheet-backed section heading carries an 'In sheet' deep link (href/target/rel/aria); report excluded", () => {
+  test("every sheet-backed section heading carries an 'In sheet' deep link (href/target/rel/aria); report and warnings excluded", () => {
     const { q, d } = renderModal();
     const sheetHref = buildSheetDeepLink(DFID);
     expect(sheetHref).not.toBeNull(); // fixture sanity — a real deep-link URL
+    const ids = step3Sections(d).map((s) => s.id);
+    // Premise: both excluded sections render in this fixture, so their null below is a real
+    // absence and not a section that never mounted.
+    expect(ids).toEqual(expect.arrayContaining(["report", "warnings"]));
     for (const s of step3Sections(d)) {
       // Not routed through tid(): the per-section link testid omits the "review-"
       // segment (it's a body-chrome anchor, not a modal-shell control).
       const linkId = `wizard-step3-card-${DFID}-section-${s.id}-sheetlink`;
-      if (s.id === "report") {
-        // "Report an issue" is not a parsed sheet region — no deep link.
+      if (s.id === "report" || s.id === "warnings") {
+        // "Report an issue" is not a parsed sheet region. "Sheet warnings" spans every
+        // tab, so a header link could only open the first tab at A1; each warning row
+        // carries its own link instead.
+        expect(q.getByTestId(tid(`section-${s.id}`))).toBeTruthy();
         expect(q.queryByTestId(linkId)).toBeNull();
         continue;
       }

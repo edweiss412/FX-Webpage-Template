@@ -111,7 +111,8 @@ describe("prepareOnboardingFiles — exact-cell source anchors", () => {
 
   it("fetches tab gids for region anchors even without a cell-anchored warning, but leaves that warning link-less", async () => {
     const listSheetGids = vi.fn(async () => new Map([["Main", 4242]]));
-    const other: ParseWarning = { severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" };
+    // BLOCK_DISAPPEARED names a block that is gone, so it has no link target.
+    const other: ParseWarning = { severity: "warn", code: "BLOCK_DISAPPEARED", message: "x" };
     const prepared = await prepareOnboardingFiles("folder-1", depsWith([other], { listSheetGids }));
 
     expect(listSheetGids).toHaveBeenCalledTimes(1); // now called for region-anchor compute

@@ -6,7 +6,12 @@ import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor, RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAnchors";
-import { resolveUnknownFieldCell, type UnknownFieldAnchor } from "@/lib/drive/unknownFieldAnchors";
+import {
+  normalizeCellKey,
+  resolveUnknownFieldCell,
+  type UnknownFieldAnchor,
+} from "@/lib/drive/unknownFieldAnchors";
+import type { ContentAnchors } from "@/lib/drive/contentAnchors";
 import { valueFromRawSnippet } from "@/lib/parser/rawSnippet";
 
 /** The five HOTEL ambiguity codes link to the HOTEL BLOCK, never a cell (spec
@@ -23,16 +28,60 @@ export const HOTEL_REGION_ANCHORED: ReadonlySet<string> = new Set([
   "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
 ]);
 
+/** Codes whose subject is ONE parsed block and that carry no coordinate: each links to that
+ *  block's region range. A missing region leaves the card link-less, never another section's
+ *  range, the same refusal as the hotel set above. */
+const CODE_TO_REGION: Readonly<Record<string, RegionId>> = {
+  ROOM_HEADER_SPLIT_AMBIGUOUS: "rooms",
+  CREW_COLUMN_POSITIONAL_FALLBACK: "crew",
+  TRAVEL_TRANSPORT_NAME_UNMATCHED: "transportation",
+  VENUE_GEOCODE_UNRESOLVED: "venue",
+  VENUE_TIMEZONE_UNRESOLVED: "venue",
+  DATE_ORDER_SUGGESTS_DMY: "dates",
+};
+
+/** SECTION_HEADER_NO_FIELDS names its empty section in `blockRef.kind`. These are the kinds
+ *  whose section is a region; the parser's `event_details` is the `details` region. */
+const EMPTY_SECTION_REGION: Readonly<Record<string, RegionId>> = {
+  hotels: "hotels",
+  contacts: "contacts",
+  transportation: "transportation",
+  rooms: "rooms",
+  event_details: "details",
+  dates: "dates",
+};
+
+const TRAVEL_FLIGHT_CODES: ReadonlySet<string> = new Set([
+  "TRAVEL_FLIGHT_UNPARSEABLE",
+  "TRAVEL_FLIGHT_NAME_UNMATCHED",
+  "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+]);
+
+/** Codes that carry a deep link for the Sheet warnings list WITHOUT joining the render gate,
+ *  beyond the hotel five: a region by code or by kind, a cell located by content
+ *  (lib/drive/contentAnchors.ts), or a whole visible tab. Not members of
+ *  OPERATOR_ACTIONABLE_ANCHORED, so the staged page's card selection and its dedup are
+ *  unchanged; only the link is added. Pinned exactly by tests/drive/showDayTimeAnchors.test.ts. */
+export const LINK_ONLY_ANCHORED: ReadonlySet<string> = new Set([
+  ...Object.keys(CODE_TO_REGION),
+  "SECTION_HEADER_NO_FIELDS",
+  "UNKNOWN_SECTION_HEADER",
+  "AGENDA_LINK_NOT_CLICKABLE",
+  ...TRAVEL_FLIGHT_CODES,
+  "PULL_SHEET_ON_ARCHIVED_TAB",
+]);
+
 /** The codes that carry a source-cell/region anchor: the render gate
- *  (OPERATOR_ACTIONABLE_ANCHORED) plus HOTEL_REGION_ANCHORED, and nothing else.
- *  tests/parser/parseWarningDeepLinkRender.test.tsx pins the difference EXACTLY, so
- *  population and render cannot drift by accident and a third set cannot be smuggled in.
+ *  (OPERATOR_ACTIONABLE_ANCHORED) plus HOTEL_REGION_ANCHORED and LINK_ONLY_ANCHORED, and
+ *  nothing else. tests/parser/parseWarningDeepLinkRender.test.tsx pins the difference EXACTLY,
+ *  so population and render cannot drift by accident and a fourth set cannot be smuggled in.
  *  FIELD_UNREADABLE resolves to a per-row crew cell (region fallback). Both sets are
  *  `ReadonlySet<string>`, so tsc rejects any `.add`/`.delete` at compile time (whole-diff
  *  R1 — there is no runtime mutation site for either export). */
 export const CELL_ANCHORED_CODES: ReadonlySet<string> = new Set([
   ...OPERATOR_ACTIONABLE_ANCHORED,
   ...HOTEL_REGION_ANCHORED,
+  ...LINK_ONLY_ANCHORED,
 ]);
 
 // blockRef.kind → RegionId for warnings whose `kind` is a tab-level concept that is
@@ -127,6 +176,9 @@ export type WarningAnchorSources = {
   // (spec 2026-08-29 §2.1). Optional: absent means the replay could not run, and every
   // wave warning falls through to the fallbacks below exactly as it does today.
   wave?: WavePairedAnchors;
+  // Cells located by content and the visible-tab map (lib/drive/contentAnchors.ts). Optional:
+  // absent means no scan ran, and the LINK_ONLY codes that read it stay link-less.
+  content?: ContentAnchors | undefined;
   region: Record<string, SourceAnchor>;
 };
 
@@ -216,6 +268,26 @@ export function attachSourceCellAnchors(
         // read, and blockRef carries a hotel NAME, not a coordinate. A missing region
         // degrades to null (a link-less card), never to another section's range.
         cell = sources.region["hotels"] ?? null;
+      } else if (Object.hasOwn(CODE_TO_REGION, w.code)) {
+        cell = sources.region[CODE_TO_REGION[w.code]!] ?? null;
+      } else if (w.code === "SECTION_HEADER_NO_FIELDS") {
+        const id = w.blockRef?.kind ? EMPTY_SECTION_REGION[w.blockRef.kind] : undefined;
+        cell = id ? (sources.region[id] ?? null) : null;
+      } else if (w.code === "UNKNOWN_SECTION_HEADER") {
+        cell = resolveRowLabelCell(sources.content?.rowLabels ?? [], w.rawSnippet);
+      } else if (w.code === "AGENDA_LINK_NOT_CLICKABLE") {
+        // The warning does not say WHICH agenda link failed, so only a sheet with one
+        // agenda-link row can be linked without guessing.
+        const rows = sources.content?.agendaLinks ?? [];
+        cell = rows.length === 1 ? rows[0]! : null;
+      } else if (TRAVEL_FLIGHT_CODES.has(w.code)) {
+        cell = resolveTravelTable(sources.content?.travelHeaders ?? []);
+      } else if (w.code === "PULL_SHEET_ON_ARCHIVED_TAB") {
+        // The archived tab by name. Only a VISIBLE tab is in the map: Sheets will not open a
+        // hidden gid. Tab scope, because an archived copy is never on the allowlist.
+        const name = w.blockRef?.name;
+        const gid = name ? sources.content?.visibleTabs.get(name) : undefined;
+        cell = name && typeof gid === "number" ? { title: name, gid, scope: "tab" } : null;
       } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
         // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
         // in-set codes (the CELL_ANCHORED_CODES gate above), and for a wave code whose
@@ -241,6 +313,28 @@ export function attachSourceCellAnchors(
     }
     if (cell && grainOf(cell) >= grainOf(w.sourceCell)) w.sourceCell = cell;
   }
+}
+
+/** The one cell whose first-cell text equals the snippet. Zero or several matches give null,
+ *  so a wrong-cell link is never produced (mirror `resolveCrewRoleCell`). */
+function resolveRowLabelCell(
+  labels: ContentAnchors["rowLabels"],
+  snippet: string | undefined,
+): SourceAnchor | null {
+  const key = normalizeCellKey(snippet ?? "");
+  if (!key) return null;
+  const hits = labels.filter((l) => l.label === key);
+  return hits.length === 1 ? hits[0]!.anchor : null;
+}
+
+/** One TRAVEL header row gives its NAME cell. Several (the ambiguous-table case) on one tab
+ *  give that tab; spread over tabs, or none, give null. */
+function resolveTravelTable(headers: SourceAnchor[]): SourceAnchor | null {
+  if (headers.length === 1) return headers[0]!;
+  const tabs = new Set(headers.map((h) => `${h.gid}\u0000${h.title}`));
+  if (tabs.size !== 1) return null;
+  const { title, gid } = headers[0]!;
+  return { title, gid, scope: "tab" };
 }
 
 /** True iff any warning is cell-anchored — gate the (cost-bearing) gid fetch on

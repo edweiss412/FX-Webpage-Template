@@ -374,11 +374,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // comment above it. Located by running the scanner: one unclassified site,
     // 4277, still that same tile anchor.
     // 4277 -> 4278 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. The scanner reports 4278, and it is that same `<a>`.
-    // 4277 -> 4307 on fix/section-callout-group-repeats (SectionFlagCallout grew above
-    // it). Located by running the scanner: one unclassified site, 4307, still that `<a>`.
-    // Both sides moved this row; on the merge of origin/main 0a18befd3 it was located
-    // on the merged tree by its own element, never by composing the deltas: 4308.
-    line: 4308,
+    // 4278 -> 4283 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 4283 -> 4345 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
+    // on the merged tree by its own element, never by composing the deltas: 4375.
+    line: 4375,
     tag: "a",
     category: "full-bleed",
     reason:

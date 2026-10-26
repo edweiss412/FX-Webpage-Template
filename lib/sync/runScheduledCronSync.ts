@@ -40,7 +40,7 @@ import {
   WorkbookSynthesisError,
 } from "@/lib/drive/exportSheetToMarkdown";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
-import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
+import { attachArchivedTabAnchors, attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import {
   discardAndRerun,
   finalizeArchivedTabs,
@@ -3414,6 +3414,9 @@ export async function prepareProcessOneFile(
     pullSheetOverrideCleared = true;
     pullSheetOverrideClearedTab = pullSheetOverride.tabName;
   }
+  // finalizeArchivedTabs pushed its PULL_SHEET_ON_ARCHIVED_TAB warnings after the
+  // attachWarningAnchors pass above, on whichever result is now ready, so link them here.
+  attachArchivedTabAnchors(readyParseResult.warnings, xlsxBytes, titleToGid);
 
   return {
     kind: "ready",

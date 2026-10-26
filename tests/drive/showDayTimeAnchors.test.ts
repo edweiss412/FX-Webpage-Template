@@ -7,8 +7,13 @@ import {
   resolveSourceCell,
   CELL_ANCHORED_CODES,
   HOTEL_REGION_ANCHORED,
+  LINK_ONLY_ANCHORED,
   type ShowDayTimeAnchor,
+  type WarningAnchorSources,
 } from "@/lib/drive/showDayTimeAnchors";
+import type { ContentAnchors } from "@/lib/drive/contentAnchors";
+import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
+import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
 import { operatorActionableWarnings } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -429,8 +434,9 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     ]) {
       expect(hasCellAnchoredWarning([{ severity: "warn", code, message: "x" }])).toBe(true);
     }
+    // BLOCK_DISAPPEARED names a block that is gone, so it has no link target.
     expect(
-      hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }]),
+      hasCellAnchoredWarning([{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "x" }]),
     ).toBe(false);
     expect(hasCellAnchoredWarning([])).toBe(false);
   });
@@ -569,5 +575,189 @@ describe("attachSourceCellAnchors: HOTEL ambiguity codes region-anchor to the ho
   it("the gid-fetch gate sees a hotel warning; it is a POPULATION gate, not the render gate", () => {
     expect(hasCellAnchoredWarning([hotel("HOTEL_ADDRESS_SPLIT_AMBIGUOUS")])).toBe(true);
     for (const code of HOTEL_CODES) expect(CELL_ANCHORED_CODES.has(code), code).toBe(true);
+  });
+});
+
+describe("attachSourceCellAnchors: link-only codes outside the render gate (Sheet warnings deep links)", () => {
+  const region = (a1: string): SourceAnchor => ({ title: "INFO", gid: 0, a1 });
+  const cellAt = (title: string, gid: number, a1: string): SourceAnchor => ({
+    title,
+    gid,
+    a1,
+    scope: "cell",
+  });
+  const regions: Record<string, SourceAnchor> = {
+    rooms: region("A60:C70"),
+    crew: region("A2:D5"),
+    transportation: region("A20:D25"),
+    venue: region("A8:B12"),
+    dates: region("A30:E36"),
+    hotels: region("A40:C46"),
+    contacts: region("A50:B55"),
+    details: region("A13:B19"),
+    gear_packlist: { title: "PULL SHEET", gid: 2, a1: "A1:C9" },
+  };
+  const noContent: ContentAnchors = {
+    rowLabels: [],
+    agendaLinks: [],
+    travelHeaders: [],
+    visibleTabs: new Map(),
+  };
+  const sources = (
+    content: Partial<ContentAnchors> = {},
+    region: Record<string, SourceAnchor> = regions,
+  ): WarningAnchorSources => ({
+    showDay: [],
+    crewRole: [],
+    region,
+    content: { ...noContent, ...content },
+  });
+  const w = (code: string, extra: Partial<ParseWarning> = {}): ParseWarning => ({
+    severity: "warn",
+    code,
+    message: "m",
+    ...extra,
+  });
+  const run = (warning: ParseWarning, src: WarningAnchorSources): SourceAnchor | null => {
+    attachSourceCellAnchors([warning], src);
+    return warning.sourceCell ?? null;
+  };
+
+  // Literal, never derived from the set under test: a set that dropped a code, or gained one
+  // without a branch below, must fail here.
+  const LINK_ONLY = [
+    "AGENDA_LINK_NOT_CLICKABLE",
+    "CREW_COLUMN_POSITIONAL_FALLBACK",
+    "DATE_ORDER_SUGGESTS_DMY",
+    "PULL_SHEET_ON_ARCHIVED_TAB",
+    "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    "SECTION_HEADER_NO_FIELDS",
+    "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+    "TRAVEL_FLIGHT_NAME_UNMATCHED",
+    "TRAVEL_FLIGHT_UNPARSEABLE",
+    "TRAVEL_TRANSPORT_NAME_UNMATCHED",
+    "UNKNOWN_SECTION_HEADER",
+    "VENUE_GEOCODE_UNRESOLVED",
+    "VENUE_TIMEZONE_UNRESOLVED",
+  ];
+
+  it("LINK_ONLY_ANCHORED is exactly these thirteen codes: population-gated, never render-gated", () => {
+    expect([...LINK_ONLY_ANCHORED].sort()).toEqual(LINK_ONLY);
+    for (const code of LINK_ONLY) {
+      expect(CELL_ANCHORED_CODES.has(code), code).toBe(true);
+      expect(hasCellAnchoredWarning([w(code)]), code).toBe(true);
+      expect(OPERATOR_ACTIONABLE_ANCHORED.has(code), code).toBe(false);
+      expect(HOTEL_REGION_ANCHORED.has(code), code).toBe(false);
+    }
+  });
+
+  it.each([
+    ["ROOM_HEADER_SPLIT_AMBIGUOUS", "rooms"],
+    ["CREW_COLUMN_POSITIONAL_FALLBACK", "crew"],
+    ["TRAVEL_TRANSPORT_NAME_UNMATCHED", "transportation"],
+    ["VENUE_GEOCODE_UNRESOLVED", "venue"],
+    ["VENUE_TIMEZONE_UNRESOLVED", "venue"],
+    ["DATE_ORDER_SUGGESTS_DMY", "dates"],
+  ])("%s links to the %s region, and is link-less without it", (code, id) => {
+    expect(run(w(code), sources())).toEqual(regions[id]);
+    const rest = Object.fromEntries(Object.entries(regions).filter(([k]) => k !== id));
+    expect(run(w(code), sources({}, rest))).toBeNull();
+  });
+
+  it.each([
+    ["hotels", "hotels"],
+    ["contacts", "contacts"],
+    ["transportation", "transportation"],
+    ["rooms", "rooms"],
+    ["event_details", "details"],
+    ["dates", "dates"],
+  ])("SECTION_HEADER_NO_FIELDS of kind %s links to the %s region", (kind, id) => {
+    expect(run(w("SECTION_HEADER_NO_FIELDS", { blockRef: { kind } }), sources())).toEqual(
+      regions[id],
+    );
+  });
+
+  it("SECTION_HEADER_NO_FIELDS of a kind with no region, or with no kind, stays link-less", () => {
+    expect(
+      run(w("SECTION_HEADER_NO_FIELDS", { blockRef: { kind: "dress" } }), sources()),
+    ).toBeNull();
+    expect(run(w("SECTION_HEADER_NO_FIELDS"), sources())).toBeNull();
+  });
+
+  const header = cellAt("INFO", 0, "A40");
+  it("UNKNOWN_SECTION_HEADER links to the one cell holding its header text", () => {
+    const src = sources({
+      rowLabels: [
+        { label: "mystery section", anchor: header },
+        { label: "crew", anchor: cellAt("INFO", 0, "A2") },
+      ],
+    });
+    const warning = w("UNKNOWN_SECTION_HEADER", {
+      blockRef: { kind: "unknown_section" },
+      rawSnippet: "  Mystery   SECTION ",
+    });
+    expect(run(warning, src)).toEqual(header);
+  });
+
+  it("UNKNOWN_SECTION_HEADER with two matching cells, no match, or no snippet stays link-less", () => {
+    const twice = sources({
+      rowLabels: [
+        { label: "mystery section", anchor: header },
+        { label: "mystery section", anchor: cellAt("GEAR", 3, "A1") },
+      ],
+    });
+    expect(run(w("UNKNOWN_SECTION_HEADER", { rawSnippet: "MYSTERY SECTION" }), twice)).toBeNull();
+    const once = sources({ rowLabels: [{ label: "mystery section", anchor: header }] });
+    expect(run(w("UNKNOWN_SECTION_HEADER", { rawSnippet: "Nowhere" }), once)).toBeNull();
+    // An empty snippet must not match an empty label (the extractor skips blank cells, but
+    // the router must not rely on that).
+    const blank = sources({ rowLabels: [{ label: "", anchor: header }] });
+    expect(run(w("UNKNOWN_SECTION_HEADER"), blank)).toBeNull();
+  });
+
+  it("AGENDA_LINK_NOT_CLICKABLE links to the agenda-link row only when the sheet has exactly one", () => {
+    const row = cellAt("INFO", 0, "A22");
+    expect(run(w("AGENDA_LINK_NOT_CLICKABLE"), sources({ agendaLinks: [row] }))).toEqual(row);
+    const two = sources({ agendaLinks: [row, cellAt("INFO", 0, "A23")] });
+    expect(run(w("AGENDA_LINK_NOT_CLICKABLE"), two)).toBeNull();
+    expect(run(w("AGENDA_LINK_NOT_CLICKABLE"), sources())).toBeNull();
+  });
+
+  it.each([
+    "TRAVEL_FLIGHT_UNPARSEABLE",
+    "TRAVEL_FLIGHT_NAME_UNMATCHED",
+    "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+  ])(
+    "%s: one TRAVEL header gives its cell, several on one tab give the tab, several tabs or none give nothing",
+    (code) => {
+      const a = cellAt("TRAVEL", 7, "A1");
+      const b = cellAt("TRAVEL", 7, "A30");
+      const elsewhere = cellAt("INFO", 0, "A80");
+      const tw = () => w(code, { blockRef: { kind: "travel", index: 0 } });
+      expect(run(tw(), sources({ travelHeaders: [a] }))).toEqual(a);
+      expect(run(tw(), sources({ travelHeaders: [a, b] }))).toEqual({
+        title: "TRAVEL",
+        gid: 7,
+        scope: "tab",
+      });
+      expect(run(tw(), sources({ travelHeaders: [a, elsewhere] }))).toBeNull();
+      expect(run(tw(), sources())).toBeNull();
+    },
+  );
+
+  it("PULL_SHEET_ON_ARCHIVED_TAB links to its own tab when visible, which the builder opens at that gid", () => {
+    const arch = (name?: string) =>
+      w("PULL_SHEET_ON_ARCHIVED_TAB", {
+        blockRef: { kind: "pull_sheet_archived_tab", ...(name ? { name } : {}) },
+      });
+    const src = sources({ visibleTabs: new Map([["OLD PULL SHEET", 12]]) });
+    const anchor = run(arch("OLD PULL SHEET"), src);
+    expect(anchor).toEqual({ title: "OLD PULL SHEET", gid: 12, scope: "tab" });
+    // Not on the allowlist, so only the tab scope lets the builder honour the gid.
+    expect(buildSheetDeepLink("dfid", anchor)).toMatch(/\/d\/dfid\/edit#gid=12$/);
+    // A hidden tab is absent from visibleTabs; an unnamed one has nothing to look up. Neither
+    // falls back to the live PULL SHEET region.
+    expect(run(arch("OLD GEAR"), src)).toBeNull();
+    expect(run(arch(), src)).toBeNull();
   });
 });

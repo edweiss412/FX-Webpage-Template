@@ -112,12 +112,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `{hidden.length} more` accordion <summary>.
     // 1649 -> 1650 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner: 1650 is still the
     // `{hidden.length} more` accordion <summary>.
-    // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew its grouping
-    // and icon-group wrapper above it). Located by RUNNING the scanner: 1679, still
-    // the `{hidden.length} more` accordion <summary>.
-    // Both sides moved this row; on the merge of origin/main 0a18befd3 it was located
-    // on the merged tree by its own element, never by composing the deltas: 1680.
-    line: 1680,
+    // 1650 -> 1655 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 1655 -> 1662 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
+    // on the merged tree by its own element, never by composing the deltas: 1692.
+    line: 1692,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -144,11 +142,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`, never by the delta.
     // 3413 -> 3414 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner and its own unique
     // ignored-summary testid, never by the delta.
-    // +30 on fix/section-callout-group-repeats, same SectionFlagCallout growth. 3443
-    // per the scanner, confirmed by that same unique ignored-summary testid.
-    // Both sides moved this row; on the merge of origin/main 0a18befd3 it was located
-    // on the merged tree by its own element, never by composing the deltas: 3444.
-    line: 3444,
+    // 3414 -> 3419 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 3419 -> 3481 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
+    // on the merged tree by its own element, never by composing the deltas: 3511.
+    line: 3511,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

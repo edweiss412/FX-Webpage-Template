@@ -3,6 +3,7 @@ import {
   extractShowDayTimeAnchors,
   hasCellAnchoredWarning,
 } from "@/lib/drive/showDayTimeAnchors";
+import { extractContentAnchors, visibleTabGids } from "@/lib/drive/contentAnchors";
 import { extractCrewRoleAnchors } from "@/lib/drive/crewRoleAnchors";
 import { extractUnknownFieldAnchors } from "@/lib/drive/unknownFieldAnchors";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
@@ -83,6 +84,7 @@ export async function attachWarningAnchors(
     crewRole: safe(() => extractCrewRoleAnchors(bytes, gids), []),
     unknownField: safe(() => extractUnknownFieldAnchors(bytes, gids), []),
     wave: safe(() => pairAllWaveCodes(warnings, waveSites), {}),
+    content: safe(() => extractContentAnchors(bytes, gids), undefined),
     region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
   });
   // Output gate first: with no parsed output, or a literal anywhere in it, keep everything.
@@ -99,5 +101,36 @@ export async function attachWarningAnchors(
       source: "attachWarningAnchors",
       suppressed,
     });
+  }
+}
+
+/**
+ * Link PULL_SHEET_ON_ARCHIVED_TAB warnings to their tab. The cron path pushes them in
+ * `finalizeArchivedTabs` AFTER `attachWarningAnchors` has run, so they need this pass of their
+ * own; onboarding finalizes first and is covered by the main pass. Pure and best-effort like
+ * that pass: no fetch, no lock, and a failure leaves the warnings link-less. Region and
+ * content lists are empty, so no other warning resolves here and none is touched (an
+ * unresolved anchor is never assigned).
+ */
+export function attachArchivedTabAnchors(
+  warnings: ParseWarning[],
+  bytes: ArrayBuffer | undefined,
+  titleToGid: ReadonlyMap<string, number>,
+): void {
+  if (!bytes || !warnings.some((w) => w.code === "PULL_SHEET_ON_ARCHIVED_TAB")) return;
+  try {
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      region: {},
+      content: {
+        rowLabels: [],
+        agendaLinks: [],
+        travelHeaders: [],
+        visibleTabs: visibleTabGids(bytes, titleToGid),
+      },
+    });
+  } catch {
+    // link-less, never a thrown scan
   }
 }

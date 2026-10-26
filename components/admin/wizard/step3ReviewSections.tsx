@@ -37,7 +37,6 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  ArrowRight,
   BedDouble,
   CalendarDays,
   Check,
@@ -132,7 +131,7 @@ import {
 } from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
-import { formatIsoDate } from "@/lib/format/date";
+import { dateStubParts } from "@/lib/format/date";
 import { avatarColor } from "@/lib/crew/avatarColor";
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
@@ -363,28 +362,36 @@ export function FieldRowList({ rows }: { rows: { label: string; value: string }[
 }
 
 /**
- * Small identity chip shared by the redesigned Hotels (guest stack) and
+ * Small identity chip shared by the redesigned Hotels (guest chips) and
  * Transport (driver / load-out) cards. Reuses the crew identity palette
  * (`avatarColor`) + `deriveInitials` so a person's swatch is stable across
  * every surface (DESIGN.md §1.4 identity-avatar exception). `aria-hidden`
  * because the decorated name is always rendered as live text beside it.
- * `sizeClass` carries the diameter + text size; callers add stacking margins.
+ * `sizeClass` carries the diameter + text size. `ringed` keeps the 2px
+ * surface ring; the Hotels chip drops it because its avatar sits inside a
+ * bordered pill rather than beside bare text.
  */
 function MiniAvatar({
   name,
   sizeClass,
   testId,
+  ringed = true,
 }: {
   name: string;
   sizeClass: string;
   testId?: string;
+  ringed?: boolean;
 }) {
   return (
     <span
       aria-hidden="true"
       data-testid={testId}
       style={{ backgroundColor: avatarColor(name) }}
-      className={`grid shrink-0 place-items-center rounded-pill border-2 border-surface font-semibold text-white ${sizeClass}`}
+      className={cn(
+        "grid shrink-0 place-items-center rounded-pill font-semibold text-white",
+        ringed && "border-2 border-surface",
+        sizeClass,
+      )}
     >
       {deriveInitials(name)}
     </span>
@@ -966,11 +973,16 @@ export function ModalSectionChrome({
   // range to buildSheetDeepLink, so the link opens the sheet AT that section's
   // cells instead of INFO!A1. Absent anchor / null region / missing key →
   // buildSheetDeepLink falls back to `#gid=0` (whole first tab). Excluded: the
-  // Diagrams sub-block (no dfid) and the "Report an issue" section (not a region).
+  // Diagrams sub-block (no dfid), the "Report an issue" section (not a region), and
+  // "Sheet warnings", whose rows span every tab: its header link could only ever
+  // open the first tab at A1; a warning row links to its own cell when one is known.
   const sheetRegion = chrome.sectionId !== undefined ? SECTION_REGION_MAP[chrome.sectionId] : null;
   const sheetAnchor = sheetRegion ? chrome.sourceAnchors?.[sheetRegion] : undefined;
   const sheetHref =
-    chrome.dfid && chrome.sectionId !== undefined && chrome.sectionId !== "report"
+    chrome.dfid &&
+    chrome.sectionId !== undefined &&
+    chrome.sectionId !== "report" &&
+    chrome.sectionId !== "warnings"
       ? buildSheetDeepLink(chrome.dfid, sheetAnchor)
       : null;
   return (
@@ -1028,7 +1040,7 @@ export function ModalSectionChrome({
               (`sm:justify-start`; `flex-1` then absorbs all slack, which is what
               pushes the pill + glyph to the right edge with no pusher element).
               `pr-header-link-slot` when there is no corner link (the Diagrams
-              sub-block, "Report an issue", and the defensive empty-dfid state) so
+              sub-block, "Report an issue", "Sheet warnings", the empty-dfid state) so
               the name lands on the SAME axis as a section that has one — measured
               +4px either way, versus +19px without the compensation. The token is
               30px: the link's own 20px box plus the row's 10px `gap-2.5`. A raw
@@ -2825,83 +2837,138 @@ export function HotelsBreakdown({
 }
 
 /**
- * One reservation as a structured sub-card (spec "1a Structured"): bed chip +
- * hotel name + map-pin address + a "N nights" pill, a sunken humanized
- * check-in → check-out strip, and a guest-avatar stack. `confirmation_no` is
- * NEVER rendered (it stays private, matching the existing review contract);
- * dates are shown as-parsed (a non-ISO sentinel echoes verbatim).
+ * One end of the hotel card's date stub: a field label over the day set large
+ * with its month beside it and the weekday underneath. A missing date says so
+ * in plain words. The parser normalizes a non-date cell (e.g. "TBD") to null,
+ * so the verbatim-echo branch is defensive only; neither claims a `<time>`.
+ */
+function StayEnd({
+  label,
+  value,
+  testId,
+  alignEnd = false,
+}: {
+  label: string;
+  value: string | null;
+  testId: string;
+  alignEnd?: boolean;
+}) {
+  const parts = value ? dateStubParts(value) : null;
+  return (
+    <div data-testid={testId} className={cn("min-w-0", alignEnd && "text-right")}>
+      <p className={CELL_EYEBROW_CLASS}>{label}</p>
+      {parts === null ? (
+        <p className="mt-1 text-sm font-medium text-text-subtle">Not listed</p>
+      ) : parts.kind === "raw" ? (
+        <p className="mt-1 wrap-break-word text-xl font-bold text-text-strong">{parts.text}</p>
+      ) : (
+        <time dateTime={value ?? undefined} className="mt-1 block">
+          <span
+            className={cn("flex items-baseline gap-1.5 tabular-nums", alignEnd && "justify-end")}
+          >
+            <span className="text-3xl font-bold leading-none tracking-daynum text-text-strong">
+              {parts.day}
+            </span>
+            <span className="text-sm font-semibold text-text-strong">{parts.month}</span>
+          </span>
+          <span className="mt-1 block text-xs text-text-subtle">{parts.weekday}</span>
+        </time>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One reservation as a structured sub-card (2026-10-25 date-stub pass):
+ * hotel name + map-pin address on one left edge, a sunken date stub whose
+ * connector carries the night count, and one named chip per guest.
+ * `confirmation_no` is NEVER rendered (it stays private, matching the
+ * existing review contract); dates are shown as-parsed (a non-ISO sentinel
+ * echoes verbatim).
  */
 function HotelCard({ h, flat = false }: { h: HotelReservationRow; flat?: boolean }) {
   const address = hasContent(h.hotel_address) ? h.hotel_address : null;
   const names = arr(h.names).filter((n) => hasContent(n));
   const nights = nightsBetween(h.check_in, h.check_out);
-  const checkIn = h.check_in ? formatIsoDate(h.check_in, "weekday-short") : null;
-  const checkOut = h.check_out ? formatIsoDate(h.check_out, "weekday-short") : null;
+  const guestsLabelId = useId();
   return (
     <div
       data-testid="wizard-step3-hotel-card"
       className={
-        flat ? "flex flex-col gap-3" : "flex flex-col gap-3 rounded-md border border-border p-4"
+        flat
+          ? "@container flex flex-col gap-3"
+          : "@container flex flex-col gap-3 rounded-md border border-border p-4"
       }
     >
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle"
-        >
-          <BedDouble className="size-4.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="wrap-break-word text-base font-semibold text-text-strong">
-            {h.hotel_name || "Hotel"}
+      <div className="min-w-0">
+        <p className="wrap-break-word text-base font-semibold text-text-strong">
+          {h.hotel_name || "Hotel"}
+        </p>
+        {address ? (
+          <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
+            <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 wrap-break-word">{address}</span>
           </p>
-          {address ? (
-            <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
-              <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 wrap-break-word">{address}</span>
-            </p>
-          ) : null}
-        </div>
-        {nights !== null ? (
-          <span className="shrink-0 rounded-pill border border-border bg-surface-sunken px-2.5 py-0.5 text-xs font-semibold tabular-nums text-text-subtle">
-            {nights} {nights === 1 ? "night" : "nights"}
-          </span>
         ) : null}
       </div>
 
-      {checkIn || checkOut ? (
-        <div className="flex items-center gap-3 rounded-md bg-surface-sunken px-3.5 py-2.5">
-          <div className="min-w-0 flex-1">
-            <p className={CELL_EYEBROW_CLASS}>Check in</p>
-            <p className="mt-0.5 text-sm font-semibold tabular-nums text-text-strong">
-              {checkIn ?? "—"}
-            </p>
+      {h.check_in || h.check_out ? (
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-md bg-surface-sunken px-4 py-3 @2xs:flex-nowrap">
+          <StayEnd label="Check in" value={h.check_in} testId="hotel-stay-check-in" />
+          {/* One row from an 18rem card up: the connector sits between the dates. Below
+              that (a 320px phone, or enlarged text, since the query is in rem) it drops
+              to its own full-width row under them instead of painting over them. The
+              ends top-align so their labels line up when one end is "Not listed".
+              The line is a standalone 1px rule, so it takes the text-faint hairline
+              ramp (DESIGN.md §1.2a). It is a ::before BORDER, not a fill: a background
+              vanishes in forced-colors mode, and the pseudo-element means no childless
+              flex-1 span exists. Without a night count it has nothing to say on its
+              own row, so it only shows in the one-row layout. */}
+          <div
+            className={cn(
+              "relative order-last basis-full items-center justify-center self-center before:absolute before:inset-x-0 before:top-1/2 before:-translate-y-1/2 before:border-t before:border-text-faint @2xs:order-0 @2xs:min-w-fit @2xs:flex-1 @2xs:basis-0",
+              nights === null ? "hidden @2xs:flex" : "flex",
+            )}
+          >
+            {nights !== null ? (
+              <span
+                data-testid="hotel-stay-nights"
+                className="relative whitespace-nowrap bg-surface-sunken px-2 text-xs font-semibold tabular-nums text-text-subtle"
+              >
+                {nights} {nights === 1 ? "night" : "nights"}
+              </span>
+            ) : null}
           </div>
-          <ArrowRight className="size-4 shrink-0 text-text-faint" aria-hidden="true" />
-          <div className="min-w-0 flex-1 text-right">
-            <p className={CELL_EYEBROW_CLASS}>Check out</p>
-            <p className="mt-0.5 text-sm font-semibold tabular-nums text-text-strong">
-              {checkOut ?? "—"}
-            </p>
-          </div>
+          <StayEnd label="Check out" value={h.check_out} testId="hotel-stay-check-out" alignEnd />
         </div>
       ) : null}
 
       {names.length > 0 ? (
-        <div className="flex items-center gap-2.5">
-          <div className="flex shrink-0">
-            {names.slice(0, 5).map((n, idx) => (
-              <MiniAvatar
+        <div>
+          <p id={guestsLabelId} className={CELL_EYEBROW_CLASS}>
+            Guests
+          </p>
+          {/* Explicit role: preflight's list-style:none makes Safari drop list
+              semantics, and with them the guest count. */}
+          <ul role="list" aria-labelledby={guestsLabelId} className="mt-2 flex flex-wrap gap-2">
+            {names.map((n, idx) => (
+              <li
                 key={`${n}-${idx}`}
-                name={n}
-                testId="hotel-guest-avatar"
-                sizeClass={`size-6 text-[10px] ${idx > 0 ? "-ml-2" : ""}`}
-              />
+                data-testid="hotel-guest-chip"
+                className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-pill border border-border py-0.5 pl-0.5 pr-3 text-sm text-text"
+              >
+                <MiniAvatar
+                  name={n}
+                  testId="hotel-guest-avatar"
+                  sizeClass="size-6 text-[10px]"
+                  ringed={false}
+                />
+                <span data-testid="hotel-guest-name" className="min-w-0 wrap-break-word">
+                  {n}
+                </span>
+              </li>
             ))}
-          </div>
-          <span className="min-w-0 wrap-break-word text-xs text-text-subtle">
-            {names.join(", ")}
-          </span>
+          </ul>
         </div>
       ) : null}
     </div>
