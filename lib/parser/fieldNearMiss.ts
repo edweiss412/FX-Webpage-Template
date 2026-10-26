@@ -201,6 +201,25 @@ function isCandidateLabel(col0: string): boolean {
 export const MATRIX_MIN_VALUE_CELLS = 6;
 
 /**
+ * Does this block open on a LABEL rather than a section header? (2026-10-25 spec §3.1)
+ *
+ * A section parser opens on a section word (`CLIENT`, `VENUE`, `DETAILS`), never on a
+ * label waiting for its value. The GEAR tab's rental-quote "bill to" block opens on
+ * `Client:`, and no section parser enters it, so a rename card on its rows is wrong
+ * whichever field it names: renaming `Address:` there made the client's office the
+ * venue address.
+ *
+ * Segment 0 at the first `/`, because the exporter joins merged cells with `/` and
+ * `TRANSPORTATION/Load In:` is the transport header merged with its first label. ENDS
+ * with, never contains, because room headers carry colons mid-string
+ * (`... TOTAL: 74' x 31'`).
+ */
+export function isLabelOpener(opener: string): boolean {
+  const segment0 = clean(decodeEntities(opener)).split("/")[0] ?? "";
+  return segment0.trim().endsWith(":");
+}
+
+/**
  * Is this row's BLOCK a plausible home for a near-miss advisory? (§3.1)
  *
  * A near-miss card tells an operator to rename a row in their sheet, which is only ever
@@ -229,6 +248,9 @@ export function isCandidateHome(row: ScannedRow): boolean {
   // it are wide. Measured, `console` has minimum 6 and `client` has minimum 1 despite
   // holding rows at 8 value cells.
   if (row.blockMinValueCells >= MATRIX_MIN_VALUE_CELLS) return false;
+  // Label opener. A form header such as the rental quote's `Client:` block, which no
+  // section parser reads (2026-10-25 spec §3).
+  if (isLabelOpener(row.opener)) return false;
   return true;
 }
 

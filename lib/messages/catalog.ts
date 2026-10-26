@@ -1567,6 +1567,22 @@ export const MESSAGE_CATALOG = {
       "We derive each venue's time zone from its location so the crew page shows the right local times. We couldn't this time, so the page falls back to Eastern Time, usually a temporary gap that clears on the next sync once the location resolves. If it persists, check the venue address in the sheet.",
     helpHref: "/help/errors#VENUE_TIMEZONE_UNRESOLVED",
   },
+  VENUE_ADDRESS_MISSING: {
+    code: "VENUE_ADDRESS_MISSING",
+    warningClass: "parse_warning",
+    dougFacing:
+      "We read _<venue>_ as the venue but found no address for it, so the crew page shows the venue with no street address. Fill in the venue address in the sheet, or check its row label.",
+    crewFacing: null,
+    followUp: "Doug → add the venue address in the sheet (or Ignore)",
+    helpfulContext:
+      "We read a venue name but no address for it, so crew see the venue with no street address. Fill in the venue address in your sheet, or check its row label.",
+    controlsNote: "Use Report to flag it to us, or Ignore to hide this notice.",
+    triggerContext: "Appears when we read a venue name but no venue address.",
+    title: "Venue with no address",
+    longExplanation:
+      "Your sheet names the venue, but we found no address for it: the address cell is empty, or its row has a label we don't read. The crew page shows the venue without a street address until the address is in the venue address row, and it will show the next time this show checks its sheet.",
+    helpHref: "/help/errors#VENUE_ADDRESS_MISSING",
+  },
   ORPHANED_CREW_ROWS: {
     code: "ORPHANED_CREW_ROWS",
     warningClass: "parse_warning",

@@ -16,8 +16,12 @@ import { labelFromRawSnippet, valueFromRawSnippet } from "@/lib/parser/rawSnippe
 import type { ParseWarning } from "@/lib/parser/types";
 import { emitUnknownField, newAggregator } from "@/lib/parser/warnings";
 
-/** A committed fixture with FIVE UNKNOWN_FIELD rows, so one row disappearing does not empty it. */
-const FIXTURE = "fixtures/shows/exporter-xlsx/consultants.md";
+/**
+ * A committed fixture with TWO UNKNOWN_FIELD rows, both mixed-case (`Stage Size`,
+ * `Equipment Storage`), so one row disappearing does not empty it. Was the consultants
+ * fixture until the 2026-10-25 label-opener arm withdrew its GEAR quote-header rows.
+ */
+const FIXTURE = "fixtures/shows/exporter-xlsx/east-coast.md";
 
 export type NearMissPair = {
   /** As the detector emits it today: carries `candidate`. */
@@ -33,8 +37,8 @@ export function nearMissWarningPair(): NearMissPair {
   // trim-and-uppercase guard at either RENDER SITE passed every component and browser
   // case while corrupting 41 of the 65 baseline candidates. The corpus round-trip in
   // tests/parser/candidateLabel.test.ts pins the RULE; only a mixed-case value pins the
-  // CALL SITES. This fixture carries `Client Phone`, `Client Email` and
-  // `Backdrop / Scenic`, so the selection is real corpus data, not a constructed string.
+  // CALL SITES. This fixture carries `Stage Size` and `Equipment Storage`, so the selection
+  // is real corpus data, not a constructed string.
   const real = parsed.warnings.find(
     (w) =>
       w.code === "UNKNOWN_FIELD" &&

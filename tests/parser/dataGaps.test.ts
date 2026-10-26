@@ -40,9 +40,9 @@ const classesWith = (overrides: Record<string, number>): Record<string, number> 
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
-  it("has exactly 39 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(39);
-    expect(DATA_GAP_CODES.size).toBe(39);
+  it("has exactly 40 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(40);
+    expect(DATA_GAP_CODES.size).toBe(40);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
@@ -134,6 +134,18 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
     // …and for the promoted cardinality code
     expect(isQualityRegression(prior, many("HOTEL_CARDINALITY_EXCEEDED"))).toBe(true);
   });
+
+  it("a new VENUE_ADDRESS_MISSING alone is not a quality regression (gateExempt, 2026-10-25 §4.4)", () => {
+    // The first cron sync after this code shipped compares a published show's prior
+    // warnings (no VENUE_ADDRESS_MISSING) with the new ones; an alert there would be caused
+    // by the deploy, not by a sheet edit. The positive control is the same difference on a
+    // non-exempt code, which IS a regression, so the exemption is what makes this false.
+    const prior = summarizeDataGaps([warn("REF_ERROR_LITERAL")]);
+    const withVenue = summarizeDataGaps([warn("REF_ERROR_LITERAL"), warn("VENUE_ADDRESS_MISSING")]);
+    const withOther = summarizeDataGaps([warn("REF_ERROR_LITERAL"), warn("ROW_CELLS_FUSED")]);
+    expect(isQualityRegression(prior, withOther)).toBe(true);
+    expect(isQualityRegression(prior, withVenue)).toBe(false);
+  });
 });
 
 describe("summarizeDataGaps", () => {
@@ -162,7 +174,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 39
+    expect(out.total).toBe(GAP_CLASSES.length); // 40
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 
