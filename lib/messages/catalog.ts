@@ -67,7 +67,7 @@ export type MessageCatalogEntry = {
    * (catalog-internal, NOT §12.4 prose - x1 parity never reads it). Used where
    * several notices of one code collapse into a single summary row, e.g. the
    * wizard section callout: "{count} rows we couldn't match". Absent = the row
-   * falls back to the counted form "{count} notices: <title>"
+   * falls back to "<title>, {count} times"
    * (`reviewWarningGroupTitle`, lib/admin/reviewWarningTitle.ts), so a new code
    * never needs one. Authored only for row-level codes that plausibly repeat.
    */
@@ -1391,6 +1391,7 @@ export const MESSAGE_CATALOG = {
       "This crew member is marked day-restricted ('***' in the sheet) but the sheet doesn't say which days, so their schedule shows 'days unconfirmed'. Add the days to the name cell, like '(6/24 and 6/26 ONLY)'.",
     triggerContext: "Appears when a name carries the '***' marker but no days are listed.",
     title: "Day-restricted crew with no days listed",
+    titlePlural: "{count} day-restricted crew with no days listed",
     longExplanation:
       "A crew member has the day-restriction flag but the sheet doesn't say which days. Add a parenthetical to their name like '(6/24 and 6/26 ONLY)'. Until you do, their schedule will show 'days unconfirmed.'",
     helpHref: "/help/errors#UNKNOWN_DAY_RESTRICTION",
@@ -1405,6 +1406,7 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "We found day restrictions written in both the name cell and the role cell. We're using the role-cell one. Remove the duplicate so the schedule stays clear.",
     title: "Day restriction in two cells",
+    titlePlural: "{count} day restrictions written in two cells",
     longExplanation:
       "We found day restrictions written in both the name cell and the role cell. We're using the role-cell one. Remove the duplicate so the schedule stays clear.",
     helpHref: "/help/errors#DAY_RESTRICTION_DOUBLE_LOCATION",
@@ -1485,6 +1487,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a row in a section is exactly one cell short of the width its neighboring rows share.",
     title: "Two columns ran together in the sheet",
+    titlePlural: "{count} rows where two columns ran together",
     longExplanation:
       "Unmerge the cells in that row and it will line up again. Merging two cells makes the export write that row one column short, so the joined values and everything to their right land one column over, and a call time can end up under a role heading. We show the row exactly as the sheet has it rather than guess which value belongs where.",
     helpHref: "/help/errors#ROW_CELLS_FUSED",
@@ -1501,6 +1504,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a work-phase word in a role cell is a letter or two off (Load In / Set / Show / Strike / Load Out).",
     title: "Auto-corrected a misspelled stage word",
+    titlePlural: "Auto-corrected {count} misspelled stage words",
     longExplanation:
       "A stage word in a crew member's role cell looked misspelled, so we read it as the closest real stage word and used that; the role and schedule still parse correctly. If the spelling was intentional, update the sheet.",
     helpHref: "/help/errors#STAGE_WORD_AUTOCORRECTED",
@@ -1533,6 +1537,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a crew-table column header is a letter or two off a standard header.",
     title: "Auto-corrected a column header",
+    titlePlural: "Auto-corrected {count} column headers",
     longExplanation:
       "A column header on a crew table looked misspelled, so we read it as the closest real header and used that column; the crew rows still parse into the right fields. If it was intentional, update the sheet.",
     helpHref: "/help/errors#COLUMN_HEADER_AUTOCORRECTED",
@@ -1609,6 +1614,7 @@ export const MESSAGE_CATALOG = {
       "A room line could split into name and dimensions more than one way, so we picked the most likely reading. Check the rooms section; the name or dimensions might be slightly off.",
     triggerContext: "Appears when a room line mixes its name and dimensions in an unusual order.",
     title: "Made a judgment call splitting a room line",
+    titlePlural: "Made {count} judgment calls splitting room lines",
     longExplanation:
       "A room header could be read as name-then-dimensions in more than one way, so we picked the most likely split rather than dropping the room. The room still parsed, but the name or dimensions may have landed slightly off. Spot-check the rooms section against your sheet.",
     helpHref: "/help/errors#ROOM_HEADER_SPLIT_AMBIGUOUS",
@@ -1624,6 +1630,7 @@ export const MESSAGE_CATALOG = {
       "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
     triggerContext: "Appears when a hotel line could be read more than one way.",
     title: "A hotel line may be read wrong",
+    titlePlural: "{count} hotel lines may be read wrong",
     longExplanation:
       "A hotel line could be read more than one way, so we made a judgment call about where each part starts and ends. Spot-check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
     helpHref: "/help/errors#HOTEL_GUEST_SPLIT_AMBIGUOUS",
@@ -1639,6 +1646,7 @@ export const MESSAGE_CATALOG = {
       "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of the line's first one. Check its hotel name, address, guests, and dates against your sheet. To avoid this, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.",
     triggerContext: "Appears when one hotel line seems to book more than one hotel.",
     title: "A hotel line may book more than one hotel",
+    titlePlural: "{count} hotel lines may book more than one hotel",
     longExplanation:
       "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of sharing the line's first one. Spot-check this reservation's hotel name, address, guests, and dates. This cannot be fixed in the app: if the hotel is wrong, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
     helpHref: "/help/errors#HOTEL_INLINE_GROUP_OWN_HOTEL",
@@ -1655,6 +1663,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a reservation on a shared hotel line may be under the wrong hotel.",
     title: "A reservation may show the wrong hotel",
+    titlePlural: "{count} reservations may show the wrong hotel",
     longExplanation:
       "A reservation on a shared hotel line may be showing the wrong hotel. Spot-check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
     helpHref: "/help/errors#HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
@@ -1671,6 +1680,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a hotel line's name and street address may not have been separated correctly.",
     title: "A hotel name and address may be split wrong",
+    titlePlural: "{count} hotel names and addresses may be split wrong",
     longExplanation:
       "A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.",
     helpHref: "/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
@@ -1716,6 +1726,7 @@ export const MESSAGE_CATALOG = {
       "A section header looked misspelled, so we read it as the closest real one (like 'Transportaton' as 'Transportation'). Update the sheet if it was intentional.",
     triggerContext: "Appears when a section header is a letter or two off a standard section name.",
     title: "Auto-corrected a section header",
+    titlePlural: "Auto-corrected {count} section headers",
     longExplanation:
       "A section header on a sheet looked misspelled, so we read it as the closest real section and parsed that section anyway; otherwise the whole section would have been dropped. If it was intentional, update the sheet.",
     helpHref: "/help/errors#SECTION_HEADER_AUTOCORRECTED",
@@ -1748,6 +1759,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when every row of a sheet section, including its header, starts with an empty column.",
     title: "Auto-corrected a section that started with an empty column",
+    titlePlural: "Auto-corrected {count} sections that started with an empty column",
     longExplanation:
       "Every row in a sheet section, including its header, started with an empty column, so we read the section one column to the left instead. Nothing was dropped; the section lines up and reads correctly again. If the empty column was intentional, update the sheet.",
     helpHref: "/help/errors#LEADING_COLUMN_AUTOCORRECTED",
@@ -1825,6 +1837,7 @@ export const MESSAGE_CATALOG = {
       "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Check that day's date banner in the AGENDA tab; it's usually missing or showing an error like #REF!.",
     triggerContext: "Appears when a day in the AGENDA tab has no readable date above it.",
     title: "Run-of-show day not matched to a date",
+    titlePlural: "{count} run-of-show days not matched to a date",
     longExplanation:
       "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Usually the AGENDA date banner is missing or shows an error (like #REF!). Other days are fine.",
     helpHref: "/help/errors#AGENDA_BLOCK_UNRESOLVED",
@@ -1841,6 +1854,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when an AGENDA day banner gives only a weekday (like 'Wednesday') and the show has two of them.",
     title: "Run-of-show day matches two dates",
+    titlePlural: "{count} run-of-show days match two dates",
     longExplanation:
       "A run-of-show day only listed a weekday (like 'Wednesday') that matches two of the show's days, so we didn't guess and that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
     helpHref: "/help/errors#AGENDA_DAY_AMBIGUOUS",
@@ -1857,6 +1871,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when one AGENDA day holds far more entries, or far longer text, than a day normally does.",
     title: "Run-of-show day trimmed",
+    titlePlural: "{count} run-of-show days trimmed",
     longExplanation:
       "One run-of-show day was too large and we trimmed it to keep things fast, usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
     helpHref: "/help/errors#AGENDA_DAY_TRUNCATED",
@@ -1873,6 +1888,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a previously published AGENDA day has been cleared out of the sheet.",
     title: "Run-of-show day cleared",
+    titlePlural: "{count} run-of-show days cleared",
     longExplanation:
       "A run-of-show day you'd published before is now blank in the sheet, so that day went back to the standard schedule (we don't keep old content once it's removed). If you cleared it on purpose you're done; if not, put the rows back and it returns on the next sync.",
     helpHref: "/help/errors#AGENDA_DAY_EMPTIED",
@@ -1888,6 +1904,7 @@ export const MESSAGE_CATALOG = {
       "One show day's TIME cell wasn't readable as a start time, so that day shows the standard schedule. Give it a clear start like '7:15am - Registration'.",
     triggerContext: "Appears when a TIME cell doesn't begin with a readable time.",
     title: "Show-day time unreadable",
+    titlePlural: "{count} show-day times unreadable",
     longExplanation:
       "A show day's TIME cell had content we couldn't read as a start time, so that day shows the standard schedule. Give the cell a clear start time and it'll update on the next sync.",
     helpHref: "/help/errors#SCHEDULE_TIME_UNPARSED",
@@ -1964,6 +1981,7 @@ export const MESSAGE_CATALOG = {
       "We corrected at least one agenda session time that looked like a typo, like a morning session marked PM. Open the agenda to confirm; if our correction is wrong, update the agenda document.",
     triggerContext: "Appears when an agenda time only makes sense with its AM/PM flipped.",
     title: "Agenda time adjusted",
+    titlePlural: "{count} agenda times adjusted",
     longExplanation:
       "At least one agenda session time was auto-corrected because it looked like a typo. Crew see the corrected schedule; confirm it against the agenda and fix the source cell if the original was wrong.",
     helpHref: "/help/errors#AGENDA_SCHEDULE_TIME_ADJUSTED",
@@ -2024,6 +2042,7 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "An image in the DIAGRAMS tab wouldn't download, so crew see a placeholder where it should be. Drive sometimes drops an image's permissions; re-pasting it usually fixes it. Let us know if it keeps happening.",
     title: "Diagram image couldn't load",
+    titlePlural: "{count} diagram images couldn't load",
     longExplanation:
       "An image in the DIAGRAMS tab wouldn't download, so crew see a placeholder where it should be. Drive sometimes drops an image's permissions; re-pasting it usually fixes it. Let us know if it keeps happening.",
     helpHref: "/help/errors#DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
@@ -3236,6 +3255,7 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Crew keep the last good image and see a placeholder only for the one that changed. Save the sheet again to pick up the new version.",
     title: "Embedded diagram changed after staging",
+    titlePlural: "{count} embedded diagrams changed after staging",
     longExplanation:
       "This appears when Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes, and finds a mismatch. The prior approved content stays live and the image is marked for recovery or re-stage; saving the sheet again re-stages the new image.",
     helpHref: "/help/errors#EMBEDDED_ASSET_DRIFTED",
@@ -4080,6 +4100,7 @@ export const MESSAGE_CATALOG = {
       "A flight's crew name didn't match exactly one roster name, so the flight was skipped rather than mis-assigned. Fix the spelling so it matches the roster.",
     triggerContext: "Appears when a FLIGHT DETAILS name matches zero or several crew names.",
     title: "TRAVEL flight name unmatched",
+    titlePlural: "{count} TRAVEL flight names unmatched",
     longExplanation:
       "A flight in the TRAVEL tab couldn't be matched to any roster crew member. The flight is skipped to avoid mis-assigning it; correct the name spelling so it matches the roster.",
     helpHref: "/help/errors#TRAVEL_FLIGHT_NAME_UNMATCHED",
@@ -4095,6 +4116,7 @@ export const MESSAGE_CATALOG = {
       "A flight row had no readable date, so it was skipped. Start each leg with an M/D date, like '3/22 AA123 JFK - LAX'.",
     triggerContext: "Appears when a FLIGHT DETAILS cell has no date we can read.",
     title: "Flight we couldn't read",
+    titlePlural: "{count} flights we couldn't read",
     longExplanation:
       "A crew member's TRAVEL-tab flight cell had no recognizable flight date and was skipped. Check the format matches the expected pattern.",
     helpHref: "/help/errors#TRAVEL_FLIGHT_UNPARSEABLE",
@@ -4125,6 +4147,7 @@ export const MESSAGE_CATALOG = {
       "A transport assignee's name didn't clearly match one crew member, so that ride can't show on anyone's page. Fix the spelling, split merged names, or add the missing crew member.",
     triggerContext: "Appears when a transport name matches zero or several crew names.",
     title: "Transport name doesn't match a crew member",
+    titlePlural: "{count} transport names don't match a crew member",
     longExplanation:
       "We match each transport assignment to a crew member by name. This name didn't clearly match one crew member, usually a typo, or two names merged into one cell, so that person won't see their transport details. Fix the transport section of the sheet, or add the crew member if they're genuinely missing.",
     helpHref: "/help/errors#TRAVEL_TRANSPORT_NAME_UNMATCHED",

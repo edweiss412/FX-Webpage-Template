@@ -32,15 +32,19 @@ export function reviewWarningTitle(w: ParseWarning): string {
   ) {
     return msg;
   }
-  return "A parse issue was recorded for this sheet.";
+  return GENERIC_REVIEW_WARNING_TITLE;
 }
+
+/** The last-resort title, a sentence rather than a noun phrase, so its plural is too. */
+const GENERIC_REVIEW_WARNING_TITLE = "A parse issue was recorded for this sheet.";
 
 /**
  * Title for a summary row that stands for `count` notices sharing one title.
  * One notice (or a count that is not a whole number of at least 2) reads exactly
  * as `reviewWarningTitle`. Otherwise the catalog's `titlePlural` names the count
- * in the code's own words ("3 rows we couldn't match"), and a code without one
- * gets the counted form "3 notices: <title>". The plural is read only when the
+ * in the code's own words ("3 rows we couldn't match"), a code without one gets
+ * "<title>, 3 times", and the generic last-resort sentence turns plural as a
+ * sentence ("3 parse issues were recorded for this sheet."). The plural is read only when the
  * singular title also came from the catalog, so a message-derived title never
  * pairs with another code's plural. Never returns a raw code.
  */
@@ -53,7 +57,10 @@ export function reviewWarningGroupTitle(w: ParseWarning, count: number): string 
       return entry.titlePlural.replace("{count}", String(count));
     }
   }
-  return `${count} notices: ${title}`;
+  if (title === GENERIC_REVIEW_WARNING_TITLE) {
+    return `${count} parse issues were recorded for this sheet.`;
+  }
+  return `${title}, ${count} times`;
 }
 
 /** One summary row: the notices that share a title, in input order. */

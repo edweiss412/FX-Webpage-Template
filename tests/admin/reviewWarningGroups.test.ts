@@ -49,13 +49,29 @@ describe("reviewWarningGroupTitle", () => {
       "the fixture code has no catalog row",
       !(plain.code in (MESSAGE_CATALOG as Record<string, unknown>)),
     );
-    expect(reviewWarningGroupTitle(plain, 4)).toBe("4 notices: Odd cell in the crew table");
+    expect(reviewWarningGroupTitle(plain, 4)).toBe("Odd cell in the crew table, 4 times");
 
     const noPlural = catalogRows.find(
       (row) => row.title !== null && (row.titlePlural ?? null) === null,
     );
     premiseHolds("some titled catalog row carries no plural", noPlural !== undefined);
-    expect(reviewWarningGroupTitle(w(noPlural!.code), 2)).toBe(`2 notices: ${noPlural!.title}`);
+    expect(reviewWarningGroupTitle(w(noPlural!.code), 2)).toBe(`${noPlural!.title}, 2 times`);
+  });
+
+  test("the generic last-resort title pluralizes as a sentence, not as '<sentence>, N times'", () => {
+    // A code-shaped message is refused, so the title falls to the generic sentence.
+    const opaque = w("SOME_UNCATALOGED_CODE", "SOME_UNCATALOGED_CODE");
+    premiseHolds(
+      "the fixture resolves to the generic title",
+      reviewWarningTitle(opaque) === "A parse issue was recorded for this sheet.",
+    );
+    expect(reviewWarningGroupTitle(opaque, 3)).toBe("3 parse issues were recorded for this sheet.");
+  });
+
+  test("a repeating judgment code names its count in its own words", () => {
+    expect(reviewWarningGroupTitle(w("ROOM_HEADER_SPLIT_AMBIGUOUS", "", "rooms"), 2)).toBe(
+      "Made 2 judgment calls splitting room lines",
+    );
   });
 
   test.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2.5])(
@@ -124,7 +140,7 @@ describe("groupWarningsByTitle", () => {
       { warning: b, index: 1 },
     ]);
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.title).toBe("2 notices: Odd cell in the crew table");
+    expect(groups[0]!.title).toBe("Odd cell in the crew table, 2 times");
   });
 
   test("an empty list yields no groups", () => {
