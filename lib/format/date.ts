@@ -60,3 +60,29 @@ export function dayBadgeParts(iso: string): { dow: string; dnum: string } {
     dnum: d.toLocaleDateString("en-US", { timeZone: "UTC", day: "numeric" }),
   };
 }
+
+export type DateStubParts =
+  | { kind: "date"; day: string; month: string; weekday: string }
+  | { kind: "raw"; text: string };
+
+/**
+ * Split an ISO date (YYYY-MM-DD) into the parts of the hotel card's date
+ * stub: `day` ("22") set large, `month` ("Mar") beside it, and `weekday`
+ * ("Sunday") underneath. UTC-pinned for the same day-boundary reason as
+ * `formatIsoDate`.
+ *
+ * Defensive: a value that is not a date (a sheet sentinel like "TBD", or an
+ * empty string) comes back as `kind: "raw"` holding the input verbatim, so
+ * the caller echoes it as-parsed instead of leaking "NaN".
+ */
+export function dateStubParts(iso: string): DateStubParts {
+  if (iso === "") return { kind: "raw", text: "" };
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return { kind: "raw", text: iso };
+  return {
+    kind: "date",
+    day: d.toLocaleDateString("en-US", { timeZone: "UTC", day: "numeric" }),
+    month: d.toLocaleDateString("en-US", { timeZone: "UTC", month: "short" }),
+    weekday: d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long" }),
+  };
+}

@@ -22,7 +22,7 @@
  * a day-boundary off-by-one bug.
  */
 import { describe, expect, test } from "vitest";
-import { dayBadgeParts, formatIsoDate } from "@/lib/format/date";
+import { dateStubParts, dayBadgeParts, formatIsoDate } from "@/lib/format/date";
 
 describe("formatIsoDate", () => {
   test("'short' mode renders 'Mon D' from a YYYY-MM-DD ISO string", () => {
@@ -87,5 +87,34 @@ describe("dayBadgeParts", () => {
 
   test("invalid ISO → empty dow, dnum echoes the raw input (no NaN leak)", () => {
     expect(dayBadgeParts("not-a-date")).toEqual({ dow: "", dnum: "not-a-date" });
+  });
+});
+
+describe("dateStubParts", () => {
+  test("splits an ISO date into day, short month, and long weekday (UTC)", () => {
+    // 2026-03-22 is a Sunday (UTC).
+    expect(dateStubParts("2026-03-22")).toEqual({
+      kind: "date",
+      day: "22",
+      month: "Mar",
+      weekday: "Sunday",
+    });
+  });
+
+  test("UTC pin: 2026-04-19 is Sunday the 19th, not the prior local-zone day", () => {
+    expect(dateStubParts("2026-04-19")).toEqual({
+      kind: "date",
+      day: "19",
+      month: "Apr",
+      weekday: "Sunday",
+    });
+  });
+
+  test("a sheet sentinel like TBD comes back raw, verbatim", () => {
+    expect(dateStubParts("TBD")).toEqual({ kind: "raw", text: "TBD" });
+  });
+
+  test("empty string comes back raw and empty (no NaN leak)", () => {
+    expect(dateStubParts("")).toEqual({ kind: "raw", text: "" });
   });
 });

@@ -526,7 +526,12 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // NAMED `baseUrl` for this rule rather than the recogniser being taught a
     // ninth spelling; nothing there is ever the /admin loader.
     // 87 -> 95, re-derived from the failure's own count, not incremented by hand.
-    expectedCount: 95,
+    //
+    // feat/hotel-card-date-stub adds one: `tests/e2e/hotel-stay-stub.layout.spec.ts`
+    // serves the hotel card harness from a mkdtemp workdir and navigates to it at
+    // `baseUrl` before measuring the date stub. 95 -> 96, re-derived from the
+    // failure's own count (96 candidates).
+    expectedCount: 96,
     match: (c) => isHarnessNavigation(c.matchLineText),
   },
   {
