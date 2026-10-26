@@ -178,7 +178,7 @@ Steps:
    - Seam cases on `venueAddressMissingName`, in ONE test so every refusal sits beside a firing case: name `"Kimpton Gray"` with address `""` returns `"Kimpton Gray"` and with `"  "` returns `"Kimpton Gray"` (the firing cases, asserted first); `null` venue, name `"   "` with empty address, and a non-empty address each return `null`.
    - In the AC-10 loop, every fired warning's `rawSnippet` equals that fixture's `show.venue.name`, and the firing fixtures carry at least two distinct venue names (premise), so an Ignore keyed on one venue cannot silence another.
    - AC-12: mock the emit helper's module export to a no-op and assert `show` deep-equals the unmocked parse on every firing fixture.
-   - AC-15: `KIND_TO_SECTION[w.blockRef.kind]` is `"venue"` for the AC-11 warning.
+   - AC-15: `KIND_TO_SECTION[w.blockRef.kind]` is `"venue"` for the relabel case's warning.
    Run it: RED on the AC-10 and AC-11 cases.
 2. GREEN, one commit, per spec §4.6 (lockstep):
    - `lib/parser/warnings.ts`: `export const VENUE_ADDRESS_MISSING = "VENUE_ADDRESS_MISSING"` and `emitVenueAddressMissing(agg, venueName: string)` pushing a literal-code warn warning, modelled on `emitOrphanedCrewRows`.
