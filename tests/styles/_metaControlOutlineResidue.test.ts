@@ -1566,7 +1566,7 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // the shifted tree, not bumped: 2457 is PackCountPill's pill <span>, carrying
       // `border border-border`, and `git show HEAD:<file>` puts the same element at
       // 2456 before the edit.
-      "components/admin/wizard/step3ReviewSections.tsx:2457",
+      "components/admin/wizard/step3ReviewSections.tsx:2462",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

@@ -373,7 +373,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // line's single-line truncate with a two-line clamp and recorded why in the
     // comment above it. Located by running the scanner: one unclassified site,
     // 4277, still that same tile anchor.
-    line: 4277,
+    line: 4282,
     tag: "a",
     category: "full-bleed",
     reason:
