@@ -437,6 +437,10 @@ export type ApplyStagedCoreArgs = {
   // PostgresPipelineTx INSERT, which writes shows.wizard_created_session_id (the show-side
   // provenance discriminator every created_show_id consumer joins on). Absent for live/Phase-D.
   wizardCreatedSessionId?: string;
+  // Wizard Phase B first-seen ONLY, and only when the admin approved this row (pending_syncs
+  // .wizard_approved, which a rescan resets). The roster, LEAD included, was on screen when they
+  // approved it, so the role-flags notice is recorded but raises no bell alert.
+  wizardApproved?: true;
   // R30-1: wizard Phase B only — first-seen INSERT writes published=false.
   firstSeenPublished?: false;
   // Deep-link source-region anchors computed from the sheet's XLSX bytes (cron path:
@@ -614,6 +618,7 @@ export async function applyStagedCore(
     ...(args.autoPublishFirstSeen ? { autoPublishFirstSeen: args.autoPublishFirstSeen } : {}),
     ...(args.firstSeenPublished === false ? { firstSeenPublished: args.firstSeenPublished } : {}),
     ...(args.wizardCreatedSessionId ? { wizardCreatedSessionId: args.wizardCreatedSessionId } : {}),
+    ...(args.wizardApproved ? { wizardApproved: true as const } : {}),
     ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
     verifyReelOnApply: false,
     ...(args.mi11Items.length > 0 ? { mi11Items: args.mi11Items } : {}),

@@ -144,6 +144,31 @@ describe("ordinary finalize: deferred post-commit apply emits", () => {
     );
   });
 
+  // The admin approved this row's roster on screen, so phase 2 may mark its LEAD notice
+  // audit-only. A row left unchecked is still created (Held) but nobody approved it.
+  test.each([
+    ["approved", { wizard_approved: true }, true],
+    [
+      "left unchecked",
+      { wizard_approved: false, wizard_approved_by_email: null, wizard_approved_at: null },
+      false,
+    ],
+  ] as const)(
+    "a first-seen row %s forwards wizardApproved=%s to the apply",
+    async (_label, overrides, expected) => {
+      applyStagedCoreMock.mockResolvedValue(appliedCore({}));
+      const db = new FakeFinalizeDb();
+      db.approved = [pending("first-seen-1", overrides)];
+
+      const response = await handleOnboardingFinalize(request(), tracingDeps(db));
+
+      expect(response.status).toBe(200);
+      expect(applyStagedCoreMock).toHaveBeenCalledTimes(1);
+      const args = applyStagedCoreMock.mock.calls[0]![1] as { wizardApproved?: true };
+      expect(args.wizardApproved === true).toBe(expected);
+    },
+  );
+
   test("Unit B: an unlanded rename produces IDENTITY_LINK_RENAME_UNLANDED end-to-end", async () => {
     applyStagedCoreMock.mockResolvedValue(appliedCore({ unlandedRenames: [UNLANDED] }));
     const db = new FakeFinalizeDb();
