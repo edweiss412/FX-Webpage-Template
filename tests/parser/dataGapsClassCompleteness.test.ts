@@ -42,10 +42,10 @@ import {
   NON_GAP_CATALOG_CODES,
 } from "@/tests/parser/_dataGapBuckets";
 
-/** 39 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
+/** 40 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
 const DATA_GAP_CODES = new Set<string>(GAP_CLASSES.map((g) => g.code));
 
-/** The full persisted-ParseWarning universe (60) — every code lands in exactly one bucket. */
+/** The full persisted-ParseWarning universe (61) — every code lands in exactly one bucket. */
 const ALL_PERSISTED_WARNING_CODES = new Set<string>([
   ...DATA_GAP_CODES,
   ...BENIGN_WARN_CODES,
@@ -93,12 +93,12 @@ const collectedRealCodes = (() => {
 // ── Assertions ────────────────────────────────────────────────────────────────
 
 describe("data-gap class completeness (drift guard)", () => {
-  it("Layer 1 — the 4 buckets are pairwise disjoint and total 60 (39/8/2/11)", () => {
-    expect(DATA_GAP_CODES.size).toBe(39);
+  it("Layer 1 — the 4 buckets are pairwise disjoint and total 61 (40/8/2/11)", () => {
+    expect(DATA_GAP_CODES.size).toBe(40);
     expect(BENIGN_WARN_CODES.size).toBe(8);
     expect(BENIGN_INFO_CODES.size).toBe(2);
     expect(ASSET_WARN_CODES.size).toBe(11);
-    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(60); // Set dedups → proves pairwise-disjoint
+    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(61); // Set dedups → proves pairwise-disjoint
 
     // explicit pairwise-disjoint (also vs the ignore-list)
     const buckets = [

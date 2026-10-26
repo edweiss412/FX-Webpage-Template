@@ -373,9 +373,12 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // line's single-line truncate with a two-line clamp and recorded why in the
     // comment above it. Located by running the scanner: one unclassified site,
     // 4277, still that same tile anchor.
+    // 4277 -> 4278 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. The scanner reports 4278, and it is that same `<a>`.
     // 4277 -> 4307 on fix/section-callout-group-repeats (SectionFlagCallout grew above
     // it). Located by running the scanner: one unclassified site, 4307, still that `<a>`.
-    line: 4307,
+    // Both sides moved this row; on the merge of origin/main 0a18befd3 it was located
+    // on the merged tree by its own element, never by composing the deltas: 4308.
+    line: 4308,
     tag: "a",
     category: "full-bleed",
     reason:

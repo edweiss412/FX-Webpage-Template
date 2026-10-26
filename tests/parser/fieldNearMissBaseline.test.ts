@@ -49,8 +49,15 @@ const BASELINE = "tests/parser/__fixtures__/fieldNearMiss.baseline.json";
  * `console`-namespace row (2): both block families are now non-candidate homes, so a
  * near-miss card can no longer fire inside a form dump or an inventory matrix. No true
  * positive was lost.
+ *
+ * 33 -> 5 with the label-opener arm (spec
+ * `docs/superpowers/specs/parser/2026-10-25-nearmiss-read-blocks-and-venue-address-design.md`
+ * §2.2/§3). The 28 removed rows all lived in blocks that open on a label: the GEAR
+ * rental-quote header (`Client:`, and `Client:/Contact:` on the consultants layout), where
+ * following a rename card was inert or harmful. What survives is `Stage` and `Storage` in
+ * the east-coast DETAILS block, where the card works, and the JOANN `Diagrams?` row.
  */
-const EXPECTED_TOTAL = 33;
+const EXPECTED_TOTAL = 5;
 
 /**
  * Committed INTO the baseline file (JSON carries no comments) so the two facts a reader
@@ -66,19 +73,24 @@ const BASELINE_NOTE: readonly string[] = [
   "  LISTS. Form dumps (opener normalizing to `timestamp`) and inventory matrices (every row",
   "  at 6 or more value cells) are not candidate homes, and the 32 rows that lived in them",
   "  are gone. No true positive was lost; see that spec's 3.3 for the removed set.",
+  "Narrowed 33 -> 5 by the label-opener arm:",
+  "  docs/superpowers/specs/parser/2026-10-25-nearmiss-read-blocks-and-venue-address-design.md (2.1, 2.2, 3).",
+  "  A block whose opener's first segment ends in a colon is a form header, not a section.",
+  "  The 28 removed rows sat in the GEAR rental-quote header, where renaming a row did",
+  "  nothing or wrote wrong data; that spec's 2.1 measures every one.",
   "",
   "TIE-BREAK, and what actually pins it. Spec 3.1 makes vocabulary insertion order normative:",
   "it decides which raw spelling a near-miss reports, and the `candidate` column below is where",
   "that shows. Measured at authoring time, the order has two halves and only one is witnessed:",
   "  * FIRST-WINS WITHIN A SOURCE is pinned here. Flipping buildVocabulary's `!vocab.has(n)` to",
-  "    last-wins reds this file (VENUE ADDRESS -> Venue Address, Backdrop / Scenic ->",
-  "    Backdrop/Scenic) and reds tests/parser/fieldNearMiss.test.ts too.",
+  "    last-wins reds this file (DIagrams -> DIAGRAMS, the three spellings of one",
+  "    FIELD_ALIASES entry) and reds tests/parser/fieldNearMiss.test.ts too.",
   "  * The ORDER OF THE SOURCES, and of the nine sets inside SECTION_HEADER_TOKEN_SETS, is",
   "    currently UNWITNESSED. Permuting the nine sets, or deriving the barrels before",
   "    FIELD_ALIASES, leaves this baseline and the per-class suite fully green. The reason is",
   "    measurable, not luck: the nine sets have ZERO cross-set normalized-form collisions, and",
-  "    nine of the ten distinct candidates below come from FIELD_ALIASES with no barrel",
-  "    counterpart while the tenth (DETAILS/ROOM DIAGRAM) is unique to the event barrel. With no",
+  "    all three distinct candidates below come from FIELD_ALIASES with no barrel or",
+  "    LABEL_TO_KIND counterpart. With no",
   "    key produced by two sources, relative order cannot change an outcome. Adding an alias or",
   "    header token that collides across sources would make the order live, and nothing today",
   "    would catch a reordering — regenerate and re-measure if you add one.",
@@ -175,7 +187,7 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
     expect(readBaseline().note).toEqual([...BASELINE_NOTE]);
   });
 
-  it("emits exactly 33 rows (spec §3.2, followup probe Part D)", () => {
+  it("emits exactly EXPECTED_TOTAL rows (2026-10-25 spec §2.2)", () => {
     // no-premise: the assertion IS a nonzero count, so it dominates any premise
     // that rows were produced at all — an empty corpus reds on `toBe(65)`
     // itself (whole-diff R1 #8).
@@ -183,23 +195,23 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
   });
 
   it("composition partitions into the §3.2 groups with nothing left over", () => {
-    // no-premise: a partition of nothing does partition perfectly, but the five
-    // fixed group counts below are each nonzero, so an empty corpus reds on
-    // them before the partition identity is reached. A premise saying rows
+    // no-premise: a partition of nothing does partition perfectly, but the details
+    // group (4) and the Diagrams? count (1) below are nonzero, so an empty corpus reds
+    // on them before the partition identity is reached. A premise saying rows
     // exist is dominated by every one of them (whole-diff R1 #8).
     const byKey = countBy(actual, (r) => r.key);
     const n = (k: string): number => byKey.get(k) ?? 0;
 
-    // 7 audited true positives (Stage x2, Storage x2, Address:, Phone:, Client:/Contact:)
-    // plus the 25 same-shape colon-suffixed contact rows in the additional fixtures.
-    const auditedAndSameShape =
-      n("Stage") +
-      n("Storage") +
-      n("Address:") +
-      n("Phone:") +
-      n("E-mail:") +
-      n("Client:/Contact:");
-    expect(auditedAndSameShape).toBe(7 + 25);
+    // The rows where the card works: Stage x2 and Storage x2 in the east-coast DETAILS
+    // block (raw and exporter).
+    const detailsRows = n("Stage") + n("Storage");
+    expect(detailsRows).toBe(4);
+    // Zero, asserted EXPLICITLY rather than deleted. These keys fired only in the GEAR
+    // quote header, which the label-opener arm withdraws (2026-10-25 spec §3); keeping them
+    // in the partition means a regression that re-admits a label-opener block reds here.
+    for (const quoteHeaderKey of ["Address:", "Phone:", "E-mail:", "Client:/Contact:"]) {
+      expect(n(quoteHeaderKey), quoteHeaderKey).toBe(0);
+    }
     // Zero, asserted EXPLICITLY rather than deleted. Each of these three keys fired only
     // inside a form dump or an inventory matrix, so the block-candidacy narrowing removed
     // every one of them; keeping the keys in the partition means a regression that
@@ -211,8 +223,7 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
 
     // The groups PARTITION the baseline: a new key anywhere in the corpus lands outside
     // every group and reds here, so this is a cover rather than a spot check.
-    const grouped =
-      auditedAndSameShape + n("Backdrop") + n("Room Diagram") + n("Speaker") + n("Diagrams?");
+    const grouped = detailsRows + n("Backdrop") + n("Room Diagram") + n("Speaker") + n("Diagrams?");
     expect(grouped).toBe(actual.length);
 
     // §3.2: these three forms are guard-suppressed and must NOT be in the baseline.
@@ -229,7 +240,7 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
     // claim is empty and the case would pass vacuously if left as written.
     //
     // Stated as a set rather than a count, and PAIRED with a control, so "no Room Diagram
-    // rows" can never mean "no rows at all": the corpus still emits 33.
+    // rows" can never mean "no rows at all": the corpus still emits rows.
     premise("the baseline is non-empty, so this is not a vacuous silence", actual.length, 0);
     expect(actual.filter((r) => r.key === "Room Diagram")).toEqual([]);
     // And nothing at all survives in either retired namespace, whatever its label.
@@ -577,5 +588,51 @@ describe("Stage/Storage rows stay anchored (AC-N9)", () => {
         .sort();
     premiseHolds("both fixtures still carry both rows", pairs(EAST_COAST_XLSX).length === 2);
     expect(pairs(EAST_COAST_RAW)).toEqual(pairs(EAST_COAST_XLSX));
+  });
+});
+
+// ── Quote-header withdrawal at the document seam (2026-10-25 spec AC-1) ─────────────
+//
+// The GEAR tab's rental-quote header opens on the label `Client:`, and the label-opener
+// arm withdraws it. Asserted differentially: the SAME document with only that opener cell
+// changed to the section word `CLIENT` must fire all three rows, so "nothing fired" here
+// cannot mean the rows went unscanned or stopped matching.
+
+const QUOTE_HEADER_KEYS = ["Address:", "E-mail:", "Phone:"];
+
+/** `md` with the first row whose first cell is exactly `Client:` reopened on `CLIENT`. */
+function reopenQuoteHeader(md: string): string {
+  let done = false;
+  return md
+    .split("\n")
+    .map((line) => {
+      if (done || !line.trim().startsWith("|")) return line;
+      const cells = splitRow(line.trim());
+      if (cells[0] !== "Client:") return line;
+      done = true;
+      return `| ${["CLIENT", ...cells.slice(1)].join(" | ")} |`;
+    })
+    .join("\n");
+}
+
+const quoteHeaderNearMisses = (md: string, path: string): string[] =>
+  parseSheet(md, path)
+    .warnings.filter((w) => w.code === "UNKNOWN_FIELD")
+    .map((w) => String(w.blockRef?.name ?? ""))
+    .filter((k) => QUOTE_HEADER_KEYS.includes(k))
+    .sort();
+
+describe("quote-header rows get no rename card (2026-10-25 AC-1)", () => {
+  it("FinTech's quote header emits none, while the same rows reopened on CLIENT emit all three", () => {
+    for (const path of [
+      "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md",
+      "fixtures/shows/exporter-xlsx/fintech.md",
+    ]) {
+      const md = readFileSync(path, "utf8");
+      const reopened = reopenQuoteHeader(md);
+      premiseHolds(`${path} has a Client: quote-header opener to reopen`, reopened !== md);
+      expect(quoteHeaderNearMisses(reopened, path), `${path} control`).toEqual(QUOTE_HEADER_KEYS);
+      expect(quoteHeaderNearMisses(md, path), path).toEqual([]);
+    }
   });
 });

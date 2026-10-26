@@ -25,6 +25,7 @@ import {
   detectFieldNearMisses,
   fusedForm,
   isCandidateHome,
+  isLabelOpener,
   matchVocabulary,
   normalizeV3,
   scanRowsWithOpener,
@@ -257,34 +258,78 @@ describe("audited true positives fire", () => {
 
     expect(emissionFor(md, "Storage").candidate).toBe("Equipment Storage");
   });
+});
 
-  it("the colon-suffixed client-contact rows name their venue/client aliases", () => {
+// ── The colon-suffixed contact group: matched, but in a withdrawn block ───────────────
+//
+// These rows are the GEAR quote-header rows the 2026-08-15 audit counted as true
+// positives. They DO match, and the matching rule is unchanged, so every vocabulary
+// assertion stands. Their block opens on a label and is withdrawn (2026-10-25 spec §3),
+// so each is asserted to contribute nothing, against a control in the same test that
+// rebuilds the block under the section opener `CLIENT` and shows the row firing.
+
+/** `md` (one table) with its opener cell replaced by `CLIENT`. */
+function reopenOnClient(md: string): string {
+  const [first, ...rest] = md.split("\n");
+  const cells = splitRow(first!.trim());
+  cells[0] = "CLIENT";
+  return [`| ${cells.join(" | ")} |`, ...rest].join("\n");
+}
+
+/**
+ * `md` under a prepended `CLIENT` opener line. Used for the row that IS the block's
+ * opener (`Client:/Contact:`): replacing the opener would delete the row under test,
+ * while prepending makes it an ordinary row of a `CLIENT` block.
+ */
+const underClientOpener = (md: string): string => `| CLIENT |  |\n${md}`;
+
+/** The control holds the row and opens on CLIENT, then the row fires there. */
+function controlFires(control: string, key: string, candidate: string): void {
+  premiseHolds(`the control opens on CLIENT`, scanRowsWithOpener(control)[0]?.opener === "CLIENT");
+  premiseHolds(
+    `the control still holds ${key}`,
+    scanRowsWithOpener(control).some((r) => clean(r.cells[0] ?? "") === key),
+  );
+  expect(emissionFor(control, key).candidate).toBe(candidate);
+}
+
+describe("the quote-header contact rows match but their block is withdrawn", () => {
+  it("Address: and Phone: name their venue/client aliases, and contribute nothing in place", () => {
     premiseHolds("vocabulary contains the target alias", vocab.has("venue address"));
     premiseHolds("vocabulary contains the target alias", vocab.has("client phone"));
     const md = fixtureTable(CONSULTANTS_RAW, "Address:");
+    expect(matchVocabulary("Address:", vocab)?.entry.raw).toBe("VENUE ADDRESS");
+    expect(matchVocabulary("Phone:", vocab)?.entry.raw).toBe("Client Phone");
 
-    expect(emissionFor(md, "Address:").candidate).toBe("VENUE ADDRESS");
-    expect(emissionFor(md, "Phone:").candidate).toBe("Client Phone");
+    controlFires(reopenOnClient(md), "Address:", "VENUE ADDRESS");
+    controlFires(reopenOnClient(md), "Phone:", "Client Phone");
+    expectContributesNothing(md);
   });
 
-  it("Client:/Contact: matches as an equality once punctuation collapses", () => {
+  it("Client:/Contact: matches as an equality once punctuation collapses, and contributes nothing in place", () => {
     premiseHolds("vocabulary contains the target alias", vocab.has("client contact"));
     const md = fixtureTable(CONSULTANTS_RAW, "Client:/Contact:");
     premiseHolds(
       "the collapse is what produces the hit — this is a type (a) equality",
       matchVocabulary("Client:/Contact:", vocab)?.type === "a",
     );
-    expect(emissionFor(md, "Client:/Contact:").candidate).toBe("Client Contact");
+    expect(matchVocabulary("Client:/Contact:", vocab)?.entry.raw).toBe("Client Contact");
+
+    controlFires(underClientOpener(md), "Client:/Contact:", "Client Contact");
+    expectContributesNothing(md);
   });
 
-  it("E-mail: matches only through the fused form", () => {
+  it("E-mail: matches only through the fused form, and contributes nothing in place", () => {
     premiseHolds("vocabulary contains the target alias", vocab.has("client email"));
     premiseHolds(
       "the plain form does not reach the alias — the fused form is load-bearing",
       matchVocabulary("E-mail:", vocab)?.via === "fused",
     );
     const md = fixtureTable(CONSULTANTS_RAW, "E-mail:");
-    expect(emissionFor(md, "E-mail:").candidate).toBe("Client Email");
+    expect(matchVocabulary("E-mail:", vocab)?.entry.raw).toBe("Client Email");
+
+    controlFires(reopenOnClient(md), "E-mail:", "Client Email");
+    expectContributesNothing(md);
   });
 });
 
@@ -308,8 +353,9 @@ describe("block/kind anchor namespace", () => {
   });
 
   it("falls back to the normalized block-opener label for any other block", () => {
-    const md = fixtureTable(CONSULTANTS_RAW, "Client:/Contact:");
-    expect(emissionFor(md, "Address:").blockRef?.kind).toBe("client contact");
+    // The consultants `Client:/Contact:` block was the second corpus witness until the
+    // label-opener arm withdrew it (2026-10-25 spec §3); the mapping itself is unchanged.
+    expect(anchorNamespace("Client:/Contact:")).toBe("client contact");
     expect(emissionFor(fixtureTable(EAST_COAST_RAW, "Diagrams?"), "Diagrams?").blockRef?.kind).toBe(
       "joann",
     );
@@ -573,7 +619,13 @@ describe("block candidacy", () => {
     // §2.2's refutation, executable. The matrix arm is a MINIMUM over the block, never a
     // test on the firing row, and the sharpest witness is a block whose firing row is
     // itself wide: a per-row reimplementation suppresses the exact row this asserts.
-    const md = fixtureTable(CONSULTANTS_RAW, "Client:/Contact:");
+    //
+    // CONSTRUCTED witness since 2026-10-25. The corpus witness was the consultants
+    // `Client:/Contact:` block, which the label-opener arm now withdraws, and no admitted
+    // corpus block pairs a narrow minimum with a wide firing row. So the same block is
+    // placed under a prepended `CLIENT` opener line: its rows, widths and the firing row are
+    // the corpus's own, and only the opener changes.
+    const md = underClientOpener(fixtureTable(CONSULTANTS_RAW, "Client:/Contact:"));
     const rows = scanRowsWithOpener(md);
     const head = rows[0];
     premiseHolds("the block was scanned", head !== undefined);
@@ -626,13 +678,32 @@ describe("block candidacy", () => {
     // refuses everything; a pin asserting only admissions passes against the pre-change
     // detector, which admits everything.
     expect(blocks.filter((b) => isCandidateHome(b.head)).length).toBe(census.keptCount);
-    for (const family of ["venue", "details", "client", "client contact"]) {
+    for (const family of ["venue", "details"]) {
       const wrong = blocks.filter((b) => b.ns === family && !isCandidateHome(b.head));
       expect(
         wrong.map((b) => b.id),
         `every ${family} block stays a candidate`,
       ).toEqual([]);
     }
+    // The `client` family splits on the opener since the label-opener arm (2026-10-25
+    // spec §3): every INFO `CLIENT` block stays a candidate, every GEAR `Client:` quote
+    // header is refused, and the consultants `Client:/Contact:` header with it.
+    const clientBlocks = blocks.filter((b) => b.ns === "client");
+    premiseHolds(
+      "the walk saw both client openers",
+      clientBlocks.some((b) => b.opener === "Client:") &&
+        clientBlocks.some((b) => b.opener !== "Client:"),
+    );
+    // Keyed on the corpus's literal opener spelling, not on `isLabelOpener`, so the check
+    // is measured against the sheets rather than against the predicate under test.
+    expect(
+      clientBlocks.filter((b) => !isCandidateHome(b.head)).map((b) => b.id),
+      "exactly the Client: quote headers are refused in the client family",
+    ).toEqual(clientBlocks.filter((b) => b.opener === "Client:").map((b) => b.id));
+    expect(
+      blocks.filter((b) => b.ns === "client contact" && isCandidateHome(b.head)).map((b) => b.id),
+      "the client contact quote header is refused",
+    ).toEqual([]);
     const consoleBlocks = blocks.filter((b) => b.ns === "console");
     expect(
       consoleBlocks.filter((b) => isCandidateHome(b.head)).map((b) => b.id),
@@ -1250,6 +1321,100 @@ describe("the detector is enrolled in the source-mutation guard registry (AC-N7)
     for (const row of rows) {
       expect(validateSurface(row), `${row.id}: ${validateSurface(row).join("; ")}`).toEqual([]);
       expect(row.operators.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ── Label-opener arm (2026-10-25 spec §3, AC-4) ─────────────────────────────────────
+//
+// A block that opens on a LABEL (the segment of its first cell before any `/` ends in a
+// colon) is a form header, not a section: the GEAR tab's rental-quote "bill to" block
+// opens on `Client:`. Its rows match the vocabulary perfectly well, which is why a rename
+// card fired there; the card was wrong because no section parser reads the block. Every
+// exclusion below is asserted DIFFERENTIALLY against a firing control in the same test.
+
+const FINTECH_RAW = "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md";
+
+/** The FinTech raw fixture's GEAR quote-header block, as committed. */
+function quoteHeaderBlock(): CorpusBlock {
+  const b = corpusBlocks().find(
+    (x) => x.id.startsWith(`${FINTECH_RAW}#`) && x.opener === "Client:",
+  );
+  premiseHolds("the FinTech raw fixture carries its Client: quote-header block", b !== undefined);
+  return b!;
+}
+
+/** `block`'s markdown with ONLY its opener cell replaced. */
+function withOpener(block: CorpusBlock, opener: string): string {
+  const [first, ...rest] = block.lines;
+  const cells = splitRow(first!.trim());
+  cells[0] = opener;
+  return [`| ${cells.join(" | ")} |`, ...rest].join("\n");
+}
+
+const scannedOpener = (md: string): string => scanRowsWithOpener(md)[0]?.opener ?? "";
+
+describe("label-opener arm (2026-10-25 AC-4)", () => {
+  it("excludes the quote header as committed and rebuilt on CLIENT: and Client:/Contact:", () => {
+    const block = quoteHeaderBlock();
+    // The firing control: the SAME block reopened on the section word `CLIENT` fires its
+    // `Address:` row, so the row matches and clears the guards and an exclusion below
+    // cannot pass by the row being unmatchable.
+    const control = withOpener(block, "CLIENT");
+    premiseHolds(
+      "the control's opener differs from the source",
+      scannedOpener(control) !== block.opener,
+    );
+    expect(emissionFor(control, "Address:").candidate).toBe("VENUE ADDRESS");
+
+    expectContributesNothing(block.lines.join("\n"));
+    for (const opener of ["CLIENT:", "Client:/Contact:"]) {
+      const rebuilt = withOpener(block, opener);
+      premiseHolds(
+        `the ${opener} rebuild's opener differs from the source`,
+        scannedOpener(rebuilt) !== block.opener,
+      );
+      expectContributesNothing(rebuilt);
+    }
+  });
+
+  it("admits the quote header rebuilt on a section word or a merged section header, and its Address: row fires", () => {
+    const block = quoteHeaderBlock();
+    for (const opener of [
+      "CLIENT",
+      "TRANSPORTATION/Load In:",
+      "GENERAL SESSION SINCLAIR BALLROOM TOTAL: 74' x 31'",
+    ]) {
+      const rebuilt = withOpener(block, opener);
+      premiseHolds(
+        `the ${opener} rebuild's opener differs from the source`,
+        scannedOpener(rebuilt) !== block.opener,
+      );
+      expect(emissionFor(rebuilt, "Address:").candidate, opener).toBe("VENUE ADDRESS");
+    }
+  });
+
+  it("isLabelOpener: segment 0 before any slash, trimmed, ending in a colon", () => {
+    for (const s of [
+      "Client:",
+      "CLIENT:",
+      "Client:/Contact:",
+      "Client: ",
+      "Client:/INSTITUTIONAL INVESTOR",
+    ]) {
+      expect(isLabelOpener(s), s).toBe(true);
+    }
+    for (const s of [
+      "CLIENT",
+      "TRANSPORTATION/Load In:",
+      "GENERAL SESSION SINCLAIR BALLROOM TOTAL: 74' x 31'",
+      "ROOM DIMENSIONS:&#10;4100 SQ FT TOTAL",
+      "DETAILS",
+      "VENUE NAME",
+      "Timestamp",
+      "",
+    ]) {
+      expect(isLabelOpener(s), JSON.stringify(s)).toBe(false);
     }
   });
 });

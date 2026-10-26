@@ -70,6 +70,17 @@ export const GAP_CLASSES = [
   // gate — an un-coordinatable venue defaulting to ET is a data-quality signal, not a
   // push-worthy alert (Flow 8.3a §6/§10). Mirrors VENUE_GEOCODE_UNRESOLVED.
   { code: "VENUE_TIMEZONE_UNRESOLVED", label: "undetermined venue time zone", gateExempt: true },
+  // gateExempt: a venue with no address is review-visible but never trips the
+  // push-regression gate. Without it, the first cron sync after this code shipped would
+  // raise RESYNC_QUALITY_REGRESSED for every published show with a blank address, an alert
+  // caused by the deploy rather than by any sheet edit (2026-10-25
+  // nearmiss-read-blocks-and-venue-address §4.4). Mirrors the two venue codes above.
+  {
+    code: "VENUE_ADDRESS_MISSING",
+    label: "venue with no address",
+    plural: "venues with no address",
+    gateExempt: true,
+  },
   { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", label: "unclear room split" },
   // `plural` (optional): clause-shaped labels cannot take the default bare "s"
   // — "2 hotel line may be read wrongs" reached staged-review chips and badge

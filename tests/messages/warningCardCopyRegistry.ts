@@ -48,6 +48,7 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "TRAVEL_TRANSPORT_NAME_UNMATCHED",
   "VENUE_GEOCODE_UNRESOLVED",
   "VENUE_TIMEZONE_UNRESOLVED",
+  "VENUE_ADDRESS_MISSING",
   "ORPHANED_CREW_ROWS",
   // Appended, not inserted alphabetically: this list is deliberately not globally sorted —
   // the original sweep runs alphabetically and every later addition was appended, which is
@@ -131,6 +132,7 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
     "Appears when a transport name matches zero or several crew names.",
   VENUE_GEOCODE_UNRESOLVED: "Appears when the venue address doesn't resolve to a city.",
   VENUE_TIMEZONE_UNRESOLVED: "Appears when the venue's location doesn't resolve to a time zone.",
+  VENUE_ADDRESS_MISSING: "Appears when we read a venue name but no venue address.",
   ORPHANED_CREW_ROWS:
     "Appears when rows carrying crew role text (like 'Load In / Set / Strike / Load Out') sit in a block with no section header above them.",
 };
@@ -170,6 +172,10 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
 export const EXPECTED_LONG_EXPLANATION: Readonly<Record<string, string>> = {
   UNKNOWN_FIELD:
     "A row in your sheet is labeled something we don't read as one of the rows we show, so it isn't showing on the crew page. When we can tell which row you meant, the notice names it. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
+  // 2026-10-25 nearmiss-read-blocks-and-venue-address §4.5. Enrolled so the one place that
+  // explains "or check its row label" (a relabelled address row fires too) cannot drift.
+  VENUE_ADDRESS_MISSING:
+    "Your sheet names the venue, but we found no address for it: the address cell is empty, or its row has a label we don't read. The crew page shows the venue without a street address until the address is in the venue address row, and it will show the next time this show checks its sheet.",
 };
 
 /**
@@ -189,6 +195,7 @@ export const EXPECTED_CONTROLS_NOTE: Record<string, string> = {
   UNKNOWN_FIELD: "Use Report to flag it to us, or Ignore to hide this notice.",
   PULL_SHEET_PARSE_PARTIAL: "Use Report if you'd like the format supported.",
   UNKNOWN_SECTION_HEADER: "Use Report if this section should be supported.",
+  VENUE_ADDRESS_MISSING: "Use Report to flag it to us, or Ignore to hide this notice.",
 };
 
 export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
@@ -288,6 +295,8 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "We couldn't look up the venue's city from its address, so the page shows the raw address instead. Often temporary; if it keeps happening, check the address for typos.",
   VENUE_TIMEZONE_UNRESOLVED:
     "We couldn't work out the venue's time zone, so times show in Eastern Time for now. It usually clears on the next sync; if not, check the venue address.",
+  VENUE_ADDRESS_MISSING:
+    "We read a venue name but no address for it, so crew see the venue with no street address. Fill in the venue address in your sheet, or check its row label.",
 };
 
 export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([

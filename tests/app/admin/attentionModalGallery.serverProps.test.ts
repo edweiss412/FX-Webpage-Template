@@ -114,6 +114,9 @@ const EXPECTED_GLOBAL_IDS = [
 // note worth leaving: this file is the ONE consumer of a new warn code that lives outside
 // `tests/parser`, `tests/messages`, and `tests/help`, so a branch that verifies only those
 // three sees green and learns about the baseline from `unit-suite-nodb`.
+// And one more from fix/near-miss-gear-quote-header: warn-venue-address-missing (spec
+// parser/2026-10-25-nearmiss-read-blocks-and-venue-address §4, a named venue with no
+// address). Same +1, and once again it was unit-suite-nodb that said so.
 const RENDERED_IDS_BEFORE: string[] = [
   "alert-ambiguous-email-binding",
   "alert-asset-recovery-bytes-exceeded",
@@ -264,6 +267,7 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-unknown-role-token",
   "warn-unknown-section-header",
   "warn-unknown-stage-restriction",
+  "warn-venue-address-missing",
   "warn-venue-geocode-unresolved",
   "warn-venue-timezone-unresolved",
 ];

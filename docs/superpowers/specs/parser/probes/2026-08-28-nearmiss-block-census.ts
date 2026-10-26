@@ -14,8 +14,14 @@
 import { writeFileSync } from "node:fs";
 import { FIXTURES, readFixture } from "@/tests/parser/mutation/fixtures";
 import { anchorNamespace, normalizeV3, scanRowsWithOpener } from "@/lib/parser/fieldNearMiss";
+import { clean, decodeEntities } from "@/lib/parser/blocks/_helpers";
 
 const MATRIX_MIN_VALUE_CELLS = 6;
+
+// The 2026-10-25 label-opener arm (spec parser/2026-10-25-nearmiss-read-blocks-and-venue-
+// address-design.md §3.1), written out rather than imported for the reason the header gives.
+const labelOpener = (opener: string): boolean =>
+  (clean(decodeEntities(opener)).split("/")[0] ?? "").trim().endsWith(":");
 type B = { fixture: string; ordinal: number; ns: string; opener: string; min: number; rows: number };
 const blocks: B[] = [];
 for (const f of FIXTURES) {
@@ -55,7 +61,9 @@ const excluded = blocks
         ? "form-dump"
         : b.min >= MATRIX_MIN_VALUE_CELLS
           ? "matrix"
-          : null,
+          : labelOpener(b.opener)
+            ? "label-opener"
+            : null,
   }))
   .filter((b) => b.arm !== null)
   .map((b) => ({
