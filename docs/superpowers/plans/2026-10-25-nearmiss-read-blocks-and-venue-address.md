@@ -57,6 +57,30 @@ The criteria live in the spec (§5); this table maps each to its owner.
 | AC-9 | Closeout step 0 (mutation score) |
 | AC-10, AC-11, AC-12, AC-13, AC-14, AC-15 | Task 2 |
 
+## Registry reconciliation (run at plan time)
+
+Measured 2026-10-25 on the branch tip by a throwaway `tsx` script importing each registry (`GAP_CLASSES`, `DATA_GAP_CODES`, `MESSAGE_CATALOG`, the `tests/messages/warningCardCopyRegistry.ts` exports, `WARNING_CODE_ANCHOR`, `SPEC_CODES`) and reading the two copy-spec counts and the generated manifest. "After" is what Task 2 must produce; every row moves by exactly the one code `VENUE_ADDRESS_MISSING` or not at all.
+
+| Registry | Now | After | Moved by |
+| --- | --- | --- | --- |
+| `GAP_CLASSES` (`lib/parser/dataGaps.ts`) | 39 | 40 | Task 2 |
+| `DATA_GAP_CODES` size, pinned at `tests/parser/dataGaps.test.ts:44-45` and `tests/parser/dataGapsClassCompleteness.test.ts:97` | 39 | 40 | Task 2 |
+| Persisted-warning universe, pinned at `tests/parser/dataGapsClassCompleteness.test.ts:101` (test title says "total 60 (39/8/2/11)") | 60 | 61 | Task 2, title becomes 61 (40/8/2/11) |
+| `MESSAGE_CATALOG` keys | 283 | 284 | Task 2 |
+| `SPEC_CODES` keys (`lib/messages/__generated__/spec-codes.ts`) | 283 | 284 | Task 2, regenerated |
+| `internal-code-enums` entries sourced from `parse_warnings.code` | 61 | 62 | Task 2, regenerated |
+| `WARNING_CODE_ANCHOR` (`tests/parser/_warningCodeAnchor.ts`), equality with the row above | 61 | 62 | Task 2 |
+| `WARNING_CARD_COPY_CODES` | 48 | 49 | Task 2 |
+| `EXPECTED_TRIGGER_CONTEXT` keys | 48 | 49 | Task 2 |
+| `EXPECTED_HELPFUL_CONTEXT` keys (total over the registry) | 48 | 49 | Task 2 |
+| `EXPECTED_CONTROLS_NOTE` keys (total over catalog rows carrying a note) | 3 | 4 | Task 2 |
+| `EXPECTED_LONG_EXPLANATION` keys | 1 | 2 | Task 2 |
+| Codes whose `controlsNote` names Ignore | `["UNKNOWN_FIELD"]` | `["UNKNOWN_FIELD","VENUE_ADDRESS_MISSING"]` | Task 2 |
+| Copy-restore spec §3.1 heading "(N codes)" | 48 | 49 | Task 2 |
+| Copy-restore spec §3.1 "Parser emitters (N)" | 35 | 36 | Task 2 |
+| `EXPECTED_CORPUS_WARN_CODES` (raw corpus) | 8 | 8, unchanged | none: the notice fires on no raw fixture (spec TABLE-D) |
+| Near-miss baseline rows, `EXPECTED_TOTAL` | 33 | 5 | Task 1 |
+
 ## Pre-draft code-verification pass
 
 Run 2026-10-25 against the branch tip, `grep -c -F <symbol> <file>` per row (count of matches):
@@ -105,10 +129,13 @@ What is red and why: the new AC-1 and AC-4 cases expect no emission from a `Clie
 **Interfaces:**
 - Produces: `export function isLabelOpener(opener: string): boolean` in `lib/parser/fieldNearMiss.ts`. True when the opener, entity-decoded and `clean`ed, split at the first `/`, has a segment 0 that, trimmed, ends with a colon.
 
-- [ ] **Step 1: RED.** Add to `tests/parser/fieldNearMissBaseline.test.ts` the AC-1 case: `parseSheet` on `fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md` and on `fixtures/shows/exporter-xlsx/fintech.md` emits no `UNKNOWN_FIELD` whose `key` is `Address:`, `Phone:` or `E-mail:`. Add to `tests/parser/fieldNearMiss.test.ts` the AC-4 block cases per spec §5 AC-4 (source block = the FinTech raw fixture's `Client:` block from `corpusBlocks()`; excluded as committed and under `CLIENT:`, `Client:/Contact:`; admitted with the `Address:` row firing under `CLIENT`, `TRANSPORTATION/Load In:`, and `GENERAL SESSION SINCLAIR BALLROOM TOTAL: 74' x 31'`), each rebuilt case with `premiseHolds` that its scanned opener differs from the source's and that `matchVocabulary("Address:", vocab)` is non-null and the guards pass. Run the red command: AC-1 fails and the three excluded block cases fail; the admitted cases pass (they are the positive controls).
+- [ ] **Step 1: RED.** Every exclusion below is asserted DIFFERENTIALLY, against a firing control in the same test, so "nothing fired" can never mean "the detector never ran" (the pattern of `expectContributesNothing`, `tests/parser/fieldNearMiss.test.ts`).
+  - AC-1, in `tests/parser/fieldNearMissBaseline.test.ts`: for each of `fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md` and `fixtures/shows/exporter-xlsx/fintech.md`, the as-committed `parseSheet` emits no `UNKNOWN_FIELD` keyed `Address:`, `Phone:` or `E-mail:`, AND, in the same test, the same text with only the quote header's opener cell `Client:` replaced by `CLIENT` emits all three (the control: the rows are reachable and match).
+  - AC-4, in `tests/parser/fieldNearMiss.test.ts`: the source block is the FinTech raw fixture's `Client:` block from `corpusBlocks()`. One test per excluded variant (as committed, `CLIENT:`, `Client:/Contact:`), each calling `expectContributesNothing(variant)`, which appends the east-coast `Stage` control and asserts the combined output equals the control's own. One test per admitted variant (`CLIENT`, `TRANSPORTATION/Load In:`, `GENERAL SESSION SINCLAIR BALLROOM TOTAL: 74' x 31'`), each asserting `Address:` fires. Every rebuilt variant carries `premiseHolds` that its scanned opener differs from the source's; every case carries `premiseHolds` that `matchVocabulary("Address:", vocab)` is non-null and the guards pass.
+  Run the red command: AC-1's no-emission half and the three excluded AC-4 cases fail; the admitted cases and the AC-1 control half pass.
 - [ ] **Step 2: GREEN.** Implement `isLabelOpener` and call it as the third arm of `isCandidateHome`, before `return true`. Add its direct unit cases, true for `Client:`, `CLIENT:`, `Client:/Contact:`, `Client: ` and `Client:/INSTITUTIONAL INVESTOR`; false for `CLIENT`, `TRANSPORTATION/Load In:`, `GENERAL SESSION SINCLAIR BALLROOM TOTAL: 74' x 31'`, `ROOM DIMENSIONS:&#10;4100 SQ FT TOTAL`, `DETAILS`, `VENUE NAME`, `Timestamp`, `` (empty).
 - [ ] **Step 3: repair the cases the arm flips** (the spike run of 2026-10-25 against this exact change failed exactly these seven in `tests/parser/fieldNearMiss.test.ts`; no other near-miss case moved):
-  - `audited true positives fire` › "the colon-suffixed client-contact rows name their venue/client aliases", "Client:/Contact: matches as an equality once punctuation collapses", "E-mail: matches only through the fused form": keep each `matchVocabulary` assertion (the matching rule is unchanged) and replace each emission assertion with the exclusion, under a `premiseHolds` that the row matches and clears the guards. Rename the describe to say these rows MATCH but sit in a withdrawn block.
+  - `audited true positives fire` › "the colon-suffixed client-contact rows name their venue/client aliases", "Client:/Contact: matches as an equality once punctuation collapses", "E-mail: matches only through the fused form": keep each `matchVocabulary` assertion (the matching rule is unchanged) and replace each emission assertion with `expectContributesNothing(block)` on the withdrawn block, under a `premiseHolds` that the row matches and clears the guards, and in the same test assert that the block rebuilt with opener `CLIENT` emits the row (the firing control). Rename the describe to say these rows MATCH but sit in a withdrawn block.
   - `block/kind anchor namespace` › "falls back to the normalized block-opener label for any other block": the `client contact` example is now withdrawn; keep the `joann` example, which still emits.
   - `block candidacy` › AC-4 (2026-08-28 numbering) "a narrow-minimum block stays a candidate even where the FIRING row is wide": move the witness to an admitted block per spec AC-6.
   - `block candidacy` › AC-9 census: after regeneration (Step 4) the family loop asserts `venue` and `details` blocks all stay candidates; for `client` it asserts the refused ids are exactly the `Client:`-opener blocks and every `CLIENT`-opener block stays; `client contact` is asserted refused. Family premises re-derived from the census.
@@ -117,7 +144,15 @@ What is red and why: the new AC-1 and AC-4 cases expect no emission from a `Clie
   - Census: add the `label-opener` arm to the longhand rule in `docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-block-census.ts` (written out, not imported, per that file's header), run it with `node --import tsx`, and confirm the artifact's diff is exactly the 10 blocks of spec §3.2.
   - Baseline: `UPDATE_NEAR_MISS_BASELINE=1 pnpm exec vitest run tests/parser/fieldNearMissBaseline.test.ts`; the diff removes exactly the rows the probe's TABLE-C P4 column removes and leaves 5. Update `EXPECTED_TOTAL`, the composition partition (4 `details` rows, 1 `joann` row), and add a `BASELINE_NOTE` line naming the spec.
   - Candidate spellings: in `tests/parser/candidateLabel.test.ts`, derive the "preserves the SPELLING" case's set from `buildVocabulary()` raw spellings (spec §6).
-  - Venue signal parity: `UPDATE_VENUE_PARITY_BASELINE=1 pnpm exec vitest run tests/parser/venueSignalParity.test.ts`; the diff removes only `client`-namespace `UNKNOWN_FIELD` signatures.
+  - Venue signal parity: `UPDATE_VENUE_PARITY_BASELINE=1 pnpm exec vitest run tests/parser/venueSignalParity.test.ts`; every removed or changed line belongs to a fixture whose near-miss baseline rows changed, and is either a raw-row signature whose block namespace is `client` or `client contact`, or that fixture's `UNKNOWN_FIELD` warning-count line, whose new count equals the fixture's regenerated near-miss row count (the line is absent when the count is 0). The consultants raw fixture, for example, loses exactly these five lines:
+
+    ```
+    R:client contact|Address:x1
+    R:client contact|Client:/Contact:x1
+    R:client contact|E-mail:x1
+    R:client contact|Phone:x1
+    W:UNKNOWN_FIELDx4
+    ```
 - [ ] **Step 5: green.** The red command passes; so do `tests/parser/candidateLabel.test.ts`, `tests/parser/venueSignalParity.test.ts`, `tests/parser/consumptionLedger.test.ts`, `tests/drive/unknownFieldAnchors.test.ts`.
 - [ ] **Step 6: commit** `fix(parser): near-miss cards skip blocks that open on a label`.
 
@@ -135,8 +170,8 @@ Steps:
 
 1. RED. Create the new suite tests/parser/venueAddressMissing.test.ts (the path the red command names):
    - AC-10: for every fixture under `fixtures/shows/raw/` and `fixtures/shows/exporter-xlsx/` (README.md excluded, the same list `tests/parser/fieldNearMissBaseline.test.ts` walks), parse, compute `expected = name.trim() !== "" && address.trim() === ""` from `show.venue`, and assert the count of `VENUE_ADDRESS_MISSING` is `expected ? 1 : 0`. Premise, unconditional and above the loop: at least one fixture expects 1 and at least one expects 0.
-   - AC-11: a relabel case on a real fixture (`fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md` with `| VENUE ADDRESS |` replaced by `| Street Address |`): premise that the source fixture's address is non-empty and the relabelled parse's is empty, then assert the warning fires with `severity: "warn"`, `blockRef` deep-equal to `{ kind: "venue" }`, `rawSnippet === show.venue.name`, and `hasIgnorableSnippet(w)` true. Plus whitespace-only address fires, non-empty does not, empty name does not, each on the emit seam with a constructed `ShowRow["venue"]`.
-   - Seam cases on `venueAddressMissingName`: `null` venue returns `null`; name `"   "` with empty address returns `null`; name `"Kimpton Gray"` with address `""` or `"  "` returns `"Kimpton Gray"`; a non-empty address returns `null`.
+   - AC-11: a relabel case on a real fixture (`fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md` with `| VENUE ADDRESS |` replaced by `| Street Address |`): premise that the source fixture's address is non-empty and the relabelled parse's is empty, then assert the warning fires with `severity: "warn"`, `blockRef` deep-equal to `{ kind: "venue" }`, `rawSnippet === show.venue.name`, and `hasIgnorableSnippet(w)` true. The same test asserts the unrelabelled source fixture emits no `VENUE_ADDRESS_MISSING` (the differential pair).
+   - Seam cases on `venueAddressMissingName`, in ONE test so every refusal sits beside a firing case: name `"Kimpton Gray"` with address `""` returns `"Kimpton Gray"` and with `"  "` returns `"Kimpton Gray"` (the firing cases, asserted first); `null` venue, name `"   "` with empty address, and a non-empty address each return `null`.
    - In the AC-10 loop, every fired warning's `rawSnippet` equals that fixture's `show.venue.name`, and the firing fixtures carry at least two distinct venue names (premise), so an Ignore keyed on one venue cannot silence another.
    - AC-12: mock the emit helper's module export to a no-op and assert `show` deep-equals the unmocked parse on every firing fixture.
    - AC-15: `KIND_TO_SECTION[w.blockRef.kind]` is `"venue"` for the AC-11 warning.
@@ -168,11 +203,11 @@ Run in order on the final tree, each from the worktree root; a red stops the clo
    - Re-key the two line-keyed accepted rows on the `fieldNearMiss` registry entry if their lines moved, by kind and source text, after commit hooks have formatted the file.
    - Any surviving mutant in `isLabelOpener` gets a killing case in `tests/parser/fieldNearMiss.test.ts`, not an accepted row.
 
-1. `pnpm typecheck` (8 GB heap, as the script sets).
+1. `NODE_OPTIONS=--max-old-space-size=8192 pnpm typecheck` (the script itself is a bare `tsc --noEmit`; the heap is set here because a default-heap run of this repo's typecheck runs out of memory).
 2. `pnpm exec eslint .` and `pnpm format:check`.
 3. Full unit suite, outermost-wrapped: `pnpm heavy pnpm test`.
 4. Generated-file freshness: `pnpm gen:spec-codes && pnpm gen:internal-code-enums && git diff --exit-code lib/messages/__generated__/`.
-5. The probe re-run, `pnpm exec tsx docs/superpowers/specs/parser/probes/2026-10-25-nearmiss-known-header-probe.ts`, is unchanged against the frozen baseline it reads, and its TABLE-C P4 column equals the regenerated baseline's emission set.
+5. The probe re-run (`node --import tsx docs/superpowers/specs/parser/probes/2026-10-25-nearmiss-known-header-probe.ts`) completes, and its TABLE-C totals line now reads `before 5` and `P4 5`: the arm is live, so the shipped detector already emits the P4 set and applying P4 again removes nothing. Its "emission set == frozen baseline" flag is now `false` by design, because the frozen copy is the pre-change 33-row baseline; that flag is not a closeout criterion.
 6. Invariant 8: no UI surface (marker line above). Invariant 12: no ledger row is closed by this branch, so no marker to add or remove.
 7. Whole-diff cross-model review (codex-guard, `--stage diff`), split by surface: part 1 (`lib/parser/fieldNearMiss.ts` and the near-miss suites, baselines, census) and part 2 (venue notice and its registrations). Then push, real CI green on all required checks, `gh pr merge --merge`, fast-forward local `main`, verify `git rev-list --left-right --count main...origin/main` is `0  0`.
 
