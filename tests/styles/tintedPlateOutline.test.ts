@@ -246,7 +246,12 @@ const REGISTRY: readonly RegistryRow[] = [
     // filled with `bg-surface-sunken`, one of the four neutrals, which is
     // exactly the DESIGN.md §1.2a case where the stroke IS the boundary and
     // takes the text ramp. Raw count is now 14, four of them still in comments.
-    neutralFaintCount: 10,
+    // 10 -> 11 on 2026-10-26: the hotel card date stub's connector line, a
+    // `before:border-t before:border-text-faint` rule. Neutral ground: it sits
+    // on the stub's `bg-surface-sunken`. It is a border, not a fill, so it
+    // survives forced-colors mode; DESIGN.md §1.2a puts a standalone 1px rule on
+    // the text ramp. Raw count is now 15, four of them still in comments.
+    neutralFaintCount: 11,
   },
 ];
 

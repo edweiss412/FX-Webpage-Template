@@ -2802,9 +2802,9 @@ export function HotelsBreakdown({
 
 /**
  * One end of the hotel card's date stub: a field label over the day set large
- * with its month beside it and the weekday underneath. A sheet value that is
- * not a date (e.g. "TBD") echoes verbatim, and a missing one says so in plain
- * words; neither claims a `<time>`.
+ * with its month beside it and the weekday underneath. A missing date says so
+ * in plain words. The parser normalizes a non-date cell (e.g. "TBD") to null,
+ * so the verbatim-echo branch is defensive only; neither claims a `<time>`.
  */
 function StayEnd({
   label,
@@ -2819,7 +2819,7 @@ function StayEnd({
 }) {
   const parts = value ? dateStubParts(value) : null;
   return (
-    <div data-testid={testId} className={cn("min-w-0 shrink-0", alignEnd && "text-right")}>
+    <div data-testid={testId} className={cn("min-w-0", alignEnd && "text-right")}>
       <p className={CELL_EYEBROW_CLASS}>{label}</p>
       {parts === null ? (
         <p className="mt-1 text-sm font-medium text-text-subtle">Not listed</p>
@@ -2854,11 +2854,14 @@ function HotelCard({ h, flat = false }: { h: HotelReservationRow; flat?: boolean
   const address = hasContent(h.hotel_address) ? h.hotel_address : null;
   const names = arr(h.names).filter((n) => hasContent(n));
   const nights = nightsBetween(h.check_in, h.check_out);
+  const guestsLabelId = useId();
   return (
     <div
       data-testid="wizard-step3-hotel-card"
       className={
-        flat ? "flex flex-col gap-3" : "flex flex-col gap-3 rounded-md border border-border p-4"
+        flat
+          ? "@container flex flex-col gap-3"
+          : "@container flex flex-col gap-3 rounded-md border border-border p-4"
       }
     >
       <div className="min-w-0">
@@ -2874,13 +2877,23 @@ function HotelCard({ h, flat = false }: { h: HotelReservationRow; flat?: boolean
       </div>
 
       {h.check_in || h.check_out ? (
-        <div className="flex items-start gap-3 rounded-md bg-surface-sunken px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-md bg-surface-sunken px-4 py-3 @2xs:flex-nowrap">
           <StayEnd label="Check in" value={h.check_in} testId="hotel-stay-check-in" />
-          {/* Ends top-align so both labels share a baseline when one end is "TBD"; the
-              connector alone centers. Its line is a standalone 1px rule on the sunken
-              fill, so it takes the text-faint hairline ramp (DESIGN.md §1.2a), drawn by
-              ::before so no childless flex-1 span exists; the night count sits on it. */}
-          <div className="relative flex min-w-8 flex-1 items-center justify-center self-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-text-faint">
+          {/* One row from an 18rem card up: the connector sits between the dates. Below
+              that (a 320px phone, or enlarged text, since the query is in rem) it drops
+              to its own full-width row under them instead of painting over them. The
+              ends top-align so their labels line up when one end is "Not listed".
+              The line is a standalone 1px rule, so it takes the text-faint hairline
+              ramp (DESIGN.md §1.2a). It is a ::before BORDER, not a fill: a background
+              vanishes in forced-colors mode, and the pseudo-element means no childless
+              flex-1 span exists. Without a night count it has nothing to say on its
+              own row, so it only shows in the one-row layout. */}
+          <div
+            className={cn(
+              "relative order-last basis-full items-center justify-center self-center before:absolute before:inset-x-0 before:top-1/2 before:-translate-y-1/2 before:border-t before:border-text-faint @2xs:order-0 @2xs:min-w-fit @2xs:flex-1 @2xs:basis-0",
+              nights === null ? "hidden @2xs:flex" : "flex",
+            )}
+          >
             {nights !== null ? (
               <span
                 data-testid="hotel-stay-nights"
@@ -2896,8 +2909,12 @@ function HotelCard({ h, flat = false }: { h: HotelReservationRow; flat?: boolean
 
       {names.length > 0 ? (
         <div>
-          <p className={CELL_EYEBROW_CLASS}>Guests</p>
-          <ul className="mt-2 flex flex-wrap gap-2">
+          <p id={guestsLabelId} className={CELL_EYEBROW_CLASS}>
+            Guests
+          </p>
+          {/* Explicit role: preflight's list-style:none makes Safari drop list
+              semantics, and with them the guest count. */}
+          <ul role="list" aria-labelledby={guestsLabelId} className="mt-2 flex flex-wrap gap-2">
             {names.map((n, idx) => (
               <li
                 key={`${n}-${idx}`}

@@ -1463,6 +1463,15 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(shown.map((n) => n.textContent)).toEqual(names);
   });
 
+  test("hotel card guest chips are an explicit list named by its Guests label", () => {
+    const card = renderHotelCard("drive-hs5", { names: ["Ann Lee", "Bo Diaz"] });
+    // Tailwind preflight strips list-style, and Safari then drops list semantics
+    // unless the role is explicit, so the count would go unannounced.
+    const list = within(card).getByRole("list", { name: "Guests" });
+    expect(list.getAttribute("role")).toBe("list");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+  });
+
   test("crew breakdown shows partial-attendance as-parsed (BL-CREW-PARTIAL-ATTENDANCE-CHIP)", () => {
     const pr = {
       ...GEAR_PR,

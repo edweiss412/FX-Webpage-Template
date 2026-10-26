@@ -136,8 +136,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // +1 on Task 3 of the diagram-tile-states plan, same one-line lucide import.
     // 3413 on the post-edit tree, confirmed by its own unique
     // `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`, never by the delta.
-    // Moved 3413 -> 3458 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
-    line: 3458,
+    // Moved 3413 -> 3475 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
+    line: 3475,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
