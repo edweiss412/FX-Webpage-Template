@@ -937,7 +937,7 @@ export function ModalSectionChrome({
   // buildSheetDeepLink falls back to `#gid=0` (whole first tab). Excluded: the
   // Diagrams sub-block (no dfid), the "Report an issue" section (not a region), and
   // "Sheet warnings", whose rows span every tab: its header link could only ever
-  // open the first tab at A1, and each warning row carries its own link.
+  // open the first tab at A1; a warning row links to its own cell when one is known.
   const sheetRegion = chrome.sectionId !== undefined ? SECTION_REGION_MAP[chrome.sectionId] : null;
   const sheetAnchor = sheetRegion ? chrome.sourceAnchors?.[sheetRegion] : undefined;
   const sheetHref =
@@ -1002,7 +1002,7 @@ export function ModalSectionChrome({
               (`sm:justify-start`; `flex-1` then absorbs all slack, which is what
               pushes the pill + glyph to the right edge with no pusher element).
               `pr-header-link-slot` when there is no corner link (the Diagrams
-              sub-block, "Report an issue", and the defensive empty-dfid state) so
+              sub-block, "Report an issue", "Sheet warnings", the empty-dfid state) so
               the name lands on the SAME axis as a section that has one — measured
               +4px either way, versus +19px without the compensation. The token is
               30px: the link's own 20px box plus the row's 10px `gap-2.5`. A raw
