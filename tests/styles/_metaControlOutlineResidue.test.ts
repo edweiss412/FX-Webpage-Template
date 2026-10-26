@@ -1566,7 +1566,10 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // the shifted tree, not bumped: 2457 is PackCountPill's pill <span>, carrying
       // `border border-border`, and `git show HEAD:<file>` puts the same element at
       // 2456 before the edit.
-      "components/admin/wizard/step3ReviewSections.tsx:2457",
+      // 2457 -> 2458 on fix/dress-code-hierarchy, which added the DressCodeLines import
+      // line near the top. Located on the shifted tree: 2458 is that same PackCountPill
+      // `rounded-pill border border-border` <span>.
+      "components/admin/wizard/step3ReviewSections.tsx:2458",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

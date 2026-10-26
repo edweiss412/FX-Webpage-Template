@@ -960,6 +960,31 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(ed).not.toContain("drive.google.com");
   });
 
+  test("event-details dress code renders each phase as a term over its attire", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...(GEAR_PR as unknown as { show: object }).show,
+        event_details: {
+          dress_code:
+            "Set/Strike: Black Pants, Black Polo Shirt, Black Footwear\n" +
+            "Show: Black Pants, Black Long Sleeve Button Down Shirt, Black Footwear",
+        },
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-dress", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-dress-more"));
+    const ed = within(getByTestId("wizard-step3-card-drive-dress-breakdown-event-details"));
+    // A flat pre-line box (the old render) has no terms at all.
+    expect(ed.getAllByRole("term").map((el) => el.textContent)).toEqual(["Set/Strike", "Show"]);
+    expect(ed.getAllByRole("definition")[0]?.textContent).toBe(
+      "Black Pants, Black Polo Shirt, Black Footwear",
+    );
+  });
+
   test("event-details breakdown reads 'No event details parsed.' when absent", () => {
     const noEd = {
       ...GEAR_PR,

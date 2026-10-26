@@ -451,7 +451,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // rather than moving one: the `if (failed)` at step3ReviewSections.tsx:4152
     // became a `DiagramTileState` union. Membership 35 -> 34, and the sets differ
     // by that row alone.
-    expect(digest).toBe("ed124ebcad66392c04e124001124fb94fa4ab79b297841fa3822fcfa1e5527c8");
+    // Regenerated for fix/dress-code-hierarchy, to the same bar. EXACTLY THREE inputs
+    // changed, all line numbers, all in the one file of this set the arc edits:
+    //   components/crew/sections/TodaySection.tsx 644/645/646 -> 646/647/648 (+2: the
+    //   DressCodeLines import and one header-comment line land above them)
+    // They are the same rooms / hotel / contacts `SectionTileError` rows in the same
+    // order. Nothing joined or left: membership is still 34, the file set is unchanged,
+    // and every `form` and `marked` value is unchanged. Recomputing on origin/main
+    // reproduces ed124ebc... byte-for-byte, and those three rows are the whole diff.
+    expect(digest).toBe("755b2e86bed95616e9ff62b37855b3b1d03410f11b7bf5da7847560779d31b17");
   });
 });
 
