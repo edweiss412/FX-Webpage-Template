@@ -178,7 +178,7 @@ export type WarningAnchorSources = {
   wave?: WavePairedAnchors;
   // Cells located by content and the visible-tab map (lib/drive/contentAnchors.ts). Optional:
   // absent means no scan ran, and the LINK_ONLY codes that read it stay link-less.
-  content?: ContentAnchors;
+  content?: ContentAnchors | undefined;
   region: Record<string, SourceAnchor>;
 };
 
