@@ -505,23 +505,26 @@ export function ShowReviewSurface({
 
   // ── §E4 warning jump + one-shot highlight (§H N3) ──────────────────────────
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const highlightedElRef = useRef<HTMLElement | null>(null);
+  // An ARRAY: a grouped callout row ("3 rows we couldn't match") flashes every
+  // card it stands for, and all of them clear together.
+  const highlightedElsRef = useRef<HTMLElement[]>([]);
 
   /** One highlight at a time: cancel the pending timer and strip the
-   *  attribute from whichever row currently carries it. */
+   *  attribute from whichever rows currently carry it. */
   function clearWarningHighlight() {
     if (highlightTimerRef.current !== null) {
       clearTimeout(highlightTimerRef.current);
       highlightTimerRef.current = null;
     }
-    highlightedElRef.current?.removeAttribute("data-step3-warning-flash");
-    highlightedElRef.current = null;
+    for (const el of highlightedElsRef.current) el.removeAttribute("data-step3-warning-flash");
+    highlightedElsRef.current = [];
   }
 
   /** §E4 jump: `index` = FULL warnings-array position (the callout entry's
    *  key); `null` = the "+N more" section-top jump (plain nav-click
-   *  semantics, no highlight). */
-  function jumpToWarning(index: number | null) {
+   *  semantics, no highlight). `group` = every index a grouped callout row
+   *  stands for; the scroll goes to `index`, and every found card flashes. */
+  function jumpToWarning(index: number | null, group?: readonly number[]) {
     if (index === null) {
       handleNavClick("warnings"); // "+N more": plain nav-click semantics, no highlight
       return;
@@ -538,9 +541,12 @@ export function ShowReviewSurface({
       scroller.scrollTo({ top });
     }
     clearWarningHighlight(); // one highlight at a time
-    if (target) {
-      target.setAttribute("data-step3-warning-flash", "");
-      highlightedElRef.current = target;
+    const flashed = (group ?? [index])
+      .map((i) => scroller?.querySelector<HTMLElement>(`[data-warning-index="${i}"]`) ?? null)
+      .filter((el): el is HTMLElement => el !== null);
+    if (flashed.length > 0) {
+      for (const el of flashed) el.setAttribute("data-step3-warning-flash", "");
+      highlightedElsRef.current = flashed;
       highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
     }
   }
@@ -601,7 +607,7 @@ export function ShowReviewSurface({
     scroller.scrollTo({ top });
     clearWarningHighlight(); // one highlight at a time
     target.setAttribute("data-step3-warning-flash", "");
-    highlightedElRef.current = target;
+    highlightedElsRef.current = [target];
     highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nonce-keyed one-shot; handlers are render-stable by construction
   }, [attentionJump]);

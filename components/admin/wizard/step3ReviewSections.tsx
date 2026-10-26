@@ -542,9 +542,11 @@ export type Step3SectionChrome = {
   /**
    * Follow-ups spec §E4: jump callback — a full-array warning index scrolls
    * to that row + flashes it; `null` is the "+N more" section-top jump
-   * (plain §A2 nav-click semantics, no highlight).
+   * (plain §A2 nav-click semantics, no highlight). `group`, when given, is
+   * every index a grouped callout row stands for: all of them flash, so a row
+   * reading "3 rows we couldn't match" lands on three cards, not one.
    */
-  onJumpToWarning?: (index: number | null) => void;
+  onJumpToWarning?: (index: number | null, group?: readonly number[]) => void;
   /** Testid parts for the §E3 callout (`-section-${id}-flag-callout`) — the
    *  modal (sole provider) always passes both; optional so existing provider
    *  mounts in section tests stay valid. */
@@ -638,7 +640,7 @@ function SectionFlagCallout({
   dfid: string;
   sectionId: SectionId;
   entries: readonly { warning: ParseWarning; index: number; offersFix?: boolean }[];
-  onJump: (index: number | null) => void;
+  onJump: (index: number | null, group?: readonly number[]) => void;
   /** spec 2026-07-07 §7.3: "judgment" swaps the amber warn tone for a calm
    *  informational tone + a lead "we made a judgment call" line. Default flagged. */
   variant?: "flagged" | "judgment";
@@ -676,15 +678,20 @@ function SectionFlagCallout({
         // Lead line (spec §7.3): a judgment call is worth a glance, not an error.
         // Dash-free (DESIGN.md §copy). The section heading's "In sheet" link is the
         // spot-check affordance — no per-entry sheet link added in v1.
+        // Plural once the callout stands for two or more calls: a singular lead
+        // above "Made 2 judgment calls..." contradicted the row under it.
         <p className="font-medium text-text">
-          We made a judgment call reading this. Worth a glance.
+          {entries.length > 1
+            ? "We made some judgment calls reading this. Worth a glance."
+            : "We made a judgment call reading this. Worth a glance."}
         </p>
       ) : null}
       {shown.map(({ title, members }, k) => {
         // `title` comes from reviewWarningGroupTitle: §8 hardening applies
         // transitively, and a lone notice reads exactly as reviewWarningTitle.
-        // The jump lands on the group's FIRST card; the rest sit in Sheet warnings.
+        // The jump scrolls to the group's FIRST card and flashes every member.
         const index = members[0]!.index;
+        const group = members.map((m) => m.index);
         // Entry text names the specific field when the warning carries one
         // (spec §7.3): "<title> (dimensions)". Unknown/empty field → omit the
         // phrase (fieldLabelFor returns null); raw tokens never leak (invariant 5).
@@ -703,14 +710,20 @@ function SectionFlagCallout({
         return (
           <div key={entryKeys[k]} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <EntryIcon aria-hidden="true" className="size-3.5 shrink-0" />
-              <span className="min-w-0 wrap-break-word font-medium">
-                {title}
-                {fieldLabel ? ` (${fieldLabel})` : ""}
+              {/* Icon + title wrap as ONE unit, so a long counted title never
+                  leaves the icon alone on its own line at phone width; only the
+                  link drops below. `mt-px` centres the 14px icon on the first
+                  16px line of a multi-line title. */}
+              <span className="flex min-w-0 items-start gap-2">
+                <EntryIcon aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+                <span className="min-w-0 wrap-break-word font-medium">
+                  {title}
+                  {fieldLabel ? ` (${fieldLabel})` : ""}
+                </span>
               </span>
               <button
                 type="button"
-                onClick={() => onJump(index)}
+                onClick={() => onJump(index, group)}
                 className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 {jumpLabel} <span className="sr-only">for {title}</span>
@@ -730,7 +743,10 @@ function SectionFlagCallout({
           onClick={() => onJump(null)}
           className="inline-flex min-h-tap-min items-center self-start font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
-          +{extra} more in Sheet warnings
+          {/* Counts NOTICES (the rows above count kinds), so it names them. */}
+          {extra === 1
+            ? "+1 more notice in Sheet warnings"
+            : `+${extra} more notices in Sheet warnings`}
         </button>
       ) : null}
     </div>
