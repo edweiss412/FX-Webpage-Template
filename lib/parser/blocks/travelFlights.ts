@@ -66,16 +66,27 @@ function splitEscapedCells(line: string): string[] {
   return cells.map((c) => clean(c));
 }
 
-const isHeaderLine = (line: string): { nameIdx: number; flightIdx: number } | null => {
-  const t = line.trim();
-  if (!t.startsWith("|")) return null;
-  const cells = splitEscapedCells(line).map((c) => c.toUpperCase());
+/**
+ * The TRAVEL header signature over one row's cells: col-A `NAME`, a `FLIGHT DETAILS` cell,
+ * and a booking sibling. Exported so the deep-link scanner (lib/drive/contentAnchors.ts)
+ * locates the same row this parser reads, rather than a re-derivation of the test.
+ */
+export function travelHeaderIndices(
+  rowCells: readonly string[],
+): { nameIdx: number; flightIdx: number } | null {
+  const cells = rowCells.map((c) => c.toUpperCase());
   if ((cells[0] ?? "") !== "NAME") return null;
   const flightIdx = cells.findIndex((c) => c === "FLIGHT DETAILS");
   if (flightIdx === -1) return null;
   const hasSibling = cells.some((c) => c === "FLIGHT BOOKED" || c === "OK TO BOOK?");
   if (!hasSibling) return null;
   return { nameIdx: 0, flightIdx };
+}
+
+const isHeaderLine = (line: string): { nameIdx: number; flightIdx: number } | null => {
+  const t = line.trim();
+  if (!t.startsWith("|")) return null;
+  return travelHeaderIndices(splitEscapedCells(line));
 };
 
 /**
