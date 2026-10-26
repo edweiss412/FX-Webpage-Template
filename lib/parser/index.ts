@@ -13,7 +13,13 @@ import { classifyVersion } from "./schema";
 import { stripZeroWidth } from "./zeroWidth";
 import { isAgendaLinkRow } from "./agendaLinkRow";
 import { HTTP_URL_PREFIX } from "./httpUrlPrefix";
-import { newAggregator, emitUnknownSection, emitOrphanedCrewRows } from "./warnings";
+import {
+  newAggregator,
+  emitUnknownSection,
+  emitOrphanedCrewRows,
+  emitVenueAddressMissing,
+  venueAddressMissingName,
+} from "./warnings";
 import {
   isKnownSectionHeader,
   isKnownSubLabel,
@@ -635,6 +641,9 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   // Step 3: Call each block parser.
   const { client_label, client_contact } = parseClient(markdown, version, agg);
   const venue = parseVenue(markdown, version, agg);
+  // A named venue the crew page would show with no street address (2026-10-25 spec §4).
+  const missingVenueAddress = venueAddressMissingName(venue);
+  if (missingVenueAddress !== null) emitVenueAddressMissing(agg, missingVenueAddress);
   const dates = parseDates(markdown, version, agg);
   const agendaResult = parseAgenda(markdown, dates);
   agg.warnings.push(...agendaResult.warnings);

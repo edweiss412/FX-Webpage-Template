@@ -434,7 +434,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // weakened into one that passes on nothing. The pin moves deliberately: it exists so
   // a suite cannot quietly gain or lose provenance-touching cases, and this arc loses
   // exactly one.
-  "tests/parser/fieldNearMissBaseline.test.ts": 13,
+  //
+  // 13 -> 14 on 2026-10-25 (fix/near-miss-gear-quote-header). The label-opener arm's
+  // document-seam case (spec AC-1) parses two corpus fixtures through `parseSheet`, so it
+  // reaches `lib/parser` like the rest; it states its premise (the fixture carries a
+  // `Client:` opener to reopen) before the assertion that rests on it.
+  "tests/parser/fieldNearMissBaseline.test.ts": 14,
   // Enrolled 2026-08-28 (BL-NEARMISS-CANDIDACY-NON-FIELD-BLOCKS) as `rowScanOpener`'s
   // deciding suite for `blockMinValueCells`. 0: every case is a literal cell array handed
   // straight to the scanner, so nothing reads the filesystem, `process.env`, or a fixture.
