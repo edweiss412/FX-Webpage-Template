@@ -53,8 +53,9 @@ type Status = "clean" | "flagged" | "judgment";
  * earlier draft used names like "Defensive uncounted judgment" (28 chars), which
  * wrapped to two lines at a 280px row and failed the one-line contract. No real
  * section name approaches that — the longest are "Report an issue" (15) and
- * "Sheet warnings" (14), and "Sheet warnings (128)" is exercised at 320px by
- * G1-flagged. Long synthetic labels test the fixture, not the product.
+ * "Sheet warnings" (14). Neither carries a corner link; linkless geometry is
+ * covered by G3 (uncounted) and G6a (counted). Long synthetic labels test the
+ * fixture, not the product.
  *
  * `dfid: ""` is the DEFENSIVE state, reachable only through
  * ShowReviewSurface's `data.driveFileId ?? ""` fallback — not the normal published
@@ -85,9 +86,9 @@ export const CELLS: ReadonlyArray<{
   },
   {
     cell: "G1-flagged",
-    heading: "Sheet warnings",
+    heading: "Crew",
     dfid: HARNESS_DFID,
-    sectionId: "warnings",
+    sectionId: "crew",
     headingLevel: 3,
     count: 128,
     status: "flagged",

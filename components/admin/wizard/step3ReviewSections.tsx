@@ -935,11 +935,16 @@ export function ModalSectionChrome({
   // range to buildSheetDeepLink, so the link opens the sheet AT that section's
   // cells instead of INFO!A1. Absent anchor / null region / missing key →
   // buildSheetDeepLink falls back to `#gid=0` (whole first tab). Excluded: the
-  // Diagrams sub-block (no dfid) and the "Report an issue" section (not a region).
+  // Diagrams sub-block (no dfid), the "Report an issue" section (not a region), and
+  // "Sheet warnings", whose rows span every tab: its header link could only ever
+  // open the first tab at A1, and each warning row carries its own link.
   const sheetRegion = chrome.sectionId !== undefined ? SECTION_REGION_MAP[chrome.sectionId] : null;
   const sheetAnchor = sheetRegion ? chrome.sourceAnchors?.[sheetRegion] : undefined;
   const sheetHref =
-    chrome.dfid && chrome.sectionId !== undefined && chrome.sectionId !== "report"
+    chrome.dfid &&
+    chrome.sectionId !== undefined &&
+    chrome.sectionId !== "report" &&
+    chrome.sectionId !== "warnings"
       ? buildSheetDeepLink(chrome.dfid, sheetAnchor)
       : null;
   return (
