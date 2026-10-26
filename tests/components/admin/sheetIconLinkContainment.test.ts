@@ -1133,6 +1133,7 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // The staged adapter carries `sourceAnchors` straight onto the projection.
         "lib/data/stagedShowForViewer.ts": 1,
         "lib/dev/publishedModalFixture.ts": 4,
+        "lib/drive/contentAnchors.ts": 1,
         "lib/drive/crewRoleAnchors.ts": 1,
         "lib/drive/showDayTimeAnchors.ts": 1,
         "lib/drive/sourceAnchors.ts": 1,

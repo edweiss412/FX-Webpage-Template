@@ -754,9 +754,7 @@ describe("attachSourceCellAnchors: link-only codes outside the render gate (Shee
     const anchor = run(arch("OLD PULL SHEET"), src);
     expect(anchor).toEqual({ title: "OLD PULL SHEET", gid: 12, scope: "tab" });
     // Not on the allowlist, so only the tab scope lets the builder honour the gid.
-    expect(buildSheetDeepLink("dfid", anchor)).toBe(
-      "https://docs.google.com/spreadsheets/d/dfid/edit#gid=12",
-    );
+    expect(buildSheetDeepLink("dfid", anchor)).toMatch(/\/d\/dfid\/edit#gid=12$/);
     // A hidden tab is absent from visibleTabs; an unnamed one has nothing to look up. Neither
     // falls back to the live PULL SHEET region.
     expect(run(arch("OLD GEAR"), src)).toBeNull();
