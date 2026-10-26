@@ -654,8 +654,10 @@ type Opts = {
  * MODAL_PREFETCH_E2E/MODAL_REALTIME_E2E failed it — their values gate
  * test.skip, so a value-only flip was a green run with no tests). A novel
  * key OR a novel value for a pinned key fails closed: `path`, `LD_PRELOAD`,
- * `NODE_OPTIONS`, `BASH_ENV`, `PERL5LIB`, GITHUB_-prefixed names have no
- * row, and `MODAL_PREFETCH_E2E: "0"` is off-list the same way — there is no
+ * `BASH_ENV`, `PERL5LIB`, GITHUB_-prefixed names have no row, `NODE_OPTIONS`
+ * has one only for the quality job's heap size (any other value, such as a
+ * `--require`, is off-list), and `MODAL_PREFETCH_E2E: "0"` is off-list the
+ * same way — there is no
  * dangerous-key enumeration and no per-key inertness debate left. Expression
  * values pin as TEXT (`${{ secrets.X }}` is one pinned string); what an
  * expression resolves to at runtime is out of universe (spec §5 LS1). The
@@ -690,6 +692,15 @@ export type EnvKeyAllowlist = Record<
  *  because it cannot occur in YAML scalar text. */
 export const govKey = (key: string, valueText: string) => `${key}\u0000${valueText}`;
 export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
+  NODE_OPTIONS: {
+    values: [{ text: "--max-old-space-size=8192", governs: [] }],
+    reason:
+      "Raises the heap for the quality job's `pnpm typecheck`, which died with exit 134 " +
+      "(JavaScript heap out of memory) at Node's default limit on 2026-10-26. Governs no " +
+      "spec: quality.yml runs eslint, tsc and prettier, never Playwright. Pinned to this one " +
+      "value because NODE_OPTIONS can also load code (`--require`, `--import`); any other " +
+      "value is a novel pair and fails closed.",
+  },
   RECORDS_DIR: {
     values: [{ text: "records", governs: [] }],
     reason:
