@@ -1,13 +1,16 @@
 export const SOURCE_LINK_ALLOWLIST = ["INFO", "AGENDA", "GEAR", "TRAVEL", "PULL SHEET"] as const;
 export type AllowedTabTitle = (typeof SOURCE_LINK_ALLOWLIST)[number];
 /**
- * `scope` is set by the two raw-workbook anchor scanners (`lib/drive/unknownFieldAnchors.ts`,
- * which locates a cell by content, and `lib/drive/waveCodeAnchors.ts`, which locates one by
- * replaying the detectors over the exporter's blocks, spec 2026-08-29 §2) and by nothing
- * else: "cell" when the exact cell was located, "tab" when the cell was not unique but the
- * block kind named one tab (spec 2026-08-27-wizard-warning-row-links-copy §2.4/§2.5). Absent on
- * every other producer - region anchors, legacy persisted rows, crew-role and show-day
- * cells - which is what keeps the read-time allowlist guard below unchanged for them.
+ * `scope` is set by the three raw-workbook anchor scanners (`lib/drive/unknownFieldAnchors.ts`
+ * and `lib/drive/contentAnchors.ts`, which locate a cell by content, and
+ * `lib/drive/waveCodeAnchors.ts`, which locates one by replaying the detectors over the
+ * exporter's blocks, spec 2026-08-29 §2) and by the warning router in
+ * `lib/drive/showDayTimeAnchors.ts` when it names a whole tab it found (a visible archived
+ * pull-sheet tab, or one tab holding several TRAVEL tables), and by nothing else: "cell" when
+ * the exact cell was located, "tab" when the cell was not unique but one tab was (spec
+ * 2026-08-27-wizard-warning-row-links-copy §2.4/§2.5). Absent on every other producer -
+ * region anchors, legacy persisted rows, crew-role and show-day cells - which is what keeps
+ * the read-time allowlist guard below unchanged for them.
  */
 export type SourceAnchor = { title: string; gid: number; a1?: string; scope?: "cell" | "tab" };
 
