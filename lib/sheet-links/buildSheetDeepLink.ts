@@ -55,6 +55,7 @@ export const REGION_IDS = [
   "gear_packlist",
   "gear_scope",
   "schedule",
+  "dates",
 ] as const;
 export type RegionId = (typeof REGION_IDS)[number];
 
@@ -123,6 +124,16 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
     tabs: ["INFO"],
     strategy: "header-block",
     header: /^VENUE$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
+  // `dates` is a WARNING-ANCHOR-ONLY region, like `client`: the deep-link target for
+  // DATE_ORDER_SUGGESTS_DMY and an empty DATES header (SECTION_HEADER_NO_FIELDS, kind
+  // "dates"). No crew card renders the DATES block as its own card, so it has no
+  // CARD_REGION_MAP entry (sourceLinkCoverage exempts it).
+  dates: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^DATES$/i,
     terminators: BLOCK_TERMINATORS,
   },
   financials: {
