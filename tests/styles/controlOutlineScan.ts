@@ -196,7 +196,8 @@ export const CENSUS: readonly CensusRow[] = [
   // 4877 -> 4878 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by its own
   // `wizard-step3-card-${dfid}-report-toggle` testid, never by the delta.
   // 4878 -> 4883 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 4883 -> 4945 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4945 },
+  // +30 on fix/section-callout-group-repeats; located on the merged tree by its own element: 4975.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4975 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -244,7 +245,8 @@ export const CENSUS: readonly CensusRow[] = [
   // 4959 -> 4960 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by its own
   // `disabled={draft.trim()...}` opener.
   // 4960 -> 4965 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 4965 -> 5027 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5027 },
+  // +30 on fix/section-callout-group-repeats; located on the merged tree by its own element: 5057.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5057 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then
@@ -321,8 +323,8 @@ export const CENSUS: readonly CensusRow[] = [
   // :814 / :993 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
   // :815 / :994 until 2026-08-27 — the attentionJump effect gained the
   // details-opening loop (spec §4.4), 11 lines above both.
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 838 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1019 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 844 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1025 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
   // :1083 until fix/attention-autoopen-suppress-phone, whose suppression

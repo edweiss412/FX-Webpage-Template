@@ -202,6 +202,7 @@ describe("Rendered-prose copy has no em dash or double hyphen (DESIGN.md §9, EM
     followUp: "rendered-prose",
     helpfulContext: "rendered-prose",
     title: "rendered-prose",
+    titlePlural: "rendered-prose",
     longExplanation: "rendered-prose",
     dougSummary: "rendered-prose",
     triggerContext: "rendered-prose",

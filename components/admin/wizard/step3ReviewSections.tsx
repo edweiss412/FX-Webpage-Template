@@ -119,7 +119,7 @@ import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeCo
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
-import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
+import { groupWarningsByTitle, reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
 import { sheetWarningsPanelCount, wizardPanelCount } from "@/lib/admin/sheetWarningsCount";
 import { NoteWarningCard } from "@/components/admin/NoteWarningCard";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
@@ -550,9 +550,11 @@ export type Step3SectionChrome = {
   /**
    * Follow-ups spec §E4: jump callback — a full-array warning index scrolls
    * to that row + flashes it; `null` is the "+N more" section-top jump
-   * (plain §A2 nav-click semantics, no highlight).
+   * (plain §A2 nav-click semantics, no highlight). `group`, when given, is
+   * every index a grouped callout row stands for: all of them flash, so a row
+   * reading "3 rows we couldn't match" lands on three cards, not one.
    */
-  onJumpToWarning?: (index: number | null) => void;
+  onJumpToWarning?: (index: number | null, group?: readonly number[]) => void;
   /** Testid parts for the §E3 callout (`-section-${id}-flag-callout`) — the
    *  modal (sole provider) always passes both; optional so existing provider
    *  mounts in section tests stay valid. */
@@ -631,8 +633,10 @@ export function findUseRawDecision(
 /**
  * §E3 inline flag callout: a compact warning-tone block at the top of a
  * flagged section's panel card linking each mapped warning to its row in the
- * Parse-warnings section. Titles go through `reviewWarningTitle` — the §8
- * hardening (invariant 5, no raw machine tokens) applies transitively.
+ * Parse-warnings section, one row per title (identical notices share a counted
+ * row). Titles go through `reviewWarningGroupTitle`, which wraps
+ * `reviewWarningTitle` — the §8 hardening (invariant 5, no raw machine tokens)
+ * applies transitively.
  */
 function SectionFlagCallout({
   dfid,
@@ -644,7 +648,7 @@ function SectionFlagCallout({
   dfid: string;
   sectionId: SectionId;
   entries: readonly { warning: ParseWarning; index: number; offersFix?: boolean }[];
-  onJump: (index: number | null) => void;
+  onJump: (index: number | null, group?: readonly number[]) => void;
   /** spec 2026-07-07 §7.3: "judgment" swaps the amber warn tone for a calm
    *  informational tone + a lead "we made a judgment call" line. Default flagged. */
   variant?: "flagged" | "judgment";
@@ -654,12 +658,18 @@ function SectionFlagCallout({
   // warnings"). It mounts NO use-raw / recognize-role controls;
   // WarningsBreakdown is the sole actionable site, so a warning has exactly one
   // live control instance (no stale-sibling divergence across two mounts).
-  const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
+  // Notices that would print the same row collapse into ONE counted row
+  // ("3 rows we couldn't match"): three identical lines with three identical
+  // links told the operator nothing the count does not. The cap therefore
+  // counts ROWS, and the overflow line counts the NOTICES behind the hidden
+  // rows, since each of those is a card in Sheet warnings.
+  const groups = groupWarningsByTitle(entries);
+  const shown = groups.slice(0, CALLOUT_MAX_ENTRIES);
   // spec 2026-07-16 §4.3.1 (class-sweep): identity keys, not full-array indices —
   // an upstream insertion shifts every index and would migrate expanded role-panel
   // state across warnings. Positional within `shown`; onJump keeps the full index.
-  const entryKeys = stableWarningKeys(shown.map((e) => e.warning));
-  const extra = entries.length - shown.length;
+  const entryKeys = stableWarningKeys(shown.map((g) => g.members[0]!.warning));
+  const extra = entries.length - shown.reduce((n, g) => n + g.members.length, 0);
   const isJudgment = variant === "judgment";
   const EntryIcon = isJudgment ? Info : AlertTriangle;
   return (
@@ -676,35 +686,52 @@ function SectionFlagCallout({
         // Lead line (spec §7.3): a judgment call is worth a glance, not an error.
         // Dash-free (DESIGN.md §copy). The section heading's "In sheet" link is the
         // spot-check affordance — no per-entry sheet link added in v1.
+        // Plural once the callout stands for two or more calls: a singular lead
+        // above "Made 2 judgment calls..." contradicted the row under it.
         <p className="font-medium text-text">
-          We made a judgment call reading this. Worth a glance.
+          {entries.length > 1
+            ? "We made some judgment calls reading this. Worth a glance."
+            : "We made a judgment call reading this. Worth a glance."}
         </p>
       ) : null}
-      {shown.map(({ warning, index, offersFix }, k) => {
-        const title = reviewWarningTitle(warning); // §8 hardening applies transitively
+      {shown.map(({ title, members }, k) => {
+        // `title` comes from reviewWarningGroupTitle: §8 hardening applies
+        // transitively, and a lone notice reads exactly as reviewWarningTitle.
+        // The jump scrolls to the group's FIRST card and flashes every member.
+        const index = members[0]!.index;
+        const group = members.map((m) => m.index);
         // Entry text names the specific field when the warning carries one
         // (spec §7.3): "<title> (dimensions)". Unknown/empty field → omit the
         // phrase (fieldLabelFor returns null); raw tokens never leak (invariant 5).
-        const fieldLabel = fieldLabelFor(warning.blockRef?.field);
+        // A group names a field only when every member names the same one.
+        const fieldLabels = new Set(members.map((m) => fieldLabelFor(m.warning.blockRef?.field)));
+        const fieldLabel = fieldLabels.size === 1 ? [...fieldLabels][0] : null;
         // CALLOUT-PREVIEW-ACTION-CUE-1: name the action + destination so the
         // preview never reads as passive FYI. "Fix" ONLY where the sole
-        // actionable site (WarningsBreakdown) renders a fix control for THIS
-        // warning (`offersFix`); judgment stays calm ("Review") by contract
-        // (spec 2026-07-07 §7.3). Missing/false offersFix fail-safes to
-        // "Review" — never a false "Fix".
+        // actionable site (WarningsBreakdown) renders a fix control for EVERY
+        // warning in the row (`offersFix`); judgment stays calm ("Review") by
+        // contract (spec 2026-07-07 §7.3). Missing/false offersFix on any
+        // member fail-safes to "Review" — never a false "Fix".
+        const offersFix = members.every((m) => m.offersFix === true);
         const jumpLabel =
-          isJudgment || offersFix !== true ? "Review in Sheet warnings" : "Fix in Sheet warnings";
+          isJudgment || !offersFix ? "Review in Sheet warnings" : "Fix in Sheet warnings";
         return (
           <div key={entryKeys[k]} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <EntryIcon aria-hidden="true" className="size-3.5 shrink-0" />
-              <span className="min-w-0 wrap-break-word font-medium">
-                {title}
-                {fieldLabel ? ` (${fieldLabel})` : ""}
+              {/* Icon + title wrap as ONE unit, so a long counted title never
+                  leaves the icon alone on its own line at phone width; only the
+                  link drops below. `mt-px` centres the 14px icon on the first
+                  16px line of a multi-line title. */}
+              <span className="flex min-w-0 items-start gap-2">
+                <EntryIcon aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+                <span className="min-w-0 wrap-break-word font-medium">
+                  {title}
+                  {fieldLabel ? ` (${fieldLabel})` : ""}
+                </span>
               </span>
               <button
                 type="button"
-                onClick={() => onJump(index)}
+                onClick={() => onJump(index, group)}
                 className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 {jumpLabel} <span className="sr-only">for {title}</span>
@@ -724,7 +751,10 @@ function SectionFlagCallout({
           onClick={() => onJump(null)}
           className="inline-flex min-h-tap-min items-center self-start font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
-          +{extra} more in Sheet warnings
+          {/* Counts NOTICES (the rows above count kinds), so it names them. */}
+          {extra === 1
+            ? "+1 more notice in Sheet warnings"
+            : `+${extra} more notices in Sheet warnings`}
         </button>
       ) : null}
     </div>

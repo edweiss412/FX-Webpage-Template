@@ -29,6 +29,9 @@ describe("hotel-ambiguity catalog copy — byte-for-byte", () => {
       triggerContext:
         "Appears when a hotel line's name and street address may not have been separated correctly.",
       title: "A hotel name and address may be split wrong",
+      // Catalog-internal (not §12.4 prose): the counted title a grouped review
+      // row reads when several of these notices share one section.
+      titlePlural: "{count} hotel names and addresses may be split wrong",
       longExplanation:
         "A hotel line's name and street address may not have been separated correctly. We kept every word rather than dropping any, so nothing is lost, but the dividing point may be off: part of the address may be sitting in the hotel name, or part of the name in the address. Spot-check both against your sheet.",
       helpHref: "/help/errors#HOTEL_ADDRESS_SPLIT_AMBIGUOUS",

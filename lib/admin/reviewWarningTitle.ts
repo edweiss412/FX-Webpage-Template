@@ -32,5 +32,63 @@ export function reviewWarningTitle(w: ParseWarning): string {
   ) {
     return msg;
   }
-  return "A parse issue was recorded for this sheet.";
+  return GENERIC_REVIEW_WARNING_TITLE;
+}
+
+/** The last-resort title, a sentence rather than a noun phrase, so its plural is too. */
+const GENERIC_REVIEW_WARNING_TITLE = "A parse issue was recorded for this sheet.";
+
+/**
+ * Title for a summary row that stands for `count` notices sharing one title.
+ * One notice (or a count that is not a whole number of at least 2) reads exactly
+ * as `reviewWarningTitle`. Otherwise the catalog's `titlePlural` names the count
+ * in the code's own words ("3 rows we couldn't match"), a code without one gets
+ * "<title>, 3 times", and the generic last-resort sentence turns plural as a
+ * sentence ("3 parse issues were recorded for this sheet."). The plural is read only when the
+ * singular title also came from the catalog, so a message-derived title never
+ * pairs with another code's plural. Never returns a raw code.
+ */
+export function reviewWarningGroupTitle(w: ParseWarning, count: number): string {
+  const title = reviewWarningTitle(w);
+  if (!Number.isInteger(count) || count < 2) return title;
+  if (isMessageCode(w.code)) {
+    const entry = messageFor(w.code as MessageCode);
+    if (entry.title && entry.titlePlural) {
+      // A replacer FUNCTION: a string replacement would expand `$`-patterns.
+      return entry.titlePlural.replace("{count}", () => String(count));
+    }
+  }
+  if (title === GENERIC_REVIEW_WARNING_TITLE) {
+    return `${count} parse issues were recorded for this sheet.`;
+  }
+  return `${title}, ${count} times`;
+}
+
+/** One summary row: the notices that share a title, in input order. */
+export type ReviewWarningGroup<T extends { warning: ParseWarning }> = {
+  /** `reviewWarningGroupTitle` for the first member and the group size. */
+  title: string;
+  /** Never empty. */
+  members: readonly T[];
+};
+
+/**
+ * Collapses notices whose rows would read identically into one group per title,
+ * ordered by each title's first appearance. The key is the rendered title, not
+ * the code: two codes that render one title are, to the reader, the same row.
+ */
+export function groupWarningsByTitle<T extends { warning: ParseWarning }>(
+  entries: readonly T[],
+): ReviewWarningGroup<T>[] {
+  const byTitle = new Map<string, T[]>();
+  for (const entry of entries) {
+    const key = reviewWarningTitle(entry.warning);
+    const members = byTitle.get(key);
+    if (members) members.push(entry);
+    else byTitle.set(key, [entry]);
+  }
+  return [...byTitle.values()].map((members) => ({
+    title: reviewWarningGroupTitle(members[0]!.warning, members.length),
+    members,
+  }));
 }

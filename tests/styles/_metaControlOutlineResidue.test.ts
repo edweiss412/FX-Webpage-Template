@@ -1570,7 +1570,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // line near the top. Located on the shifted tree: 2458 is that same PackCountPill
       // `rounded-pill border border-border` <span>.
       // 2458 -> 2463 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 2463 -> 2470 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
-      "components/admin/wizard/step3ReviewSections.tsx:2470",
+      // +30 on fix/section-callout-group-repeats; located on the merged tree by its own element: 2500.
+      "components/admin/wizard/step3ReviewSections.tsx:2500",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 
