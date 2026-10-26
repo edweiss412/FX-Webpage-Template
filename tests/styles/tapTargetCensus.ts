@@ -374,7 +374,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // comment above it. Located by running the scanner: one unclassified site,
     // 4277, still that same tile anchor.
     // 4277 -> 4278 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. The scanner reports 4278, and it is that same `<a>`.
-    line: 4278,
+    line: 4283,
     tag: "a",
     category: "full-bleed",
     reason:

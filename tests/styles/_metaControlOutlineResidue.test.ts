@@ -1569,7 +1569,7 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2457 -> 2458 on fix/dress-code-hierarchy, which added the DressCodeLines import
       // line near the top. Located on the shifted tree: 2458 is that same PackCountPill
       // `rounded-pill border border-border` <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2458",
+      "components/admin/wizard/step3ReviewSections.tsx:2463",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

@@ -195,7 +195,7 @@ export const CENSUS: readonly CensusRow[] = [
   // `wizard-step3-card-${dfid}-report-toggle` testid, never by the delta.
   // 4877 -> 4878 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by its own
   // `wizard-step3-card-${dfid}-report-toggle` testid, never by the delta.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4878 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4883 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -242,7 +242,7 @@ export const CENSUS: readonly CensusRow[] = [
   // `disabled={draft.trim()...}` opener.
   // 4959 -> 4960 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by its own
   // `disabled={draft.trim()...}` opener.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4960 },
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4965 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then

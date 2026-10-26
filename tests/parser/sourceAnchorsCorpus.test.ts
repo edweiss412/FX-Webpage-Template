@@ -282,6 +282,13 @@ describe("Standardized multitab fixture (RPAS-style)", () => {
     expect(anchors.venue?.title).toBe("INFO");
   });
 
+  it("dates → INFO tab, starting at the DATES header row (warning-anchor-only region)", () => {
+    const headerRow = STANDARDIZED_INFO_ROWS.findIndex((r) => r[0] === "DATES");
+    expect(headerRow).toBeGreaterThan(-1); // premise: the fixture carries a DATES block
+    expect(anchors.dates?.title).toBe("INFO");
+    expect(XLSX.utils.decode_range(anchors.dates!.a1!).s.r).toBe(headerRow);
+  });
+
   it("venue a1 does NOT overreach into HOTEL block (header-block stops at HOTEL terminator)", () => {
     // STANDARDIZED_INFO_ROWS: CREW rows 0-2, VENUE header at row 3, Hotel Address row 4,
     // Google row 5, then HOTEL header at row 6 (terminator). venue must end at row 5 (index 5).

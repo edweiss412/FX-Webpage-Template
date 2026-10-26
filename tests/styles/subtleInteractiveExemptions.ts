@@ -112,7 +112,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `{hidden.length} more` accordion <summary>.
     // 1649 -> 1650 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner: 1650 is still the
     // `{hidden.length} more` accordion <summary>.
-    line: 1650,
+    line: 1655,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -139,7 +139,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`, never by the delta.
     // 3413 -> 3414 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner and its own unique
     // ignored-summary testid, never by the delta.
-    line: 3414,
+    line: 3419,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

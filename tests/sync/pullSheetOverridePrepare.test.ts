@@ -171,3 +171,30 @@ describe("prepareOnboardingFiles pull-sheet override wiring (shared scan+rescan 
     ).toBe(true);
   });
 });
+
+describe("prepareOnboardingFiles: the archived-tab warning links to its tab", () => {
+  const archived = (prepared: Awaited<ReturnType<typeof prepareSheet>>) =>
+    prepared.parseResult.warnings.find((w) => w.code === "PULL_SHEET_ON_ARCHIVED_TAB");
+  const withGids = async (bytes: ArrayBuffer) => {
+    const files = await prepareOnboardingFiles("folder-1", {
+      ...deps(bytes, null),
+      listSheetGids: async () => new Map([["OLD PULL SHEET", 77]]),
+    });
+    const prepared = files[0]!;
+    if (prepared.kind !== "sheet") throw new Error("expected sheet");
+    return prepared;
+  };
+
+  it("a visible archived tab gets a tab-scoped link to its own gid", async () => {
+    const warning = archived(await withGids(onlyOldWorkbookBytes()));
+    expect(warning).toBeDefined(); // premise: the warning fires on this workbook
+    expect(warning!.sourceCell).toEqual({ title: "OLD PULL SHEET", gid: 77, scope: "tab" });
+  });
+
+  it("a hidden archived tab stays link-less (Sheets will not open a hidden gid)", async () => {
+    const hidden = buildXlsx([{ name: "OLD PULL SHEET", grid: oldRegion, hidden: true }]);
+    const warning = archived(await withGids(hidden));
+    expect(warning).toBeDefined(); // premise: hiding the tab does not silence the warning
+    expect(warning!.sourceCell ?? null).toBeNull();
+  });
+});
