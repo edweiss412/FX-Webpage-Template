@@ -65,6 +65,7 @@ import {
   step3Sections,
   STEP3_SECTION_GROUPS,
 } from "@/components/admin/wizard/step3ReviewSections";
+import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
 import {
   buildStagedSectionData,
   type StagedSectionData,
@@ -2776,9 +2777,31 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
 
 describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () => {
   /** N warn-severity crew-kind warnings (N derived from the cap, never a
-   *  hardcoded row count — anti-tautology). */
+   *  hardcoded row count — anti-tautology). Each carries its OWN title (a
+   *  plain message becomes the title), because identical titles collapse into
+   *  one counted row and these cases are about one row per notice kind. */
   function crewWarnings(n: number): ParseWarning[] {
-    return Array.from({ length: n }, () => warning("crew"));
+    return Array.from({ length: n }, (_, k) => ({
+      ...warning("crew"),
+      message: `Crew notice ${k + 1}`,
+    }));
+  }
+
+  /** N UNKNOWN_FIELD notices routed to Contacts: the reported FinTech case. */
+  function contactsUnknown(n: number): ParseWarning[] {
+    return Array.from({ length: n }, () => ({
+      severity: "warn" as const,
+      code: "UNKNOWN_FIELD",
+      message: "",
+      blockRef: { kind: "contacts" },
+    }));
+  }
+
+  /** Each row's visible title text, read without the sr-only suffix. */
+  function calloutRowTitles(callout: HTMLElement): string[] {
+    return within(callout)
+      .getAllByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ })
+      .map((button) => button.previousElementSibling?.textContent ?? "");
   }
 
   function calloutTid(sectionId: string): string {
@@ -2823,6 +2846,95 @@ describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () =>
       within(callout).getAllByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
     ).toHaveLength(CALLOUT_MAX_ENTRIES);
     expect(within(callout).queryByText(/more in Sheet warnings/)).toBeNull();
+  });
+
+  // Grouping: the FinTech Contacts card listed "Row we couldn't match" three
+  // times, each with its own identical link. Same title in one section is one row.
+  test("identical notices in one section render as ONE row with a count and plural wording", () => {
+    const d = sectionData({ warnings: contactsUnknown(3) });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("contacts"));
+    const jumps = within(callout).getAllByRole("button", {
+      name: /^(?:Fix|Review) in Sheet warnings/,
+    });
+    expect(jumps).toHaveLength(1);
+    expect(calloutRowTitles(callout)).toEqual(["3 rows we couldn't match"]);
+    // The accessible name carries the grouped title, not the singular one.
+    expect(jumps[0]!.textContent).toBe("Review in Sheet warnings for 3 rows we couldn't match");
+  });
+
+  test("a single notice reads exactly as it did before grouping", () => {
+    const d = sectionData({ warnings: contactsUnknown(1) });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("contacts"));
+    expect(calloutRowTitles(callout)).toEqual(["Row we couldn't match"]);
+    expect(
+      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ })
+        .textContent,
+    ).toBe("Review in Sheet warnings for Row we couldn't match");
+  });
+
+  test("different notice kinds in one section stay separate rows, in first-seen order", () => {
+    const role: ParseWarning = {
+      severity: "warn",
+      code: "UNKNOWN_ROLE_TOKEN",
+      message: "",
+      blockRef: { kind: "contacts" },
+    };
+    const [a, b] = contactsUnknown(2);
+    const d = sectionData({ warnings: [a!, role, b!] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("contacts"));
+    expect(calloutRowTitles(callout)).toEqual([
+      "2 rows we couldn't match",
+      reviewWarningTitle(role),
+    ]);
+  });
+
+  test("the cap counts ROWS: one group of three plus two kinds fits without an overflow line", () => {
+    // Before grouping this fixture (five notices) printed three rows and "+2 more".
+    const others = crewWarnings(CALLOUT_MAX_ENTRIES - 1).map((w) => ({
+      ...w,
+      blockRef: { kind: "contacts" },
+    }));
+    const d = sectionData({ warnings: [...contactsUnknown(3), ...others] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("contacts"));
+    expect(calloutRowTitles(callout)).toHaveLength(CALLOUT_MAX_ENTRIES);
+    expect(calloutRowTitles(callout)[0]).toBe("3 rows we couldn't match");
+    expect(within(callout).queryByText(/more in Sheet warnings/)).toBeNull();
+  });
+
+  test("overflow counts the NOTICES behind the hidden rows, not the hidden rows", () => {
+    const shown = crewWarnings(CALLOUT_MAX_ENTRIES).map((w) => ({
+      ...w,
+      blockRef: { kind: "contacts" },
+    }));
+    const hidden = contactsUnknown(2);
+    const d = sectionData({ warnings: [...shown, ...hidden] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("contacts"));
+    expect(calloutRowTitles(callout)).toHaveLength(CALLOUT_MAX_ENTRIES);
+    expect(
+      within(callout).getByRole("button", {
+        name: `+${hidden.length} more in Sheet warnings`,
+      }),
+    ).toBeTruthy();
+  });
+
+  test("the pill and the Needs-a-look index count the same notices the grouped row names", async () => {
+    // The index stays one row per notice (each row jumps to its own card,
+    // spec 2026-08-27 §3.3); what must agree is the count.
+    const d = sectionData({ warnings: contactsUnknown(3) });
+    const { n } = expectedCounts(d);
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("contacts"));
+    expect(calloutRowTitles(callout)).toEqual([`${n} rows we couldn't match`]);
+    expect(q.getByTestId(tid("chip")).textContent).toBe(look(n));
+    const menu = await q.findByTestId(tid("attention-menu"));
+    const rows = menu.querySelectorAll(`[data-testid^="wizard-step3-card-${DFID}-attention-row-"]`);
+    expect(rows).toHaveLength(n);
+    for (const row of rows) expect(row.textContent).toContain("Row we couldn't match");
   });
 
   test("the warnings section itself NEVER gets a callout (circular-callout guard)", () => {
@@ -2958,8 +3070,50 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
       message: "",
       blockRef: { kind: "crew" },
     };
-    return [info, ...Array.from({ length: warnCount }, () => warning("crew"))];
+    // Distinct titles: identical ones collapse into one counted callout row.
+    return [
+      info,
+      ...Array.from({ length: warnCount }, (_, k) => ({
+        ...warning("crew"),
+        message: `Crew notice ${k + 1}`,
+      })),
+    ];
   }
+
+  function contactsUnknown(n: number): ParseWarning[] {
+    return Array.from({ length: n }, () => ({
+      severity: "warn" as const,
+      code: "UNKNOWN_FIELD",
+      message: "",
+      blockRef: { kind: "contacts" },
+    }));
+  }
+
+  test("the grouped link jumps to the group's FIRST card in Sheet warnings", () => {
+    stubScrollTo();
+    vi.useFakeTimers();
+    const d = sectionData({ warnings: [...warningsWithInfoPrefix(0), ...contactsUnknown(3)] });
+    const { q } = renderModal({ d });
+    const unknownIndices = d.warnings
+      .map((w, i) => (w.code === "UNKNOWN_FIELD" ? i : -1))
+      .filter((i) => i >= 0);
+    expect(unknownIndices).toHaveLength(3);
+    // The info prefix shifts every index, so a jump keyed on group position fails.
+    expect(unknownIndices[0]).toBeGreaterThan(0);
+
+    const callout = q.getByTestId(calloutTid("contacts"));
+    fireEvent.click(
+      within(callout).getByRole("button", { name: /^(?:Fix|Review) in Sheet warnings/ }),
+    );
+    const rail = q.getByTestId(tid("rail"));
+    expect(within(rail).getByTestId(tid("rail-item-warnings")).getAttribute("aria-current")).toBe(
+      "true",
+    );
+    const content = q.getByTestId(tid("content"));
+    const first = content.querySelector<HTMLElement>(`[data-warning-index="${unknownIndices[0]}"]`);
+    expect(first!.hasAttribute("data-step3-warning-flash")).toBe(true);
+    expect(document.querySelectorAll("[data-step3-warning-flash]")).toHaveLength(1);
+  });
 
   test("jump: click the callout jump button → aria-current moves to the warnings rail item; the li located via data-warning-index gets the flash attribute; cleared after WARNING_HIGHLIGHT_MS; no id attributes anywhere", () => {
     stubScrollTo();
