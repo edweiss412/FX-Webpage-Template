@@ -15,12 +15,6 @@ describe("parseDressCodeLines", () => {
     ]);
   });
 
-  it("accepts a single labeled line", () => {
-    expect(parseDressCodeLines("Show: Black tie")).toEqual([
-      { phase: "Show", attire: "Black tie" },
-    ]);
-  });
-
   it("trims padding and skips blank lines between phases", () => {
     expect(parseDressCodeLines("  Set/Strike:   Blacks  \n\n   Show: Tux ")).toEqual([
       { phase: "Set/Strike", attire: "Blacks" },
@@ -31,6 +25,9 @@ describe("parseDressCodeLines", () => {
   // Every case below must fall back to plain text (null), never to a wrong split.
   it.each([
     ["free text", "Business casual"],
+    ["a single labeled line", "Show: Black tie"],
+    ["a single line whose instruction carries a colon", "Business casual: no jeans"],
+    ["sentence punctuation before the colon", "All black. Note: no logos\nShow: Tux"],
     ["mixed labeled and unlabeled lines", "Show: Black Pants\nNo jeans please"],
     ["a time colon before the label colon", "Show 7:00 PM: Black tie"],
     ["a URL", "See https://example.com/dress"],
