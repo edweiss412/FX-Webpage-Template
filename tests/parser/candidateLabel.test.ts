@@ -8,12 +8,10 @@
 // is a claim rather than a check. The non-string cases are the ones a `string | null` signature
 // cannot even express, and they are what makes this suite discriminating: a guard written as
 // `w.candidate ?? null` passes every string case and hands `42` straight to the DOM.
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { candidateLabel } from "@/lib/parser/candidateLabel";
+import { buildVocabulary } from "@/lib/parser/fieldNearMiss";
 
 describe("candidateLabel", () => {
   it("returns the trimmed label for a usable string", () => {
@@ -22,24 +20,22 @@ describe("candidateLabel", () => {
     expect(candidateLabel({ candidate: "  VENUE ADDRESS  " })).toBe("VENUE ADDRESS");
   });
 
-  it("preserves the SPELLING of every candidate the corpus actually produces", () => {
+  it("preserves the SPELLING of every candidate the detector can report", () => {
     // Round-2 finding 1: the two cases above are both already uppercase, so an implementation
     // that trimmed AND uppercased passed the whole suite while corrupting "Client Phone" and
-    // "Backdrop / Scenic". Derived from the committed baseline rather than hand-listed, so a
-    // vocabulary change extends this cover instead of stranding it.
-    const baseline = JSON.parse(
-      readFileSync(
-        join(process.cwd(), "tests/parser/__fixtures__/fieldNearMiss.baseline.json"),
-        "utf8",
-      ),
-    ) as { rows: { candidate: string }[] };
-    const distinct = [...new Set(baseline.rows.map((r) => r.candidate))].filter(
+    // "Backdrop / Scenic". Derived from the vocabulary's stored raw spellings, which ARE the
+    // set a `candidate` is drawn from, rather than from the corpus baseline: the 2026-10-25
+    // label-opener arm cut the baseline to three distinct candidates, and a cover keyed on
+    // today's emissions shrinks every time the detector narrows.
+    const distinct = [...new Set([...buildVocabulary().values()].map((e) => e.raw))].filter(
       (c) => c.length > 0,
     );
 
-    // Premise on the fixture: if the baseline stopped carrying candidates this case would pass
+    // Premise on the source: if the vocabulary stopped carrying spellings this case would pass
     // vacuously, and the whole point is that it cannot.
     expect(distinct.length).toBeGreaterThan(5);
+    expect(distinct).toContain("Client Phone");
+    expect(distinct).toContain("Backdrop / Scenic");
     // "DIagrams" has an internal capital and "Backdrop / Scenic" mixes case, spaces and a slash;
     // between them no normalization survives.
     expect(distinct).toContain("DIagrams");

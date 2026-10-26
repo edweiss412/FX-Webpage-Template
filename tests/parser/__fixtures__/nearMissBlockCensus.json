@@ -1,14 +1,22 @@
 {
   "note": "Per-block candidacy census (spec docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md section 3.5). EXCLUDED blocks in full, keyed fixture#ordinal; kept blocks are counted, not listed. Regenerate with docs/superpowers/specs/parser/probes/2026-08-28-nearmiss-block-census.ts, never by pasting a test's actual output.",
   "totalBlocks": 514,
-  "excludedCount": 33,
-  "keptCount": 481,
+  "excludedCount": 43,
+  "keptCount": 471,
   "familyCounts": {
     "venue": 21,
     "details": 13,
     "console": 4
   },
   "excluded": [
+    {
+      "id": "fixtures/shows/exporter-xlsx/consultants.md#20",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 11
+    },
     {
       "id": "fixtures/shows/exporter-xlsx/consultants.md#21",
       "arm": "matrix",
@@ -42,6 +50,14 @@
       "rowCount": 1
     },
     {
+      "id": "fixtures/shows/exporter-xlsx/fintech.md#19",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 13
+    },
+    {
       "id": "fixtures/shows/exporter-xlsx/fintech.md#23",
       "arm": "matrix",
       "ns": "general session adler ballroom 75 x 37 x 15th floor",
@@ -64,6 +80,14 @@
       "opener": "Timestamp",
       "minValueCells": 0,
       "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/fixed-income.md#16",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 13
     },
     {
       "id": "fixtures/shows/exporter-xlsx/fixed-income.md#22",
@@ -114,6 +138,14 @@
       "rowCount": 50
     },
     {
+      "id": "fixtures/shows/exporter-xlsx/ria.md#28",
+      "arm": "label-opener",
+      "ns": "event name date room qty pulled inital cat sub cat item notes",
+      "opener": "EVENT NAME:/DATE:/ROOM:/QTY/PULLED/INITAL/CAT/SUB CAT/ITEM/NOTES",
+      "minValueCells": 1,
+      "rowCount": 64
+    },
+    {
       "id": "fixtures/shows/exporter-xlsx/ria.md#41",
       "arm": "matrix",
       "ns": "audio",
@@ -144,6 +176,14 @@
       "opener": "Console",
       "minValueCells": 10,
       "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/exporter-xlsx/rpas.md#18",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 13
     },
     {
       "id": "fixtures/shows/exporter-xlsx/rpas.md#26",
@@ -226,12 +266,28 @@
       "rowCount": 1
     },
     {
+      "id": "fixtures/shows/raw/2025-10-consultants-roundtable.md#18",
+      "arm": "label-opener",
+      "ns": "client contact",
+      "opener": "Client:/Contact:",
+      "minValueCells": 0,
+      "rowCount": 10
+    },
+    {
       "id": "fixtures/shows/raw/2025-10-consultants-roundtable.md#24",
       "arm": "form-dump",
       "ns": "timestamp",
       "opener": "Timestamp",
       "minValueCells": 0,
       "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md#11",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 13
     },
     {
       "id": "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md#14",
@@ -242,12 +298,28 @@
       "rowCount": 50
     },
     {
+      "id": "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md#13",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 13
+    },
+    {
       "id": "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md#28",
       "arm": "form-dump",
       "ns": "timestamp",
       "opener": "Timestamp",
       "minValueCells": 0,
       "rowCount": 50
+    },
+    {
+      "id": "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md#10",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 13
     },
     {
       "id": "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md#13",
@@ -264,6 +336,14 @@
       "opener": "ORANGE CASE/(3) EIKI Projectors (PARK HYATT ONLY)&#10;(1) AB168 Digital Snake&#10;(1) Confidence Monitor Stand&#10;(2) Projector Stands&#10;(1) 15' Camlock Set",
       "minValueCells": 10,
       "rowCount": 1
+    },
+    {
+      "id": "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md#7",
+      "arm": "label-opener",
+      "ns": "client",
+      "opener": "Client:",
+      "minValueCells": 0,
+      "rowCount": 13
     },
     {
       "id": "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md#14",

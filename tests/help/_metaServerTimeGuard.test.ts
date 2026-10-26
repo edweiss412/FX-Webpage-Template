@@ -260,7 +260,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // 220 -> 221 on the ref-error-cell-anchors merge of main: ONE module joined from this
     // arc, lib/sheet-links/sheetCellReference.ts, a pure string formatter with no clock
     // read. main's own +1 (lib/admin/reportDraftStore.ts) is already counted above.
-    expect(rel.length).toBe(221);
+    // Joined, from fix/dress-code-hierarchy: lib/crew/dressCodeLines.ts, the dress
+    // code phase/attire parser. Depth-1 from components/crew/DressCodeLines.tsx, which
+    // both the crew Today card and the admin step-3 row render. Pure string parsing,
+    // no clock read. 221 -> 222.
+    expect(rel).toContain("lib/crew/dressCodeLines.ts");
+    expect(rel.length).toBe(222);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
