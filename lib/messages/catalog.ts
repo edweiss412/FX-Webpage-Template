@@ -62,6 +62,16 @@ export type MessageCatalogEntry = {
    */
   controlsNote?: string | null;
   title: string | null;
+  /**
+   * Count-aware plural of `title`, with exactly one `{count}` placeholder
+   * (catalog-internal, NOT §12.4 prose - x1 parity never reads it). Used where
+   * several notices of one code collapse into a single summary row, e.g. the
+   * wizard section callout: "{count} rows we couldn't match". Absent = the row
+   * falls back to the counted form "{count} notices: <title>"
+   * (`reviewWarningGroupTitle`, lib/admin/reviewWarningTitle.ts), so a new code
+   * never needs one. Authored only for row-level codes that plausibly repeat.
+   */
+  titlePlural?: string | null;
   longExplanation: string | null;
   helpHref: string | null;
   /**
@@ -1365,6 +1375,7 @@ export const MESSAGE_CATALOG = {
     controlsNote: "Use Report to flag it to us, or Ignore to hide this notice.",
     triggerContext: "Appears when a row's label doesn't exactly match a row we know how to show.",
     title: "Row we couldn't match",
+    titlePlural: "{count} rows we couldn't match",
     longExplanation:
       "A row in your sheet is labeled something we don't read as one of the rows we show, so it isn't showing on the crew page. When we can tell which row you meant, the notice names it. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
     helpHref: "/help/errors#UNKNOWN_FIELD",
@@ -1409,6 +1420,7 @@ export const MESSAGE_CATALOG = {
       "One of this crew member's role labels isn't one we recognize, so we left it off their page instead of guessing. If the label is correct, this card's controls let you add it as a real role.",
     triggerContext: "Appears when a role label in a crew cell isn't on the known-roles list.",
     title: "Role we didn't recognize",
+    titlePlural: "{count} roles we didn't recognize",
     longExplanation:
       "A crew member's role included a label we didn't recognize, so we left it off their page rather than guess. Nothing else is affected. If the label is a real role you use, you can add it right from this warning.",
     helpHref: "/help/errors#UNKNOWN_ROLE_TOKEN",
@@ -1439,6 +1451,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a role cell's phase restriction contains a word outside the standard phases.",
     title: "Stage restriction we couldn't read",
+    titlePlural: "{count} stage restrictions we couldn't read",
     longExplanation:
       "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases: Load In / Set / Show / Strike / Load Out, so their schedule can be filtered.",
     helpHref: "/help/errors#UNKNOWN_STAGE_RESTRICTION",
@@ -1455,6 +1468,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when any cell in the sheet contains the text '#REF!', including a cell that mixes it with other text.",
     title: "A cell shows #REF! (broken formula reference)",
+    titlePlural: "{count} cells show #REF! (broken formula reference)",
     longExplanation:
       "Sheets writes '#REF!' into a cell when the reference its formula depended on was deleted. We show the cell exactly as the sheet has it rather than guessing at the value that belongs there, so the page will keep displaying '#REF!' until the formula is repaired in the sheet.",
     helpHref: "/help/errors#REF_ERROR_LITERAL",
@@ -1502,6 +1516,7 @@ export const MESSAGE_CATALOG = {
       "A role looked misspelled, so we used the closest real one (like 'Content Cretion' as 'Content Creation'). Update the sheet if the spelling was intentional.",
     triggerContext: "Appears when a role in a crew cell is a letter or two off a known role.",
     title: "Auto-corrected a misspelled role",
+    titlePlural: "Auto-corrected {count} misspelled roles",
     longExplanation:
       "A multi-word role in a crew member's cell looked misspelled, so we read it as the closest real role and used that; the role still parses. If the spelling was intentional, update the sheet.",
     helpHref: "/help/errors#ROLE_TOKEN_AUTOCORRECTED",
@@ -1716,6 +1731,7 @@ export const MESSAGE_CATALOG = {
       "A row label looked misspelled, so we used the closest real one (like 'Venue Adress' as 'Venue Address'). Fix the label in the sheet if that guess is wrong.",
     triggerContext: "Appears when a row label is a letter or two off a standard label.",
     title: "Auto-corrected a field label",
+    titlePlural: "Auto-corrected {count} field labels",
     longExplanation:
       "A field label on a sheet looked misspelled, so we read it as the closest real field and used that; the value is recovered into the right field instead of being dropped. If it was intentional, update the sheet.",
     helpHref: "/help/errors#FIELD_LABEL_AUTOCORRECTED",
@@ -2070,6 +2086,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a row's label matches one of the alternate spellings we keep for a field.",
     title: "Label we matched to a known field",
+    titlePlural: "{count} labels we matched to known fields",
     longExplanation: null,
     helpHref: null,
   },
@@ -2087,6 +2104,7 @@ export const MESSAGE_CATALOG = {
       "A section header in your sheet has no readable rows under it, so that section is missing from the crew page. Add the rows back, or delete the leftover header.",
     triggerContext: "Appears when a section header has no usable rows beneath it.",
     title: "Section with nothing under it",
+    titlePlural: "{count} sections with nothing under them",
     longExplanation: null,
     helpHref: null,
   },
@@ -2105,6 +2123,7 @@ export const MESSAGE_CATALOG = {
     triggerContext:
       "Appears when a crew phone or email cell can't work as a real phone number or email address.",
     title: "Phone or email we couldn't use",
+    titlePlural: "{count} phone numbers or emails we couldn't use",
     longExplanation: null,
     helpHref: null,
   },
@@ -2119,6 +2138,7 @@ export const MESSAGE_CATALOG = {
     controlsNote: "Use Report if this section should be supported.",
     triggerContext: "Appears when a header row doesn't match any section we know.",
     title: "Section we didn't recognize",
+    titlePlural: "{count} sections we didn't recognize",
     longExplanation: null,
     helpHref: null,
   },
