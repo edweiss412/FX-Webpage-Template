@@ -37,7 +37,13 @@ jobs:
       - name: Typecheck (tsc)
         # Fresh checkout has no .next, so tsc never sees the stale route-validator
         # types that only appear locally after a dev/build run.
+        # tsc now outgrows Node's default heap on the runner and dies with exit 134
+        # ("JavaScript heap out of memory"), first seen 2026-10-26 on two unrelated
+        # PRs. Peak RSS measured locally is ~2.9 GB; 8 GB is what local runs already
+        # use, and the public-repo runner has 16 GB.
         if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm typecheck
       - name: Format check (prettier)
         if: ${{ !cancelled() }}
