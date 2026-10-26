@@ -43,7 +43,8 @@ describe("attachWarningAnchors", () => {
   it("does NOT call resolveGids when no anchored warning is present (cost gate)", async () => {
     const resolveGids = vi.fn(gids);
     await attachWarningAnchors(
-      [{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }],
+      // BLOCK_DISAPPEARED names a block that is gone, so it has no link target.
+      [{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "x" }],
       CREW,
       resolveGids,
     );
@@ -529,5 +530,56 @@ describe("attachWarningAnchors drops hidden-tab generic #REF! warnings (hidden-t
     // Attach WITHOUT the override: the replay sees two sites against three warnings and refuses.
     await attachWarningAnchors(warnings, buffer, gidsAll, {});
     expect(refs(warnings)).toHaveLength(3);
+  });
+});
+
+describe("attachWarningAnchors: content-located and tab links (Sheet warnings deep links)", () => {
+  it("UNKNOWN_SECTION_HEADER links to the cell holding its header text", async () => {
+    const bytes = buildXlsx([
+      {
+        name: "INFO",
+        grid: [
+          ["CREW", "NAME"],
+          ["", ""],
+          ["MYSTERY SECTION", ""],
+          ["a", "b"],
+        ],
+      },
+    ]);
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_SECTION_HEADER",
+        message: "x",
+        blockRef: { kind: "unknown_section" },
+        rawSnippet: "MYSTERY SECTION",
+      },
+    ];
+    await attachWarningAnchors(warnings, bytes, gids);
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A3", scope: "cell" });
+  });
+
+  it("PULL_SHEET_ON_ARCHIVED_TAB links to its visible tab", async () => {
+    const bytes = buildXlsx([
+      { name: "INFO", grid: [["CREW", "NAME"]] },
+      { name: "OLD PULL SHEET", grid: [["PULL SHEET"]] },
+    ]);
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "PULL_SHEET_ON_ARCHIVED_TAB",
+        message: "x",
+        blockRef: { kind: "pull_sheet_archived_tab", name: "OLD PULL SHEET" },
+      },
+    ];
+    await attachWarningAnchors(warnings, bytes, () =>
+      Promise.resolve(
+        new Map([
+          ["INFO", 0],
+          ["OLD PULL SHEET", 77],
+        ]),
+      ),
+    );
+    expect(warnings[0]!.sourceCell).toEqual({ title: "OLD PULL SHEET", gid: 77, scope: "tab" });
   });
 });

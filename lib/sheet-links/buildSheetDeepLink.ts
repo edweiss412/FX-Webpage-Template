@@ -1,13 +1,16 @@
 export const SOURCE_LINK_ALLOWLIST = ["INFO", "AGENDA", "GEAR", "TRAVEL", "PULL SHEET"] as const;
 export type AllowedTabTitle = (typeof SOURCE_LINK_ALLOWLIST)[number];
 /**
- * `scope` is set by the two raw-workbook anchor scanners (`lib/drive/unknownFieldAnchors.ts`,
- * which locates a cell by content, and `lib/drive/waveCodeAnchors.ts`, which locates one by
- * replaying the detectors over the exporter's blocks, spec 2026-08-29 §2) and by nothing
- * else: "cell" when the exact cell was located, "tab" when the cell was not unique but the
- * block kind named one tab (spec 2026-08-27-wizard-warning-row-links-copy §2.4/§2.5). Absent on
- * every other producer - region anchors, legacy persisted rows, crew-role and show-day
- * cells - which is what keeps the read-time allowlist guard below unchanged for them.
+ * `scope` is set by the three raw-workbook anchor scanners (`lib/drive/unknownFieldAnchors.ts`
+ * and `lib/drive/contentAnchors.ts`, which locate a cell by content, and
+ * `lib/drive/waveCodeAnchors.ts`, which locates one by replaying the detectors over the
+ * exporter's blocks, spec 2026-08-29 §2) and by the warning router in
+ * `lib/drive/showDayTimeAnchors.ts` when it names a whole tab it found (a visible archived
+ * pull-sheet tab, or one tab holding several TRAVEL tables), and by nothing else: "cell" when
+ * the exact cell was located, "tab" when the cell was not unique but one tab was (spec
+ * 2026-08-27-wizard-warning-row-links-copy §2.4/§2.5). Absent on every other producer -
+ * region anchors, legacy persisted rows, crew-role and show-day cells - which is what keeps
+ * the read-time allowlist guard below unchanged for them.
  */
 export type SourceAnchor = { title: string; gid: number; a1?: string; scope?: "cell" | "tab" };
 
@@ -55,6 +58,7 @@ export const REGION_IDS = [
   "gear_packlist",
   "gear_scope",
   "schedule",
+  "dates",
 ] as const;
 export type RegionId = (typeof REGION_IDS)[number];
 
@@ -123,6 +127,16 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
     tabs: ["INFO"],
     strategy: "header-block",
     header: /^VENUE$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
+  // `dates` is a WARNING-ANCHOR-ONLY region, like `client`: the deep-link target for
+  // DATE_ORDER_SUGGESTS_DMY and an empty DATES header (SECTION_HEADER_NO_FIELDS, kind
+  // "dates"). No crew card renders the DATES block as its own card, so it has no
+  // CARD_REGION_MAP entry (sourceLinkCoverage exempts it).
+  dates: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^DATES$/i,
     terminators: BLOCK_TERMINATORS,
   },
   financials: {

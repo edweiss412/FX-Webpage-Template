@@ -112,8 +112,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `{hidden.length} more` accordion <summary>.
     // 1649 -> 1650 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner: 1650 is still the
     // `{hidden.length} more` accordion <summary>.
-    // Then 1650 -> 1657 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
-    line: 1657,
+    // 1650 -> 1655 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 1655 -> 1662 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    line: 1662,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -140,8 +140,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`, never by the delta.
     // 3413 -> 3414 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner and its own unique
     // ignored-summary testid, never by the delta.
-    // Then 3414 -> 3476 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
-    line: 3476,
+    // 3414 -> 3419 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 3419 -> 3481 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    line: 3481,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

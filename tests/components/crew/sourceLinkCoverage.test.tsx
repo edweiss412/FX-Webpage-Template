@@ -263,8 +263,10 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   // `client` is the first WARNING-ANCHOR-ONLY region: it is consumed ONLY by the
   // FIELD_LABEL_AUTOCORRECTED deep-link path (lib/drive/showDayTimeAnchors.ts:146), NOT a crew
   // card — §30 forbids ever rendering client_contact to crew — so it has no CARD_REGION_MAP entry
-  // by design. It still must be a real anchorable region (asserted in (c2)).
-  const WARNING_ANCHOR_ONLY = new Set<string>(["client"]);
+  // by design. It still must be a real anchorable region (asserted in (c2)). `dates` is the
+  // second: DATE_ORDER_SUGGESTS_DMY and an empty DATES header link to it, and no crew card
+  // renders the DATES block as its own card.
+  const WARNING_ANCHOR_ONLY = new Set<string>(["client", "dates"]);
 
   // `gear_scope` is consumed DYNAMICALLY by GearSection's runtime `scopeRegion`
   // selection (it prefers the `gear_scope` anchor when present, else the static
@@ -288,6 +290,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
       expect(REGION_ANCHOR_SPEC[region as RegionId]).toBeDefined();
     }
     expect(REGION_ANCHOR_SPEC.client.strategy).toBe("header-block");
+    expect(REGION_ANCHOR_SPEC.dates.strategy).toBe("header-block");
   });
 
   it("(a)+(b) every rendered data-card-id card is classified and links correctly", () => {

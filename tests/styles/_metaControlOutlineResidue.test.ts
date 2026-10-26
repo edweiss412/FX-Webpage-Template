@@ -1569,8 +1569,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2457 -> 2458 on fix/dress-code-hierarchy, which added the DressCodeLines import
       // line near the top. Located on the shifted tree: 2458 is that same PackCountPill
       // `rounded-pill border border-border` <span>.
-      // Then 2458 -> 2465 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
-      "components/admin/wizard/step3ReviewSections.tsx:2465",
+      // 2458 -> 2463 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 2463 -> 2470 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+      "components/admin/wizard/step3ReviewSections.tsx:2470",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 
