@@ -449,7 +449,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "global",
     );
     expect(p["role-changes"]).toBe("Doug Larson's role changed from A1 to A1 + LEAD.");
-    expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
+    expect(p["lead-hint"]).toBe(" Leads can see the show's financials.");
   });
 
   it("single added member (empty prior)", () => {
@@ -471,7 +471,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       "global",
     );
     expect(p["role-changes"]).toBe("Sam Roe (LEAD) was removed from the crew.");
-    expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
+    expect(p["lead-hint"]).toBe(" Leads can see the show's financials.");
   });
 
   it("multi renders header + bullets, exact composition", () => {
@@ -530,7 +530,7 @@ describe("deriveAlertMessageParams — ROLE_FLAGS_NOTICE", () => {
       sheetIdentity,
       "global",
     );
-    expect(p["lead-hint"]).toBe(" Lead changes must be confirmed in the show page.");
+    expect(p["lead-hint"]).toBe(" Leads can see the show's financials.");
   });
 
   it.each([

@@ -622,9 +622,7 @@ describe("loadBellFeed", () => {
     expect(entry.messageParams["role-changes"]).toBe(
       "Doug Larson's role changed from A1 to A1 + LEAD.",
     );
-    expect(entry.messageParams["lead-hint"]).toBe(
-      " Lead changes must be confirmed in the show page.",
-    );
+    expect(entry.messageParams["lead-hint"]).toBe(" Leads can see the show's financials.");
     expect(entry.actions.map((a) => a.label)).toEqual(["Open in Sheet"]);
     expect(entry).not.toHaveProperty("action");
   });
