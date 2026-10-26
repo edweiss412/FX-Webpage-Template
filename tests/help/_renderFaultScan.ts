@@ -793,7 +793,14 @@ export function scanCandidates(): Candidate[] {
       // side's number describes the merged tree; the value below is re-derived from
       // the merged tree by running the guard, never by taking a side.
       //
-      // Probed: 745 such ternaries under the derived roots, 78 on a
+      // 745 -> 747 on feat/hotel-card-date-stub: the review modal's hotel card
+      // `StayEnd` picks between "Not listed", a verbatim value, and the date stub
+      // with one nested ternary (two JSX-bearing ternaries), replacing the old
+      // strip's `?? "—"` fallbacks, which were not ternaries. Neither is a fault
+      // branch, so the 78 below is unchanged. Re-derived by running the guard on
+      // the branch after merging origin/main (main itself still computes 745).
+      //
+      // Probed: 747 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
