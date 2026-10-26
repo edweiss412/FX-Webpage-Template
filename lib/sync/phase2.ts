@@ -165,6 +165,9 @@ export type Phase2Args = {
 export type RoleFlagsNotice = {
   showId: string;
   code: "ROLE_FLAGS_NOTICE";
+  // Set when the onboarding wizard CREATED this show: the admin saw the roster, LEAD included,
+  // before approving it, so the change is recorded (LEAD_ROLE_APPLIED) but raises no bell alert.
+  auditOnly?: true;
   context: {
     drive_file_id: string;
     changes: Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }>;
@@ -664,6 +667,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       ? {
           showId: snapshot.showId,
           code: "ROLE_FLAGS_NOTICE" as const,
+          ...(args.wizardCreatedSessionId ? { auditOnly: true as const } : {}),
           context: {
             drive_file_id: args.driveFileId,
             changes: roleFlagChanges,
