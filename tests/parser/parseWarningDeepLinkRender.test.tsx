@@ -18,7 +18,7 @@ const HUMAN_MESSAGE: Record<string, string> = {
 };
 
 describe("parse-warning deep-link render invariants", () => {
-  it("population gate = render gate + the hotel region set, exactly (spec 2026-08-27 §3)", () => {
+  it("population gate = render gate + the hotel region set + the link-only set, exactly", () => {
     // The ratified 'one set' contract was an IDENTITY assertion, whose purpose was that
     // population and render cannot drift apart. That purpose is kept with a wider
     // statement, because the hotel codes now carry a REGION anchor without joining the
@@ -30,14 +30,28 @@ describe("parse-warning deep-link render invariants", () => {
     const extra = [...CELL_ANCHORED_CODES]
       .filter((c) => !OPERATOR_ACTIONABLE_ANCHORED.has(c))
       .sort();
-    // Literal, not derived from HOTEL_REGION_ANCHORED: the showDayTimeAnchors suite pins
-    // that set to these same five, so two literal sites state one truth.
+    // Literal, not derived from HOTEL_REGION_ANCHORED or LINK_ONLY_ANCHORED: the
+    // showDayTimeAnchors suite pins those sets to these same codes, so two literal sites
+    // state one truth.
     expect(extra).toEqual([
+      "AGENDA_LINK_NOT_CLICKABLE",
+      "CREW_COLUMN_POSITIONAL_FALLBACK",
+      "DATE_ORDER_SUGGESTS_DMY",
       "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
       "HOTEL_CARDINALITY_EXCEEDED",
       "HOTEL_GUEST_SPLIT_AMBIGUOUS",
       "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
       "HOTEL_INLINE_GROUP_OWN_HOTEL",
+      "PULL_SHEET_ON_ARCHIVED_TAB",
+      "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      "SECTION_HEADER_NO_FIELDS",
+      "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+      "TRAVEL_FLIGHT_NAME_UNMATCHED",
+      "TRAVEL_FLIGHT_UNPARSEABLE",
+      "TRAVEL_TRANSPORT_NAME_UNMATCHED",
+      "UNKNOWN_SECTION_HEADER",
+      "VENUE_GEOCODE_UNRESOLVED",
+      "VENUE_TIMEZONE_UNRESOLVED",
     ]);
   });
 
@@ -45,8 +59,9 @@ describe("parse-warning deep-link render invariants", () => {
     for (const code of OPERATOR_ACTIONABLE_ANCHORED) {
       expect(hasCellAnchoredWarning([{ severity: "warn", code, message: "x" }])).toBe(true);
     }
+    // BLOCK_DISAPPEARED names a block that is gone, so it has no link target.
     expect(
-      hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }]),
+      hasCellAnchoredWarning([{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "x" }]),
     ).toBe(false);
   });
 

@@ -43,7 +43,8 @@ describe("attachWarningAnchors", () => {
   it("does NOT call resolveGids when no anchored warning is present (cost gate)", async () => {
     const resolveGids = vi.fn(gids);
     await attachWarningAnchors(
-      [{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }],
+      // BLOCK_DISAPPEARED names a block that is gone, so it has no link target.
+      [{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "x" }],
       CREW,
       resolveGids,
     );

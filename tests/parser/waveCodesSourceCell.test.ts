@@ -137,6 +137,16 @@ describe("assignment never demotes a cell anchor to a range (spec §2.1)", () =>
       rooms: range("A1:B4"),
       transportation: range("A20:D25"),
       details: range("A1:B9"),
+      venue: range("A8:B12"),
+      dates: range("A30:E36"),
+    },
+    // The visible-tab map is range grain too (a tab carries no a1), so PULL_SHEET_ON_ARCHIVED_TAB
+    // sits in the region-only half. "Alice" is the name every probe warning carries.
+    content: {
+      rowLabels: [],
+      agendaLinks: [],
+      travelHeaders: [],
+      visibleTabs: new Map([["Alice", 12]]),
     },
   };
 
@@ -148,15 +158,17 @@ describe("assignment never demotes a cell anchor to a range (spec §2.1)", () =>
           code === "COLUMN_HEADER_AUTOCORRECTED" ||
           code === "ORPHANED_CREW_ROWS"
         ? "crew"
-        : code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"
+        : code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE" || code === "SECTION_HEADER_NO_FIELDS"
           ? "rooms"
           : code === "SECTION_HEADER_AUTOCORRECTED"
             ? "transportation"
             : code === "FIELD_LABEL_AUTOCORRECTED"
               ? "details"
-              : code.startsWith("PULL_SHEET_")
-                ? "pull_sheet"
-                : "agenda";
+              : code === "PULL_SHEET_ON_ARCHIVED_TAB"
+                ? "pull_sheet_archived_tab"
+                : code.startsWith("PULL_SHEET_")
+                  ? "pull_sheet"
+                  : "agenda";
 
   const warnFor = (code: string): ParseWarning =>
     code === "UNKNOWN_FIELD"
@@ -201,6 +213,32 @@ describe("assignment never demotes a cell anchor to a range (spec §2.1)", () =>
     };
   }
   for (const c of WAVE_CODES) CELL_PASS[c] = { ...regionOnly, wave: { [c]: [cell("C3")] } };
+  // The content-located codes: a cell found by its text, the one agenda-link row, the one
+  // TRAVEL header.
+  const content = regionOnly.content!;
+  CELL_PASS.UNKNOWN_SECTION_HEADER = {
+    ...regionOnly,
+    content: {
+      ...content,
+      rowLabels: [
+        {
+          label: normalizeCellKey(warn("UNKNOWN_SECTION_HEADER", "x").rawSnippet!),
+          anchor: cell("C3"),
+        },
+      ],
+    },
+  };
+  CELL_PASS.AGENDA_LINK_NOT_CLICKABLE = {
+    ...regionOnly,
+    content: { ...content, agendaLinks: [cell("C3")] },
+  };
+  for (const c of [
+    "TRAVEL_FLIGHT_UNPARSEABLE",
+    "TRAVEL_FLIGHT_NAME_UNMATCHED",
+    "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+  ]) {
+    CELL_PASS[c] = { ...regionOnly, content: { ...content, travelHeaders: [cell("C3")] } };
+  }
 
   const CELL_CAPABLE = [...CELL_ANCHORED_CODES].filter((c) => c in CELL_PASS);
   const REGION_ONLY = [...CELL_ANCHORED_CODES].filter((c) => !(c in CELL_PASS));
