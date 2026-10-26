@@ -54,7 +54,8 @@ export function reviewWarningGroupTitle(w: ParseWarning, count: number): string 
   if (isMessageCode(w.code)) {
     const entry = messageFor(w.code as MessageCode);
     if (entry.title && entry.titlePlural) {
-      return entry.titlePlural.replace("{count}", String(count));
+      // A replacer FUNCTION: a string replacement would expand `$`-patterns.
+      return entry.titlePlural.replace("{count}", () => String(count));
     }
   }
   if (title === GENERIC_REVIEW_WARNING_TITLE) {
