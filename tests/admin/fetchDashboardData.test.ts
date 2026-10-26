@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkDataGaps } from "../helpers/dataGapsFixture";
 import { premise, premiseHolds } from "../_shared/premise";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 
 // ── recording mock ────────────────────────────────────────────────────────
 type Seed = {
@@ -20,6 +21,9 @@ type Seed = {
   syncCount?: number;
   showsInternalRows?: Record<string, unknown>[]; // { show_id, parse_warnings }[]
   showsInternalError?: { message: string }; // returned-{error} injection for the degrade path
+  ignoredRows?: Record<string, unknown>[]; // { show_id, fingerprint }[]
+  ignoredError?: { message: string }; // returned-{error} on the ignored_warnings read
+  ignoredThrow?: boolean; // .from("ignored_warnings") throws synchronously
 };
 
 const state = vi.hoisted(() => ({
@@ -74,6 +78,9 @@ function makeClient() {
       return Promise.resolve({ data: owned.includes(args.p_show_id), error: null });
     },
     from(table: string) {
+      if (table === "ignored_warnings" && seed.ignoredThrow) {
+        throw new Error("META: ignored_warnings .from() threw");
+      }
       const ctx: {
         head: boolean;
         inCol: string | null;
@@ -126,6 +133,10 @@ function makeClient() {
         if (table === "shows_internal") {
           if (seed.showsInternalError) return { data: null, error: seed.showsInternalError };
           return { data: seed.showsInternalRows ?? [], error: null };
+        }
+        if (table === "ignored_warnings") {
+          if (seed.ignoredError) return { data: null, error: seed.ignoredError };
+          return { data: seed.ignoredRows ?? [], error: null };
         }
         return { data: [], error: null };
       };
@@ -845,6 +856,111 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
     expect("dataGaps" in result.rows.find((r) => r.slug === "badel")!).toBe(false);
     expect(result.rows.find((r) => r.slug === "valid")!.dataGaps?.total).toBe(1);
   });
+
+  // ── Ignored warnings leave the badge (the pop-up already hides them) ──────
+  // Shape taken from a real onboarded show: six identical #REF! warnings share ONE
+  // ignore fingerprint, plus one hotel guest-split warning with its own.
+  const refWarning = {
+    severity: "warn",
+    code: "REF_ERROR_LITERAL",
+    message: "r",
+    rawSnippet: "\\#REF\\!",
+  } as const;
+  const hotelWarning = {
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: "h",
+    rawSnippet: "Four Seasons Chicago 120 E Delaware Pl",
+  } as const;
+  const roundtableWarnings = [...Array.from({ length: 6 }, () => refWarning), hotelWarning];
+  const fp = (w: { code: string; rawSnippet: string }) => {
+    const f = warningFingerprint(w);
+    if (f === null) throw new Error("fixture warning must be ignorable");
+    return f;
+  };
+  const oneShow = (id: string, slug: string) => ({
+    id,
+    slug,
+    title: slug,
+    dates: null,
+    venue: null,
+    published: true,
+  });
+
+  it("T4: a fully ignored show OMITS the badge (one fingerprint covers repeated warnings)", async () => {
+    state.seed = {
+      showsList: [oneShow("s1", "roundtable")],
+      showsActiveCount: 1,
+      showsInternalRows: [{ show_id: "s1", parse_warnings: roundtableWarnings }],
+      ignoredRows: [
+        { show_id: "s1", fingerprint: fp(refWarning) },
+        { show_id: "s1", fingerprint: fp(hotelWarning) },
+      ],
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const result = await fetchDashboardData();
+    if ("kind" in result) throw new Error("unexpected infra_error");
+    expect("dataGaps" in result.rows.find((r) => r.slug === "roundtable")!).toBe(false);
+    expect(result.dataGapsDegraded).toBe(false);
+    const ignoredCall = state.calls.find((c) => c.table === "ignored_warnings");
+    expect(ignoredCall?.inCol).toBe("show_id");
+    expect(ignoredCall?.inArgs).toEqual(["s1"]);
+  });
+
+  it("T5: only the ignored fingerprint leaves; the rest still count", async () => {
+    state.seed = {
+      showsList: [oneShow("s1", "roundtable")],
+      showsActiveCount: 1,
+      showsInternalRows: [{ show_id: "s1", parse_warnings: roundtableWarnings }],
+      ignoredRows: [{ show_id: "s1", fingerprint: fp(refWarning) }],
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const result = await fetchDashboardData();
+    if ("kind" in result) throw new Error("unexpected infra_error");
+    expect(result.rows.find((r) => r.slug === "roundtable")!.dataGaps).toEqual(
+      mkDataGaps({ HOTEL_GUEST_SPLIT_AMBIGUOUS: 1 }),
+    );
+  });
+
+  it("T6: an ignore on one show never hides the same warning on another show", async () => {
+    state.seed = {
+      showsList: [oneShow("s1", "ignorer"), oneShow("s2", "other")],
+      showsActiveCount: 2,
+      showsInternalRows: [
+        { show_id: "s1", parse_warnings: [hotelWarning] },
+        { show_id: "s2", parse_warnings: [hotelWarning] },
+      ],
+      ignoredRows: [{ show_id: "s1", fingerprint: fp(hotelWarning) }],
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const result = await fetchDashboardData();
+    if ("kind" in result) throw new Error("unexpected infra_error");
+    expect("dataGaps" in result.rows.find((r) => r.slug === "ignorer")!).toBe(false);
+    expect(result.rows.find((r) => r.slug === "other")!.dataGaps?.total).toBe(1);
+  });
+
+  it.each([
+    ["returned {error}", { ignoredError: { message: "boom" } }],
+    ["thrown .from()", { ignoredThrow: true }],
+  ])(
+    "T7: an ignored_warnings read fault (%s) counts every warning, like the pop-up",
+    async (_label, fault) => {
+      state.seed = {
+        showsList: [oneShow("s1", "roundtable")],
+        showsActiveCount: 1,
+        showsInternalRows: [{ show_id: "s1", parse_warnings: roundtableWarnings }],
+        ignoredRows: [{ show_id: "s1", fingerprint: fp(refWarning) }],
+        ...fault,
+      };
+      const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+      const result = await fetchDashboardData();
+      if ("kind" in result) throw new Error("an ignore-read fault must not blank the dashboard");
+      expect(result.rows.find((r) => r.slug === "roundtable")!.dataGaps?.total).toBe(
+        roundtableWarnings.length,
+      );
+      expect(result.dataGapsDegraded).toBe(false);
+    },
+  );
 });
 
 // ── Flow-4 Task 8 — recently-auto-applied strip + roster-shift badge wiring ──
