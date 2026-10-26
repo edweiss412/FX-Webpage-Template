@@ -373,8 +373,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // line's single-line truncate with a two-line clamp and recorded why in the
     // comment above it. Located by running the scanner: one unclassified site,
     // 4277, still that same tile anchor.
-    // Moved 4277 -> 4339 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
-    line: 4339,
+    // 4277 -> 4278 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. The scanner reports 4278, and it is that same `<a>`.
+    // Then 4278 -> 4340 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    line: 4340,
     tag: "a",
     category: "full-bleed",
     reason:

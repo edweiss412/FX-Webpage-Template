@@ -193,8 +193,10 @@ export const CENSUS: readonly CensusRow[] = [
   // 4864 -> 4877 on the round-2 repairs (the empty-key gate comment above this
   // element, and the trimmed name-line comment). Located by its own
   // `wizard-step3-card-${dfid}-report-toggle` testid, never by the delta.
-  // Moved 4877 -> 4939 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4939 },
+  // 4877 -> 4878 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by its own
+  // `wizard-step3-card-${dfid}-report-toggle` testid, never by the delta.
+  // Then 4878 -> 4940 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4940 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -239,8 +241,10 @@ export const CENSUS: readonly CensusRow[] = [
   // own `disabled={draft.trim()...}` opener, whose <button> is 4946. Never by the delta.
   // 4946 -> 4959 on the same commit, same cause. Located by its own
   // `disabled={draft.trim()...}` opener.
-  // Moved 4959 -> 5021 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5021 },
+  // 4959 -> 4960 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by its own
+  // `disabled={draft.trim()...}` opener.
+  // Then 4960 -> 5022 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5022 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then

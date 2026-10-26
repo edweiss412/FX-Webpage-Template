@@ -110,8 +110,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // the file, shifting every line below it. Located by RUNNING the scanner, not by
     // adding the delta: it reports two hits, 1649 and 3413, and 1649 is still the
     // `{hidden.length} more` accordion <summary>.
-    // Moved 1649 -> 1656 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
-    line: 1656,
+    // 1649 -> 1650 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner: 1650 is still the
+    // `{hidden.length} more` accordion <summary>.
+    // Then 1650 -> 1657 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    line: 1657,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -136,8 +138,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // +1 on Task 3 of the diagram-tile-states plan, same one-line lucide import.
     // 3413 on the post-edit tree, confirmed by its own unique
     // `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`, never by the delta.
-    // Moved 3413 -> 3475 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
-    line: 3475,
+    // 3413 -> 3414 on fix/dress-code-hierarchy, which added the DressCodeLines import line near the top. Located by the scanner and its own unique
+    // ignored-summary testid, never by the delta.
+    // Then 3414 -> 3476 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+    line: 3476,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

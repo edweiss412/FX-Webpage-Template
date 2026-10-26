@@ -155,6 +155,7 @@ import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { agendaOverflowNotes } from "@/lib/agenda/agendaPaint";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
@@ -2376,7 +2377,7 @@ function BooleanChip({ label, value }: { label: string; value: string }) {
 
 /**
  * Renders a group's fields: booleans as a Yes/No chip grid, `dress_code` as a
- * sunken free-text block (multi-line preserved), everything else as label:value
+ * sunken block of phase/attire pairs (DressCodeLines), everything else as label:value
  * rows. Rows render before chips so the Production group (all-boolean) reads as
  * a clean chip grid and mixed groups keep their text rows on top.
  */
@@ -2420,8 +2421,8 @@ function EventDetailGroupBody({
                 <span className="wrap-break-word text-xs font-medium text-text-subtle">
                   {f.label}
                 </span>
-                <div className="rounded-md border border-border bg-surface-sunken px-3 py-2 text-sm/relaxed whitespace-pre-line text-text wrap-break-word">
-                  {f.value}
+                <div className="rounded-md border border-border bg-surface-sunken px-3 py-2">
+                  <DressCodeLines value={f.value} />
                 </div>
               </div>
             ) : (

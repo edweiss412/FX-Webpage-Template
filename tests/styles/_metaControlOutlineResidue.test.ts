@@ -1566,8 +1566,11 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // the shifted tree, not bumped: 2457 is PackCountPill's pill <span>, carrying
       // `border border-border`, and `git show HEAD:<file>` puts the same element at
       // 2456 before the edit.
-      // Moved 2457 -> 2464 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
-      "components/admin/wizard/step3ReviewSections.tsx:2464",
+      // 2457 -> 2458 on fix/dress-code-hierarchy, which added the DressCodeLines import
+      // line near the top. Located on the shifted tree: 2458 is that same PackCountPill
+      // `rounded-pill border border-border` <span>.
+      // Then 2458 -> 2465 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
+      "components/admin/wizard/step3ReviewSections.tsx:2465",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

@@ -17,7 +17,8 @@
  *   - Dress code line — the canonical `event_details.dress_code` key (the
  *     attire/dress/dress-code label family is collapsed to it at parse time;
  *     see lib/parser/blocks/event.ts CANONICAL_KEY_MAP, M4-D1), gated by
- *     `shouldHideGenericOptional` so a sentinel value reflows out.
+ *     `shouldHideGenericOptional` so a sentinel value reflows out. Rendered by
+ *     DressCodeLines (one phase label per `Phase: attire` line).
  *   - Show notes — the 5-source aggregation venue → hotel → room → transport →
  *     contact (`SOURCE_CAP` / `TRUNCATE_AT` ported from NotesTile). The
  *     transport note is gated on `transportTileVisible` so a non-assigned crew
@@ -41,6 +42,7 @@ import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { ShowDayTimelineList } from "@/components/crew/primitives/ShowDayTimelineList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { SectionChipLink } from "@/components/crew/SectionChipLink";
@@ -546,7 +548,7 @@ export function TodaySection({
                   />
                 }
               >
-                <p className="text-sm text-text">{dressRaw}</p>
+                <DressCodeLines value={dressRaw} />
               </SectionCard>
             </div>
           ) : null;
