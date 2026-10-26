@@ -1,6 +1,6 @@
 # Near-miss cards only where a parser reads, and a missing-venue-address notice — design
 
-**Status:** Ready for adversarial review
+**Status:** Approved (spec review round 2, 2026-10-25)
 **Date:** 2026-10-25
 **Branch:** `fix/near-miss-gear-quote-header` (no ledger row; found live on the FinTech wizard review)
 **Predecessors:** `docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md` (the detector), `docs/superpowers/specs/parser/2026-08-28-nearmiss-candidacy-field-lists-design.md` (its first narrowing)
