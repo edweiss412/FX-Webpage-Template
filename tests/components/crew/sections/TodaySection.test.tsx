@@ -19,7 +19,7 @@ import "@testing-library/jest-dom/vitest";
  * No next/navigation mock is needed: the hero imports none.
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
 import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
@@ -545,4 +545,32 @@ test("explicit-restriction viewer → date rows stay; only unknown_asterisk supp
   const section = container.querySelector('[data-testid="section-today"]')!;
   expect(section.textContent).toContain("Check in");
   expect(section.textContent).toContain("Check out");
+});
+
+// Dress code phases. The DRESS block is one `Phase: attire` line per phase; a flat
+// <p> collapsed the "\n" so both phases ran together into one sentence.
+test("dress card renders each phase as a term over its attire", () => {
+  const data = makeShowForViewer({
+    show: {
+      event_details: {
+        dress_code:
+          "Set/Strike: Black Pants, Black Polo Shirt, Black Footwear\n" +
+          "Show: Black Pants, Black Long Sleeve Button Down Shirt, Black Footwear",
+      },
+    },
+  });
+  const { getByTestId } = render(
+    <TodaySection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  const card = within(getByTestId("today-dress"));
+  expect(card.getAllByRole("term").map((el) => el.textContent)).toEqual(["Set/Strike", "Show"]);
+  expect(card.getAllByRole("definition")[1]?.textContent).toBe(
+    "Black Pants, Black Long Sleeve Button Down Shirt, Black Footwear",
+  );
 });
