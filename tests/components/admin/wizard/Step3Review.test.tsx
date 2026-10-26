@@ -1332,10 +1332,12 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     const t = region.textContent ?? "";
     expect(t).toContain("120 E Delaware Pl"); // address now shown
     expect(t).not.toContain("SECRET-123"); // confirmation_no stays private
-    // Structured redesign: nights pill from check_in→check_out, humanized dates,
-    // and a guest-avatar stack derived from the reservation names.
+    // Date-stub redesign: nights on the stub connector, and one named chip per
+    // guest (avatar + full name) derived from the reservation names.
     expect(t).toContain("3 nights"); // Oct 7 → Oct 10
-    expect(t).toContain("Eric Weiss, Connor Hester");
+    const guestNames = [...region.querySelectorAll('[data-testid="hotel-guest-name"]')];
+    expect(guestNames.map((n) => n.textContent)).toEqual(["Eric Weiss", "Connor Hester"]);
+    expect(region.querySelectorAll('[data-testid="hotel-guest-chip"]').length).toBe(2);
     expect(region.querySelectorAll('[data-testid="hotel-guest-avatar"]').length).toBe(2);
     // Single reservation → NOT a card-within-a-card: the lone HotelCard flattens
     // (drops its own border/padding) so the section chrome is the only card.
@@ -1380,6 +1382,85 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(cards.length).toBe(2);
     // Multiple reservations → each keeps its own bordered sub-card.
     cards.forEach((c) => expect(c.className).toMatch(/\bborder-border\b/));
+  });
+
+  // Date-stub hotel card (2026-10-25 design pass, Option C). Each helper call
+  // renders ONE reservation so every query below is scoped to that card.
+  function renderHotelCard(
+    dfid: string,
+    reservation: Partial<{
+      names: string[];
+      check_in: string | null;
+      check_out: string | null;
+    }>,
+  ) {
+    const pr = {
+      ...GEAR_PR,
+      hotelReservations: [
+        {
+          ordinal: 1,
+          hotel_name: "Four Seasons",
+          hotel_address: "120 E Delaware Pl",
+          names: ["Eric Weiss"],
+          confirmation_no: null,
+          check_in: "2025-10-07",
+          check_out: "2025-10-10",
+          notes: null,
+          ...reservation,
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: dfid, parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId(`wizard-step3-card-${dfid}-more`));
+    const card = getByTestId(`wizard-step3-card-${dfid}-breakdown-hotels`).querySelector(
+      '[data-testid="wizard-step3-hotel-card"]',
+    );
+    expect(card).not.toBeNull();
+    return card as HTMLElement;
+  }
+
+  test("hotel card renders a date stub: day, month, weekday per end, nights on the connector", () => {
+    const card = renderHotelCard("drive-hs1", {});
+    const checkIn = card.querySelector('[data-testid="hotel-stay-check-in"]');
+    const checkOut = card.querySelector('[data-testid="hotel-stay-check-out"]');
+    // 2025-10-07 is a Tuesday and 2025-10-10 a Friday (UTC). Hardcoded on
+    // purpose: recomputing them with the helper would pass a shared TZ bug.
+    expect(checkIn?.textContent).toBe("Check in7OctTuesday");
+    expect(checkOut?.textContent).toBe("Check out10OctFriday");
+    expect(checkIn?.querySelector("time")?.getAttribute("dateTime")).toBe("2025-10-07");
+    expect(checkOut?.querySelector("time")?.getAttribute("dateTime")).toBe("2025-10-10");
+    expect(card.querySelector('[data-testid="hotel-stay-nights"]')?.textContent).toBe("3 nights");
+    // The redundant bed chip is gone: name and address share the card's left edge.
+    expect(card.querySelector(".lucide-bed-double")).toBeNull();
+  });
+
+  test("hotel card stub: a non-date check-out shows verbatim, a missing check-in says so, no nights", () => {
+    const card = renderHotelCard("drive-hs2", { check_in: null, check_out: "TBD" });
+    const checkIn = card.querySelector('[data-testid="hotel-stay-check-in"]');
+    const checkOut = card.querySelector('[data-testid="hotel-stay-check-out"]');
+    expect(checkIn?.textContent).toBe("Check inNot listed");
+    expect(checkOut?.textContent).toBe("Check outTBD");
+    // Neither end is a real date, so no <time> element claims one.
+    expect(card.querySelector("time")).toBeNull();
+    expect(card.querySelector('[data-testid="hotel-stay-nights"]')).toBeNull();
+    expect(card.textContent).not.toMatch(/night/);
+  });
+
+  test("hotel card omits the stub entirely when both dates are missing", () => {
+    const card = renderHotelCard("drive-hs3", { check_in: null, check_out: null });
+    expect(card.querySelector('[data-testid="hotel-stay-check-in"]')).toBeNull();
+    expect(card.querySelector('[data-testid="hotel-stay-check-out"]')).toBeNull();
+  });
+
+  test("hotel card shows every guest as a named chip, past the old five-avatar cap", () => {
+    const names = ["Ann Lee", "Bo Diaz", "Cy Park", "Di Ruiz", "Ed Wu", "Flo Kim", "Gus Roy"];
+    const card = renderHotelCard("drive-hs4", { names });
+    expect(card.querySelectorAll('[data-testid="hotel-guest-chip"]').length).toBe(names.length);
+    const shown = [...card.querySelectorAll('[data-testid="hotel-guest-name"]')];
+    expect(shown.map((n) => n.textContent)).toEqual(names);
   });
 
   test("crew breakdown shows partial-attendance as-parsed (BL-CREW-PARTIAL-ATTENDANCE-CHIP)", () => {

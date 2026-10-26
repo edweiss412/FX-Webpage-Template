@@ -110,7 +110,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // the file, shifting every line below it. Located by RUNNING the scanner, not by
     // adding the delta: it reports two hits, 1649 and 3413, and 1649 is still the
     // `{hidden.length} more` accordion <summary>.
-    line: 1649,
+    // Moved 1649 -> 1656 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
+    line: 1656,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -135,7 +136,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // +1 on Task 3 of the diagram-tile-states plan, same one-line lucide import.
     // 3413 on the post-edit tree, confirmed by its own unique
     // `data-testid={`wizard-step3-card-${dfid}-ignored-summary`}`, never by the delta.
-    line: 3413,
+    // Moved 3413 -> 3458 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
+    line: 3458,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

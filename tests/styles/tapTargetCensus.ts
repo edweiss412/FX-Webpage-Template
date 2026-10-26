@@ -373,7 +373,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // line's single-line truncate with a two-line clamp and recorded why in the
     // comment above it. Located by running the scanner: one unclassified site,
     // 4277, still that same tile anchor.
-    line: 4277,
+    // Moved 4277 -> 4322 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the shifted tree: same element, same text.
+    line: 4322,
     tag: "a",
     category: "full-bleed",
     reason:

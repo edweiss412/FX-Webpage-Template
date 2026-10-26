@@ -209,8 +209,6 @@ function lineOf(source: string, pos: number): number {
 const SENTINEL_ANCHORS: Readonly<Record<string, readonly string[]>> = {
   "components/admin/ShowsTable.tsx": ['startText ?? "—"', 'endText ?? "—"'],
   "components/admin/wizard/step3ReviewSections.tsx": [
-    'checkIn ?? "—"',
-    'checkOut ?? "—"',
     '<span aria-hidden="true" className="px-1.5 font-normal text-text-faint"> — </span>',
   ],
   "components/admin/telemetry/TelemetryOverviewStrip.tsx": ["<span aria-hidden>—</span>"],
