@@ -337,7 +337,9 @@ export const CENSUS: readonly CensusRow[] = [
   // overflowing §15's 700-character tween window.
   { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 135 },
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
-  { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
+  // 83 -> 94 on feat/crew-show-search (Schedule search entries): the button gained a `searchTargets` prop and its
+  // per-button target/chrome lines above the tag. Same `<button>`, same recipe.
+  { file: "components/agenda/AgendaEmbed.tsx", line: 94 },
   { file: "components/agenda/AgendaPdfViewer.tsx", line: 198 },
   { file: "components/crew/SectionChipLink.tsx", line: 48 },
   // :196 and :213 until feat/crew-show-search-impl, which added the react import,
@@ -376,7 +378,9 @@ export const DIVIDERS: readonly CensusRow[] = [
   // its own outline recipe and a `cn` import, which moved every element below
   // it. The divider itself is untouched; what moved is where it sits.
   { file: "components/admin/telemetry/EventFilters.tsx", line: 97 },
-  { file: "components/crew/primitives/KeyTimesStrip.tsx", line: 191 },
+  // 191 -> 196 on feat/crew-show-search (Schedule search entries): `keyTimeRows` and the AnchorRow `searchTarget` prop moved
+  // lines above it. Same overflow `<summary>`, same `border-t border-border` divider.
+  { file: "components/crew/primitives/KeyTimesStrip.tsx", line: 196 },
 ];
 
 export type ResolvedCensusRow = {

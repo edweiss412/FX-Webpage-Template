@@ -177,18 +177,37 @@ function makeCase(name: string, viewer: Viewer, data: ShowForViewer): ViewerCase
   };
 }
 
+/**
+ * Today's run of show holds only a load-out entry, the one entry the transport
+ * gate decides (`scheduleEntriesForViewer`): the transport cases below render
+ * it (Schedule's day card, Today's Mode A list) or drop it, so the gate flips
+ * both ways for Schedule and Today too.
+ */
+const LOADOUT_ONLY_RUN_OF_SHOW: Record<string, ScheduleDay> = {
+  [MATRIX_TODAY_ISO]: {
+    entries: [{ start: "5:00 PM", title: "Load Out: dock 3 to the truck", kind: "loadout" }],
+    showStart: null,
+    showEnd: null,
+    window: null,
+  },
+};
+
 /** Transport exists but names someone else, so the viewer's transport tile is hidden. */
 export const crewNoTransport = makeCase(
   "crewNoTransport",
   CREW_VIEWER,
-  base({ transportation: transport("Pat Driver") }),
+  base({ transportation: transport("Pat Driver"), runOfShow: LOADOUT_ONLY_RUN_OF_SHOW }),
 );
 
 /** The viewer is the driver (by name and by resolved owner id), so the transport tile shows. */
 export const crewWithTransport = makeCase(
   "crewWithTransport",
   CREW_VIEWER,
-  base({ transportation: transport(VIEWER_NAME), transportationOwnerIds: [VIEWER_ID] }),
+  base({
+    transportation: transport(VIEWER_NAME),
+    transportationOwnerIds: [VIEWER_ID],
+    runOfShow: LOADOUT_ONLY_RUN_OF_SHOW,
+  }),
 );
 
 /** A LEAD crew viewer with financials loaded: the Budget section renders. */
@@ -666,6 +685,8 @@ export const fullContent = makeCase(
         set: isoDay(-2),
         showDays: FULL_SHOW_DAYS,
         travelOut: isoDay(1),
+        // The Set day has no run of show, so Schedule's day card shows "Setup <time>".
+        setupTime: "6:00am",
       },
       schedule_phases: {
         [isoDay(-2)]: ["Load In", "Set"],

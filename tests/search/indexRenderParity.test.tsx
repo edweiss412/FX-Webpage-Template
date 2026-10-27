@@ -39,8 +39,15 @@ import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import * as travelRows from "@/components/crew/sections/travelRows";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
+import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
+import * as scheduleRows from "@/components/crew/sections/scheduleRows";
 import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
+import { driftNote } from "@/lib/agenda/agendaPaint";
+import { agendaDisplayLabel } from "@/lib/agenda/agendaLabel";
+import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
+import { aggregateDays, TITLE_TRUNCATE_AT } from "@/lib/crew/agendaDisplay";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
+import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
@@ -162,6 +169,11 @@ function caseNamed(cases: readonly ViewerCase[], name: string): ViewerCase {
   const c = cases.find((x) => x.name === name);
   if (c === undefined) throw new Error(`no case named ${name}`);
   return c;
+}
+
+/** The `<region>` part of a `<section>:<region>:<hash>` entry id. */
+function regionOf(e: SearchEntry): string {
+  return e.id.split(":")[1] ?? "";
 }
 
 // ── travel ───────────────────────────────────────────────────────────────────
@@ -1362,5 +1374,239 @@ describe("venue", () => {
     const indexed = inRegion(build("venue", overCaps), "venue-diagrams").map((e) => e.value);
     premise("overCaps names more diagrams than the gallery shows", names.length, INITIAL_VISIBLE);
     expect(indexed.filter((v) => names.includes(v))).toEqual(names.slice(0, INITIAL_VISIBLE));
+  });
+});
+
+// ── schedule ────────────────────────────────────────────────────────────────
+
+describe("schedule", () => {
+  /**
+   * The gate each case exists to flip, read off the Schedule render. Cases not
+   * listed flip nothing Schedule renders differently; their parity still runs.
+   */
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    dateSuppressed: (root) => {
+      premiseHolds(
+        "dateSuppressed renders only the unconfirmed message",
+        root.querySelector('[data-testid="schedule-unconfirmed"]') !== null &&
+          root.querySelector('[data-testid="day-card"]') === null,
+      );
+    },
+    crewNoTransport: (root, c) => {
+      const loadouts = Object.values(c.data.runOfShow ?? {}).flatMap((d) =>
+        d.entries.filter((e) => e.kind === "loadout"),
+      );
+      premise("crewNoTransport carries a load-out entry", loadouts.length, 0);
+      premiseHolds(
+        "crewNoTransport renders no load-out row",
+        root.querySelector('[data-entry-kind="loadout"]') === null,
+      );
+    },
+    crewWithTransport: (root) => {
+      premiseHolds(
+        "crewWithTransport renders its load-out row",
+        root.querySelector('[data-entry-kind="loadout"]') !== null,
+      );
+    },
+    overCaps: (root) => {
+      premiseHolds(
+        "overCaps folds key times past SHOWS_CAP into a <details>",
+        root.querySelector('[data-testid="key-times-shows-overflow"]') !== null,
+      );
+    },
+    fullContent: (root) => {
+      premise(
+        "fullContent renders more than one agenda document label",
+        root.querySelectorAll('[data-testid="agenda-schedule-label"]').length,
+        1,
+      );
+      premiseHolds(
+        "fullContent folds a long run-of-show title",
+        root.querySelector('[data-testid="agenda-title-truncated"]') !== null,
+      );
+      premiseHolds(
+        "fullContent renders a day card meta line",
+        root.querySelector('[data-slot="day-card-meta"]') !== null,
+      );
+    },
+  };
+
+  test.each(ALL_CASES.map((c) => [c.name, c] as const))("%s: index equals render", (_name, c) => {
+    const root = renderSection("schedule", c);
+    PREMISES[c.name]?.(root, c);
+    expect(assertParity(root, build("schedule", c))).toEqual([]);
+  });
+
+  test("dateSuppressed builds no entries", () => {
+    expect(build("schedule", caseNamed(ALL_CASES, "dateSuppressed"))).toEqual([]);
+  });
+
+  const fullDates = fullContent.data.show.dates;
+  const fullAgenda = fullContent.data.show.agenda_links;
+  const fullDays = fullAgenda.flatMap((l) => normalizeAgendaExtraction(l.extracted)?.days ?? []);
+  const fullSessions = fullDays.flatMap((d) => d.sessions);
+  const fullRos = Object.values(fullContent.data.runOfShow ?? {}).flatMap((d) => d.entries);
+  const at = (es: readonly SearchEntry[], region: string) =>
+    es.filter((e) => regionOf(e) === region);
+
+  const LINE_KINDS: readonly LineKind[] = [
+    {
+      kind: "day card, label only (S1)",
+      caseName: "fullContent",
+      present: (es) => {
+        const show1 = aggregateDays(fullDates).find((d) => d.phase === "Show")!;
+        return at(es, "schedule-days").some(
+          (e) => e.group === show1.label && e.value === show1.label,
+        );
+      },
+    },
+    {
+      kind: "day card with a meta line (S1)",
+      caseName: "fullContent",
+      present: (es) =>
+        at(es, "schedule-days").some(
+          (e) => e.value === `Setup ${normalizeMeridiem(fullDates.setupTime!)}`,
+        ),
+    },
+    {
+      kind: "run-of-show entry (S2)",
+      caseName: "fullContent",
+      present: (es) =>
+        at(es, "schedule-days").some((e) =>
+          fullRos.some((r) => r.title === e.value && r.title.length <= TITLE_TRUNCATE_AT),
+        ),
+    },
+    {
+      kind: "run-of-show entry with a folded long title (S2)",
+      caseName: "fullContent",
+      present: (es) =>
+        at(es, "schedule-days").some((e) =>
+          fullRos.some((r) => r.title === e.value && r.title.length > TITLE_TRUNCATE_AT),
+        ),
+    },
+    {
+      kind: "load-out run-of-show entry (S2, transport gate)",
+      caseName: "crewWithTransport",
+      present: (es) => {
+        const loadout = Object.values(crewWithTransport.data.runOfShow ?? {})
+          .flatMap((d) => d.entries)
+          .find((e) => e.kind === "loadout")!;
+        return at(es, "schedule-days").some((e) => e.value === loadout.title);
+      },
+    },
+    {
+      kind: "Show Start row (S3)",
+      caseName: "overCaps",
+      present: (es) => at(es, "schedule-days").some((e) => e.value === "Show Start"),
+    },
+    {
+      kind: "Set key time (S4)",
+      caseName: "fullContent",
+      present: (es) =>
+        at(es, "schedule-call-times").some((e) => e.group === "Crew Schedule" && e.label === "Set"),
+    },
+    {
+      kind: "show-day key time (S5)",
+      caseName: "fullContent",
+      present: (es) =>
+        at(es, "schedule-call-times").some(
+          (e) => e.label !== null && e.label !== "Set" && e.label !== "Strike",
+        ),
+    },
+    {
+      kind: "show-day key time folded past SHOWS_CAP (S5)",
+      caseName: "overCaps",
+      present: (es) =>
+        at(es, "schedule-call-times").filter(
+          (e) => e.label !== null && e.label !== "Set" && e.label !== "Strike",
+        ).length >= SHOWS_CAP,
+    },
+    {
+      kind: "Strike key time (S6)",
+      caseName: "fullContent",
+      present: (es) => at(es, "schedule-call-times").some((e) => e.label === "Strike"),
+    },
+    {
+      kind: "agenda button document label",
+      caseName: "fullContent",
+      present: (es) => {
+        const badge = agendaDisplayLabel(fullAgenda[0]!.label)!;
+        return at(es, "none").some((e) => e.value === badge);
+      },
+    },
+    {
+      kind: "agenda schedule document label (S10)",
+      caseName: "fullContent",
+      present: (es) => {
+        // The same label renders on the button and above the schedule: two entries.
+        const badge = agendaDisplayLabel(fullAgenda[0]!.label)!;
+        return at(es, "none").filter((e) => e.value === badge).length === 2;
+      },
+    },
+    {
+      kind: "agenda day (S7)",
+      caseName: "fullContent",
+      present: (es) =>
+        at(es, "none").some((e) => e.group === "Agenda" && e.value === fullDays[0]!.dayLabel),
+    },
+    {
+      kind: "agenda session (S8)",
+      caseName: "fullContent",
+      present: (es) => {
+        const s = fullSessions.find((x) => x.title !== null && x.room !== null)!;
+        return at(es, "none").some((e) => e.value === `${s.title} · ${s.room}`);
+      },
+    },
+    {
+      kind: "agenda session drift note (S8)",
+      caseName: "fullContent",
+      present: (es) => {
+        const s = fullSessions.find((x) => x.drift !== null)!;
+        return at(es, "none").some((e) => e.context.includes(driftNote(s.drift!)));
+      },
+    },
+    {
+      kind: "agenda breakout track (S9)",
+      caseName: "fullContent",
+      present: (es) => {
+        const t = fullSessions.flatMap((x) => x.tracks)[0]!;
+        return at(es, "none").some((e) =>
+          e.context.includes(`${t.label} · ${t.title} · ${t.room}`),
+        );
+      },
+    },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind reached: %s", (_kind, k) => {
+    const c = caseNamed(ALL_CASES, k.caseName);
+    expect(k.present(build("schedule", c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing day derivation drops the days block, the agenda stays", () => {
+    // The day cards and the Crew Schedule card share one WrappedSection; the
+    // agenda sits outside it (spec §2.4). The spy reaches both callers because
+    // both import scheduleDayRows from the sibling rows module.
+    vi.spyOn(scheduleRows, "scheduleDayRows").mockImplementation(() => {
+      throw new Error("planted day derivation fault");
+    });
+    const root = renderSection("schedule", fullContent);
+    premiseHolds(
+      "the days block renders its fallback",
+      root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
+        root.querySelector('[data-testid="day-card"]') === null,
+    );
+    premiseHolds(
+      "the agenda still renders",
+      root.querySelector('[data-testid="agenda-session"]') !== null,
+    );
+
+    const entries = build("schedule", fullContent);
+    expect(entries.filter((e) => regionOf(e) !== "none")).toEqual([]);
+    expect(entries.filter((e) => regionOf(e) === "none").length).toBeGreaterThan(0);
+    expect(assertParity(root, entries)).toEqual([]);
+  });
+
+  test("overCaps premise: more show days than SHOWS_CAP", () => {
+    premise("overCaps show days", overCaps.data.show.dates.showDays.length, SHOWS_CAP);
   });
 });

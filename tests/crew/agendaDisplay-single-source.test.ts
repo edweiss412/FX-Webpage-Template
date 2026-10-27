@@ -40,8 +40,13 @@ describe("agenda-display single source (Today/Schedule privacy-contract drift gu
     expect(m).toMatch(/export function todayShowAnchors/);
   });
   it("ScheduleSection routes its show-day intersection through visibleShowDays (no inline copy)", () => {
+    // The day-list derivation moved to the sibling rows module the Schedule search
+    // builder shares (scheduleRows.ts `scheduleVisibleDays`): the section calls it,
+    // and it is the one place the intersection runs through visibleShowDays.
     const s = src("components/crew/sections/ScheduleSection.tsx");
-    expect(s).toMatch(/visibleShowDays\(data\.show\.dates,\s*dateRestriction\)/);
+    expect(s).toMatch(/scheduleVisibleDays\(data,\s*dateRestriction\)/);
+    const rows = src("components/crew/sections/scheduleRows.ts");
+    expect(rows).toMatch(/visibleShowDays\(data\.show\.dates,\s*dateRestriction\)/);
   });
   it("the legacy ScheduleDay name is gone — no ScheduleDay imported from agendaDisplay (rename complete)", () => {
     // plan-review R2 finding 3: post-rename, the ONLY ScheduleDay is the parser-types value type.

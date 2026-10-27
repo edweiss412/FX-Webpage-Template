@@ -506,7 +506,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same `tile-errors` row (`transportFetchFailed ? <SectionTileError`), still marked.
     // Nothing joined or left: membership is still 34, and reverting that one row
     // reproduces 38ef2727... byte-for-byte.
-    expect(digest).toBe("27e71472f9e20b1436b442ce5d982833dd03bf3198a5239fe725fb601a5fcfca");
+    // Regenerated for the crew search Schedule section task (Task 11), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/ScheduleSection.tsx 455 -> 400 (-55: the per-day meta
+    //   and run-of-show derivation moved to the sibling scheduleRows.ts)
+    // Same `tile-errors` rooms row, still marked. Nothing joined or left: membership is
+    // still 34, and reverting that ONE row in the scan output reproduces 27e71472...
+    // byte-for-byte.
+    expect(digest).toBe("dbbf398312223f3706b39e80a7796e48d7f9cb06b021433f5e00171f3be386a0");
   });
 });
 

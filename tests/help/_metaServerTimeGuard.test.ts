@@ -280,6 +280,11 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // too, depth-1 from components/crew/sections/budgetRows.ts, the Budget rows
     // module BudgetSection renders from. Already a member through travelRows.ts,
     // so nothing joins: 225 -> 225, re-derived on the merged tree.
+    // The crew search Schedule section task (Task 11) reaches lib/search/entryId.ts and
+    // lib/search/normalize.ts too, imported directly by
+    // components/crew/sections/scheduleRows.ts, the rows module ScheduleSection and its
+    // search builder share. Already members through travelRows.ts, so nothing joins:
+    // 225 -> 225, re-derived on the merged tree.
     expect(rel.length).toBe(225);
   });
 

@@ -5,6 +5,7 @@ import type { SearchEntry } from "@/lib/search/types";
 import { buildBudgetEntries } from "./budget";
 import { buildCrewEntries } from "./crew";
 import { buildGearEntries } from "./gear";
+import { buildScheduleEntries } from "./schedule";
 import { buildTravelEntries } from "./travel";
 import { buildVenueEntries } from "./venue";
 
@@ -37,7 +38,7 @@ const notYetBuilt: SectionBuilder = () => [];
 
 export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   today: notYetBuilt,
-  schedule: notYetBuilt,
+  schedule: buildScheduleEntries,
   venue: buildVenueEntries,
   travel: buildTravelEntries,
   crew: buildCrewEntries,

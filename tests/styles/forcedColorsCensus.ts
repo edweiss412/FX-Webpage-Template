@@ -366,10 +366,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   // ── Carrier survives: something non-chromatic changes too. ──
   {
-    site: "components/crew/primitives/RunOfShowList.tsx:93",
+    // :93 -> :76 (and :48 -> :36, :78 -> :61 in the reason) on feat/crew-show-search (Schedule search entries): the row's
+    // display fields moved to `runOfShowEntryLine` below the components. Same summary.
+    site: "components/crew/primitives/RunOfShowList.tsx:76",
     disposition: "carrier-survives",
     reason:
-      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:48), the SAME condition that gives the ancestor border-l border-border pl-2 at :78 - a border WIDTH and an indent, both of which survive",
+      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:36), the SAME condition that gives the ancestor border-l border-border pl-2 at :61 - a border WIDTH and an indent, both of which survive",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:829",
