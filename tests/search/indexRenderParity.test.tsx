@@ -24,6 +24,8 @@ import { cleanup, render } from "@testing-library/react";
 import type { JSX } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { GearSection } from "@/components/crew/sections/GearSection";
+import * as gearRows from "@/components/crew/sections/gearRows";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import * as travelRows from "@/components/crew/sections/travelRows";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
@@ -37,10 +39,12 @@ import { premiseHolds } from "@/tests/_shared/premise";
 import { assertParity } from "@/tests/search/_parity";
 import {
   ALL_CASES,
+  adminViewer,
   crewNoTransport,
   crewWithTransport,
   dateSuppressed,
   flightVisible,
+  fullContent,
   type ViewerCase,
 } from "@/tests/search/_viewerMatrix";
 
@@ -395,5 +399,200 @@ describe("travel", () => {
     const entries = SECTION_BUILDERS.travel(dateSuppressed);
     expect(entries.some((e) => e.group === "Hotels" && e.copy?.kind === "confirmation")).toBe(true);
     expect(entries.some((e) => e.group === "Your flight" && e.copy !== null)).toBe(false);
+  });
+});
+
+// ── gear ─────────────────────────────────────────────────────────────────────
+
+describe("gear", () => {
+  const pullSheet = fullContent.data.pullSheet ?? [];
+  const salon = fullContent.data.rooms.find((r) => r.kind === "breakout");
+  if (salon === undefined) throw new Error("fullContent carries no breakout room");
+
+  /**
+   * The Gear shapes no shared case renders: a pack case with no label (the page
+   * invents "Case N", which is not sheet data) holding an item with a raw sheet
+   * snippet and a sentinel category, an itemless case, a playable opening reel
+   * (the player is client chrome), and a second room with the same label and
+   * scope text as another, so its scope row and room-details heading get `~2`.
+   */
+  const gearFallbacks = variant(fullContent, "gearFallbacks", {
+    ...fullContent.data,
+    openingReelHasVideo: true,
+    pullSheet: [
+      ...pullSheet,
+      {
+        caseLabel: "",
+        items: [
+          { qty: null, cat: "TBD", subCat: null, item: "Spare batteries", rawSnippet: "AA x 24" },
+        ],
+      },
+      { caseLabel: "Empty Case", items: [] },
+    ],
+    rooms: [...fullContent.data.rooms, { ...salon, id: `${salon.id}-twin` }],
+  });
+
+  const LOCAL_CASES: readonly ViewerCase[] = [gearFallbacks];
+  const cases = [...ALL_CASES, ...LOCAL_CASES].filter((c) => canOpen("gear", c));
+
+  const renderGear = (c: ViewerCase) => renderRoot(<GearSection {...shellProps(c)} />);
+
+  /** Each case whose gate is a Gear gate proves it flipped in its own render. */
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    overCaps: (root) => {
+      premiseHolds(
+        "overCaps renders the pack overflow stub",
+        byTestIds(root, "gear-pack-list-overflow-stub").length === 1,
+      );
+      premiseHolds(
+        "overCaps renders the room-details overflow line",
+        /more rooms?$/.test(
+          squash(root.querySelector('[data-testid="gear-room-details"]')?.textContent),
+        ),
+      );
+    },
+    fullContent: (root) =>
+      premiseHolds(
+        "fullContent renders the pack list (visible today)",
+        byTestIds(root, "gear-pack-list").length === 1,
+      ),
+    adminViewer: (root) =>
+      premiseHolds(
+        "adminViewer renders an emphasized scope card",
+        root.querySelector('[data-emphasis="you"]') !== null,
+      ),
+    gearFallbacks: (root) => {
+      const pack = squash(root.querySelector('[data-testid="gear-pack-list"]')?.textContent);
+      premiseHolds("gearFallbacks renders an invented Case N label", /Case \d+/.test(pack));
+      premiseHolds(
+        "gearFallbacks renders the opening reel player",
+        byTestIds(root, "opening-reel-video").length === 1,
+      );
+      const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h3')].map((h) =>
+        squash(h.textContent),
+      );
+      premiseHolds(
+        "gearFallbacks renders one room-details heading twice (the ~2 id)",
+        new Set(headings).size < headings.length,
+      );
+    },
+  };
+
+  test.each(cases)("$name: index equals render", (c) => {
+    const root = renderGear(c);
+    PREMISES[c.name]?.(root, c);
+    expect(assertParity(root, SECTION_BUILDERS.gear(c))).toEqual([]);
+  });
+
+  const inRegion = (e: SearchEntry, region: string) => e.id.startsWith(`gear:${region}`);
+  const caseLabels = (c: ViewerCase) => (c.data.pullSheet ?? []).map((k) => k.caseLabel);
+  const snippets = (c: ViewerCase) =>
+    (c.data.pullSheet ?? []).flatMap((k) => k.items.map((i) => i.rawSnippet ?? "")).filter(Boolean);
+
+  /** Inventory §6, G1 to G7 (G5b is the room-details heading). */
+  const LINE_KINDS: readonly LineKind[] = [
+    {
+      kind: "G1 scope row",
+      caseName: crewNoTransport.name,
+      present: (es) => es.some((e) => inRegion(e, "gear-scope-") && e.label !== null),
+    },
+    {
+      kind: "G1 scope row on the viewer's own card",
+      caseName: adminViewer.name,
+      present: (es) =>
+        es.some((e) => inRegion(e, "gear-scope-") && e.context.includes("Your scope")),
+    },
+    {
+      kind: "G2 pack case",
+      caseName: fullContent.name,
+      present: (es, c) =>
+        es.some((e) => inRegion(e, "gear-pack-list:") && caseLabels(c).includes(e.value)),
+    },
+    {
+      kind: "G3 pack item",
+      caseName: fullContent.name,
+      present: (es, c) =>
+        es.some((e) => inRegion(e, "gear-pack-list:") && !caseLabels(c).includes(e.value)),
+    },
+    {
+      kind: "G3 pack item with its raw snippet",
+      caseName: gearFallbacks.name,
+      present: (es, c) =>
+        es.some(
+          (e) =>
+            inRegion(e, "gear-pack-list:") &&
+            [e.value, ...e.context].some((t) => snippets(c).includes(t)),
+        ),
+    },
+    {
+      kind: "G4 tech spec",
+      caseName: fullContent.name,
+      present: (es) => es.some((e) => e.group === "Tech specs" && e.label !== null),
+    },
+    {
+      kind: "G5 room detail field",
+      caseName: fullContent.name,
+      present: (es) => es.some((e) => e.group === "Room details" && e.label !== null),
+    },
+    {
+      kind: "G5b room-details heading",
+      caseName: fullContent.name,
+      present: (es) => es.some((e) => e.group === "Room details" && e.label === null),
+    },
+    {
+      kind: "G6 keynote requirements",
+      caseName: fullContent.name,
+      present: (es) => es.some((e) => e.group === "Keynote requirements"),
+    },
+    {
+      kind: "G7 opening reel status",
+      caseName: fullContent.name,
+      present: (es) => es.some((e) => e.group === "Opening reel" && e.label === "Status"),
+    },
+  ];
+
+  test.each(LINE_KINDS)("line kind $kind renders in $caseName", ({ caseName, present }) => {
+    const c = [...ALL_CASES, ...LOCAL_CASES].find((x) => x.name === caseName);
+    if (c === undefined) throw new Error(`no case named ${caseName}`);
+    expect(present(SECTION_BUILDERS.gear(c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing derivation empties the page block and the index alike", () => {
+    // Gear's whole body is one WrappedSection (`crew:gear:scope`), so the block
+    // that throws is the section: its fallback replaces every line, and there
+    // are no other blocks whose entries could stay behind.
+    const c = fullContent;
+    premiseHolds(
+      "fullContent renders Gear search targets when nothing throws",
+      renderGear(c).querySelector("[data-search-target]") !== null,
+    );
+    cleanup();
+
+    const spy = vi.spyOn(gearRows, "techSpecs").mockImplementation(() => {
+      throw new Error("planted techSpecs fault");
+    });
+    try {
+      const root = renderGear(c);
+      expect(spy, "the section derives its tech specs through gearRows").toHaveBeenCalled();
+      expect(root.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
+      expect(root.querySelector("[data-search-target]")).toBeNull();
+
+      spy.mockClear();
+      const entries = SECTION_BUILDERS.gear(c);
+      expect(
+        spy,
+        "the builder derives its tech specs through the same function",
+      ).toHaveBeenCalled();
+      expect(entries).toEqual([]);
+      expect(assertParity(root, entries)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("an invented Case N label is not indexed, and its items still are", () => {
+    const entries = SECTION_BUILDERS.gear(gearFallbacks);
+    expect(entries.some((e) => /^Case \d+$/.test(e.value))).toBe(false);
+    expect(entries.some((e) => e.value.includes("Spare batteries"))).toBe(true);
   });
 });

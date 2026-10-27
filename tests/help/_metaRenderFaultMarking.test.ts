@@ -479,7 +479,13 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // The same transportation / hotel `tile-errors` rows, still marked. Nothing joined or
     // left: membership is still 34, and reverting those two rows reproduces 8aceadb3...
     // byte-for-byte.
-    expect(digest).toBe("d2955fca7d759ab3cb8a4b8aaaf56223f1db3bd45e82b983a0f463fee310884c");
+    // Regenerated for the crew search Gear section task, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/GearSection.tsx 288 -> 175 (-113: the caps, the
+    //   discipline table and the row derivations move to sections/gearRows.ts)
+    // The same rooms `tile-errors` row, still marked. Nothing joined or left: membership
+    // is still 34, and reverting that row reproduces d2955fca... byte-for-byte.
+    expect(digest).toBe("6f5d45e280a0323dc4954b19349759c0045710fcbebc6810b0c616173ca7843b");
   });
 });
 
