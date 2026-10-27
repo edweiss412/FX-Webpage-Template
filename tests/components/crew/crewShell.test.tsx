@@ -22,7 +22,7 @@
  *   - identityChip threads into Header for a crew viewer and is absent for admin
  *     and on the malformed TerminalFailure path.
  *
- * Strategy: the heavy client islands (Header / CrewSubNav / CrewSectionTransition
+ * Strategy: the heavy client islands (Header / CrewSectionTransition
  * / ShowRealtimeBridge / RightNowHero / Footer / IdentityChip / TerminalFailure)
  * are mocked to render their incoming props as inspectable DOM so the producer's
  * wiring is asserted directly, without dragging in framer-motion / the Supabase
@@ -56,22 +56,6 @@ vi.mock("@/components/layout/Header", () => ({
 vi.mock("@/components/auth/IdentityChip", () => ({
   IdentityChip: ({ name, role }: { name: string; role: string }) => (
     <span data-testid="mock-identity-chip" data-name={name} data-role={role} />
-  ),
-}));
-
-vi.mock("@/components/crew/CrewSubNav", () => ({
-  CrewSubNav: ({
-    activeSection,
-    budgetVisible,
-  }: {
-    activeSection: string;
-    budgetVisible: boolean;
-  }) => (
-    <nav
-      data-testid="crew-sub-nav"
-      data-active-section={activeSection}
-      data-budget-visible={String(budgetVisible)}
-    />
   ),
 }));
 
@@ -287,7 +271,8 @@ describe("CrewShell fail-closed on malformed projection (Test 21)", () => {
       // §4.14: the body TerminalFailure carries NO retryHref.
       expect(failure.getAttribute("data-has-retry")).toBe("false");
       // No section content leaks past the fail-closed arm.
-      expect(screen.queryByTestId("crew-sub-nav")).toBeNull();
+      expect(screen.queryByTestId("crew-shell-sections")).toBeNull();
+      expect(screen.queryByTestId("crew-all-sections")).toBeNull();
       expect(screen.queryByTestId("crew-section-transition")).toBeNull();
       expect(screen.queryByTestId("mock-realtime-bridge")).toBeNull();
       // No identity chip on the failure path.
@@ -349,6 +334,9 @@ describe("CrewShell Footer report-prop contract (Test 19-port)", () => {
 // Test 8 — preview-as Budget gate (single financialsVisible authority)
 // ============================================================================
 describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", () => {
+  const budgetRow = () =>
+    screen.getByTestId("crew-all-sections").querySelector('[data-section="budget"]');
+
   it("admin previewing a NON-LEAD crew + ?s=budget → today (Budget not entered, no Budget tab)", async () => {
     await renderShell({
       data: makeData(),
@@ -356,13 +344,12 @@ describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", ()
       showId: "show-gate",
       rawSection: "budget",
     });
-    // data-active-section lives on the CrewSections controller wrapper, not the
-    // outer crew-shell (review R1 [MED] — a static outer value would diverge from
-    // the live controller one after a client tap).
-    const shell = screen.getByTestId("crew-shell-sections");
-    expect(shell.getAttribute("data-active-section")).toBe("today");
-    const nav = screen.getByTestId("crew-sub-nav");
-    expect(nav.getAttribute("data-budget-visible")).toBe("false");
+    // The open section lives in the CrewSections controller (review R1 [MED]):
+    // ?s=budget resolves to home, so no sheet is open, and the list offers no
+    // Budget row.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("crew-all-sections")).toBeTruthy();
+    expect(budgetRow()).toBeNull();
   });
 
   it("admin previewing a LEAD crew + ?s=budget → budget", async () => {
@@ -372,9 +359,8 @@ describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", ()
       showId: "show-gate",
       rawSection: "budget",
     });
-    const shell = screen.getByTestId("crew-shell-sections");
-    expect(shell.getAttribute("data-active-section")).toBe("budget");
-    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("true");
+    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("budget");
+    expect(budgetRow()).not.toBeNull();
   });
 
   it("real admin + ?s=budget → budget", async () => {
@@ -384,10 +370,8 @@ describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", ()
       showId: "show-gate",
       rawSection: "budget",
     });
-    expect(screen.getByTestId("crew-shell-sections").getAttribute("data-active-section")).toBe(
-      "budget",
-    );
-    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("true");
+    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("budget");
+    expect(budgetRow()).not.toBeNull();
   });
 });
 
@@ -528,28 +512,33 @@ describe("CrewShell identityChip threading", () => {
 // Today section leads with the RightNowHero
 // ============================================================================
 describe("CrewShell Today section", () => {
-  it("the Today section renders the RightNowHero built from the projection", async () => {
+  it("the home's Today block renders the RightNowHero built from the projection, with no sheet", async () => {
     await renderShell({
       data: makeData(),
       viewer: adminViewer,
       showId: "show-today",
       rawSection: undefined, // → today
     });
-    const transition = screen.getByTestId("crew-section-transition");
-    expect(transition.getAttribute("data-section-id")).toBe("today");
-    const hero = screen.getByTestId("mock-right-now-hero");
-    expect(hero.getAttribute("data-show-title")).toBe("Acme Show");
+    const todayBlock = screen.getByTestId("crew-today-block");
+    const hero = todayBlock.querySelector('[data-testid="mock-right-now-hero"]');
+    expect(hero?.getAttribute("data-show-title")).toBe("Acme Show");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("a non-today section renders the placeholder body, not the hero", async () => {
+  it("a non-today section opens in the sheet over the home, whose Today block keeps the hero", async () => {
     await renderShell({
       data: makeData(),
       viewer: adminViewer,
       showId: "show-venue",
       rawSection: "venue",
     });
-    expect(screen.getByTestId("section-venue")).toBeTruthy();
-    expect(screen.queryByTestId("mock-right-now-hero")).toBeNull();
+    const sheet = screen.getByRole("dialog");
+    expect(sheet.getAttribute("data-section")).toBe("venue");
+    expect(sheet.querySelector('[data-testid="section-venue"]')).not.toBeNull();
+    expect(sheet.querySelector('[data-testid="mock-right-now-hero"]')).toBeNull();
+    expect(
+      screen.getByTestId("crew-today-block").querySelector('[data-testid="mock-right-now-hero"]'),
+    ).not.toBeNull();
   });
 });
 
@@ -575,10 +564,12 @@ describe("CrewShell Header status pill (Task 14 / D-2)", () => {
       showId: "show-pill-crew",
       rawSection: "venue", // NOT today — proves the pill is header-level, not in the Today hero
     });
-    // Header-level: present even though the Today hero is unmounted on Venue.
-    expect(screen.queryByTestId("mock-right-now-hero")).toBeNull();
+    // Header-level: rendered by the Header, not by the Today block, while Venue
+    // is open in the sheet.
+    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("venue");
     const pill = screen.getByTestId("header-status-pill");
-    expect(pill).toBeTruthy();
+    expect(screen.getByTestId("mock-header").contains(pill)).toBe(true);
+    expect(screen.getByTestId("crew-today-block").contains(pill)).toBe(false);
     // The compact show-lifecycle label is derived from the show date-state.
     expect(pill.textContent).toContain("Show day 1 of 2");
   });
@@ -590,9 +581,9 @@ describe("CrewShell Header status pill (Task 14 / D-2)", () => {
       showId: "show-pill-preview",
       rawSection: "crew", // NOT today
     });
-    expect(screen.queryByTestId("mock-right-now-hero")).toBeNull();
+    expect(screen.getByRole("dialog").getAttribute("data-section")).toBe("crew");
     const pill = screen.getByTestId("header-status-pill");
-    expect(pill).toBeTruthy();
+    expect(screen.getByTestId("mock-header").contains(pill)).toBe(true);
     expect(pill.textContent).toContain("Show day 1 of 2");
   });
 

@@ -278,8 +278,8 @@ export function TodaySection({
           // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel
           // headline spans both columns (`span: 2`) so the name sits full width
           // above Check in | Check out, which pair into the grid's two columns
-          // and fill the card instead of leaving a tall empty right side. Below
-          // 720px the grid collapses to the single stacked column.
+          // and fill the card instead of leaving a tall empty right side. In a
+          // narrow body container the grid collapses to the single stacked column.
           // BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES: an `unknown_asterisk` viewer's
           // days are unconfirmed, and a hotel check-in date IS the travel-in
           // date — so this card was the one date-bearing surface still telling
@@ -290,7 +290,7 @@ export function TodaySection({
           // grid that is what makes it full-width, so the card reads as one
           // headline field. Dropping it — which this change did at first — puts
           // the lone row in the LEFT column and leaves the right half empty at
-          // >=720px, which is the stranding it was meant to avoid. `span: 2` is
+          // the split width, which is the stranding it was meant to avoid. `span: 2` is
           // "occupy both columns" (KeyValueRows.tsx:38), not "pair with a
           // neighbour"; found by reading the primitive instead of the name.
           const hideDates = suppressesDates(dateRestriction);
@@ -631,8 +631,8 @@ export function TodaySection({
           //    Today keeps the mock's two-column proportions on desktop instead of
           //    stretching the cards full-bleed.
           //
-          // Both grids use the IDENTICAL `min-[720px]:grid-cols-[1.6fr_1fr]`
-          // mechanism the layout-dimensions gate pins; below 720px both collapse
+          // Both grids use the IDENTICAL `@min-crew-split:grid-cols-[1.6fr_1fr]`
+          // mechanism (the Today block's container, not the window); narrower, both collapse
           // to a single column (the safe stack the full-width Mode B preserved).
           // When only ONE column has content the grid is skipped: a lone
           // quick-cards stack is capped (max-w-md) so it stays card-width.
@@ -657,13 +657,13 @@ export function TodaySection({
                   <div
                     data-testid="today-mode-a-grid"
                     className={cn(
-                      "grid grid-cols-1 gap-4 min-[720px]:items-start",
+                      "grid grid-cols-1 gap-4 @min-crew-split:items-start",
                       // Only split into the 1.6/1 two-track grid when there IS a
                       // right side (quick-cards). With no quick cards, keep the
-                      // run-of-show full-width single column so ≥720px never
+                      // run-of-show full-width single column so the split never
                       // strands a dead ~38% empty right track. Mirrors how Mode B
                       // keys its identical split on `hasRight` (audit idx68/#48).
-                      quickCardsStack != null ? "min-[720px]:grid-cols-[1.6fr_1fr]" : "",
+                      quickCardsStack != null ? "@min-crew-split:grid-cols-[1.6fr_1fr]" : "",
                     )}
                   >
                     <div
@@ -709,7 +709,7 @@ export function TodaySection({
               ) : hasLeft && hasRight ? (
                 <div
                   data-testid="today-mode-b-grid"
-                  className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
+                  className="grid grid-cols-1 gap-4 @min-crew-split:grid-cols-[1.6fr_1fr] @min-crew-split:items-start"
                 >
                   <div data-testid="today-day-context" className="flex min-w-0 flex-col gap-4">
                     {makeKeyTimesCard("row")}
@@ -719,7 +719,7 @@ export function TodaySection({
                   <div className="min-w-0">{quickCardsStack}</div>
                 </div>
               ) : hasRight ? (
-                <div className="min-[720px]:max-w-md">{quickCardsStack}</div>
+                <div className="@min-crew-split:max-w-md">{quickCardsStack}</div>
               ) : (
                 <>
                   {/* Full-width: the carded Key times uses the DEFAULT (stack)

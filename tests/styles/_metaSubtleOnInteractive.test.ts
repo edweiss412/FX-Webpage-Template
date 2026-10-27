@@ -65,6 +65,9 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
     // sectionWarningExtras one — same Family S shape, same token, so it earns a row
     // rather than a new family. The tally moves deliberately; that is what this pin
     // is for.
-    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(15);
+    // 15 -> 14 (2026-10-27, crew page redesign PR A): the crew sub-nav's inactive
+    // tab row left with the sub-nav. The wide nav that replaced it dims only its
+    // icon, which no scanner hit names.
+    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(14);
   });
 });

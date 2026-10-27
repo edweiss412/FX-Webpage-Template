@@ -11,6 +11,9 @@
  *   --z-index-dropdown:       20  (z-dropdown)
  *   --z-index-nav:            30  (z-nav)
  *   --z-index-banner:         40  (z-banner)
+ *   --z-index-sheet:          45  (z-sheet; crew section sheet, below the
+ *                                  dialogs that open inside it — crew page
+ *                                  redesign spec §5.2)
  *   --z-index-overlay:        50  (z-overlay)
  *   --z-index-dev-controls:   60  (z-dev-controls)
  *   --z-index-sticky-banner: 100  (z-sticky-banner)
@@ -53,6 +56,7 @@ const BAND_TOKENS: Record<string, number> = {
   "z-dropdown": 20,
   "z-nav": 30,
   "z-banner": 40,
+  "z-sheet": 45,
   "z-overlay": 50,
   "z-dev-controls": 60,
   "z-sticky-banner": 100,
@@ -147,7 +151,7 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
    * the real content globs, and the compiled stylesheet is the subject. Whatever
    * reaches the DOM appears there — that is what a compiler is — and whatever
    * does not, does not matter. The criterion is closed and machine-checked:
-   * every z-index the app can emit is one of the seven band values.
+   * every z-index the app can emit is one of the eight band values.
    *
    * DOCUMENTED LIMIT, unchanged and unchangeable by any recognizer: a class
    * assembled at RUNTIME from fragments is invisible to Tailwind's extractor

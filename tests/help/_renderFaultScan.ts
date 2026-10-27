@@ -800,7 +800,14 @@ export function scanCandidates(): Candidate[] {
       // branch, so the 78 below is unchanged. Re-derived by running the guard on
       // the branch after merging origin/main (main itself still computes 745).
       //
-      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // 747 -> 755 on feat/crew-page-redesign (Task 6): the crew section
+      // controller, sheet, wide nav and "All sections" card replaced the sub-nav,
+      // and their JSX-bearing ternaries (mode-gated layouts, the open sheet, the
+      // nav indicator, the optional peek line) outnumber the sub-nav's by eight.
+      // None is a fault branch, so the 78 below is unchanged. Re-derived by
+      // running the guard on the branch.
+      //
+      // Probed: 755 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

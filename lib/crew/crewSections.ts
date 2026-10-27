@@ -21,6 +21,7 @@
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { sectionPeek, type SectionPeekViewer } from "@/lib/crew/sectionPeek";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 
 /** A section the list and the nav can open. `today` is the home, not a section. */
@@ -31,7 +32,11 @@ export type CrewSection = { id: CrewSectionId; label: string };
 /** What membership reads about the viewer: the budget gate's two inputs. */
 export type CrewSectionsViewer = Pick<ViewerContext, "viewerFlags" | "isAdmin">;
 
-/** Today's sub-nav labels (`components/crew/CrewSubNav.tsx`, `SECTION_LABELS`). */
+/**
+ * The crew sections' labels, PR A's ids with today's names (spec §5.1). The one
+ * label source: the "All sections" rows, the wide nav, the sheet's title and
+ * its close button's name all read it.
+ */
 export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = {
   schedule: "Schedule",
   venue: "Venue",
@@ -41,9 +46,31 @@ export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = {
   budget: "Budget",
 };
 
+/** The wide nav's first item, the Today block (spec §5.3). */
+export const CREW_TODAY_LABEL = "Today";
+
+/** A listed section plus its one-line peek, as the client receives it. */
+export type CrewSectionEntry = CrewSection & { peek: string | null };
+
 /** The sections this viewer may open, in nav order. */
 export function crewSectionsFor(_data: ShowForViewer, viewer: CrewSectionsViewer): CrewSection[] {
   const ids: CrewSectionId[] = BASE_SECTION_IDS.flatMap((id) => (id === "today" ? [] : [id]));
   if (financialsVisible(viewer.viewerFlags, viewer.isAdmin)) ids.push("budget");
   return ids.map((id) => ({ id, label: CREW_SECTION_LABELS[id] }));
+}
+
+/**
+ * The props the compact "All sections" card and the wide nav receive: the
+ * membership with each section's peek, built on the server. A peek reads only
+ * what its section shows this viewer (`sectionPeek`), so the list never carries
+ * a value the viewer is withheld.
+ */
+export function crewSectionEntries(
+  data: ShowForViewer,
+  viewer: SectionPeekViewer,
+): CrewSectionEntry[] {
+  return crewSectionsFor(data, viewer).map((section) => ({
+    ...section,
+    peek: sectionPeek(section.id, data, viewer),
+  }));
 }

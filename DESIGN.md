@@ -775,7 +775,6 @@ realtime reconnect backoff.
 | `DURATION_FAST_FALLBACK_MS` | 120 | `components/admin/review/ReviewModalShell.tsx` |
 | `EXIT_FALLBACK_BUFFER_MS` | 80 | `components/admin/review/ReviewModalShell.tsx` |
 | `timer(0)` | 0 | `components/admin/review/ReviewModalShell.tsx` |
-| `NAV_SCROLL_SETTLE_TIMEOUT_MS` | 700 | `components/admin/review/ShowReviewSurface.tsx` |
 | `SECTION_FRESHNESS_FLASH_MS` | 1600 | `components/admin/review/sectionFreshness.ts` |
 | `BUSY_GATE_MAX_MS` | 15000 | `components/admin/showpage/ShareHub.tsx` |
 | `SHARE_LINK_FLASH_MS` | 1600 | `components/admin/showpage/ShareHub.tsx` |
@@ -785,6 +784,8 @@ realtime reconnect backoff.
 | `WARNING_HIGHLIGHT_MS` | 1600 | `components/admin/wizard/Step3ReviewModal.tsx` |
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
+| `duration(0.22)` | 0.22 | `components/crew/CrewSectionSheet.tsx` |
+| `duration(0)` | 0 | `components/crew/CrewSectionSheet.tsx` |
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
 | `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
@@ -796,6 +797,7 @@ realtime reconnect backoff.
 | `PENDING_TIMEOUT_MS` | 8000 | `components/shared/pendingTimeout.ts` |
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
 | `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
+| `NAV_SCROLL_SETTLE_TIMEOUT_MS` | 700 | `lib/ui/scrollSpy.ts` |
  | `ANNOUNCE_DELAY_MS` | 400 | `components/admin/wizard/DraftRestoredNote.tsx` |
  | `DRAFT_RESTORED_NOTE_MS` | 5000 | `components/admin/wizard/DraftRestoredNote.tsx` |
 
@@ -808,11 +810,11 @@ hardcoding ban:
 
 **Behavioral thresholds** — gesture and scroll values that never produce a painted px, so the ban genuinely does not apply, and which for the same reason carry no row in the derived table above (they are distances and tolerances, not timings; only `NAV_SCROLL_SETTLE_TIMEOUT_MS` is both). The Phase-1 extraction moved these out of `Step3ReviewModal.tsx`, which this section went on claiming until the derived inventory contradicted it; each owning file is now named per entry:
 
-- `SCROLL_SPY_OFFSET_PX = 90` (`components/admin/review/ShowReviewSurface.tsx`) — the review modal's scroll-spy anchor line: a section becomes "active" once its top passes this many px below the content pane's top.
+- `SCROLL_SPY_OFFSET_PX = 90` (`lib/ui/scrollSpy.ts`, shared by the review modal's rail and the crew page's wide nav) — the scroll-spy anchor line: a section becomes "active" once its top passes this many px below the scroller's top (the review modal's content pane; the crew page's window).
 - `DRAG_DISMISS_THRESHOLD_PX = 110` (`components/admin/review/ReviewModalShell.tsx`) — sheet-mode drag distance past which release dismisses the modal.
 - `DRAG_SLOP_PX = 6` (`components/admin/review/ReviewModalShell.tsx`) — max pointer travel still treated as a tap (click) rather than a drag.
-- `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` (`components/admin/review/ShowReviewSurface.tsx`) — review-modal nav click / warning jump: fallback release of the scroll-spy suppression when a programmatic glide never settles.
-- `NAV_SCROLL_SETTLE_EPSILON_PX = 2` (`components/admin/review/ShowReviewSurface.tsx`) — settle tolerance (px) that releases the nav-click scroll-spy suppression.
+- `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` (`lib/ui/scrollSpy.ts`) — review-modal nav click / warning jump and crew wide-nav click: fallback release of the scroll-spy suppression when a programmatic glide never settles.
+- `NAV_SCROLL_SETTLE_EPSILON_PX = 2` (`lib/ui/scrollSpy.ts`) — settle tolerance (px) that releases the nav-click scroll-spy suppression.
 
 **Animation durations** — these DO paint. They are exempt from the `--duration-*` token scale only because they exceed its longest step (`--duration-slow`, 360ms), which is why each carries an explicit `prefers-reduced-motion` override rather than inheriting the global collapse (§5.3). Both are paired with a keyframe in `app/globals.css` and pinned against it by a drift test:
 
@@ -842,6 +844,17 @@ Match spec §8.4 grid contract exactly.
 
 Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--breakpoint-*` tokens.
 
+**Crew section grids are container-relative, not viewport-relative (2026-10-27).** One section body renders in two places at the same window width: the 480px section sheet below 1024px and the wide column from 1024px up (crew page redesign spec §5.2, §5.3). A viewport switch turned the two-column layout on inside the 480px sheet and squeezed card titles to zero width. So every one-to-two-column switch inside a crew section body (the split-wide grids, the Gear scope grid, `KeyValueRows columns={2}`, the `KeyTimesStrip` row strip) reads the width of the element that bounds the body. Those elements carry `@container`: the Today block, each wide stacked section, and the sheet body. The grids use `@min-crew-split:`, the one named threshold, `--container-crew-split: 656px` in `app/globals.css`:
+
+| Container (window width)                  | Content width                             | Layout                                     |
+| ----------------------------------------- | ----------------------------------------- | ------------------------------------------ |
+| Sheet body (below 640px)                  | at most 605px                             | one column                                 |
+| Sheet body (640px to 1023px)              | 446px                                     | one column                                 |
+| Today block, compact home (below 1024px)  | window − 64px (window − 32px below 640px) | two columns from a 720px window, as before |
+| Today block and wide sections (1024px up) | 688px to 864px                            | two columns                                |
+
+656px is where the old `min-[720px]` viewport switch landed (720 − 2 × 32px `sm:px-8` gutter), so the compact home switches at the same window width it always did; the widths are derived in the token's comment. Do not put a viewport variant (`sm:`, `min-[…]:`) on a layout switch inside a crew section body.
+
 ---
 
 ## 7. Tailwind v4 layout gotcha — `align-items: stretch` is NOT default
@@ -855,7 +868,7 @@ Without both, tiles collapse to their intrinsic content height and the spec §8.
 
 This gotcha is the single most common failure mode on this project's UI work — see `memory/feedback_tailwind_v4_flex_items_stretch.md`. Every tile component's spec must call out the parent → child stretch relationship explicitly, and the M4 layout-dimensions Playwright task (the in-browser `getBoundingClientRect()` assertion) verifies it. jsdom is NOT sufficient — it doesn't compute real layout.
 
-> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue, Travel, and Today Mode A) are the one place this project deliberately does NOT use equal-height: they use `min-[720px]:items-start` so the shorter column (e.g. the ~3-row "Crew Schedule", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid, the CrewSubNav tab bar, and the admin Dashboard split all keep `items-stretch` + `h-full`.
+> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue, Travel, and Today Mode A) are the one place this project deliberately does NOT use equal-height: they use `@min-crew-split:items-start` (container-relative since 2026-10-27, §6) so the shorter column (e.g. the ~3-row "Crew Schedule", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid and the admin Dashboard split keep `items-stretch` + `h-full`.
 
 ---
 

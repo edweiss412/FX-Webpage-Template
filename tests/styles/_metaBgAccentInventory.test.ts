@@ -105,12 +105,15 @@ const REGISTRY: Row[] = [
   // redundant-glyph (2): checkbox fills with a Check glyph opacity swap
   G("components/admin/wizard/Step3SheetCard.tsx", 0),
   G("components/admin/wizard/Step3Review.tsx", 1),
-  // decorative (7)
+  // decorative (8)
   D("components/admin/telemetry/AutoRefreshControl.tsx", 0, "telemetry-ping"),
   D("components/admin/telemetry/AutoRefreshControl.tsx", 1, "size-2 rounded-full"),
   D("components/admin/telemetry/EventVolumeSparkline.tsx", 0),
   // Phase-1 extraction: the §A3 sliding rail indicator moved here from the modal.
   D("components/admin/review/ShowReviewSurface.tsx", 0, "rounded-r-pill bg-accent"),
+  // The crew wide nav's sliding accent bar, the same §A3 mechanism (crew page
+  // redesign spec §5.3); the active item also carries aria-current and weight.
+  D("components/crew/CrewWideNav.tsx", 0, "rounded-r-pill bg-accent"),
   D("components/crew/RightNowHero.tsx", 0),
   D("components/crew/primitives/DayCard.tsx", 0),
 ];

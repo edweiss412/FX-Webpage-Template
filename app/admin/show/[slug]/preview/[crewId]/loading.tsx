@@ -1,4 +1,5 @@
 import { Skeleton, LoadingShell } from "@/components/layout/Skeleton";
+import { CREW_SECTION_LABELS, CREW_TODAY_LABEL } from "@/lib/crew/crewSections";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 
 /**
@@ -13,13 +14,14 @@ import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
  * the conditional Budget tab's `financialsVisible` gate is unknown pre-projection,
  * so a Budget tab MUST NEVER flash here (mirrors the crew route's loading.tsx).
  */
+// Labels from the crew page's one label source (lib/crew/crewSections.ts).
 const SECTION_LABELS: Record<(typeof BASE_SECTION_IDS)[number], string> = {
-  today: "Today",
-  schedule: "Schedule",
-  venue: "Venue",
-  travel: "Travel",
-  crew: "Crew",
-  gear: "Gear",
+  today: CREW_TODAY_LABEL,
+  schedule: CREW_SECTION_LABELS.schedule,
+  venue: CREW_SECTION_LABELS.venue,
+  travel: CREW_SECTION_LABELS.travel,
+  crew: CREW_SECTION_LABELS.crew,
+  gear: CREW_SECTION_LABELS.gear,
 };
 
 export default function Loading() {

@@ -173,17 +173,14 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
   // empty array is a claim ("this spec skips nothing"), and the ENROLLED
   // membership assertion below refuses a missing row rather than defaulting it.
   //
-  // crew-page's four are the §4.10 transition-audit block: statically skipped for
-  // a documented webkit technique limit (a frozen clock plus controlled rAF
-  // stalls the very AnimatePresence transition under test), with its three live
-  // coverage surfaces named in the block's own header. Kept, not revived.
-  "tests/e2e/crew-page.spec.ts": [
-    "transition (a): today→venue crossfade — wrapper opacity animates mid-transition then settles to a rendered Venue",
-    "transition (b): theme-toggle during a section nav flips data-theme instantly and the crossfade still settles (compound)",
-    "transition (c): re-enter Today re-mounts the hero at rest (no animate-from-hidden; compound)",
-    "transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)",
-  ],
+  // crew-page skips nothing. Its four statically skipped §4.10 cases sampled the
+  // retired tab-to-tab crossfade; the crew page redesign (PR A, Task 6) removed
+  // the tabs they drove, and Task 12 owns the new transition cases.
+  "tests/e2e/crew-page.spec.ts": [],
   "tests/e2e/theme-toggle.spec.ts": [],
+  // The crew wide layout (crew page redesign plan PR A, Task 6) skips nothing:
+  // desktop-chromium alone collects it, and every case executes there.
+  "tests/e2e/crew-wide-nav.spec.ts": [],
   // The theme-note removal spec skips nothing: every case resolves under
   // desktop-chromium alone (its only project) and every one executes.
   //
@@ -284,6 +281,7 @@ const ENROLLED = [
   "tests/e2e/picker-flow.spec.ts",
   "tests/e2e/stage-restricted-crew-schedule.spec.ts",
   "tests/e2e/crew-page.spec.ts",
+  "tests/e2e/crew-wide-nav.spec.ts",
   "tests/e2e/theme-toggle.spec.ts",
   "tests/e2e/theme-persistence-note.spec.ts",
   "tests/e2e/right-now-transitions.spec.ts",

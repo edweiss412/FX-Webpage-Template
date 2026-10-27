@@ -67,6 +67,13 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
     reason: "a jump-target highlight whose only carrier is a forced background (spec §5.2)",
   },
   {
+    subject: "[data-search-reveal]",
+    context: [],
+    disposition: "repaired",
+    reason:
+      "the crew section controller's reveal target (openSectionAndReveal, crew page redesign spec §5.3): a steady tint whose only carrier is a forced background, so the forced-colors block gives it an outline",
+  },
+  {
     subject: "[data-step3-warning-flash]",
     context: ["@media (prefers-reduced-motion: reduce)"],
     disposition: "repaired",
@@ -238,18 +245,7 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "crew-facing role chip; both paths render the same {c.role}, no glyph, no aria, no size or weight difference",
   },
   {
-    site: "components/crew/CrewSubNav.tsx:114",
-    disposition: "repaired",
-    binding: {
-      locator: '[data-testid="crew-sub-nav"] [data-section]',
-      toggle: "navigating between crew sections",
-      bound: false,
-    },
-    reason:
-      "crew-facing tabs; border-b-2 on BOTH paths so only its colour differs, same icon either way, aria-current toggles nothing rendered",
-  },
-  {
-    site: "components/admin/review/ShowReviewSurface.tsx:844",
+    site: "components/admin/review/ShowReviewSurface.tsx:820",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -260,7 +256,7 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "nav pill; border width is in the shared base so both are 1px, icon tint unconditional, label unchanged",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:1025",
+    site: "components/admin/review/ShowReviewSurface.tsx:1001",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -270,7 +266,7 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "same pair; the sr-only text and dot are status-derived, not active-derived",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:811",
+    site: "components/admin/review/ShowReviewSurface.tsx:787",
     disposition: "repaired",
     binding: {
       locator: '[data-testid$="-review-rail-item-"]',
@@ -281,7 +277,7 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "rail item; active fills at rest and inactive only on hover, and the rail indicator's own paint is a background that flattens with it",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:932",
+    site: "components/admin/review/ShowReviewSurface.tsx:908",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-rail-item-"]',
@@ -372,13 +368,13 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:48), the SAME condition that gives the ancestor border-l border-border pl-2 at :78 - a border WIDTH and an indent, both of which survive",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:829",
+    site: "components/admin/review/ShowReviewSurface.tsx:805",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:951",
+    site: "components/admin/review/ShowReviewSurface.tsx:927",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
@@ -433,12 +429,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "aria-expanded AND when true a popup is on screen",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:825",
+    site: "components/admin/review/ShowReviewSurface.tsx:801",
     disposition: "carrier-survives",
     reason: "an icon inside a rail item this pass repairs, so it inherits a repaired state",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:945",
+    site: "components/admin/review/ShowReviewSurface.tsx:921",
     disposition: "carrier-survives",
     reason:
       "an icon inside the second rail item this pass repairs, so it inherits its repaired state",
@@ -456,9 +452,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "same shape as PublishedReviewModal:1376: the mark's shape carries the state and the chevron's rotation is driven by a different variable",
   },
   {
-    site: "components/crew/CrewSubNav.tsx:125",
+    site: "components/crew/CrewWideNav.tsx:116",
     disposition: "carrier-survives",
-    reason: "an icon inside the tab button this pass repairs",
+    reason:
+      "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",
   },
   // ── Deliberate flatten: a ruled exemption, or a limit the spec records. ──
   {

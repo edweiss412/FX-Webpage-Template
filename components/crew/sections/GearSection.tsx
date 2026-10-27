@@ -283,9 +283,9 @@ export function GearSection({
               ) : null}
 
               {/* §4.9 scope-card grid (mock `thirds`). The A/V/L cards lay out as a
-                  responsive CSS grid: a single full-width column <720px (so they are
-                  not cramped on mobile) and 3 equal columns ≥720px. CSS grid tracks
-                  default to `align-items: stretch`, so cards in the same ≥720px row
+                  responsive CSS grid: a single full-width column in a narrow body container
+                  (a phone, the section sheet), 3 equal columns once split (`@min-crew-split`).
+                  CSS grid tracks default to `align-items: stretch`, so cards in the same row
                   share an equal height without the Tailwind-v4 `.flex`-no-stretch
                   trap (DESIGN §7) — no explicit `items-stretch`/`h-full` needed. The
                   per-discipline `gear-scope-<id>` testids + their A→V→L order are
@@ -294,7 +294,7 @@ export function GearSection({
               {scopeCards.length > 0 ? (
                 <div
                   data-testid="gear-scopes-row"
-                  className="grid grid-cols-1 gap-3 min-[720px]:grid-cols-3"
+                  className="grid grid-cols-1 gap-3 @min-crew-split:grid-cols-3"
                 >
                   {scopeCards.map((d) => (
                     <div
@@ -306,7 +306,7 @@ export function GearSection({
                         // Grid item (cell stretches to row height via grid's default
                         // align-items:stretch); `flex flex-col` lets the inner
                         // SectionCard (`h-full`) fill the stretched cell so same-row
-                        // cards stay equal-height at ≥720px. `min-w-0` keeps long room
+                        // cards stay equal-height. `min-w-0` keeps long room
                         // values wrapping instead of overflowing.
                         "flex min-w-0 flex-col",
                         // §4.16: keep the ratified accent left-edge, but at 1px
@@ -473,7 +473,7 @@ export function GearSection({
                     }
                   >
                     {/* columns={2} packs ~15 reference specs efficiently on desktop;
-                        KeyValueRows collapses to a single column <720px (mobile-safe). */}
+                        KeyValueRows collapses to a single column in a narrow container. */}
                     <KeyValueRows rows={techSpecRows} columns={2} />
                   </SectionCard>
                 </div>

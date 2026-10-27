@@ -11,11 +11,9 @@
  * "today-band" / "tile-grid" equal-height blocks, which the 6-section redesign
  * subsumes (those testids no longer exist in components/crew/**).
  *
- * SKIPPED: exactly ONE block — the §4.10 transition audit. It is statically
- * skipped for a documented webkit technique limit (a frozen clock plus controlled
- * rAF stalls the very AnimatePresence transition under test), and its own header
- * names the three live surfaces that cover it instead. Its four titles are
- * registered by exact title in the wiring guard's EXPECTED_SKIPS.
+ * SKIPPED: nothing. The §4.10 tab-crossfade block that used to be statically
+ * skipped here was deleted with the tabs it drove (crew page redesign PR A,
+ * Task 6); the wiring guard's EXPECTED_SKIPS row for this spec is empty.
  *
  * The Task-4.2 layout-shell and Task-4.4 tile blocks this header used to describe
  * as "skipped below" were DELETED 2026-08-09 — they targeted the retired
@@ -33,6 +31,11 @@ import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
+import {
+  CREW_SPLIT_PX,
+  expectColumnsFollowSplit,
+  splitContainerOf,
+} from "./helpers/crewSplitContainer";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -136,7 +139,7 @@ async function lookupSeededShow(): Promise<{
  * ════════════════════════════════════════════════════════════════════════
  *
  * Real-browser-ONLY equal-height / alignment / fill verification for the
- * redesigned crew page (the 6-section sub-nav shell). jsdom is NOT sufficient:
+ * redesigned crew page (the compact home and its section sheet). jsdom is NOT sufficient:
  * it computes no layout, and this project's Tailwind v4 does NOT default
  * `.flex` to `align-items: stretch` (DESIGN §7 / AGENTS.md). So an equal-height
  * COLLAPSE (a flex row whose children no longer stretch to the row height)
@@ -159,7 +162,7 @@ async function lookupSeededShow(): Promise<{
  * progress-bar `show_day_n` body deterministically. Mirrors
  * tests/e2e/helpers/rightNow.ts:pinClock.
  *
- * Gated to mobile-safari: the equal-height contracts + the mobile bottom-bar
+ * Gated to mobile-safari: the equal-height contracts + the "All sections" rows
  * + the responsive crew-column stack/side-by-side switch are mobile-primary;
  * a single project keeps the seed reads single-writer and avoids the
  * desktop-chromium project re-running the same invariants at the wrong widths.
@@ -270,6 +273,20 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
 
   const TOL = 0.5;
 
+  /**
+   * The windows the split-wide cases measure, each pinned to the body container
+   * it covers: 1024px is the narrowest window with the wide column, 760px puts
+   * the body in the 480px section sheet (a window the old `min-[720px]` rule
+   * split in), and 390px in the full-width sheet. Whether a leg splits is the
+   * container rule (`./helpers/crewSplitContainer`), checked against the
+   * measured container on every leg.
+   */
+  const SPLIT_LEGS = [
+    { width: 1024, split: true, container: "crew-wide-section" },
+    { width: 760, split: false, container: "crew-section-sheet-body" },
+    { width: 390, split: false, container: "crew-section-sheet-body" },
+  ] as const;
+
   let slug = "";
   let shareToken = "";
 
@@ -368,6 +385,14 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       200,
     );
     await expect(page.getByTestId("crew-shell")).toBeVisible();
+    // Readiness gate (plan harness rule): the server render carries both
+    // layouts until the controller hydrates and resolves its mode, so a body can
+    // be in the DOM twice before this; after it, exactly once.
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
     await expect(page.getByTestId(`section-${section}`)).toBeVisible();
     // CRITICAL — settle the section-enter crossfade BEFORE any layout read. The
     // section body is wrapped in CrewSectionTransition (a framer-motion motion.div
@@ -455,118 +480,108 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   });
 
   // ── Invariant 2 — Crew two columns (Show crew | Key contacts) ──
-  // At ≥720px the two columns are side-by-side at the 1.6fr/1fr ratio with
-  // `items-start` (natural height — the short "Key contacts" card is NOT stretched
-  // to the tall roster; 2026-06-21 owner amendment). At 390px they STACK.
-  test("inv2: Crew columns side-by-side (natural height) at ≥720px, stacked at 390px", async ({
+  // The split reads the body's CONTAINER, not the window (DESIGN.md §6): in the
+  // wide column (1024px) the two columns sit side by side at the 1.6fr/1fr
+  // ratio with `items-start` (natural height — the short "Key contacts" card is
+  // NOT stretched to the tall roster; 2026-06-21 owner amendment). In the
+  // section sheet they STACK, at 760px (the 480px panel) as at 390px.
+  test("inv2: Crew columns side-by-side (natural height) in the wide column, stacked in the sheet", async ({
     page,
   }) => {
-    // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
-    await page.setViewportSize({ width: 760, height: 1000 });
-    await gotoSection(page, "crew");
-    const cols760 = page.getByTestId("crew-column");
-    const colCount = await cols760.count();
-    expect(colCount, "crew section must render at least one crew-column").toBeGreaterThan(0);
-    if (colCount >= 2) {
-      const a = await rectOf(cols760.nth(0));
-      const b = await rectOf(cols760.nth(1));
-      // Side-by-side (second column starts to the right of the first). Height
-      // equality is deliberately NOT asserted (items-start).
-      expect(b.left, "at ≥720px crew columns are side-by-side").toBeGreaterThan(a.left + 1);
-    }
-
-    // Mobile: stacked. Re-navigate at 390px (CSS-only switch; re-goto keeps the
-    // frozen clock + auth from beforeEach without depending on resize reflow).
-    await page.setViewportSize({ width: 390, height: 1000 });
-    await gotoSection(page, "crew");
-    const cols390 = page.getByTestId("crew-column");
-    if ((await cols390.count()) >= 2) {
-      const a = await rectOf(cols390.nth(0));
-      const b = await rectOf(cols390.nth(1));
-      // Stacked: column 2's top is at/below column 1's bottom.
-      expect(b.top, "at 390px crew columns stack (col2 below col1)").toBeGreaterThanOrEqual(
-        a.bottom - TOL,
-      );
-      // Same left edge (single column).
-      expect(
-        Math.abs(a.left - b.left),
-        "stacked crew columns share a left edge",
-      ).toBeLessThanOrEqual(TOL);
+    for (const leg of SPLIT_LEGS) {
+      await page.setViewportSize({ width: leg.width, height: 1000 });
+      await gotoSection(page, "crew");
+      const cols = page.getByTestId("crew-column");
+      const colCount = await cols.count();
+      expect(colCount, "crew section must render at least one crew-column").toBeGreaterThan(0);
+      if (colCount >= 2) {
+        // Height equality is deliberately NOT asserted (items-start).
+        await expectColumnsFollowSplit(cols.nth(0), cols.nth(1), {
+          split: leg.split,
+          container: leg.container,
+          label: `@${leg.width}px crew`,
+          tolPx: TOL,
+        });
+      }
     }
   });
 
   // ── Invariant 3 — Gear scope cards `thirds` grid (mock) ──
-  // Per the design mock the A/V/L scope cards are a responsive `thirds` grid: a
-  // single full-width column <720px (stacked, non-overlapping), and 3 equal
-  // columns side-by-side ≥720px. CSS grid tracks default to `align-items:stretch`,
-  // so same-row cards at ≥720px share an equal height (±0.5px) — a card with fewer
-  // room-value rows (Audio has 1 value, Video has 3) is stretched to match. The
-  // inv3 fixture (beforeAll) populates exactly two disciplines with different-
-  // length values so ≥2 cards render and the equal-height case is exercised.
-  test("inv3: Gear scope cards — 3 cols side-by-side + equal-height (≥720px), single column stacked (<720px)", async ({
+  // Per the design mock the A/V/L scope cards are a responsive `thirds` grid,
+  // keyed to the body's CONTAINER (DESIGN.md §6): 3 equal columns side-by-side
+  // in the wide column (1024px), a single full-width column stacked in the
+  // section sheet (760px, the 480px panel; and 390px). CSS grid tracks default
+  // to `align-items:stretch`, so same-row cards in the split share an equal
+  // height (±0.5px) — a card with fewer room-value rows (Audio has 1 value,
+  // Video has 3) is stretched to match. The inv3 fixture (beforeAll) populates
+  // exactly two disciplines with different-length values so ≥2 cards render
+  // and the equal-height case is exercised.
+  test("inv3: Gear scope cards — 3 cols side-by-side + equal-height in the wide column, single column stacked in the sheet", async ({
     page,
   }) => {
     // Per-discipline cards only — the `gear-scopes-row` wrapper does NOT match the
     // `gear-scope-` prefix (it has no hyphen at position 10), so this collects just
     // the A/V/L cards (the same prefix the jsdom scope tests use).
-
-    // ≥720px: side-by-side columns (each next card starts to the RIGHT of the
-    // prior; same top row) AND equal-height (grid stretch).
-    await page.setViewportSize({ width: 760, height: 1000 });
-    await gotoSection(page, "gear");
-    const cards760 = page.locator('[data-testid^="gear-scope-"]');
-    const n = await cards760.count();
-    if (n < 2) {
-      test.skip(true, `gear scope cards: only ${n} rendered on the seed; the grid needs ≥2`);
-      return;
-    }
-    const rects760: Rect[] = [];
-    for (let i = 0; i < n; i++) rects760.push(await rectOf(cards760.nth(i)));
-    for (const r of rects760) {
-      expect(r.height, "each gear scope card must have non-zero height").toBeGreaterThan(1);
-    }
-    // Side-by-side: in DOM order each card's left is strictly right of the prior
-    // card's left, and they share the same top (one grid row of ≤3).
-    for (let i = 1; i < rects760.length; i++) {
+    for (const leg of SPLIT_LEGS) {
+      await page.setViewportSize({ width: leg.width, height: 1000 });
+      await gotoSection(page, "gear");
+      const cards = page.locator('[data-testid^="gear-scope-"]');
+      const n = await cards.count();
+      if (n < 2) {
+        test.skip(true, `gear scope cards: only ${n} rendered on the seed; the grid needs ≥2`);
+        return;
+      }
+      const split = await splitContainerOf(page.getByTestId("gear-scopes-row"));
+      expect(split.testid, `@${leg.width}px gear-scopes-row's size container`).toBe(leg.container);
       expect(
-        rects760[i]!.left,
-        `@760px gear scope card ${i} must sit to the right of card ${i - 1} (3-col grid); left=${rects760[i]!.left} priorLeft=${rects760[i - 1]!.left}`,
-      ).toBeGreaterThan(rects760[i - 1]!.left + 1);
-      expect(
-        Math.abs(rects760[i]!.top - rects760[0]!.top),
-        `@760px gear scope cards share the same row top; ${rects760[i]!.top} vs ${rects760[0]!.top}`,
-      ).toBeLessThanOrEqual(TOL);
-    }
-    // Equal-height (grid align-items:stretch). Derived from the measured first
-    // card, never hardcoded.
-    const h0 = rects760[0]!.height;
-    for (let i = 0; i < rects760.length; i++) {
-      expect(
-        Math.abs(rects760[i]!.height - h0),
-        `@760px gear scope card ${i} must equal sibling heights (grid stretch); ${rects760[i]!.height} vs ${h0}`,
-      ).toBeLessThanOrEqual(TOL);
-    }
-
-    // <720px: single full-width column, stacked top-to-bottom (each next card's
-    // top ≥ the prior card's bottom; shared left edge). No equal-height constraint.
-    await page.setViewportSize({ width: 390, height: 1000 });
-    await gotoSection(page, "gear");
-    const cards390 = page.locator('[data-testid^="gear-scope-"]');
-    const m = await cards390.count();
-    const rects390: Rect[] = [];
-    for (let i = 0; i < m; i++) rects390.push(await rectOf(cards390.nth(i)));
-    const left0 = rects390[0]!.left;
-    for (const r of rects390) {
-      expect(
-        Math.abs(r.left - left0),
-        `@390px gear scope cards stack in one column (shared left edge); ${r.left} vs ${left0}`,
-      ).toBeLessThanOrEqual(TOL);
-    }
-    for (let i = 1; i < rects390.length; i++) {
-      expect(
-        rects390[i]!.top,
-        `@390px gear scope card ${i} must stack below card ${i - 1} (single column); top=${rects390[i]!.top} priorBottom=${rects390[i - 1]!.bottom}`,
-      ).toBeGreaterThanOrEqual(rects390[i - 1]!.bottom - TOL);
+        split.split,
+        `@${leg.width}px ${leg.container} is ${split.width}px against the ${CREW_SPLIT_PX}px split threshold`,
+      ).toBe(leg.split);
+      const rects: Rect[] = [];
+      for (let i = 0; i < n; i++) rects.push(await rectOf(cards.nth(i)));
+      for (const r of rects) {
+        expect(r.height, "each gear scope card must have non-zero height").toBeGreaterThan(1);
+      }
+      if (leg.split) {
+        // Side-by-side: in DOM order each card's left is strictly right of the
+        // prior card's left, and they share the same top (one grid row of ≤3).
+        for (let i = 1; i < rects.length; i++) {
+          expect(
+            rects[i]!.left,
+            `@${leg.width}px gear scope card ${i} must sit to the right of card ${i - 1} (3-col grid); left=${rects[i]!.left} priorLeft=${rects[i - 1]!.left}`,
+          ).toBeGreaterThan(rects[i - 1]!.left + 1);
+          expect(
+            Math.abs(rects[i]!.top - rects[0]!.top),
+            `@${leg.width}px gear scope cards share the same row top; ${rects[i]!.top} vs ${rects[0]!.top}`,
+          ).toBeLessThanOrEqual(TOL);
+        }
+        // Equal-height (grid align-items:stretch). Derived from the measured
+        // first card, never hardcoded.
+        const h0 = rects[0]!.height;
+        for (let i = 0; i < rects.length; i++) {
+          expect(
+            Math.abs(rects[i]!.height - h0),
+            `@${leg.width}px gear scope card ${i} must equal sibling heights (grid stretch); ${rects[i]!.height} vs ${h0}`,
+          ).toBeLessThanOrEqual(TOL);
+        }
+      } else {
+        // Stacked: a single full-width column, top-to-bottom (each next card's
+        // top ≥ the prior card's bottom; shared left edge). No equal-height
+        // constraint.
+        const left0 = rects[0]!.left;
+        for (const r of rects) {
+          expect(
+            Math.abs(r.left - left0),
+            `@${leg.width}px gear scope cards stack in one column (shared left edge); ${r.left} vs ${left0}`,
+          ).toBeLessThanOrEqual(TOL);
+        }
+        for (let i = 1; i < rects.length; i++) {
+          expect(
+            rects[i]!.top,
+            `@${leg.width}px gear scope card ${i} must stack below card ${i - 1} (single column); top=${rects[i]!.top} priorBottom=${rects[i - 1]!.bottom}`,
+          ).toBeGreaterThanOrEqual(rects[i - 1]!.bottom - TOL);
+        }
+      }
     }
   });
 
@@ -637,87 +652,42 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     ).toBeGreaterThanOrEqual(176 - TOL);
   });
 
-  // ── Invariant 5 — Bottom tab-bar (mobile) + top tabs (desktop) ──
-  // At 390px the sub-nav bottom bar is full-viewport-width, bottom-anchored
-  // (fixed), each tab is equal-width (flex-1) AND fills the bar height
-  // (items-stretch). At ≥720px each top tab clears the 44px tap floor.
-  test("inv5: bottom tab-bar full-width + bottom-anchored + equal tabs (390px); top tabs ≥44px (≥720px)", async ({
+  // ── Invariant 5 — "All sections" rows (compact) ──
+  // The tab bar became the home's "All sections" card (crew page redesign spec
+  // §4.6). At 390px and at 760px (both compact) every row spans the card and
+  // clears the 44px tap floor.
+  test("inv5: All sections rows span the card and clear the 44px tap floor (390px + 760px)", async ({
     page,
   }) => {
-    // Mobile bottom bar.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoSection(page, "today");
-    const viewport = page.viewportSize()!;
-
-    // The CrewSubNav renders desktop + mobile navs as siblings inside the
-    // `crew-sub-nav` wrapper. The wrapper itself has ZERO flow height at mobile
-    // (its only painted child is the `position:fixed` bottom bar, which is out of
-    // normal flow, plus the `display:none` desktop nav) — so we do NOT assert the
-    // wrapper is visible; we target the fixed bottom bar directly. DOM order is
-    // desktop-first, mobile-second, so `.last()` is the mobile bar.
-    const subNav = page.getByTestId("crew-sub-nav");
-    const bottomBar = subNav
-      .locator("nav")
-      .filter({ has: page.locator("[data-section]") })
-      .last();
-    await expect(bottomBar).toBeVisible();
-    const barRect = await rectOf(bottomBar);
-    // Full viewport width.
-    expect(
-      Math.abs(barRect.width - viewport.width),
-      `bottom bar width must equal viewport width; bar=${barRect.width} vp=${viewport.width}`,
-    ).toBeLessThanOrEqual(TOL);
-    // Bottom-anchored (its bottom is at/above the viewport bottom edge).
-    expect(barRect.bottom, "bottom bar must be bottom-anchored").toBeLessThanOrEqual(
-      viewport.height + TOL,
-    );
-    // The fixed bar must actually be position:fixed (not flowing in document).
-    const position = await bottomBar.evaluate((el) => getComputedStyle(el).position);
-    expect(position, "mobile sub-nav bar must be fixed").toBe("fixed");
-
-    // The bar carries a `border-t`, so its border-box height (getBoundingClientRect)
-    // is 1px taller than its CONTENT box (clientHeight). `items-stretch` stretches
-    // the tab buttons to the content box, never over the border — so the
-    // tab-fills-bar invariant is measured against the bar's content height, not its
-    // border-box height. (This is a measurement refinement for the bar's own border,
-    // NOT a tolerance loosened to mask a child collapse.)
-    const barContentHeight = await bottomBar.evaluate((el) => (el as HTMLElement).clientHeight);
-
-    // Each tab equal-width (flex-1) AND fills the bar's content height (self-stretch
-    // via items-stretch on the bar).
-    const tabs = bottomBar.locator("[data-section]");
-    const tabCount = await tabs.count();
-    expect(tabCount, "bottom bar must render section tabs").toBeGreaterThan(1);
-    const tabRects: Rect[] = [];
-    for (let i = 0; i < tabCount; i++) tabRects.push(await rectOf(tabs.nth(i)));
-    const w0 = tabRects[0]!.width;
-    for (const t of tabRects) {
-      expect(
-        Math.abs(t.width - w0),
-        `bottom-bar tabs must be equal-width (flex-1); ${t.width} vs ${w0}`,
-      ).toBeLessThanOrEqual(TOL);
-      expect(
-        Math.abs(t.height - barContentHeight),
-        `bottom-bar tab must fill bar content height (items-stretch); tab=${t.height} barContent=${barContentHeight}`,
-      ).toBeLessThanOrEqual(TOL);
-    }
-
-    // Desktop top tabs clear the 44px tap floor.
-    await page.setViewportSize({ width: 760, height: 1000 });
-    await gotoSection(page, "today");
-    const topNav = page
-      .getByTestId("crew-sub-nav")
-      .locator("nav")
-      .filter({ has: page.locator("[data-section]") })
-      .first();
-    const topTabs = topNav.locator("[data-section]");
-    const topCount = await topTabs.count();
-    for (let i = 0; i < topCount; i++) {
-      const r = await rectOf(topTabs.nth(i));
-      expect(
-        r.height,
-        `top tab ${i} must clear the 44px tap floor; got ${r.height}`,
-      ).toBeGreaterThanOrEqual(44 - TOL);
+    for (const width of [390, 760]) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoSection(page, "today");
+      const card = page.getByTestId("crew-all-sections-card");
+      await expect(card).toBeVisible();
+      const cardBox = await card.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        return {
+          left: r.left + parseFloat(cs.borderLeftWidth),
+          right: r.right - parseFloat(cs.borderRightWidth),
+        };
+      });
+      const rows = page.getByTestId("crew-all-sections-row");
+      const n = await rows.count();
+      expect(n, `@${width}px the list must render section rows`).toBeGreaterThan(1);
+      for (let i = 0; i < n; i++) {
+        const r = await rectOf(rows.nth(i));
+        expect(
+          r.height,
+          `@${width}px row ${i} must clear the 44px tap floor`,
+        ).toBeGreaterThanOrEqual(44 - TOL);
+        expect(Math.abs(r.left - cardBox.left), `@${width}px row ${i} left`).toBeLessThanOrEqual(
+          TOL,
+        );
+        expect(Math.abs(r.right - cardBox.right), `@${width}px row ${i} right`).toBeLessThanOrEqual(
+          TOL,
+        );
+      }
     }
   });
 
@@ -765,64 +735,53 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   });
 
   // ── Invariant 7 — Two-column `split-wide` sections (schedule / venue / travel) ──
-  // Per the design mock these three sections are two columns at ≥720px and a single
-  // stacked column at <720px. Mirrors the Crew inv2 shape: at ≥720px the two
-  // `<section>-column` elements are side-by-side (col 2 starts right of col 1) with
-  // `items-start` (natural height — the short right column is NOT stretched to the
-  // taller left; 2026-06-21 owner amendment); at 390px they stack (col 2 top ≥ col 1
-  // bottom, shared left edge).
+  // Per the design mock these three sections are two columns when there is room
+  // and a single stacked column when there is not, and "room" is the body's
+  // CONTAINER (DESIGN.md §6): split in the wide column (1024px), stacked in the
+  // section sheet at 760px (the 480px panel) and at 390px. Mirrors the Crew inv2
+  // shape: split, the two `<section>-column` elements are side-by-side (col 2
+  // starts right of col 1) with `items-start` (natural height — the short right
+  // column is NOT stretched to the taller left; 2026-06-21 owner amendment);
+  // stacked, col 2 top ≥ col 1 bottom on a shared left edge.
   //
   // Venue + Travel render the split only when BOTH columns have content (Schedule
   // always renders two: day cards + times/heads-up). When the seed yields a single
-  // column the side-by-side assertion is skipped (colCount < 2), exactly as inv2
+  // column the pair assertion is skipped (colCount < 2), exactly as inv2
   // does — the invariant is "IF two columns, they behave as split-wide," never
   // "two columns MUST exist."
   for (const section of ["schedule", "venue", "travel"] as const) {
-    test(`inv7: ${section} is split-wide 2-col (≥720px) / stacked (390px)`, async ({ page }) => {
+    test(`inv7: ${section} is split-wide 2-col in the wide column / stacked in the sheet`, async ({
+      page,
+    }) => {
       const colTestId = `${section}-column`;
-
-      // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
-      await page.setViewportSize({ width: 760, height: 1000 });
-      await gotoSection(page, section);
-      const cols760 = page.getByTestId(colTestId);
-      const colCount = await cols760.count();
-      expect(colCount, `${section} section must render at least one ${colTestId}`).toBeGreaterThan(
-        0,
-      );
-      if (colCount >= 2) {
-        const a = await rectOf(cols760.nth(0));
-        const b = await rectOf(cols760.nth(1));
-        // Side-by-side (second column starts to the right of the first). Both must
-        // have non-trivial height; height EQUALITY is deliberately NOT asserted
-        // (items-start — the short column takes its natural height; 2026-06-21
-        // owner amendment). align-items==="start" is pinned in crew-layout-dimensions.
-        expect(a.height, `${section} col A must have non-zero height`).toBeGreaterThan(1);
-        expect(b.height, `${section} col B must have non-zero height`).toBeGreaterThan(1);
-        expect(b.left, `@760px ${section} columns are side-by-side`).toBeGreaterThan(a.left + 1);
-      }
-
-      // Mobile: stacked. Re-navigate at 390px (CSS-only switch; re-goto keeps the
-      // frozen clock + auth from beforeEach without depending on resize reflow).
-      await page.setViewportSize({ width: 390, height: 1000 });
-      await gotoSection(page, section);
-      const cols390 = page.getByTestId(colTestId);
-      if ((await cols390.count()) >= 2) {
-        const a = await rectOf(cols390.nth(0));
-        const b = await rectOf(cols390.nth(1));
-        // Stacked: column 2's top is at/below column 1's bottom.
-        expect(b.top, `@390px ${section} columns stack (col2 below col1)`).toBeGreaterThanOrEqual(
-          a.bottom - TOL,
-        );
-        // Same left edge (single column).
+      for (const leg of SPLIT_LEGS) {
+        await page.setViewportSize({ width: leg.width, height: 1000 });
+        await gotoSection(page, section);
+        const cols = page.getByTestId(colTestId);
+        const colCount = await cols.count();
         expect(
-          Math.abs(a.left - b.left),
-          `@390px stacked ${section} columns share a left edge`,
-        ).toBeLessThanOrEqual(TOL);
+          colCount,
+          `${section} section must render at least one ${colTestId}`,
+        ).toBeGreaterThan(0);
+        if (colCount >= 2) {
+          // Height EQUALITY is deliberately NOT asserted (items-start);
+          // align-items==="flex-start" is pinned in crew-layout-dimensions.
+          const { a, b } = await expectColumnsFollowSplit(cols.nth(0), cols.nth(1), {
+            split: leg.split,
+            container: leg.container,
+            label: `@${leg.width}px ${section}`,
+            tolPx: TOL,
+          });
+          if (leg.split) {
+            expect(a.height, `${section} col A must have non-zero height`).toBeGreaterThan(1);
+            expect(b.height, `${section} col B must have non-zero height`).toBeGreaterThan(1);
+          }
+        }
       }
     });
   }
 
-  // ── Invariant 8 — No horizontal overflow at 390px + bottom-bar clearance ──
+  // ── Invariant 8 — No horizontal overflow at 390px + the page end is reachable ──
   // (impeccable dual-gate P0s.) Two contracts the redesign MUST hold on a real
   // mobile viewport:
   //
@@ -831,11 +790,10 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   //       viewport width. The 3-card equal-height row (kept per inv1/inv3) must
   //       SHRINK its content (min-w-0 + break-words on long hotel/venue strings;
   //       PersonRow buttons wrap) so nothing clips off the right edge at 390px.
-  //   (b) Bottom-bar clearance — the LAST section block's bottom sits ABOVE the
-  //       fixed mobile tab-bar's top (content is not occluded). `<main>` reserves
-  //       a mobile-only bottom gutter (tap-min + safe-area + 1rem) for exactly
-  //       this. Verified on a content-bearing section (Today).
-  test("inv8: no horizontal overflow @390px + last block clears the fixed bottom bar", async ({
+  //   (b) The page end is reachable — the fixed tab bar is gone (the home's
+  //       "All sections" card replaced it), so scrolled to the end the footer
+  //       box sits inside the viewport and its report trigger takes the tap.
+  test("inv8: no horizontal overflow @390px + the footer is reachable at the page end", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -887,84 +845,20 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
 
     // (b) Bottom-bar clearance: the LAST rendered block inside the Today section
     // must end ABOVE the fixed mobile tab-bar's top edge — content not occluded.
+    // No fixed bar sits over the page any more, so the end of the page must be
+    // reachable: scrolled to the end, the footer box ends inside the viewport and
+    // its report trigger is the element under its own centre.
     await gotoSection(page, "today");
-    const subNav = page.getByTestId("crew-sub-nav");
-    const bottomBar = subNav
-      .locator("nav")
-      .filter({ has: page.locator("[data-section]") })
-      .last();
-    await expect(bottomBar).toBeVisible();
-    const barTop = (await rectOf(bottomBar)).top;
-
-    // The Today section renders its blocks directly under the section root; the
-    // last one with non-zero size is the visually-lowest content block.
-    const blockRects: Rect[] = await page.getByTestId("section-today").evaluate((el) =>
-      Array.from(el.querySelectorAll(":scope > *"))
-        .map((c) => (c as HTMLElement).getBoundingClientRect())
-        .map((r) => ({
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        })),
-    );
-    const sized = blockRects.filter((r) => r.height > 0 && r.width > 0);
-    expect(sized.length, "Today section must render at least one block").toBeGreaterThan(0);
-    const lastBottom = Math.max(...sized.map((r) => r.bottom));
-    // The page can scroll, so to prove non-occlusion we scroll to the very bottom
-    // and re-measure: at max scroll the last block's bottom must sit at/above the
-    // fixed bar's top (the `<main>` bottom gutter guarantees the gap).
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(50);
-    const afterScroll: Rect[] = await page.getByTestId("section-today").evaluate((el) =>
-      Array.from(el.querySelectorAll(":scope > *"))
-        .map((c) => (c as HTMLElement).getBoundingClientRect())
-        .map((r) => ({
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        })),
-    );
-    const sizedAfter = afterScroll.filter((r) => r.height > 0 && r.width > 0);
-    const lastBottomAfter = Math.max(...sizedAfter.map((r) => r.bottom));
-    const barTopAfter = (await rectOf(bottomBar)).top;
-    expect(
-      lastBottomAfter,
-      `at max scroll the last Today block must clear the fixed bottom bar (not occluded); lastBottom=${lastBottomAfter} barTop=${barTopAfter} (pre-scroll lastBottom=${lastBottom} barTop=${barTop})`,
-    ).toBeLessThanOrEqual(barTopAfter + TOL);
-
-    // ── (c) The FOOTER's own box clears the bar ────────────────────────────
-    //
-    // Distinct from (b), and that distinction is the whole defect
-    // (BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR). (b) measures the last
-    // block inside <main>, which the main element's own bottom padding lifts.
-    // The FOOTER is a sibling of <main>, below it, and nothing padded the page
-    // beneath the footer — so the fixed bar (`min-[720px]:hidden fixed
-    // inset-x-0 bottom-0`, components/crew/CrewSubNav.tsx) sat on top of the
-    // footer's controls while (b) stayed green.
-    //
-    // Padding INSIDE the footer cannot fix this: it moves the footer's CONTENT
-    // up while the footer's own box still ends under the bar. The clearance has
-    // to be UNDER the footer, which is why it lives on `crew-shell` (UI spec
-    // §2.1 dimensional invariants).
     const pageFooter = page.getByTestId("page-footer");
     await expect(pageFooter).toBeVisible();
     const footerRect = await rectOf(pageFooter);
     expect(
       footerRect.bottom,
-      `@390px scrolled to end, the page-footer BOX must end at or above the fixed bar's top ` +
-        `(padding inside the footer does not lift its own box); footer.bottom=${footerRect.bottom} ` +
-        `barTop=${barTopAfter}`,
-    ).toBeLessThanOrEqual(barTopAfter + TOL);
+      `@390px scrolled to end, the page-footer box must end inside the viewport; footer.bottom=${footerRect.bottom} vh=${viewport.height}`,
+    ).toBeLessThanOrEqual(viewport.height + TOL);
 
-    // …and the report control is actually hit-testable, not merely positioned.
-    // A footer whose box clears the bar but whose trigger sits under some other
-    // overlay would satisfy the rect assertion and still be untappable.
     const reportTrigger = pageFooter.getByTestId("report-button-trigger");
     if ((await reportTrigger.count()) > 0) {
       const t = await rectOf(reportTrigger);
@@ -993,24 +887,19 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT, the second entry sharing the
   // broken-flex-chain root cause. `page-shell` is `flex min-h-screen flex-col`
   // precisely so the footer's `mt-auto` anchors; the crew route interposes a
-  // CLASSLESS `crew-shell` div, so `mt-auto` resolves against a block parent
-  // and does nothing. On a page shorter than the viewport the footer therefore
-  // floats directly under the content with dead space beneath it.
+  // `crew-shell` div, so without its own flex column `mt-auto` resolves against
+  // a block parent and does nothing. On a page shorter than the viewport the
+  // footer would float directly under the content with dead space beneath it.
   //
-  // THE CLEARANCE CONSTANT IS A LITERAL HERE, DELIBERATELY. It is
-  // `--spacing-tap-min` (44px) + 1rem = 60px, the same arithmetic the <main>
-  // recipe uses, and it clears the measured 53.3px bar with 6.7px to spare.
-  // Reading it back off the implemented padding would make this assertion
-  // tautological — it would pass for whatever the shell happens to declare,
-  // including 0. `env(safe-area-inset-bottom)` is 0 in the harness browsers
-  // (UI spec §4 limit 5), so the non-inset floor is what is asserted.
-  const SHELL_BAR_CLEARANCE_PX = 60;
-
+  // THE GAP IS ZERO IN BOTH REGIMES NOW. The shell used to pad itself by a
+  // 60px bar clearance below 720px for the fixed mobile tab bar; the crew page
+  // redesign retired that bar (the home's "All sections" card and the section
+  // sheet replace it), so a footer that still floats 60px up is a leftover.
   test("the footer anchors to the viewport bottom on a short page, in both width regimes", async ({
     page,
   }) => {
     for (const { width, expectedGapFromBottom } of [
-      { width: 390, expectedGapFromBottom: SHELL_BAR_CLEARANCE_PX },
+      { width: 390, expectedGapFromBottom: 0 },
       { width: 900, expectedGapFromBottom: 0 },
     ]) {
       await page.setViewportSize({ width, height: 900 });
@@ -1042,273 +931,10 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       const viewportBottom = page.viewportSize()!.height;
       expect(
         viewportBottom - footer.bottom,
-        `@${width}px on a short page the footer must anchor at viewport.bottom - ${expectedGapFromBottom} ` +
-          `(the clearance strip below it shows page background behind the opaque bar); ` +
+        `@${width}px on a short page the footer must anchor at viewport.bottom - ${expectedGapFromBottom}; ` +
           `footer.bottom=${footer.bottom} viewport.bottom=${viewportBottom}`,
       ).toBeCloseTo(expectedGapFromBottom, 1);
-
-      // Below 720px the bar exists, so the anchored footer must ALSO clear it —
-      // the two clauses together are what "anchored AND not occluded" means.
-      if (width < 720) {
-        const bar = page
-          .getByTestId("crew-sub-nav")
-          .locator("nav")
-          .filter({ has: page.locator("[data-section]") })
-          .last();
-        const barTop = (await rectOf(bar)).top;
-        expect(
-          footer.bottom,
-          `@${width}px the anchored footer must still clear the fixed bar; footer.bottom=${footer.bottom} barTop=${barTop}`,
-        ).toBeLessThanOrEqual(barTop + TOL);
-      }
     }
-  });
-});
-
-/*
- * ════════════════════════════════════════════════════════════════════════
- * Crew redesign §4.10 transition audit — real-browser COMPOUND layer
- * (Phase 4 Task 2 — "test 14").
- * ════════════════════════════════════════════════════════════════════════
- *
- * The STRUCTURAL half (static source enumeration + jsdom render-shape) lives in
- * tests/components/crew/transitionAudit.test.tsx and pins the inventory + the
- * M12.11 framer-trap. This describe is the half jsdom CANNOT do: it samples the
- * crossfade's real computed opacity mid-transition and exercises the three
- * compound rows from the inventory:
- *
- *   (a) tab today→venue: the crew-section-transition wrapper's opacity actually
- *       animates (< 1 at a mid-transition tick) and settles to a fully-rendered
- *       Venue (opacity 1, real laid-out height).
- *   (b) theme-toggle-during-nav: start a ?s= nav, flip the theme mid-crossfade;
- *       data-theme swaps INSTANTLY (a CSS-var swap, unaffected by framer) AND the
- *       section crossfade still settles (no stuck/aborted transition).
- *   (c) re-enter Today (today→venue→today): the hero re-mounts (present again)
- *       and does NOT animate-from-hidden — its first paint is at rest (opacity 1).
- *   (d) hero state-change mid section-swap: only Today renders the hero; leaving
- *       Today unmounts it, so there is never a concurrent hero+section animation.
- *       Forcing a hero state change while navigating away yields a clean unmount
- *       (no right-now-hero on Venue) and no console error from a §8.2 violation.
- *
- * Motion MUST be enabled for these (the wrapper opacity must actually move): the
- * mobile-safari project does NOT set reducedMotion:"reduce" (unlike the help /
- * screenshot projects), so motion is live here. Each name contains "transition"
- * so `-g "transition"` selects exactly this block.
- *
- * Determinism: clock frozen to SHOW_DAY_N_INSTANT (Today hero = show_day_n). With
- * the clock frozen, framer's rAF advances ONLY when we call page.clock.runFor —
- * which is precisely what lets us sample a PARTIAL tick mid-crossfade.
- *
- * SKIPPED (not faked): the frozen-clock + controlled-rAF technique that determinizes
- * the hero is fundamentally at odds with mid-crossfade sampling in webkit — with the
- * page clock installed, the section-nav tab click does not reach an actionable/stable
- * state (the click hangs past the per-test timeout). framer-motion advances its
- * AnimatePresence "wait" exit by time, so a frozen clock stalls the very transition
- * these tests try to observe. Reliable real-browser coverage of the SAME contract
- * comes from three live surfaces: (1) the STRUCTURAL audit tests/components/crew/
- * transitionAudit.test.tsx pins the §4.10 inventory + every AnimatePresence
- * initial={false}/exit + the M12.11 no-SSR-invisible trap; (2) the §4.9 real-browser
- * layout tests above exercise the live page render; (3) the Task-3 nav-addressability
- * tests click the sub-nav tabs with a REAL clock and assert ?s= + section settle.
- * Re-enabling these would need a non-frozen-clock redesign that asserts only settle
- * end-states (the racy mid-opacity sample adds no reliable signal). Tracked as a
- * crew-redesign close-out note, not a silent cap.
- */
-test.describe
-  .skip("crew redesign §4.10 transition audit (compound, real browser / test 14)", () => {
-  test.setTimeout(180_000);
-  const TOL = 0.5;
-  // 220ms = --duration-normal (CrewSectionTransition). A ~70ms partial tick lands
-  // squarely inside the crossfade so the wrapper opacity is provably < 1.
-  const CROSSFADE_MS = 220;
-  const MID_TICK_MS = 70;
-
-  let slug = "";
-  let shareToken = "";
-
-  /** opacity (number) of the first crew-section-transition wrapper, or null if absent. */
-  async function transitionOpacity(page: import("@playwright/test").Page): Promise<number | null> {
-    return page.evaluate(() => {
-      const el = document.querySelector('[data-testid="crew-section-transition"]');
-      if (!el) return null;
-      const v = getComputedStyle(el as Element).opacity;
-      const n = Number.parseFloat(v);
-      return Number.isFinite(n) ? n : null;
-    });
-  }
-
-  test.beforeEach(async ({ page }) => {
-    const seeded = await lookupSeededShow();
-    slug = seeded.slug;
-    shareToken = await lookupShareToken(seeded.showId);
-    // Freeze to a show_day_n instant so the Today hero state is deterministic and
-    // framer's enter animation does not auto-advance (we tick it manually).
-    await page.clock.install({ time: new Date(SHOW_DAY_N_INSTANT) });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await signOut(page);
-    await signInAs(page, ADMIN_FIXTURE);
-  });
-
-  /** Goto a section and settle its enter crossfade fully (clock past the duration). */
-  async function gotoSettled(
-    page: import("@playwright/test").Page,
-    section: string,
-  ): Promise<void> {
-    const res = await page.goto(`/show/${slug}/${shareToken}?s=${section}`, {
-      waitUntil: "domcontentloaded",
-    });
-    expect(res?.status(), `crew route ?s=${section} must render`).toBe(200);
-    await expect(page.getByTestId("crew-shell")).toBeVisible();
-    await expect(page.getByTestId(`section-${section}`)).toBeVisible();
-    // Settle the enter crossfade (frozen clock → tick past the duration), then
-    // wait for the section to reach a real laid-out height + the wrapper to reach
-    // opacity 1 (fully entered, never tautological 0==0).
-    await page.clock.runFor(CROSSFADE_MS + 180);
-    await expect
-      .poll(async () => (await rectOf(page.getByTestId(`section-${section}`))).height, {
-        timeout: 5000,
-      })
-      .toBeGreaterThan(1);
-    await expect.poll(async () => transitionOpacity(page), { timeout: 5000 }).toBe(1);
-  }
-
-  // (a) ── tab today→venue: the wrapper opacity animates, then settles ──
-  test("transition (a): today→venue crossfade — wrapper opacity animates mid-transition then settles to a rendered Venue", async ({
-    page,
-  }) => {
-    await gotoSettled(page, "today");
-    // Begin the section swap. The push is client-side; the keyed motion.div
-    // re-mounts and AnimatePresence plays the OUT (today)→IN (venue) crossfade.
-    await page.getByTestId("crew-sub-nav").locator('[data-section="venue"]').first().click();
-
-    // Tick a PARTIAL slice of the crossfade (motion enabled, clock frozen → framer
-    // advances exactly MID_TICK_MS). The wrapper opacity must be strictly < 1
-    // here — proof the crossfade is actually animating, not instant.
-    await page.clock.runFor(MID_TICK_MS);
-    const mid = await transitionOpacity(page);
-    expect(mid, "crew-section-transition wrapper must be present mid-crossfade").not.toBeNull();
-    expect(
-      mid as number,
-      `wrapper opacity must be < 1 mid-crossfade (proof it animates); got ${mid}`,
-    ).toBeLessThan(1);
-    expect(mid as number, "wrapper opacity must be ≥ 0").toBeGreaterThanOrEqual(0);
-
-    // Settle: advance past the duration → Venue fully rendered, wrapper opacity 1.
-    await page.clock.runFor(CROSSFADE_MS + 180);
-    await expect(page.getByTestId("section-venue")).toBeVisible();
-    await expect.poll(async () => transitionOpacity(page), { timeout: 5000 }).toBe(1);
-    const venueRect = await rectOf(page.getByTestId("section-venue"));
-    expect(venueRect.height, "settled Venue must have a real laid-out height").toBeGreaterThan(1);
-    // Today's hero must be gone (Venue is not Today).
-    await expect(page.getByTestId("right-now-hero")).toHaveCount(0);
-  });
-
-  // (b) ── compound: theme-toggle DURING a nav — data-theme flips instantly,
-  //         section crossfade still settles ──
-  test("transition (b): theme-toggle during a section nav flips data-theme instantly and the crossfade still settles (compound)", async ({
-    page,
-  }) => {
-    await gotoSettled(page, "today");
-    const themeBefore = await page.evaluate(
-      () => document.documentElement.dataset.theme ?? "light",
-    );
-
-    // Start the swap, advance a partial tick so we are MID-crossfade…
-    await page.getByTestId("crew-sub-nav").locator('[data-section="venue"]').first().click();
-    await page.clock.runFor(MID_TICK_MS);
-    const midOpacity = await transitionOpacity(page);
-    expect(midOpacity as number, "must be mid-crossfade before the toggle").toBeLessThan(1);
-
-    // …then flip the theme. data-theme is a synchronous dataset write (CSS-var
-    // swap) — it must take effect INSTANTLY, independent of framer's in-flight rAF.
-    await page.getByTestId("theme-toggle").click();
-    const themeAfter = await page.evaluate(() => document.documentElement.dataset.theme ?? "light");
-    expect(
-      themeAfter,
-      `data-theme must flip instantly mid-crossfade; before=${themeBefore} after=${themeAfter}`,
-    ).not.toBe(themeBefore);
-
-    // The section crossfade must NOT be stuck/aborted by the theme write: settle it.
-    await page.clock.runFor(CROSSFADE_MS + 180);
-    await expect(page.getByTestId("section-venue")).toBeVisible();
-    await expect.poll(async () => transitionOpacity(page), { timeout: 5000 }).toBe(1); // crossfade completed (not stuck below 1)
-    // Theme stayed flipped through the crossfade settle.
-    const themeFinal = await page.evaluate(() => document.documentElement.dataset.theme ?? "light");
-    expect(themeFinal, "theme persists through the crossfade settle").toBe(themeAfter);
-  });
-
-  // (c) ── compound: re-enter Today (today→venue→today) — hero re-mounts and its
-  //         first paint is at rest (no animate-from-hidden; M12.11) ──
-  test("transition (c): re-enter Today re-mounts the hero at rest (no animate-from-hidden; compound)", async ({
-    page,
-  }) => {
-    await gotoSettled(page, "today");
-    await expect(page.getByTestId("right-now-hero")).toBeVisible();
-
-    // Leave Today → the hero unmounts (Venue does not render it).
-    await gotoSettled(page, "venue");
-    await expect(page.getByTestId("right-now-hero")).toHaveCount(0);
-
-    // Re-enter Today via a fresh client nav. The hero re-mounts. Sample its body
-    // opacity at the VERY FIRST tick after the section root appears — with
-    // initial={false} on first paint, the body must already be at rest (opacity 1),
-    // never animating up from 0 (the M12.11 SSR-invisible trap).
-    await page.getByTestId("crew-sub-nav").locator('[data-section="today"]').first().click();
-    await expect(page.getByTestId("section-today")).toBeVisible();
-    await expect(page.getByTestId("right-now-hero")).toBeVisible();
-    // One micro-tick to let the just-mounted body commit its first frame, but far
-    // short of the crossfade duration — initial={false} means it is already at 1.
-    await page.clock.runFor(16);
-    const heroBodyOpacity = await page.evaluate(() => {
-      const el = document.querySelector('[data-testid="right-now-body"]');
-      if (!el) return null;
-      return Number.parseFloat(getComputedStyle(el as Element).opacity);
-    });
-    expect(heroBodyOpacity, "right-now-body must be present on Today re-entry").not.toBeNull();
-    expect(
-      heroBodyOpacity as number,
-      `re-mounted hero body must be at rest on first paint (initial={false}); got ${heroBodyOpacity}`,
-    ).toBeGreaterThanOrEqual(1 - TOL);
-
-    // And the section settles normally.
-    await page.clock.runFor(CROSSFADE_MS + 180);
-    await expect.poll(async () => transitionOpacity(page), { timeout: 5000 }).toBe(1);
-  });
-
-  // (d) ── compound: hero state-change mid section-swap — hero unmounts cleanly,
-  //         no concurrent hero+section animation, no §8.2 console error ──
-  test("transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)", async ({
-    page,
-  }) => {
-    // Capture any console.error (the hero logs a §8.2 "unreachable transition"
-    // diagnostic to console.error; a clean run must produce none).
-    const heroErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error" && /RightNowHero/.test(msg.text())) heroErrors.push(msg.text());
-    });
-
-    await gotoSettled(page, "today");
-    await expect(page.getByTestId("right-now-hero")).toBeVisible();
-
-    // Force a hero state change AND leave Today in the same beat: advance the
-    // frozen clock past a day boundary (the hero's 60s tick re-derives a new kind)
-    // while immediately navigating to Venue. Only Today renders the hero, so the
-    // navigation unmounts it — there must be no concurrent hero crossfade + section
-    // crossfade (the hero is simply gone).
-    await page.getByTestId("crew-sub-nav").locator('[data-section="venue"]').first().click();
-    await page.clock.runFor(2 * 60 * 1000); // past the show-day boundary → new hero kind, were it still mounted
-    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await page.clock.runFor(CROSSFADE_MS + 180);
-
-    // Hero is cleanly gone; Venue is fully rendered.
-    await expect(page.getByTestId("section-venue")).toBeVisible();
-    await expect(page.getByTestId("right-now-hero")).toHaveCount(0);
-    await expect.poll(async () => transitionOpacity(page), { timeout: 5000 }).toBe(1);
-    // No §8.2 unreachable-transition error fired during the unmount race.
-    expect(
-      heroErrors,
-      `no RightNowHero §8.2 console error during the swap; got ${heroErrors.join(" | ")}`,
-    ).toEqual([]);
   });
 });
 
@@ -1318,16 +944,16 @@ test.describe
  * metadata (Phase 4 Task 3 — "tests 13 / 15 / 19", real-browser halves).
  * ════════════════════════════════════════════════════════════════════════
  *
- * The integration proof that the 6-section sub-nav actually NAVIGATES. The
- * §4.9 layout suite (above) and the §4.10 structural audit verify the shell
+ * The integration proof that the "All sections" rows actually OPEN sections.
+ * The §4.9 layout suite (above) and the §4.10 structural audit verify the shell
  * renders + the transitions are wired; this suite verifies the parts only a
  * real browser can:
  *
  *   - test 13 (nav addressability): a `?s=<section>` deep-link is SSR'd (the
- *     section is present on first paint, before hydration), a sub-nav TAB CLICK
+ *     section is present on first paint, before hydration), a list ROW CLICK
  *     swaps the section client-side (no full reload), the URL gains `?s=`, the
  *     section history is back-button traversable, and the gate param survives a
- *     tab click.
+ *     row click.
  *   - test 15 (preview-as parity): /admin/show/<slug>/preview/<crewId> renders
  *     the SAME CrewShell (data-testid="crew-shell"), the `?s=` deep-link
  *     resolves the right section, and the PreviewBanner sits above the shell.
@@ -1337,7 +963,7 @@ test.describe
  *
  * ⚠ REAL CLOCK — NOT page.clock.install. The §4.9/§4.10 suites freeze the clock
  * for a deterministic hero, but a frozen clock STALLS framer-motion's rAF-driven
- * AnimatePresence exit, so a sub-nav tab click never reaches an actionable/stable
+ * AnimatePresence exit, so a section open never reaches an actionable/stable
  * state and hangs past the timeout (Phase 4 Task 2 close-out note). These tests
  * use the browser's real clock and assert SETTLE end-states (URL changed + target
  * section present + outgoing section gone), never a mid-transition opacity. With a
@@ -1346,7 +972,7 @@ test.describe
  * Gated to mobile-safari (single-writer seed reads, mirrors the §4.9 suite). Auth
  * is ADMIN_FIXTURE: the `admin` arm of resolveShowPageAccess renders the full
  * CrewShell for the seeded crew route regardless of the picker cookie, which makes
- * the deep-link + tab-click coverage independent of the picker interstitial.
+ * the deep-link + row-click coverage independent of the picker interstitial.
  */
 test.describe("crew redesign nav addressability + preview-as + footer report (Task 3 / tests 13·15·19)", () => {
   test.setTimeout(180_000);
@@ -1356,76 +982,48 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   let previewCrewId = "";
 
   /**
-   * Click the sub-nav tab for `section` at the CURRENT viewport. CrewSubNav
-   * renders the section tabs TWICE — a desktop row (`hidden min-[720px]:flex`,
-   * DOM-first) and a mobile bottom bar (`min-[720px]:hidden`, DOM-second). At
-   * 390px the desktop tab is `display:none` and only the mobile bar is visible,
-   * so a bare `.first()` would target the hidden desktop button and the click
-   * would hang. The `:visible` filter selects whichever nav the breakpoint shows
-   * (mobile at <720px, desktop at ≥720px) — exactly the real tap a user makes.
-   */
-  /**
-   * Wait until the sub-nav is INTERACTIVE, not merely present.
+   * Wait until the section controller is INTERACTIVE, not merely present.
    *
-   * CrewSubNav is a client island. Before React hydrates it the tab is SSR markup
-   * with no handler, so a click is silently a no-op: visible, enabled, stable,
-   * dispatched, and nothing happens. Measured twice on this branch — the
-   * scroll-reset case failed with the URL still on `?s=today` after clicking
-   * "crew", and once earlier with `section-crew` never appearing.
-   *
-   * The gate is React's own marker: hydration attaches a `__reactProps$…` key to
-   * the DOM node. Deterministic, and deliberately not `networkidle` (which the
-   * plan's harness checklist rules out as a readiness gate) even though the
-   * already-wired sibling crew-section-toggle.spec.ts uses that heuristic.
+   * The list rows are SSR anchors; before React hydrates, a click is a real
+   * document navigation (correct, but not the client open these cases pin). The
+   * controller sets `data-crew-controller-ready="true"` once it has hydrated and
+   * resolved its layout mode (plan harness rule "Readiness gate"), deliberately
+   * not `networkidle`.
    */
-  async function waitForSubNavHydrated(
-    page: import("@playwright/test").Page,
-    section: string,
-  ): Promise<void> {
-    const tab = page
-      .getByTestId("crew-sub-nav")
-      .locator(`[data-section="${section}"]:visible`)
-      .first();
-    await expect(tab).toBeVisible({ timeout: 15_000 });
-    await page.waitForFunction(
-      (sel) => {
-        const els = [...document.querySelectorAll(sel)].filter(
-          (e) => (e as HTMLElement).offsetParent !== null,
-        );
-        return els.length > 0 && Object.keys(els[0]!).some((k) => k.startsWith("__reactProps$"));
-      },
-      `[data-testid="crew-sub-nav"] [data-section="${section}"]`,
+  async function waitForControllerReady(page: import("@playwright/test").Page): Promise<void> {
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
       { timeout: 30_000 },
     );
   }
 
   /**
-   * Click the sub-nav tab for `section` at the CURRENT viewport, ONCE.
-   *
-   * CrewSubNav renders the section tabs TWICE — a desktop row
-   * (`hidden min-[720px]:flex`, DOM-first) and a mobile bottom bar
-   * (`min-[720px]:hidden`, DOM-second). At 390px the desktop tab is
-   * `display:none`, so a bare `.first()` would target the hidden button and hang.
-   * The `:visible` filter selects whichever nav the breakpoint shows — exactly the
-   * tap a real user makes.
+   * Open `section` from the home's "All sections" list, ONCE.
    *
    * The click is deliberately NOT retried. An earlier version wrapped it in
-   * `toPass`, which made a nav that ignored its first click pass on the second —
+   * `toPass`, which made a nav that ignored its first click pass on the second,
    * masking a genuine "first interaction dropped" regression, the same defect
    * repaired in theme-toggle's tapToggle (whole-diff review rounds 3 and 4).
-   * Readiness is handled by the hydration gate above, where it belongs.
+   * Readiness is handled by the gate above, where it belongs.
    */
-  async function clickSection(
+  async function openFromList(
     page: import("@playwright/test").Page,
     section: string,
   ): Promise<void> {
-    await waitForSubNavHydrated(page, section);
-    await page
-      .getByTestId("crew-sub-nav")
-      .locator(`[data-section="${section}"]:visible`)
-      .first()
-      .click();
+    await waitForControllerReady(page);
+    await page.getByTestId("crew-all-sections").locator(`[data-section="${section}"]`).click();
     await page.waitForURL(new RegExp(`[?&]s=${section}\\b`), { timeout: 15_000 });
+    await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
+      "data-section",
+      section,
+    );
+  }
+
+  /** Close the open sheet with its close button (named "Close" plus the section, spec §9.4). */
+  async function closeSheet(page: import("@playwright/test").Page, label: string): Promise<void> {
+    await page.getByRole("button", { name: `Close ${label.toLowerCase()}` }).click();
+    await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveCount(0);
   }
 
   test.beforeEach(async ({ page }) => {
@@ -1441,16 +1039,13 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  // ── Test 13 — nav addressability ──────────────────────────────────────────
-  test("nav addressability: ?s= deep-link is SSR'd, a tab click swaps section client-side, URL + back-button track sections", async ({
+  // ── Test 13 — nav addressability (compact sheet, spec §5.2) ─────────────────
+  test("nav addressability (sheet): ?s= deep-link is SSR'd open, a row opens a section client-side, URL + back-button track it", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
-    // ── (a) SSR deep-link: ?s=venue renders section-venue on FIRST PAINT ──
-    // Assert the section markup is present in the server response BEFORE the
-    // client hydrates the sub-nav. We read the raw HTML the server returned to
-    // prove the section was server-rendered (not produced by a client effect).
+    // SSR proof: the deep-linked section is in the SERVER HTML, inside the open sheet.
     const venueResp = await page.goto(`/show/${slug}/${shareToken}?s=venue`, {
       waitUntil: "commit",
     });
@@ -1460,134 +1055,105 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
       ssrHtml,
       "section-venue must be present in the SERVER-rendered HTML (SSR deep-link, not a client effect)",
     ).toContain('data-testid="section-venue"');
+    expect(ssrHtml, "the open sheet is server-rendered").toContain(
+      'data-testid="crew-section-sheet-dialog"',
+    );
     expect(ssrHtml, "crew-shell must be server-rendered too").toContain('data-testid="crew-shell"');
 
-    // Now let it hydrate and confirm the live DOM agrees.
-    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await waitForControllerReady(page);
     await expect(page.getByTestId("section-venue")).toBeVisible();
 
-    // ── (b) tab click swaps section client-side (no full reload) ──
-    // Capture a handle to the live crew-shell element; if the nav did a FULL
-    // page reload the handle would be detached after the swap. We ALSO stamp a
-    // sentinel on `window`: a client-side push (History API) preserves the
-    // document and the sentinel survives; a hard reload wipes `window` and the
-    // sentinel is gone. (A bare `framenavigated` count is NOT a reliable
-    // hard-reload signal here — webkit emits `framenavigated` for App Router
-    // History-API soft navigations even though the document is never replaced.)
+    // A row open is a client-side history call: the shell element persists and a
+    // window sentinel survives (no document reload).
     const shellBefore = await page.getByTestId("crew-shell").elementHandle();
     expect(shellBefore, "crew-shell handle must exist before nav").not.toBeNull();
     await page.evaluate(() => {
       (window as unknown as { __navSentinel?: string }).__navSentinel = "task3-no-reload";
     });
-
-    // Click the SCHEDULE tab in the visible sub-nav (mobile bottom bar at 390px).
-    await clickSection(page, "schedule");
-
-    // SETTLE end-state (real clock → framer completes the crossfade): the URL
-    // gains ?s=schedule, the Schedule section renders, and Venue is gone.
-    await expect(page).toHaveURL(/[?&]s=schedule\b/);
-    // The schedule section root is `section-schedule` (or `-unconfirmed` when
-    // the seed has no confirmed schedule); accept either settle target.
+    await closeSheet(page, "Venue");
+    await openFromList(page, "schedule");
     const scheduleRoot = page
       .locator('[data-testid="section-schedule"], [data-testid="section-schedule-unconfirmed"]')
       .first();
     await expect(scheduleRoot).toBeVisible({ timeout: 15_000 });
     await expect(
       page.getByTestId("section-venue"),
-      "outgoing Venue section must be gone after the swap settles",
+      "the closed Venue sheet's body is gone",
     ).toHaveCount(0, { timeout: 15_000 });
-
-    // No full reload happened: the same crew-shell element handle is still
-    // attached to the live DOM (a hard nav would have replaced the document)…
     const stillAttached = await shellBefore!.evaluate((el) => el.isConnected).catch(() => false);
-    expect(
-      stillAttached,
-      "crew-shell element must persist across the nav (client-side push, NOT a full reload)",
-    ).toBe(true);
-    // …and the window sentinel survives (a hard reload would have wiped `window`).
+    expect(stillAttached, "crew-shell element must persist across the open (no reload)").toBe(true);
     const sentinel = await page.evaluate(
       () => (window as unknown as { __navSentinel?: string }).__navSentinel ?? null,
     );
-    expect(
-      sentinel,
-      "window sentinel must survive the nav (proof the document was not reloaded — soft push only)",
-    ).toBe("task3-no-reload");
+    expect(sentinel, "window sentinel must survive the open (no document reload)").toBe(
+      "task3-no-reload",
+    );
 
-    // ── (c) back-button traverses section history (today→venue→schedule) ──
-    // Re-establish a clean history stack via real navigations so goBack walks
-    // sections, not unrelated entries. today → venue → schedule, then goBack ×2.
+    // Back traverses the history the opens pushed: home, then Venue's sheet, then home.
     await page.goto(`/show/${slug}/${shareToken}?s=today`, { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("section-today")).toBeVisible();
-    await clickSection(page, "venue");
-    await expect(page).toHaveURL(/[?&]s=venue\b/);
+    await openFromList(page, "venue");
     await expect(page.getByTestId("section-venue")).toBeVisible({ timeout: 15_000 });
-    await clickSection(page, "schedule");
-    await expect(page).toHaveURL(/[?&]s=schedule\b/);
-    await expect(scheduleRoot).toBeVisible({ timeout: 15_000 });
-
-    // goBack once → venue.
-    await page.goBack();
-    await expect(page).toHaveURL(/[?&]s=venue\b/);
-    await expect(page.getByTestId("section-venue")).toBeVisible({ timeout: 15_000 });
-    // goBack twice → today.
     await page.goBack();
     await expect(page).toHaveURL(/[?&]s=today\b/);
+    await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveCount(0);
     await expect(page.getByTestId("section-today")).toBeVisible({ timeout: 15_000 });
+    await page.goForward();
+    await expect(page).toHaveURL(/[?&]s=venue\b/);
+    await expect(page.getByTestId("section-venue")).toBeVisible({ timeout: 15_000 });
   });
 
-  // ── Test 13 (cont.) — gate param survives deep-link + tab click ──
-  test("nav addressability: ?gate=skip survives the deep-link load AND a tab click (allow-listed param re-emitted)", async ({
+  test("nav addressability (sheet): ?gate=skip survives the deep-link load AND a row open (allow-listed param re-emitted)", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
-    // Deep-link with BOTH ?s=venue and ?gate=skip. The admin arm renders the
-    // shell regardless of gate; both params remain in the URL after load.
     await page.goto(`/show/${slug}/${shareToken}?s=venue&gate=skip`, {
       waitUntil: "domcontentloaded",
     });
+    await waitForControllerReady(page);
     await expect(page.getByTestId("section-venue")).toBeVisible();
     await expect(page, "deep-link keeps both s and gate after load").toHaveURL(/[?&]s=venue\b/);
     await expect(page).toHaveURL(/[?&]gate=skip\b/);
 
-    // A TAB CLICK from ?s=venue&gate=skip pushes a FRESH URL that carries the new
-    // section AND re-emits gate=skip (the only allow-listed gate value); every
-    // other param would be dropped, but gate=skip is retained (CrewSubNav §R13).
-    await clickSection(page, "crew");
+    // Closing a deep link keeps gate and drops s; the row it lands on carries gate on.
+    await closeSheet(page, "Venue");
+    await expect(page).toHaveURL(/[?&]gate=skip\b/);
+    await openFromList(page, "crew");
     await expect(page).toHaveURL(/[?&]s=crew\b/);
     await expect(
       page,
-      "a tab click from a ?gate=skip URL must retain gate=skip in the pushed URL",
+      "a row open from a ?gate=skip URL must retain gate=skip in the pushed URL",
     ).toHaveURL(/[?&]gate=skip\b/);
   });
 
-  // ── Test 13 (cont.) — section change resets scroll to top ──
-  test("nav addressability: a section change resets scroll position to the top", async ({
+  test("nav addressability (sheet): a section opens at the top of its body over the scrolled home", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.goto(`/show/${slug}/${shareToken}?s=today`, { waitUntil: "domcontentloaded" });
+    await waitForControllerReady(page);
     await expect(page.getByTestId("section-today")).toBeVisible();
 
-    // Scroll down so a naive client nav that preserved scroll would leave us
-    // mid-page. The body is tall enough on Today; force a scroll then assert it
-    // is reset to ~0 after the section swap (CrewSubNav calls window.scrollTo(0,0)).
+    // Scroll the home so the row is already in view: Playwright's click would
+    // otherwise scroll it there itself, which is not the open moving the page.
     await page.evaluate(() => window.scrollTo(0, 600));
+    await page
+      .getByTestId("crew-all-sections")
+      .locator('[data-section="crew"]')
+      .scrollIntoViewIfNeeded();
     const scrolledTo = await page.evaluate(() => window.scrollY);
-    // If the page is too short to scroll, this sub-assertion is vacuous — but the
-    // post-nav reset still must hold (0 stays 0). We don't hard-require a scroll.
-    await clickSection(page, "crew");
-    await expect(page).toHaveURL(/[?&]s=crew\b/);
+    await openFromList(page, "crew");
     await expect(page.getByTestId("section-crew")).toBeVisible({ timeout: 15_000 });
-    await expect
-      .poll(async () => page.evaluate(() => window.scrollY), { timeout: 5000 })
-      .toBeLessThanOrEqual(1);
-    // Sanity: we actually had somewhere to scroll OR the page was already at top.
-    expect(scrolledTo, "scroll baseline captured").toBeGreaterThanOrEqual(0);
+    // The sheet body is its own scroller and starts at the top of the section.
+    expect(
+      await page.getByTestId("crew-section-sheet-body").evaluate((el) => el.scrollTop),
+    ).toBeLessThanOrEqual(1);
+    // The home behind the sheet keeps its place (the scroll lock does not move it).
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrolledTo);
   });
 
-  // ── Test 15 — preview-as parity ───────────────────────────────────────────
   test("preview-as: /admin/show/<slug>/preview/<crewId>?s=venue renders the CrewShell (not a flat tile-grid), section resolves, PreviewBanner above", async ({
     page,
   }) => {
@@ -1931,8 +1497,7 @@ test.describe("wifi password transcription affordance (production route)", () =>
     }
 
     // The claim rect math cannot make: a tap at the target reaches the TARGET,
-    // not something painted over it. This is what covers the fixed bottom bar
-    // and any overlay, and it is the same oracle the step3 tap-target work
+    // not something painted over it. This is what covers any overlay, and it is the same oracle the step3 tap-target work
     // settled on after a `before:-inset-*` recipe measured 44x44 while only two
     // of its edges took the pointer.
     expect(g!.hitTest, "the hit test must have run").not.toBeNull();

@@ -84,9 +84,12 @@ function venuePeek(data: ShowForViewer): string | null {
 /** The hotel line: one name, or a count when the viewer has several. Never under date suppression. */
 function hotelPart(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   if (suppressesDates(viewer.dateRestriction)) return null;
+  // A partial projection still renders the page (the shell's guard discipline),
+  // so a missing list reads as no hotels rather than throwing.
+  const reservations = Array.isArray(data.hotelReservations) ? data.hotelReservations : [];
   const names = [
     ...new Set(
-      [...data.hotelReservations]
+      [...reservations]
         .sort((a, b) => a.ordinal - b.ordinal)
         .map((res) => present(res.hotel_name))
         .filter((name): name is string => name !== null),
@@ -128,7 +131,7 @@ function crewPeek(data: ShowForViewer): string | null {
 /** The pack list's case count, only on a day its gate shows it to this viewer. */
 function gearPeek(data: ShowForViewer, viewer: SectionPeekViewer): string | null {
   const cases = data.pullSheet;
-  if (cases === null || cases.length === 0) return null;
+  if (!Array.isArray(cases) || cases.length === 0) return null; // absent on a partial projection
   const visible = isPackListVisibleToday({
     show: data.show,
     restriction: viewer.stageRestriction,

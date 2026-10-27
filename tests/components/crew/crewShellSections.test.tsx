@@ -41,7 +41,7 @@ const captured = vi.hoisted(
     ({ value: null }) as {
       value: {
         initialSection: SectionId;
-        budgetVisible: boolean;
+        sections: ReadonlyArray<{ id: string; label: string; peek: string | null }>;
         sectionNodes: Partial<Record<SectionId, ReactNode>>;
       } | null;
     },
@@ -49,14 +49,14 @@ const captured = vi.hoisted(
 vi.mock("@/components/crew/CrewSections", () => ({
   CrewSections: (props: {
     initialSection: SectionId;
-    budgetVisible: boolean;
+    sections: ReadonlyArray<{ id: string; label: string; peek: string | null }>;
     sectionNodes: Partial<Record<SectionId, ReactNode>>;
   }) => {
     captured.value = props;
     // Render the initial active body so the integration assertion (real
     // section markers) can observe it in the DOM.
     return (
-      <div data-testid="mock-crew-sections" data-active-section={props.initialSection}>
+      <div data-testid="mock-crew-sections" data-initial-section={props.initialSection}>
         {props.sectionNodes[props.initialSection] ?? null}
       </div>
     );
@@ -208,15 +208,19 @@ function leadData(): ShowForViewer {
 }
 
 // ============================================================================
-// sectionNodes keys === the entitled set, gated by budgetVisible
+// sectionNodes keys === the entitled set, and the listed sections are exactly it (budget gated)
 // ============================================================================
 describe("CrewShell builds sectionNodes for the entitled set", () => {
+  /** The ids the "All sections" card and the wide nav receive. */
+  const listed = () => captured.value!.sections.map((x) => x.id).sort();
+
   it("a LEAD viewer gets all 7 keys (BASE + budget)", async () => {
     await renderShell({ data: leadData(), viewer: crewViewer, rawSection: "today" });
     expect(captured.value).not.toBeNull();
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...BASE_SECTION_IDS, "budget"].sort());
-    expect(captured.value!.budgetVisible).toBe(true);
+    expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
+    expect(listed()).toContain("budget");
   });
 
   it("a NON-lead viewer gets EXACTLY the 6 base keys, no budget key", async () => {
@@ -224,14 +228,16 @@ describe("CrewShell builds sectionNodes for the entitled set", () => {
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...BASE_SECTION_IDS].sort());
     expect(keys).not.toContain("budget");
-    expect(captured.value!.budgetVisible).toBe(false);
+    expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
+    expect(listed()).not.toContain("budget");
   });
 
   it("a real admin gets all 7 keys", async () => {
     await renderShell({ data: populated(), viewer: adminViewer, rawSection: "today" });
     const keys = Object.keys(captured.value!.sectionNodes).sort();
     expect(keys).toEqual([...BASE_SECTION_IDS, "budget"].sort());
-    expect(captured.value!.budgetVisible).toBe(true);
+    expect(listed()).toEqual(keys.filter((k) => k !== "today").sort());
+    expect(listed()).toContain("budget");
   });
 });
 

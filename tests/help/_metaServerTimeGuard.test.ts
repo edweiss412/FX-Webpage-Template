@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 226 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 228 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -291,7 +291,17 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(rel).toContain("lib/crew/generalSessionRoom.ts");
     expect(rel).toContain("lib/crew/transportLegs.ts");
     expect(rel).toContain("lib/ui/scrollLock.ts");
-    expect(rel.length).toBe(226);
+    // 226 -> 228 (2026-10-27, feat/crew-page-redesign Task 6): two more joined.
+    //   lib/ui/scrollSpy.ts, the scroll-spy rule moved out of
+    //   components/admin/review/ShowReviewSurface.tsx, imported by it and by
+    //   components/crew/CrewSections.tsx.
+    //   lib/crew/crewSections.ts, now imported directly by
+    //   components/crew/CrewSections.tsx, app/show/[slug]/[shareToken]/_CrewShell.tsx
+    //   and both crew loading skeletons (the one section-label source).
+    // Neither makes a clock read.
+    expect(rel).toContain("lib/ui/scrollSpy.ts");
+    expect(rel).toContain("lib/crew/crewSections.ts");
+    expect(rel.length).toBe(228);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

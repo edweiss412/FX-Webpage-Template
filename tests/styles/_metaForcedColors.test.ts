@@ -118,13 +118,14 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     ).toEqual([]);
   });
 
-  it("holds exactly 17 census rows", () => {
+  it("holds exactly 18 census rows", () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, so the count is pinned separately; the equivalent case in
     // tests/styles/_metaControlOutlineFill.test.ts:117 calls itself "the single
     // most important case in the file" for this reason.
-    expect(CARRIER_CENSUS).toHaveLength(17);
-    expect(new Set(CARRIER_CENSUS.map((r) => r.subject)).size).toBe(17);
+    // 17 -> 18 on feat/crew-page-redesign: the crew reveal target's tint.
+    expect(CARRIER_CENSUS).toHaveLength(18);
+    expect(new Set(CARRIER_CENSUS.map((r) => r.subject)).size).toBe(18);
   });
 
   it("records the two cues this pass deliberately leaves alone", () => {
@@ -408,13 +409,17 @@ describe("forced-colors state collapse (Arm 1)", () => {
     const collisions = findCollisions(ELEMENTS, SURVIVAL);
     premiseHolds("some element collapses on today's tree", collisions.length > 0);
 
-    // CrewSubNav's tab has eight paths and only some pairs collide. A union over all
-    // eight would report tokens that have nothing to do with the collision, which is
-    // why the unit is the pair.
-    const tab = collisions.find((c) => c.file.endsWith("CrewSubNav.tsx"));
-    expect(tab, "the crew tab bar collapses and must be reported").toBeDefined();
-    expect(tab?.differing).toContain("border-transparent");
-    expect(tab?.differing).toContain("border-accent");
+    // AccentButton's button has 64 paths (variant x size x state) and only some
+    // pairs collide, on the tile shadow alone. A union over all 64 would report the
+    // size and variant tokens, which have nothing to do with the collision, which is
+    // why the unit is the pair. (The subject was the crew sub-nav tab until the crew
+    // page redesign retired it.)
+    const button = collisions.filter((c) => c.file.endsWith("components/shared/AccentButton.tsx"));
+    expect(
+      button.length,
+      "the accent button's shadow pairs collapse and must be reported",
+    ).toBeGreaterThan(1);
+    for (const pair of button) expect(pair.differing).toEqual(["shadow-tile"]);
   });
 
   it("does not treat a shadow or ring utility as a survivor", () => {
@@ -445,13 +450,17 @@ describe("forced-colors state collapse (Arm 1)", () => {
     ).toEqual([]);
   });
 
-  it("holds exactly 42 collapse rows, each disposed once", () => {
+  it("holds exactly 41 collapse rows, each disposed once", () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, and the family sum is what stops a new site landing in no family.
-    expect(COLLAPSE_CENSUS).toHaveLength(42);
-    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
+    // 42 -> 41 on feat/crew-page-redesign: the crew sub-nav tab and its icon left,
+    // the wide nav item's icon arrived (the item itself does not collapse).
+    expect(COLLAPSE_CENSUS).toHaveLength(41);
+    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(41);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
-    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(12);
+    // 12 -> 11 with the crew sub-nav tab: the wide nav item that replaced it keeps
+    // a weight delta, so it never collapsed and needs no repair row.
+    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(11);
   });
 
   it("gives every repair row a binding, and says which are not yet browser-bound", () => {
@@ -645,7 +654,12 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(
       undecidable.length,
       "the cannot-decide set moved; read the new rows and either resolve them or re-pin",
-    ).toBe(124);
+      // 124 -> 127 on feat/crew-page-redesign (2026-10-27): the retired sub-nav's
+      // table-read <Icon> left, and four table-read or lucide glyphs arrived (the
+      // "All sections" row's <Icon> and <ChevronRight>, the wide nav's <Icon>, the
+      // section sheet's close <X>), each aria-hidden decoration inside a control
+      // whose own state the census already disposes.
+    ).toBe(127);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

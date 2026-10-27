@@ -20,8 +20,10 @@
  *
  * Seeded 2026-08-14 by running the shipped scanner (spec §1.1 R7: the branch
  * derives its own numbers), and re-derived 2026-08-15 after the whole-diff
- * review tightened the grammar. 53 rows out of 354 in-scope elements — 301
- * clear statically. Per category: 15 full-bleed, 13 unresolvable-dynamic, 9
+ * review tightened the grammar. Re-derived 2026-10-27 (crew page redesign PR A:
+ * the crew sub-nav left, the section sheet, its scrim and the wide nav arrived):
+ * 54 rows out of 369 in-scope elements — 315 clear statically. Per category:
+ * 16 full-bleed, 13 unresolvable-dynamic, 9
  * padding-arithmetic, 7 inline-prose-link, 7 parent-label-target, 2
  * dev-only-unstyled.
  *
@@ -257,7 +259,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     reason:
       "Staged-review action radio inside `<label className='flex min-h-tap-min cursor-pointer items-center gap-2 py-1 …'>`. Was `under-floor-filed` and deferred under class-sweep exception (c); the 2026-08-25 sweep touched this surface, so (c) stopped fencing it.",
   },
-  // ---- full-bleed (13) ----------------------------------------------------
+  // ---- full-bleed (14) ----------------------------------------------------
   // Scrims, click-away layers, and controls whose box IS a region far taller
   // than 44px. Every one is `inset-0`/`size-full` or fills a sized parent.
   {
@@ -281,6 +283,14 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     tag: "button",
     category: "full-bleed",
     reason: "Finalize details scrim: `absolute inset-0 bg-overlay-scrim`.",
+  },
+  {
+    file: "components/crew/CrewSectionSheet.tsx",
+    line: 296,
+    tag: "motion.div",
+    category: "full-bleed",
+    reason:
+      "Crew section-sheet scrim: `absolute inset-0 bg-overlay-scrim` inside the `fixed inset-0` sheet root.",
   },
   {
     file: "components/admin/HelpSheet.tsx",

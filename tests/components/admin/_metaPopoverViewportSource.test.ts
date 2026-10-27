@@ -46,6 +46,10 @@ const LAYOUT_VIEWPORT_ALLOWLIST = new Map<string, string>([
     "components/admin/dev/DevCaptureControl.tsx",
     "records the viewport size into a dev capture payload; positions nothing",
   ],
+  [
+    "components/crew/CrewSections.tsx",
+    "the wide nav's scroll-spy runs the shared activeSectionFor rule over the WINDOW scroller, whose clientHeight is the layout viewport (the same box scrollY and scrollHeight measure, so the bottom clamp agrees); it positions nothing",
+  ],
 ]);
 
 /**

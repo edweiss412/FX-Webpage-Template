@@ -183,6 +183,15 @@ export const EXPLICIT_INCLUDES: readonly { readonly file: string; readonly reaso
       "it. Without this include the delay resolves to nothing scanned and both call sites report " +
       "`unclassified` — the constant would be less visible in §5.5 than the bare literal it replaced.",
   },
+  {
+    file: "lib/ui/scrollSpy.ts",
+    reason:
+      "NAV_SCROLL_SETTLE_TIMEOUT_MS is the fallback that hands the section rail back to the " +
+      "scroll-spy after a nav-click glide — interaction timing a person sees as the active item " +
+      "settling. It lives in lib/ because two trees share it: components/admin/review/ShowReviewSurface.tsx " +
+      "and components/crew/CrewSections.tsx (crew page redesign spec §5.3), and the crew page may " +
+      "not import from components/admin/**. Without this include both call sites report `unclassified`.",
+  },
 ];
 
 /**

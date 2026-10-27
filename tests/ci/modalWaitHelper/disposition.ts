@@ -787,13 +787,17 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     // 19 since 2026-08-25 (feat/switch-person-google-signout): picker-flow's
     // switch-person case reloads the crew route to prove the session ended.
-    expectedCount: 19,
+    // 23 since 2026-10-27 (feat/crew-page-redesign Task 6): crew-wide-nav's Back
+    // and Forward over compact-created crew-route entries (2), and the sheet's
+    // history cases in crew-page and crew-section-toggle (net 2 more).
+    expectedCount: 23,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",
         "bell-panel-layout.spec.ts",
         "crew-page.spec.ts",
         "crew-section-toggle.spec.ts",
+        "crew-wide-nav.spec.ts",
         "needs-attention-holds.spec.ts",
         "needs-attention-page.spec.ts",
         "picker-flow.spec.ts",

@@ -2,12 +2,9 @@
 /**
  * tests/components/crew/transitionAudit.test.tsx — crew-redesign §4.10 transition
  * audit (Phase 4 Task 2, "test 14"). The STRUCTURAL half of the audit: a static
- * source enumeration + a jsdom render-shape pass. The COMPOUND, real-browser half
- * (opacity sampling, theme-toggle-during-nav, hero re-mount) is written in
- * tests/e2e/crew-page.spec.ts (mobile-safari, `-g "transition"`) but does NOT
- * execute: that §4.10 block is `.skip` and the file runs in no CI workflow
- * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). jsdom cannot substitute for it, because it
- * computes no layout and never advances framer's rAF-driven keyframes.
+ * source enumeration + a jsdom render-shape pass. jsdom computes no layout and
+ * never advances framer's rAF-driven keyframes, so the real-browser half lives
+ * in the crew e2e specs (crew page redesign PR A, Task 12).
  *
  * The §4.10 inventory this file pins (each row → a named test):
  *
@@ -17,21 +14,23 @@
  *   |                            | reduced-motion → 0ms (duration token only).     |
  *   | RightNow hero 12-state swap| AnimatePresence mode="wait" initial={false};    |
  *   |                            | reuses transitionTreatment + the 66-pair table. |
- *   | tab active ↔ inactive      | CSS-only colour transition (desktop accent      |
- *   |                            | border / mobile accent fill), --duration-fast / |
- *   |                            | --ease-out-quart; 0ms under reduced-motion. NO  |
- *   |                            | framer here.                                    |
- *   | Budget tab appears↔absent  | INSTANT — server render, NO animation wrapper   |
+ *   | sheet closed ↔ open        | CrewSectionSheet: one AnimatePresence           |
+ *   |                            | initial={false}; panel slides, scrim fades, the |
+ *   |                            | same --duration-normal transition both ways;    |
+ *   |                            | reduced motion → duration 0 (crew page redesign |
+ *   |                            | spec §7; Task 12 owns the full §7 audit).       |
+ *   | wide nav item inactive ↔   | CSS-only colour transition plus ONE accent bar  |
+ *   | active                     | that moves by a CSS transition, --duration-fast |
+ *   |                            | / --ease-out-quart. NO framer here.             |
+ *   | Budget row appears↔absent  | INSTANT — server render, NO animation wrapper   |
  *   | KeyTimesStrip present↔omit | INSTANT — server render, NO animation wrapper   |
  *   | Gear emphasis              | INSTANT — static data-emphasis attribute        |
  *   | any × reduced-motion       | all motion via duration tokens → collapses 0ms  |
  *   | initial={false} EVERYWHERE | no animating-from-hidden SSR (M12.11 framer trap)|
  *
- * Compound rows (theme-toggle-during-nav; hero-state-change mid section-swap;
- * re-enter Today) are written for the real browser in the §4.10 block of
- * tests/e2e/crew-page.spec.ts, but that block is `.skip` and the file is named
- * by no workflow, so they are exercised NOWHERE
- * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
+ * The retired tab-to-tab compound rows had a skipped real-browser block in
+ * tests/e2e/crew-page.spec.ts; the crew page redesign removed the tabs and that
+ * block with them, and its Task 12 owns the sheet's compound cases.
  */
 import "@testing-library/jest-dom/vitest";
 import { execSync } from "node:child_process";
@@ -44,17 +43,25 @@ function src(rel: string): string {
   return readFileSync(join(process.cwd(), rel), "utf8");
 }
 
-// The ONLY two crew components that carry a client motion library. Everything
-// else under components/crew/** must be motion-free (instant by design).
-const MOTION_COMPONENTS = [
+// The crossfade surfaces: an AnimatePresence mode="wait" swapping one keyed body.
+const CROSSFADE_COMPONENTS = [
   "components/crew/CrewSectionTransition.tsx",
   "components/crew/RightNowHero.tsx",
+] as const;
+
+// The ONLY crew components that carry a client motion library: the crossfades
+// plus the section sheet's slide. Everything else under components/crew/** must
+// be motion-free (instant by design).
+const MOTION_COMPONENTS = [
+  ...CROSSFADE_COMPONENTS,
+  "components/crew/CrewSectionSheet.tsx",
 ] as const;
 
 // Instant-by-design surfaces (server-rendered or static-attribute): an
 // AnimatePresence / <motion.*> here is a BUG (§4.10 "INSTANT" rows).
 const INSTANT_BY_DESIGN = [
-  "components/crew/CrewSubNav.tsx", // tab active↔inactive is CSS-only; Budget tab presence is server-driven
+  "components/crew/CrewAllSections.tsx", // row presence (Budget included) is server-driven
+  "components/crew/CrewWideNav.tsx", // item active↔inactive and the accent bar are CSS transitions
   "components/crew/primitives/KeyTimesStrip.tsx", // present↔omitted is server render
   "components/crew/sections/GearSection.tsx", // emphasis is a static data-emphasis attr
 ] as const;
@@ -63,7 +70,7 @@ afterEach(cleanup);
 
 describe("§4.10 transition audit — static enumeration", () => {
   it('inventory: section↔section + hero swap — every AnimatePresence carries mode="wait" AND initial={false}', () => {
-    for (const rel of MOTION_COMPONENTS) {
+    for (const rel of CROSSFADE_COMPONENTS) {
       const s = src(rel);
       // Match each AnimatePresence opening tag (up to its first `>`), tolerant of
       // attribute order / whitespace / newlines.
@@ -141,8 +148,8 @@ describe("§4.10 transition audit — static enumeration", () => {
     expect(s, "hero crossfade branch supplies exit").toMatch(/exit:\s*\{\s*opacity:\s*0\s*\}/);
   });
 
-  it("inventory: any × reduced-motion — both motion surfaces collapse the duration to 0 via prefersReducedMotion (token, not a tree-shape branch)", () => {
-    for (const rel of MOTION_COMPONENTS) {
+  it("inventory: any × reduced-motion — both crossfade surfaces collapse the duration to 0 via prefersReducedMotion (token, not a tree-shape branch)", () => {
+    for (const rel of CROSSFADE_COMPONENTS) {
       const s = src(rel);
       expect(s, `${rel} must consume the shared usePrefersReducedMotion hook`).toMatch(
         /usePrefersReducedMotion/,
@@ -154,6 +161,39 @@ describe("§4.10 transition audit — static enumeration", () => {
         `${rel}: reduced motion must collapse duration to 0 (prefersReducedMotion ? 0 : …)`,
       ).toMatch(/prefersReducedMotion\s*(?:===\s*true\s*)?\?\s*0/);
     }
+  });
+});
+
+describe("§4.10 transition audit — section sheet (crew page redesign spec §7)", () => {
+  it("sheet closed↔open: one AnimatePresence initial={false}; the panel slides and the scrim fades, with an exit on both", () => {
+    const s = src("components/crew/CrewSectionSheet.tsx");
+    const opens = s.match(/<AnimatePresence\b[^>]*>/g) ?? [];
+    expect(opens, "exactly one AnimatePresence owns the sheet's presence").toHaveLength(1);
+    expect(opens[0], "a server-rendered open sheet never slides in on hydration").toMatch(
+      /initial=\{false\}/,
+    );
+    expect(s, "the panel slides up from the bottom edge").toMatch(
+      /initial=\{\{\s*y:\s*"100%"\s*\}\}/,
+    );
+    expect(s, "every close runs the same exit, back down").toMatch(
+      /exit=\{\{\s*y:\s*"100%"\s*\}\}/,
+    );
+    expect(s, "the scrim fades in").toMatch(/initial=\{\{\s*opacity:\s*0\s*\}\}/);
+    expect(s, "and back out").toMatch(/exit=\{\{\s*opacity:\s*0\s*\}\}/);
+  });
+
+  it("sheet: --duration-normal on --ease-out-quart, instant under reduced motion; the spring-back reads --duration-fast", () => {
+    const s = src("components/crew/CrewSectionSheet.tsx");
+    expect(s, "slide at the --duration-normal 0.22s token value").toMatch(
+      /SHEET_SLIDE = \{ duration: 0\.22, ease: \[0\.25, 1, 0\.5, 1\] \}/,
+    );
+    expect(s, "reduced motion: a 0 duration, not a different tree").toMatch(
+      /SHEET_INSTANT = \{ duration: 0 \}/,
+    );
+    expect(s).toMatch(/reduced \? SHEET_INSTANT : SHEET_SLIDE/);
+    expect(s, "spring-back uses the --duration-fast token").toMatch(
+      /transform var\(--duration-fast\) var\(--ease-out-quart\)/,
+    );
   });
 });
 
@@ -174,16 +214,18 @@ describe("§4.10 transition audit — instant-by-design rows", () => {
     }
   });
 
-  it("tab active↔inactive is a CSS-only colour transition (duration-fast / ease-out-quart token), no JS branch", () => {
-    const s = src("components/crew/CrewSubNav.tsx");
-    expect(s, "tab colour transition uses the --duration-fast token").toMatch(/duration-fast/);
-    expect(s, "tab colour transition uses --ease-out-quart").toMatch(/ease-out-quart/);
-    expect(s, "active tab carries the accent (desktop border / mobile fill)").toMatch(
-      /border-accent|text-accent/,
-    );
+  it("wide nav item active↔inactive is a CSS-only colour transition, and the accent bar is ONE element that moves (duration-fast / ease-out-quart)", () => {
+    const s = src("components/crew/CrewWideNav.tsx");
+    expect(s, "item colour transition uses the --duration-fast token").toMatch(/duration-fast/);
+    expect(s, "and --ease-out-quart").toMatch(/ease-out-quart/);
+    expect(s, "the accent bar is the accent colour").toMatch(/bg-accent/);
+    // One indicator rendered outside the item map, so it moves rather than
+    // teleporting with a per-item conditional render.
+    expect(s.match(/data-testid="crew-wide-nav-indicator"/g) ?? []).toHaveLength(1);
+    expect(s, "the bar slides by transform").toMatch(/transition-\[transform,height\]/);
   });
 
-  it("components/crew/** has motion ONLY in the two inventory surfaces (no stray animation crept into an instant section)", () => {
+  it("components/crew/** has motion ONLY in the inventory surfaces (no stray animation crept into an instant section)", () => {
     // Class-sweep: walk the whole crew subtree and assert the ONLY files importing
     // framer-motion are the two inventory surfaces. A new <motion.*> in any section
     // primitive would be an undocumented animation (a §4.10 violation).
@@ -196,7 +238,7 @@ describe("§4.10 transition audit — instant-by-design rows", () => {
       .map((l) => l.trim())
       .filter(Boolean)
       .sort();
-    expect(files, "exactly the two inventory surfaces may import a motion library").toEqual(
+    expect(files, "exactly the inventory surfaces may import a motion library").toEqual(
       [...MOTION_COMPONENTS].sort(),
     );
   });
@@ -253,14 +295,39 @@ describe("§4.10 transition audit — CrewSectionTransition render shape (jsdom)
   });
 });
 
-// ── Compound: the section crossfade is driven by the CONTROLLER's `active`
-// state (client toggle), and the key it feeds CrewSectionTransition is the
-// section id. The §7 compound row: a `router.refresh()`-style re-render (same
-// active, new sectionNodes) must NOT re-key → the body updates in place WITHOUT
-// a spurious crossfade. We mock CrewSectionTransition to a passthrough that
+// ── CrewSectionTransition smoke (moved from the retired sub-nav suite): the
+// wrapper and its children render, and a new sectionId swaps the keyed body. ──
+describe("§4.10 transition audit — CrewSectionTransition swaps the keyed body", () => {
+  it("renders the keyed wrapper + children and swaps to the new section body", async () => {
+    vi.resetModules();
+    vi.doUnmock("@/components/crew/CrewSectionTransition");
+    const { CrewSectionTransition } = await import("@/components/crew/CrewSectionTransition");
+    const { rerender } = render(
+      <CrewSectionTransition sectionId="schedule">
+        <h2>Schedule body</h2>
+      </CrewSectionTransition>,
+    );
+    expect(screen.getByTestId("crew-section-transition")).toBeInTheDocument();
+    expect(screen.getByText("Schedule body")).toBeInTheDocument();
+    // AnimatePresence mode="wait": the old body exits, the new keyed body enters.
+    rerender(
+      <CrewSectionTransition sectionId="venue">
+        <h2>Venue body</h2>
+      </CrewSectionTransition>,
+    );
+    expect(await screen.findByText("Venue body")).toBeInTheDocument();
+    expect(screen.queryByText("Schedule body")).toBeNull();
+  });
+});
+
+// ── Compound: the sheet body's crossfade key is the OPEN section. The §7
+// compound row: a `router.refresh()`-style re-render (same open section, new
+// sectionNodes) must NOT re-key, so the body updates in place WITHOUT a
+// spurious crossfade. We mock CrewSectionTransition to a passthrough that
 // surfaces `sectionId` as data-section-id (the value that drives its key), and
-// mock next/navigation + matchMedia for the controller's client hooks. ──
-describe("§4.10 transition audit — CrewSections drives the crossfade key (compound)", () => {
+// mock next/navigation for the controller's client hooks (no matchMedia in
+// jsdom: the controller runs compact). ──
+describe("§4.10 transition audit — CrewSections drives the sheet's crossfade key (compound)", () => {
   const nav = vi.hoisted(() => ({
     pathname: "/show/x/tok",
     searchParams: new URLSearchParams(),
@@ -273,6 +340,7 @@ describe("§4.10 transition audit — CrewSections drives the crossfade key (com
       usePathname: () => nav.pathname,
       useSearchParams: () => nav.searchParams,
     }));
+    History.prototype.replaceState.call(window.history, null, "", nav.pathname);
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
     vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     vi.doMock("@/components/crew/CrewSectionTransition", () => ({
@@ -299,30 +367,25 @@ describe("§4.10 transition audit — CrewSections drives the crossfade key (com
     vi.restoreAllMocks();
   });
 
-  function nodes(todayLabel: string) {
+  const SECTIONS = [{ id: "venue" as const, label: "Venue", peek: null }];
+
+  function nodes(venueLabel: string) {
     return {
-      today: <div data-testid="body-today">{todayLabel}</div>,
-      venue: <div data-testid="body-venue">venue</div>,
+      today: <div data-testid="body-today">today</div>,
+      venue: <div data-testid="body-venue">{venueLabel}</div>,
     };
   }
 
-  it("changing the active section re-keys CrewSectionTransition (crossfade fires on the section swap)", async () => {
+  it("opening a section mounts its body under that section's crossfade key", async () => {
     const { CrewSections } = await import("@/components/crew/CrewSections");
-    render(
-      <CrewSections
-        initialSection="today"
-        budgetVisible={false}
-        sectionNodes={nodes("today v1")}
-      />,
-    );
-    expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
-      "data-section-id",
-      "today",
-    );
+    render(<CrewSections initialSection="today" sections={SECTIONS} sectionNodes={nodes("v1")} />);
+    // The home's Today block is not a crossfade surface; nothing is keyed yet.
+    expect(screen.queryByTestId("crew-section-transition")).toBeNull();
 
-    const [venueTab] = screen.getAllByRole("button", { name: /venue/i });
-    venueTab!.click();
-    // After the swap the key is the new section — the crossfade re-mounts the body.
+    screen
+      .getByTestId("crew-all-sections")
+      .querySelector<HTMLElement>('[data-section="venue"]')!
+      .click();
     expect(await screen.findByTestId("body-venue")).toBeInTheDocument();
     expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
       "data-section-id",
@@ -330,34 +393,26 @@ describe("§4.10 transition audit — CrewSections drives the crossfade key (com
     );
   });
 
-  it("compound: a freshness re-render (same active, new sectionNodes) does NOT re-key (no spurious crossfade)", async () => {
+  it("compound: a freshness re-render (same open section, new sectionNodes) does NOT re-key (no spurious crossfade)", async () => {
     const { CrewSections } = await import("@/components/crew/CrewSections");
     const { rerender } = render(
-      <CrewSections
-        initialSection="today"
-        budgetVisible={false}
-        sectionNodes={nodes("today v1")}
-      />,
+      <CrewSections initialSection="venue" sections={SECTIONS} sectionNodes={nodes("venue v1")} />,
     );
     expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
       "data-section-id",
-      "today",
+      "venue",
     );
-    expect(screen.getByText("today v1")).toBeInTheDocument();
+    expect(screen.getByText("venue v1")).toBeInTheDocument();
 
-    // router.refresh()-style: same active, server re-rendered the body fresh.
+    // router.refresh()-style: same open section, the server re-rendered the body fresh.
     rerender(
-      <CrewSections
-        initialSection="today"
-        budgetVisible={false}
-        sectionNodes={nodes("today v2")}
-      />,
+      <CrewSections initialSection="venue" sections={SECTIONS} sectionNodes={nodes("venue v2")} />,
     );
     // The key is UNCHANGED (no re-animate) AND the fresh content is shown.
     expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
       "data-section-id",
-      "today",
+      "venue",
     );
-    expect(screen.getByText("today v2")).toBeInTheDocument();
+    expect(screen.getByText("venue v2")).toBeInTheDocument();
   });
 });

@@ -136,7 +136,7 @@ describe("CrewSection", () => {
     const wrapper = wrapperOf(container);
     // Wide-left / narrow-right grid is the two-sided layout.
     expect(wrapper).toHaveClass("grid");
-    expect(wrapper).toHaveClass("min-[720px]:grid-cols-[1.6fr_1fr]");
+    expect(wrapper).toHaveClass("@min-crew-split:grid-cols-[1.6fr_1fr]");
     expect(wrapper.className).not.toContain("flex-row");
   });
 
@@ -169,7 +169,7 @@ describe("CrewSection", () => {
     expect(columns.length).toBe(1);
     expect(columns[0]!.getAttribute("data-crew-column")).toBe("roster");
     const wrapper = wrapperOf(container);
-    // No blank right track at ≥720px: the wrapper is NOT the two-track grid.
+    // No blank right track when split: the wrapper is NOT the two-track grid.
     expect(wrapper.className).not.toContain("grid-cols-[1.6fr_1fr]");
     expect(wrapper).toHaveClass("flex");
     expect(wrapper).toHaveClass("flex-col");

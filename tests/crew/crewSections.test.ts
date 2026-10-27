@@ -4,13 +4,14 @@
  *
  * Spec docs/superpowers/specs/2026-10-26-crew-page-redesign-design.md §4.6 and
  * §5.1. Expected ids come from `BASE_SECTION_IDS`, the budget gate from
- * `financialsVisible` itself, labels from today's sub-nav source and the fetch
+ * `financialsVisible` itself, labels from the one label source and the fetch
  * domains from the projection's own writers, so no case passes on a literal the
  * module under test also happens to contain.
  */
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { crewSectionsFor, type CrewSectionId } from "@/lib/crew/crewSections";
+import { CREW_SECTION_LABELS, crewSectionsFor, type CrewSectionId } from "@/lib/crew/crewSections";
 import { BASE_SECTION_IDS, resolveActiveSection } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -121,23 +122,26 @@ describe("crewSectionsFor (sections, PR A membership)", () => {
     }
   });
 
-  it("sections: each label is today's sub-nav label for that id", () => {
-    const src = readFileSync("components/crew/CrewSubNav.tsx", "utf8");
-    const block = /const SECTION_LABELS[^=]*=\s*\{([\s\S]*?)\};/.exec(src)?.[1];
-    expect(block, "CrewSubNav SECTION_LABELS table").toBeDefined();
-    const subNav = Object.fromEntries(
-      [...block!.matchAll(/(\w+):\s*"([^"]+)"/g)].map((m) => [m[1]!, m[2]!]),
-    );
-    // Premise: the parse saw the whole table, not a prefix of it.
-    for (const id of [...BASE_SECTION_IDS, "budget"]) {
-      expect(subNav[id], `sub-nav label for ${id}`).toBeTypeOf("string");
-    }
+  it("sections: each label comes from CREW_SECTION_LABELS, and no other module keeps its own label table", () => {
     const ctx = ctxFor({ kind: "admin" }, healthyShow());
     const sections = crewSectionsFor(healthyShow(), ctx);
     expect(sections.map((s) => s.id)).toContain("budget");
     for (const section of sections) {
-      expect(section.label, section.id).toBe(subNav[section.id]);
+      expect(section.label, section.id).toBe(CREW_SECTION_LABELS[section.id]);
     }
+    // The one source: a second `venue: "<label>"` table anywhere in the product
+    // tree is a copy that can drift (the retired sub-nav kept one; so did both
+    // loading skeletons until they read this module). Walked from disk, so a new
+    // file is covered by default.
+    const files = execFileSync("git", ["ls-files", "app", "components", "lib"], {
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter((f) => /\.(ts|tsx)$/.test(f) && existsSync(f));
+    expect(files.length, "the walk saw the product tree").toBeGreaterThan(100);
+    const pattern = new RegExp(`\\bvenue:\\s*"${CREW_SECTION_LABELS.venue}"`);
+    const copies = files.filter((f) => pattern.test(readFileSync(f, "utf8")));
+    expect(copies).toEqual(["lib/crew/crewSections.ts"]);
   });
 
   it("sections: a domain whose fetch failed keeps every section listed for every viewer", () => {

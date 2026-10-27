@@ -278,21 +278,4 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
       token: 'aria-current={active ? "page" : undefined}',
     },
   },
-  {
-    file: "components/crew/CrewSubNav.tsx",
-    line: 114,
-    tag: "button",
-    token: "text-text-subtle",
-    family: "state-dim",
-    reason:
-      'Inactive crew sub-nav tab; the active desktop branch carries `border-accent` + `text-text-strong`, the active mobile branch `text-accent-on-bg` plus `aria-current="page"` (DESIGN §1.1a Family D)',
-    // `border-accent` is the DESKTOP branch's cue only; the mobile branch this
-    // row also covers rests on `aria-current` alone, so the desktop pin left
-    // half the row unasserted (whole-diff R1 F7). Pinned on the cue both
-    // branches share.
-    siblingCue: {
-      file: "components/crew/CrewSubNav.tsx",
-      token: 'aria-current={isActive ? "page" : undefined}',
-    },
-  },
 ];

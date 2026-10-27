@@ -3,14 +3,16 @@
  *
  * The crew-page section shell — the full redesigned crew show page body
  * (§4.1). Composes:
- *   Header (identityChip) → CrewSections (the client controller: controlled
- *   CrewSubNav + CrewSectionTransition over the server-rendered section bodies)
- *   → ShowRealtimeBridge → Footer (per-viewer-kind report props).
+ *   Header (identityChip) → CrewSections (the client controller: the compact
+ *   home with its section sheet, and the wide nav with every section stacked,
+ *   over the server-rendered section bodies) → ShowRealtimeBridge → Footer
+ *   (per-viewer-kind report props).
  *
- * SECTION SWITCHING IS A CLIENT TOGGLE (client-section-toggle): the shell
- * renders ALL entitled section bodies SERVER-SIDE into `sectionNodes` and hands
- * them to <CrewSections>, which owns `activeSection` state and toggles
- * VISIBILITY only — no server round-trip per tab. FRESHNESS (NON-NEGOTIABLE):
+ * OPENING A SECTION IS A CLIENT HISTORY CALL (crew page redesign spec §5.2):
+ * the shell renders ALL entitled section bodies SERVER-SIDE into
+ * `sectionNodes`, plus the "All sections" membership and peeks
+ * (`crewSectionEntries`), and hands them to <CrewSections>, which only chooses
+ * where each body shows. No server round-trip per open. FRESHNESS (NON-NEGOTIABLE):
  * section bodies stay server-sourced; the controller never fetches/derives/
  * caches section data. The page stays sheet-synced via ShowRealtimeBridge →
  * router.refresh(), which re-runs this server component (all bodies fresh) while
@@ -56,13 +58,10 @@ import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
-import {
-  BASE_SECTION_IDS,
-  resolveActiveSection,
-  type SectionId,
-} from "@/lib/crew/resolveActiveSection";
+import { resolveActiveSection, type SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
+import { crewSectionEntries } from "@/lib/crew/crewSections";
 import {
   MalformedProjectionError,
   UnmatchedViewerError,
@@ -239,7 +238,8 @@ export async function CrewShell({
   }
 
   // Single financialsVisible authority for the Budget gate — used identically by
-  // the sub-nav (tab presence) and resolveActiveSection (section + direct-URL).
+  // the section membership (`crewSectionsFor`) and resolveActiveSection
+  // (section + direct-URL).
   const budgetVisible = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
   const activeSection = resolveActiveSection(rawSection, { budgetVisible });
 
@@ -443,12 +443,16 @@ export async function CrewShell({
     }
   };
 
-  // Entitled set = BASE_SECTION_IDS + (`budget` iff budgetVisible). The Budget
-  // body is BUILT only when entitled, so a non-lead never receives a Budget body
-  // in the payload (no-Budget-flash invariant §4.17 / Budget gate §4.1).
-  const entitled: SectionId[] = budgetVisible
-    ? [...BASE_SECTION_IDS, "budget"]
-    : [...BASE_SECTION_IDS];
+  // The "All sections" card and the wide nav read ONE membership, with each
+  // section's peek built here on the server through that section's own gates
+  // (spec §4.6), so the client never derives a peek from data it should not see.
+  const sections = crewSectionEntries(data, { ...ctx, today });
+
+  // Entitled set = Today + the listed sections (`budget` iff financialsVisible,
+  // the same predicate as `budgetVisible`). The Budget body is BUILT only when
+  // entitled, so a non-lead never receives a Budget body in the payload
+  // (no-Budget-flash invariant §4.17 / Budget gate §4.1).
+  const entitled: SectionId[] = ["today", ...sections.map((s) => s.id)];
   const sectionNodes = Object.fromEntries(entitled.map((id) => [id, renderOne(id)])) as Partial<
     Record<SectionId, JSX.Element>
   >;
@@ -475,12 +479,11 @@ export async function CrewShell({
   }
 
   return (
-    // NOTE: `data-active-section` lives ONLY on the CrewSections controller's
-    // wrapper (`crew-shell-sections`), which updates client-side on toggle. The
-    // outer shell must NOT also carry it — a static server value here would
-    // diverge from the live one after a tap, exposing two conflicting active
-    // sections in the DOM (whole-diff review R1 [MED]). `activeSection` is still
-    // the controller's `initialSection` seed below.
+    // NOTE: the open section lives ONLY in the CrewSections controller, which
+    // updates client-side. The outer shell must NOT also carry it — a static
+    // server value here would diverge from the live one after an open, exposing
+    // two conflicting sections in the DOM (whole-diff review R1 [MED]).
+    // `activeSection` is the controller's `initialSection` seed below.
     // THE FLEX CHAIN, stated explicitly because Tailwind v4 does NOT default
     // `.flex` to `align-items: stretch` (DESIGN.md §7). `page-shell` is
     // `flex min-h-screen flex-col` (app/show/[slug]/layout.tsx) precisely so the
@@ -489,17 +492,9 @@ export async function CrewShell({
     // BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT and
     // BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR.
     //
-    // The bar clearance lives HERE, as bottom padding on the shell, and that
-    // placement is the fix rather than an implementation detail: padding INSIDE
-    // the footer moves the footer's CONTENT up while the footer's own box still
-    // ends underneath the fixed bar. The space has to be UNDER the footer.
-    // 44px (`--spacing-tap-min`) + 1rem = 60px clears the measured 53.3px bar
-    // with 6.7px to spare; `env(safe-area-inset-bottom)` adds the iOS home
-    // indicator on hardware that has one and is 0 in the e2e harness.
-    <div
-      data-testid="crew-shell"
-      className="flex min-h-0 flex-1 flex-col pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] min-[720px]:pb-0"
-    >
+    // No fixed bottom bar any more (the tab bar became the "All sections" card
+    // and the section sheet), so the shell carries no bar clearance.
+    <div data-testid="crew-shell" className="flex min-h-0 flex-1 flex-col">
       <Header
         show={headerShow}
         statusPill={statusPill}
@@ -515,16 +510,17 @@ export async function CrewShell({
           ) : undefined
         }
       />
-      {/* The CrewSections client controller owns the live section state: it
-          renders the controlled CrewSubNav + the <main data-testid="page-container">
-          + the CrewSectionTransition over the SERVER-RENDERED `sectionNodes`.
-          `initialSection` is the server-resolved, budget-gated active section
-          (first paint); the controller toggles VISIBILITY only thereafter
-          (freshness invariant). Header / ShowRealtimeBridge / Footer stay
-          server-rendered siblings (section-independent). */}
+      {/* The CrewSections client controller owns the live section state: the
+          <main data-testid="page-container">, the "All sections" card, the wide
+          nav and stack, and the section sheet, all over the SERVER-RENDERED
+          `sectionNodes`. `initialSection` is the server-resolved, budget-gated
+          section (first paint: the sheet open, or the wide page scrolled to it);
+          the controller only chooses where bodies show thereafter (freshness
+          invariant). Header / ShowRealtimeBridge / Footer stay server-rendered
+          siblings (section-independent). */}
       <CrewSections
         initialSection={activeSection}
-        budgetVisible={budgetVisible}
+        sections={sections}
         sectionNodes={sectionNodes}
       />
       {/* Posture item 3 (spec §2.6): the bridge fetches a subscriber token and a

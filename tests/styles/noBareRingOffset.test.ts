@@ -23,7 +23,6 @@ const ROOTS = ["app", "components"];
 const INDIRECTION_REGISTRY: Record<string, string> = {
   "components/shared/ReportButton.tsx": "RING_OFFSET_CLASS map",
   "components/shared/AccentButton.tsx": "RING_OFFSET_CLASS map + doc comment",
-  "components/crew/CrewSubNav.tsx": "split adjacent literals",
   "components/admin/PerShowActionableWarnings.tsx": "linkOffsetClass",
   "components/admin/SheetIconLink.tsx": "BACKDROP_SKIN map",
   "components/admin/DataQualityWarningControls.tsx": "RING_OFFSET map",

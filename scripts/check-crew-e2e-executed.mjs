@@ -29,7 +29,11 @@ import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecover
 // cases is the registered static skip (its own comment in picker-flow.spec.ts, the
 // "Admin Reset + Rotate flow" case).
 export const REQUIRED = {
-  "crew-section-toggle.spec.ts": 6,
+  // 15 since the crew page redesign (plan PR A, Task 6) rebuilt it around the
+  // section sheet: 12 sheet cases plus the rows' dimensional, payload and
+  // duration-token records, all mobile-safari (its only project). Derived from
+  // the 2026-10-27 local run's report: 15 passing unique spec ids.
+  "crew-section-toggle.spec.ts": 15,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -61,6 +65,9 @@ export const REQUIRED = {
   // here from the standalone geometry harness). Counted from the observed
   // mobile-safari run (21 passed / 4 skipped), not from arithmetic.
   "crew-page.spec.ts": 21,
+  // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
+  // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px).
+  "crew-wide-nav.spec.ts": 8,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

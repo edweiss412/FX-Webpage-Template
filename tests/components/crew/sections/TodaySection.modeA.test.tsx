@@ -12,7 +12,7 @@
  * Mode A (split-wide) iff ALL of: `todayIso` ∈ the show's aggregate days, the
  * viewer is date-eligible for `todayIso`, AND (`displayableEntries(runOfShow[todayIso])`
  * is non-empty OR there are agenda sessions for today) → render
- * `min-[720px]:grid-cols-[1.6fr_1fr]` with the run-of-show / unified timeline
+ * `@min-crew-split:grid-cols-[1.6fr_1fr]` with the run-of-show / unified timeline
  * list LEFT and the Tonight/Where/Need-something cards stacked RIGHT.
  * Mode B (the current full-width stack, UNCHANGED) otherwise. Fail-closed: any
  * ambiguity → Mode B.
@@ -173,10 +173,10 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
   // The split-wide grid class is present (the 1.6/1 two-track fork).
   const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
   expect(grid).toBeTruthy();
-  expect(grid!.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  expect(grid!.className).toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
   // items-start (2026-06-21 owner amendment): the short quick-cards column takes
   // its natural height rather than stretching to the tall run-of-show timeline.
-  expect(grid!.className).toContain("min-[720px]:items-start");
+  expect(grid!.className).toContain("@min-crew-split:items-start");
   // The quick-cards (RIGHT column) still render.
   expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
@@ -187,7 +187,7 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
 // TEST 2b — Mode A with NO quick cards → single-column grid (audit idx68/#48).
 // When firstHotel / venue / primaryContact are ALL absent, quickCardsStack is
 // null. Mode A must NOT apply the 1.6/1 split (which would strand a dead ~38%
-// empty right track at ≥720px) — it renders the run-of-show full-width instead,
+// empty right track when split) — it renders the run-of-show full-width instead,
 // mirroring how Mode B keys its split on hasRight. jsdom asserts the className
 // logic + DOM structure (the fix's logic); the pixel result (single full-width
 // column, no dead track) follows from the standard Tailwind grid classes.
@@ -217,7 +217,7 @@ test("Mode A with run-of-show but NO quick cards → no split class, no empty ri
   expect(grid).toBeTruthy();
   expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
   // quickCardsStack is null → the 2-track split class is ABSENT (single column).
-  expect(grid!.className).not.toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  expect(grid!.className).not.toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
   // ...and there is NO empty right-track div: the quick-cards stack never mounts,
   // so the run-of-show is the grid's ONLY child (the dead ~38% column is gone).
   expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeNull();
@@ -248,7 +248,7 @@ test("Mode A WITH a quick card → split class present + right track div renders
 
   const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
   expect(grid).toBeTruthy();
-  expect(grid!.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  expect(grid!.className).toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
   // The right track renders the quick-cards stack (grid has BOTH children).
   expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeTruthy();
   expect(grid!.children.length).toBe(2);
@@ -262,7 +262,7 @@ test("Mode A WITH a quick card → split class present + right track div renders
 // posture, NOT layout="row" — a full-width `row` strip spreads 2 anchors 50/50
 // across the whole page with a mid-page divider (the exact thing the Mode A
 // comment says `row` must be reserved AWAY from). The KeyTimesStrip row markers
-// are data-layout="row" + min-[720px]:divide-x on the container (KeyTimesStrip.tsx
+// are data-layout="row" + @min-crew-split:divide-x on the container (KeyTimesStrip.tsx
 // :116-124); the default stack is data-layout="stack" with no divide-x.
 // ---------------------------------------------------------------------------
 test("final full-width else (anchors, no quick cards) → Key times uses the STACK layout, not row", () => {
@@ -344,7 +344,7 @@ test("Mode B grid → Key times keeps the ROW layout in its bounded 1.6fr column
   expect(left).toBeTruthy();
   const strip = left!.querySelector('[data-testid="key-times-strip"]')!;
   expect(strip.getAttribute("data-layout")).toBe("row");
-  expect(strip.className).toContain("min-[720px]:divide-x");
+  expect(strip.className).toContain("@min-crew-split:divide-x");
 });
 
 // ---------------------------------------------------------------------------
@@ -470,8 +470,8 @@ test("runOfShow populated for today but todayIso NOT in show's days → Mode B (
 // TEST 6 — Mode B PERSISTENT split-wide (the desktop two-column treatment).
 // A non-show-day (no runOfShow → Mode B) that has BOTH day-context (key times)
 // AND quick-cards renders the persistent split-wide grid: day-context LEFT,
-// quick-cards RIGHT, using the SAME `min-[720px]:grid-cols-[1.6fr_1fr]`
-// mechanism as Mode A (collapses to one column below 720px). This is the fix
+// quick-cards RIGHT, using the SAME `@min-crew-split:grid-cols-[1.6fr_1fr]`
+// mechanism as Mode A (collapses to one column in a narrow container). This is the fix
 // for the wrapped/off-day Today stretching its cards full-bleed on desktop.
 // ---------------------------------------------------------------------------
 test("non-show-day with key-times + cards → Mode B persistent split-wide grid (day-context LEFT, quick-cards RIGHT)", () => {
@@ -525,7 +525,7 @@ test("non-show-day with key-times + cards → Mode B persistent split-wide grid 
   expect(grid).toBeTruthy();
   // Same 1.6/1 two-track mechanism as Mode A (the layout-dimensions gate pins
   // the real-browser ratio; jsdom can only confirm the class is present).
-  expect(grid!.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  expect(grid!.className).toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
   // Wide-LEFT = the day-context (key times here); narrow-RIGHT = quick-cards.
   const left = container.querySelector('[data-testid="today-day-context"]');
   expect(left).toBeTruthy();

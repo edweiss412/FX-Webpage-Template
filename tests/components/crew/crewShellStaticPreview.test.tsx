@@ -67,7 +67,7 @@ const captured = vi.hoisted(
     ({ value: null }) as {
       value: {
         initialSection: SectionId;
-        budgetVisible: boolean;
+        sections: ReadonlyArray<{ id: string; label: string; peek: string | null }>;
         sectionNodes: Partial<Record<SectionId, ReactNode>>;
       } | null;
     },
@@ -75,12 +75,12 @@ const captured = vi.hoisted(
 vi.mock("@/components/crew/CrewSections", () => ({
   CrewSections: (props: {
     initialSection: SectionId;
-    budgetVisible: boolean;
+    sections: ReadonlyArray<{ id: string; label: string; peek: string | null }>;
     sectionNodes: Partial<Record<SectionId, ReactNode>>;
   }) => {
     captured.value = props;
     return (
-      <div data-testid="mock-crew-sections" data-active-section={props.initialSection}>
+      <div data-testid="mock-crew-sections" data-initial-section={props.initialSection}>
         {Object.entries(props.sectionNodes).map(([id, node]) => (
           <div key={id} data-testid={`node-${id}`}>
             {node}

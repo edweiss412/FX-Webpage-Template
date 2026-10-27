@@ -76,11 +76,15 @@
    * raised: lifted in-flow chrome (rails, chips)      · dropdown: anchored menus
    * nav: sticky nav chrome                            · banner: page banners
    * overlay: modals/popovers/sheets                   · dev-controls: dev-only strip
-   * sticky-banner: the preview banner, above all admin chrome. */
+   * sticky-banner: the preview banner, above all admin chrome.
+   * sheet: the crew section sheet, BELOW overlay on purpose: the agenda viewer,
+   * the diagram lightbox and the report modal open from inside it and must
+   * stack above it (crew page redesign spec §5.2). */
   --z-index-raised: 10;
   --z-index-dropdown: 20;
   --z-index-nav: 30;
   --z-index-banner: 40;
+  --z-index-sheet: 45;
   --z-index-overlay: 50;
   --z-index-dev-controls: 60;
   --z-index-sticky-banner: 100;
@@ -318,6 +322,19 @@
   --breakpoint-sm: 640px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1200px;
+
+  /* ── Container sizes (`@min-*` container-query variants) ── */
+  /* The crew section grids' one-to-two-column switch (`@min-crew-split:`). It
+     reads the element that bounds a section body (`@container` on the sheet
+     body, each wide stacked section and the Today block), never the viewport:
+     the same body renders in a 480px sheet and in a wide column. The value is
+     the content width the old `min-[720px]` viewport switch landed on,
+     720 - 2 x 32 (`sm:px-8`, CREW_PAGE_CONTAINER) = 656px, so the compact home
+     switches at the same viewport as before. The sheet stays one column: 446px
+     from 640px up (480 - 2 x 1 border - 2 x 16 `px-4`), at most 605px below
+     (639 - 2 - 32). The narrowest wide column is past it: at a 1024px viewport,
+     1024 - 64 gutter - 240 `w-60` nav - 32 `lg:gap-8` = 688px. */
+  --container-crew-split: 656px;
 
   /* ── Shadows ── */
   /*
@@ -1119,6 +1136,16 @@ details[open] > summary [data-agenda-day-count] {
   }
 }
 
+/* The line the crew section controller's openSectionAndReveal lands on (crew
+   page redesign spec §5.3, search spec §6.6). A steady tint that stays until the
+   next reveal moves it: the line is a jump target the reader still has to find,
+   so it has no correct "faded" state. Forced colors erase a background, so the
+   carrier there is an outline, in the forced-colors block (DESIGN.md §17). */
+[data-search-reveal] {
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent-tint);
+}
+
 /* ShareHub crew-link block: one-shot highlight after the share-token changes
    (spec 2026-07-24-share-link-chrome-backlog-design section 3.4, which makes
    this block NORMATIVE — a test compares the shipped rules against it rather
@@ -1523,6 +1550,13 @@ details[open] > summary [data-agenda-day-count] {
    in two.
    ───────────────────────────────────────────────────────────────────────────── */
 @media (forced-colors: active) {
+  /* The crew controller's reveal target (openSectionAndReveal): its tint is a
+     background, which forces away, so the jump target keeps an outline. */
+  [data-search-reveal] {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
   /* ShareHub crew-link cue (spec §5.1). Its two legs both die here: the ring is a
      box-shadow, which a UA drops, and the background animates between two values
      that force to one. What replaces them is a steady outline for the flash
