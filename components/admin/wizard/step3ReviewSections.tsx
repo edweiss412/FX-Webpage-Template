@@ -41,6 +41,7 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
+  Circle,
   ExternalLink,
   FileText,
   ImageOff,
@@ -3019,6 +3020,34 @@ function ignoredRowSnippet(rawSnippet: string | undefined): string | null {
     : normalized;
 }
 
+/** The three wizard warning-row kinds (warning-card-fixes spec §3.2). A judgment call
+ *  is a warn row whose code is an ambiguity code; it is not a needs-a-look row. */
+type WarningRowKind = "needs-look" | "judgment" | "info";
+
+/** The 28px severity chip per kind. The judgment chip takes the info chip's measured
+ *  ink pairing (`text-subtle` on `info-bg`) with lucide `Circle`, a hollow ring glyph:
+ *  `text-faint` falls under the 3:1 non-text floor on `info-bg`, and
+ *  `attentionMarkClass` has no info-bg plate (spec §3.2). Full literals per kind. */
+const WARNING_ROW_CHIP = {
+  "needs-look": "bg-warning-bg text-warning-text",
+  judgment: "bg-info-bg text-text-subtle",
+  info: "bg-info-bg text-text-subtle",
+} satisfies Record<WarningRowKind, string>;
+
+const WARNING_ROW_GLYPH = {
+  "needs-look": AlertTriangle,
+  judgment: Circle,
+  info: Info,
+} satisfies Record<WarningRowKind, LucideIcon>;
+
+/** The 6px title-row dot per kind, a vocabulary of its own (DESIGN.md, PILLMARK-1
+ *  addendum): filled warm = needs a look, hollow subtle = judgment, filled faint = info. */
+const WARNING_ROW_DOT = {
+  "needs-look": "bg-warning-text",
+  judgment: "border-[1.5px] border-text-subtle bg-transparent",
+  info: "bg-text-faint",
+} satisfies Record<WarningRowKind, string>;
+
 export function WarningsBreakdown({
   dfid,
   warnings,
@@ -3277,6 +3306,12 @@ export function WarningsBreakdown({
                 // spec §3.2: three row kinds. A judgment call is a warn row whose
                 // code is an ambiguity code; isJudgmentCall is the one spelling.
                 const isJudgment = isJudgmentCall(w);
+                const rowKind: WarningRowKind = isJudgment
+                  ? "judgment"
+                  : isWarn
+                    ? "needs-look"
+                    : "info";
+                const ChipGlyph = WARNING_ROW_GLYPH[rowKind];
                 // Exact-cell deep link: when the scan captured the offending source
                 // cell, the title row ends in the sheet icon (spec §3.5). Falls back
                 // to the base sheet URL for a non-allowlisted tab (still useful);
@@ -3298,14 +3333,14 @@ export function WarningsBreakdown({
                     data-attention-anchor={`warning:${i}`}
                     className="flex gap-3"
                   >
-                    {/* §8 severity icon chip: warn = warm chip, info = neutral. */}
+                    {/* §8 severity icon chip, one per row kind (warning-card-fixes
+                      spec §3.2): needs-look = warm triangle, judgment = neutral
+                      hollow ring, info = neutral info glyph. */}
                     <span
                       aria-hidden="true"
-                      className={`grid size-7 shrink-0 place-items-center rounded-sm ${
-                        isWarn ? "bg-warning-bg text-warning-text" : "bg-info-bg text-text-subtle"
-                      }`}
+                      className={`grid size-7 shrink-0 place-items-center rounded-sm ${WARNING_ROW_CHIP[rowKind]}`}
                     >
-                      {isWarn ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
+                      <ChipGlyph className="size-4" />
                     </span>
                     {/* div, not span: the per-row controls (and helpfulContext) render
                       block roots — block-valid container (spec §4.3). */}
@@ -3324,9 +3359,7 @@ export function WarningsBreakdown({
                         <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm text-text">
                           <span
                             aria-hidden="true"
-                            className={`size-1.5 shrink-0 self-center rounded-pill ${
-                              isWarn ? "bg-warning-text" : "bg-text-faint"
-                            }`}
+                            className={`size-1.5 shrink-0 self-center rounded-pill ${WARNING_ROW_DOT[rowKind]}`}
                           />
                           {isJudgment ? null : (
                             <span className="sr-only">{isWarn ? "Needs a look: " : "Note: "}</span>

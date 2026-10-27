@@ -1573,7 +1573,9 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // +30 on fix/section-callout-group-repeats; located on the merged tree by its own element: 2500.
       // 2500 -> 2503 on feat/warning-card-fixes Task 7 (three import lines above it);
       // located by its own element: the PackCountPill `rounded-pill border border-border` <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2503",
+      // 2503 -> 2504 on feat/warning-card-fixes Task 8 (the `Circle` lucide import line);
+      // located by its own element, the same PackCountPill <span>.
+      "components/admin/wizard/step3ReviewSections.tsx:2504",
       "components/crew/primitives/KeyTimesStrip.tsx:191",
     ]);
 

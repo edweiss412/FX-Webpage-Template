@@ -178,3 +178,56 @@ describe("JudgmentCallTag class contract (spec §3.3)", () => {
     });
   }
 });
+
+describe("wizard row kinds: chip and dot (spec §3.2, plan Task 8)", () => {
+  // The chip is the row's first child (the 28px severity chip), the dot the first
+  // child of the title row's text cluster. Both carry no testid; they are reached
+  // structurally from the row's own testids so a sibling row cannot answer.
+  const chipOf = (li: HTMLElement) => {
+    const chip = li.firstElementChild;
+    expect(chip, "the row's first child is its chip").not.toBeNull();
+    return chip as HTMLElement;
+  };
+  const dotOf = (titleRow: HTMLElement) => {
+    const dot = titleRow.firstElementChild?.firstElementChild;
+    expect(dot, "the cluster's first child is the dot").not.toBeNull();
+    return dot as HTMLElement;
+  };
+  const svgClass = (chip: HTMLElement) => chip.querySelector("svg")?.getAttribute("class") ?? "";
+
+  test("needs-look: warm chip with the triangle, filled warm dot", () => {
+    const { li, titleRow } = renderRows();
+    for (const i of [I_NEEDS, I_LINKLESS]) {
+      const chip = chipOf(li(i));
+      expect(tokens(chip).has("bg-warning-bg") && tokens(chip).has("text-warning-text")).toBe(true);
+      expect(svgClass(chip)).toMatch(/\blucide-triangle-alert\b/);
+      const dot = tokens(dotOf(titleRow(i)));
+      expect(dot.has("bg-warning-text")).toBe(true);
+      expect(dot.has("bg-transparent")).toBe(false);
+    }
+  });
+
+  test("judgment: neutral chip with the hollow ring glyph, hollow subtle dot", () => {
+    const { li, titleRow } = renderRows();
+    const chip = chipOf(li(I_JUDGMENT));
+    expect(tokens(chip).has("bg-info-bg") && tokens(chip).has("text-text-subtle")).toBe(true);
+    expect(tokens(chip).has("bg-warning-bg")).toBe(false);
+    expect(svgClass(chip)).toMatch(/\blucide-circle\b/);
+    expect(svgClass(chip)).not.toMatch(/\blucide-triangle-alert\b|\blucide-info\b/);
+    const dot = tokens(dotOf(titleRow(I_JUDGMENT)));
+    for (const t of ["border-[1.5px]", "border-text-subtle", "bg-transparent"]) {
+      expect(dot.has(t), t).toBe(true);
+    }
+    expect(dot.has("bg-warning-text")).toBe(false);
+  });
+
+  test("info: neutral chip with the info glyph, filled faint dot", () => {
+    const { li, titleRow } = renderRows();
+    const chip = chipOf(li(I_INFO));
+    expect(tokens(chip).has("bg-info-bg") && tokens(chip).has("text-text-subtle")).toBe(true);
+    expect(svgClass(chip)).toMatch(/\blucide-info\b/);
+    const dot = tokens(dotOf(titleRow(I_INFO)));
+    expect(dot.has("bg-text-faint")).toBe(true);
+    expect(dot.has("bg-warning-text")).toBe(false);
+  });
+});

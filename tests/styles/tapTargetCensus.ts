@@ -379,7 +379,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // on the merged tree by its own element, never by composing the deltas: 4375.
     // 4375 -> 4394 on feat/warning-card-fixes Task 7 (the warning title row rebuilt above
     // it); the scanner reports one unclassified site in this file, 4394, the same tile `<a>`.
-    line: 4394,
+    // 4394 -> 4427 on feat/warning-card-fixes Task 8 (the row-kind maps above it); the same
+    // tile `<a>`, located by its `anchorNodeRef.current = node` ref.
+    line: 4427,
     tag: "a",
     category: "full-bleed",
     reason:

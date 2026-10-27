@@ -117,7 +117,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // on the merged tree by its own element, never by composing the deltas: 1692.
     // 1692 -> 1695 on feat/warning-card-fixes Task 7 (three import lines above it); located
     // by its own element, the `{hidden.length} more` accordion <summary>.
-    line: 1695,
+    // 1695 -> 1696 on feat/warning-card-fixes Task 8 (the `Circle` import line); the same
+    // `{hidden.length} more` <summary>.
+    line: 1696,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -149,7 +151,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // on the merged tree by its own element, never by composing the deltas: 3511.
     // 3511 -> 3530 on feat/warning-card-fixes Task 7 (the warning title row rebuilt above
     // it); located by its own unique ignored-summary testid.
-    line: 3530,
+    // 3530 -> 3563 on feat/warning-card-fixes Task 8 (the row-kind maps above it); located
+    // by its own ignored-summary testid.
+    line: 3563,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
