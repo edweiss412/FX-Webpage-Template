@@ -29,23 +29,21 @@
  */
 
 import { usePathname, useSearchParams } from "next/navigation";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CrewSubNav } from "@/components/crew/CrewSubNav";
 import { CrewSectionTransition } from "@/components/crew/CrewSectionTransition";
+import {
+  SectionControllerContext,
+  type SectionController,
+} from "@/components/crew/sectionController";
 import { CrewSearchHint } from "@/components/crew/search/CrewSearchField";
+import { CrewSearchResults } from "@/components/crew/search/CrewSearchResults";
 import { useOptionalCrewSearch } from "@/components/crew/search/CrewSearchProvider";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import { buildSectionHref } from "@/lib/crew/sectionHref";
 import { resolveActiveSection, type SectionId } from "@/lib/crew/resolveActiveSection";
+
+export { useSectionController, type SectionController } from "@/components/crew/sectionController";
 
 export interface CrewSectionsProps {
   initialSection: SectionId;
@@ -60,21 +58,6 @@ const REVEAL_HIGHLIGHT_MS = 1600;
 /** Under reduced motion the tint holds without fading for this long, then goes at once. */
 const REVEAL_HIGHLIGHT_REDUCED_MS = 2000;
 const REVEAL_GONE_MESSAGE = "That line isn't on the page anymore.";
-
-export type SectionController = {
-  openSectionAndReveal: (sectionId: SectionId, targetId: string) => void;
-};
-
-const SectionControllerContext = createContext<SectionController | null>(null);
-
-/** The section controller, provided by `CrewSections` to everything it renders. */
-export function useSectionController(): SectionController {
-  const controller = useContext(SectionControllerContext);
-  if (controller === null) {
-    throw new Error("useSectionController must be used inside CrewSections");
-  }
-  return controller;
-}
 
 /** The target with this exact id inside `root`; compared as a string, so no selector escaping. */
 function findTarget(root: HTMLElement | null, targetId: string): HTMLElement | null {
@@ -285,6 +268,7 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
             className={`${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-6 pt-6 pb-8 sm:pt-8`}
           >
             <CrewSearchHint />
+            <CrewSearchResults />
           </main>
         ) : null}
         <p data-testid="crew-reveal-status" role="status" className="sr-only">

@@ -819,7 +819,14 @@ export function scanCandidates(): Candidate[] {
       // Not a fault branch; re-derived the same way on the merged tree (750 -> 751
       // on the branch's own base), 78 unchanged.
       //
-      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // 747 -> 760 on feat/crew-show-search (Task 17): thirteen in
+      // components/crew/search/CrewSearchResults.tsx, each a phase or a row's
+      // optional part (chips, groups, Show all, the cap note, No match, the
+      // report row and its modal, the alias note, the copy button or chevron, the
+      // toast and its check). None is a fault branch; re-derived on the merged
+      // tree (751 -> 764 on the branch's own base), 78 unchanged.
+      //
+      // Probed: 760 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

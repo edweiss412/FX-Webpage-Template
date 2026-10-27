@@ -18,6 +18,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
+import type { CardReportContext } from "@/lib/crew/cardReportContext";
 import { isSearchableQuery, prepareIndex, searchIndex } from "@/lib/search/match";
 import type { SearchIndex, SearchResult } from "@/lib/search/types";
 
@@ -30,6 +31,13 @@ export type CrewSearchState = {
   active: boolean;
   setActive: (active: boolean) => void;
   missLogging: boolean;
+  /** The page's show id, for the report row. */
+  showId: string;
+  /**
+   * The page's card report bundle (`_CrewShell`'s `cardReport`), or null when
+   * reporting is off for the page (`staticPreview`): then no report row renders.
+   */
+  cardReport: CardReportContext | null;
   /** The current query run against the current index. */
   result: SearchResult;
   phase: SearchPhase;
@@ -45,10 +53,18 @@ const CrewSearchContext = createContext<CrewSearchState | null>(null);
 export interface CrewSearchProviderProps {
   index: SearchIndex;
   missLogging: boolean;
+  showId: string;
+  cardReport: CardReportContext | null;
   children: ReactNode;
 }
 
-export function CrewSearchProvider({ index, missLogging, children }: CrewSearchProviderProps) {
+export function CrewSearchProvider({
+  index,
+  missLogging,
+  showId,
+  cardReport,
+  children,
+}: CrewSearchProviderProps) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(false);
 
@@ -67,8 +83,20 @@ export function CrewSearchProvider({ index, missLogging, children }: CrewSearchP
   }, []);
 
   const value = useMemo<CrewSearchState>(
-    () => ({ index, query, setQuery, active, setActive, missLogging, result, phase, endSearch }),
-    [index, query, active, missLogging, result, phase, endSearch],
+    () => ({
+      index,
+      query,
+      setQuery,
+      active,
+      setActive,
+      missLogging,
+      showId,
+      cardReport,
+      result,
+      phase,
+      endSearch,
+    }),
+    [index, query, active, missLogging, showId, cardReport, result, phase, endSearch],
   );
 
   return <CrewSearchContext.Provider value={value}>{children}</CrewSearchContext.Provider>;

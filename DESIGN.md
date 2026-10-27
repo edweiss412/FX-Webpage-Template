@@ -790,6 +790,7 @@ realtime reconnect backoff.
 | `REVEAL_WAIT_MS` | 1500 | `components/crew/CrewSections.tsx` |
 | `REVEAL_HIGHLIGHT_MS` | 1600 | `components/crew/CrewSections.tsx` |
 | `REVEAL_HIGHLIGHT_REDUCED_MS` | 2000 | `components/crew/CrewSections.tsx` |
+| `RESULT_COUNT_ANNOUNCE_MS` | 300 | `components/crew/search/CrewSearchResults.tsx` |
 | `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
 | `RETRY_CHECK_IN_MS` | 30000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |

@@ -43,7 +43,7 @@ import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { cn } from "@/lib/ui/cn";
 
-const SECTION_LABELS: Record<SectionId, string> = {
+export const SECTION_LABELS: Record<SectionId, string> = {
   today: "Today",
   schedule: "Schedule",
   venue: "Venue",
@@ -59,7 +59,7 @@ const SECTION_LABELS: Record<SectionId, string> = {
  * tab's text color drives the icon. Sizes are set per variant at the call site
  * (`size-4` desktop / `size-5.5` mobile).
  */
-const SECTION_ICON: Record<SectionId, (props: { className?: string }) => JSX.Element> = {
+export const SECTION_ICON: Record<SectionId, (props: { className?: string }) => JSX.Element> = {
   today: HomeIcon,
   schedule: CalendarIcon,
   venue: MapPinIcon,

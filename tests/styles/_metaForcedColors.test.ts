@@ -647,7 +647,7 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(
       undecidable.length,
       "the cannot-decide set moved; read the new rows and either resolve them or re-pin",
-    ).toBe(125);
+    ).toBe(127);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

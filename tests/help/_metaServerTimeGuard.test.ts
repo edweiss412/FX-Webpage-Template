@@ -294,7 +294,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // tasks' entryId.ts and normalize.ts joined).
     expect(rel).toContain("lib/search/match.ts");
     expect(rel).toContain("lib/search/copy.ts");
-    expect(rel.length).toBe(227);
+    // Joined, from feat/crew-show-search (Task 17): lib/search/snippet.ts, the
+    // result-row snippet window, imported by
+    // components/crew/search/CrewSearchResults.tsx. Pure, no clock read.
+    // 227 -> 228, re-derived on the merged tree by running this guard (225 -> 226
+    // on the branch's own base).
+    expect(rel).toContain("lib/search/snippet.ts");
+    expect(rel.length).toBe(228);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

@@ -37,7 +37,7 @@ function PhaseProbe() {
 
 function renderField(index: SearchIndex = FIXTURE_INDEX) {
   render(
-    <CrewSearchProvider index={index} missLogging={false}>
+    <CrewSearchProvider index={index} missLogging={false} showId="show-1" cardReport={null}>
       <CrewSearchField />
       <CrewSearchHint />
       <PhaseProbe />

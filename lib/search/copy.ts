@@ -12,4 +12,28 @@ export const SEARCH_COPY = {
   clear: "Clear search",
   cancel: "Cancel",
   hint: "Search Wi-Fi, the dock, rooms, gear, people and more.",
+  chipsNav: "Filter results by section",
+  allChip: "All",
+  showAll: (count: number, section: string) => `Show all ${count} in ${section}`,
+  sectionCapNote: "Showing the first 50. Add a word to narrow it.",
+  aliasNote: (span: string) => `Matched "${span}"`,
+  copyButton: {
+    network: "Copy Wi-Fi network",
+    password: "Copy Wi-Fi password",
+    hotelConfirmation: "Copy hotel confirmation",
+    flightConfirmation: "Copy flight confirmation",
+  },
+  copied: {
+    network: "Network name copied",
+    password: "Password copied",
+    confirmation: "Confirmation copied",
+  },
+  copyFailed: "Couldn't copy. Tap the line, then press and hold the text.",
+  noMatch: "No matches. Try dock, hotel, or a name.",
+  reportTitle: "Not what you need?",
+  reportBody: "Tell Doug what's missing from the sheet.",
+  reportButton: "Report",
+  resultCount: (total: number) =>
+    total === 0 ? "No matches" : total === 1 ? "1 result" : `${total} results`,
+  searchedFor: (query: string) => `Searched for "${query}"`,
 } as const;
