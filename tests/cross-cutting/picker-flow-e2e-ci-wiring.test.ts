@@ -165,6 +165,8 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
     "Admin Reset + Rotate flow: changing the share-token invalidates the old URL and the new URL works",
   ],
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": [],
+  // Crew show search (plan Task 19): every case runs under desktop-chromium, its only project.
+  "tests/e2e/crew-search.spec.ts": [],
   // Wired 2026-08-10 (M-wave 2 W-E2E): the §5.7 anchor pair + restricted-viewer
   // recovery run un-skipped on desktop-chromium alone (the spec header records
   // the measured WebKit __Host- envelope constraint). Skips nothing.
@@ -287,6 +289,7 @@ const ENROLLED = [
   "tests/e2e/theme-toggle.spec.ts",
   "tests/e2e/theme-persistence-note.spec.ts",
   "tests/e2e/right-now-transitions.spec.ts",
+  "tests/e2e/crew-search.spec.ts",
 ] as const;
 
 const EXEMPT: Record<string, string> = {
