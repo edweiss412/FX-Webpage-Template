@@ -61,8 +61,9 @@ export type CrewSearchState = {
   result: SearchResult;
   phase: SearchPhase;
   /**
-   * Ends search. Cancel and Escape clear the query; a result tap keeps it, so
-   * focusing the field again shows the same results (spec §6.2).
+   * Ends search. Cancel and Escape clear the query; a result tap keeps it, and
+   * the next edit or Enter in the field shows its results again. Focus alone
+   * never does (spec §6.2).
    */
   endSearch: (options: { keepQuery: boolean }) => void;
 };

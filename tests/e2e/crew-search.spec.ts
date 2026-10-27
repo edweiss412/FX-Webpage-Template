@@ -7,9 +7,12 @@
  *
  * - "wifi" shows grouped results; the password row's copy button writes the
  *   password and shows "Password copied"; tapping the row opens the Venue
- *   section with that line focused, in view and highlighted.
+ *   section with that line focused, in view and highlighted. Focusing the field
+ *   again keeps the section; Enter brings the kept results back.
  * - A zero-hit query sends one miss POST, after the debounce (intercepted, so
- *   this spec observes the client and writes nothing).
+ *   this spec observes the client and writes nothing). Cancel puts focus back
+ *   on the empty field.
+ * - Focus alone changes nothing (WCAG 3.2.1): the page stays in view.
  * - The spec §6.9 dimensions, measured with getBoundingClientRect (0.5px).
  *
  * Identity: a CREW viewer, since misses are not sent for admin viewers (spec
@@ -146,6 +149,16 @@ for (const viewport of [
       await expect(line).toContainText(PASSWORD);
       // Ending search by a result tap keeps the query (spec §6.2).
       await expect(searchBox(page)).toHaveValue("wifi");
+
+      // Focusing the field again does not bring the results back on its own
+      // (WCAG 3.2.1); Enter, the phone keyboard's Search key, does.
+      await searchBox(page).focus();
+      await expect(searchBox(page)).toBeFocused();
+      await expect(page.getByTestId("crew-search-panel")).toHaveCount(0);
+      await expect(page.getByTestId("section-venue")).toBeVisible();
+      await searchBox(page).press("Enter");
+      await expect(venueGroup).toBeVisible();
+      await expect(page.getByTestId("page-container")).toBeHidden();
     });
 
     test("a zero-hit query sends one miss after the debounce", async ({ page }) => {
@@ -171,6 +184,11 @@ for (const viewport of [
       // Ending search on the same query would send it at once if it had not
       // gone already; it has, so nothing more is sent.
       await page.getByRole("button", { name: "Cancel" }).click();
+      // Cancel puts focus back on the field, idle and empty (impeccable audit U2).
+      await expect(searchBox(page)).toBeFocused();
+      await expect(searchBox(page)).toHaveValue("");
+      await expect(page.getByTestId("page-container")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Cancel" })).toHaveCount(0);
       await page.waitForTimeout(500);
       expect(posted).toHaveLength(1);
     });
@@ -204,6 +222,12 @@ for (const viewport of [
     }) => {
       await openAsCrew(page);
       await searchBox(page).focus();
+
+      // Focus alone changes nothing (WCAG 3.2.1, impeccable audit U1): the page
+      // body stays in view and no Cancel appears.
+      await expect(searchBox(page)).toBeFocused();
+      await expect(page.getByTestId("page-container")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 
       const styles = async () =>
         page.evaluate(() => {

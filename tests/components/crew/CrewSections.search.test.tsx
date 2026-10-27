@@ -163,7 +163,11 @@ describe("CrewSections while search is active", () => {
     expect(body).not.toHaveAttribute("hidden");
     expect(screen.queryByTestId("crew-search-panel")).toBeNull();
 
-    fireEvent.focus(screen.getByRole("searchbox", { name: "Search this show" }));
+    // Search starts on the first typed character (one character is the Hint
+    // state), never on focus alone (WCAG 3.2.1; the next case).
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this show" }), {
+      target: { value: "w" },
+    });
 
     expect(body).toHaveAttribute("hidden");
     expect(screen.getByTestId("crew-sub-nav").closest("[hidden]")).not.toBeNull();
@@ -180,6 +184,23 @@ describe("CrewSections while search is active", () => {
     // Hidden, never unmounted: the same element, still open.
     expect(screen.getByTestId("today-details")).toBe(details);
     expect(details.open).toBe(true);
+  });
+});
+
+describe("CrewSections while the search field only has focus", () => {
+  // Impeccable audit U1 (WCAG 3.2.1 On Focus): tabbing or tapping into the field
+  // must not hide the page.
+  it("keeps the sub-nav and the body visible and renders no results slot", () => {
+    renderShell();
+    const input = screen.getByRole("searchbox", { name: "Search this show" });
+    act(() => input.focus());
+    fireEvent.focus(input);
+    fireEvent.click(input);
+
+    expect(document.activeElement).toBe(input);
+    expect(screen.getByTestId("page-container")).not.toHaveAttribute("hidden");
+    expect(screen.getByTestId("crew-sub-nav").closest("[hidden]")).toBeNull();
+    expect(screen.queryByTestId("crew-search-panel")).toBeNull();
   });
 });
 

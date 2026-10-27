@@ -4,11 +4,20 @@
  * components/crew/search/CrewSearchField.tsx — the crew search field and its
  * Hint line (spec §6.2, §6.8, §6.9, §10).
  *
- * `CrewSearchField` mounts in the page header (`Header`'s `search` slot). Focus
- * makes search active; blur does NOT end it, so dismissing a phone keyboard
- * keeps the results. Search ends on Cancel, on Escape with an empty query, and
- * on a result tap (the results own that one). Typing or tapping into a field
- * whose search already ended makes it active again.
+ * `CrewSearchField` mounts in the page header (`Header`'s `search` slot).
+ *
+ * Focus alone changes nothing (WCAG 3.2.1 On Focus). Search hides the sub-nav
+ * and the section body, which is a change of context, so it starts on the user's
+ * input instead: the first typed character, or any edit that leaves the query
+ * non-empty. Focus, and the click or tap that gives a text field focus, never
+ * start it, and that holds for a query a result tap kept too: the next edit
+ * brings its results back, or Enter (the phone keyboard's Search key), which is
+ * an explicit submit. Blur does NOT end search, so dismissing a phone keyboard
+ * keeps the results.
+ *
+ * Search ends on Cancel, on Escape with an empty query, and on a result tap (the
+ * results own that one). Cancel unmounts itself, so it hands focus back to the
+ * field, now Idle and empty; by the rule above that focus starts nothing.
  *
  * Dimensional invariants (spec §6.9): the field box is a fixed 52px (`h-13`);
  * the input fills it with `self-stretch`; the clear button is 44 by 44
@@ -35,7 +44,9 @@ export function CrewSearchField() {
       if (query !== "") setQuery("");
       else endSearch({ keepQuery: false });
     } else if (event.key === "Enter") {
-      // The phone keyboard's Search key: put the keyboard away, keep the results.
+      // The phone keyboard's Search key: a submit, so a kept query's results
+      // come back; then put the keyboard away, keeping the results.
+      if (query !== "") setActive(true);
       event.currentTarget.blur();
     }
   };
@@ -46,8 +57,10 @@ export function CrewSearchField() {
   };
 
   const onCancel = () => {
-    inputRef.current?.blur();
     endSearch({ keepQuery: false });
+    // The Cancel button is about to unmount; without this, focus falls to the
+    // document body (impeccable audit U2).
+    inputRef.current?.focus();
   };
 
   return (
@@ -68,11 +81,10 @@ export function CrewSearchField() {
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          onFocus={() => setActive(true)}
-          onClick={() => setActive(true)}
           onChange={(event) => {
-            setActive(true);
-            setQuery(event.target.value);
+            const next = event.target.value;
+            setQuery(next);
+            if (next !== "") setActive(true);
           }}
           onKeyDown={onKeyDown}
           className="min-h-tap-min w-full min-w-0 self-stretch bg-transparent text-base text-text-strong placeholder:text-text-subtle focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
