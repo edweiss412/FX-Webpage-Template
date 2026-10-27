@@ -115,7 +115,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 1650 -> 1655 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 1655 -> 1662 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
     // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
     // on the merged tree by its own element, never by composing the deltas: 1692.
-    line: 1692,
+    // 1692 -> 1695 on feat/warning-card-fixes Task 7 (three import lines above it); located
+    // by its own element, the `{hidden.length} more` accordion <summary>.
+    line: 1695,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -145,7 +147,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // 3414 -> 3419 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 3419 -> 3481 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
     // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
     // on the merged tree by its own element, never by composing the deltas: 3511.
-    line: 3511,
+    // 3511 -> 3530 on feat/warning-card-fixes Task 7 (the warning title row rebuilt above
+    // it); located by its own unique ignored-summary testid.
+    line: 3530,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

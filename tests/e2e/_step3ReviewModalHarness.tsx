@@ -177,6 +177,59 @@ export function judgmentOnlyHarnessWarnings(): ParseWarning[] {
   ];
 }
 
+/** Warning-card fixture (warning-card-fixes spec §13.1, plan Task 7), one row per
+ *  kind the title row must lay out: a needs-look, a judgment and an info row, each
+ *  with a sheet anchor; a link-less needs-look row (DI-2); and a 120-character
+ *  PROSE title (DI-10). Prose, because an all-caps message matches
+ *  reviewWarningTitle's code-shape rule and falls back to its 42-character generic
+ *  title. The order of WARNING_CARD_KINDS IS the row order, so the indices the
+ *  spec reads (WARNING_CARD_ROWS, published by the live entry) cannot drift from
+ *  the array. Reached only through `_warningCardLiveEntry.tsx`. */
+const WARNING_CARD_KINDS = ["needsLook", "judgment", "info", "linkless", "longTitle"] as const;
+export type WarningCardKind = (typeof WARNING_CARD_KINDS)[number];
+export const WARNING_CARD_ROWS = Object.fromEntries(
+  WARNING_CARD_KINDS.map((kind, i) => [kind, i]),
+) as Record<WarningCardKind, number>;
+export const WARNING_CARD_LONG_TITLE = "A long warning title that wraps ".repeat(4).slice(0, 120);
+
+export function warningCardHarnessWarnings(): ParseWarning[] {
+  const cell = { title: "INFO", gid: 0, a1: "A5", scope: "cell" as const };
+  const byKind: Record<WarningCardKind, ParseWarning> = {
+    needsLook: {
+      severity: "warn",
+      code: "UNKNOWN_FIELD",
+      message: "Unrecognized client row label: 'Backdrup'",
+      blockRef: { kind: "client", name: "Backdrup" },
+      rawSnippet: "Backdrup | black velour",
+      sourceCell: cell,
+    },
+    judgment: {
+      severity: "warn",
+      code: "CREW_COLUMN_POSITIONAL_FALLBACK",
+      message: "Crew columns were read by position.",
+      sourceCell: cell,
+    },
+    info: {
+      severity: "info",
+      code: "AGENDA_PDF_UNREADABLE",
+      message: "An info-level note about the sheet",
+      sourceCell: cell,
+    },
+    linkless: {
+      severity: "warn",
+      code: "HARNESS_LINKLESS",
+      message: "Short row with no link.",
+    },
+    longTitle: {
+      severity: "warn",
+      code: "HARNESS_LONG_TITLE",
+      message: WARNING_CARD_LONG_TITLE,
+      sourceCell: cell,
+    },
+  };
+  return WARNING_CARD_KINDS.map((kind) => byKind[kind]);
+}
+
 export function nearMissHarnessWarnings(): ParseWarning[] {
   return [
     {

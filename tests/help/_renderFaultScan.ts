@@ -800,7 +800,15 @@ export function scanCandidates(): Candidate[] {
       // branch, so the 78 below is unchanged. Re-derived by running the guard on
       // the branch after merging origin/main (main itself still computes 745).
       //
-      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // 747 -> 748 on feat/warning-card-fixes Task 7: the wizard warning card's title
+      // row deleted one JSX-bearing ternary (the standalone `href ? <a>… : null` link)
+      // and added two (`isJudgment ? <JudgmentCallTag/> : null` and
+      // `href ? <SheetIconLink/> : null`); the sr-only prefix's
+      // `isJudgment ? null : <span>` carries its JSX in the false branch, so it does
+      // not count. Neither new one is a fault branch, so the 78 below is unchanged.
+      // Re-derived by running the guard.
+      //
+      // Probed: 748 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

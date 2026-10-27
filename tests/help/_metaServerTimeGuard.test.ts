@@ -275,7 +275,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // imported directly by components/admin/UseRawControl.tsx. Pure string formatting and
     // set membership, no clock read. 223 -> 224.
     expect(rel).toContain("lib/admin/warningReadingDisplay.ts");
-    expect(rel.length).toBe(224);
+    // Joined, from feat/warning-card-fixes Task 7: lib/messages/collapsedSummary.ts, now
+    // imported directly by components/admin/wizard/step3ReviewSections.tsx for
+    // `stripEmphasis` (the sheet icon's accessible-name subject). Before this only a
+    // comment in components/messages/renderEmphasis.tsx named it. Pure string
+    // formatting with no imports at all, no clock read. 224 -> 225.
+    expect(rel).toContain("lib/messages/collapsedSummary.ts");
+    expect(rel.length).toBe(225);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

@@ -700,13 +700,16 @@ describe("warnings body (spec §3.10 affirmative empty state + §8 hardening)", 
     // The human message passes through; its code never renders.
     expect(t).toContain("Two flights could not be matched to crew");
     expect(t).not.toContain("UNKNOWN_PARSER_WARNING_XYZ");
-    // Both severities render as list rows with their severity labels.
-    expect(within(panel).getByTestId(`wizard-step3-card-${DFID}-warning-0`).textContent).toContain(
-      "warn",
-    );
-    expect(within(panel).getByTestId(`wizard-step3-card-${DFID}-warning-1`).textContent).toContain(
-      "info",
-    );
+    // Both severities render as list rows, told apart by their sr-only prefixes
+    // (the visible severity word left the card, warning-card-fixes R1).
+    const srPrefix = (i: number) =>
+      Array.from(
+        within(panel)
+          .getByTestId(`wizard-step3-card-${DFID}-warning-${i}`)
+          .querySelectorAll(".sr-only"),
+      ).map((el) => el.textContent);
+    expect(srPrefix(0)).toContain("Needs a look: ");
+    expect(srPrefix(1)).toContain("Note: ");
     // Non-blocking note preserved.
     expect(t).toMatch(/don.t block publishing/i);
   });

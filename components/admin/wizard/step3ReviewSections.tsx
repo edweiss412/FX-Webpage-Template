@@ -98,6 +98,9 @@ import {
 } from "@/components/admin/announceLog";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
+import { JudgmentCallTag } from "@/components/admin/JudgmentCallTag";
+import { isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
+import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
 // Type-only (runtime cycle unchanged): the crew chrome value's banner payload.
@@ -3271,6 +3274,14 @@ export function WarningsBreakdown({
                   ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
                   : null;
                 const isWarn = isWarnSeverity(w);
+                // spec §3.2: three row kinds. A judgment call is a warn row whose
+                // code is an ambiguity code; isJudgmentCall is the one spelling.
+                const isJudgment = isJudgmentCall(w);
+                // Exact-cell deep link: when the scan captured the offending source
+                // cell, the title row ends in the sheet icon (spec §3.5). Falls back
+                // to the base sheet URL for a non-allowlisted tab (still useful);
+                // omitted when no anchor or no driveFileId.
+                const href = w.sourceCell ? buildSheetDeepLink(dfid, w.sourceCell) : null;
                 return (
                   <li
                     key={keys[pos]}
@@ -3299,20 +3310,46 @@ export function WarningsBreakdown({
                     {/* div, not span: the per-row controls (and helpfulContext) render
                       block roots — block-valid container (spec §4.3). */}
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-text">
-                        <span
-                          aria-hidden="true"
-                          className={`size-1.5 shrink-0 self-center rounded-pill ${
-                            isWarn ? "bg-warning-text" : "bg-text-faint"
-                          }`}
-                        />
-                        <span className="wrap-break-word font-medium text-text-strong">
-                          {renderEmphasis(title)}
+                      {/* spec §3.5 title row: the text cluster takes the slack
+                        (`min-w-0 flex-1`), so the sheet icon is the row's last box
+                        with no `ml-auto` on the anchor; the 44px floor is keyed on
+                        the link, so a link-less row adds no height (§13.1). The
+                        visible severity word is gone (R1): the sr-only prefix
+                        carries it for assistive tech, and a judgment row's tag
+                        says it. */}
+                      <div
+                        data-testid={`wizard-step3-card-${dfid}-warning-${i}-title-row`}
+                        className={`flex w-full items-center gap-2.5${href ? " min-h-tap-min" : ""}`}
+                      >
+                        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm text-text">
+                          <span
+                            aria-hidden="true"
+                            className={`size-1.5 shrink-0 self-center rounded-pill ${
+                              isWarn ? "bg-warning-text" : "bg-text-faint"
+                            }`}
+                          />
+                          {isJudgment ? null : (
+                            <span className="sr-only">{isWarn ? "Needs a look: " : "Note: "}</span>
+                          )}
+                          <span className="wrap-break-word font-medium text-text-strong">
+                            {renderEmphasis(title)}
+                          </span>
+                          {isJudgment ? (
+                            <JudgmentCallTag
+                              plate="surface"
+                              testId={`wizard-step3-card-${dfid}-warning-${i}-judgment-tag`}
+                            />
+                          ) : null}
                         </span>
-                        <span className="text-xs uppercase text-text-subtle">
-                          {isWarn ? "warn" : "info"}
-                        </span>
-                      </span>
+                        {href ? (
+                          <SheetIconLink
+                            href={href}
+                            subjectLabel={stripEmphasis(title)}
+                            testId={`wizard-step3-card-${dfid}-warning-${i}-sheetlink`}
+                            ringOffset="surface"
+                          />
+                        ) : null}
+                      </div>
                       {(() => {
                         // The offending row label (from rawSnippet "<label> | <value>"): the
                         // catalog title names the CLASS ("Row we couldn't match"), never the
@@ -3419,24 +3456,6 @@ export function WarningsBreakdown({
                       {context ? (
                         <p className="text-xs text-text-subtle">{renderEmphasis(context)}</p>
                       ) : null}
-                      {(() => {
-                        // Exact-cell deep link: when the scan captured the offending
-                        // source cell, offer a one-click jump to it in the Sheet. Falls
-                        // back to the base sheet URL for a non-allowlisted tab (still
-                        // useful); omitted when no anchor or no driveFileId.
-                        const href = w.sourceCell ? buildSheetDeepLink(dfid, w.sourceCell) : null;
-                        return href ? (
-                          <a
-                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-open`}
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                          >
-                            Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
-                          </a>
-                        ) : null;
-                      })()}
                       {/* spec 2026-07-16 §4.3: the complete-list render site for the
                         use-raw + recognize-role controls (live-page parity). Since
                         2026-07-17 (USE-RAW-FULL-LIST-1) this is the SOLE actionable

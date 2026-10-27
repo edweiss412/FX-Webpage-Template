@@ -377,7 +377,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4278 -> 4283 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 4283 -> 4345 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
     // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
     // on the merged tree by its own element, never by composing the deltas: 4375.
-    line: 4375,
+    // 4375 -> 4394 on feat/warning-card-fixes Task 7 (the warning title row rebuilt above
+    // it); the scanner reports one unclassified site in this file, 4394, the same tile `<a>`.
+    line: 4394,
     tag: "a",
     category: "full-bleed",
     reason:
