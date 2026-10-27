@@ -39,7 +39,7 @@ Search answers that by pointing at a real line on the page. It never writes an a
 - Search across shows.
 - Saving recent searches or the query in the URL.
 - A Doug-facing view of missed searches (D6).
-- Search on the admin popup or the wizard (D8).
+- Search on the admin show popup or the wizard review steps (D8). The two admin routes that render the crew page itself through `CrewShell` (preview-as and the wizard staged preview) show search exactly as crew see it, because they are previews of this page.
 
 ### 1.4 Anti-goals (a failure even if it technically works)
 
@@ -62,10 +62,10 @@ Search answers that by pointing at a real line on the page. It never writes an a
 `getShowForViewer` filters a lot (financials to admin/LEAD/FINANCIALS viewers, hotels by viewer name, only the viewer's own flight, date restriction), but the section components hide more at render time:
 
 - `financialsVisible` (`lib/visibility/scopeTiles.ts`) gates the Budget section in `CrewShell`.
-- `transportTileVisible` (`lib/visibility/scopeTiles.ts`) gates Getting there, Parking and transport notes (`VenueSection.tsx`, `TodaySection.tsx`), while `data.transportation` is present for every viewer.
+- `transportTileVisible` (`lib/visibility/scopeTiles.ts`) gates Getting there (`TravelSection.tsx`), Parking and transport notes (`VenueSection.tsx`, `TodaySection.tsx`), and the load-out run-of-show entries (`ScheduleSection.tsx` through `scheduleEntriesForViewer`, `lib/crew/agendaDisplay.ts`), while `data.transportation` is present for every viewer.
 - Tech specs render only `CREW_TECH_SPEC_KEYS` (`lib/crew/eventDetailsSpecs.ts`), while `event_details` carries every key.
-- Inline caps drop rows from the DOM: `CREW_INLINE_CAP` and `CONTACTS_INLINE_CAP` (`CrewSection.tsx`), `RUN_OF_SHOW_DISPLAY_CAP` (`lib/crew/agendaDisplay.ts`), and the module-local `CASE_CAP` and `ROOM_DETAIL_CAP` (`GearSection.tsx`), `SHOWS_CAP` (`KeyTimesStrip.tsx`), `TRUNCATE_AT` and `SOURCE_CAP` (`TodaySection.tsx`).
-- `hideDates` in `TravelSection.tsx` strips dates, carrier and confirmation numbers for date-suppressed viewers; `suppressesDates` replaces the whole Schedule section with an "unconfirmed" message.
+- Inline caps drop rows from the DOM: `CREW_INLINE_CAP` and `CONTACTS_INLINE_CAP` (`CrewSection.tsx`), `RUN_OF_SHOW_DISPLAY_CAP` (`lib/crew/agendaDisplay.ts`), `SHOWS_CAP` (`KeyTimesStrip.tsx`, module-local), and `CASE_CAP` and `ROOM_DETAIL_CAP` (`GearSection.tsx`, declared inside the section's render callback; `tests/components/tiles/CardinalityCapBoundary.test.tsx` duplicates `CASE_CAP` and reads the source by regex). Rows past a cap are not in the DOM; only a "+N more" stub renders.
+- `hideDates` in `TravelSection.tsx` strips the flight carrier and flight confirmation and the hotel check-in/out dates for date-suppressed viewers. It does NOT hide the hotel confirmation number, which renders for every viewer who sees the hotel (`reservationHasNonDateContent` counts it as non-date content). `suppressesDates` replaces the whole Schedule section with an "unconfirmed" message.
 - `show.client_contact` is never shown to crew.
 
 So an index built from the raw projection would leak. The index has to describe what each section RENDERS for this viewer.
@@ -77,14 +77,14 @@ So an index built from the raw projection would leak. The index has to describe 
 1. Each entry's `id` matches exactly one element in that section's rendered output carrying `data-search-target="<id>"`.
 2. Each element carrying `data-search-target` has exactly one entry.
 3. The element's whitespace-normalized `textContent` contains the entry's `value`, and its `label` when the label is non-null.
-4. Each `context` string of the entry appears in the text of the target's enclosing card (`closest("[data-card-id]")`), or of the section when the target has no card.
+4. Each `context` string of the entry, and its `group`, appears in the text of the target's enclosing card (`closest("[data-card-id]")`), or of the rendered section when the target has no card.
 
 INV-1 is enforced by the parity suite (§11.1), which is the tripwire both this project and the redesign merge against.
 
 ### 2.4 How the index is built
 
-- `buildSearchIndex(input)` (lib/search/buildSearchIndex.ts, new) runs on the server, inside `CrewShell`, from the same inputs the sections receive: `data`, `viewer`, `today`, plus the visibility booleans `CrewShell` already computes (`financialsVisible`, `budgetVisible`, `staticPreview`). It returns a `SearchIndex` (§3).
-- It calls one builder per section (lib/search/sections/<sectionId>.ts, new). **Each builder derives its lines through the same functions the section component uses** (`parseWifiValue`, `formatIsoDate`, `normalizeMeridiem`, `scheduleEntriesForViewer`, `buildShowDayTimeline`, `selectPrimaryContact`, `partialAttendanceLabel`, `contactFallbackLabel`, `parseFlightItinerary`, `stripOpeningReelText`, the visibility predicates and the caps). Where a component computes a row list inline, the builder does not copy the computation: the plan extracts it into an exported pure function in the component's module or `lib/crew/`, and the component and the builder both call it. Module-local caps (`CASE_CAP`, `ROOM_DETAIL_CAP`, `SHOWS_CAP`, `TRUNCATE_AT`, `SOURCE_CAP`) become named exports for the same reason. No visual change.
+- `buildSearchIndex(input)` (lib/search/buildSearchIndex.ts, new) runs on the server, inside `CrewShell`, from the same inputs the sections receive: `data`, `viewer`, `today`, plus what `CrewShell` already computes (`budgetVisible`, which is `financialsVisible(...)` evaluated once in `CrewShell`, and `staticPreview`). It returns a `SearchIndex` (§3).
+- It calls one builder per section (lib/search/sections/<sectionId>.ts, new). **Each builder derives its lines through the same functions the section component uses** (`parseWifiValue`, `formatIsoDate`, `normalizeMeridiem`, `scheduleEntriesForViewer`, `selectPrimaryContact`, `partialAttendanceLabel`, `contactFallbackLabel` (module-local in `CrewSection.tsx` today; the plan exports it), `parseFlightItinerary`, `stripOpeningReelText`, the visibility predicates and the caps). Where a component computes a row list inline, the builder does not copy the computation: the plan extracts it into an exported pure function in the component's module or `lib/crew/`, and the component and the builder both call it. Caps that are not exported today (`CASE_CAP`, `ROOM_DETAIL_CAP`, `SHOWS_CAP`) become named module exports for the same reason, and `CardinalityCapBoundary.test.tsx` imports `CASE_CAP` instead of reading the source. No visual change.
 - `CrewShell` passes the index to the client search island as a prop. The index is server-sourced on every render, including every `ShowRealtimeBridge → router.refresh()` re-render. The client never fetches, caches or derives section data (freshness invariant unchanged).
 - Sections not rendered for this viewer (Budget without entitlement) contribute nothing. `staticPreview` builds an index too (Doug's wizard preview searches like crew would), but disables miss logging and the report row (§7.4, §6.7).
 
@@ -94,7 +94,7 @@ A fact is indexed once, at its home section. Today's summary cards that repeat a
 
 Lines that are visible text only. Phone numbers and emails in `PersonRow` are `tel:`/`mailto:` hrefs and aria-labels, not text, so they are not indexed; names, roles and contact notes are.
 
-The plan enumerates every target site from the live components (row primitives `KeyValueRows`, `FactRows`, `PersonRow`, and the rows that bypass them: `TravelRow`, `AnchorRow`, `RunOfShowEntry`, `AgendaSessionRow`, `DayCard`, inline markup for COI, hotel check-in/out, flights, pack list items and notes). The primitives gain an optional `searchTarget?: string` row field rendered as `data-search-target`; bypass rows get the attribute directly.
+The plan enumerates every target site from the live components (row primitives `KeyValueRows`, `FactRows`, `PersonRow`, and the rows that bypass them: `TravelRow`, `AnchorRow`, `RunOfShowEntry`, the agenda rows of `AgendaScheduleBlock` (`components/crew/AgendaScheduleBlock.tsx`), `DayCard`, inline markup for COI, hotel check-in/out, flights, pack list items and notes). The primitives gain an optional `searchTarget?: string` row field rendered as `data-search-target`; bypass rows get the attribute directly.
 
 ## 3. Index shape
 
@@ -110,8 +110,8 @@ export type SearchCopy = {
 export type SearchEntry = {
   id: string; // the data-search-target value, unique within the index
   section: SectionId;
-  group: string; // card title or sub-heading shown on the row, e.g. "Grand Ballroom"
-  label: string | null; // field label, e.g. "Video"; null for free text
+  group: string; // card title or sub-heading shown on the row, e.g. "Video"
+  label: string | null; // field label, e.g. "Grand Ballroom"; null for free text
   value: string; // the line's displayed text
   context: readonly string[]; // other visible words that place the line, e.g. a day label
   copy: SearchCopy | null;
@@ -122,10 +122,10 @@ export type SearchIndex = { entries: readonly SearchEntry[] };
 
 Guard conditions:
 
-- An entry is created only when its `value` is non-empty after trimming. A value the page hides (sentinel-hidden, empty, whitespace) produces no entry, because the page renders no target for it (INV-1).
+- An entry is created only when its `value` is non-empty after trimming. A value the page hides (sentinel-hidden, empty, whitespace) produces no entry, because the page renders no target for it (INV-1). Builders apply the same hiding predicate the row primitives apply (`shouldHideGenericOptional`, `lib/visibility/emptyState.ts`, used by `KeyValueRows`), never a look-alike.
 - `label` equal to `group` after normalization is stored as `null` so the row does not repeat itself.
-- `id` is `<sectionId>:<cardId>:<rowKey>`, where `cardId` is the card's existing `data-card-id` (keys of `CARD_REGION_MAP`, `lib/sheet-links/buildSheetDeepLink.ts`) and `rowKey` is stable within the card (field key, room index plus field, crew member id, segment index). Duplicate ids fail the parity suite.
-- `copy` is set for exactly four values and only when the page renders them: the Wi-Fi network name and password (from `parseWifiValue`), the viewer's hotel confirmation number, and the viewer's flight confirmation. Under `hideDates` the confirmations are not rendered, so they are not indexed.
+- `id` is `<sectionId>:<region>:<rowKey>`. `region` is the value of the nearest ancestor `data-card-id` (every crew card carries one; most are keys of `CARD_REGION_MAP` in `lib/sheet-links/buildSheetDeepLink.ts`, and `venue-diagrams` is in that file's `OUT_OF_SCOPE_CARDS`). Lines outside any card, which today means the Schedule agenda (`section[data-testid="agenda-area"]` in `ScheduleSection.tsx`), use the region `agenda`. `rowKey` is `rowKey` is stable within the card (field key, room index plus field, crew member id, segment index). Duplicate ids fail the parity suite.
+- `copy` is set for exactly four values and only when the page renders them: the Wi-Fi network name and password (from `parseWifiValue`), the viewer's hotel confirmation number, and the viewer's flight confirmation. Under `hideDates` the flight confirmation is not rendered, so it is not indexed; the hotel confirmation still renders and is indexed.
 - An empty index (a show with no visible content) is valid: the field still renders, and every query shows the no-match state.
 
 Size: entries are bounded by what renders (caps above). The plan measures the serialized index for the seed fixture and the largest fixture show and records the numbers; there is no extra cap.
@@ -144,7 +144,7 @@ Every section the viewer can open contributes its visible lines. By section, wit
 | Gear | Scope cards per room (room label, audio/video/lighting scope text), pack list items when visible today, tech specs, room details, keynote requirements, opening reel. |
 | Budget | PO, Proposal, Invoice, Invoice notes, only when the section renders. |
 
-Room-centred queries work through `group` and `context`: a Video scope row for Grand Ballroom has `group: "Grand Ballroom"`, `label: "Video"`, so "ballroom video" matches it even though neither line says both words.
+Room-centred queries work through `group` and `label`. Gear scope cards are per discipline (`gear-scope-<discipline>` in `GearSection.tsx`), with one row per room: the Video card's Grand Ballroom row has `group: "Video"`, `label: "Grand Ballroom"`, `value` the scope text. "ballroom video" matches it even though the scope text says neither word.
 
 ## 5. Matching
 
@@ -256,7 +256,7 @@ The search island has four states. One mode at every width: results replace the 
 
 ### 6.3 Chips
 
-- A row of buttons under the header, `nav aria-label="Filter results by section"`, scrolling sideways on narrow screens. "All" first, then one chip per section with at least one hit, in §5.5 order. Text: section label from `SECTION_LABELS` (`components/crew/CrewSubNav.tsx`) and the count, e.g. "Venue 2". Selected chip has `aria-pressed="true"`.
+- A row of buttons under the header, `nav aria-label="Filter results by section"`, scrolling sideways on narrow screens. "All" first, then one chip per section with at least one hit, in §5.5 order. Text: section label from `SECTION_LABELS` (`components/crew/CrewSubNav.tsx`, module-local today; the plan exports it so chips and the sub-nav share one source) and the count, e.g. "Venue 2". Selected chip has `aria-pressed="true"`.
 - All view: up to 5 rows per section, then a "Show all {n} in {Section}" button that selects that chip.
 - Section view: up to 50 rows, then the note "Showing the first 50. Add a word to narrow it."
 - When the query changes, the selected chip resets to All.
@@ -287,7 +287,7 @@ Each section group is a heading (section label) and a list. Each row:
 
 ### 6.7 Report row
 
-- Always the last block in Results and No match. Text per §10. The button opens `ReportModal` (`components/shared/ReportModal.tsx`, controlled `open`/`onOpenChange`) with the same `surface`, `showId` and preview context the page's card report triggers use (`lib/crew/cardReportContext.ts`), and `autocapture.viewerVisibleSection` set to `"search"` and `autocapture.rawSnippet` set to `Searched for "<query>"`.
+- Always the last block in Results and No match. Text per §10. The button opens `ReportModal` (`components/shared/ReportModal.tsx`, controlled `open`/`onOpenChange`, required `surface`, `surfaceId`, `showId`). `surface` and the surface-id scope come from the page's existing card report context (`CardReportContext`: `surface`, `surfaceIdScope`, `extraContext`, built in `lib/crew/cardReportContext.ts`), so preview-as reports keep the admin surface and `crewPreview` capture exactly as card reports do. `surfaceId` is built the way `CardReportTrigger` builds it, with the card id `search`. `showId` is the page's show id. `autocapture.viewerVisibleSection` is `"search"` and `autocapture.rawSnippet` is `Searched for "<query>"`.
 - Not rendered when reporting is off for the page (`staticPreview`, where `CrewShell` passes `cardReport = null`).
 
 ### 6.8 Accessibility
@@ -331,18 +331,18 @@ Compound cases:
 - A miss is a query of 2 or more characters with 0 hits, observed either 2000 ms after the last keystroke or when search ends with that query.
 - Each normalized query is sent at most once per page load.
 - Sent with `fetch(url, { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body })`; failures are ignored with no UI and no retry. Offline simply loses the miss.
-- Disabled (no request at all) when the viewer is an admin (preview-as) or the page is `staticPreview`. `CrewShell` passes `missLogging: boolean`.
+- Disabled (no request at all) unless `viewer.kind` is crew and the page is not `staticPreview`. `CrewShell` passes `missLogging: boolean`. (`ctx.isAdmin` in `CrewShell` is false for admin preview-as, so it is not the gate.)
 
 ### 7.2 Route
 
 `POST /api/show/[slug]/search-miss` (app/api/show/[slug]/search-miss/route.ts, new). Body `{ shareToken: string; query: string }`.
 
-1. Same-origin check, the helper `app/api/observe/client-error/route.ts` uses.
+1. Same-origin check. `sameOrigin(req)` in `app/api/observe/client-error/route.ts` is module-local today; the plan moves it to a shared module both routes import, unchanged.
 2. Content type must be JSON; body over 2 KB → 400.
 3. `query` trimmed, 2 to 100 characters; longer is cut to 100. `shareToken` non-empty string.
-4. Access: the slug and share token must resolve to a viewable show through the same resolution the page uses (`resolveShowPageAccess`). Admin sessions (`isAdminSession`) are not logged. Any other outcome returns 204 without logging.
+4. Access: `resolveShowPageAccess({ slug, shareToken, req })` (`lib/auth/picker/resolveShowPageAccess.ts`), the resolution the page uses. It reads cookies and headers and writes nothing, so it is safe in a route handler. It already performs the admin check (`isAdminSession`) and returns `{ kind: "admin" }` for an admin session. Only `kind: "resolved"` (a crew viewer of a viewable show) is logged; `admin` and every other kind return 204 without logging.
 5. In-memory rate limit: 30 accepted misses per show per 60 s per server instance; over the cap returns 204 and logs `CREW_SEARCH_MISS_RATE_CAPPED` once per window.
-6. Emit: `log.info` (`lib/log/logger.ts`) with `code: "CREW_SEARCH_NO_RESULTS"`, the show id and the query as detail. A `log.info` with a code persists to `app_events` (`lib/log/persist.ts`). No viewer identity, picker id, IP or user agent is recorded.
+6. Emit: `log.info(message, fields)` (`lib/log/logger.ts`, `LogFields` in `lib/log/types.ts`) with `source: "crew-search-miss"`, `code: "CREW_SEARCH_NO_RESULTS"`, the reserved top-level `showId`, and `query` (which the logger places in `context`; the logger's sanitizer redacts emails). A `log.info` with a code persists to `app_events` (`lib/log/persist.ts`). No viewer identity, picker id, IP or user agent is recorded.
 7. Returns 204 on every well-formed request.
 
 ### 7.3 Invariants for the route
@@ -377,7 +377,7 @@ Agreed with the redesign session on 2026-10-26 (recorded in both sessions' share
 
 ### 9.2 Shared search state
 
-A client provider, `CrewSearchProvider` (components/crew/search/CrewSearchProvider.tsx, new), wraps `Header` and `CrewSections` in `CrewShell`. It holds the index, the query, whether search is active, and `missLogging`. The field (in the header) writes the query; `CrewSections` reads `active` to hide its body and render the results in its place.
+A client provider, `CrewSearchProvider` (components/crew/search/CrewSearchProvider.tsx, new), wraps `Header` and `CrewSections` in `CrewShell`, ABOVE both. The redesign asked for this placement explicitly: its home cards, sheets and wide stack live inside its controller, and the field in the header must share state with them. It holds the index, the query, whether search is active, and `missLogging`. The field (in the header) writes the query; `CrewSections` reads `active` to hide its body and render the results in its place.
 
 ## 10. Copy
 
@@ -415,7 +415,7 @@ The matrix must make every gate in §2.2 flip both ways at least once, and each 
 
 ### 11.2 Leak suite
 
-tests/search/indexLeak.test.ts (new). The fixture plants a unique sentinel string in every hidden datum of §2.2 and §1.4 (another viewer's hotel confirmation, another crew member's flight, the transport row for a viewer without transport, financial fields without entitlement, `client_contact`, a non-whitelisted `event_details` key, the first row past each cap). The serialized index must contain none of them. A positive control plants the same sentinel in a visible field and asserts it IS found, so the serialization search cannot pass by being broken.
+tests/search/indexLeak.test.ts (new). The fixture plants a unique sentinel string in every hidden datum of §2.2 and §1.4 (another viewer's hotel confirmation, another crew member's flight, the transport row and a load-out run-of-show entry for a viewer without transport, the flight confirmation under `hideDates`, financial fields without entitlement, `client_contact`, a non-whitelisted `event_details` key, the first row past each cap). The serialized index must contain none of them. A positive control plants the same sentinel in a visible field and asserts it IS found, so the serialization search cannot pass by being broken.
 
 ### 11.3 Matcher suite
 
