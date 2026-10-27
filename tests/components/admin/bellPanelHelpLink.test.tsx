@@ -89,7 +89,7 @@ function routeFetch(entries: BellEntry[]) {
 }
 
 function renderPanel() {
-  return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onOpened={vi.fn()} />);
+  return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onCountStale={vi.fn()} />);
 }
 
 describe("BellPanel — Learn more help link (impeccable P1)", () => {
@@ -169,7 +169,7 @@ describe("BellPanel — the telemetry link is internal and wears no new-tab glyp
         <BellPanel
           viewerIsDeveloper={branch.viewerIsDeveloper}
           onClose={vi.fn()}
-          onOpened={vi.fn()}
+          onCountStale={vi.fn()}
         />,
       );
       const row = await within(getByTestId("bell-panel")).findByTestId(
@@ -195,7 +195,7 @@ describe("BellPanel — the telemetry link is internal and wears no new-tab glyp
     const entry = makeEntry({ alertId: "g-none", isHealth: false, code: HELP_CODE });
     routeFetch([entry]);
     const { getByTestId } = render(
-      <BellPanel viewerIsDeveloper={true} onClose={vi.fn()} onOpened={vi.fn()} />,
+      <BellPanel viewerIsDeveloper={true} onClose={vi.fn()} onCountStale={vi.fn()} />,
     );
     const row = await within(getByTestId("bell-panel")).findByTestId("bell-entry-g-none");
     expect(within(row).queryByTestId("bell-telemetry-g-none")).toBeNull();

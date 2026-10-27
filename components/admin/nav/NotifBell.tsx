@@ -49,10 +49,7 @@ export function NotifBell({
   onBellState?: (state: { settled: boolean; announceable: number | null }) => void;
   viewerIsDeveloper: boolean;
 }) {
-  const { count, degraded, refetch, zeroNow, pingSignal } = useBellBadge(
-    initialCount,
-    countPromise,
-  );
+  const { count, degraded, refetch, pingSignal } = useBellBadge(initialCount, countPromise);
   const [open, setOpen] = useState(false);
 
   // The bell has settled once it holds a number, or is degraded, or nothing
@@ -72,14 +69,11 @@ export function NotifBell({
     onBellState({ settled, announceable });
   }, [onBellState, settled, announceable]);
 
-  // Open gesture: zero the badge immediately client-side (spec §7.2 — a quick
-  // open/close on a slow network must not leave a stale count visible), then
-  // mount the panel. The panel's onOpened={refetch} restores post-snapshot
-  // arrivals once /bell/feed → /bell/open settle to server truth.
-  const openPanel = () => {
-    zeroNow();
-    setOpen(true);
-  };
+  // Open gesture: mount the panel and leave the badge alone. The badge counts
+  // active rows the panel still marks unread, and opening reads none of them.
+  // The panel calls onCountStale={refetch} after each feed load and each read
+  // POST, so a row leaves the count once it is read or resolved.
+  const openPanel = () => setOpen(true);
 
   const trigger = degraded ? (
     <button
@@ -135,7 +129,7 @@ export function NotifBell({
         <BellPanel
           viewerIsDeveloper={viewerIsDeveloper}
           onClose={() => setOpen(false)}
-          onOpened={refetch}
+          onCountStale={refetch}
           pingSignal={pingSignal}
         />
       ) : null}

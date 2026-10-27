@@ -101,7 +101,7 @@ function renderPanel(props: Partial<Parameters<typeof BellPanel>[0]> = {}) {
     <BellPanel
       viewerIsDeveloper={props.viewerIsDeveloper ?? false}
       onClose={props.onClose ?? vi.fn()}
-      onOpened={props.onOpened ?? vi.fn()}
+      onCountStale={props.onCountStale ?? vi.fn()}
     />,
   );
 }

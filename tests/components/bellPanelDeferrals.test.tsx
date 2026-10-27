@@ -105,15 +105,15 @@ function routeFetch(body: unknown) {
 
 function renderPanel(props: Partial<Parameters<typeof BellPanel>[0]> = {}) {
   const onClose = vi.fn();
-  const onOpened = vi.fn();
+  const onCountStale = vi.fn();
   const utils = render(
     <BellPanel
       viewerIsDeveloper={props.viewerIsDeveloper ?? false}
       onClose={props.onClose ?? onClose}
-      onOpened={props.onOpened ?? onOpened}
+      onCountStale={props.onCountStale ?? onCountStale}
     />,
   );
-  return { ...utils, onClose, onOpened };
+  return { ...utils, onClose, onCountStale };
 }
 
 function callsTo(fragment: string) {

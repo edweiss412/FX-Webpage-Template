@@ -69,7 +69,7 @@ function renderPanel(entries: BellEntry[]) {
   fetchMock.mockImplementation((url: string) =>
     Promise.resolve(jsonOk(url.includes("/bell/feed") ? feedBody({ entries }) : {})),
   );
-  return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onOpened={vi.fn()} />);
+  return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onCountStale={vi.fn()} />);
 }
 
 describe("BellPanel transition audit", () => {

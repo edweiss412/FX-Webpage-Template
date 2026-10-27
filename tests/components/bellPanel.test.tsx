@@ -89,15 +89,15 @@ function routeFetch(body: unknown, opts: { feedResponse?: () => Response } = {})
 
 function renderPanel(props: Partial<Parameters<typeof BellPanel>[0]> = {}) {
   const onClose = vi.fn();
-  const onOpened = vi.fn();
+  const onCountStale = vi.fn();
   const utils = render(
     <BellPanel
       viewerIsDeveloper={props.viewerIsDeveloper ?? false}
       onClose={props.onClose ?? onClose}
-      onOpened={props.onOpened ?? onOpened}
+      onCountStale={props.onCountStale ?? onCountStale}
     />,
   );
-  return { ...utils, onClose, onOpened };
+  return { ...utils, onClose, onCountStale };
 }
 
 describe("BellPanel — sections (spec §7.3)", () => {
@@ -239,7 +239,7 @@ describe("BellPanel — open gesture (spec §7.2 snapshot safety)", () => {
   it("POSTs /bell/open exactly once with the feed's seenThrough, only AFTER the feed resolves", async () => {
     const seenThrough = "2026-07-05T11:22:33.000Z";
     routeFetch(feedBody({ entries: [makeEntry({ alertId: "a", state: "active" })], seenThrough }));
-    const { getByTestId, onOpened } = renderPanel();
+    const { getByTestId, onCountStale } = renderPanel();
 
     // Await the READY state before asserting call order (plan-review R2 candidate 4).
     await within(getByTestId("bell-panel")).findByTestId("bell-section-active");
@@ -264,7 +264,7 @@ describe("BellPanel — open gesture (spec §7.2 snapshot safety)", () => {
     const feedOrder = fetchMock.mock.invocationCallOrder[feedIdx]!;
     expect(openOrder).toBeGreaterThan(feedOrder);
 
-    await waitFor(() => expect(onOpened).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onCountStale).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -341,9 +341,14 @@ describe("BellPanel — ping refetch (spec §5.4 — realtime refreshes the OPEN
     });
 
     const onClose = vi.fn();
-    const onOpened = vi.fn();
+    const onCountStale = vi.fn();
     const { getByTestId, queryByTestId, rerender } = render(
-      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={0} />,
+      <BellPanel
+        viewerIsDeveloper={false}
+        onClose={onClose}
+        onCountStale={onCountStale}
+        pingSignal={0}
+      />,
     );
     const panel = getByTestId("bell-panel");
 
@@ -360,7 +365,12 @@ describe("BellPanel — ping refetch (spec §5.4 — realtime refreshes the OPEN
     // Ping: a realtime `changed` on the OPEN panel bumps pingSignal → in-place
     // feed refetch via the SAME path the resolve/save settle uses.
     rerender(
-      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={1} />,
+      <BellPanel
+        viewerIsDeveloper={false}
+        onClose={onClose}
+        onCountStale={onCountStale}
+        pingSignal={1}
+      />,
     );
 
     // New row surfaces on the refetch (fetch fired a SECOND time at /bell/feed).
@@ -381,9 +391,14 @@ describe("BellPanel — ping refetch (spec §5.4 — realtime refreshes the OPEN
   it("an unchanged pingSignal (initial mount value) triggers no refetch", async () => {
     routeFetch(feedBody({ entries: [makeEntry({ alertId: "a", state: "active" })] }));
     const onClose = vi.fn();
-    const onOpened = vi.fn();
+    const onCountStale = vi.fn();
     const { getByTestId } = render(
-      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={3} />,
+      <BellPanel
+        viewerIsDeveloper={false}
+        onClose={onClose}
+        onCountStale={onCountStale}
+        pingSignal={3}
+      />,
     );
     await within(getByTestId("bell-panel")).findByTestId("bell-entry-a");
     const feedCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/bell/feed"));
@@ -420,9 +435,14 @@ describe("BellPanel — load race (Finding 1: a stale response must not overwrit
     });
 
     const onClose = vi.fn();
-    const onOpened = vi.fn();
+    const onCountStale = vi.fn();
     const { getByTestId, rerender } = render(
-      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={0} />,
+      <BellPanel
+        viewerIsDeveloper={false}
+        onClose={onClose}
+        onCountStale={onCountStale}
+        pingSignal={0}
+      />,
     );
 
     // Mount load fires the first /bell/feed (still pending).
@@ -430,7 +450,12 @@ describe("BellPanel — load race (Finding 1: a stale response must not overwrit
 
     // A realtime ping starts a SECOND load before the first resolves.
     rerender(
-      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={1} />,
+      <BellPanel
+        viewerIsDeveloper={false}
+        onClose={onClose}
+        onCountStale={onCountStale}
+        pingSignal={1}
+      />,
     );
     await waitFor(() => expect(feedResolvers).toHaveLength(2));
 
@@ -457,7 +482,7 @@ describe("BellPanel — load race (Finding 1: a stale response must not overwrit
 });
 
 describe("BellPanel — unmount invalidation (R4 Finding 1: a load in flight at close must not stamp /bell/open)", () => {
-  it("closing the panel before /bell/feed resolves discards the load — no /bell/open POST, no post-unmount onOpened", async () => {
+  it("closing the panel before /bell/feed resolves discards the load — no /bell/open POST, no post-unmount onCountStale", async () => {
     // Slow connection: the viewer opens the bell, then closes (Esc/scrim →
     // unmount) before the feed resolves. When the deferred /bell/feed later
     // settles, the resumed load must bail at its seq guard — no setState on the
@@ -472,9 +497,14 @@ describe("BellPanel — unmount invalidation (R4 Finding 1: a load in flight at 
     });
 
     const onClose = vi.fn();
-    const onOpened = vi.fn();
+    const onCountStale = vi.fn();
     const { getByTestId, unmount } = render(
-      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={0} />,
+      <BellPanel
+        viewerIsDeveloper={false}
+        onClose={onClose}
+        onCountStale={onCountStale}
+        pingSignal={0}
+      />,
     );
 
     // Mount load fired the feed (still pending); panel sits in its loading shell.
@@ -496,7 +526,7 @@ describe("BellPanel — unmount invalidation (R4 Finding 1: a load in flight at 
     // refetch callback never fired post-unmount.
     const openCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/bell/open"));
     expect(openCalls).toHaveLength(0);
-    expect(onOpened).not.toHaveBeenCalled();
+    expect(onCountStale).not.toHaveBeenCalled();
   });
 });
 

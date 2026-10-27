@@ -34,14 +34,14 @@ vi.mock("@/lib/supabase/browser", () => ({
 }));
 vi.mock("@/lib/realtime/subscribeToBell", () => ({ subscribeToBell: vi.fn() }));
 vi.mock("@/components/admin/BellPanel", () => ({
-  // Fires onOpened ONCE per mount, from an effect. The first version called it
-  // during render, so it fired on every re-render and issued a fetch each time:
-  // a case counting fetch calls to tell the two restoration routes apart saw
-  // the panel's own refetch run twice and never reached the demoted seed's.
-  // Once-per-mount is also what the real panel does.
-  BellPanel: ({ onOpened }: { onOpened: () => void }) => {
+  // Fires onCountStale ONCE per mount, from an effect, standing in for the real
+  // panel's call after its first feed load. The first version called it during
+  // render, so it fired on every re-render and issued a fetch each time: a case
+  // counting fetch calls to tell the two count routes apart saw the panel's own
+  // refetch run twice and never reached the demoted seed's.
+  BellPanel: ({ onCountStale }: { onCountStale: () => void }) => {
     useEffect(() => {
-      onOpened();
+      onCountStale();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     return <div data-testid="bell-panel-stub" />;
@@ -134,7 +134,7 @@ describe("the join announces once, when both halves have arrived", () => {
     });
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("3 unseen notifications. 2 items need attention.");
+    expect(entries()[0]).toBe("3 unread notifications. 2 items need attention.");
   });
 
   it("AC-2: a zero half contributes no sentence", async () => {
@@ -149,7 +149,7 @@ describe("the join announces once, when both halves have arrived", () => {
     });
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("3 unseen notifications.");
+    expect(entries()[0]).toBe("3 unread notifications.");
   });
 
   it("AC-3: both zero announces nothing at all", async () => {
@@ -198,7 +198,7 @@ describe("the join announces once, when both halves have arrived", () => {
     });
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("4 unseen notifications.");
+    expect(entries()[0]).toBe("4 unread notifications.");
   });
 
   it("AC-5: both halves failed announces nothing", async () => {
@@ -270,7 +270,7 @@ describe("the announcement is terminal, whatever resolved it", () => {
     );
 
     // Still exactly the original entry, unchanged.
-    expect(entries()).toEqual(["3 unseen notifications. 2 items need attention."]);
+    expect(entries()).toEqual(["3 unread notifications. 2 items need attention."]);
   });
 
   it("AC-6: a SILENT resolution also consumes the once-per-mount allowance", async () => {
@@ -377,7 +377,7 @@ describe("settle ordering", () => {
       await attention.promise;
     });
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("3 unseen notifications. 2 items need attention.");
+    expect(entries()[0]).toBe("3 unread notifications. 2 items need attention.");
   });
 
   it("attention first, then bell: one entry, no early partial", async () => {
@@ -396,7 +396,7 @@ describe("settle ordering", () => {
       await bell.promise;
     });
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("3 unseen notifications. 2 items need attention.");
+    expect(entries()[0]).toBe("3 unread notifications. 2 items need attention.");
   });
 
   it("waits for the attention COMMIT, not merely a successful promise", async () => {
@@ -524,12 +524,19 @@ describe("settlement is a latch, not a derived predicate", () => {
     );
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("4 unseen notifications.");
+    expect(entries()[0]).toBe("4 unread notifications.");
   });
 });
 
 describe("compound transitions (spec §3.8)", () => {
   it("AC-11: the panel opens while the bell half is still pending", async () => {
+    // The panel's count refetch is held pending, so the bell is still unsettled
+    // when the seed lands. Defect caught: an open gesture that zeroes the badge
+    // settles the bell at 0 and drops its sentence from the announcement.
+    const refetched = deferred<unknown>();
+    fetchSpy.mockImplementation((url: string) =>
+      url === COUNT_ENDPOINT ? refetched.promise : new Promise(() => {}),
+    );
     const bell = deferred<BellCountResult>();
     const attention = deferred<NeedsAttentionCountResult>();
     renderNav({ bellCountPromise: bell.promise, attentionCountPromise: attention.promise });
@@ -537,23 +544,27 @@ describe("compound transitions (spec §3.8)", () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId("admin-notif-bell"));
     });
-    // BOTH reads resolve, per the plan's row. An earlier version left the bell
-    // promise pending forever, so it never exercised a bell seed arriving into
-    // an already-zeroed hook, which is the interesting half of this case.
+    // BOTH reads resolve, per the plan's row, so a bell seed arrives into a hook
+    // the panel's refetch has already claimed.
     await act(async () => {
       bell.resolve({ kind: "ok", count: 5 });
       attention.resolve({ kind: "ok", count: 2 });
       await Promise.all([bell.promise, attention.promise]);
     });
-
-    // zeroNow claimed the hook, so the late seed demotes to a fetch rather than
-    // painting 5, and the bell contributes nothing while it stays 0.
+    // The claimed hook demotes the seed to a fresh fetch rather than painting it,
+    // so the bell stays unsettled and nothing is spoken yet.
     premiseHolds(
-      "the zeroed bell did not paint the late seed",
+      "the claimed bell did not paint the late seed",
       screen.queryByTestId("admin-notif-badge") === null,
     );
+    expect(entries()).toEqual([]);
+
+    await act(async () => {
+      refetched.resolve(okResponse({ count: 5 }));
+      await refetched.promise;
+    });
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("2 items need attention.");
+    expect(entries()[0]).toBe("5 unread notifications. 2 items need attention.");
   });
 
   it("AC-11: the panel opens AFTER the bell settles, before attention does", async () => {
@@ -568,16 +579,19 @@ describe("compound transitions (spec §3.8)", () => {
     });
     await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("4"));
 
+    // Opening reads no row, so the badge keeps its 4 (the panel's refetch pends
+    // in this harness) and the bell's sentence survives the open.
     await act(async () => {
       fireEvent.click(screen.getByTestId("admin-notif-bell"));
     });
+    expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("4");
     await act(async () => {
       attention.resolve({ kind: "ok", count: 3 });
       await attention.promise;
     });
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("3 items need attention.");
+    expect(entries()[0]).toBe("4 unread notifications. 3 items need attention.");
   });
 
   it("AC-13: the bell degrades between settling and announcing", async () => {
@@ -633,9 +647,9 @@ describe("compound transitions (spec §3.8)", () => {
 describe("AC-16: a restoration before the announcement is spoken", () => {
   it("the DEMOTED SEED restores the count, distinguishably from the panel refetch", async () => {
     // Diff R3 showed the first version of this case could not tell the two
-    // restoration routes apart: the panel stub fires onOpened on mount and the
+    // count routes apart: the panel stub fires onCountStale on mount and the
     // fetch returned a single value, so deleting useBellBadge's demote branch
-    // (:205) left the assertion green. The panel's own refetch was supplying the
+    // left the assertion green. The panel's own refetch was supplying the
     // number the demoted seed was supposed to supply.
     //
     // Successive fetches now return DIFFERENT values, so only the second call
@@ -652,8 +666,8 @@ describe("AC-16: a restoration before the announcement is spoken", () => {
     const attention = deferred<NeedsAttentionCountResult>();
     renderNav({ bellCountPromise: bell.promise, attentionCountPromise: attention.promise });
 
-    // Open while the seed is STILL PENDING: zeroNow claims the hook, and the
-    // panel's onOpened refetch lands 7.
+    // Open while the seed is STILL PENDING: the panel's onCountStale refetch
+    // claims the hook and lands 7.
     await act(async () => {
       fireEvent.click(screen.getByTestId("admin-notif-bell"));
     });
@@ -676,12 +690,18 @@ describe("AC-16: a restoration before the announcement is spoken", () => {
     await waitFor(() => expect(entries()).toHaveLength(1));
     // 2 is reachable ONLY through the demote path. Not 9 (the seed the claimed
     // hook refuses to paint) and not 7 (the panel refetch alone).
-    expect(entries()[0]).toBe("2 unseen notifications. 3 items need attention.");
+    expect(entries()[0]).toBe("2 unread notifications. 3 items need attention.");
   });
 
-  it("the reverse ordering: attention settles BEFORE the restoration, so no bell sentence", async () => {
-    // Pins that the outcome follows the value at announce time rather than the
-    // interaction: same gestures, different order, different correct answer.
+  it("the reverse ordering: attention settles BEFORE the bell's count lands, so the join waits for it", async () => {
+    // Same gestures, different order. Opening the panel does not settle the
+    // bell, so attention arriving first speaks nothing; the announcement waits
+    // for the panel's refetch. Defect caught: an open gesture that commits a
+    // client-side 0, which settles the bell early and drops its sentence.
+    const refetched = deferred<unknown>();
+    fetchSpy.mockImplementation((url: string) =>
+      url === COUNT_ENDPOINT ? refetched.promise : new Promise(() => {}),
+    );
     const bell = deferred<BellCountResult>();
     const attention = deferred<NeedsAttentionCountResult>();
     renderNav({ bellCountPromise: bell.promise, attentionCountPromise: attention.promise });
@@ -693,15 +713,20 @@ describe("AC-16: a restoration before the announcement is spoken", () => {
       attention.resolve({ kind: "ok", count: 3 });
       await attention.promise;
     });
+    expect(entries()).toEqual([]);
 
+    await act(async () => {
+      refetched.resolve(okResponse({ count: 7 }));
+      await refetched.promise;
+    });
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("3 items need attention.");
+    expect(entries()[0]).toBe("7 unread notifications. 3 items need attention.");
   });
 
-  it("the PANEL REFETCH restores the count on its own, with no seed in flight", async () => {
-    // The route through NotifBell.tsx's onOpened={refetch}, isolated from the
+  it("the PANEL REFETCH moves the count on its own, with no seed in flight", async () => {
+    // The route through NotifBell.tsx's onCountStale={refetch}, isolated from the
     // demoted-seed route above: no seed is in flight here at all, so only the
-    // panel's own refetch can restore the count.
+    // panel's own refetch can move the count from 4 to 6.
     const attention = deferred<NeedsAttentionCountResult>();
     fetchSpy.mockImplementation((url: string) =>
       url === COUNT_ENDPOINT ? Promise.resolve(okResponse({ count: 6 })) : new Promise(() => {}),
@@ -722,7 +747,7 @@ describe("AC-16: a restoration before the announcement is spoken", () => {
     });
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()[0]).toBe("6 unseen notifications. 3 items need attention.");
+    expect(entries()[0]).toBe("6 unread notifications. 3 items need attention.");
   });
 });
 
@@ -732,8 +757,8 @@ describe("AC-17: degraded clearing before the announcement", () => {
     // the panel's own refetch, NOT a pathname change: a pathname change claims
     // BOTH hooks, so the attention seed would demote to a fetch that never
     // settles in this harness and the case would fail for a reason unrelated to
-    // degraded. Opening the panel zeroes the count first, so a bell sentence
-    // here can only come from the refetch's committed value.
+    // degraded. The degraded bell holds no count, so a bell sentence here can
+    // only come from the refetch's committed value.
     const attention = deferred<NeedsAttentionCountResult>();
     fetchSpy.mockImplementation((url: string) =>
       url === COUNT_ENDPOINT ? Promise.resolve(okResponse({ count: 5 })) : new Promise(() => {}),
@@ -759,7 +784,7 @@ describe("AC-17: degraded clearing before the announcement", () => {
 
     await waitFor(() => expect(entries()).toHaveLength(1));
     // A degraded LATCH would have suppressed the bell sentence forever.
-    expect(entries()[0]).toBe("5 unseen notifications. 3 items need attention.");
+    expect(entries()[0]).toBe("5 unread notifications. 3 items need attention.");
   });
 });
 
@@ -790,7 +815,7 @@ describe("AC-19: StrictMode announces exactly once", () => {
     });
 
     await waitFor(() => expect(entries()).toHaveLength(1));
-    expect(entries()).toEqual(["3 unseen notifications. 2 items need attention."]);
+    expect(entries()).toEqual(["3 unread notifications. 2 items need attention."]);
   });
 });
 

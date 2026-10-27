@@ -182,172 +182,34 @@ describe("useBellBadge", () => {
     await waitFor(() => expect(result.current.count).toBe(11));
   });
 
-  it("zeroNow zeroes the count client-side without touching degraded, discards a pre-zero in-flight count, and lets a post-zero refetch restore server truth (spec §7.2)", async () => {
-    // Immediate-zero-on-open (spec §7.2 — "the numeric badge zeroes immediately
-    // client-side; a later /bell/count refresh restores any post-snapshot
-    // arrivals"). The pre-zero in-flight count must NOT resurrect the badge
-    // (a count response that started before the open gesture is stale); a
-    // refetch started AFTER zeroNow legitimately restores post-snapshot arrivals.
-    let resolveStale!: (value: unknown) => void;
-    let countCalls = 0;
-    fetchSpy.mockImplementation((url: string) => {
-      if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
+  it("a prop landing while a refetch is in flight commits its own value; the overtaken fetch is aborted and discarded", async () => {
+    // A same-route router.refresh() prop is newer server truth than a count
+    // fetch it overtakes. Defect caught: a prop that does not bump the token
+    // lets the older fetch resolve late and paint over it.
+    let resolveFetch!: (value: unknown) => void;
+    let fetchSignal: AbortSignal | undefined;
+    fetchSpy.mockImplementation((url: string, init?: { signal: AbortSignal }) => {
       if (url === "/api/admin/alerts/bell/count") {
-        countCalls += 1;
-        if (countCalls === 1) {
-          return new Promise((resolve) => {
-            resolveStale = resolve;
-          });
-        }
-        return Promise.resolve(okResponse({ count: 6 }));
-      }
-      return new Promise(() => {});
-    });
-
-    const { result } = renderBadgeHook({ kind: "ok", count: 3 });
-    expect(result.current.count).toBe(3);
-
-    // A count refetch is already in flight (deferred) when the viewer opens.
-    act(() => {
-      result.current.refetch();
-    });
-
-    // Open gesture zeroes the badge synchronously.
-    act(() => {
-      result.current.zeroNow();
-    });
-    expect(result.current.count).toBe(0);
-    expect(result.current.degraded).toBe(false);
-
-    // The pre-zero in-flight count resolves late → must be discarded (token bumped).
-    resolveStale(okResponse({ count: 9 }));
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(result.current.count).toBe(0);
-
-    // A refetch started AFTER zeroNow applies (server truth restores arrivals).
-    act(() => {
-      result.current.refetch();
-    });
-    await waitFor(() => expect(result.current.count).toBe(6));
-    expect(result.current.degraded).toBe(false);
-  });
-
-  it("after zeroNow, prop VALUES never resurrect the count — props demote to fetch triggers (spec §7.2)", async () => {
-    // Codex final-review R5-R7: router.refresh() started BEFORE the open
-    // click can deliver the PRE-open server count as a new `initial` prop at
-    // ANY later time — including after the restoring onOpened refetch. The
-    // client cannot order a prop's server render against the open watermark,
-    // so post-zero an ok prop TRIGGERS a token-guarded count fetch (always
-    // post-open server truth) instead of committing its own value — keeping
-    // props as a freshness source when realtime is down (R7) without ever
-    // resurrecting a just-zeroed count. `degraded` stays synced directly.
-    let countCalls = 0;
-    fetchSpy.mockImplementation((url: string) => {
-      if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
-      if (url === "/api/admin/alerts/bell/count") {
-        countCalls += 1;
-        return Promise.resolve(okResponse({ count: 6 }));
-      }
-      return new Promise(() => {});
-    });
-
-    const { result, rerender } = renderBadgeHook({ kind: "ok", count: 3 });
-    expect(result.current.count).toBe(3);
-
-    act(() => {
-      result.current.zeroNow();
-    });
-    expect(result.current.count).toBe(0);
-
-    // Stale pre-open server render lands as a new prop object → its VALUE
-    // (3) must never paint; it triggers a fetch that resolves to server
-    // truth (6).
-    rerender({ value: { kind: "ok", count: 3 } });
-    expect(result.current.count).toBe(0); // synchronous: value not committed
-    await waitFor(() => expect(result.current.count).toBe(6)); // fetch truth
-    expect(result.current.degraded).toBe(false);
-
-    // A pre-open prop landing even AFTER the restore still never paints its
-    // value (R6) — it re-triggers a fetch (server truth again).
-    rerender({ value: { kind: "ok", count: 7 } });
-    expect(result.current.count).toBe(6);
-    await waitFor(() =>
-      expect(
-        fetchSpy.mock.calls.filter((call) => call[0] === "/api/admin/alerts/bell/count"),
-      ).toHaveLength(2),
-    );
-    await waitFor(() => expect(result.current.count).toBe(6));
-    // infra_error prop syncs degraded directly, count untouched.
-    rerender({ value: { kind: "infra_error" } });
-    expect(result.current.degraded).toBe(true);
-    expect(result.current.count).toBe(6);
-  });
-
-  it("realtime-failed mode: a post-zero same-route refresh prop still refreshes the badge via fetch (R7)", async () => {
-    // Realtime is best-effort and may be dead for the mount; router.refresh()
-    // props must remain a freshness source post-zero. The prop triggers a
-    // count fetch whose response (post-open server truth) commits.
-    let countValue = 4;
-    fetchSpy.mockImplementation((url: string) => {
-      if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
-      if (url === "/api/admin/alerts/bell/count") {
-        return Promise.resolve(okResponse({ count: countValue }));
-      }
-      return new Promise(() => {});
-    });
-
-    const { result, rerender } = renderBadgeHook({ kind: "ok", count: 2 });
-    act(() => {
-      result.current.zeroNow();
-    });
-    expect(result.current.count).toBe(0);
-
-    // A new alert lands server-side; a same-route router.refresh() re-render
-    // delivers a fresh prop. Its value is untrusted, but the fetch it
-    // triggers returns the live count.
-    countValue = 4;
-    rerender({ value: { kind: "ok", count: 4 } });
-    await waitFor(() => expect(result.current.count).toBe(4));
-    expect(result.current.degraded).toBe(false);
-  });
-
-  it("a stale prop landing while the post-zero restoring refetch is in flight cannot strand the badge (R6/R7)", async () => {
-    // A stale prop mid-restore supersedes the in-flight fetch with a NEWER
-    // fetch (both are server truth; the newest token wins). The stale prop
-    // VALUE never paints and the badge always converges on a fetch response.
-    const resolvers: Array<(value: unknown) => void> = [];
-    fetchSpy.mockImplementation((url: string) => {
-      if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
-      if (url === "/api/admin/alerts/bell/count") {
+        fetchSignal = init?.signal;
         return new Promise((resolve) => {
-          resolvers.push(resolve);
+          resolveFetch = resolve;
         });
       }
       return new Promise(() => {});
     });
-
     const { result, rerender } = renderBadgeHook({ kind: "ok", count: 3 });
 
     act(() => {
-      result.current.zeroNow();
+      result.current.refetch();
     });
-    act(() => {
-      result.current.refetch(); // the onOpened restoring fetch (deferred, fetch #1)
-    });
+    rerender({ value: { kind: "ok", count: 5 } });
+    expect(result.current.count).toBe(5);
+    expect(fetchSignal?.aborted).toBe(true);
 
-    // Stale pre-open prop lands mid-flight → triggers fetch #2 (newer token).
-    rerender({ value: { kind: "ok", count: 3 } });
-    expect(result.current.count).toBe(0);
-    await waitFor(() => expect(resolvers).toHaveLength(2));
-
-    // The superseded restore resolving late is discarded; fetch #2 commits.
-    resolvers[0]!(okResponse({ count: 9 }));
+    resolveFetch(okResponse({ count: 9 }));
     await new Promise((r) => setTimeout(r, 0));
-    expect(result.current.count).toBe(0);
-    resolvers[1]!(okResponse({ count: 5 }));
-    await waitFor(() => expect(result.current.count).toBe(5));
-    expect(result.current.degraded).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(result.current.count).toBe(5);
   });
 
   it("mounts the realtime channel once via token POST + subscribeToBell, and onChanged triggers a refetch", async () => {

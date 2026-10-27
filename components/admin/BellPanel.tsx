@@ -13,9 +13,13 @@
  * On mount the panel fetches `/bell/feed`, renders, and THEN POSTs `/bell/open`
  * with the response's `seenThrough` (spec §7.2 snapshot safety — the watermark
  * advances only to the snapshot the viewer actually saw; the stamp is SERVER
- * truth, never client `Date.now()`). The open POST is fail-quiet and, once it
- * settles, calls `onOpened()` so the badge refetches to server truth. Order is
+ * truth, never client `Date.now()`). The open POST is fail-quiet. Order is
  * load-bearing: open must never fire before the feed resolves.
+ *
+ * Badge count: the badge counts active rows still marked unread, so opening the
+ * panel leaves it alone. `onCountStale()` asks the badge to refetch; the panel
+ * calls it after every successful feed load (mount, retry, ping, resolve, save)
+ * and after every `/bell/read` POST settles, so a read or resolved row drops out.
  *
  * Task 14 — the interaction layer on the active rows:
  *   - Resolve: a fetch POST to the EXISTING resolve routes (global
@@ -878,12 +882,13 @@ function DevFooter({
 export function BellPanel({
   viewerIsDeveloper,
   onClose,
-  onOpened,
+  onCountStale,
   pingSignal,
 }: {
   viewerIsDeveloper: boolean;
   onClose: () => void;
-  onOpened: () => void;
+  // The badge count may have changed: refetch it.
+  onCountStale: () => void;
   // Monotonic realtime-ping counter from useBellBadge (spec §5.4). Each advance
   // is a `changed` push while the panel is OPEN → refetch the feed in place.
   // Optional so direct-render harnesses (and the closed-panel case) can omit it.
@@ -974,8 +979,7 @@ export function BellPanel({
       }
 
       // Snapshot-safe open: stamp the watermark to exactly the snapshot the viewer
-      // saw, THEN refetch the badge. Fail-quiet — a failed open never breaks the
-      // rendered panel; the badge simply keeps its last-known value.
+      // saw. Fail-quiet — a failed open never breaks the rendered panel.
       if (openedForRef.current !== body.seenThrough) {
         openedForRef.current = body.seenThrough;
         try {
@@ -987,10 +991,12 @@ export function BellPanel({
         } catch {
           // fail-quiet (spec §7.2)
         }
-        onOpened();
       }
+      // Every load, not only a new snapshot: a resolve refetch keeps the same
+      // seenThrough but can still drop a row from the count.
+      onCountStale();
     },
-    [onOpened],
+    [onCountStale],
   );
 
   // Fires the `/bell/read` POST once with the SERVER activityAt and clears the
@@ -999,23 +1005,29 @@ export function BellPanel({
   // and mark-all-read (no per-row navigation side effect either way — no
   // panel-jump / state clobber). Fail-quiet (spec §4): a failed POST leaves the
   // marker cleared for the session; the readFiredRef guard keeps it at exactly
-  // once per row.
-  const markRead = useCallback((entry: BellEntry) => {
-    if (readFiredRef.current.has(entry.alertId)) return;
-    readFiredRef.current.add(entry.alertId);
-    setReadClearedIds((prev) => new Set(prev).add(entry.alertId));
-    void (async () => {
-      try {
-        await fetch(READ_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ alertId: entry.alertId, seenActivityAt: entry.activityAt }),
-        });
-      } catch {
-        // fail-quiet: the dot stays cleared this session (spec §4)
-      }
-    })();
-  }, []);
+  // once per row. Once the POST settles either way, the badge refetches so the
+  // read row leaves the count.
+  const markRead = useCallback(
+    (entry: BellEntry) => {
+      if (readFiredRef.current.has(entry.alertId)) return;
+      readFiredRef.current.add(entry.alertId);
+      setReadClearedIds((prev) => new Set(prev).add(entry.alertId));
+      void (async () => {
+        try {
+          await fetch(READ_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ alertId: entry.alertId, seenActivityAt: entry.activityAt }),
+          });
+        } catch {
+          // fail-quiet: the dot stays cleared this session (spec §4)
+        } finally {
+          onCountStale();
+        }
+      })();
+    },
+    [onCountStale],
+  );
 
   // Mount-once load + unmount invalidation (R4 Finding 1). didLoadRef keeps the
   // load (and its exactly-once open POST) from double-firing within a live

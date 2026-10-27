@@ -45,9 +45,6 @@ export type UseBellBadgeResult = {
   count: number | null;
   degraded: boolean;
   refetch: () => void;
-  // Zero the badge count immediately client-side on the open gesture (spec
-  // §7.2). Does not touch `degraded`; a later refetch restores server truth.
-  zeroNow: () => void;
   // Monotonic counter bumped on every realtime `changed` push (spec §5.4 —
   // "and the feed too, if the panel is open"). An open BellPanel watches this
   // and refetches its feed when it advances; the count refetch below is the
@@ -77,17 +74,6 @@ export function useBellBadge(
   // first-run flag, because StrictMode replays mount effects and a replay is
   // not a prop change.
   const lastPropRef = useRef(initial);
-  // Set by the FIRST zeroNow() open gesture and never cleared for the rest
-  // of the mount. While set, props DEMOTE from count VALUES to fetch
-  // TRIGGERS: a router.refresh() that started BEFORE the open click can
-  // deliver the pre-open count as a fresh prop object at ANY later time
-  // (even after the restoring onOpened refetch — Codex final-review R5-R7),
-  // and the client cannot order a prop's server render against the open
-  // watermark. A count FETCH issued on prop arrival, however, is always
-  // post-open server truth — so the prop keeps its role as a freshness
-  // source (covering realtime-failed mode, R7) without ever being able to
-  // resurrect a just-zeroed count. `degraded` stays prop-synced directly.
-  const zeroedRef = useRef(false);
 
   // Shared fetch core for sources 3 (pathname) and 4 (realtime ping), and
   // the externally-exposed `refetch`. Race-safe via the same monotonic
@@ -125,55 +111,21 @@ export function useBellBadge(
     runFetch();
   }, [runFetch]);
 
-  // Immediate-zero-on-open (spec §7.2 — "the numeric badge zeroes immediately
-  // client-side; a later /bell/count refresh restores any post-snapshot
-  // arrivals"). Zeroes the count WITHOUT touching `degraded` (a stale-data
-  // affordance is orthogonal to the seen watermark) and WITHOUT tearing down
-  // the refetch machinery. Bumps the same monotonic token every source guards
-  // on (and aborts the in-flight request) so a count response that started
-  // BEFORE the open gesture cannot resurrect the badge; a `refetch()`
-  // started AFTER this claims a newer token and legitimately restores
-  // server truth (the panel's `onOpened={refetch}` is exactly that path).
-  // Props stop committing `count` from here on — see `zeroedRef`.
-  const zeroNow = useCallback(() => {
+  // The ONE commit path for prop-delivered values (synchronous prop AND
+  // resolved seed). Commits "newest server truth wins". An infra_error prop
+  // marks degraded but leaves `count` untouched (keeps last-known; see file
+  // header deviation note).
+  const ingestPropValue = useCallback((value: BellCountResult) => {
+    claimedRef.current = true;
     tokenRef.current += 1;
     abortRef.current?.abort();
-    zeroedRef.current = true;
-    claimedRef.current = true;
-    setCount(0);
+    if (value.kind === "ok") {
+      setCount(value.count);
+      setDegraded(false);
+    } else {
+      setDegraded(true);
+    }
   }, []);
-
-  // The ONE commit path for prop-delivered values (synchronous prop AND
-  // resolved seed). Commits "newest server truth wins" — until the first
-  // zeroNow() gesture, after which props no longer commit `count`. An
-  // infra_error prop marks degraded but leaves `count` untouched (keeps
-  // last-known; see file header deviation note).
-  const ingestPropValue = useCallback(
-    (value: BellCountResult) => {
-      claimedRef.current = true;
-      if (zeroedRef.current) {
-        // Post-open: the prop's VALUE never commits (unorderable vs the open
-        // watermark, R5/R6); instead an `ok` prop TRIGGERS a token-guarded
-        // count fetch so same-route router.refresh() still refreshes the badge
-        // when realtime is down (R7). An infra_error prop only syncs degraded.
-        if (value.kind === "ok") {
-          runFetch();
-        } else {
-          setDegraded(true);
-        }
-        return;
-      }
-      tokenRef.current += 1;
-      abortRef.current?.abort();
-      if (value.kind === "ok") {
-        setCount(value.count);
-        setDegraded(false);
-      } else {
-        setDegraded(true);
-      }
-    },
-    [runFetch],
-  );
 
   // Source 1/2: initial prop + prop changes (router.refresh path).
   useEffect(() => {
@@ -204,9 +156,9 @@ export function useBellBadge(
       }
       if (claimedRef.current) {
         // Non-virgin: the seed is stale by the time it arrives. The bell's
-        // stale-value posture is DEMOTE-to-fresh-fetch (never a direct paint),
-        // matching its post-zero prop contract — a fetch issued now is always
-        // newer than the seed, so server truth lands instead of the snapshot.
+        // stale-value posture is DEMOTE-to-fresh-fetch (never a direct paint):
+        // a fetch issued now is always newer than the seed, so server truth
+        // lands instead of the snapshot.
         runFetch();
         return;
       }
@@ -294,5 +246,5 @@ export function useBellBadge(
     };
   }, [refetch]);
 
-  return { count, degraded, refetch, zeroNow, pingSignal };
+  return { count, degraded, refetch, pingSignal };
 }

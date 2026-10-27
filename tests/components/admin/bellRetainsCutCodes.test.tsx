@@ -96,10 +96,10 @@ describe("the bell still renders the codes cut from the modal", () => {
     const entries = CUT_FROM_MODAL.map((code, i) => entryFor(code, `cut-${i + 1}`));
     fetchMock.mockResolvedValue(jsonOk(feedBody(entries)));
 
-    // Every required prop supplied: an omitted `onOpened` throws asynchronously
+    // Every required prop supplied: an omitted `onCountStale` throws asynchronously
     // AFTER the assertions pass, which vitest reports as an unhandled rejection
     // and a non-zero exit while the Tests line still reads all-green.
-    render(<BellPanel viewerIsDeveloper={false} onClose={() => {}} onOpened={() => {}} />);
+    render(<BellPanel viewerIsDeveloper={false} onClose={() => {}} onCountStale={() => {}} />);
 
     for (let i = 0; i < CUT_FROM_MODAL.length; i += 1) {
       const el = await screen.findByTestId(`bell-entry-cut-${i + 1}`);
