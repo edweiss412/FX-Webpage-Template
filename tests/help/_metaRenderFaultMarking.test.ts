@@ -492,7 +492,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same `tile-errors` row, still marked (the guard reads
     // `budgetFetchFailed(data.tileErrors, ctx)`). Nothing joined or left: membership is
     // still 34, and reverting that one row reproduces 6f5d45e2... byte-for-byte.
-    expect(digest).toBe("d385077ba51b9100d99822d1ebfd5d16daceb4a6f24956e1b337638f6ef48096");
+    // Regenerated for the crew search Crew section task (Task 7), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/CrewSection.tsx 146 -> 134 (-12: the caps, the
+    //   fallback label and the per-row person assembly moved to crewRows.ts above it)
+    // Same `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still marked.
+    // Nothing joined or left: membership is still 34, and reverting that one row
+    // reproduces d385077b... byte-for-byte.
+    expect(digest).toBe("38ef2727788c7524b62a20af714af5219df490570a74c0f1b4ca9ca8689548e6");
   });
 });
 

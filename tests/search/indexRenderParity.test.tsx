@@ -28,6 +28,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import * as budgetRowsModule from "@/components/crew/sections/budgetRows";
+import * as crewRowsModule from "@/components/crew/sections/crewRows";
+import { contactFallbackLabel } from "@/components/crew/sections/crewRows";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
@@ -37,6 +39,7 @@ import { TravelSection } from "@/components/crew/sections/TravelSection";
 import * as travelRows from "@/components/crew/sections/travelRows";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
+import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
@@ -763,6 +766,203 @@ describe("budget", () => {
     );
     const calls = spy.mock.calls.length;
     const entries = build("budget", leadWithFinancials);
+    premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
+    expect(entries).toEqual([]);
+    expect(assertParity(root, entries)).toEqual([]);
+  });
+});
+
+// ── crew ─────────────────────────────────────────────────────────────────────
+
+describe("crew", () => {
+  const ROSTER = "Show crew";
+  const CONTACTS = "Key contacts";
+  const inGroup = (es: readonly SearchEntry[], group: string) =>
+    es.filter((e) => e.group === group);
+
+  /**
+   * Alternate identity forms the shared matrix never renders: a roster member
+   * with a blank name (the role is the whole identity line), one named with a
+   * sentinel (rendered verbatim: crew names are not sentinel-guarded), a
+   * nameless contact reachable by email (the fallback label is its heading), a
+   * sentinel-named contact with a phone, and a contact with nothing actionable
+   * (PersonRow renders nothing, notes included).
+   */
+  const alternates = variant(fullContent, "crewAlternateRows", (d) => ({
+    ...d,
+    crewMembers: [
+      ...d.crewMembers,
+      { ...d.crewMembers[0]!, id: "crew-blank", name: "   ", role: "Stagehand", roleFlags: [] },
+      { ...d.crewMembers[0]!, id: "crew-tbd", name: "TBD", role: "TBD", roleFlags: [] },
+    ],
+    contacts: [
+      ...d.contacts,
+      {
+        kind: "in_house_av",
+        name: null,
+        email: "av@venue.example",
+        phone: null,
+        notes: "Ask at the AV office",
+      },
+      { kind: "venue", name: "N/A", email: null, phone: "555-0199", notes: null },
+      { kind: "venue", name: null, email: null, phone: "TBD", notes: "Unreachable note" },
+    ],
+  }));
+  /** An admin viewer whose contacts fetch failed: the error block renders above both columns. */
+  const contactsFailed = variant(adminViewer, "crewContactsFailed", (d) => ({
+    ...d,
+    tileErrors: { ...d.tileErrors, contacts: "boom" },
+    contacts: fullContent.data.contacts,
+  }));
+  /** No crew and no contacts: the section-level empty state. */
+  const bothEmpty = variant(adminViewer, "crewBothEmpty", (d) => ({
+    ...d,
+    crewMembers: [],
+    contacts: [],
+  }));
+  const cases = [...ALL_CASES, alternates, contactsFailed, bothEmpty];
+
+  const has = (root: HTMLElement, selector: string) => root.querySelector(selector) !== null;
+  const PREMISES: Record<string, (root: HTMLElement) => void> = {
+    overCaps: (root) =>
+      premiseHolds(
+        "overCaps renders both overflow stubs",
+        has(root, '[data-testid="crew-overflow-stub"]') &&
+          has(root, '[data-testid="contacts-overflow-stub"]'),
+      ),
+    todayOnlyLines: (root) =>
+      premiseHolds(
+        "todayOnlyLines drops its past-cap contact behind the stub",
+        has(root, '[data-testid="contacts-overflow-stub"]'),
+      ),
+    adminViewer: (root) =>
+      premiseHolds("adminViewer marks nobody as You", !has(root, "[data-you]")),
+    crewNoTransport: (root) =>
+      premiseHolds("a crew viewer sees the You chip", has(root, "[data-you]")),
+    fullContent: (root) =>
+      premiseHolds(
+        "fullContent renders a Lead chip and a contact note",
+        has(root, "[data-lead]") &&
+          fullContent.data.contacts.some(
+            (k) => k.notes !== null && (root.textContent ?? "").includes(k.notes),
+          ),
+      ),
+    dateSuppressed: (root) =>
+      premiseHolds("dateSuppressed renders a partial-attendance chip", has(root, "[data-partial]")),
+    crewAlternateRows: (root) => {
+      const text = root.textContent ?? "";
+      premiseHolds(
+        "crewAlternateRows renders the fallback label, the role-only line and the TBD name",
+        text.includes(contactFallbackLabel("in_house_av")) &&
+          text.includes("Stagehand") &&
+          text.includes("TBD"),
+      );
+      premiseHolds(
+        "crewAlternateRows drops the contact with nothing actionable, notes included",
+        !text.includes("Unreachable note"),
+      );
+    },
+    crewContactsFailed: (root) =>
+      premiseHolds(
+        "crewContactsFailed renders the error block and the contacts column",
+        has(root, '[data-testid="section-tile-error-contacts"]') &&
+          has(root, '[data-card-id="crew-contacts"]'),
+      ),
+    crewBothEmpty: (root) =>
+      premiseHolds(
+        "crewBothEmpty renders the empty state",
+        has(root, '[data-testid="section-empty"]'),
+      ),
+  };
+  const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
+    premiseHolds(`${c.name} renders the roster`, has(root, '[data-card-id="crew-roster"]'));
+
+  test.each(cases.map((c) => [c.name, c] as const))("parity: %s", (_name, c) => {
+    const root = renderSection("crew", c);
+    (PREMISES[c.name] ?? defaultPremise(c))(root);
+    expect(assertParity(root, build("crew", c))).toEqual([]);
+  });
+
+  const viewerPartial = partialAttendanceLabel(
+    resolveViewerContext(dateSuppressed.viewer, dateSuppressed.data).viewerCrew!.dateRestriction,
+    { humanize: true },
+  );
+  const LINE_KINDS: LineKind[] = [
+    {
+      kind: "C1 roster identity",
+      caseName: "fullContent",
+      present: (es) =>
+        inGroup(es, ROSTER).some((e) =>
+          fullContent.data.crewMembers.some((m) => m.name === e.value),
+        ),
+    },
+    {
+      kind: "C1 You chip",
+      caseName: "crewNoTransport",
+      present: (es) => inGroup(es, ROSTER).some((e) => e.context.includes("You")),
+    },
+    {
+      kind: "C1 Lead chip",
+      caseName: "fullContent",
+      present: (es) => inGroup(es, ROSTER).some((e) => e.context.includes("Lead")),
+    },
+    {
+      kind: "C1 partial attendance",
+      caseName: "dateSuppressed",
+      present: (es) =>
+        viewerPartial !== null &&
+        inGroup(es, ROSTER).some((e) => e.context.includes(viewerPartial)),
+    },
+    {
+      kind: "C1 role-only identity",
+      caseName: "crewAlternateRows",
+      present: (es) => inGroup(es, ROSTER).some((e) => e.value === "Stagehand"),
+    },
+    {
+      kind: "C2 contact name",
+      caseName: "fullContent",
+      present: (es) =>
+        inGroup(es, CONTACTS).some((e) =>
+          fullContent.data.contacts.some((k) => k.name === e.value),
+        ),
+    },
+    {
+      kind: "C2 contact fallback label",
+      caseName: "crewAlternateRows",
+      present: (es) =>
+        inGroup(es, CONTACTS).some((e) => e.value === contactFallbackLabel("in_house_av")),
+    },
+    {
+      kind: "C3 contact notes",
+      caseName: "fullContent",
+      present: (es) =>
+        inGroup(es, CONTACTS).some((e) =>
+          fullContent.data.contacts.some((k) => k.notes === e.value),
+        ),
+    },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
+    const c = caseNamed(cases, kind.caseName);
+    expect(kind.present(build("crew", c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing roster derivation renders the fallback and indexes nothing", () => {
+    // The whole Crew body is one WrappedSection block, so "the other blocks'
+    // entries" is the empty set; the guard is what keeps the builder from
+    // throwing past it.
+    const spy = vi.spyOn(crewRowsModule, "rosterPersons").mockImplementation(() => {
+      throw new Error("planted crew roster fault");
+    });
+    const root = renderSection("crew", fullContent);
+    premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
+    premiseHolds(
+      "the section rendered its tile fallback",
+      has(root, '[data-testid="tile-error-fallback"]') &&
+        !has(root, '[data-card-id="crew-roster"]'),
+    );
+    const calls = spy.mock.calls.length;
+    const entries = build("crew", fullContent);
     premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
     expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);

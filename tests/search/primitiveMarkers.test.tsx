@@ -209,7 +209,30 @@ describe("PersonRow", () => {
       <PersonRow person={{ ...actionOnly, searchTarget: { identity: "t-x" } }} />,
     );
     expect(targets(container)).toHaveLength(0);
-    expect(container.innerHTML).toBe(plain);
+    // A search-target row marks its non-sheet text skip (the avatar initials and
+    // the call/email glyph group, spec §2.3 clause 5) and changes nothing else:
+    // the same bytes once exactly those two attributes are taken out.
+    const skips = [...container.querySelectorAll("[data-search-skip]")];
+    expect(
+      skips.map((el) => el.getAttribute("data-testid") ?? el.querySelector("a")?.tagName),
+    ).toEqual(["avatar", "A"]);
+    const SKIP_ATTR = ' data-search-skip=""';
+    expect(container.innerHTML.split(SKIP_ATTR)).toHaveLength(3);
+    expect(container.innerHTML.split(SKIP_ATTR).join("")).toBe(plain);
+  });
+
+  it("a search-target row marks the avatar and the action glyphs skip, a plain row does not", () => {
+    const plain = inList(<PersonRow person={PERSON} />);
+    expect(plain.querySelectorAll("[data-search-skip]")).toHaveLength(0);
+    cleanup();
+    const container = inList(<PersonRow person={{ ...PERSON, searchTarget: {} }} />);
+    const avatar = container.querySelector('[data-testid="avatar"]');
+    expect(avatar?.hasAttribute("data-search-skip")).toBe(true);
+    const glyphGroup = container.querySelector('a[href^="tel:"]')?.parentElement;
+    expect(glyphGroup?.hasAttribute("data-search-skip")).toBe(true);
+    expect(glyphGroup?.querySelector('a[href^="mailto:"]')).not.toBeNull();
+    // Nothing else is skipped: the name, chips, role and notes stay searchable text.
+    expect(container.querySelectorAll("[data-search-skip]")).toHaveLength(2);
   });
 
   it("a row with no identity and no action still renders nothing", () => {

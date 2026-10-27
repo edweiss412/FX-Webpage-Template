@@ -3,6 +3,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { SearchEntry } from "@/lib/search/types";
 
 import { buildBudgetEntries } from "./budget";
+import { buildCrewEntries } from "./crew";
 import { buildGearEntries } from "./gear";
 import { buildTravelEntries } from "./travel";
 
@@ -38,7 +39,7 @@ export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   schedule: notYetBuilt,
   venue: notYetBuilt,
   travel: buildTravelEntries,
-  crew: notYetBuilt,
+  crew: buildCrewEntries,
   gear: buildGearEntries,
   budget: buildBudgetEntries,
 };

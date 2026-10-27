@@ -342,8 +342,11 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/crew/SectionChipLink.tsx", line: 48 },
   // :196 and :213 until feat/crew-show-search-impl, which added the react import,
   // the `searchTarget` field and the `IdentityLine` wrapper tags above both anchors.
-  { file: "components/crew/primitives/PersonRow.tsx", line: 203 },
-  { file: "components/crew/primitives/PersonRow.tsx", line: 220 },
+  // :203 and :220 until feat/crew-show-search Task 7, which lifted the render
+  // predicate into the exported `personRowDisplay` / `personRowLines` above both.
+  // Same two `<a` tags (tel:, mailto:), located by tag, not by offset.
+  { file: "components/crew/primitives/PersonRow.tsx", line: 281 },
+  { file: "components/crew/primitives/PersonRow.tsx", line: 298 },
   { file: "components/layout/ThemeToggle.tsx", line: 92 },
   { file: "components/shared/ReportButton.tsx", line: 142 },
   { file: "components/shared/ReportModal.tsx", line: 675 },
