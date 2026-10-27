@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
 // object could satisfy a file-wide regex while the real call passes null).
 //
 // Today's call moved to its sibling rows module (todayRows.ts), which the section and
-// its search builder share; the Schedule search builder makes its own call, mirroring
-// the section's, so it is pinned the same way.
+// its search builder share; the Schedule and Travel search builders each make their own
+// call, mirroring their section's, so each is pinned the same way.
 const FILES: ReadonlyArray<{ name: string; file: string }> = [
   { name: "ScheduleSection", file: "components/crew/sections/ScheduleSection.tsx" },
   { name: "TodaySection", file: "components/crew/sections/todayRows.ts" },
@@ -19,6 +19,7 @@ const FILES: ReadonlyArray<{ name: string; file: string }> = [
   // which the search builder shares; the delegation itself is pinned below.
   { name: "VenueSection", file: "components/crew/sections/venueRows.ts" },
   { name: "Schedule search builder", file: "lib/search/sections/schedule.ts" },
+  { name: "Travel search builder", file: "lib/search/sections/travel.ts" },
 ];
 
 describe("transport tile gate is wired from data, not a stale literal", () => {
