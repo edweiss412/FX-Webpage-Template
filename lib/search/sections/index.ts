@@ -2,6 +2,7 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { SearchEntry } from "@/lib/search/types";
 
+import { buildBudgetEntries } from "./budget";
 import { buildGearEntries } from "./gear";
 import { buildTravelEntries } from "./travel";
 
@@ -39,5 +40,5 @@ export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   travel: buildTravelEntries,
   crew: notYetBuilt,
   gear: buildGearEntries,
-  budget: notYetBuilt,
+  budget: buildBudgetEntries,
 };

@@ -276,6 +276,10 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // tokenizer, no clock read. 223 -> 225.
     expect(rel).toContain("lib/search/entryId.ts");
     expect(rel).toContain("lib/search/normalize.ts");
+    // The crew search Budget section task (Task 6) reaches lib/search/entryId.ts
+    // too, depth-1 from components/crew/sections/budgetRows.ts, the Budget rows
+    // module BudgetSection renders from. Already a member through travelRows.ts,
+    // so nothing joins: 225 -> 225, re-derived on the merged tree.
     expect(rel.length).toBe(225);
   });
 

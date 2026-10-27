@@ -485,7 +485,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   discipline table and the row derivations move to sections/gearRows.ts)
     // The same rooms `tile-errors` row, still marked. Nothing joined or left: membership
     // is still 34, and reverting that row reproduces d2955fca... byte-for-byte.
-    expect(digest).toBe("6f5d45e280a0323dc4954b19349759c0045710fcbebc6810b0c616173ca7843b");
+    // Regenerated for the crew search Budget section task (Task 6), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/BudgetSection.tsx 77 -> 75 (-2: the row derivation
+    //   moved to budgetRows.ts, net two import/helper lines fewer above it)
+    // Same `tile-errors` row, still marked (the guard reads
+    // `budgetFetchFailed(data.tileErrors, ctx)`). Nothing joined or left: membership is
+    // still 34, and reverting that one row reproduces 6f5d45e2... byte-for-byte.
+    expect(digest).toBe("d385077ba51b9100d99822d1ebfd5d16daceb4a6f24956e1b337638f6ef48096");
   });
 });
 

@@ -25,18 +25,17 @@ import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
-import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
+import {
+  BUDGET_CARD_ID,
+  BUDGET_TITLE,
+  budgetFetchFailed,
+  budgetRows,
+} from "@/components/crew/sections/budgetRows";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
-import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
-
-/** Sentinel-guarded read of an optional financials field (§8.3 contract). */
-function shown(value: string | null): string {
-  return value != null && !shouldHideGenericOptional(value) ? value : "";
-}
 
 export function BudgetSection({
   data,
@@ -61,8 +60,7 @@ export function BudgetSection({
   // (gate false) sees a silent omission — no boundary widening. NO
   // upsertAdminAlert (the _CrewShell projection alert is the sole producer).
   const ctx = resolveViewerContext(viewer, data);
-  const financialsFetchFailed =
-    Boolean(data.tileErrors["financials"]) && financialsVisible(ctx.viewerFlags, ctx.isAdmin);
+  const financialsFetchFailed = budgetFetchFailed(data.tileErrors, ctx);
 
   // The rows transform is the section's throwable block — wrapped so a throw is
   // contained (fallback + TILE_SERVER_RENDER_FAILED upsert) instead of crashing
@@ -78,19 +76,11 @@ export function BudgetSection({
           return <SectionTileError domain="financials" />;
         }
 
-        const financials = data.financials;
-
-        // Every financials field is sentinel-guarded at the read site (§8.3); a
-        // blank or sentinel value yields "" → KeyValueRows omits that row, and an
-        // all-blank financials object collapses to zero rows → EmptyState.
-        const rows: KeyValueRow[] = financials
-          ? [
-              { k: "PO", v: shown(financials.po) },
-              { k: "Proposal", v: shown(financials.proposal) },
-              { k: "Invoice", v: shown(financials.invoice) },
-              { k: "Invoice notes", v: shown(financials.invoice_notes) },
-            ]
-          : [];
+        // Every financials field is sentinel-guarded at the read site (§8.3,
+        // budgetRows.ts); a blank or sentinel value yields "" → KeyValueRows
+        // omits that row, and an all-blank financials object collapses to zero
+        // rows → EmptyState. The search builder reads the same rows.
+        const rows = budgetRows(data.financials);
 
         const hasAny = rows.some((r) => r.v.length > 0);
 
@@ -103,14 +93,14 @@ export function BudgetSection({
         }
 
         return (
-          <div data-card-id="budget-main">
+          <div data-card-id={BUDGET_CARD_ID}>
             <SectionCard
-              title="Budget"
+              title={BUDGET_TITLE}
               action={
                 <CardHeaderActions
-                  cardId="budget-main"
+                  cardId={BUDGET_CARD_ID}
                   driveFileId={data.driveFileId}
-                  anchor={data.sourceAnchors[CARD_REGION_MAP["budget-main"]]}
+                  anchor={data.sourceAnchors[CARD_REGION_MAP[BUDGET_CARD_ID]]}
                   showId={showId}
                   cardReport={cardReport}
                 />

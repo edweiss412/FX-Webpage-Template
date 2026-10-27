@@ -5,29 +5,37 @@
  * an entry.
  *
  * For every matrix viewer that can open a section, the section renders with the
- * props `CrewShell` passes (_CrewShell.tsx `renderOne`), its entries come from
- * `SECTION_BUILDERS[<id>]` with the same inputs, and `assertParity` must report
- * nothing. Each section's block is `describe("<sectionId>", ...)`, so
- * `vitest -t <sectionId>` selects it. Inside a block:
+ * props `CrewShell` passes (_CrewShell.tsx `renderOne`; `shellProps`), its
+ * entries come from `SECTION_BUILDERS[<id>]` with the same inputs, and
+ * `assertParity` must report nothing. Each section's block is
+ * `describe("<sectionId>", ...)`, so `vitest -t <sectionId>` selects it. Inside
+ * a block:
  *
  * - premises: each case whose gate concerns this section proves, on its own
- *   render, that the gate actually flipped (tests/_shared/premise.ts);
+ *   render, that the gate actually flipped (tests/_shared/premise.ts), so a
+ *   fixture that drifts fails loudly;
  * - LINE_KINDS: one row per line kind the site inventory lists for the
  *   section, each asserting its case produces at least one entry of that kind,
  *   so a kind no case renders fails instead of passing parity vacuously;
- * - the error guard: one extracted derivation throws for both the component
- *   and the builder, and the section's fallback replaces exactly the entries
- *   that block owned.
+ * - the error guard (spec §2.4): one extracted derivation throws for both the
+ *   component and the builder, the section's fallback renders, and the
+ *   fallback replaces exactly the entries that block owned while parity holds.
  */
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render } from "@testing-library/react";
 import type { JSX } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { BudgetSection } from "@/components/crew/sections/BudgetSection";
+import * as budgetRowsModule from "@/components/crew/sections/budgetRows";
+import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
+import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
+import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import * as travelRows from "@/components/crew/sections/travelRows";
+import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
@@ -35,7 +43,7 @@ import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { SECTION_BUILDERS } from "@/lib/search/sections";
 import type { SearchEntry } from "@/lib/search/types";
-import { premiseHolds } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { assertParity } from "@/tests/search/_parity";
 import {
   ALL_CASES,
@@ -45,12 +53,29 @@ import {
   dateSuppressed,
   flightVisible,
   fullContent,
+  leadWithFinancials,
   type ViewerCase,
 } from "@/tests/search/_viewerMatrix";
 
-const SHOW_ID = "parity-show";
+const SHOW_ID = "33333333-3333-4333-8333-333333333333";
 
-afterEach(cleanup);
+beforeEach(() => {
+  // RightNowHero (inside Today) reads matchMedia on mount; jsdom has none.
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }),
+  );
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 /** The props `CrewShell` hands every section (_CrewShell.tsx `renderOne`). */
 function shellProps(c: ViewerCase) {
@@ -74,14 +99,40 @@ function renderRoot(node: JSX.Element): HTMLElement {
   return root;
 }
 
-/** Budget opens only when entitled; every base section opens for every viewer. */
+/** Renders one section by id with `shellProps`; returns the render container. */
+function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
+  const props = shellProps(c);
+  const byId: Record<SectionId, () => JSX.Element> = {
+    today: () => <TodaySection {...props} />,
+    schedule: () => <ScheduleSection {...props} />,
+    venue: () => <VenueSection {...props} />,
+    travel: () => <TravelSection {...props} />,
+    crew: () => <CrewSection {...props} />,
+    gear: () => <GearSection {...props} />,
+    budget: () => <BudgetSection {...props} />,
+  };
+  return render(byId[id]()).container;
+}
+
+function build(id: SectionId, c: ViewerCase): SearchEntry[] {
+  return SECTION_BUILDERS[id](c);
+}
+
+/** `CrewShell` renders Budget only for an entitled viewer; every base section for everyone. */
 function canOpen(id: SectionId, c: ViewerCase): boolean {
   return (BASE_SECTION_IDS as readonly SectionId[]).includes(id) || c.budgetVisible;
 }
 
-/** A matrix case with different data, for a line kind no shared case renders. */
-function variant(c: ViewerCase, name: string, data: ShowForViewer): ViewerCase {
-  return { ...c, name, data };
+/**
+ * A matrix case with different data, for a line kind or branch no shared case
+ * reaches. `data` is the replacement show, or a function of the case's own.
+ */
+function variant(
+  c: ViewerCase,
+  name: string,
+  data: ShowForViewer | ((d: ShowForViewer) => ShowForViewer),
+): ViewerCase {
+  return { ...c, name, data: typeof data === "function" ? data(c.data) : data };
 }
 
 function byTestIds(root: ParentNode, id: string): Element[] {
@@ -95,6 +146,12 @@ type LineKind = {
   caseName: string;
   present: (entries: readonly SearchEntry[], c: ViewerCase) => boolean;
 };
+
+function caseNamed(cases: readonly ViewerCase[], name: string): ViewerCase {
+  const c = cases.find((x) => x.name === name);
+  if (c === undefined) throw new Error(`no case named ${name}`);
+  return c;
+}
 
 // ── travel ───────────────────────────────────────────────────────────────────
 
@@ -594,5 +651,120 @@ describe("gear", () => {
     const entries = SECTION_BUILDERS.gear(gearFallbacks);
     expect(entries.some((e) => /^Case \d+$/.test(e.value))).toBe(false);
     expect(entries.some((e) => e.value.includes("Spare batteries"))).toBe(true);
+  });
+});
+
+// ── budget ───────────────────────────────────────────────────────────────────
+
+describe("budget", () => {
+  const entitled = ALL_CASES.filter((c) => canOpen("budget", c));
+  const notEntitled = ALL_CASES.filter((c) => !canOpen("budget", c));
+
+  /** Financials present but every field a sentinel or blank: the section shows its empty state. */
+  const allBlank = variant(leadWithFinancials, "budgetAllBlank", (d) => ({
+    ...d,
+    financials: { po: "TBD", proposal: "", invoice: "N/A", invoice_notes: null },
+  }));
+  /** A financials fetch failure for an entitled viewer: the section shows its error block. */
+  const fetchFailed = variant(adminViewer, "budgetFetchFailed", (d) => ({
+    ...d,
+    tileErrors: { ...d.tileErrors, financials: "boom" },
+  }));
+  /** One field blank: its row is omitted and the others render. */
+  const oneBlank = variant(leadWithFinancials, "budgetOneBlank", (d) => ({
+    ...d,
+    financials: { ...d.financials!, proposal: "TBA" },
+  }));
+  const local = [allBlank, fetchFailed, oneBlank];
+  const cases = [...entitled, ...local];
+
+  const PREMISES: Record<string, (root: HTMLElement) => void> = {
+    budgetAllBlank: (root) =>
+      premiseHolds(
+        "budgetAllBlank renders the empty state, not the card",
+        root.querySelector('[data-testid="section-empty"]') !== null &&
+          root.querySelector('[data-card-id="budget-main"]') === null,
+      ),
+    budgetFetchFailed: (root) =>
+      premiseHolds(
+        "budgetFetchFailed renders the error block, not the card",
+        root.querySelector('[data-testid="section-tile-error-financials"]') !== null &&
+          root.querySelector('[data-card-id="budget-main"]') === null,
+      ),
+    budgetOneBlank: (root) =>
+      premise(
+        "budgetOneBlank renders the other three rows",
+        root.querySelectorAll('[data-card-id="budget-main"] dt').length,
+        2,
+      ),
+  };
+  const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
+    premiseHolds(
+      `${c.name} renders the Budget card`,
+      root.querySelector('[data-card-id="budget-main"]') !== null,
+    );
+
+  test("the matrix reaches both sides of the entitlement gate", () => {
+    premise("entitled matrix cases", entitled.length, 0);
+    premise("non-entitled matrix cases", notEntitled.length, 0);
+  });
+
+  test.each(cases.map((c) => [c.name, c] as const))("parity: %s", (_name, c) => {
+    const root = renderSection("budget", c);
+    (PREMISES[c.name] ?? defaultPremise(c))(root);
+    expect(assertParity(root, build("budget", c))).toEqual([]);
+  });
+
+  test("a viewer the shell does not render Budget for gets no Budget entries", () => {
+    for (const c of notEntitled) expect(build("budget", c), c.name).toEqual([]);
+  });
+
+  const LINE_KINDS: LineKind[] = [
+    {
+      kind: "B1 PO",
+      caseName: "leadWithFinancials",
+      present: (es) => es.some((e) => e.label === "PO"),
+    },
+    {
+      kind: "B2 Proposal",
+      caseName: "leadWithFinancials",
+      present: (es) => es.some((e) => e.label === "Proposal"),
+    },
+    {
+      kind: "B3 Invoice",
+      caseName: "leadWithFinancials",
+      present: (es) => es.some((e) => e.label === "Invoice"),
+    },
+    {
+      kind: "B4 Invoice notes",
+      caseName: "leadWithFinancials",
+      present: (es) => es.some((e) => e.label === "Invoice notes"),
+    },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
+    const c = caseNamed(cases, kind.caseName);
+    expect(kind.present(build("budget", c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing row derivation renders the fallback and indexes nothing", () => {
+    // The whole Budget body is one WrappedSection block, so "the other blocks'
+    // entries" is the empty set; the guard is what keeps the builder from
+    // throwing past it.
+    const spy = vi.spyOn(budgetRowsModule, "budgetRows").mockImplementation(() => {
+      throw new Error("planted budget rows fault");
+    });
+    const root = renderSection("budget", leadWithFinancials);
+    premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
+    premiseHolds(
+      "the section rendered its tile fallback",
+      root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
+        root.querySelector('[data-card-id="budget-main"]') === null,
+    );
+    const calls = spy.mock.calls.length;
+    const entries = build("budget", leadWithFinancials);
+    premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
+    expect(entries).toEqual([]);
+    expect(assertParity(root, entries)).toEqual([]);
   });
 });
