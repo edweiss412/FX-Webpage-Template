@@ -1139,23 +1139,22 @@ details[open] > summary [data-agenda-day-count] {
    REVEAL_HIGHLIGHT_MS (1600ms; keep in sync with components/crew/CrewSections.tsx,
    which removes the attribute, and with it the ring, when the fade ends).
    Reduced motion: tint and ring hold without fading for
-   REVEAL_HIGHLIGHT_REDUCED_MS (2000ms) and go with the attribute. The ring
-   follows the line's own corners; it overrides the :focus-visible ring while
-   the cue runs, since the line has just been focused. */
+   REVEAL_HIGHLIGHT_REDUCED_MS (2000ms) and go with the attribute. The cue sets
+   no radius, so the ring follows the line's own corners; and the keyframe has
+   no end frame, so the tint fades to the line's own fill rather than to
+   transparent and a filled line does not pop back when the attribute goes. The
+   ring overrides the :focus-visible ring while the cue runs, since the line has
+   just been focused. */
 @keyframes search-reveal-flash {
   0%,
   50% {
     background-color: var(--color-warning-bg);
-  }
-  to {
-    background-color: transparent;
   }
 }
 [data-search-reveal] {
   animation: search-reveal-flash 1600ms var(--ease-out-quart);
   outline: 2px solid var(--color-warning-text);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
 }
 @media (prefers-reduced-motion: reduce) {
   [data-search-reveal] {
@@ -1163,7 +1162,6 @@ details[open] > summary [data-agenda-day-count] {
     background-color: var(--color-warning-bg);
     outline: 2px solid var(--color-warning-text);
     outline-offset: 2px;
-    border-radius: var(--radius-sm);
   }
 }
 

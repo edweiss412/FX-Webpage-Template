@@ -94,6 +94,24 @@ describe("crew search reveal cue (spec §6.6)", () => {
     expect(reduced).toBeDefined();
   });
 
+  // Round-2 gate R2-U1 / R2-A5: a radius on the cue replaced the line's own
+  // corners (a 12px day card shrank to 6px for the window, then snapped back),
+  // and an explicit transparent end frame faded a filled line to nothing before
+  // its fill snapped back. The cue keeps the line's shape and fades to its fill.
+  it("keeps the line's own corners in every motion mode", () => {
+    for (const rule of [base, reduced]) {
+      expect(rule).toBeDefined();
+      expect(rule!.body).not.toMatch(/border-radius/);
+    }
+  });
+
+  it("fades to the line's own fill, not to transparent", () => {
+    const frames = blockAt("@keyframes search-reveal-flash").body;
+    expect(frames).toMatch(/background-color\s*:\s*var\(--color-warning-bg\)/);
+    expect(frames).not.toMatch(/transparent/);
+    expect(frames).not.toMatch(/(^|[\s}])(to|100%)\s*\{/);
+  });
+
   it("holds the tint at full strength through at least half the window", () => {
     const frames = blockAt("@keyframes search-reveal-flash").body;
     // Each keyframe selector list that sets the full warning-bg tint.
