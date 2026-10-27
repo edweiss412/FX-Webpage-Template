@@ -194,7 +194,7 @@ Command (script kept at the arc's scratchpad; reproduced in full in Task 18 so t
 Output 2026-10-26 (`TOTAL 30`):
 
 ```
-tests/help/_metaRenderFaultMarking.test.ts | UseRawControl.tsx:433 | if (state === "legacy-unavailable") {
+tests/help/_metaRenderFaultMarking.test.ts | UseRawControl.tsx:428 | if (state === "legacy-unavailable") {
 tests/styles/_metaControlOutlineResidue.test.ts | step3ReviewSections.tsx:2500 | <span className="shrink-0 rounded-pill border border-border bg-surface
 tests/styles/controlOutlineScan.ts | ShowReviewSurface.tsx:1025 | <button
 tests/styles/controlOutlineScan.ts | ShowReviewSurface.tsx:844 | <button
@@ -214,9 +214,9 @@ tests/styles/forcedColorsCensus.ts | ShowReviewSurface.tsx:951 | <span
 tests/styles/forcedColorsCensus.ts | Step3ReviewModal.tsx:590 | <button
 tests/styles/forcedColorsCensus.ts | Step3ReviewModal.tsx:662 | <span
 tests/styles/forcedColorsCensus.ts | Step3ReviewModal.tsx:729 | <ChevronDown
-tests/styles/forcedColorsCensus.ts | UseRawControl.tsx:334 | <button
-tests/styles/forcedColorsCensus.ts | UseRawControl.tsx:360 | <span
-tests/styles/forcedColorsCensus.ts | UseRawControl.tsx:372 | <span className={`text-xs font-semibold ${checked ? "text-text-strong"
+tests/styles/forcedColorsCensus.ts | UseRawControl.tsx:329 | <button
+tests/styles/forcedColorsCensus.ts | UseRawControl.tsx:355 | <span
+tests/styles/forcedColorsCensus.ts | UseRawControl.tsx:367 | <span className={`text-xs font-semibold ${checked ? "text-text-strong"
 tests/styles/subtleInteractiveExemptions.ts | sectionWarningExtras.tsx:285 | <summary
 tests/styles/subtleInteractiveExemptions.ts | step3ReviewSections.tsx:1692 | <summary className="flex min-h-tap-min cursor-pointer list-none items-
 tests/styles/subtleInteractiveExemptions.ts | step3ReviewSections.tsx:3511 | <summary
@@ -235,7 +235,7 @@ Dispositions (applied by the task whose edit moves the row, by element identity,
 
 The baseline run of all ten census and count-pin suites on this tip was green (`10 passed, 644 tests`), so any red after Task 18 is this arc's.
 
-**Two registries §16.3 does not list, found by this sweep:** `tests/help/_metaRenderFaultMarking.test.ts` (`UseRawControl.tsx:433`, edited by Tasks 4, 10, 14) and the inline census in `tests/styles/_metaControlOutlineResidue.test.ts` (`step3ReviewSections.tsx:2500`, shifted by Tasks 7, 8, 12, 13, 16, 17). Both are reconciled per task (table below).
+**Two registries §16.3 does not list, found by this sweep:** `tests/help/_metaRenderFaultMarking.test.ts` (`UseRawControl.tsx:428`, edited by Tasks 4, 10, 14) and the inline census in `tests/styles/_metaControlOutlineResidue.test.ts` (`step3ReviewSections.tsx:2500`, shifted by Tasks 7, 8, 12, 13, 16, 17). Both are reconciled per task (table below).
 
 ### S1b. Registry reconciliation per task (derived: S1 rows in the files each task edits, plus the count registries keyed by those files and the new-file probe)
 

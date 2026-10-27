@@ -6,14 +6,14 @@ Read 00-overview.md first. Task 14 is the transition-audit task; it pastes spec 
 
 ## Task 10 — Read-only "Sheet says / We read" comparison
 
-<!-- task: red=`pnpm exec vitest run tests/components/UseRawControl.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:444` why=`the disabled branch starting on this line renders only the DISABLED_REASON sentence, so the new inline guest split cases expecting a use-raw-reading grid with Sheet says and We read above that sentence fail until the branch renders the comparison` ac=AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/components/UseRawControl.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:439` why=`the disabled branch starting on this line renders only the DISABLED_REASON sentence, so the new inline guest split cases expecting a use-raw-reading grid with Sheet says and We read above that sentence fail until the branch renders the comparison` ac=AC-4 -->
 
 What is red and why: the `disabled` branch shows one sentence; nothing shows what was read.
 
 Claims AC-4 (declared in 00-overview.md, Acceptance criteria).
 
 **Files:**
-- Modify: `components/admin/UseRawControl.tsx:385-399` (`warning` prop widens to `Pick<ParseWarning, "code" | "resolution" | "rawSnippet">`), `components/admin/UseRawControl.tsx:444-458` (comparison block, spec §5.3 markup)
+- Modify: `components/admin/UseRawControl.tsx:380-394` (`warning` prop widens to `Pick<ParseWarning, "code" | "resolution" | "rawSnippet">`), `components/admin/UseRawControl.tsx:439-453` (comparison block, spec §5.3 markup)
 - Modify: `tests/components/UseRawControl.test.tsx`
 
 **Interfaces:** consumes Task 4 `sheetSaysText`, `weReadGuestsText`; Task 1 `readAs`. Testids `use-raw-reading`, `use-raw-sheet-says`, `use-raw-we-read` through the existing `tid()` suffixing.
@@ -204,7 +204,7 @@ node --import tsx -e 'const {deriveArchivedOffers:d}=require("./components/admin
 
 ## Task 14 — Transition audit: the deferred reading choice
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/useRawDraft.transitions.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:545` why=`ChoiceRow onSelect on this line calls fire, which writes the reading the moment a row is tapped, and no provider, Save, Cancel or reconciliation exists, so every pair of the spec 14 inventory and every deferred-response sequence in the new suite fails until selection is a local draft and the action bar owns Save` ac=AC-5,AC-11 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/useRawDraft.transitions.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:540` why=`ChoiceRow onSelect on this line calls fire, which writes the reading the moment a row is tapped, and no provider, Save, Cancel or reconciliation exists, so every pair of the spec 14 inventory and every deferred-response sequence in the new suite fails until selection is a local draft and the action bar owns Save` ac=AC-5,AC-11 -->
 
 What is red and why: selecting a reading writes immediately; there is no draft, no Save, no Cancel, no reconciliation.
 
@@ -213,7 +213,7 @@ Claims AC-5, AC-11 (declared in 00-overview.md, Acceptance criteria).
 **Files:**
 - Create: components/admin/useRawDraft.tsx (`"use client"`)
 - Modify: `components/admin/UseRawControlBoundary.tsx:56-82` (its `onToggle` calls `callUseRawAction`, throws on `"failed"`, refreshes on `"ok"`)
-- Modify: `components/admin/UseRawControl.tsx:305-378` (`ChoiceRow` takes a per-row `marker`), `components/admin/UseRawControl.tsx:385-612` (provider path: rows select through the draft, soft-disable while busy or `submitted !== null`, no in-control error, retry or `Saving…` inside a provider)
+- Modify: `components/admin/UseRawControl.tsx:300-373` (`ChoiceRow` takes a per-row `marker`), `components/admin/UseRawControl.tsx:380-607` (provider path: rows select through the draft, soft-disable while busy or `submitted !== null`, no in-control error, retry or `Saving…` inside a provider)
 - Modify: `components/admin/DataQualityWarningControls.tsx:197-266` (inside a provider: one morphing main button, Cancel, hint, Save sequence)
 - Create: tests/components/admin/useRawDraft.transitions.test.tsx
 

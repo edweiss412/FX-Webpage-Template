@@ -56,7 +56,7 @@ Eric approved a mockup of the design below ("looks good") and settled two follow
 
 ### 1.4 Anti-goals (things this must not become)
 
-- A second state machine for the reading choice. The deferred selection is a thin local overlay on the existing pure derivation `deriveUseRawControlState` (`components/admin/UseRawControl.tsx:67-86`), not a replacement for it.
+- A second state machine for the reading choice. The deferred selection is a thin local overlay on the existing pure derivation `deriveUseRawControlState` (`components/admin/UseRawControl.tsx:67-81`), not a replacement for it.
 - A new recognizer. The venue value-cell lookup reads the exporter's own grid blocks (the pipeline the UNKNOWN_FIELD scan already uses), the venue region's own header rule, and the parser's own alias resolver, at two fixed label columns; it adds no grammar and leaves the generic UNKNOWN_FIELD scan unchanged.
 - A copy fork. Each new string has one source; the reading-display helpers live in one pure module used by both surfaces.
 
@@ -285,8 +285,8 @@ The never-demote rule (`showDayTimeAnchors.ts:314`) means the cron's later regio
 
 ### 5.1 Current state
 
-- Structured emitter `emitHotelGuestSplitAmbiguity` (`lib/parser/warnings.ts:330-386`) attaches a resolvable `resolution` whose `parsed` carries the names (`warnings.ts:364-376`). `UseRawControl` shows "Our reading" vs "The whole cell as one guest" (`components/admin/UseRawControl.tsx:476-483`).
-- Inline emitter `emitInlineHotelGuestAmbiguity` (`warnings.ts:639-659`) RECEIVES `parsedNames` (`warnings.ts:641`) and discards them: `resolution: { resolvable: false, reason: "raw-not-guest-scoped" }` (`warnings.ts:657`). `UseRawControl` then renders one sentence (`UseRawControl.tsx:444-458` with `DISABLED_REASON["raw-not-guest-scoped"]`, `UseRawControl.tsx:280-281`).
+- Structured emitter `emitHotelGuestSplitAmbiguity` (`lib/parser/warnings.ts:330-386`) attaches a resolvable `resolution` whose `parsed` carries the names (`warnings.ts:364-376`). `UseRawControl` shows "Our reading" vs "The whole cell as one guest" (`components/admin/UseRawControl.tsx:471-478`).
+- Inline emitter `emitInlineHotelGuestAmbiguity` (`warnings.ts:639-659`) RECEIVES `parsedNames` (`warnings.ts:641`) and discards them: `resolution: { resolvable: false, reason: "raw-not-guest-scoped" }` (`warnings.ts:657`). `UseRawControl` then renders one sentence (`UseRawControl.tsx:439-453` with `DISABLED_REASON["raw-not-guest-scoped"]`, `UseRawControl.tsx:275-276`).
 - The inline caller passes `parsedNames: amb.parsedNames` (`lib/parser/blocks/hotels.ts:172-178`), which is `row.names`, the same names that land on the reservation (`hotels.ts:933`).
 - `blockRef.index` is the reservation's position in the final hotels array (`hotels.ts:141-142`, `kept.forEach((p, index)`), capped at `MAX_HOTELS = 4` (`hotels.ts:57`), below the review's display cap `HOTELS_CAP = 12` (`step3ReviewSections.tsx:192`). Staged hotels come from `arr(pr.hotelReservations)` (`components/admin/wizard/Step3SheetCard.tsx:502`) in parse order.
 - All four hotel judgment codes carry `blockRef.index`: guest split (both emitters), `HOTEL_ADDRESS_SPLIT_AMBIGUOUS`, `HOTEL_INLINE_GROUP_OWN_HOTEL`, `HOTEL_INLINE_GROUP_HOTEL_SUSPECTED` (`warnings.ts:513-621`).
@@ -309,11 +309,11 @@ The non-resolvable variant of `UseRawResolution` (`lib/parser/types.ts:55-64`) g
   }
 ```
 
-`emitInlineHotelGuestAmbiguity` sets `resolution: { resolvable: false, reason: "raw-not-guest-scoped", readAs: { kind: "hotels", names: [...params.parsedNames] } }`. Named `readAs`, not `parsed`, so no consumer that narrows `parsed` on `resolvable: true` (`lib/sync/useRawOverlay.ts:69-74`, `lib/sync/useRawDecisionState.ts:91-93`, `UseRawControl.tsx:461`) can read it by accident. The names are already crew-readable on `hotel_reservations.names`; storing them in the admin-only warning adds no data class.
+`emitInlineHotelGuestAmbiguity` sets `resolution: { resolvable: false, reason: "raw-not-guest-scoped", readAs: { kind: "hotels", names: [...params.parsedNames] } }`. Named `readAs`, not `parsed`, so no consumer that narrows `parsed` on `resolvable: true` (`lib/sync/useRawOverlay.ts:69-74`, `lib/sync/useRawDecisionState.ts:91-93`, `UseRawControl.tsx:456`) can read it by accident. The names are already crew-readable on `hotel_reservations.names`; storing them in the admin-only warning adds no data class.
 
 ### 5.3 The read-only comparison (both surfaces, one render path)
 
-`UseRawControl`'s `disabled` branch (`UseRawControl.tsx:444-458`) gains a comparison block rendered ABOVE the existing reason sentence when `warning.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS"`. Because `UseRawControl` renders on the wizard card (`step3ReviewSections.tsx:3445-3454`) and the published card (`sectionWarningExtras.tsx:133-139`), one change covers both. The control's `warning` prop widens from `Pick<…, "code" | "resolution">` to include `"rawSnippet"`; both boundaries already pass the full warning (`components/admin/UseRawControlBoundary.tsx:84-89`).
+`UseRawControl`'s `disabled` branch (`UseRawControl.tsx:439-453`) gains a comparison block rendered ABOVE the existing reason sentence when `warning.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS"`. Because `UseRawControl` renders on the wizard card (`step3ReviewSections.tsx:3445-3454`) and the published card (`sectionWarningExtras.tsx:133-139`), one change covers both. The control's `warning` prop widens from `Pick<…, "code" | "resolution">` to include `"rawSnippet"`; both boundaries already pass the full warning (`components/admin/UseRawControlBoundary.tsx:84-89`).
 
 ```tsx
 <span
@@ -327,7 +327,7 @@ The non-resolvable variant of `UseRawResolution` (`lib/parser/types.ts:55-64`) g
 </span>
 ```
 
-The grid matches the parsed-reading grid the choice rows already use (`UseRawControl.tsx:519-537`). Values come from a new pure module, lib/admin/warningReadingDisplay.ts (new file) (§5.6).
+The grid matches the parsed-reading grid the choice rows already use (`UseRawControl.tsx:514-532`). Values come from a new pure module, lib/admin/warningReadingDisplay.ts (new file) (§5.6).
 
 ### 5.4 Hotels section: the reservation marker (staged wizard only)
 
@@ -402,7 +402,7 @@ Builder's call C5 records the two deviations from the mockup's example.
 
 - The per-row Ignore is `DataQualityWarningControls` (`components/admin/DataQualityWarningControls.tsx:101-268`), label `DataQualityWarningControls.tsx:247-253`, rendered only when `hasIgnorableSnippet` (`DataQualityWarningControls.tsx:116`, `DataQualityWarningControls.tsx:199`). Two backends: staged `setStagedWarningIgnore` (`app/admin/onboarding/_actions/stagedWarningIgnore.ts:130`), and the show routes `POST /api/admin/show/${slug}/data-quality/{ignore,unignore}` (`DataQualityWarningControls.tsx:124-133`). Success announces "Warning ignored." / "Warning restored." (`DataQualityWarningControls.tsx:179`), calls `onBeforeRefresh`, then `router.refresh()` (`DataQualityWarningControls.tsx:182-183`).
 - The published bulk chip in `BulkIgnoreControls` reads "Ignore" / "Ignore <n>" (`components/admin/BulkIgnoreControls.tsx:173-178`), fail copy `BulkIgnoreControls.tsx:110`, announce `BulkIgnoreControls.tsx:135`.
-- The reading choice `UseRawControl` saves on tap: `ChoiceRow.onClick` → `onSelect` → `fire(useRaw)` → `onToggle` (`UseRawControl.tsx:347-349`, `UseRawControl.tsx:420-430`); arrow keys select AND save (`UseRawControl.tsx:491-496`). `UseRawControlBoundary.onToggle` calls the surface action and `router.refresh()`es (`UseRawControlBoundary.tsx:56-82`).
+- The reading choice `UseRawControl` saves on tap: `ChoiceRow.onClick` → `onSelect` → `fire(useRaw)` → `onToggle` (`UseRawControl.tsx:342-344`, `UseRawControl.tsx:415-425`); arrow keys select AND save (`UseRawControl.tsx:486-491`). `UseRawControlBoundary.onToggle` calls the surface action and `router.refresh()`es (`UseRawControlBoundary.tsx:56-82`).
 - Wizard order inside a row: choice control (`step3ReviewSections.tsx:3445-3454`), role control (`step3ReviewSections.tsx:3455-3463`), controls note (`step3ReviewSections.tsx:3469-3476`), Report + Ignore (`step3ReviewSections.tsx:3480-3494`). Published order: Report + Ignore, then choice, then role (`sectionWarningExtras.tsx:122-146`).
 - **Class sweep for the auto-save shape:** `RoleRecognizeControl` already has explicit Save and Cancel (`components/admin/RoleRecognizeControl.tsx:397-416`). `ArchivedTabOffer` writes only on its button. `UseRawControl` is the only control that writes on selection.
 - **Controls-note sweep:** no judgment code carries a `controlsNote` today. The four that do are `UNKNOWN_FIELD`, `VENUE_ADDRESS_MISSING`, `PULL_SHEET_PARSE_PARTIAL`, `UNKNOWN_SECTION_HEADER` (`lib/messages/catalog.ts:1375`, `catalog.ts:1599`, `catalog.ts:1792`, `catalog.ts:2173`). So no shipped sentence says "Ignore" next to an Accept button; §15 adds a guard so none ever does.
@@ -427,9 +427,9 @@ Accepted judgment rows leave the "Ignored (N)" disclosure for their own "Accepte
 
 **Where the state lives.** A new client module components/admin/useRawDraft.tsx (new file) exports `UseRawDraftProvider` and `useUseRawDraft()`. Provider props: `warning: ParseWarning`, `decision: UseRawDecision | undefined`, plus the surface union `UseRawControlBoundary` takes (`{surface:"show", showId}` | `{surface:"wizard", wizardSessionId, driveFileId}`, `UseRawControlBoundary.tsx:36-40`). The action call is extracted from `UseRawControlBoundary.onToggle` (`UseRawControlBoundary.tsx:56-82`) into one exported `callUseRawAction(surface, warning, useRaw): Promise<"ok" | "failed">` in the same module; the boundary (provider-less fallback) and the provider both use it. One argument assembly, two callers.
 
-Mounts: the wizard wraps the row's controls block (`step3ReviewSections.tsx:3445-3494`) in the provider when the conditions above hold; the published `SectionWarningItemControls` wraps its fragment (`sectionWarningExtras.tsx:119-147`) the same way and, for these rows only, renders the choice control BEFORE `DataQualityWarningControls`. For every other code the choice control renders `null` (`UseRawControl.tsx:72`), so the reorder changes no other row.
+Mounts: the wizard wraps the row's controls block (`step3ReviewSections.tsx:3445-3494`) in the provider when the conditions above hold; the published `SectionWarningItemControls` wraps its fragment (`sectionWarningExtras.tsx:119-147`) the same way and, for these rows only, renders the choice control BEFORE `DataQualityWarningControls`. For every other code the choice control renders `null` (`UseRawControl.tsx:67`), so the reorder changes no other row.
 
-**The reading model (exact).** This replaces the single `pendingRaw` value of the round-0 draft, which cleared on a successful Save before refreshed props arrived (so the radio snapped back to the old reading while accept ran) and could leave a dormant draft that a later external change resurrected. The shipped control already guards the first hazard with its own optimistic `pendingChoice` (`UseRawControl.tsx:404-408`, `UseRawControl.tsx:465-471`); this model generalizes that guard.
+**The reading model (exact).** This replaces the single `pendingRaw` value of the round-0 draft, which cleared on a successful Save before refreshed props arrived (so the radio snapped back to the old reading while accept ran) and could leave a dormant draft that a later external change resurrected. The shipped control already guards the first hazard with its own optimistic `pendingChoice` (`UseRawControl.tsx:399-403`, `UseRawControl.tsx:460-466`); this model generalizes that guard.
 
 - `persistedRaw` (derived, from props): `state === "raw-active" || state === "apply-pending"`, where `state = deriveUseRawControlState(warning, decision, false)`.
 - Local state, two pieces:
@@ -438,7 +438,7 @@ Mounts: the wizard wraps the row's controls block (`step3ReviewSections.tsx:3445
 - **Displayed reading** (the checked row): `submitted ?? draft ?? persistedRaw`.
 - **Dirty:** `submitted === null && draft !== null`. By the rules below, a non-null `draft` never equals `persistedRaw`.
 - **Busy:** the action bar's existing `running` flag (`DataQualityWarningControls.tsx:115`, `state.kind === "running"`), reported to the provider through the same `onRunningChange` signal §7.3 defines (inside a provider the action bar calls the provider's setter). Busy is a UI lock, not part of the reading model. Report stays enabled while busy (§7.3, "Report is exempt").
-- **Radio rows soft-disable** (`aria-disabled`, the existing `ChoiceRow` path, `UseRawControl.tsx:343-358`) while busy OR while `submitted !== null`. A select can therefore never land while a submitted reading is awaiting reconciliation, where it would change nothing visible.
+- **Radio rows soft-disable** (`aria-disabled`, the existing `ChoiceRow` path, `UseRawControl.tsx:338-353`) while busy OR while `submitted !== null`. A select can therefore never land while a submitted reading is awaiting reconciliation, where it would change nothing visible.
 
 Rules:
 
@@ -458,11 +458,11 @@ A change between `apply-pending` and `raw-active` (or `clear-pending` and `trans
 **Choice control inside a provider.**
 
 - `ChoiceRow.onSelect` and the arrow-key path call `draft.select(…)` (rule 1); they never call `fire`.
-- `ChoiceRow` renders a per-row `marker` prop instead of `checked && marker` (`UseRawControl.tsx:375-377`). Markers by state:
-  - clean (`submitted === null && draft === null`): the checked row gets today's marker, `In use` or `Selected` (`UseRawControl.tsx:487-488`); the other row none. Byte-identical to today.
+- `ChoiceRow` renders a per-row `marker` prop instead of `checked && marker` (`UseRawControl.tsx:370-372`). Markers by state:
+  - clean (`submitted === null && draft === null`): the checked row gets today's marker, `In use` or `Selected` (`UseRawControl.tsx:482-483`); the other row none. Byte-identical to today.
   - dirty: the persisted row keeps its marker while unchecked; the draft row (checked) has none.
   - `submitted !== null`: the submitted row (checked) shows `Selected`, the word the shipped control already uses for "chosen, crew pages not updated yet"; the persisted row shows none.
-- The in-control error and "Try again" (`UseRawControl.tsx:594-612`) and the `Saving…` live text (`UseRawControl.tsx:590-592`) do not render inside a provider; the action bar owns progress and errors. The pending-apply notes (`UseRawControl.tsx:574-585`) still render from persisted state.
+- The in-control error and "Try again" (`UseRawControl.tsx:589-607`) and the `Saving…` live text (`UseRawControl.tsx:585-587`) do not render inside a provider; the action bar owns progress and errors. The pending-apply notes (`UseRawControl.tsx:569-580`) still render from persisted state.
 
 **Action bar (`DataQualityWarningControls` inside a provider).** One main button element whose label morphs, so focus on it survives every label change.
 
@@ -475,7 +475,7 @@ A change between `apply-pending` and `raw-active` (or `clear-pending` and `trans
 
 Cancel classes: `inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-3 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2` plus the plate's ring-offset class: the archived-tab ghost idiom (`components/admin/wizard/archivedTabOffer.tsx:64-66`) on this component's `px-3`.
 
-Error copy: rule 3 shows `That didn’t save. The cell may have changed.` (the control's existing sentence, `UseRawControl.tsx:597`); rule 4's accept failure shows `Your reading is saved, but we couldn't accept the judgment call. Refresh and try again.` An error stays until the next select, Save, Accept or Cancel.
+Error copy: rule 3 shows `That didn’t save. The cell may have changed.` (the control's existing sentence, `UseRawControl.tsx:592`); rule 4's accept failure shows `Your reading is saved, but we couldn't accept the judgment call. Refresh and try again.` An error stays until the next select, Save, Accept or Cancel.
 
 Each request takes its own lock inside its own existing endpoint, one after the other; no lock nests (invariant 2 unchanged).
 
@@ -970,7 +970,7 @@ N/A: no config flag, env var or persisted toggle is added. The new booleans are 
 
 - **C1. Storage name `readAs`** on the non-resolvable resolution variant, not a top-level field and not `parsed`.
 - **C2. One render path:** the comparison lives in `UseRawControl`'s `disabled` branch, scoped to `HOTEL_GUEST_SPLIT_AMBIGUOUS`, so both surfaces get it from one change.
-- **C3. "Sheet says" is verbatim** (whitespace-collapsed), not confirmation-stripped. Precedent: the wizard Ignored list already shows the raw snippet (`ignoredRowSnippet`, `step3ReviewSections.tsx:3009-3017`). Stripping would make "Sheet says" untrue, the same honesty argument that renamed the raw choice to "The whole cell as one guest" (`UseRawControl.tsx:472-483`). The crew-readable rule governs persisted names, which this does not touch.
+- **C3. "Sheet says" is verbatim** (whitespace-collapsed), not confirmation-stripped. Precedent: the wizard Ignored list already shows the raw snippet (`ignoredRowSnippet`, `step3ReviewSections.tsx:3009-3017`). Stripping would make "Sheet says" untrue, the same honesty argument that renamed the raw choice to "The whole cell as one guest" (`UseRawControl.tsx:467-478`). The crew-readable rule governs persisted names, which this does not touch.
 - **C4. The reservation marker** covers all four index-carrying hotel judgment codes (class sweep), renders on the staged wizard only, and shows one "Sheet says" line from the lowest-index member; the jump flashes every member.
 - **C5. Help text** adapts the mockup's example: "If we split it wrong" instead of "If that split is wrong" (the text sits above the comparison on the wizard and inside the guidance line on published, so "that" has no referent in either), and it keeps "someone left out", a case the ratified copy covers today (`tests/messages/hotelAmbiguityCatalogCopy.test.ts:48-50`).
 - **C6. Callout label** "See how we read it" only when `readingShown` holds for every grouped member, decided per warning (a use-raw code whose resolution is unusable shows no reading); otherwise "Review in Sheet warnings".
@@ -982,7 +982,7 @@ N/A: no config flag, env var or persisted toggle is added. The new booleans are 
 - **D4. Markers:** the persisted reading keeps its marker while unchecked during a draft; a submitted reading awaiting reconciliation shows `Selected`; the hint lives in the action row and describes Save.
 - **D5. Save order** is reading first, then accept; partial success refreshes and says the reading is saved.
 - **D6. Arrow keys select without writing**, a direct consequence of R6.
-- **D7. Apostrophes follow the host file:** ASCII `'` in new `DataQualityWarningControls` and `BulkIgnoreControls` strings (matching `Couldn't ignore`, `DataQualityWarningControls.tsx:120`), `&rsquo;` in `UseRawControl` JSX (`UseRawControl.tsx:597`), `’` in `archivedTabOffer.tsx` strings (`archivedTabOffer.tsx:183`). A REUSED string keeps the apostrophe it ships with, so the reused "That didn’t save" sentence stays typographic when the action bar renders it. Copy assertions are apostrophe-agnostic (precedent `tests/components/step3SheetCard.test.tsx:491`).
+- **D7. Apostrophes follow the host file:** ASCII `'` in new `DataQualityWarningControls` and `BulkIgnoreControls` strings (matching `Couldn't ignore`, `DataQualityWarningControls.tsx:120`), `&rsquo;` in `UseRawControl` JSX (`UseRawControl.tsx:592`), `’` in `archivedTabOffer.tsx` strings (`archivedTabOffer.tsx:183`). A REUSED string keeps the apostrophe it ships with, so the reused "That didn’t save" sentence stays typographic when the action bar renders it. Copy assertions are apostrophe-agnostic (precedent `tests/components/step3SheetCard.test.tsx:491`).
 - **D8. The reading model** is the two-state model (`draft`, `submitted`) the coordinator specified, with `submitted` clearing only on a `persistedRaw` change or a failed Save. One addition is the builder's: radio rows stay soft-disabled while `submitted !== null`, so a select can never land invisibly. The residual of the no-completion-signal router is L13.
 - **D9. Disclosure order** is Ignored then Accepted, matching the attention menu's group order; each disclosure renders only at a count above zero.
 - **D10. The published split filters records, not warnings,** so every row keeps its own `reportSurfaceId` (§6.4).
