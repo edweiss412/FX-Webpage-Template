@@ -28,8 +28,8 @@
 - No visible severity word on any wizard card; no em dash in any new user-visible string (spec §11, `tests/styles/_metaEmDashCopy.test.ts`).
 - Every new interactive element is ≥ 44px tall by rect (`min-h-tap-min`, `--spacing-tap-min: 44px`, `app/globals.css:224`), except the icon link, whose floor is its host row (§13).
 - Copy is verbatim from spec §11; apostrophes follow the host file (Builder's call D7): ASCII `'` in `DataQualityWarningControls.tsx` and `BulkIgnoreControls.tsx`, `&rsquo;` in `UseRawControl.tsx` JSX, `’` in `archivedTabOffer.tsx`. Copy assertions are apostrophe-agnostic (precedent `tests/components/step3SheetCard.test.tsx:491`).
-- Named values have one definition (§20): `SHEET_SAYS_CAP = 160`, `WE_READ_NAMES_CAP = 6`, `CASE_PREVIEWS_CAP = 3`, `CASE_PREVIEW_CHARS = 40` in lib/admin/warningReadingDisplay.ts; `ARCHIVED_TAB_INCLUDE_LABEL = "Use this pull sheet"`, `ARCHIVED_TAB_INCLUDE_PENDING = "Including…"` in `components/admin/wizard/archivedTabOffer.tsx`. Tests import these; they never retype them.
-- Counts in tests derive from the named sets (`AMBIGUITY_CODES`, `USE_RAW_CODES`, `HOTEL_RESERVATION_JUDGMENT_CODES`), never from literals.
+- Named values have one definition (§20): `SHEET_SAYS_CAP = 160`, `WE_READ_NAMES_CAP = 6`, `CASE_PREVIEWS_CAP = 3`, `CASE_PREVIEW_CHARS = 40` in lib/admin/warningReadingDisplay.ts; `ARCHIVED_TAB_INCLUDE_LABEL = "Use this pull sheet"`, `ARCHIVED_TAB_INCLUDE_PENDING = "Including…"` in `components/admin/wizard/archivedTabOffer.tsx`. Tests import these for inputs and set logic; a cap's BOUNDARY rows instead pin the constant once to its spec value (`expect(SHEET_SAYS_CAP).toBe(160)`) and write each expected string as a literal derived from the fixture, never from the helper under test (plan round 4), so a drifted constant or an off-by-one cut fails rather than moving the boundary with it.
+- Set sizes and memberships in tests derive from the named sets (`AMBIGUITY_CODES`, `USE_RAW_CODES`, `HOTEL_RESERVATION_JUDGMENT_CODES`); a stated size is pinned once against its spec count (`HOTEL_RESERVATION_JUDGMENT_CODES.size === 4`). Cap boundaries follow the bullet above.
 - Invariant 5: no code string renders; `callUseRawAction` returns `"ok" | "failed"`.
 - Invariant 10: no new `"use server"` file or export, no new route, no inline server action (spec §10, R10). components/admin/useRawDraft.tsx is `"use client"`. `tests/log/_metaMutationSurfaceObservability.test.ts` is re-run in Task 20 to confirm.
 - Invariant 2: each Save runs two existing endpoints one after the other from the client; no lock nests.
@@ -42,7 +42,7 @@
 ## Review Focus
 
 1. **Inline guest names on the warning vs on the reservation.** `readAs.names` is `row.names` at `lib/parser/blocks/hotels.ts:933`; if any later step rewrites the reservation's names, "We read" would show names the Hotels section does not. Pinned in Task 1 by asserting `readAs.names` deep-equals `hotels[blockRef.index].names` on every producing exit, derived from the parse output, never a literal.
-2. **A warning persisted before this change** (no `readAs`, no venue `sourceCell`): the card shows no "We read" and stays link-less (L5); `readingShown` must be false for it, so the callout keeps "Review in Sheet warnings". Pinned in Task 4 (`readingShown` row for a legacy inline warning) and Task 16 (callout label case).
+2. **A warning persisted before this change** (spec L5): two different legacy shapes, which must not be conflated. An inline guest-split warning with `resolution: { resolvable: false, reason: "raw-not-guest-scoped" }` but no `readAs` still shows a reading: `readingShown` is TRUE when its `rawSnippet` is non-blank (§5.6), the card shows Sheet says and no We read line, and the callout reads `See how we read it` (Task 4 row `rawSnippet: "Hyatt Eric"`; Task 10 legacy case). A use-raw warning with NO `resolution` at all derives `legacy-unavailable`: `readingShown` is false and the callout keeps `Review in Sheet warnings` (Task 4 legacy row; Task 16 callout case). A venue warning with no `sourceCell` stays link-less until its next scan.
 3. **A refreshed reading that differs from what this tab sent** (another tab saved in between): the refreshed value wins and nothing resurrects "Not saved yet". Pinned in Task 14 by deferred-response sequences 4, 5 and 13.
 4. **An archived tab whose include is pressed in Pack list while the card's own include is pending**: two independent flags; the later POST takes the existing 409 refresh path. Pinned in Task 14's §14.1 re-assertion (compound transition 3: two placements, two POSTs, each observed as its own request) on top of Task 13's row-lock case.
 5. **A `blockRef.index` that is `NaN`, negative, non-integer or ≥ the rendered hotel count**: no reservation marker and the card jump falls back to `Go to Hotels`. Pinned in Task 16 (marker) and Task 17 (jump) with one case per bad value.
@@ -304,6 +304,14 @@ The other 16 files carry no judgment code; no change.
 
 writing-plans requires a layout-dimensions task (§13) and a transition-audit task (§14, §14.1). Written after the code they measure, both would pass the moment they are authored, which the red-contract rejects. So the real-browser DI assertions are the RED of the two tasks that build the host rows (Task 7: wizard title row, DI-1 to DI-11; Task 9: compact card message row, DI-C1 to DI-C9), and the §14 transition audit with its deferred-response probe is the RED of the task that builds the reading model (Task 14), which also pastes and re-asserts §14.1 over the archived row Task 13 built. Each of those task bodies pastes its spec table verbatim.
 
+## Round-5 re-analysis: fixture reachability and a state-machine oracle
+
+Plan rounds 3, 4 and 5 all found the same vector (a planned test whose fixture cannot reach its claimed state, or whose expected value is not what the rules produce), so this section replaces per-instance patching with two mechanical checks.
+
+**Fixture reachability.** Every fixture fact a test takes from EXISTING production code (parser output, anchors, emitted warnings, derived states, rendered counts) was run against the live tree with a `node --import tsx -e` probe from the worktree root; each probe's command and output sits inline beside its fixture: P-T1 (Task 1), P-T2a, P-T2b, P-T2c (Task 2), P-T4T5 (Tasks 4 and 5), P-T7 (Task 7, reused by Task 9), P-T10 (Task 10), P-T12 (Task 12), P-T13 (Task 13), P-T14 (Task 14), P-T15 (Task 15), P-T16 (Task 16): 13 probes, plus a scratch shim of `lib/parser/blocks/hotels.ts` for Task 1's names claim. Three fixtures did not reach their claim and were fixed: Task 16's cap fixture (five inline lines parse to ONE reservation; now the v4 five-slot block, which parses to four), Task 7's long-title row (an all-caps 120-character message falls back to the 42-character generic title; now a prose message, 120 characters), and Task 9's condensed long card (same title rule; same prose message). Facts that depend on code a task creates are not probed and say which task creates them (Task 2's anchor, Task 4's helpers, Task 13's wrapper, Task 14's provider).
+
+**State-machine oracle.** A reference model of spec §6.3 rules 1-6 (draft, submitted, persisted; select, Save, reading ok or fail, accept ok or fail, reconcile, Cancel; the action bar's label, hint and soft-disable) and of §14.1 (include and Ignore locks) drove every numbered §14 sequence (1 to 13, both halves of 3 and of 12), the pairs whose reachability the plan asserts by a sequence (S → C, V → S, S → D, E → D twice) and every §14.1 compound transition (1 to 5) plus its four pair paths, comparing the model's state, displayed reading, main-button label, hint and soft-disable after each step with the plan's expectations. Script: oracle.mjs in the session scratchpad, at /private/tmp/claude-501/-Users-ericweiss-FX-Webpage-Template/9303137b-686f-4960-9915-a373f5b32f50/scratchpad/probes/oracle.mjs (session-local; its rules are §6.3 and §14.1 verbatim; the as-written variant beside it is oracle-as-written.mjs). Result on the plan as repaired: **30 sequences, 0 mismatches**. On the expectations as written before this round: 3 mismatches: Task 14 sequence 12 expected D (twice: state and `Save`) where rule 5 returns C, and the spec's E → D row claimed a select from E over D stays D where rule 1 returns C. Task 14 now uses a decision change that keeps `persistedRaw`, and the spec's E → C / E → D rows are amended (spec §14, §20 sweep note).
+
 ## Spec coverage: §14, §14.1 and every named boundary (derived, no empty cell)
 
 Rows are derived from the spec text, never typed from memory. With the shell variable S set to `docs/superpowers/specs/2026-10-26-warning-card-fixes-design.md`:
@@ -343,8 +351,8 @@ sed -n '/^Counts stated in prose/p' $S | grep -oE '(seven|six|five|four|three|tw
 | 17 | §14 pair V → S | 14 | `§14 pair V → S` (accept retry) | P |
 | 18 | §14 pairs C/D/V → E (only through S) | 14 | `§14 pair C/D/V → E` (no alert without an S step) | P |
 | 19 | §14 pair S → E | 14 | `§14 pair S → E` (failed Save; failed accept) | P |
-| 20 | §14 pair E → C | 14 | `§14 pair E → C` | P |
-| 21 | §14 pair E → D | 14 | `§14 pair E → D` | P |
+| 20 | §14 pair E → C | 14 | `§14 pair E → C` (Cancel from E over D; selecting the persisted reading from E over D; reconciliation from E over V) | P |
+| 21 | §14 pair E → D | 14 | `§14 pair E → D` (from E over C only, per the amended spec row) | P |
 | 22 | §14 pair E → S | 14 | `§14 pair E → S` | P |
 | 23 | §14 pair E → V (unreachable directly) | 14 | `§14 pair E → V` | P |
 | 24 | §14 seq 1 full success, delayed refresh | 14 | `§14 seq 1` (checked `r` after reading ok, after accept ok, during delayed refresh) | P |
@@ -358,7 +366,7 @@ sed -n '/^Counts stated in prose/p' $S | grep -oE '(seven|six|five|four|three|tw
 | 32 | §14 seq 9 Report modal opened during D | 14 | `§14 seq 9: opening Report during D keeps the draft` | P |
 | 33 | §14 seq 10 modal closes during S | 14 | `§14 seq 10: closing the modal during S lets the in-flight request complete` (accept continuation unasserted, ambiguity 8) | P |
 | 34 | §14 seq 11 published bulk accept during D | 15 | `§14 seq 11: a published bulk accept during D drops the unsaved draft` | B + P |
-| 35 | §14 seq 12 pending-apply note during D or V | 14 | `§14 seq 12: the pending-apply note follows persisted state only` | P |
+| 35 | §14 seq 12 pending-apply note during D or V | 14 | `§14 seq 12: the pending-apply note follows persisted state only` (D: `apply-pending` to `raw-active` keeps `persistedRaw`, stays D, note gone; V: Accepted list, note stays until `clear-pending` reconciles to C) | P |
 | 36 | §14 seq 13 refresh lands without moving `P` | 14 | `§14 seq 13` (stays V, rows `aria-disabled`, then C on the next change) | P |
 | 37 | §14.1 state I | 13, 14 | `§14.1 row lock` (both enabled before any press); `§14.1 pair N → I` | W |
 | 38 | §14.1 state N | 13, 14 | `§14.1 row lock` (include `Including…`, Ignore disabled, Report enabled); `§14.1 pair I → N` | W |
@@ -379,7 +387,7 @@ sed -n '/^Counts stated in prose/p' $S | grep -oE '(seven|six|five|four|three|tw
 | 53 | §20 `CASE_PREVIEWS_CAP` 3 | 4, 13 | `B-CASES` rows 2 / 3 / 4 / 5 previews; Task 13 case 1 card with 3 and 4 previews (literals) | module; W |
 | 54 | §20 `CASE_PREVIEW_CHARS` 40 | 4, 13 | `B-CHARS` rows 39 / 40 / 40+`b`; Task 13 case 1 card with 40+`b` | module; W |
 | 55 | §20 `HOTELS_CAP` 12 | 16, 17 | `B-HOTELS-CAP` (13-hotel list: index 11 marked, 12 not); `B-JUMP-INDEX` via the real spread (11 → reservation, 12 → `Go to Hotels`) | marker; staged spread |
-| 56 | §20 `MAX_HOTELS` 4 | 16 | `B-MAX-HOTELS` (five rows parse to four; parsed indices stay below `HOTELS_CAP`) | parser feeding the marker |
+| 56 | §20 `MAX_HOTELS` 4 | 16 | `B-MAX-HOTELS` (the five-slot v4 block parses to four reservations plus one `HOTEL_CARDINALITY_EXCEEDED`, Probe P-T16; parsed indices stay below `HOTELS_CAP`) | parser feeding the marker |
 | 57 | §20 `--spacing-tap-min` 44px | 7, 9, 13, 15, 16, 17 | DI-1, DI-C1; e2e rect height ≥ 44 for include, Save, Cancel, marker jump, card jumps | real browser |
 | 58 | §20 `--spacing-tile-pad` 20px | 7 | CSS premise (panel `padding-left` 20px) and DI-8 | real browser |
 | 59 | §20 compact row link spacing 22 / 14 px | 9 | DI-C6, DI-C7, DI-C8 | `CompactAlertCard` |

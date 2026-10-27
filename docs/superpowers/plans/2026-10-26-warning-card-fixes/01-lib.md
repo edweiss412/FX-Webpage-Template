@@ -67,6 +67,20 @@ for (const cell of CELLS) {
 }
 ```
 
+  **Probe P-T1** (plan time, live tree, run from the worktree root; each cell yields one warning at index 0, a non-empty `names`, and today's two-field resolution):
+
+```sh
+node --import tsx -e 'const {parseHotels}=require("./lib/parser/blocks/hotels.ts"),{newAggregator}=require("./lib/parser/warnings.ts");for(const c of ["Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525","Hyatt Regency Eric Weiss - 110525","Four Seasons Chicago Eric Weiss 2004173 In on the 6th out on the 10th"]){const a=newAggregator(),h=parseHotels(`| Hotel Reservations | ${c} |`,"v2",a),w=a.warnings.filter(x=>x.code==="HOTEL_GUEST_SPLIT_AMBIGUOUS");console.log(w.length,w[0].blockRef.index,JSON.stringify(h[w[0].blockRef.index].names),JSON.stringify(w[0].resolution))}'
+```
+
+```text
+1 0 ["Doug","Carl","Eric W"] {"resolvable":false,"reason":"raw-not-guest-scoped"}
+1 0 ["Hyatt Regency Eric Weiss"] {"resolvable":false,"reason":"raw-not-guest-scoped"}
+1 0 ["Four Seasons","Chicago Eric"] {"resolvable":false,"reason":"raw-not-guest-scoped"}
+```
+
+  A scratch shim of `lib/parser/blocks/hotels.ts` whose `@/lib/parser/warnings` import recorded the emitter's `parsedNames` showed, for all three cells, the SAME array as `hotels[index].names` (deep-equal and reference-equal), so the snippet's `not.toBe` is what forces the spec's copy (`[...params.parsedNames]`).
+
   - Failure modes caught: names discarded; names that differ from what the reservation shows; an aliased array.
   Run the red command: the new case fails (`readAs` absent); the edited `it.each` passes.
 - [ ] **Step 2: GREEN.** Add the field to the variant (spec §5.2 block, verbatim) and set `readAs: { kind: "hotels", names: [...params.parsedNames] }` at `warnings.ts:657`. Update the function's doc comment to say the reading is stored for display only.
@@ -102,6 +116,40 @@ Claims AC-3 (declared in 00-overview.md, Acceptance criteria).
   4. **Pure rule on constructed blocks** (`GridBlock` literals): no gid for `INFO` → `null`; a block on a tab outside `SOURCE_LINK_ALLOWLIST` → `null`; a block with no `VENUE` header row (the v4 `VENUE NAME`-opened table, L1) → `null`; a row whose `cells[0]` and `cells[1]` both resolve uses `i = 0`; a row with `absRow: null` is skipped.
   5. **Ingestion seam.** For blanked east-coast and for `fintech.xlsx`: `parseSheet(synthesizeMarkdownFromXlsx(buffer).markdown, …)` then `attachWarningAnchors(...)`; the one `VENUE_ADDRESS_MISSING`'s `sourceCell` equals case 1 / case 2's expectation. Then a second region-only `attachSourceCellAnchors(parsed.warnings, { showDay: [], crewRole: [], region: { venue: { title: "INFO", gid: 0, a1: "A1:C20" } } })` leaves `sourceCell.a1` unchanged (never-demote, `lib/drive/showDayTimeAnchors.ts:314`).
   6. **Fallback through the seam.** The two-address-row fintech variant: premise exactly one `VENUE_ADDRESS_MISSING`; its `sourceCell.a1` contains a colon and `XLSX.utils.decode_range` of it contains the `cellOf(wb, "INFO", "VENUE")` header cell (the venue region).
+
+  **Probe P-T2a** (plan time, live tree, run from the worktree root; cases 1 and 5: each 3-column workbook emits exactly one warning; its only `VENUE ADDRESS` label is `B14`; the cell right of it is empty):
+
+```sh
+node --import tsx -e 'const X=require("xlsx"),fs=require("fs"),{parseSheet}=require("./lib/parser/index.ts"),{synthesizeMarkdownFromXlsx}=require("./lib/drive/exportSheetToMarkdown.ts");for(const f of ["fintech","rpas","fixed-income"]){const b=fs.readFileSync(`fixtures/shows/exporter-xlsx/${f}.xlsx`),buf=b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),wb=X.read(buf,{type:"array"}),ws=wb.Sheets.INFO,rg=X.utils.decode_range(ws["!ref"]),hits=[];for(let r=rg.s.r;r<=rg.e.r;r++)for(let c=rg.s.c;c<=rg.e.c;c++){const v=ws[X.utils.encode_cell({r,c})]?.v;if(typeof v==="string"&&v.trim()==="VENUE ADDRESS")hits.push(X.utils.encode_cell({r,c}))}const a=X.utils.decode_cell(hits[0]);console.log(f,parseSheet(synthesizeMarkdownFromXlsx(buf).markdown,"x.md").warnings.filter(w=>w.code==="VENUE_ADDRESS_MISSING").length,JSON.stringify(hits),JSON.stringify(ws[X.utils.encode_cell({r:a.r,c:a.c+1})]?.v??null))}'
+```
+
+```text
+fintech 1 ["B14"] ""
+rpas 1 ["B14"] ""
+fixed-income 1 ["B14"] ""
+```
+
+  **Probe P-T2b** (plan time, live tree, run from the worktree root; cases 2, 3 and 5: east-coast's address row and value; 0 warnings unedited, 1 blanked):
+
+```sh
+node --import tsx -e 'const X=require("xlsx"),fs=require("fs"),{parseSheet}=require("./lib/parser/index.ts"),{synthesizeMarkdownFromXlsx}=require("./lib/drive/exportSheetToMarkdown.ts");const vam=b=>parseSheet(synthesizeMarkdownFromXlsx(b).markdown,"x.md").warnings.filter(w=>w.code==="VENUE_ADDRESS_MISSING").length;const b=fs.readFileSync("fixtures/shows/exporter-xlsx/east-coast.xlsx"),buf=b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),wb=X.read(buf,{type:"array"}),ws=wb.Sheets.INFO;const v=ws.B8?.v;console.log("A8",JSON.stringify(ws.A8?.v),"B8 nonEmpty",typeof v==="string"&&v.trim()!=="","vam",vam(buf));delete ws.B8;console.log("blanked vam",vam(X.write(wb,{type:"array",bookType:"xlsx"})))'
+```
+
+```text
+A8 "Hotel Address" B8 nonEmpty true vam 0
+blanked vam 1
+```
+
+  **Probe P-T2c** (plan time, live tree, run from the worktree root; cases 3 and 6: the row below `VENUE ADDRESS` reads `LOADING DOCK`; rewritten, the parse still emits one warning and the venue region `A13:C13` covers the `VENUE` header cell `A13`; constructed `GridBlock` literals in case 4 exercise Task 2's own code and are not probed):
+
+```sh
+node --import tsx -e 'const X=require("xlsx"),fs=require("fs"),{parseSheet}=require("./lib/parser/index.ts"),{synthesizeMarkdownFromXlsx}=require("./lib/drive/exportSheetToMarkdown.ts"),{extractSourceAnchors}=require("./lib/drive/sourceAnchors.ts");const b=fs.readFileSync("fixtures/shows/exporter-xlsx/fintech.xlsx"),wb=X.read(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),{type:"array"}),ws=wb.Sheets.INFO;console.log("A13",JSON.stringify(ws.A13?.v),"B14",JSON.stringify(ws.B14?.v),"B15",JSON.stringify(ws.B15?.v));ws.B15={t:"s",v:"VENUE ADDRESS"};const out=X.write(wb,{type:"array",bookType:"xlsx"}),gids=new Map(wb.SheetNames.map((n,i)=>[n,i]));console.log("vam",parseSheet(synthesizeMarkdownFromXlsx(out).markdown,"x.md").warnings.filter(w=>w.code==="VENUE_ADDRESS_MISSING").length,"region",JSON.stringify(extractSourceAnchors(out,gids).venue))'
+```
+
+```text
+A13 "VENUE" B14 "VENUE ADDRESS" B15 "LOADING DOCK"
+vam 1 region {"title":"INFO","gid":0,"a1":"A13:C13"}
+```
   In `tests/drive/showDayTimeAnchors.test.ts:636-645` add `"VENUE_ADDRESS_MISSING"` to `LINK_ONLY` and retitle "fourteen codes"; in `tests/parser/parseWarningDeepLinkRender.test.tsx` add it to the `extra` literal. Run the red command: the suite collects; cases 1, 2 and 5, the positive halves of case 4, and both pins fail on their assertions (the stub returns `null`; the code is in no set); the negatives of cases 3, 4 and 6 pass against the stub, which is what makes them differential twins.
 - [ ] **Step 3: GREEN.** Implement the module, add the source field, populate it in `attachWarningAnchors` with `venueAddress: safe(() => extractVenueAddressAnchor(bytes, gids), null)`, add the code to `LINK_ONLY_ANCHORED` (not `OPERATOR_ACTIONABLE_ANCHORED`, spec §4.2 item 1), add the dispatch branch. `applyParseResult`'s region-only pass and `attachArchivedTabAnchors` are not edited (they pass no `venueAddress`).
 - [ ] **Step 4: green.** The red command; plus `pnpm exec vitest run tests/admin/no-inline-email-normalization.test.ts tests/drive/unknownFieldAnchors.test.ts tests/sync/attachWarningAnchors.test.ts tests/parser/operatorActionableWarnings.test.ts tests/parser/venueAddressMissing.test.ts tests/parser/waveCodesSourceCell.test.ts tests/sync/sourceAnchorsPipeline.test.ts` (the second proves the generic scan is untouched).
@@ -158,6 +206,16 @@ Claims AC-4 (declared in 00-overview.md, Acceptance criteria).
   - `readingShown`: each `USE_RAW_CODES` member with `resolvable: true` → true (loop over the set, premise `USE_RAW_CODES.size === 4` stated above the loop); a use-raw code with `{ resolvable: false, reason: "empty-raw" }` → false; with no `resolution` (legacy) → false; `HOTEL_GUEST_SPLIT_AMBIGUOUS` with `{ resolvable: false, reason: "raw-not-guest-scoped" }` and `rawSnippet: "Hyatt Eric"` → true, with `rawSnippet: "  "` → false; `CREW_COLUMN_POSITIONAL_FALLBACK` (judgment, not use-raw) → false.
   - `isJudgmentCall`: warn `CREW_COLUMN_POSITIONAL_FALLBACK` → true; warn `UNKNOWN_FIELD` → false; `CREW_COLUMN_POSITIONAL_FALLBACK` at severity `info` → false (one test, three rows).
   - Sets: `HOTEL_RESERVATION_JUDGMENT_CODES` and `USE_RAW_CODES` are each subsets of `AMBIGUITY_CODES`; `HOTEL_RESERVATION_JUDGMENT_CODES.size === 4`.
+
+  **Probe P-T4T5** (plan time, live tree, run from the worktree root; `AMBIGUITY_CODES` has 7 members, all catalog codes, none with a `controlsNote`; the four use-raw and four hotel codes are members (the helpers themselves are Task 4's code, not probed)):
+
+```sh
+node --import tsx -e 'const {AMBIGUITY_CODES:A}=require("./lib/parser/ambiguityCodes.ts"),{isMessageCode:m,messageFor:f}=require("./lib/messages/lookup.ts");console.log(A.size,JSON.stringify([...A].map(c=>[c,m(c),m(c)?f(c).controlsNote??null:"n/a"])))'
+```
+
+```text
+7 [["CREW_COLUMN_POSITIONAL_FALLBACK",true,null],["ROOM_HEADER_SPLIT_AMBIGUOUS",true,null],["HOTEL_GUEST_SPLIT_AMBIGUOUS",true,null],["DATE_ORDER_SUGGESTS_DMY",true,null],["HOTEL_ADDRESS_SPLIT_AMBIGUOUS",true,null],["HOTEL_INLINE_GROUP_OWN_HOTEL",true,null],["HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",true,null]]
+```
   Failure modes: off-by-one at each cap; a blank leaking as an empty name; a disabled use-raw state counted as a shown reading.
   Run the red command: the suite collects and every positive case fails on its assertion (empty sets, `null` text, `false` predicates); the `null`/`false` negatives pass, as differential twins.
 - [ ] **Step 3: GREEN.** Implement the module; switch `UseRawControl.tsx` to `USE_RAW_CODES` (no behaviour change).
@@ -207,6 +265,16 @@ it("no judgment code's controlsNote names Ignore (warning-card-fixes §6.1)", ()
 ```
 
   This case is a ratchet (green on the current catalog, measured: no judgment code carries a note); the RED is the copy pins. Run the red command: the two copy assertions fail.
+
+  **Probe P-T4T5** (plan time, live tree, run from the worktree root; the guard's input: all seven judgment codes have catalog rows and no `controlsNote`):
+
+```sh
+node --import tsx -e 'const {AMBIGUITY_CODES:A}=require("./lib/parser/ambiguityCodes.ts"),{isMessageCode:m,messageFor:f}=require("./lib/messages/lookup.ts");console.log(A.size,JSON.stringify([...A].map(c=>[c,m(c),m(c)?f(c).controlsNote??null:"n/a"])))'
+```
+
+```text
+7 [["CREW_COLUMN_POSITIONAL_FALLBACK",true,null],["ROOM_HEADER_SPLIT_AMBIGUOUS",true,null],["HOTEL_GUEST_SPLIT_AMBIGUOUS",true,null],["DATE_ORDER_SUGGESTS_DMY",true,null],["HOTEL_ADDRESS_SPLIT_AMBIGUOUS",true,null],["HOTEL_INLINE_GROUP_OWN_HOTEL",true,null],["HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",true,null]]
+```
 - [ ] **Step 2: GREEN, lockstep.** Edit the master spec appendix rows, run `pnpm gen:spec-codes`, edit the catalog rows, edit the copy-restore spec §4.2 rows, and add under the paragraph at `docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:177`: `Amended 2026-10-26 (warning-card-fixes §7.3): the archived-tab include offer now also renders on the wizard Sheet warnings card, as the "Use this pull sheet" button.`
 - [ ] **Step 3: green.** Red command; plus `pnpm exec vitest run tests/messages/_metaErrorCatalogDocs.test.ts tests/styles/_metaEmDashCopy.test.ts`; and generator freshness by comparing the first generation with a second one, never the working tree with the index (the intended change is unstaged here): `cp lib/messages/__generated__/spec-codes.ts "$SCRATCH/spec-codes.gen1.ts" && pnpm gen:spec-codes && cmp "$SCRATCH/spec-codes.gen1.ts" lib/messages/__generated__/spec-codes.ts` exits 0 (`$SCRATCH` = the session scratchpad); then `git diff --stat lib/messages/__generated__/` lists only `spec-codes.ts`, and `git diff lib/messages/__generated__/spec-codes.ts | grep -c '^+.*Gear section'` prints `0`.
 - [ ] **Reconcile (before commit).** Stage the task's files; run the walker set (00-overview.md, "Walker cover", the six census suites included); none predicted (S1b, Task 5 row). Then commit; if a commit hook reformats, re-run and fix in a new commit of this task.
