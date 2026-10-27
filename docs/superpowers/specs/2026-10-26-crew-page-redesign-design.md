@@ -51,7 +51,7 @@ Ratified by Eric in the 2026-10-26 design conversation, recorded on the mockup c
 
 ## 1.2 Seams with the parallel projects
 
-- **Search.** The header renders a search slot component that this project ships as nothing at all (no inert box). The search project replaces it. Placement contract: §4.1.
+- **Search.** The owner chose to ship search on the current crew page first (relayed by the search session, 2026-10-26). The redesign therefore carries it over: the header slot (§4.1) hosts whatever search has merged; every searchable line keeps search's `data-search-target` attribute wherever the line moves, and search's parity test (index line equals rendered target text) stays green; the section controller exports one entry point, `openSectionAndReveal(sectionId, targetId)`, which in compact mode opens that section's sheet (§5.2) and scrolls the target into view inside the sheet body, and in wide mode scrolls the page to the target (§5.3), then highlights it. Whichever branch merges second rebases; neither merges with the other's tests red.
 - **Offline.** The page shell exposes one slot above the day row for a status note. This project renders nothing there; the offline project fills it.
 - **Quick-facts picker.** Quick facts are chosen from a typed, ordered list of fact identifiers (§4.5). This project hardcodes the default order; project 4 replaces the source of that order with a per-show setting.
 
@@ -116,7 +116,7 @@ Stored in `localStorage` under `fxav-theme` (`components/layout/useAppliedTheme.
 Two layout modes, switched at **1024px**, the breakpoint where the admin rail appears (`lg:` at `ShowReviewSurface.tsx:897`; `DESIGN.md:833`).
 
 - **Compact (below 1024px):** home screen (§4.1 to §4.6), sections in a bottom sheet (§5.2).
-- **Wide (1024px and up):** left nav plus one scrolling column: the Today block (day row, pass, run of show, quick facts) first, then every section stacked in registry order (§5.3).
+- **Wide (1024px and up):** left nav plus one scrolling column: the Today block (day row, pass, run of show, quick facts) first, then every section stacked in nav order (§5.1, §5.3).
 
 The admin popup keeps its own shell and rail. It changes only in that its section bodies are the shared panels (§6).
 
@@ -148,50 +148,56 @@ Both modes are present in one DOM; CSS switches layout at the breakpoint (the es
 ### 4.1 Header
 
 - Eyebrow: client name and venue name, joined by " · ", each omitted when sentinel-hidden. Title (`h1`): the show title. The existing status pill and identity chip stay where `Header` renders them today.
-- **Theme switch: always visible** in the crew header, for viewers with and without an identity. `components/layout/Header.tsx:141` mounts `ThemeToggle` only for identity-less viewers today; this project mounts it for every crew-page viewer. The `AvatarMenu` checkbox (`AvatarMenu.tsx:438-442`) stays; both controls drive the same `useAppliedTheme` state, so they always agree.
-- **Search slot:** a `CrewSearchSlot` component that this project renders as nothing at all (§1.2). Its position is fixed now so the search project changes no layout: compact, a full-width row under the title; wide, between the title and the identity chip.
+- **Theme switch: always visible** in the crew header, for viewers with and without an identity. `components/layout/Header.tsx:141` mounts `ThemeToggle` only for identity-less viewers today; this project mounts it for every crew-page viewer, and the `AvatarMenu` checkbox (`components/auth/AvatarMenu.tsx:438-442`) stays. Today each control keeps its own React state from `useAppliedTheme` (`components/layout/useAppliedTheme.ts:71-89`, `components/layout/useAppliedTheme.ts:120-138`), so two mounted controls can disagree. This project moves the theme value into one module-level store that `useAppliedTheme` reads through `useSyncExternalStore`, notified by every `setTheme` call and by the `storage` event, so every mounted control shows the same value and a toggle never computes from a stale one.
+- **Search slot:** hosts search's field and results when search has merged, and renders nothing otherwise (§1.2). Compact: a full-width row under the title. Wide: between the title and the identity chip.
 - **Status slot** for the offline project: an empty element directly under the header (§1.2).
 
 ### 4.2 Day row
 
-A row of the days this viewer may see, above the pass. Selecting a day re-points the pass (§4.3) and the run of show (§4.4) at that day. Nothing else on the page changes with the selection.
+A row of the days this viewer may see, above the pass. It drives one piece of client state, the **selection**, which is either `live` or `day(iso)`.
 
-- **Day set (single source).** `aggregateDays(show.dates)` (`lib/crew/agendaDisplay.ts`, `aggregateDays`) filtered through the same date restriction the Schedule section applies (`visibleShowDays`, same file, the "SINGLE SOURCE" contract in its doc comment). The row never computes its own day list. Travel and set days pass through the same filter the Schedule section applies to them (cited in §2).
-- **Privacy floor.** When the viewer's restriction suppresses dates (`suppressesDates`, `lib/crew/dateSuppression.ts`, the `unknown_asterisk` contract of phase 1 §4.2: "zero day cards, the viewer must not be able to infer which show days exist"), the row is **not rendered at all**. Same when the day set is empty.
-- **Default selection.** Today's ISO date in the show timezone (`todayIsoInShowTimezone` / `resolveShowTimezone`, phase 1 §4.16) when it is in the day set. Otherwise the first day in the set after today. Otherwise the last day in the set. Computed on the client from the same clock the pass uses (§4.3), so a page left open overnight moves its default at midnight only if the viewer has not picked a day.
-- **Selection is client state only.** Not written to the URL. A reload returns to the default. (The URL already carries the open section, §5; two independent URL params for one screen is more than the job needs.)
-- **Button content.** Weekday ("Sat") or "Today", the day of month ("13"), and a short phase label: "Travel in", "Load in", "Show day 1", "Travel out", or "Travel in, load in" for a combined day. Accessible name per §9.4. `aria-pressed` on the selected button.
-- **Cap.** Up to 5 days fit at 390px. More than 5 scroll horizontally with scroll snapping, and the selected day is scrolled into view on mount. No hard cap: a 30-day tour scrolls.
+- **`live`** (the default on every load): the pass shows the live right-now state (§4.3) and the run of show shows today (§4.4). In `live`, today's button is pressed when today is in the day set; otherwise no button is pressed.
+- **`day(iso)`**: set by tapping any day button other than today's. The pass shows that day's static facts and the run of show shows that day. Tapping today's button returns to `live`.
+- **Day set (single source).** `aggregateDays(show.dates)` (`lib/crew/agendaDisplay.ts:114`) filtered through the date restriction exactly as the Schedule section filters its day list (`components/crew/sections/ScheduleSection.tsx:173-177`, which lists only an explicit viewer's own days, and `visibleShowDays`, `lib/crew/agendaDisplay.ts:145`). The row never computes its own day list.
+- **Hidden** when the viewer's dates are suppressed (`suppressesDates`, `lib/crew/dateSuppression.ts:70-72`; the phase 1 §4.2 contract that such a viewer must not be able to infer which show days exist), when the day set is empty, or when the live state is degraded (`dateless`, `unknown`, `viewer_unconfirmed`).
+- **Selection is client state only.** Not written to the URL; a reload returns to `live` (documented limit L5).
+- **Button content.** Weekday ("Sat") or "Today", the day of month ("13"), and a short phase label: "Travel in", "Load in", "Show day 1", "Travel out", or "Travel in, load in" for a combined day. Accessible name per §9.4. `aria-pressed` on the pressed button.
+- **Cap.** Up to 4 days sit in an equal-width grid. Five or more scroll horizontally with scroll snapping, every button at least 64px wide, and the pressed day (or, in `live` with no pressed day, the nearest upcoming day) is scrolled into view on mount. At the narrowest supported width (320px, a 288px content box after the page gutters, `lib/crew/pageContainer.ts:17`) four buttons and their three gaps fit; five would not. No hard cap: a 30-day tour scrolls.
 - **Tap target.** Each day button is at least 44px tall and 64px wide (`min-h-tap-min`).
 
 ### 4.3 Pass
 
-The dark card for the selected day. It replaces `RightNowHero` (`components/crew/RightNowHero.tsx`) on the crew page and keeps all of its state machinery: the same `selectRightNowState` states, the minute tick, the `visibilitychange` refresh, the `lastGood` morph and the 66-pair transition table (phase 1 §4.3, §4.16). The pass is a re-skin plus a day selector, not a new state machine.
+The dark card under the day row. It replaces `RightNowHero` (`components/crew/RightNowHero.tsx`) and keeps all of its machinery: `selectRightNowState`, the minute tick, the `visibilitychange` refresh, the `lastGood` morph and the 66-pair transition table (phase 1 §4.3, §4.16). The pass is a re-skin plus a day selector, not a new state machine.
 
-- **When the selected day is today:** the pass body is driven by the live state exactly as `RightNowHero` is today (eyebrow, lead, progress, stats), re-skinned into the pass layout below.
-- **When another day is selected:** the pass shows that day's static facts (phase label, the day's anchor time, the fact grid). No countdown, no live dot.
+- **`live`:** the body follows the live state for every one of the states listed in §2.2 (show day, travel in, set day, travel out, pre-travel countdown, not scheduled today, not scheduled yet, days done, show complete, not confirmed, unknown, dateless), re-skinned into the layout below. The copy is the existing copy, adjusted only where §9 says.
+- **`day(iso)`:** the body shows that day's static facts: the day label, its anchor time, the fact grid. No countdown and no live dot.
 - **Layout (top to bottom):**
-  1. Eyebrow row: left, the day label ("Show day 1 of 2", "Load in", "Travel in", "Travel out"); right, the viewer's role from the roster ("You, A1") when the role is non-empty.
-  2. Status line (selected day is today only): the countdown "Show starts in 25 min" when the day's `showStart` parses as a clock time and is within the next 3 hours; "Show started at 7:45 AM" once it has passed. Unparseable or absent `showStart` renders no status line (documented limit L1).
-  3. Big time: the day's anchor. Show day: "Show" + `showStart` (from `KeyTimeAnchors.shows` for that date, `lib/crew/resolveKeyTimes.ts`). Load-in day: "Load in" + the Set anchor. Last show day additionally shows "Strike" + the strike anchor at the right edge. Travel days have no big time: hotel check-in and check-out are dates, never times (phase 1 watchpoint 3).
-  4. Progress segments: show days only, one segment per show day, as today.
-  5. Perforated divider, then the fact grid: up to 6 cells in a 3-column grid. Candidates in order: "Room" (the deterministic GS room per `compareRooms`, `lib/crew/resolveKeyTimes.ts`), "Your lead", "Hotel tonight" (the viewer's reservation covering that night), "Dress code", "Strike" (only when not already the big time), "Load in" (only on travel-in days when a Set anchor exists). A cell with no value is omitted. Zero cells omits the divider and the grid. Each value is one line, truncated with an ellipsis. The full value is one tap away in its section.
-- **Degraded states** (`dateless`, `unknown`, `viewer_unconfirmed`): eyebrow and lead only, using the §9.3 copy. No times, no grid, no day row (the row is hidden for these, §4.2).
-- **Not scheduled on the selected day** (explicit restriction, day outside the viewer's days but inside the row because it is a travel or set day the Schedule shows them): lead "You're not scheduled this day." plus the next day line from §9.3.
-- **Color.** Dark in both themes (R7). It uses the dark-theme surface and text tokens directly, so the theme switch never changes it.
+  1. Eyebrow row: left, the day label ("Show day 1 of 2", "Load in", "Travel in", "Travel out", or the live state's eyebrow); right, "You, A1" from the viewer's roster role when non-empty.
+  2. Status line (`live` on a show day only): "Show starts in 25 min" when the day's `showStart` converts through the existing `clockToMinutes` (`lib/time/clockToMinutes.ts`) and lies within the next 3 hours; "Show started at 7:45 AM" once it has passed. When `clockToMinutes` returns null, no status line (documented limit L1).
+  3. Big time: the day's anchor. Show day: "Show" + its `showStart` (`KeyTimeAnchors.shows` for that date, `lib/crew/resolveKeyTimes.ts:18`). Load-in day: "Load in" + the Set anchor. The last show day adds "Strike" + the strike anchor at the right edge. Travel days have no big time: hotel check-in and check-out are dates, never times (phase 1 watchpoint 3).
+  4. Progress segments: show days only, one per show day, as today.
+  5. Perforated divider, then the fact grid: up to 6 cells in a 3-column grid. Candidates in order: "Room" (the deterministic GS room per `compareRooms`, `lib/crew/resolveKeyTimes.ts`), "Your lead", "Hotel tonight", "Dress code", "Strike" (only when it is not already the big time), "Load in" (only on travel-in days with a Set anchor). A cell with no value is omitted; zero cells omit the divider and the grid. Each value is one line with an ellipsis; the full value is one tap away in its section.
+- **Personal cells** ("You, A1", "Hotel tonight", "Your lead") render only for viewers of kind `crew` and `admin_preview` (`lib/data/getShowForViewer.ts:99-101`). A plain `admin` viewer receives every crew member's reservations and has no roster row, so these cells are omitted for it.
+- **"Your lead":** the first crew member carrying `LEAD` in the order the Crew section renders the roster; omitted when that person is the viewer.
+- **"Hotel tonight":** `reservationForNight(reservations, iso)` (§4.5) for the selected day (`live`: today).
+- **Suppressed dates never reach the pass.** For a viewer whose dates are suppressed, the server builds the pass props without hotel dates, day dates or per-day anchors, rather than hiding them at render (closing the leak in §2.2). A test serializes the props and searches them for every ISO date of the show (§12).
+- **Degraded states** (`dateless`, `unknown`, `viewer_unconfirmed`): eyebrow and lead only, with the §9.3 copy. No times, no grid; the day row is hidden (§4.2).
+- **Color.** Dark in both themes (R7): the pass subtree carries `data-theme="dark"`, which re-scopes the theme tokens because the dark token block's selector is not tied to the root (`app/globals.css:487`). The plan verifies the computed colors in a real browser in both themes.
 
 ### 4.4 Run of show
 
-The selected day's run of show, below the pass.
+The selected day's run of show, below the pass (`live`: today).
 
-- **Entries.** The selected day's `ScheduleDay.entries` through `scheduleEntriesForViewer(entries, { transportVisible })` (`lib/crew/agendaDisplay.ts`), so a load-out entry stays hidden from viewers who cannot see transport. A bare show day with only a `showStart` gets the synthetic "Show Start" row from `showStartDisplayEntry` (same file). Nothing else is synthesized.
-- **Cap.** 6 rows on the home screen. Beyond 6, a "Full schedule" link opens the Schedule section (sheet on compact, scroll on wide). The Schedule section keeps its own cap, `RUN_OF_SHOW_DISPLAY_CAP` (`lib/crew/agendaDisplay.ts`). Titles truncate at `TITLE_TRUNCATE_AT` (same file), as they do today.
-- **"Next" marker.** Only when the selected day is today. It sits on the first entry whose start parses as a clock time at or after now. Unparseable starts never get the marker (documented limit L1).
-- **Empty.** No displayable entries: the card is omitted.
+- **Entries.** The day's `ScheduleDay.entries` through `scheduleEntriesForViewer(entries, { transportVisible })` (`lib/crew/agendaDisplay.ts:66`), so a load-out entry stays hidden from viewers who cannot see transport, merged with that day's agenda sessions exactly as Today merges them now: `buildShowDayTimeline(entries, agendaSessionsForToday(agenda_links, showDays, iso))` (`lib/crew/showDayTimeline.ts:17`, `lib/crew/agendaDayForToday.ts:52`; current call at `components/crew/sections/TodaySection.tsx:242-247`, `components/crew/sections/TodaySection.tsx:693`). A bare show day with only a `showStart` gets the synthetic "Show Start" row from `showStartDisplayEntry` (`lib/crew/agendaDisplay.ts:84`), which receives the day's **raw** entries: a viewer-hidden load-out still counts as a raw entry and still suppresses the synthetic row, as its doc comment requires. Rendering reuses `ShowDayTimelineList` and `RunOfShowList` as Today does now.
+- **Suppressed viewers** get no entries (the projection already returns none, `lib/data/getShowForViewer.ts:804-833`), so the card is omitted.
+- **Cap.** 6 rows on the home screen. Beyond 6, a "Full schedule" link opens the Schedule section (sheet on compact, scroll on wide). The Schedule section keeps its own cap, `RUN_OF_SHOW_DISPLAY_CAP` (`lib/crew/agendaDisplay.ts:23`); titles truncate at `TITLE_TRUNCATE_AT` (`lib/crew/agendaDisplay.ts:25`), as today.
+- **"Next" marker.** `live` only: on the first row whose start converts through `clockToMinutes` to a time at or after now. A null conversion never gets the marker (documented limit L1).
+- **Card header actions** stay as Today's run-of-show card has them (§6.4).
+- **Empty.** No displayable rows: the card is omitted.
 
 ### 4.5 Quick facts
 
-Up to four small tiles under the run of show (compact) or beside it (wide). They answer the most-hunted facts without opening anything.
+Up to four small tiles under the run of show (compact) or beside it (wide). They answer the most-hunted facts without opening anything. They do not follow the day row: every fact is computed once, on the server.
 
 - **Identifiers.** A closed, ordered union `QuickFactId = "wifi" | "hotel" | "dock" | "contact" | "parking" | "dressCode" | "address"`, exported from a new pure module lib/crew/quickFacts.ts (new) together with `DEFAULT_QUICK_FACT_ORDER: readonly QuickFactId[]` in exactly that order. Project 4 replaces the source of the order with a per-show setting. This project hardcodes the default.
 - **Selection.** `selectQuickFacts(order, data, viewer)` walks the order and keeps the first 4 ids that resolve to a value for this viewer. Pure function, unit-tested, no React.
@@ -200,9 +206,9 @@ Up to four small tiles under the run of show (compact) or beside it (wide). They
 | Id | Label | Value | Action | Gate |
 |---|---|---|---|---|
 | `wifi` | "Wi-Fi" | the Venue section's own Wi-Fi display: network and password as two labeled lines when `lib/crew/wifiDisplay.ts` splits them, otherwise its notes text | Copy the password when present ("Copy Wi-Fi password"), otherwise copy the whole text ("Copy Wi-Fi details") | sentinel hiding (`shouldHideGenericOptional`) |
-| `hotel` | "Hotel" | the viewer's reservation for the selected night per `reservationForNight` (below): hotel name, plus "Confirmation" and its `confirmation_no` when present | Copy the confirmation number | the projection already returns only the viewer's own reservations to non-admins (`getShowForViewer` hotel filter, §2) |
+| `hotel` | "Hotel" | the viewer's reservation for tonight per `reservationForNight` (below), tonight being today's ISO date in the show timezone computed on the server (`nowDate()` + `todayIsoInShowTimezone`, as the Schedule pin does): hotel name, plus "Confirmation" and its `confirmation_no` when present | Copy the confirmation number | only for `crew` and `admin_preview` viewers (§4.3 personal cells); the projection returns only the viewer's own reservations to them (`lib/data/getShowForViewer.ts:784-787`) |
 | `dock` | "Loading dock" | the venue loading dock text | none | sentinel hiding |
-| `contact` | "Who to call" | `selectPrimaryContact(contacts)` name and kind label | Call (and Text when a phone exists) | client contact never eligible (phase 1 §4.2) |
+| `contact` | "Who to call" | `selectPrimaryContact(contacts)` (`lib/crew/selectPrimaryContact.ts:12-20`) name and kind label | Call and Text when `digitsOnly(phone)` is non-empty; Email when the email is non-sentinel; neither: the name alone | client contact never eligible (phase 1 §4.2) |
 | `parking` | "Parking" | transport parking text | none | `transportTileVisible` (phase 1 §4.13a) |
 | `dressCode` | "Dress code" | the dress code text Today shows | none | sentinel hiding |
 | `address` | "Venue" | venue name and address | Directions link, only when the map URL passes `isParseableUrl` | sentinel hiding |
@@ -215,38 +221,54 @@ Up to four small tiles under the run of show (compact) or beside it (wide). They
 
 ### 4.6 "All sections" list (compact only)
 
-A single card listing every section this viewer may open, in registry order (§5.1), one row each: icon, label, a one-line peek, a chevron. Tapping a row opens that section's sheet (§5.2).
+A single card listing every section this viewer may open, in nav order (§5.1), one row each: icon, label, a one-line peek, a chevron. Tapping a row opens that section's sheet (§5.2).
 
-- **Peek line.** A short, data-derived summary per section, computed server-side by a pure `sectionPeek(id, data, viewer)` in lib/crew/sectionPeek.ts (new) (e.g. Venue: venue name; Crew: "6 people"; Pack list: "14 cases"; Transport: the next leg's stage and time). A section whose peek resolves to nothing shows no peek line, never placeholder text. Peeks obey every gate the section itself obeys, because they are computed from the same gated inputs.
-- **Membership.** Exactly the sections the viewer is entitled to and that have content (§5.1); the same set the wide nav lists. One source: both read `crewSectionsFor(data, viewer)`.
-- **Rows** are links (`<a href="?s=<id>">`), so they work before hydration and with JavaScript off (the server renders the sheet open for `?s=`).
+- **Membership.** `crewSectionsFor(data, viewer)` (pure, lib/crew/crewSections.ts (new)); the wide nav reads the same function, so the two lists cannot differ. Its rules per PR are in §5.1.
+- **Peek line.** A short, data-derived summary computed server-side by a pure `sectionPeek(id, data, viewer)` in lib/crew/sectionPeek.ts (new) (e.g. Venue: venue name; Crew: "6 people"; Pack list: "14 cases"). A peek reads only fields the section itself renders for this viewer, through the same gates: a ground-transport leg contributes to a peek only when `transportTileVisible` holds, hotel and day details never contribute for a date-suppressed viewer, and so on. A section whose peek resolves to nothing shows no peek line, never placeholder text.
+- **Rows are links** built with the existing `buildSectionHref` (`lib/crew/sectionHref.ts:30-42`), which keeps an allow-listed `gate` alongside `s`, so a pre-hydration click, a JavaScript-off click, or "open in new tab" keeps both params. The server renders the sheet open for `?s=`.
 
 ## 5. Navigation and URL
 
-### 5.1 One section registry
+### 5.1 Section ids per PR
 
-A new module lib/showSections/registry.ts (new) holds the section metadata both surfaces read: `{ id, label, group, icon }` for `venue`, `event`, `crew`, `contacts`, `schedule`, `agenda`, `hotels`, `transport`, `rooms`, `packlist`, `billing`, in that order, with the six groups of `STEP3_SECTION_GROUPS` minus "Checks" ("The show", "People", "Schedule", "Logistics", "Gear", "Money"). Labels are the admin labels verbatim ("Rooms & scope", "Billing & docs", "Crew schedule", ...), so admin tests that pin them keep passing. `step3ReviewSections.tsx` reads its shared entries' `label`/`group`/`Icon` from this module; its admin-only entries (warnings, report) and its `render`/`railCount`/`hideDot` stay where they are.
-
-`crewSectionsFor(data, viewer)` (pure, lib/crew/crewSections.ts (new)) returns the registry entries this viewer gets, applying the gates the live page applies today: `billing` only when `financialsVisible`; `transport` only when `transportTileVisible` or the viewer has their own flight; `packlist` only when `isPackListVisibleToday`; `agenda` only when the viewer has run-of-show entries or agenda links; any section whose shared panel reports no content is dropped (the section-level empty state of phase 1 §4.2 becomes "not listed").
+- **PR A** keeps today's crew section ids and bodies: `schedule`, `venue`, `travel`, `crew`, `gear`, and `budget` (`lib/crew/resolveActiveSection.ts:1-2`), with today's labels (`components/crew/CrewSubNav.tsx:47-53`). `today` now means "home, no sheet". Membership is exactly today's tab set: the six base sections for everyone and `budget` only when `financialsVisible` (`app/show/[slug]/[shareToken]/_CrewShell.tsx:243`, `app/show/[slug]/[shareToken]/_CrewShell.tsx:449-454`). A section with no content still opens and shows its existing section-level empty state, as its tab does today. The wide nav lists "Today" then these six (or seven) with no group headings.
+- **PR B** introduces lib/showSections/registry.ts (new): `{ id, label, group, icon }` for `venue`, `event`, `crew`, `contacts`, `schedule`, `agenda`, `hotels`, `transport`, `rooms`, `packlist`, `billing`, in that order, in the six groups of `STEP3_SECTION_GROUPS` minus "Checks" ("The show", "People", "Schedule", "Logistics", "Gear", "Money"). Labels are the admin labels verbatim ("Rooms & scope", "Billing & docs", "Crew schedule", ...). `step3ReviewSections.tsx` reads its shared entries' `label`, `group` and `Icon` from this module; its admin-only entries (warnings, report) and its `render`, `railCount` and `hideDot` stay where they are. The crew page moves to the registry ids for the sections PR B moves (§6.3), and keeps `gear` until PR C.
+- **PR C** moves `event`, `rooms` and `packlist`, retiring `gear`. From then on the nav shows the registry groups (AC-10).
+- **Membership from PR B on:** `billing` only when `financialsVisible` and the projection returned financials; `transport` when `transportTileVisible` holds or the viewer has their own flight, with the ground-transport body itself rendered only when `transportTileVisible` holds (a flight-only viewer sees "Your flight" and nothing else, §6.2); `packlist` only when `isPackListVisibleToday`; `agenda` only when the viewer has agenda content and their dates are not suppressed; every other registry section always, showing its empty state when empty.
+- **Legacy ids.** From the PR that retires an id, old links keep working through an alias map applied everywhere `s` is resolved (`resolveActiveSection` and the redirect allow-list at `app/show/[slug]/[shareToken]/page.tsx:195`): `today` → home, `travel` → `hotels`, `budget` → `billing` (PR B); `gear` → `rooms` (PR C). `schedule`, `venue` and `crew` keep their ids. An unknown or non-entitled id resolves to home, as an invalid `s` resolves to `today` now. `?s=` and `?gate=` stay independent through every auth and picker redirect (phase 1 §4.1a).
 
 ### 5.2 Compact: the section sheet
 
-- **URL.** `?s=<id>` means "the sheet is open on `<id>`". The server renders it open on first load, so a deep link or a refresh lands with the sheet up.
-- **Legacy ids.** Old links keep working through an alias map applied wherever `s` is resolved (`resolveActiveSection` and the redirect allow-list at `page.tsx:195`): `today` → home (no sheet), `schedule` → `schedule`, `venue` → `venue`, `travel` → `hotels`, `crew` → `crew`, `gear` → `rooms`, `budget` → `billing`. A non-entitled or unknown id resolves to home, exactly as an invalid `s` resolves to `today` now. `?s=` and `?gate=` stay independent through every auth and picker redirect (phase 1 §4.1a).
-- **Opening** from the "All sections" list or an in-page link: `history.pushState` with the new `s` and a history-state marker `{ crewSheet: true }`, the same no-router mechanism `CrewSections` uses (`CrewSections.tsx:75-86`).
-- **Closing.** Close button, scrim tap, Esc, swipe down past the threshold, or browser Back. If the current history entry carries the marker, the close calls `history.back()` (so Back and the close button land on the same entry). If not (deep link or refresh), it calls `history.replaceState` without `s`. A `popstate` that removes `s` closes the sheet; one that adds `s` opens it.
-- **Drag to dismiss** uses the same thresholds as the admin sheet. `DRAG_DISMISS_THRESHOLD_PX` and `DRAG_SLOP_PX` move from `ReviewModalShell.tsx:47-49` to a shared constants module that both import; their values do not change.
-- **Modal behavior.** Focus moves to the sheet title on open and back to the row that opened it on close; focus is trapped inside; the page behind is `inert`; body scroll is locked. The sheet is a `role="dialog"` with `aria-modal="true"` and `aria-labelledby` its title.
+- **URL.** `?s=<id>` means the sheet is open on `<id>`. The server renders it open on first load, so a deep link or a refresh lands with the sheet up.
+- **History rules** (the client never calls the router; this is the no-router mechanism `CrewSections` uses today, `components/crew/CrewSections.tsx:75-95`):
+
+| Event | History call | Sheet |
+|---|---|---|
+| Open from home (list row, in-page link, `openSectionAndReveal`) | `pushState(url with s, { ...history.state, crewSheet: true })` | opens |
+| Open another section while one is open (in-sheet link, `openSectionAndReveal`) | `replaceState(url with the new s, history.state)` | stays up, body swaps (§7) |
+| Close button, scrim tap, Esc, swipe past threshold, when `history.state.crewSheet` is set | `history.back()`; the `popstate` that follows closes the sheet | closes on `popstate` |
+| Same closes when the marker is absent (deep link, or an entry the marker never reached) | `replaceState(url without s, state without crewSheet)` | closes |
+| Browser Back or Forward (`popstate`) to an entry without `s` | none | closes |
+| `popstate` to an entry whose `s` is an entitled id | none | opens on that id |
+| `popstate` to an entry whose `s` is unknown or not entitled | `replaceState(url without s)` | closes |
+| Realtime refresh removes the open section from membership | `replaceState(url without s)` | closes (the clamp `CrewSections` applies today, `components/crew/CrewSections.tsx:103-104`) |
+
+  A deep link has no home entry beneath it, so its Back leaves the page; that is the browser's history, not a defect (ratified by the spike below).
+- **Drag to dismiss** uses the admin sheet's thresholds. `DRAG_DISMISS_THRESHOLD_PX` and `DRAG_SLOP_PX` move from `components/admin/review/ReviewModalShell.tsx:47-49` to a shared constants module both import; their values do not change.
+- **Modal behavior.** Focus moves to the sheet title on open and back to the control that opened it on close; focus is trapped inside; the page behind is `inert`; body scroll is locked. `role="dialog"`, `aria-modal="true"`, `aria-labelledby` the title.
+- **Nested dialogs.** Three existing dialogs can open from inside a sheet: the agenda PDF viewer (`components/agenda/AgendaEmbed.tsx:106-136`), the diagram lightbox (`components/diagrams/GalleryLightbox.tsx:664-726`) and the report modal (`components/shared/ReportModal.tsx:277`). While any of them is open: it renders above the sheet in a higher z-index band; the sheet ignores its own Esc, scrim, swipe and close handlers (it checks for another open `aria-modal="true"` dialog before acting); the nested dialog owns focus and restores it to its trigger inside the sheet; scroll locks unwind last-in first-out (the nested dialog restores the value it found, which is the sheet's lock); and a breakpoint change defers the sheet's dismissal until the nested dialog has closed. The plan verifies all five rules for each of the three dialogs in a real browser.
 - **Width.** Full width below 640px; from 640px up to the wide breakpoint, centred at the bottom with the existing panel max width (`DESIGN.md:684`).
-- **Mechanism is UNRATIFIED** until a spike: Next 16's handling of a raw `pushState` carrying a state object alongside `useSearchParams`, and `popstate` ordering against the existing resync in `CrewSections.tsx:65-73`. The plan's first task is that spike (a throwaway route plus a Playwright probe of open, close, Back, deep link, refresh). If the spike shows the history-state marker is lost or reordered, the fallback is: close always uses `replaceState`, and Back is honored through `popstate` alone.
+- **Mechanism ratified by spike** (2026-10-26, Next 16.3.0, Chromium via Playwright, a throwaway route on `origin/main`): a raw `pushState` carrying `{ ...history.state, crewSheet: true }` keeps the marker and `useSearchParams` follows it; open, close, Back and Forward issue no fetch or document request; a close with the marker lands on the page without `s` and fires `popstate`; a fresh deep link has no marker, so close takes the `replaceState` path and a later Back leaves the page; a reload of an in-app-pushed entry keeps the marker (browsers preserve `history.state` on reload), and its close lands on the same page without `s`.
 
 ### 5.3 Wide: left nav and one column
 
-- The nav is 240px wide, sticky under the header, listing "Today" then the groups and their sections from `crewSectionsFor` (same set as §4.6). No counts, no status dots.
-- Sections stack in registry order below the Today block, each with an anchor `id` and a `scroll-margin-top` of the header height (§8).
-- **Nav click:** smooth-scroll to the section (instant under reduced motion), move focus to its heading (`tabindex="-1"`), and `history.replaceState` the `s` param, never `pushState`, so scrolling around does not fill the history.
-- **Scroll-spy:** the active nav item follows the section in view using the admin rule (`activeSectionFor`, `ShowReviewSurface.tsx:97-115`), extracted into a shared pure function both surfaces call, with the same offset; it is suppressed while a nav-click scroll runs, as the admin rail does (`ShowReviewSurface.tsx:436-487`).
+- The nav is 240px wide, sticky under the header, listing "Today" then the sections from `crewSectionsFor` (§5.1). No counts, no status dots.
+- Sections stack in nav order below the Today block, each with an anchor `id` and a `scroll-margin-top` of the header height (§8).
+- **Nav click:** smooth-scroll to the section (instant under reduced motion), move focus to its heading (`tabindex="-1"`), and `replaceState` the `s` param. Wide mode never pushes history; the scroll-spy never writes the URL.
+- **Scroll-spy:** the active nav item follows the section in view using the admin rule (`activeSectionFor`, `components/admin/review/ShowReviewSurface.tsx:97-115`), extracted into a shared pure function both surfaces call with the same offset; it is suppressed while a nav-click scroll runs, as the admin rail does (`components/admin/review/ShowReviewSurface.tsx:436-487`).
+- **Back and Forward in wide mode** only meet entries created in compact mode: a `popstate` scrolls to the entry's `s` section (or the top when absent) without moving focus.
 - **Deep link `?s=<id>`** on load scrolls to that section after hydration.
+- **`openSectionAndReveal`** scrolls to the target with the same scroll margin, then highlights it.
 
 ## 6. Shared section panels
 
@@ -260,7 +282,9 @@ So each shared body moves to a new neutral directory, components/show-panels/ (n
 - Each body takes plain props: the section's data **already gated by the caller**, presentation props listed in §6.2, a `testIdPrefix`, and `ReactNode` slots for surface-specific extras.
 - Interactive leaves (a "Show all" toggle, a copy button) are small `"use client"` components inside the same directory, under the same import ban.
 - **Admin:** each `step3Sections` entry's `render` calls the shared body with the admin props, passing `testIdPrefix = wizard-step3-card-${dfid}-breakdown` and the admin-only pieces through slots. `BreakdownSection` and `ModalSectionChrome` stay in `step3ReviewSections.tsx` and wrap the shared body. The rendered DOM is unchanged (§12, PR B invariant).
-- **Crew:** each section renders a crew panel card (the admin card's surface, border, radius, padding and shadow tokens, and its 28px icon chip with an `h3` label) around the shared body, inside `WrappedSection` so a render throw stays contained and recorded as today. A parity test compares the crew card's classes with the admin card's.
+- **Crew:** each section renders a crew panel card (the admin card's surface, border, radius, padding and shadow tokens, and its 28px icon chip with an `h3` label) around the shared body. Its header carries the section's existing per-card actions through a slot (§6.4). A parity test compares the crew card's classes with the admin card's.
+- **Error containment.** `WrappedSection` catches only what throws while its own render callback runs (`components/crew/WrappedSection.tsx:92-110`); an element it returns renders later, outside the catch. So shared bodies are hook-free pure functions, and the crew side **calls** them (`Body(props)`) inside that callback, exactly as today's sections run their transforms there; an exception is then caught and recorded. Interactive client leaves render after the server pass, so each sits inside the existing client boundary (`TileErrorBoundary`, `components/shared/`). A test throws from a shared body and from a leaf and asserts both are contained and recorded.
+- **Phone and email links.** Every body that renders contact links takes `telLinks: "digits" | "raw"`: the crew page passes `"digits"` (a `tel:` link only when `digitsOnly(phone)` is non-empty, else plain text); the admin passes `"raw"`, its current behavior, so its DOM does not change.
 - **Sentinels.** The admin shows parsed values as parsed, including sentinels, muted; the crew page hides them (`shouldHideGenericOptional`, `lib/visibility/emptyState.ts:79`). Every shared body takes `sentinels: "show" | "hide"`.
 
 ### 6.2 Per-section decisions
@@ -272,11 +296,11 @@ Admin bodies and crew equivalents as compared at base `370e1cc9c`. "Crew keeps" 
 | `venue` | Where core of `VenueBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:1312`) | Maps link only when `isParseableUrl`; crew-only blocks below the body: Facilities (dock; parking behind `transportTileVisible`; Wi-Fi split with password copy; power), Status (COI with `data-testid="coi-status"`; venue notes) | `VenueMapTile` slot | COI stays visible to all crew here. Moving it to Billing would hide it from non-leads. |
 | `event` | `EventDetailsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:2305`) | `keys`: the crew subset `CREW_TECH_SPEC_KEYS` (`lib/crew/eventDetailsSpecs.ts`) plus dress code and keynote; opening reel text through `stripOpeningReelText`, with the `OpeningReelVideo` player as a crew slot | all keys, Yes/No chips, attention from props | The reel URL strip (no `https://`, `drive.google.com`, `docs.google.com` in crew DOM). Wi-Fi and power stay in Venue. |
 | `crew` | `CrewBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:1706`) | `cap` = `CREW_INLINE_CAP` with the crew overflow copy; "You", "Lead" and partial-attendance chips (humanized); call and text actions only when `digitsOnly(phone)` is non-empty | `cap` = admin `CREW_CAP` with its copy; `rowActions` slot (`CrewRowActions`); `underRow` slot (attention stack) | Overflow derives from `length - cap`. |
-| `contacts` | `ContactsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:1232`) | `includeClient: false`; `cap` = `CONTACTS_INLINE_CAP`; `showNotes: true` | `includeClient: true`; no cap; `showNotes: false` | The client contact never reaches the crew DOM. |
-| `schedule` | `ScheduleDayRow` (`components/admin/wizard/step3ReviewSections.tsx:1911`) | today pin; entries via `scheduleEntriesForViewer`; Set-day meta; `RUN_OF_SHOW_DISPLAY_CAP`; the key-times card stays above the days | admin entries cap with "Show all M times" | The day list itself stays per surface: the crew list keeps the date-restriction privacy contract (placeholder only for suppressed viewers, zero day rows). |
+| `contacts` | `ContactsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:1232`) | `includeClient: false`; `cap` = `CONTACTS_INLINE_CAP`; `showNotes: true`; `telLinks: "digits"` | `includeClient: true`; no cap; `showNotes: false`; `telLinks: "raw"` | The client contact never reaches the crew DOM. |
+| `schedule` | **not shared** | the crew keeps `DayCard` and `RunOfShowList` (`components/crew/primitives/RunOfShowList.tsx:35-119`) | the admin keeps `ScheduleDayRow` (`components/admin/wizard/step3ReviewSections.tsx:1911`) | The crew rows carry finish, duration, room, A/V notes, URL and sentinel cleanup and long-title disclosure that the admin row does not (a parser probe of the East Coast and Asset Management fixtures shows all four fields populated). Sharing the admin row would drop them; sharing the crew row would change the admin DOM. Documented limit L7. |
 | `agenda` | `AgendaScheduleBlock`, already shared (`components/admin/wizard/step3ReviewSections.tsx:3755`) | wrapper unchanged (`AgendaEmbed` + viewer days) | wrappers unchanged | Hidden for suppressed viewers. |
 | `hotels` | `HotelCard` (`components/admin/wizard/step3ReviewSections.tsx:2889`) | `showConfirmation: true`, `showNotes: true`, `showGuests: false`, `hideDates` when `suppressesDates`; ordered by `ordinal` | `showConfirmation: false`, `showNotes: false`, `showGuests: true`; `HOTELS_CAP` | Each surface keeps exactly the fields it shows today. The projection already limits crew to their own reservations. |
-| `transport` | `TransportBody` (`components/admin/wizard/step3ReviewSections.tsx:1531`) | `hideDates` when suppressed; `linkifyContacts: true` (tap to call the driver; same data the assigned viewer already sees as text); crew-only block above the body: "Your flight" | `linkifyContacts: true` | The caller renders the section only when `transportTileVisible` or the viewer has a flight; the body never decides visibility. |
+| `transport` | `TransportBody` (`components/admin/wizard/step3ReviewSections.tsx:1531`) | rendered **only when `transportTileVisible`** holds; `hideDates` when suppressed; `linkifyContacts: true` with `telLinks: "digits"` (tap to call the driver, the same number the assigned viewer sees today as text); crew-only block above it: "Your flight" | `linkifyContacts: true`, `telLinks: "raw"` | The section is listed when `transportTileVisible` holds or the viewer has a flight (§5.1); a flight-only viewer sees "Your flight" alone. Driver, load-out contacts, vehicle, plate, parking, assignments and notes never reach a viewer the gate excludes (phase 1 watchpoint 14). |
 | `rooms` | `RoomsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:2125`) | crew adopts the admin's room-first layout; `emphasize`: the viewer's disciplines get the "Your scope" label inside each room; `dropEmpty: true` (no "Not specified" rows); crew-only block below: Diagrams (the existing crew diagrams logic, embedded-first, MIME allowlist) | `ROOMS_CAP`; all five disciplines; diagrams sub-block as today | Every discipline stays visible to everyone; only emphasis differs (phase 1 D-5). Distinct discipline icons stay. |
 | `packlist` | `PackListBreakdown` case list (`components/admin/wizard/step3ReviewSections.tsx:2529`) | `itemsCap: none`, `showRawSnippet: true`, `numbered: true` | items cap with toggle; archived-tab affordances as a slot | The caller renders it only when `isPackListVisibleToday`; the 12-case cap and overflow stay. |
 | `billing` | key-value rows of `OpsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:1640`) | PO, Proposal, Invoice, Invoice notes | all five rows including COI | Rendered only when `financialsVisible` and the projection returned financials. |
@@ -290,7 +314,11 @@ Admin bodies and crew equivalents as compared at base `370e1cc9c`. "Crew keeps" 
 
 ### 6.3 Rollout of the shared bodies
 
-The sections whose crew layout keeps its structure (`venue`, `crew`, `contacts`, `schedule`, `agenda`, `hotels`, `transport`, `billing`) move in PR B. The sections where the crew page adopts the admin's structure (`event`, `rooms`, `packlist`) move in PR C, because each reorganizes crew content and migrates the most crew tests.
+The sections whose crew layout keeps its structure (`venue`, `crew`, `contacts`, `agenda`, `hotels`, `transport`, `billing`) move in PR B. The sections where the crew page adopts the admin's structure (`event`, `rooms`, `packlist`) move in PR C, because each reorganizes crew content and migrates the most crew tests. `schedule` stays per surface (§6.2).
+
+### 6.4 Card header actions
+
+Every crew card that has per-card header actions today keeps them, with its card id: the "In sheet" source link and the report button (`components/crew/primitives/CardHeaderActions.tsx:23`), mapped through `CARD_REGION_MAP` (`lib/sheet-links/buildSheetDeepLink.ts:177`) and pinned by `tests/components/crew/sourceLinkCoverage.test.tsx`. Where a section has several cards today (Venue: Where, Facilities, Status), each keeps its own actions. The run-of-show card keeps the actions Today's run-of-show card has. The new composite pieces (pass, quick facts) carry none: they summarize several sheet regions, so no single source link is honest. In PR B and PR C the crew panel card receives the actions through its header slot.
 
 ## 6A. Documented limits
 
@@ -301,7 +329,8 @@ Conservative behavior plus a visible fallback, not defects. A review finding tha
 - **L3. Hotel check-in and check-out are dates.** No clock times on travel days.
 - **L4. No labeled crew call or doors time.** The per-day anchor is labeled "Show" (§9.1).
 - **L5. Day selection resets on reload** (§4.2).
-- **L6. The header search slot is empty** until the search project ships (§1.2).
+- **L6. The header search slot renders nothing** until search merges (§1.2).
+- **L7. Schedule rows differ between surfaces.** The crew rows show fields the admin row does not (§6.2). Making the admin popup show them is an admin change outside this project.
 
 ## 7. Transition inventory
 
@@ -328,9 +357,12 @@ Every state change gets a treatment. Durations come from the existing tokens (`-
 | While | Then | Treatment |
 |---|---|---|
 | Sheet open | Realtime refresh re-renders the page (`ShowRealtimeBridge` → `router.refresh()`) | Sheet stays open on the same section; its body updates in place with no animation. The open section survives because the controller stays mounted (the freshness invariant cited in §2). |
-| Sheet open | Viewport crosses into wide (rotation, window resize) | Sheet is dismissed without animation; the page shows the wide layout scrolled to that section; the URL keeps `?s=`. |
+| Sheet open | Viewport crosses into wide (rotation, window resize) | Sheet is dismissed without animation; the page shows the wide layout scrolled to that section; the URL keeps `?s=` and the entry keeps its marker. If a nested dialog is open, the dismissal waits until it closes (§5.2). |
 | Sheet mid-drag | Viewport crosses into wide | Drag is cancelled, then the row above applies. |
-| Wide, scrolled to section A | Viewport crosses into compact | Home screen at the top; no sheet opens automatically; the URL drops `?s=` with `replaceState`. |
+| Wide, scrolled to section A | Viewport crosses into compact | Home screen at the top; no sheet opens automatically; `replaceState(url without s, state without crewSheet)`. |
+| Day `day(iso)` selected | Realtime refresh removes that day from the day set | Selection returns to `live`. |
+| Sheet open | Realtime refresh removes the open section from membership | Sheet closes via `replaceState` (§5.2). |
+| Nested dialog open inside the sheet | Esc pressed | Only the nested dialog closes (§5.2). |
 | Day crossfade running | Another day tapped | The second selection wins; the running fade is replaced, never queued. |
 | Sheet open | Theme switched | Not reachable: the header is behind the scrim and inert while the sheet is open. |
 
@@ -338,7 +370,7 @@ Every state change gets a treatment. Durations come from the existing tokens (`-
 
 Tailwind v4 here does not stretch flex children by default; each relationship below names the class that guarantees it, and the plan asserts each with `getBoundingClientRect()` in a real browser.
 
-1. **Day row.** Up to 5 days: a grid with one equal track per day (`grid` + `grid-cols-[repeat(N,minmax(0,1fr))]`), every button the full row height (`items-stretch` on the row, `h-full` on the button). More than 5: a flex row with `min-w-16` buttons and `snap-x`, buttons still `self-stretch`.
+1. **Day row.** Up to 4 days: a grid with one equal track per day (`grid` + `grid-cols-[repeat(N,minmax(0,1fr))]`), every button the full row height (`items-stretch` on the row, `h-full` on the button). Five or more: a flex row with `min-w-16` buttons and `snap-x`, buttons still `self-stretch`.
 2. **Pass.** The card keeps a fixed minimum height across day crossfades and live-state swaps (the existing `--spacing-right-now-min-h`, carried from `RightNowHero`). The fact grid is `grid-cols-3`, every cell `min-w-0` so values truncate instead of widening the column.
 3. **Quick facts.** `grid-cols-2` with `items-stretch`; every tile `h-full`, so tiles in one row share a height. A spanning tile is `col-span-2`.
 4. **Section sheet (compact).** Fixed to the viewport bottom, `max-h-[90dvh]`, a flex column: the header row is `shrink-0`, the body is `flex-1 min-h-0 overflow-y-auto`. The sheet never grows past 90% of the dynamic viewport height, and its body scrolls inside it.
@@ -386,7 +418,7 @@ Source: a read-only copy audit of the round-2 boards against `PRODUCT.md`, `DESI
 
 | State | Copy |
 |---|---|
-| Not scheduled on the selected day | "You're not scheduled this day." plus "Your next day: Mon Jun 15." when one exists. |
+| Not scheduled today (live state `viewer_off_day`) | "Not scheduled today." plus "Your next day: Mon Jun 15." when one exists (the existing state's next-assigned-day line). |
 | Show time already passed today | "Show started at 7:45 AM." |
 | Viewer's last day is over | "Your days are done." (live state `viewer_after_last_day`) |
 | Days not confirmed | "Your days aren't confirmed yet." (live state `viewer_unconfirmed`) |
@@ -457,9 +489,13 @@ Every test names the defect it catches. Expected values come from fixtures, neve
 - Every §8 invariant via `getBoundingClientRect()`, ±0.5px.
 - The pass's computed background equals the dark surface token in both themes.
 
-**Migrations, not deletions.** Existing tests that pin removed structure (`CrewSubNav`, the bottom bar, `data-active-section`, the hero testid and its 176px canonical baseline) are retargeted to the new elements, and their failure modes carried over, before the old components are deleted. The structural meta-tests that pin file and line locations (`tests/styles/forcedColorsCensus.ts`, `_metaControlOutlineFill`, `_metaControlOutlineResidue`, `subtleInteractiveExemptions.ts`, `tapTargetCensus.ts`, `alertProducerScope.registry.ts`, `_metaRenderFaultMarking`) are updated in the commit that moves the code they pin. Help screenshots `crew-preview-{today,gear,schedule}-mobile-{light,dark}` regenerate through the pinned-image `screenshots-regen` workflow, never from a dev host.
+**Migrations, not deletions.** Existing tests that pin removed structure (`CrewSubNav`, the bottom bar, `data-active-section`, the hero testid and its 176px canonical baseline in `tests/e2e/__baselines__/canonical-dimensions.json`) are retargeted to the new elements, keeping their failure modes, before the old components are deleted. Help screenshots `crew-preview-{today,gear,schedule}-mobile-{light,dark}` regenerate through the pinned-image `screenshots-regen` workflow, never from a dev host.
 
-**PR B and PR C invariant.** The admin popup's DOM does not change: the 50 zero-threshold PNGs under `tests/e2e/section-header-visual.spec.ts-snapshots/` and every admin review test stay unmodified and green. A PR B or PR C diff that touches one of them is a defect, not a re-baseline.
+**Structural and location-pinned suites.** These pin file paths, line numbers, ownership maps or walked directories that the change moves, and are updated in the commit that moves the code they pin: `tests/styles/forcedColorsCensus.ts` (with `_metaForcedColors`), `_metaControlOutlineFill`, `_metaControlOutlineResidue`, `subtleInteractiveExemptions.ts`, `tapTargetCensus.ts`, `tests/adminAlerts/alertProducerScope.registry.ts`, `tests/help/_metaRenderFaultMarking.test.ts` (and `tests/help/_renderFaultScan.ts`), `tests/crew/_metaTileProducerTopology.test.ts` (its section ownership map), `tests/crew/agendaDisplay-single-source.test.ts`, `tests/crew/stageRestrictionThreading.test.ts`, `tests/crew/transitionAudit.test.ts`, `tests/styles/_metaBgAccentInventory.test.ts`, `tests/help/_metaServerTimeGuard.test.ts`, `tests/docs/_metaInteractionTimingInventory.test.ts`, `tests/styles/_metaEmDashCopy.test.ts`, `tests/components/admin/sheetIconLinkContainment.test.ts`, and for PR B and PR C the admin source pins `tests/components/admin/wizard/venueTransitionAudit.test.ts`, `tests/styles/controlOutlineDimensions.test.ts`, `tests/styles/controlOutlineTransitions.test.ts`, `tests/styles/tintedPlateOutline.test.ts`. Two walkers gain `components/show-panels/`: `tests/components/tiles/_metaSentinelHidingContract.test.ts` and `tests/components/tiles/_pureRenderCompliance.test.ts`. This list is the at-authoring-time set, not a closure: before any review dispatch the plan runs the full `tests/styles`, `tests/crew`, `tests/components`, `tests/help`, `tests/docs` and `tests/adminAlerts` suites against the changed tree and repairs every red one.
+
+**PR B and PR C invariant.** The admin popup's **rendered** DOM does not change. The 50 zero-threshold PNGs under `tests/e2e/section-header-visual.spec.ts-snapshots/` and every admin test that asserts rendered output stay unmodified and green; a diff touching one of them is a defect, not a re-baseline. Admin tests that pin source location or markup inside `step3ReviewSections.tsx` (listed above) are retargeted to the moved code, asserting the same thing.
+
+**Further cases from the round-1 review.** A flight-only viewer's HTML and RSC payload contain none of the transport fields (§6.2). Each row of the §5.2 history table, including an in-sheet switch followed by close (lands on home, not the first section). Each nested dialog with the sheet open: Esc closes only the dialog, focus returns inside the sheet, scroll stays locked until the sheet closes, a breakpoint change waits. Two mounted theme controls stay in agreement after either toggles. A row link carries `gate` when present. A shared body and a client leaf that throw are both contained and recorded.
 
 ## 13. Acceptance criteria
 
@@ -472,7 +508,7 @@ Every test names the defect it catches. Expected values come from fixtures, neve
 - **AC-7.** Quick facts never show an empty tile, never show the client contact, and the hotel fact never names a hotel that does not cover the night.
 - **AC-8.** Copy succeeds with a toast, or fails with a toast and selectable text.
 - **AC-9.** The admin popup renders the shared section bodies (PR B, PR C) with its DOM unchanged.
-- **AC-10.** The section labels and groups the crew page shows equal the admin popup's.
+- **AC-10.** After PR C, the section ids, labels and groups the crew page shows equal the admin popup's (§5.1).
 - **AC-11.** Every §8 dimensional invariant holds in a real browser.
 - **AC-12.** Every §7 transition, including the compound rows, behaves as listed; reduced motion makes all of them instant.
 - **AC-13.** All copy matches §9; no em dash, no raw error code.
@@ -482,6 +518,6 @@ Every test names the defect it catches. Expected values come from fixtures, neve
 
 Three pull requests on this branch, merged in order. Each runs the full pipeline gates: impeccable critique and audit, cross-model diff review, real CI green, merge.
 
-- **PR A, crew page redesign.** Everything in §3 to §5 and §7 to §11 on top of today's crew section bodies, mapped onto the new navigation with the registry ids and the legacy alias map. `CrewSubNav` and `RightNowHero` are retired after their tests migrate. `DESIGN.md` amendments (§3.3). The shared registry module (§5.1) lands here, because the navigation reads it.
-- **PR B, shared bodies, part 1.** components/show-panels/ (new) with the bodies for `venue`, `crew`, `contacts`, `schedule`, `agenda`, `hotels`, `transport`, `billing` (§6.3). The admin popup renders them with its DOM unchanged; the crew page renders them with crew props.
+- **PR A, crew page redesign.** Everything in §3 to §5 and §7 to §11 on top of today's crew section bodies and today's section ids (§5.1), plus the shared theme store (§4.1). `CrewSubNav` and `RightNowHero` are retired after their tests migrate. `DESIGN.md` amendments (§3.3).
+- **PR B, shared bodies, part 1.** The registry (§5.1) and components/show-panels/ (new) with the bodies for `venue`, `crew`, `contacts`, `agenda`, `hotels`, `transport`, `billing` (§6.3); the crew page moves to their registry ids with the PR B aliases. The admin popup renders them with its rendered DOM unchanged.
 - **PR C, shared bodies, part 2.** `event`, `rooms`, `packlist`: the crew page adopts the admin structure for these three (§6.2).
