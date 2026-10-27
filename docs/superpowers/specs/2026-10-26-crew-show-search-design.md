@@ -64,7 +64,7 @@ Search answers that by pointing at a real line on the page. It never writes an a
 - `financialsVisible` (`lib/visibility/scopeTiles.ts`) gates the Budget section in `CrewShell`.
 - `transportTileVisible` (`lib/visibility/scopeTiles.ts`) gates Getting there (`TravelSection.tsx`), Parking and transport notes (`VenueSection.tsx`, `TodaySection.tsx`), and the load-out run-of-show entries (`ScheduleSection.tsx` through `scheduleEntriesForViewer`, `lib/crew/agendaDisplay.ts`), while `data.transportation` is present for every viewer.
 - Tech specs render only `CREW_TECH_SPEC_KEYS` (`lib/crew/eventDetailsSpecs.ts`), while `event_details` carries every key.
-- Inline caps drop rows from the DOM: `CREW_INLINE_CAP` and `CONTACTS_INLINE_CAP` (`CrewSection.tsx`), `RUN_OF_SHOW_DISPLAY_CAP` (`lib/crew/agendaDisplay.ts`), `SHOWS_CAP` (`KeyTimesStrip.tsx`, module-local), and `CASE_CAP` and `ROOM_DETAIL_CAP` (`GearSection.tsx`, declared inside the section's render callback; `tests/components/tiles/CardinalityCapBoundary.test.tsx` duplicates `CASE_CAP` and reads the source by regex). Rows past a cap are not in the DOM; only a "+N more" stub renders.
+- Inline caps drop rows from the DOM: `CREW_INLINE_CAP` and `CONTACTS_INLINE_CAP` (`CrewSection.tsx`), `RUN_OF_SHOW_DISPLAY_CAP` (`lib/crew/agendaDisplay.ts`), `SHOWS_CAP` (`KeyTimesStrip.tsx`, module-local), and `CASE_CAP` and `ROOM_DETAIL_CAP` (`GearSection.tsx`, declared inside the section's render callback; `tests/components/tiles/CardinalityCapBoundary.test.tsx` duplicates `CASE_CAP` and reads the source by regex). Today's notes card cuts each note at `TRUNCATE_AT` and shows at most `SOURCE_CAP` notes (`TodaySection.tsx`, module-local), and the diagram gallery renders `INITIAL_VISIBLE` thumbnails (`Gallery.tsx`, module-local) until "Show all". Rows past a cap are not in the DOM; only a "+N more" stub renders.
 - `hideDates` in `TravelSection.tsx` strips the flight carrier and flight confirmation and the hotel check-in/out dates for date-suppressed viewers. It does NOT hide the hotel confirmation number, which renders for every viewer who sees the hotel (`reservationHasNonDateContent` counts it as non-date content). `suppressesDates` replaces the whole Schedule section with an "unconfirmed" message.
 - `show.client_contact` is never shown to crew.
 
@@ -76,7 +76,7 @@ So an index built from the raw projection would leak. The index has to describe 
 
 1. Each entry's `id` matches exactly one element in that section's rendered output carrying `data-search-target="<id>"`.
 2. Each element carrying `data-search-target` has exactly one entry.
-3. The element's whitespace-normalized `textContent` contains the entry's `value`, and its `label` when the label is non-null.
+3. The element's whitespace-normalized `textContent` contains the entry's `value`, and its `label` when the label is non-null. For an image target (a diagram thumbnail), the element's accessible name (`alt` or `aria-label`) stands in for `textContent`, because that is how the page presents the name.
 4. Each `context` string of the entry, and its `group`, appears in the text of the target's enclosing card (`closest("[data-card-id]")`), or of the rendered section when the target has no card.
 
 INV-1 is enforced by the parity suite (§11.1), which is the tripwire both this project and the redesign merge against.
@@ -84,15 +84,15 @@ INV-1 is enforced by the parity suite (§11.1), which is the tripwire both this 
 ### 2.4 How the index is built
 
 - `buildSearchIndex(input)` (lib/search/buildSearchIndex.ts, new) runs on the server, inside `CrewShell`, from the same inputs the sections receive: `data`, `viewer`, `today`, plus what `CrewShell` already computes (`budgetVisible`, which is `financialsVisible(...)` evaluated once in `CrewShell`, and `staticPreview`). It returns a `SearchIndex` (§3).
-- It calls one builder per section (lib/search/sections/<sectionId>.ts, new). **Each builder derives its lines through the same functions the section component uses** (`parseWifiValue`, `formatIsoDate`, `normalizeMeridiem`, `scheduleEntriesForViewer`, `selectPrimaryContact`, `partialAttendanceLabel`, `contactFallbackLabel` (module-local in `CrewSection.tsx` today; the plan exports it), `parseFlightItinerary`, `stripOpeningReelText`, the visibility predicates and the caps). Where a component computes a row list inline, the builder does not copy the computation: the plan extracts it into an exported pure function in the component's module or `lib/crew/`, and the component and the builder both call it. Caps that are not exported today (`CASE_CAP`, `ROOM_DETAIL_CAP`, `SHOWS_CAP`) become named module exports for the same reason, and `CardinalityCapBoundary.test.tsx` imports `CASE_CAP` instead of reading the source. No visual change.
+- It calls one builder per section (lib/search/sections/<sectionId>.ts, new). **Each builder derives its lines through the same functions the section component uses** (`parseWifiValue`, `formatIsoDate`, `normalizeMeridiem`, `scheduleEntriesForViewer`, `selectPrimaryContact`, `partialAttendanceLabel`, `contactFallbackLabel` (module-local in `CrewSection.tsx` today; the plan exports it), `parseFlightItinerary`, `stripOpeningReelText`, the visibility predicates and the caps). Where a component computes a row list inline, the builder does not copy the computation: the plan extracts it into an exported pure function in the component's module or `lib/crew/`, and the component and the builder both call it. Caps that are not exported today (`CASE_CAP`, `ROOM_DETAIL_CAP`, `SHOWS_CAP`, `TRUNCATE_AT`, `SOURCE_CAP`, `INITIAL_VISIBLE`) become named module exports for the same reason, and `CardinalityCapBoundary.test.tsx` imports `CASE_CAP` instead of reading the source. No visual change.
 - `CrewShell` passes the index to the client search island as a prop. The index is server-sourced on every render, including every `ShowRealtimeBridge → router.refresh()` re-render. The client never fetches, caches or derives section data (freshness invariant unchanged).
 - Sections not rendered for this viewer (Budget without entitlement) contribute nothing. `staticPreview` builds an index too (Doug's wizard preview searches like crew would), but disables miss logging and the report row (§7.4, §6.7).
 
-### 2.5 What gets a target (home-section rule)
+### 2.5 What gets a target
 
-A fact is indexed once, at its home section. Today's summary cards that repeat a fact from another section (Tonight from Travel hotels, Where from Venue, Need something from Crew contacts, Key times and Run of show from Schedule, the aggregated show notes) carry no targets. Today indexes only what renders nowhere else: the dress code (`DressCodeLines` in `TodaySection.tsx`, its only crew render site). `RightNowHero` (client, live clock) is not indexed.
+Every line a section renders gets a target, Today included. Today repeats many facts from other sections (Tonight from Travel hotels, Where from Venue, Need something from Crew contacts, Key times and Run of show from Schedule, notes aggregated from several sources), and it is also the ONLY render site for some lines: room notes (`TodaySection.tsx` reads them from the room rows, and `lib/crew/roomDetailFields.ts` documents Today as their only render site), notes on contacts past the Crew inline cap (Today aggregates every contact's notes), the Need something contact when it sits past that cap, and the dress code (`DressCodeLines`). So Today is indexed like any other section, and repeats are removed at RESULT time instead (§5.5), which keeps INV-1 a strict two-way match. `RightNowHero` (client, live clock) is the one exception: it gets no targets and no entries. A note the Today card cuts at `TRUNCATE_AT` shows its full text inside a closed `<details>`; the entry's `value` is the full text, and a reveal opens the `<details>` (§6.6).
 
-Lines that are visible text only. Phone numbers and emails in `PersonRow` are `tel:`/`mailto:` hrefs and aria-labels, not text, so they are not indexed; names, roles and contact notes are.
+Lines that are visible text only. Phone numbers and emails in `PersonRow` are `tel:`/`mailto:` hrefs and aria-labels, not text, so they are not indexed; names, roles and contact notes are. Diagram names are the one image case: the gallery (`components/diagrams/Gallery.tsx`) shows each name as the thumbnail's `alt` and the button's `aria-label` ("Open {name}"), so a thumbnail with a real name is indexed through its accessible name (INV-1 clause 3). The fallback name the gallery invents when a file has none ("Diagram N") is not indexed. The gallery renders `INITIAL_VISIBLE` (12) thumbnails until "Show all" is pressed; only the rendered ones are indexed (§12 L10). The gallery card's own title is indexed, so "diagram" or "floor plan" always reaches the card.
 
 The plan enumerates every target site from the live components (row primitives `KeyValueRows`, `FactRows`, `PersonRow`, and the rows that bypass them: `TravelRow`, `AnchorRow`, `RunOfShowEntry`, the agenda rows of `AgendaScheduleBlock` (`components/crew/AgendaScheduleBlock.tsx`), `DayCard`, inline markup for COI, hotel check-in/out, flights, pack list items and notes). The primitives gain an optional `searchTarget?: string` row field rendered as `data-search-target`; bypass rows get the attribute directly.
 
@@ -136,9 +136,9 @@ Every section the viewer can open contributes its visible lines. By section, wit
 
 | Section | Indexed |
 |---|---|
-| Today | Dress code lines only (§2.5). |
+| Today | Every card except `RightNowHero`: Tonight, Where, Need something, Key times, Dress code, Show notes (full text of each note), Run of show when shown. Repeats are removed from results (§5.5). |
 | Schedule | Day cards (day label, schedule window), run-of-show entries, agenda sessions (title, room, time), Crew Schedule key times. Nothing when `suppressesDates` replaces the section. |
-| Venue | Where (venue name, address), Facilities rows (dock, parking when transport is visible, room, Wi-Fi network and password or the raw Crew Wi-Fi row, power), Venue status (COI, notes), diagram and file names the gallery renders. |
+| Venue | Where (venue name, address), Facilities rows (dock, parking when transport is visible, room, Wi-Fi network and password or the raw Crew Wi-Fi row, power), Venue status (COI, notes), the diagram gallery card title and the names of the thumbnails it renders (§2.5). |
 | Travel | Your flight (segments, confirmation unless hidden), Getting there (driver, vehicle, load out, legs, transport notes) when transport is visible, Hotels (name, address, check-in/out, confirmation, notes). |
 | Crew | Roster (name, role, partial attendance, You, Lead) up to the inline cap, key contacts (name or fallback label, notes) up to the inline cap. |
 | Gear | Scope cards per room (room label, audio/video/lighting scope text), pack list items when visible today, tech specs, room details, keynote requirements, opening reel. |
@@ -225,6 +225,7 @@ Left out on purpose: `wireless` (in AV it means wireless mics), `keynote` (a ses
 
 - Entry score: sum over query tokens of the best match weight times the field weight. Field weights: `label` and `value` 1.0; `group` and `context` 0.6.
 - Within a section, rows sort by score, highest first; ties keep render order.
+- Repeat removal: when a hit from `today` has the same normalized `label` and `value` as a hit from another section, the `today` hit is dropped. A Today line with no twin elsewhere (room notes, a contact note past the Crew cap) stays, grouped under Today.
 - Sections sort by their best row's score; ties keep the order `[...BASE_SECTION_IDS, "budget"]` (`lib/crew/resolveActiveSection.ts`). Chips use the section order.
 
 ### 5.6 Output
@@ -411,11 +412,11 @@ The no-match text and the report row match the redesign's copy table (redesign s
 
 tests/search/indexRenderParity.test.tsx (new). For each viewer in a fixture matrix, for each section the viewer can open: render the section component with RTL (the pattern in `tests/components/crew/sections/TodaySection.test.tsx`, `makeShowForViewer` from `tests/fixtures/showForViewer.ts`), build the index with `buildSearchIndex`, and assert INV-1 clauses 1 to 4.
 
-The matrix must make every gate in §2.2 flip both ways at least once, and each case asserts its own premise (`tests/_shared/premise.ts`) on its own inputs: a crew viewer without transport, with transport, a lead with financials, a date-suppressed viewer, a viewer past each inline cap, and an admin viewer. The section list is derived from `BASE_SECTION_IDS` plus `"budget"`, so a new section cannot be skipped.
+The matrix must make every gate in §2.2 flip both ways at least once, and each case asserts its own premise (`tests/_shared/premise.ts`) on its own inputs: a crew viewer without transport, with transport, a lead with financials, a date-suppressed viewer, a viewer past each inline cap, a show with a room note and with more contacts than the Crew cap (Today-only lines), a show with named and unnamed diagrams, and an admin viewer. The section list is derived from `BASE_SECTION_IDS` plus `"budget"`, so a new section cannot be skipped.
 
 ### 11.2 Leak suite
 
-tests/search/indexLeak.test.ts (new). The fixture plants a unique sentinel string in every hidden datum of §2.2 and §1.4 (another viewer's hotel confirmation, another crew member's flight, the transport row and a load-out run-of-show entry for a viewer without transport, the flight confirmation under `hideDates`, financial fields without entitlement, `client_contact`, a non-whitelisted `event_details` key, the first row past each cap). The serialized index must contain none of them. A positive control plants the same sentinel in a visible field and asserts it IS found, so the serialization search cannot pass by being broken.
+tests/search/indexLeak.test.ts (new). The fixture plants a unique sentinel string in every hidden datum of §2.2 and §1.4 (another viewer's hotel confirmation, another crew member's flight, the transport row and a load-out run-of-show entry for a viewer without transport, the flight confirmation under `hideDates`, financial fields without entitlement, `client_contact`, a non-whitelisted `event_details` key, and the first row past each cap, planted in a field no other card renders, e.g. the 7th contact's name, since its notes do render on Today). The serialized index must contain none of them. A positive control plants the same sentinel in a visible field and asserts it IS found, so the serialization search cannot pass by being broken.
 
 ### 11.3 Matcher suite
 
@@ -425,6 +426,7 @@ tests/search/match.test.ts (new):
 - Each match kind, its weight and the length thresholds, including the boundaries (3, 4, 7, 8).
 - Every alias group member is in normalized form and appears in exactly one group.
 - `aliasNote` set only for alias-only matches, quoting the display span.
+- Repeat removal (§5.5): a Today hit with a twin in another section is dropped; a Today hit without one is kept.
 - A realistic query table over a fixture index, with the expected top hit: "wifi", "wfii", "internet", "wi-fi password", "dock", "loading", "ballroom video", "foh", "mics", "client laptop", "projection", "parking", "hotel confirmation", "strike". The expected entry ids are derived from the fixture, not typed.
 
 ### 11.4 Route suite
@@ -439,10 +441,11 @@ tests/api/searchMissRoute.test.ts (new): bad origin, bad content type, oversize 
 ## 12. Documented limits
 
 - **L1.** Cell colors and other sheet formatting are not searchable (D9).
-- **L2.** Diagram contents and linked file contents are not searchable; names are, where rendered.
+- **L2.** Diagram contents and linked file contents are not searchable. Diagram names are, through the thumbnail's accessible name, when the file has a real name.
 - **L3.** Rows past an inline cap are not on the page, so they are not in search. Search matches the page.
 - **L4.** Phone numbers and emails are not searchable (they are links, not text).
-- **L5.** Today's summary cards are not separate results; their facts are found at their home sections.
+- **L5.** A Today line whose text differs from its twin elsewhere (Tonight shows the sheet's raw check-in string; Travel shows it formatted) is not recognized as a repeat, so both appear, under Today and Travel. Both are real lines.
+- **L10.** Diagrams past the gallery's first 12 thumbnails are not rendered until "Show all", so they are not indexed by name. The gallery card title still is.
 - **L6.** No stemming beyond prefix and fuzzy matching. "mic" finds "mics" by prefix; "microphones" finds "mics" by alias.
 - **L7.** The miss rate cap is per server instance, so the true cap across instances is a multiple. Telemetry only; acceptable.
 - **L8.** Back after a reveal goes to the previous section, not back into search.
