@@ -130,6 +130,7 @@ The admin popup keeps its own shell and rail. It changes only in that its sectio
 | Run of show card (§4.4) | ✓ | ✓ | ✗ (its Agenda section shows the full agenda) |
 | Quick facts (§4.5) | ✓ | ✓, beside the run of show | ✗ |
 | Show notes card (§6.2) | ✓, below quick facts | ✓, in the Today block | ✗ |
+| Dress code card (§6.2, PR A and PR B only) | ✓, beside show notes | ✓, in the Today block | ✗ |
 | "All sections" list (§4.6) | ✓ | ✗ | ✗ |
 | Left nav (§5.3) | ✗ | ✓ | ✗ (its own rail, unchanged) |
 | Section panels (§6) | inside the sheet | stacked inline | stacked inline, unchanged |
@@ -180,7 +181,7 @@ The dark card under the day row. It replaces `RightNowHero` (`components/crew/Ri
 - **Personal cells** ("You, A1", "Hotel tonight", "Your lead") render only for viewers of kind `crew` and `admin_preview` (`lib/data/getShowForViewer.ts:99-101`). A plain `admin` viewer receives every crew member's reservations and has no roster row, so these cells are omitted for it.
 - **"Your lead":** the first crew member carrying `LEAD` in the order the Crew section renders the roster; omitted when that person is the viewer.
 - **"Hotel tonight":** `reservationForNight(reservations, iso)` (§4.5) for the selected day (`live`: today).
-- **Suppressed dates never reach the pass.** For a viewer whose dates are suppressed, the server builds the pass props without hotel dates, day dates or per-day anchors, rather than hiding them at render (closing the leak in §2.2). A test serializes the props and searches them for every ISO date of the show (§12).
+- **Suppressed dates never reach the pass.** For a viewer whose dates are suppressed, the server evaluates `selectRightNowState` once, with the real dates and the viewer's restriction. For a suppressed restriction its result depends only on whether the show's dates are complete (`dateless`, `unknown` or `viewer_unconfirmed`, `lib/time/rightNow.ts:205-228`) and never on the clock, so the server passes that state kind alone and the pass renders it without a client clock. The pass props carry no hotel dates, day dates or per-day anchors for such a viewer (closing the leak in §2.2); a test serializes the props and searches them for every ISO date of the show, and checks the rendered state equals the one computed with the dates (§12).
 - **Degraded states** (`dateless`, `unknown`, `viewer_unconfirmed`): eyebrow and lead only, with the §9.3 copy. No times, no grid; the day row is hidden (§4.2).
 - **Color.** Dark in both themes (R7): the pass subtree carries `data-theme="dark"`, which re-scopes the theme tokens because the dark token block's selector is not tied to the root (`app/globals.css:487`). The plan verifies the computed colors in a real browser in both themes.
 
@@ -253,12 +254,12 @@ A single card listing every section this viewer may open, in nav order (§5.1), 
 | Browser Back or Forward (`popstate`) to an entry without `s` | none | closes |
 | `popstate` to an entry whose `s` is an entitled id | none | opens on that id |
 | `popstate` to an entry whose `s` is unknown or not entitled | `replaceState(url without s)` | closes |
-| Realtime refresh removes the open section from membership | `replaceState(url without s)` | closes (the clamp `CrewSections` applies today, `components/crew/CrewSections.tsx:103-104`) |
+| Realtime refresh removes the open section from membership | none | stays open on that section with its fresh content (its empty or degraded state); membership changes only update the list and the nav. The clamp `CrewSections` applies today (`components/crew/CrewSections.tsx:103-104`) applies only to a section that is not open. |
 
   A deep link has no home entry beneath it, so its Back leaves the page; that is the browser's history, not a defect (ratified by the spike below).
 - **Drag to dismiss** uses the admin sheet's thresholds. `DRAG_DISMISS_THRESHOLD_PX` and `DRAG_SLOP_PX` move from `components/admin/review/ReviewModalShell.tsx:47-49` to a shared constants module both import; their values do not change.
 - **Modal behavior.** Focus moves to the sheet title on open and back to the control that opened it on close; focus is trapped inside; the page behind is `inert`; body scroll is locked. `role="dialog"`, `aria-modal="true"`, `aria-labelledby` the title.
-- **Nested dialogs.** Three existing dialogs can open from inside a sheet: the agenda PDF viewer (`components/agenda/AgendaEmbed.tsx:106-136`), the diagram lightbox (`components/diagrams/GalleryLightbox.tsx:664-726`) and the report modal (`components/shared/ReportModal.tsx:277`). While any of them is open: it renders above the sheet in a higher z-index band; the sheet ignores its own Esc, scrim, swipe and close handlers (it checks for another open `aria-modal="true"` dialog before acting); the nested dialog owns focus and restores it to its trigger inside the sheet; scroll locks unwind last-in first-out (the nested dialog restores the value it found, which is the sheet's lock); and a breakpoint change defers the sheet's dismissal until the nested dialog has closed. The plan verifies all five rules for each of the three dialogs in a real browser. **Every close the sheet did not start itself is deferred the same way**: a `popstate` that removes `s`, a realtime refresh that removes the open section, and a breakpoint change all leave the sheet mounted (the URL already reflects the change) until the nested dialog has closed through its own path, then close the sheet. The parent and the child never unmount together, so scroll locks always unwind child first; a parent-and-child unmount in one commit was shown by probe to leave `document.body.style.overflow` stuck at `hidden`.
+- **Nested dialogs.** Three existing dialogs can open from inside a sheet: the agenda PDF viewer (`components/agenda/AgendaEmbed.tsx:106-136`), the diagram lightbox (`components/diagrams/GalleryLightbox.tsx:664-726`) and the report modal (`components/shared/ReportModal.tsx:277`). While any of them is open: it renders above the sheet in a higher z-index band; the sheet ignores its own Esc, scrim, swipe and close handlers (it checks for another open `aria-modal="true"` dialog before acting); the nested dialog owns focus and restores it to its trigger inside the sheet; scroll locks unwind last-in first-out (the nested dialog restores the value it found, which is the sheet's lock); and a breakpoint change defers the sheet's dismissal until the nested dialog has closed. The plan verifies all five rules for each of the three dialogs in a real browser. **The sheet closes only on its own dismiss paths, `popstate`, or a breakpoint change, never on a data refresh** (§5.2 table). The two external closes (`popstate`, breakpoint) are deferred while a nested dialog is open: the sheet stays mounted with its fresh content until the nested dialog closes, then closes. A nested dialog can still unmount on its own when a refresh removes its owner from the fresh content (an agenda link, a diagram, a report-bearing card); it then unmounts alone while the sheet stays open, and its lock restores the sheet's value. Parent and child therefore never unmount in one commit, so scroll locks always unwind child first (a parent-and-child unmount in one commit was shown by probe to leave `document.body.style.overflow` stuck at `hidden`). No old section subtree is kept: the sheet always shows fresh content (freshness invariant, `components/crew/CrewSections.tsx:13-18`).
 - **Width.** Full width below 640px; from 640px up to the wide breakpoint, centred at the bottom with the existing panel max width (`DESIGN.md:684`).
 - **Mechanism ratified by spike** (2026-10-26, Next 16.3.0, Chromium via Playwright, a throwaway route on `origin/main`): a raw `pushState` carrying `{ ...history.state, crewSheet: true }` keeps the marker and `useSearchParams` follows it; open, close, Back and Forward issue no fetch or document request; a close with the marker lands on the page without `s` and fires `popstate`; a fresh deep link has no marker, so close takes the `replaceState` path and a later Back leaves the page; a reload of an in-app-pushed entry keeps the marker (browsers preserve `history.state` on reload), and its close lands on the same page without `s`.
 
@@ -310,6 +311,8 @@ Admin bodies and crew equivalents as compared at base `370e1cc9c`. "Crew keeps" 
 **Crew-only content that has no admin section stays crew-only:**
 
 - **Show notes** (the five-source aggregation of today's Today section, 8 sources, 280-character truncation) stay on the home screen as a card below quick facts (compact) and in the Today block (wide). Removing them from the first screen would push them one tap further away (anti-goal).
+- **Dress code card.** Today renders the dress code in full (`components/crew/sections/TodaySection.tsx:537`), and `CREW_TECH_SPEC_KEYS` excludes it (`lib/crew/eventDetailsSpecs.ts:36`). In PR A and PR B the full Dress code card stays on the home screen, next to show notes, so the pass's truncated "Dress code" cell always has a full-text destination. PR C moves it into Event details and removes the home card in the same commit.
+- **Diagrams** stay in Venue (`components/crew/sections/VenueSection.tsx:434`) through PR A and PR B; PR C moves them to Rooms in the same commit that gives Rooms its crew-only Diagrams block. No intermediate release lacks them.
 - **"Your flight"** sits at the top of Transport.
 - **COI** sits in Venue (row above).
 - **Diagrams** sit in Rooms (row above).
@@ -363,7 +366,8 @@ Every state change gets a treatment. Durations come from the existing tokens (`-
 | Sheet mid-drag | Viewport crosses into wide | Drag is cancelled, then the row above applies. |
 | Wide, scrolled to section A | Viewport crosses into compact | Home screen at the top; no sheet opens automatically; `replaceState(url without s, state without crewSheet)`. |
 | Day `day(iso)` selected | Realtime refresh removes that day from the day set | Selection returns to `live`. |
-| Sheet open | Realtime refresh removes the open section from membership | Sheet closes via `replaceState` (§5.2). |
+| Sheet open | Realtime refresh removes the open section from membership | Sheet stays open showing the section's fresh empty or degraded state (§5.2). |
+| Nested dialog open inside the sheet | Realtime refresh removes the dialog's owner | The nested dialog unmounts alone; the sheet stays open; scroll stays locked by the sheet. |
 | Nested dialog open inside the sheet | Esc pressed | Only the nested dialog closes (§5.2). |
 | Day crossfade running | Another day tapped | The second selection wins; the running fade is replaced, never queued. |
 | Sheet open | Theme switched | Not reachable: the header is behind the scrim and inert while the sheet is open. |
@@ -485,7 +489,7 @@ Every test names the defect it catches. Expected values come from fixtures, neve
 **Component (jsdom where layout is not asserted).** Day row (default selection per §4.2, `aria-pressed`, hidden when suppressed), quick facts (copy success toast, failure toast plus selectable text), "All sections" rows are real links, sheet (open focus, close focus return, Esc, `inert` on the page).
 
 **Real browser (Playwright).**
-- Compact: open from the list, close button, scrim, Esc, Back, swipe; deep link `?s=hotels`; legacy `?s=travel`; refresh with the sheet open; realtime refresh with the sheet open (§7 compound).
+- Compact: open from the list, close button, scrim, Esc, Back, swipe; deep link `?s=venue`; from PR B, legacy `?s=travel` opening `hotels`; refresh with the sheet open; realtime refresh with the sheet open (§7 compound).
 - Wide: nav click scrolls and focuses the heading; scroll-spy follows; `?s=` deep link scrolls.
 - Resize across 1024px with the sheet open and mid-scroll (§7 compound rows).
 - Every §8 invariant via `getBoundingClientRect()`, ±0.5px.
@@ -522,4 +526,4 @@ Three pull requests on this branch, merged in order. Each runs the full pipeline
 
 - **PR A, crew page redesign.** Everything in §3 to §5 and §7 to §11 on top of today's crew section bodies and today's section ids (§5.1), plus the shared theme store (§4.1). `CrewSubNav` and `RightNowHero` are retired after their tests migrate. `DESIGN.md` amendments (§3.3).
 - **PR B, shared bodies, part 1.** The registry (§5.1) and components/show-panels/ (new) with the bodies for `venue`, `crew`, `contacts`, `agenda`, `hotels`, `transport`, `billing` (§6.3); the crew page moves to their registry ids with the PR B aliases. The admin popup renders them with its rendered DOM unchanged.
-- **PR C, shared bodies, part 2.** `event`, `rooms`, `packlist`: the crew page adopts the admin structure for these three (§6.2).
+- **PR C, shared bodies, part 2.** `event`, `rooms`, `packlist`: the crew page adopts the admin structure for these three (§6.2); the home Dress code card moves into Event details and Diagrams move from Venue to Rooms, each in the commit that adds its new home; `gear` retires with its alias.
