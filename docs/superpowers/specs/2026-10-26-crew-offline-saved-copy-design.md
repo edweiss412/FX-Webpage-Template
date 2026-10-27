@@ -1,6 +1,6 @@
 # Crew page offline: saved copy, age note, offline reports
 
-**Status:** Draft v5, 2026-10-26 (after spec review round 4). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
+**Status:** Draft v6, 2026-10-26 (after spec review round 5). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
 **Scope:** the crew show page at `app/show/[slug]/[shareToken]/**` and the report flow it hosts.
 **Mockups (owner-reviewed):** https://claude.ai/artifact/8RA9JS4oMpLZFf9TyLwrJc
 **Spike record:** `docs/superpowers/specs/probes/2026-10-26-crew-offline-sw-spike.md` (summary in §11).
@@ -20,7 +20,7 @@ The brainstorm first split the work three ways, with sheet-removed detection as 
 
 ### 1.1 Resolved scope, do not relitigate
 
-Every item below was decided by the owner in the 2026-10-26 brainstorm, or is marked as the author's call and was played back to the owner, who approved the playback ("looks good"). A reviewer verifies these against this section; they are not open for redesign.
+Every item below was decided by the owner in the 2026-10-26 brainstorm, or is marked as the author's call. Author's calls R1 to R12 were played back to the owner, who approved the playback ("looks good"). R13's "per show" wording and R15 came later, out of cross-model review, and were not played back; they follow from the owner's own words and the R13 constraint, and the PR reports them. A reviewer verifies these against this section; they are not open for redesign.
 
 | # | Decision | Source |
 |---|---|---|
@@ -163,8 +163,8 @@ A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UT
 | `<PickerInterstitial>`, `<SignInOrSkipGate>`, `<ShowUnavailable />` | `purge` | `<SavedCopyMarker>` in each |
 | `<TerminalFailure>` in the `resolved` crew arm, after identity resolved (the `getShowForViewer` failure) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
 | `<TerminalFailure>` in the `infra_error` arm (identity never resolved), and the route's `error.tsx` | `hold` | marker added to each |
-| `<TerminalFailure>` in `_CrewShell.tsx` for `MalformedProjectionError` (identity resolved, data malformed) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
-| `<TerminalFailure>` anywhere else: `renderPickerRepick` and `renderRacedCrewMiss` roster failures (after an identity rejection), the `no_auth` roster failure, the admin data failure, and `_CrewShell.tsx`'s `UnmatchedViewerError` (the viewer does not match the data) | `purge` | marker passed into `<TerminalFailure>` |
+| `<TerminalFailure>` in `_CrewShell.tsx` for `MalformedProjectionError` when `viewer.kind === "crew"` (identity resolved, data malformed) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
+| `<TerminalFailure>` anywhere else: `renderPickerRepick` and `renderRacedCrewMiss` roster failures (after an identity rejection), the `no_auth` roster failure, the admin data failure, `_CrewShell.tsx`'s `UnmatchedViewerError` (the viewer does not match the data), and its `MalformedProjectionError` for any viewer other than `crew` (`admin_preview` included) | `purge` | marker passed into `<TerminalFailure>` |
 | The route's `not-found.tsx` | `check` | marker added to it |
 | Anything else, including a streamed `redirect()` and a page with no marker | treated as `purge` | none (fail closed) |
 
@@ -174,27 +174,27 @@ The worker reads the first `id="fxav-saved-copy"` element in the complete body (
 
 ### 4.4 Navigation
 
-For a crew-URL navigation, `U` is the request's path (query ignored) and the fetch always uses the full request URL, query included, so `?gate=skip` and `?s=` keep working online. `S(U)` is the saved copy whose stored URL is `U`, if any (copies are stored one per show, each remembering the URL it was saved under, §4.6).
+For a crew-URL navigation, `U` is the request's path (query ignored) and the fetch always uses the full request URL, query included, so `?gate=skip` and `?s=` keep working online. `S(U)` is the saved copy whose stored URL is `U`, if any. `C(X)` is show X's one copy, wherever it was saved (copies are stored one per show, each remembering the URL it was saved under, §4.6). Serving decisions use `S(U)`, because a copy is only ever served at the URL it was saved under; purges use `C(X)` whenever the marker names show X, so they reach the copy wherever it lives.
 
-1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error: serve the network not-found by fetching the page as in step 2, and keep `S(U)`.
+1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error: fetch the page and serve whatever it returns as is, without running steps 3 to 5, and keep `S(U)`.
 2. **Otherwise fetch the request URL and buffer the whole response**, up to 8 seconds for headers and body together.
 3. **Complete response in time.** Read the marker, then:
 
 | Marker | `S(U)` exists | Serve | Then |
 |---|---|---|---|
-| `save` | either | the network response | commit it as `S(U)` under the save rules (§4.6, §4.8) |
-| `keep` | yes, same `data-show-id` and `data-viewer` | `S(U)` in `server-error` mode | none |
-| `keep` | yes, different viewer or show | the network response | purge `S(U)` |
-| `keep` | no | the network response | none |
+| `save` | either | the network response | commit it as the copy of the marker's show, replacing `C(show)` wherever it was saved (§4.6, §4.8) |
+| `keep` | yes, for the marker's show and viewer | `S(U)` in `server-error` mode | none |
+| `keep` | `C(show)` exists, at `U` or any other link, for a different viewer | the network response | purge `C(show)` |
+| `keep` | otherwise | the network response | none |
 | `hold` | either | the network response | none |
 | `check` | yes | ask the status route (5 s). `ended`: mark `S(U)` ended and serve it in `ended` mode. `gone`: purge, serve the network response. Error or timeout: serve the network response, keep `S(U)` | none |
 | `check` | no | the network response | none |
-| `purge`, or treated as `purge` | either | the network response | purge `S(U)` |
+| `purge`, or treated as `purge` | either | the network response | purge `C(show)` when the marker names a show; otherwise purge `S(U)` |
 
 A response that is not HTML: an opaque redirect (navigations use `redirect: "manual"`) is served and changes nothing, since the route's own `redirect()` to the picker bootstrap arrives as a streamed 200 with no marker (treated as `purge` above), and a redirect before the app ran says nothing about the viewer; any other response with status 500 or above and no marker (a platform error before the app ran) serves `S(U)` in `server-error` mode when it exists, the same as no response at all, since it carries no information about the viewer; anything else without a marker is treated as `purge`.
 
 4. **Network error before completion.** `S(U)` exists: serve it in `offline` mode. No `S(U)`: serve the built-in "not saved yet" page (§4.7.5).
-5. **8 seconds pass without a complete response.** `S(U)` exists: serve it in `slow` mode and let the fetch run on, for up to 60 seconds more. When it completes, apply the step 3 table without serving anything; if that saved a new copy, post `fresh-ready(U)` to open pages of `U`; if it purged, post `purged(U)`. No `S(U)`: keep waiting for the network with no worker timeout, since there is nothing better to show.
+5. **8 seconds pass without a complete response.** `S(U)` exists: serve it in `slow` mode and let the fetch run on, for up to 60 seconds more. When it completes, apply the step 3 table without serving anything; if that saved a new copy, post `fresh-ready(U)` to open pages of `U`; if it purged a show's copy, post `purged(showId)` to every open page, and any page whose marker names that show reloads. No `S(U)`: keep waiting for the network with no worker timeout, since there is nothing better to show.
 
 Buffering costs crew the route's streamed loading skeleton once the worker is installed: the browser keeps the previous screen until the page is complete. That is the price of two guarantees streaming cannot give. The worker sees the marker before it chooses what to serve, so it never has to correct a page after the fact. And a connection that drops mid-page falls back to the saved copy instead of leaving a half-rendered page. The 8-second budget is the author's call; the spike measured the fallback at 8.05 s (§11).
 
@@ -239,9 +239,9 @@ Cases: archive alone keeps the copy (R3). A reset before or after the archive le
 | Google sign-in completing (`/auth/callback`) | Worker, request start | Worker, response |
 | Picking a name in the picker | `<SavedCopyMarker>` on the picker's mount (the picker only renders when no valid selection exists) | Not needed: after the pick, the page renders for the new viewer, whose `save` replaces the copy |
 
-The picker bootstrap is not bracketed: its `redirect()` arrives as a streamed response with no marker (a purge), and Next performs it client-side through the router, so it is never a navigation the worker can watch. A bootstrap follows either a Google sign-in, whose `/auth/callback` bracket already purged everything, or a picker entry that no longer matches, which the page answered with a purge.
+The picker bootstrap is not bracketed. On a document load its streamed `redirect()` becomes a meta refresh and the router performs it as a full navigation, so the worker could watch it, but no bracket is needed: while the Google identity and the picker entry disagree, the server answers `needs_picker_bootstrap` and never renders a `save`, so no save for the old identity can start in that window. The markerless streamed response purges `S(U)`; a copy of the same show saved under an older link is replaced by the save that follows the bootstrap, or purged by the next marker that names the show.
 
-**Completeness.** A save commits only after every asset in `data-assets` (within caps, §4.8) and every `/_next/static/**` and `/fonts/**` URL referenced in the saved HTML is present in the worker's caches, fetching any that are missing. If any required static file cannot be fetched, the save is abandoned and the previous `S(U)` stays. A committed copy can therefore always hydrate offline, including a copy fetched in the background from a newer deployment.
+**Completeness.** A save commits only after every asset in `data-assets` (within caps, §4.8) and every `/_next/static/**` and `/fonts/**` URL referenced in the saved HTML is present in the worker's caches, fetching any that are missing. If any required static file cannot be fetched, the save is abandoned and the show's previous copy stays. A committed copy can therefore always hydrate offline, including a copy fetched in the background from a newer deployment.
 
 **Purge triggers.**
 
@@ -302,7 +302,7 @@ The wording "isn't available in Google Drive anymore" replaces the mockup's "is 
 | `renderedAt` in the future | Age reads `just now` |
 | Age exactly 6 h | `saved-old` (the boundary belongs to old) |
 | `navigator.serviceWorker` absent | No registration and no saved copy; the bar still handles `online` false on an open live page |
-| Storage quota error on save | The worker abandons the save, keeps the previous `S(U)`, and posts `save-failed` to open pages, which log `CREW_OFFLINE_SAVE_FAILED` (§6) |
+| Storage quota error on save | The worker abandons the save, keeps the show's previous copy, and posts `save-failed` to open pages, which log `CREW_OFFLINE_SAVE_FAILED` (§6) |
 
 **Accessibility.** `role="status"`, `aria-live="polite"`. Text contrast uses `DESIGN.md` §1.2 pairs (text on `info-bg`, `stale-tint`, `warning-bg`). The icon is `aria-hidden`; the bold lead carries the meaning, which satisfies the colour-blind floor in `DESIGN.md` §1.
 
@@ -351,7 +351,7 @@ While the mode is `offline`, `slow`, or `server-error`, the bar asks the worker 
 - ended: no reload; the bar shows `ended`.
 - failed (network error, timeout, kept): nothing changes.
 
-A `purged(U)` message from the worker (§4.4 step 5) reloads the page at once, the same as a purged probe.
+A `purged(showId)` message for this page's show (§4.4 step 5) reloads the page at once, the same as a purged probe.
 
 On a live page, `<SavedCopyRegistrar>` posts `ensure-saved(U, renderedAt)` once the worker controls the page, and again whenever `renderedAt` changes after an RSC refresh, at most once per 10 seconds. That one message covers the first visit (§4.4) and keeps the saved copy current with realtime updates.
 
@@ -359,7 +359,7 @@ A `router.refresh()` that fires while the network is down makes Next fall back t
 
 #### 4.7.4 The section in the URL
 
-`S(U)` is keyed by path, so it opens on the section that was showing when it was saved, whatever `?s=` the URL carries; `CrewSections` seeds from the server's `initialSection` and does not reconcile the URL on mount (`useState(initialSection)`). In a saved-copy mode the bar replaces the URL's `s` parameter with the rendered section, read from the `data-active-section` attribute of the `crew-shell-sections` wrapper, using `history.replaceState`. The URL then tells the truth about what is on screen, and no file under `components/crew/**` changes. If the attribute is absent, the URL is left alone.
+The saved copy is stored without its query string, so it opens on the section that was showing when it was saved, whatever `?s=` the URL carries; `CrewSections` seeds from the server's `initialSection` and does not reconcile the URL on mount (`useState(initialSection)`). In a saved-copy mode the bar replaces the URL's `s` parameter with the rendered section, read from the `data-active-section` attribute of the `crew-shell-sections` wrapper, using `history.replaceState`. The URL then tells the truth about what is on screen, and no file under `components/crew/**` changes. If the attribute is absent, the URL is left alone.
 
 #### 4.7.5 The "not saved yet" page
 
@@ -486,9 +486,9 @@ TDD per task (invariant 1). The plans own the task lists; this section sets the 
 | B | `feat/crew-offline-saved-copy` | Piece 1, with its own plan | A merged |
 | C | `feat/crew-offline-reports` | Piece 2, with its own plan | A merged |
 
-B and C run at the same time in separate sessions and worktrees. B edits `_CrewShell.tsx` (one line), the route's `page.tsx` (passing markers to `<TerminalFailure>`), `not-found.tsx`, `error.tsx`, `_PickerInterstitial.tsx`, `_SignInOrSkipGate.tsx`, `ShowUnavailable.tsx`, `components/auth/TerminalFailure.tsx`, `components/auth/AvatarMenu.tsx`, `lib/auth/picker/resolveShowPageAccess.ts` and `lib/auth/picker/resolvePickerSelection.ts` (the identity extraction, §4.5), adds the §4.1 files, and adds the §4.11 migration. C edits `components/shared/ReportModal.tsx`, `components/shared/ReportButton.tsx`, `components/layout/Footer.tsx`, `app/api/report/route.ts`, `lib/reports/submit.ts`. Both need the viewer-key helper (§5.3). The pre-switch flush in `AvatarMenu` (§5.1) is C's: C adds it after B merges, or B adds a no-op hook C fills; whichever merges second rebases.
+B and C run at the same time in separate sessions and worktrees. B edits `_CrewShell.tsx` in two small places (the `<SavedCopySlot>` line after `<Header>`, and splitting the `MalformedProjectionError` / `UnmatchedViewerError` branch so each passes its own marker to `<TerminalFailure>`), the route's `page.tsx` (passing markers to `<TerminalFailure>`), `not-found.tsx`, `error.tsx`, `_PickerInterstitial.tsx`, `_SignInOrSkipGate.tsx`, `ShowUnavailable.tsx`, `components/auth/TerminalFailure.tsx`, `components/auth/AvatarMenu.tsx`, `lib/auth/picker/resolveShowPageAccess.ts` and `lib/auth/picker/resolvePickerSelection.ts` (the identity extraction, §4.5), adds the §4.1 files, and adds the §4.11 migration. C edits `components/shared/ReportModal.tsx`, `components/shared/ReportButton.tsx`, `components/layout/Footer.tsx`, `app/api/report/route.ts`, `lib/reports/submit.ts`. Both need the viewer-key helper (§5.3). The pre-switch flush in `AvatarMenu` (§5.1) is C's: C adds it after B merges, or B adds a no-op hook C fills; whichever merges second rebases.
 
-The crew layout redesign runs in parallel in another session. B keeps its `_CrewShell.tsx` change to the single `<SavedCopySlot>` line after `<Header>`, and the redesign keeps a full-width slot under the header for it. Both UI PRs pass the invariant-8 UI gate before review.
+The crew layout redesign runs in parallel in another session. B keeps its `_CrewShell.tsx` changes to those two places, and the redesign keeps a full-width slot under the header for `<SavedCopySlot>`. Both UI PRs pass the invariant-8 UI gate before review.
 
 ## 9. Documented limits
 
