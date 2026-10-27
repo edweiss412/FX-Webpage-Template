@@ -33,6 +33,9 @@ Eric approved a mockup of the design below ("looks good") and settled two follow
 | R8 | Every staged-wizard card whose warning routes to a section gets "Go to <Section label>". | Eric, approved mockup | CLOSED |
 | R9 | The attention-pill count spacing fix shipped separately (PR #977) and is out of scope. | Brief | CLOSED |
 | R10 | No new mutation surface. Every write reuses an existing, already-registered action or route (§10). | This spec | CLOSED |
+| R11 | The published cards ALSO get the sheet icon: `PerShowActionableWarnings` and `NoteWarningCard` move their "Open in Sheet" text link to a `SheetIconLink` at the end of the message row, through their shared shell `CompactAlertCard`. This supersedes the compact-card placement ratified at `PerShowActionableWarnings.tsx:22-30` (link inline at the left of the controls band) and the compact-card spec's footer-link line (`docs/superpowers/specs/2026-07-20-show-alert-compact.md:172`). | Eric, answer to open question B1, 2026-10-26 | CLOSED |
+| R12 | Accepted judgment rows get their own collapsed "Accepted (N)" disclosure; every other ignored row stays in "Ignored (N)". Both surfaces. | Eric, answer to open question D3, 2026-10-26 | CLOSED |
+| R13 | One include label everywhere: `Use this pull sheet`, on the card, in Pack list, and in the Resolve box (today `Use this show’s gear`, `components/admin/wizard/archivedTabOffer.tsx:183`). | Eric, answer to open question E3, 2026-10-26 | CLOSED |
 
 ### 1.2 Goals
 
@@ -47,8 +50,8 @@ Eric approved a mockup of the design below ("looks good") and settled two follow
 - No change to which warnings are emitted, their severity, or the ignore fingerprint (`code` + normalized `rawSnippet`).
 - No change to publish gating, rescan dirtiness, or the step-3 compact card's readiness buckets.
 - No new server endpoint, server action, RPC, table, column or migration.
-- No redesign of the published compact card shell (`components/admin/CompactAlertCard.tsx`). See Builder's call B1.
-- No change to the "Ignored (N)" disclosure heading or its partition logic.
+- No change to the ignored partition itself: the Ignored / Accepted split (R12) is display-only. Which rows are ignored, the rail and heading counts derived from that partition, and the ignore fingerprint are unchanged.
+- No change to `CompactAlertCard` consumers that do not pass the new `sheetLink` slot (`components/admin/telemetry/HealthAlertsPanel.tsx`, `components/admin/review/AttentionBanner.tsx`): their message row stays byte-identical (§3.6).
 
 ### 1.4 Anti-goals (things this must not become)
 
@@ -72,9 +75,9 @@ There are three warning-card renderers (the wizard list, `PerShowActionableWarni
 | Surface | Render site | Prints "warn"? | Sheet link today |
 |---|---|---|---|
 | Wizard Step 3, Sheet warnings list (staged) | `WarningsBreakdown`, active rows `components/admin/wizard/step3ReviewSections.tsx:3267-3499` | **Yes**, `step3ReviewSections.tsx:3312-3314` | Text link on its own row, `step3ReviewSections.tsx:3422-3439` |
-| Wizard Step 3, Ignored (N) disclosure | same file `step3ReviewSections.tsx:3509-3604` | No | None |
+| Wizard Step 3, Ignored (N) disclosure (split into Ignored and Accepted by R12, §6.4) | same file `step3ReviewSections.tsx:3509-3604` | No | None |
 | Published review modal, per-section active cards | `PerShowActionableWarnings` (`components/admin/PerShowActionableWarnings.tsx:108-539`) mounted by `buildSectionWarningExtras` (`components/admin/showpage/sectionWarningExtras.tsx:226-248`) and crew under-row cards (`sectionWarningExtras.tsx:53-74`) | **No** (verified: no severity word anywhere in the file) | Text link sharing the controls band, `PerShowActionableWarnings.tsx:457-483` |
-| Published, per-section Ignored (N) | `PerShowActionableWarnings tone="muted"` (`sectionWarningExtras.tsx:296-314`) | No | Same |
+| Published, per-section Ignored (N) (split into Ignored and Accepted by R12, §6.4) | `PerShowActionableWarnings tone="muted"` (`sectionWarningExtras.tsx:296-314`) | No | Same |
 | Published, Sheet warnings info notes | `NoteWarningCard` (`components/admin/NoteWarningCard.tsx:59-132`) | No | Text link as controls band, `NoteWarningCard.tsx:86-96` |
 | Staged review page | `StagedReviewCard` → `PerShowActionableWarnings` (`components/admin/StagedReviewCard.tsx:534`) | No | Same as published card |
 
@@ -82,9 +85,11 @@ Which mount runs where: the wizard modal and the published modal are the only tw
 
 **Class sweep result for the "warn" word:** one site, `step3ReviewSections.tsx:3312-3314`. Nothing else renders it.
 
+**Class sweep result for the warning "Open in Sheet ↗" text link:** three sites, the wizard row (`step3ReviewSections.tsx:3422-3439`), `PerShowActionableWarnings.tsx:457-466`, and `NoteWarningCard.tsx:86-96`. All three become `SheetIconLink` (R2, R11). Out of class: the alert action link in `components/admin/review/AttentionBanner.tsx:179-195`. That link renders whatever label `lib/adminAlerts/alertActions.ts` assigns ("Open in Sheet" is one of several, `alertActions.ts:81`, `alertActions.ts:120`), so it is a label-driven alert action, not the warning card's sheet link; swapping it is a separate decision (Builder's call B9).
+
 ---
 
-## 3. Fix A: card chrome (wizard; tag also on the published card)
+## 3. Fix A: card chrome (both surfaces)
 
 ### 3.1 Current wizard row (`step3ReviewSections.tsx:3275-3315`)
 
@@ -163,9 +168,63 @@ DESIGN.md gets one addendum line under the PILLMARK-1 corollary (`DESIGN.md:558`
 
 The four consuming-context requirements (`SheetIconLink.tsx:15-23`) and how this row meets them are the Dimensional Invariants in §13.
 
-### 3.6 Published compact cards keep the text link
+### 3.6 Published compact cards: the icon moves into the shell's message row (R11)
 
-See Builder's call B1. `PerShowActionableWarnings` (`PerShowActionableWarnings.tsx:457-466`) and `NoteWarningCard` (`NoteWarningCard.tsx:86-96`) are unchanged in link form and placement.
+**Current shell.** `CompactAlertCard` (`components/admin/CompactAlertCard.tsx:76-155`) renders, in order, the message row `flex gap-2.5 p-3 pb-2.5` (`CompactAlertCard.tsx:101`: severity glyph, message `min-w-0 flex-1`, optional help trigger in a `shrink-0` wrapper, `CompactAlertCard.tsx:113`), then the detail band, footer and controls band. The help trigger is `HoverHelp` in `compactTrigger` mode: a 22px box with a `before:inset-[-11px]` overlay (`components/admin/HoverHelp.tsx:554-555`). Four consumers: `PerShowActionableWarnings`, `NoteWarningCard`, `HealthAlertsPanel`, `AttentionBanner`.
+
+**Shell change.** A new optional data prop, so the shell owns the one `SheetIconLink` call site and the four consuming-context requirements are met in one place:
+
+```ts
+/** Icon-only source-sheet link, rendered LAST in the message row (R11).
+ *  Absent, null: the message row renders byte-identically to today. */
+sheetLink?: { href: string; subjectLabel: string; testId: string } | null;
+```
+
+```tsx
+const LINK_PLATE = { warning: "warning-bg", muted: "surface-sunken", neutral: "surface" } as const;
+// …
+<div
+  data-testid="compact-alert-message"
+  className={`flex gap-2.5 p-3 pb-2.5${sheetLink ? " min-h-tap-min" : ""}`}
+>
+  {glyph}{message}{help}
+  {sheetLink ? (
+    <SheetIconLink
+      href={sheetLink.href}
+      subjectLabel={sheetLink.subjectLabel}
+      testId={sheetLink.testId}
+      ringOffset={LINK_PLATE[tone]}
+      className="ml-3 mr-0.5"
+    />
+  ) : null}
+</div>
+```
+
+Why each piece (the numbers are the §13.2 invariants):
+
+- Row alignment stays the default stretch, so the severity glyph and the help trigger keep their top alignment against a multi-line message. The anchor has a definite height (`size-5`), so it sits at the content-box top: 12px below the row top (`p-3`). Its 12px vertical reach then starts exactly at the row top and ends 44px below it, and `min-h-tap-min` guarantees the row is at least 44px tall. The "floor" for this site is therefore the row's top 44px band, with the anchor centred in it. Cost: a single-line card with no help trigger grows from about 42px to 44px; a card with a help trigger is already 44px (12 + 22 + 10).
+- `ml-3` plus the row's `gap-2.5` puts 22px between the anchor and the box before it. The help trigger's overlay reaches 11px right and the link's reaches 10px left, so the two 44px hit areas cannot overlap (11 + 10 = 21 < 22). Without a help trigger the 22px sits after the `flex-1` message, which is ≥ the 10px requirement.
+- `mr-0.5` plus the row's 12px right padding is 14px, exactly the anchor's trailing reach, so the overlay ends at the card's inner edge with no neighbouring box (requirement 3).
+- Both classes are on the containment guard's positional allowlist (`tests/components/admin/sheetIconLinkContainment.test.ts:252-253`).
+
+**`SheetIconLink` gains two backdrops.** `ringOffset` widens from `"bg" | "surface"` (`SheetIconLink.tsx:58-59`) to add `"warning-bg"` and `"surface-sunken"`, with full-literal `BACKDROP_SKIN` entries (`SheetIconLink.tsx:70-73`):
+
+| Key | Classes | Wash vs backdrop, light / dark (measured from `app/globals.css` runtime tokens) |
+|---|---|---|
+| `warning-bg` (active amber card) | `focus-visible:ring-offset-warning-bg hover:bg-surface active:bg-surface` | `#ffffff` vs `#fff3d6` 1.103:1 / `#16171c` vs `#3a2e14` 1.347:1 |
+| `surface-sunken` (muted card) | `focus-visible:ring-offset-surface-sunken hover:bg-surface active:bg-surface` | 1.109:1 / 1.092:1, the same pair the shipped `surface` backdrop already uses in reverse |
+
+The glyph's resting ink stays `text-text`: 15.60:1 / 10.64:1 on `warning-bg`. The pressed glyph is `text-text-strong` on `bg-surface`, already pinned (`tests/styles/status-token-contrast.test.ts:392-399`). The class-token set test (`tests/components/admin/sheetIconLink.test.tsx:127`) is extended first, as the component header requires (`SheetIconLink.tsx:40-41`).
+
+**Adapters.**
+
+- `PerShowActionableWarnings`: passes `sheetLink={href ? { href, subjectLabel: stripEmphasis(title), testId: "per-show-actionable-sheetlink" } : null}`. The text-link node (`PerShowActionableWarnings.tsx:457-466`) and `linkOffsetClass` (`PerShowActionableWarnings.tsx:165-168`, used only by that link) are deleted. `controlsBand` becomes the controls cluster alone, rendered exactly as today's no-link branch (`PerShowActionableWarnings.tsx:473-483` with `sheetLink` null). The header comment at `PerShowActionableWarnings.tsx:22-30` is rewritten to record R11.
+- `NoteWarningCard`: passes `sheetLink={href ? { href, subjectLabel: stripEmphasis(title), testId: "note-warning-sheet-link" } : null}` (the existing testid moves to the icon) and no `controlsBand`, so a note card is now its message row alone. The component comment (`NoteWarningCard.tsx:48-53`) is updated.
+- `HealthAlertsPanel`, `AttentionBanner`: no change; they pass no `sheetLink`.
+
+Every published mount inherits this: active section cards, crew under-row condensed cards, the muted Ignored and Accepted lists, the info notes, and the staged review page. `NewTabHint` leaves both adapters; the anchor's own accessible name says "(opens in a new tab)" (`SheetIconLink.tsx:96-100`).
+
+**Ratifications this supersedes, per Eric (R11):** the single-controls-band placement at `PerShowActionableWarnings.tsx:22-30` and `PerShowActionableWarnings.tsx:471-472`; the compact-card spec's footer-link line (`docs/superpowers/specs/2026-07-20-show-alert-compact.md:172`) and its test plan's link rows (`2026-07-20-show-alert-compact.md:228`, `2026-07-20-show-alert-compact.md:327`); the note-card link in the warning-trim un-defer spec (`docs/superpowers/specs/2026-07-23-warning-trim-undefer-design.md`, §2.4, as cited at `NoteWarningCard.tsx:48-53`). Those specs are dated records and are not edited; this section is the amendment.
 
 ---
 
@@ -200,7 +259,7 @@ The never-demote rule (`showDayTimeAnchors.ts:314`) means the cron's later regio
 ### 4.3 What the operator sees
 
 - Wizard: the title-row icon link (§3.5) opens the empty cell. Because the anchor is a single cell, the existing "Sheet cell <Tab>!<A1>" line (`step3ReviewSections.tsx:3353-3396`) also appears. On region fallback the icon opens the venue range and no cell line renders (colon guard `step3ReviewSections.tsx:3358`).
-- Published: the card's existing text link (`PerShowActionableWarnings.tsx:457-466`) and its "Sheet cell" band (`PerShowActionableWarnings.tsx:331-368`) appear by the same rules. The correction-loop follow-up sentence in the `?` popover now appears too (gated on a non-empty `a1`, `PerShowActionableWarnings.tsx:218-224`), which is the same behavior the region-anchored venue siblings already have.
+- Published: the card's sheet icon (§3.6, replacing the text link at `PerShowActionableWarnings.tsx:457-466`) and its "Sheet cell" band (`PerShowActionableWarnings.tsx:331-368`) appear by the same rules. The correction-loop follow-up sentence in the `?` popover now appears too (gated on a non-empty `a1`, `PerShowActionableWarnings.tsx:218-224`), which is the same behavior the region-anchored venue siblings already have.
 - No section jump on this card (R4), on any surface.
 
 ### 4.4 Side effects, stated
@@ -343,56 +402,94 @@ Builder's call C5 records the two deviations from the mockup's example.
 | Where | Needs a look (unchanged) | Judgment call |
 |---|---|---|
 | Active row button | `Ignore` / `Ignoring…` | `Accept` / `Accepting…` |
-| Ignored-list row button | `Un-ignore` / `Un-ignoring…` | `Undo accept` / `Undoing…` |
+| Restore button (Ignored list / Accepted list, §6.4) | `Un-ignore` / `Un-ignoring…` | `Undo accept` / `Undoing…` |
 | Announce on success | `Warning ignored.` / `Warning restored.` | `Judgment call accepted.` / `Judgment call restored.` |
 | Error copy | unchanged (`DataQualityWarningControls.tsx:118-121`) | `Couldn't accept that judgment call. Refresh and try again.` / `Couldn't undo that. Refresh and try again.` |
 | Published bulk chip (group of one code) | unchanged | text `Accept` / `Accepting…` / `Are you sure?`; accessible name `Accept <n>` / `Are you sure? Accept <n>` / `Accepting…`; announce `1 accepted.` / `<n> accepted.`; fail `Couldn't accept those judgment calls. Refresh and try again.` |
 
-The "Ignored (N)" disclosure keeps its heading on both surfaces (Builder's call D3).
+Accepted judgment rows leave the "Ignored (N)" disclosure for their own "Accepted (N)" disclosure (§6.4, R12). Testids keep naming the mechanism (`dq-ignore-…` on an Accept button), so no existing selector moves.
 
 ### 6.3 The deferred reading choice
 
-**Where it applies.** Every row where `UseRawControl` would render the radio pair, i.e. `deriveUseRawControlState(w, decision, false)` is one of `transform-active`, `apply-pending`, `raw-active`, `clear-pending`, AND a `DataQualityWarningControls` renders in the same row. In production that is every such row on both surfaces: the wizard renders the choice control under `wizardSessionId && dfid` (`step3ReviewSections.tsx:3445`) and the action bar under `dq && dfid && isWarn` (`step3ReviewSections.tsx:3480`), every use-raw code is emitted at `warn` severity (for example `warnings.ts:378`), and a staged row without `dq` is NO-PREVIEW and has no controls at all (`components/admin/review/sectionData.ts:163-165`); the published per-item controls always render both (`sectionWarningExtras.tsx:122-139`). A mount with no action bar (standalone tests only) keeps today's immediate save.
+**Where it applies.** Every row where `UseRawControl` would render the radio pair, i.e. `deriveUseRawControlState(w, decision, false)` is one of `transform-active`, `apply-pending`, `raw-active`, `clear-pending`, AND a `DataQualityWarningControls` renders in the same row. In production that is every such row on both surfaces: the wizard renders the choice control under `wizardSessionId && dfid` (`step3ReviewSections.tsx:3445`) and the action bar under `dq && dfid && isWarn` (`step3ReviewSections.tsx:3480`), every use-raw code is emitted at `warn` severity (for example `warnings.ts:378`), and a staged row without `dq` is NO-PREVIEW and has no controls at all (`components/admin/review/sectionData.ts:163-165`); the published per-item controls always render both (`sectionWarningExtras.tsx:122-139`), in the active list and in the Accepted list (§6.4). A mount with no action bar (standalone tests only) keeps today's immediate save.
 
-**How the selection crosses components.** A new client module components/admin/useRawDraft.tsx (new file) exports `UseRawDraftProvider` and `useUseRawDraft()`:
-
-- Provider props: `warning: ParseWarning`, `decision: UseRawDecision | undefined`, plus the same surface union `UseRawControlBoundary` takes (`{surface:"show", showId}` | `{surface:"wizard", wizardSessionId, driveFileId}`, `UseRawControlBoundary.tsx:36-40`).
-- State: `pendingRaw: boolean | null` (`null` = nothing picked).
-- Derived: `persistedRaw = state === "raw-active" || state === "apply-pending"` (the same expression as today's `rawChecked` minus the in-flight overlay, `UseRawControl.tsx:470-471`); `dirty = pendingRaw !== null && pendingRaw !== persistedRaw`. A refresh that makes `persistedRaw` equal `pendingRaw` therefore cleans the row with no extra code.
-- Actions: `select(useRaw)` sets `pendingRaw` and clears any action-bar error; `cancel()` sets `pendingRaw = null`; `saveReading(): Promise<"ok" | "failed">` calls the existing action and clears `pendingRaw` on `ok`. It does NOT refresh; the action bar owns the single refresh.
-- The action call is extracted from `UseRawControlBoundary.onToggle` into one exported function `callUseRawAction(surface, warning, useRaw)` in the same module, which both the boundary and the provider use. One argument assembly, two callers.
+**Where the state lives.** A new client module components/admin/useRawDraft.tsx (new file) exports `UseRawDraftProvider` and `useUseRawDraft()`. Provider props: `warning: ParseWarning`, `decision: UseRawDecision | undefined`, plus the surface union `UseRawControlBoundary` takes (`{surface:"show", showId}` | `{surface:"wizard", wizardSessionId, driveFileId}`, `UseRawControlBoundary.tsx:36-40`). The action call is extracted from `UseRawControlBoundary.onToggle` (`UseRawControlBoundary.tsx:56-82`) into one exported `callUseRawAction(surface, warning, useRaw): Promise<"ok" | "failed">` in the same module; the boundary (provider-less fallback) and the provider both use it. One argument assembly, two callers.
 
 Mounts: the wizard wraps the row's controls block (`step3ReviewSections.tsx:3445-3494`) in the provider when the conditions above hold; the published `SectionWarningItemControls` wraps its fragment (`sectionWarningExtras.tsx:119-147`) the same way and, for these rows only, renders the choice control BEFORE `DataQualityWarningControls`. For every other code the choice control renders `null` (`UseRawControl.tsx:72`), so the reorder changes no other row.
 
+**The reading model (exact).** This replaces the single `pendingRaw` value of the round-0 draft, which cleared on a successful Save before refreshed props arrived (so the radio snapped back to the old reading while accept ran) and could leave a dormant draft that a later external change resurrected. The shipped control already guards the first hazard with its own optimistic `pendingChoice` (`UseRawControl.tsx:404-408`, `UseRawControl.tsx:465-471`); this model generalizes that guard.
+
+- `persistedRaw` (derived, from props): `state === "raw-active" || state === "apply-pending"`, where `state = deriveUseRawControlState(warning, decision, false)`.
+- Local state, two pieces:
+  - `draft: boolean | null`, the operator's unsaved selection (`true` = the sheet's reading, `false` = ours);
+  - `submitted: boolean | null`, a reading sent to the server and not yet reconciled with props.
+- **Displayed reading** (the checked row): `submitted ?? draft ?? persistedRaw`.
+- **Dirty:** `submitted === null && draft !== null`. By the rules below, a non-null `draft` never equals `persistedRaw`.
+- **Busy:** the action bar's existing `running` flag (`DataQualityWarningControls.tsx:115`, `state.kind === "running"`), mirrored into the provider. Busy is a UI lock, not part of the reading model.
+- **Radio rows soft-disable** (`aria-disabled`, the existing `ChoiceRow` path, `UseRawControl.tsx:343-358`) while busy OR while `submitted !== null`. A select can therefore never land while a submitted reading is awaiting reconciliation, where it would change nothing visible.
+
+Rules:
+
+1. **Select** reading `r` (click or arrow key): if `r === persistedRaw`, `draft = null` (abandoned; the row is clean); else `draft = r`. Either way the action bar's error clears. Arrow keys still move focus and select (WAI radio pattern) but never write.
+2. **Save pressed** (only while dirty): `submitted = draft; draft = null`; busy until the sequence ends; radio rows and Cancel disabled.
+3. **Save fails** (the reading request returns `failed`): `draft = submitted; submitted = null`; error shown; still dirty, Save available again; no refresh.
+4. **Save succeeds:** `submitted` STAYS, so the acknowledged reading stays displayed. If the row is active and ignorable, the accept request starts.
+   - Accept succeeds: announce, `onBeforeRefresh?.()`, `router.refresh()`. `submitted` still stays until reconciliation.
+   - Accept fails: the reading is saved, the card is not accepted. `router.refresh()` (the persisted reading must re-read) and show the partial-success copy. `submitted` still stays until reconciliation. The main button reads `Accept`, which retries the accept request only.
+   - Row not ignorable, or the row is in the Accepted list: no accept request; announce `Reading saved.`, `router.refresh()`.
+5. **Reconciliation**, on ANY change of the `persistedRaw` prop value: if `draft !== null && draft === persistedRaw`, then `draft = null`; and if `submitted !== null`, then `submitted = null`. The refreshed prop is authoritative whether or not it equals what was sent. Applied with the store-the-previous-prop pattern during render (React's "adjusting state when a prop changes"), not in an effect, so no frame paints the stale combination.
+   - Second trigger, for a refresh that does not move `persistedRaw` (another tab reverted between our Save and our refresh, or the refresh returned identical props): the action bar wraps its `router.refresh()` in `startTransition`, and when that transition's pending flag returns to false the provider sets `submitted = null` (the `draft` rule is unaffected). UNRATIFIED: that the pending flag of a `router.refresh()` transition stays true until the refreshed props commit is Next.js behavior this spec has not probed; the deferred-response probe in §16.1 settles it before implementation. If it does not hold, this trigger is dropped and limit L13 stands.
+6. **Cancel:** `draft = null`; focus moves to the main button (Cancel unmounts).
+
+A change between `apply-pending` and `raw-active` (or `clear-pending` and `transform-active`) does not change `persistedRaw`, so it is not a reconciliation event; only the marker word changes.
+
 **Choice control inside a provider.**
 
-- `ChoiceRow.onSelect` and the arrow-key path call `draft.select(…)`; they never call `fire`. Arrow keys still move focus and select (WAI radio pattern) but no longer write.
-- Checked row = `pendingRaw ?? persistedRaw`.
-- `ChoiceRow` renders a `marker` prop as given instead of `checked && marker` (`UseRawControl.tsx:375-377`). Clean: the checked row gets today's marker ("In use", or "Selected" in the pending-apply states, `UseRawControl.tsx:487-488`), the other row `null`, byte-identical to today. Dirty: the persisted row keeps its marker while unchecked, the picked row gets none.
+- `ChoiceRow.onSelect` and the arrow-key path call `draft.select(…)` (rule 1); they never call `fire`.
+- `ChoiceRow` renders a per-row `marker` prop instead of `checked && marker` (`UseRawControl.tsx:375-377`). Markers by state:
+  - clean (`submitted === null && draft === null`): the checked row gets today's marker, `In use` or `Selected` (`UseRawControl.tsx:487-488`); the other row none. Byte-identical to today.
+  - dirty: the persisted row keeps its marker while unchecked; the draft row (checked) has none.
+  - `submitted !== null`: the submitted row (checked) shows `Selected`, the word the shipped control already uses for "chosen, crew pages not updated yet"; the persisted row shows none.
 - The in-control error and "Try again" (`UseRawControl.tsx:594-612`) and the `Saving…` live text (`UseRawControl.tsx:590-592`) do not render inside a provider; the action bar owns progress and errors. The pending-apply notes (`UseRawControl.tsx:574-585`) still render from persisted state.
 
 **Action bar (`DataQualityWarningControls` inside a provider).** One main button element whose label morphs, so focus on it survives every label change.
 
-| State | Main button | Beside it |
+| Condition | Main button | Beside it |
 |---|---|---|
-| clean | `Accept` (active) or `Undo accept` (ignored list) | Report, as today |
-| dirty | `Save` | Report; `Cancel` (ghost button); hint `Not saved yet` (`text-xs text-text-subtle`, `id` referenced by the main button's `aria-describedby`) |
-| saving | `Saving…` (from dirty) or `Accepting…` / `Undoing…` (from clean); disabled, `aria-busy` | Cancel disabled; radio rows soft-disabled (`aria-disabled`, existing `ChoiceRow` path `UseRawControl.tsx:343-358`) |
-| error | label of the underlying clean or dirty state | the existing error paragraph slot (`role="alert"`, `DataQualityWarningControls.tsx:257-265`) with the copy below |
+| not busy, not dirty | `Accept` (active list) or `Undo accept` (Accepted list); none if not ignorable (as today) | Report |
+| not busy, dirty | `Save` | Report; `Cancel` (ghost button); hint `Not saved yet` (`text-xs text-text-subtle`, `id` referenced by the main button's `aria-describedby`) |
+| busy | `Saving…` (sequence started from Save) or `Accepting…` / `Undoing…` (started from the clean button); disabled, `aria-busy` | Cancel disabled |
+| error present | label for the not-busy condition above | the existing error slot (`role="alert"`, `DataQualityWarningControls.tsx:257-265`) with the copy below |
 
-When the row is not ignorable (`hasIgnorableSnippet` false), clean shows no main button (as today) and dirty still shows Save, Cancel and the hint.
+Cancel classes: `inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-3 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2` plus the plate's ring-offset class: the archived-tab ghost idiom (`components/admin/wizard/archivedTabOffer.tsx:64-66`) on this component's `px-3`.
 
-Cancel classes: `inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-3 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2` plus the plate's ring-offset class, the archived-tab ghost idiom (`components/admin/wizard/archivedTabOffer.tsx:64-66`) on this component's `px-3`. After Cancel, focus moves to the main button (Cancel unmounts).
+Error copy: rule 3 shows `That didn’t save. The cell may have changed.` (the control's existing sentence, `UseRawControl.tsx:597`); rule 4's accept failure shows `Your reading is saved, but we couldn't accept the judgment call. Refresh and try again.` An error stays until the next select, Save, Accept or Cancel.
 
-**Save sequence.**
+Each request takes its own lock inside its own existing endpoint, one after the other; no lock nests (invariant 2 unchanged).
 
-1. `saveReading()`. On `failed`: stay dirty, show `That didn’t save. The cell may have changed.` (the control's existing copy, `UseRawControl.tsx:597`), no refresh.
-2. If the row is active AND ignorable: run the existing ignore arm (`runShowArm` / `runStagedArm`, `DataQualityWarningControls.tsx:124-148`). On failure: `router.refresh()` (the reading DID save, so the persisted state must re-read) and show `Your reading is saved, but we couldn't accept the judgment call. Refresh and try again.`
-3. Success: announce `Reading saved. Judgment call accepted.` (active + ignorable) or `Reading saved.` (ignored list, or not ignorable); `onBeforeRefresh?.()`; `router.refresh()`.
+**Published bulk accept** acts on the persisted readings; a card with an unsaved draft loses the draft when it moves to the Accepted list (documented limit L8).
 
-Each step takes its own lock inside its own existing endpoint, one after the other; no lock nests (invariant 2 unchanged).
+### 6.4 The Accepted (N) disclosure (R12)
 
-**Published bulk accept** acts on the persisted readings; a card with an unsaved pick loses the pick when it moves to the Ignored list (documented limit L8).
+**Partition.** A row in the ignored partition is ACCEPTED when `isWarnSeverity(w) && isAmbiguityCode(w.code)`; every other ignored row stays IGNORED. The split happens at render; the partition, its counts in the rails and headings (`wizardPanelCount`, the rail's `ignoredWarnCount`, `step3ReviewSections.tsx:5315-5329`), and the ignore store are unchanged.
+
+**Wizard** (`WarningsBreakdown`, today one disclosure at `step3ReviewSections.tsx:3509-3604`). `ignoredItems` (`step3ReviewSections.tsx:3083`) splits into `ignoredOnly` and `accepted`, each with its own `stableWarningKeys` (as `ignoredKeys` today, `step3ReviewSections.tsx:3089`). Two `<details>`, both still OUTSIDE the active-list ternary so they survive the all-dismissed case (the reason given at `step3ReviewSections.tsx:3503-3508`), each rendered only when its count is above zero:
+
+1. `Ignored (N)`: existing testids `wizard-step3-card-${dfid}-ignored-warnings` / `-ignored-summary` / `-ignored-list`, now holding non-judgment rows only.
+2. `Accepted (N)`: new testids `wizard-step3-card-${dfid}-accepted-warnings` / `-accepted-summary` / `-accepted-list`.
+
+Both use today's classes (`group mt-3` on the `details`, the summary and list classes at `step3ReviewSections.tsx:3510-3524`) and today's row markup (title, `Sheet row` discriminator, `DataQualityWarningControls mode="ignored"` with the same `ignoreOrigin` routing, `step3ReviewSections.tsx:3525-3600`). Accepted rows' button reads `Undo accept`. No choice control in either wizard list (unchanged).
+
+**Published** (`buildSectionWarningExtras`, today one disclosure per section at `sectionWarningExtras.tsx:283-317`). Split the RECORDS, not the warnings: today each row's report id is read as `model.ignored[i].reportSurfaceId` by position in `ignoredWarnings` (`sectionWarningExtras.tsx:168`, `sectionWarningExtras.tsx:306`), so filtering the warnings alone would hand rows the wrong report ids. Each list is built from its own filtered record array and reads `records[i].reportSurfaceId` from it. Two `<details>`, each only when non-empty:
+
+1. `Ignored (N)`: existing testids `section-ignored-warnings-${id}` / `section-ignored-summary-${id}` / `section-ignored-list-${id}`.
+2. `Accepted (N)`: new testids `section-accepted-warnings-${id}` / `section-accepted-summary-${id}` / `section-accepted-list-${id}`.
+
+Same classes as today; both lists `PerShowActionableWarnings tone="muted"` with no `followUpCopy`. Accepted rows keep the choice control (inside a provider, §6.3), so a reading can still be changed after acceptance; Save there saves the reading only. The empty-seam guard (`sectionWarningExtras.tsx:257`) keeps testing the union.
+
+**Order.** `Ignored` first, `Accepted` second, on both surfaces: the same order as the attention menu's groups (needs a look, then judgment calls, `components/admin/wizard/WizardAttentionMenu.tsx:118-131`). The two `details` sit 12px apart (`mt-3` on the wizard; the extras column's `gap-3`, `sectionWarningExtras.tsx:268-269`, on published). Each keeps its own native open state.
+
+**Bulk and undo.** Bulk exists only on ACTIVE groups (`BulkIgnoreControls`, mounted at `sectionWarningExtras.tsx:279`); a judgment group's chip reads `Accept <n>` and moves its cards into `Accepted (N)`. Neither disclosure has a bulk action (unchanged). Undo is per row: `Un-ignore` in Ignored, `Undo accept` in Accepted; either returns the row to the active list.
 
 ---
 
@@ -404,7 +501,7 @@ Each step takes its own lock inside its own existing endpoint, one after the oth
 - `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (`contentChangedWarning`, `pullSheetOverride.ts:136-143`) uses the same `blockRef.kind`.
 - That kind is not in `KIND_TO_SECTION` (`lib/admin/step3SectionStatus.ts:28-51`), so both codes route to "warnings" (`warningsBySection`, `step3SectionStatus.ts:91-104`).
 - The deep link already exists: tab scope via the visible-tab map (`showDayTimeAnchors.ts:285-290`).
-- The include action is `ArchivedTabOffer` (`archivedTabOffer.tsx:107-210`): its own bordered card, title, previews list, sentence, button `Use this show’s gear` / `Including…` (`archivedTabOffer.tsx:183`), local "Keep skipped" (`archivedTabOffer.tsx:112`, `archivedTabOffer.tsx:186-198`). Offers come from `deriveArchivedOffers(tabs, staged, override)` (`archivedTabOffer.tsx:24-43`). Mounted in Pack list (`step3ReviewSections.tsx:2602-2612`) and the Step-3 Resolve box with `showDismiss={false}` (`Step3ReviewModal.tsx:1107-1114`). Published has its own `PublishedArchivedTabOffer` in Pack list (`step3ReviewSections.tsx:2620-2667`), with offer names derived from ACTIVE `PULL_SHEET_ON_ARCHIVED_TAB` warnings across all sections (`lib/admin/deriveActiveArchivedTabNames.ts:11-25`), so a published Ignore hides the published offer.
+- The include action is `ArchivedTabOffer` (`archivedTabOffer.tsx:107-210`): its own bordered card, title, previews list, sentence, button `Use this show’s gear` / `Including…` (`archivedTabOffer.tsx:183`, retired by R13), local "Keep skipped" (`archivedTabOffer.tsx:112`, `archivedTabOffer.tsx:186-198`). Offers come from `deriveArchivedOffers(tabs, staged, override)` (`archivedTabOffer.tsx:24-43`). Mounted in Pack list (`step3ReviewSections.tsx:2602-2612`) and the Step-3 Resolve box with `showDismiss={false}` (`Step3ReviewModal.tsx:1107-1114`). Published has its own `PublishedArchivedTabOffer` in Pack list (`step3ReviewSections.tsx:2620-2667`), with offer names derived from ACTIVE `PULL_SHEET_ON_ARCHIVED_TAB` warnings across all sections (`lib/admin/deriveActiveArchivedTabNames.ts:11-25`), so a published Ignore hides the published offer.
 - Published `SectionData.archivedPullSheetTabs` is always `[]` (`components/admin/review/publishedAdapter.ts:85`).
 - Catalog copy says "Gear section" in TWO rows: `PULL_SHEET_ON_ARCHIVED_TAB.helpfulContext` (`lib/messages/catalog.ts:1806-1807`) and `PULL_SHEET_OVERRIDE_CONTENT_CHANGED.helpfulContext` (`catalog.ts:1822-1823`). The brief named only the first; the class sweep found the second.
 
@@ -430,11 +527,18 @@ Below the title row, in the same slot and type ramp as the row-label line (`text
 
 - `Tab <name>` when `blockRef.name` is a non-blank string. Testid `…-warning-${i}-archived-tab`.
 - `Cases <previews>` when at least one preview exists. Testid `…-warning-${i}-archived-cases`. Previews come from the matched tab's `headerPreviews` (match = `archivedPullSheetTabs` entry whose `tabName === blockRef.name`, exact); with no match, from `rawSnippet.split(" | ")` (documented limit L7). Format: each preview in typographic single quotes, joined with `, `; blank preview → `(no header text)` (the shipped wording, `archivedTabOffer.tsx:166`); at most `CASE_PREVIEWS_CAP = 3` shown, each cut at `CASE_PREVIEW_CHARS = 40` characters + `…`; more than three → ` and <k> more`. Example: `Cases ‘AUDIO 1’, ‘VIDEO RACK’, ‘(no header text)’ and 2 more`. Both constants live in lib/admin/warningReadingDisplay.ts (new file) with a pure `casePreviewsText(previews: unknown): string | null`.
-- The include button, when the tab is in `deriveArchivedOffers(archivedPullSheetTabs, true, pullSheetOverride).offers` AND `wizardSessionId` and `dfid` are present. Label `Use this pull sheet` / `Including…`. Testid `…-warning-${i}-archived-include`.
+- The include button, when the tab is in `deriveArchivedOffers(archivedPullSheetTabs, true, pullSheetOverride).offers` AND `wizardSessionId` and `dfid` are present. Visible label `Use this pull sheet`, pending `Including…` (R13, same on every surface). Testid `…-warning-${i}-archived-include`.
 - The section jump `Go to Pack list` (§8).
 - The existing Report + Ignore. Ignore keeps its label (needs-a-look code) and means "keep it skipped": skipped is the default, nothing else is written.
 
-The button comes from a new export `ArchivedTabIncludeButton` extracted from `ArchivedTabOffer` (`archivedTabOffer.tsx:116-139`, `archivedTabOffer.tsx:176-184`, `archivedTabOffer.tsx:214-216`): props `dfid`, `wizardSessionId`, `tab`, `label`, `plate: "tinted" | "surface"`, optional `onBeforeRefresh`. It POSTs the same body through `postPullSheetOverride` (`archivedTabOffer.tsx:68-82`) and renders the same always-mounted `role="status"` error region with `ARCHIVED_TAB_ERROR` (`archivedTabOffer.tsx:87-88`). `ArchivedTabOffer` re-renders its own button through it with its own label, so the two cannot diverge in behavior. The card passes `plate="surface"` (outline `border-text-faint`, per the per-call-site color rule at `archivedTabOffer.tsx:47-57`) and `onBeforeRefresh={holdFocusInPanel}`: success removes the warning, which unmounts the focused button, the same focus-loss class the ignore path already guards (`step3ReviewSections.tsx:3090-3101`). "Keep skipped" never renders on the card.
+The button comes from a new export `ArchivedTabIncludeButton` extracted from `ArchivedTabOffer` (`archivedTabOffer.tsx:116-139`, `archivedTabOffer.tsx:176-184`, `archivedTabOffer.tsx:214-216`): props `dfid`, `wizardSessionId`, `tab`, `plate: "tinted" | "surface"`, optional `onBeforeRefresh`. The label is not a prop: R13 makes it one string, exported from `archivedTabOffer.tsx` as `ARCHIVED_TAB_INCLUDE_LABEL = "Use this pull sheet"` and `ARCHIVED_TAB_INCLUDE_PENDING = "Including…"` (the pending word is unchanged; it names the system action, include, that the catalog copy also uses). It POSTs the same body through `postPullSheetOverride` (`archivedTabOffer.tsx:68-82`) and renders the same always-mounted `role="status"` error region with `ARCHIVED_TAB_ERROR` (`archivedTabOffer.tsx:87-88`). `ArchivedTabOffer` (Pack list and the Resolve box) re-renders its own button through it, so the card, Pack list and the Resolve box share one button, one label and one behavior. The card passes `plate="surface"` (outline `border-text-faint`, per the per-call-site color rule at `archivedTabOffer.tsx:47-57`) and `onBeforeRefresh={holdFocusInPanel}`: success removes the warning, which unmounts the focused button, the same focus-loss class the ignore path already guards (`step3ReviewSections.tsx:3090-3101`). "Keep skipped" never renders on the card.
+
+**One label on every surface (R13).** The accessible name is `Use this pull sheet from tab <name>` while idle and `Including…` while pending, everywhere:
+
+- `ArchivedTabIncludeButton` (card, Pack list, Resolve box): visible `Use this pull sheet`, plus an sr-only suffix ` from tab <tab.tabName>` rendered only while idle.
+- `PublishedArchivedTabOffer` (published Pack list, `components/admin/review/PublishedArchivedTabOffer.tsx:167-176`): visible text changes from `Include this gear` to `ARCHIVED_TAB_INCLUDE_LABEL` and its pending text to `ARCHIVED_TAB_INCLUDE_PENDING`; its `aria-label` (`Include gear from <tab>`, `PublishedArchivedTabOffer.tsx:172`) is replaced by the same sr-only suffix. It keeps its own POST (a different endpoint) and its `Skip` button. This site is in R13's class (the same action in the same Pack list) though the decision text names the staged button; Builder's call E7.
+
+Old labels are pinned by `tests/components/admin/wizard/archivedTabOffer.render.test.tsx:27`, `tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx:166`, `Step3ReviewModalResolution.test.tsx:218`, `Step3ReviewModalResolution.test.tsx:242`, `Step3ReviewModalResolution.test.tsx:259`, `Step3ReviewModalResolution.test.tsx:272`, `Step3ReviewModalResolution.test.tsx:286`, and ten assertions in `tests/components/admin/review/publishedArchivedTabOffer.test.tsx` (`Include this gear` / `Include gear from`). No message registry, catalog row or e2e spec pins either label (searched `tests/`, `lib/`, `components/`, `app/`). The dated specs that quote the old wording (`docs/superpowers/specs/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md`, `docs/superpowers/specs/step3-onboarding/2026-07-17-archived-tab-resolve-box-offer.md`) are records and are not edited.
 
 `WarningsBreakdown` gains staged-only props `archivedPullSheetTabs` and `pullSheetOverride`, passed from the warnings registry render (`step3ReviewSections.tsx:5332-5344`) inside the existing `isStaged(s)` spread.
 
@@ -493,7 +597,7 @@ Rendered for a wizard ACTIVE row when all hold: `isWarn`; `w.code !== "VENUE_ADD
 </button>
 ```
 
-The classes are the deleted link's (`step3ReviewSections.tsx:3434`), so the slot keeps its type ramp and 44px floor. Info rows and Ignored-list rows get no jump: info rows are never routed (`warningsBySection` skips them, `step3SectionStatus.ts:96`), and an ignored row has nothing live in its section. The published modal gets no card jumps: its cards already render inside their sections.
+The classes are the deleted link's (`step3ReviewSections.tsx:3434`), so the slot keeps its type ramp and 44px floor. Info rows and rows in the Ignored or Accepted lists get no jump: info rows are never routed (`warningsBySection` skips them, `step3SectionStatus.ts:96`), and a dismissed row has nothing live in its section. The published modal gets no card jumps: its cards already render inside their sections.
 
 ---
 
@@ -532,7 +636,7 @@ Apostrophes follow the file the string lands in (Builder's call D7). No string c
 |---|---|
 | Card tag, reservation tag | `Judgment call` |
 | sr-only prefixes | `Needs a look: ` · `Note: ` |
-| Sheet icon link accessible name | component-owned: `Open the source sheet for <title> in Google Sheets (opens in a new tab)` |
+| Sheet icon link accessible name (wizard card and every compact card) | component-owned: `Open the source sheet for <title> in Google Sheets (opens in a new tab)`; the visible `Open in Sheet ↗` text leaves all three warning-card sites |
 | Comparison labels | `Sheet says` · `We read` |
 | We read values | `no guests` · `1 guest: <name>` · `<n> guests: <names>` · `<n> guests: <six names>, and <k> more` |
 | Reservation marker link | `See how we read it` + sr-only ` for <hotel name>` |
@@ -543,7 +647,9 @@ Apostrophes follow the file the string lands in (Builder's call D7). No string c
 | Announcements | `Judgment call accepted.` · `Judgment call restored.` · `Reading saved. Judgment call accepted.` · `Reading saved.` · `1 accepted.` · `<n> accepted.` |
 | Errors | `Couldn't accept that judgment call. Refresh and try again.` · `Couldn't undo that. Refresh and try again.` · `Your reading is saved, but we couldn't accept the judgment call. Refresh and try again.` · `Couldn't accept those judgment calls. Refresh and try again.` · reused: `That didn’t save. The cell may have changed.` |
 | Bulk chip names | `Accept <n>` · `Are you sure? Accept <n>` |
-| Archived card | `Tab ` + name · `Cases ` + previews · `Use this pull sheet` · reused `Including…` · reused `(no header text)` |
+| Archived include button (card, Pack list, Resolve box, published Pack list) | `Use this pull sheet` (replaces `Use this show’s gear` and `Include this gear`) · accessible name `Use this pull sheet from tab <name>` · pending `Including…` (unchanged) |
+| Archived card lines | `Tab ` + name · `Cases ` + previews · reused `(no header text)` |
+| Disclosures | `Accepted (<n>)` (new) · `Ignored (<n>)` (unchanged) |
 | Catalog helpfulContext | the three strings in §5.7 and §7.5 |
 
 The pre-code mechanical checklist (`_metaEmDashCopy`, tap floors, `text-xs/relaxed` and `text-subtle` usage) runs against this table before implementation starts.
@@ -552,24 +658,26 @@ The pre-code mechanical checklist (`_metaEmDashCopy`, tap floors, `text-xs/relax
 
 ## 12. Mode boundaries
 
-| Element | Wizard needs-look | Wizard judgment | Wizard info | Wizard Ignored list | Published active card | Published muted card | Published note | Staged review page |
-|---|---|---|---|---|---|---|---|---|
-| Severity word | removed | removed | removed | never had | never had | never had | never had | never had |
-| Chip | warm triangle | info-bg ring glyph | info | none | none (compact shell) | none | none | none |
-| 6px dot | warm fill | hollow subtle ring | faint fill | none | none | none | none | none |
-| Judgment tag | no | yes (`surface`) | no | no | judgment codes (`warning-bg`) | judgment codes (`surface-sunken`) | no | judgment codes (`warning-bg`) |
-| Sheet link form | icon, title row | icon, title row | icon, title row | none | text, controls band | text, controls band | text, controls band | text, controls band |
-| Section or reservation jump | yes (staged) | yes (staged) | no | no | no | no | no | no |
-| Accept wording | n/a | Accept | n/a | Undo accept (judgment rows) | Accept | Undo accept | n/a | n/a (no controls) |
-| Deferred Save | n/a | radio codes | n/a | n/a | radio codes | radio codes | n/a | n/a |
-| Read-only comparison | n/a | inline guest split | n/a | n/a | inline guest split | inline guest split | n/a | n/a (no controls) |
-| Archived card lines + include | lines + include (staged) | n/a | n/a | no | no (offer adjacent in Pack list) | no | n/a | no |
+| Element | Wizard needs-look | Wizard judgment | Wizard info | Wizard Ignored list | Wizard Accepted list | Published active card | Published Ignored list | Published Accepted list | Published note | Staged review page |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Severity word | removed | removed | removed | never had | never had | never had | never had | never had | never had | never had |
+| Chip | warm triangle | info-bg ring glyph | info | none | none | none (compact shell) | none | none | none | none |
+| 6px dot | warm fill | hollow subtle ring | faint fill | none | none | none | none | none | none | none |
+| Judgment tag | no | yes (`surface`) | no | no | no | judgment codes (`warning-bg`) | no (never judgment) | yes (`surface-sunken`) | no | judgment codes (`warning-bg`) |
+| Sheet link | icon, title row (§3.5) | icon, title row | icon, title row | none | none | icon, message row (§3.6, `warning-bg`) | icon, message row (`surface-sunken`) | icon, message row (`surface-sunken`) | icon, message row (`surface`) | icon, message row (`warning-bg`) |
+| Section or reservation jump | yes (staged) | yes (staged) | no | no | no | no | no | no | no | no |
+| Restore / accept wording | Ignore | Accept | n/a | Un-ignore | Undo accept | Ignore / Accept by kind | Un-ignore | Undo accept | n/a | n/a (no controls) |
+| Deferred Save | n/a | radio codes | n/a | n/a | n/a (no choice control) | radio codes | n/a | radio codes (reading only) | n/a | n/a |
+| Read-only comparison | n/a | inline guest split | n/a | n/a | n/a | inline guest split | n/a | inline guest split | n/a | n/a (no controls) |
+| Archived card lines + include | lines + include (staged) | n/a | n/a | no | n/a | no (offer adjacent in Pack list) | no | n/a | n/a | no |
 
-"Radio codes" = the four `USE_RAW_CODES` (§5.6) in a resolvable state. "Inline guest split" = `HOTEL_GUEST_SPLIT_AMBIGUOUS` in the `disabled` state. The reservation marker (§5.4) is not on a warning card: it renders on the hotel card in the Hotels section of the staged wizard only, and nowhere on the published modal or the staged review page.
+"Radio codes" = the four `USE_RAW_CODES` (§5.6) in a resolvable state. "Inline guest split" = `HOTEL_GUEST_SPLIT_AMBIGUOUS` in the `disabled` state. Accepted lists hold only judgment rows and Ignored lists only non-judgment rows, by the §6.4 partition, which is why the tag column reads "no (never judgment)" for Ignored. The reservation marker (§5.4) is not on a warning card: it renders on the hotel card in the Hotels section of the staged wizard only, and nowhere on the published modal or the staged review page.
 
 ---
 
-## 13. Dimensional Invariants: the wizard title row with the sheet icon link
+## 13. Dimensional Invariants: the sheet icon link's two host rows
+
+### 13.1 The wizard title row
 
 Parent: the title row `div` (§3.5). Children: the text cluster `span` and the `SheetIconLink` anchor. The anchor's 44px hit area is an out-of-flow ::before overlay, invisible to `getBoundingClientRect()` (`SheetIconLink.tsx:5-9`), so the overlay rows below are computed from the anchor rect plus its resolved insets (12 / 10 / 14 px).
 
@@ -589,43 +697,80 @@ Parent: the title row `div` (§3.5). Children: the text cluster `span` and the `
 
 DI-1 to DI-9 run at 320, 375, 430, 640 and 1280 widths, on a needs-look, a judgment and an info row. A premise check first asserts each fixture row rendered its link and (for the judgment row) its tag, so three copies of one row cannot pass as three kinds.
 
+### 13.2 The compact card message row (§3.6)
+
+Parent: `compact-alert-message`. Children: the severity glyph (warning tone only), the message `div`, the help-trigger wrapper (optional), and the `SheetIconLink` anchor. Insets as in §13.1 (12 / 10 / 14 px); the help trigger's overlay is 11px on every side (`HoverHelp.tsx:555`).
+
+| ID | Relationship | Guaranteed by | Assertion (px, tolerance 0.5) |
+|---|---|---|---|
+| DI-C1 | row height ≥ 44 when `sheetLink` is present | `min-h-tap-min` added on that branch | `row.height >= 44` |
+| DI-C2 | row unchanged when `sheetLink` is absent | conditional class | the row's `className` equals today's literal `flex gap-2.5 p-3 pb-2.5` on `HealthAlertsPanel` and `AttentionBanner` renders |
+| DI-C3 | anchor box is 20×20 | `size-5` | `link.width === 20 && link.height === 20` |
+| DI-C4 | anchor sits at the content-box top, so its overlay starts at the row top | default stretch row + definite anchor height + `p-3` | `link.top - row.top === 12` |
+| DI-C5 | vertical overlay contained | DI-C1 + DI-C4 | `link.bottom + 12 <= row.bottom` |
+| DI-C6 | no overlap with the help trigger's hit area | `gap-2.5` + `ml-3` = 22 ≥ 11 + 10 | with a help trigger: `link.left - help.right >= 22`; hit test `elementFromPoint(help.right + 10, help.top + 11)` is the help button and `elementFromPoint(link.left - 9, link.top + 10)` is the anchor |
+| DI-C7 | heading-side clearance without a help trigger | same classes | `link.left - message.right >= 22` |
+| DI-C8 | trailing overlay ends at the card's inner edge | `mr-0.5` + `p-3` right = 14 | `row.right - link.right === 14`; `elementFromPoint(link.right + 13, link.top + 10)` is the anchor |
+| DI-C9 | the message still takes the slack | message `min-w-0 flex-1` | at 320 and 375 with a 120-character title, `message.right <= link.left - 22` and the anchor's top stays at DI-C4 |
+
+DI-C1 to DI-C9 run at 320, 375, 430 and 1280 widths on all three tones, with and without a help trigger, and on a condensed crew under-row card (its `pl-6` wrapper, `sectionWarningExtras.tsx:52`). Premise: each fixture asserts its tone class and the presence or absence of the help trigger before measuring.
+
 ---
 
 ## 14. Transition Inventory: the reading choice and its action bar
 
-States: **C** clean (main button Accept), **D** dirty (Save, Cancel, hint), **S** saving (a write in flight), **V** saved (success handled: announce, focus hand-off, refresh), **E** error (copy shown over the underlying C or D).
+States, defined on the §6.3 model (`P` = `persistedRaw`):
+
+| State | Definition | Displayed reading | Main button |
+|---|---|---|---|
+| **C** clean | `submitted === null && draft === null`, not busy | `P` | `Accept` / `Undo accept` |
+| **D** dirty | `submitted === null && draft !== null`, not busy | `draft` | `Save` (+ Cancel, hint) |
+| **S** saving | busy (a reading or accept request in flight) | `submitted ?? draft ?? P` | `Saving…` / `Accepting…` / `Undoing…`, disabled |
+| **V** saved, not yet reconciled | `submitted !== null`, not busy | `submitted` | `Accept` (retry accept only) or `Undo accept` |
+| **E** error | an error is shown, over D (failed Save), over V (accept failed after a saved reading), or over C (failed plain Accept) | as the underlying state | as the underlying state |
+
+Pairs (5 states, so 10 unordered pairs; both directions of each are listed):
 
 | Pair | Reachable as | Treatment |
 |---|---|---|
-| C → D | pick the other reading | instant, local state |
-| D → C | Cancel; or pick the persisted reading; or a refresh makes persisted equal pending | instant; Cancel moves focus to the main button |
+| C → D | select the non-persisted reading (rule 1) | instant, local state |
+| D → C | Cancel (rule 6); select the persisted reading (rule 1); reconciliation with `draft === P` (rule 5) | instant; Cancel moves focus to the main button |
 | C → S | Accept | instant label swap `Accepting…` |
-| S → C | not direct (only via V or E) | n/a |
-| D → S | Save | instant label swap `Saving…` |
-| S → D | unreachable: rows and Cancel are disabled during S | n/a |
-| C → V / D → V | only through S | n/a |
-| S → V | success | instant; the existing announce region speaks; the row then usually leaves the active list (existing instant move) |
-| V → C | refresh keeps the row (not ignorable, or published ignored list) | instant |
-| V → D | unreachable: success clears `pendingRaw` | n/a |
-| S → E | any failure | instant; `role="alert"` paragraph appears (existing slot) |
-| E → C | Cancel (if over D), or a retried Accept that succeeds via S → V | instant; error cleared |
-| E → D | pick a row (clears the error, keeps or changes the pick) | instant |
+| S → C | plain Accept succeeds and the row stays (refresh keeps it) | instant |
+| D → S | Save (rule 2) | instant label swap `Saving…`; radio rows and Cancel disabled |
+| S → D | unreachable directly: a failed Save goes S → E (over D) | n/a |
+| C → V | unreachable: `submitted` is only set from D | n/a |
+| V → C | reconciliation clears `submitted` (rule 5) | instant; the displayed reading becomes `P`, which after a successful save equals `submitted` |
+| D → V | only through S | n/a |
+| V → D | unreachable: radio rows are soft-disabled while `submitted !== null` | n/a |
+| S → V | reading request succeeds (rule 4) | instant; the acknowledged reading stays checked |
+| V → S | Accept retry after a partial success | instant label swap `Accepting…` |
+| C → E / D → E / V → E | only through S | n/a |
+| S → E | any failure (rules 3 and 4) | instant; `role="alert"` paragraph appears |
+| E → C | Cancel from E over D; reconciliation from E over V | instant; error cleared by the next action |
+| E → D | select a reading from E over D or E over C | instant; error cleared |
 | E → S | retry Save or Accept | instant |
-| C ↔ E, D ↔ V, C ↔ S (reverse) | covered above or unreachable | n/a |
+| E → V | unreachable directly | n/a |
 
-No state animates; every change is a text or presence swap, so `prefers-reduced-motion` needs no branch. The existing row move to the Ignored list and the existing flash are unchanged.
+No state animates; every change is a text or presence swap, so `prefers-reduced-motion` needs no branch. The existing row move between the active list and the Ignored / Accepted lists, and the existing flash, are unchanged.
 
-Compound transitions:
+**Sequences** (each is a probe-test case in §16.1; `r` = the reading picked, `¬r` = the other):
 
-1. **Refresh during D** (another tab saved a reading): `persistedRaw` changes; if it now equals `pendingRaw` the row is C, else stays D with the new marker on the new persisted row.
-2. **Warning disappears during D** (re-scan): the row unmounts; the pick is dropped silently; nothing was written.
-3. **Report modal opened during D**: independent; the pick survives.
-4. **Modal closes during S**: the request completes; a post-unmount state update is a no-op.
-5. **Partial success** (reading saved, accept failed): refresh, then E over C (the persisted reading now equals the pick).
-6. **Published bulk accept during D** on a sibling card in the same group: the card moves to Ignored; the unsaved pick is dropped (L8).
-7. **Pending-apply note during D** (published): the note reflects persisted state and stays as is.
+1. **Full success, delayed refresh.** `P = ¬r`. Select `r` (D, shows `r`) → Save (S, `submitted = r`, shows `r`) → reading ok (S, accept running, shows `r`) → accept ok (announce, focus hand-off, refresh requested; V, shows `r`) → [refresh delayed: still V, shows `r`, never `¬r`] → refresh lands with `P = r`: the row moves to the Accepted list (unmount). If the row stays in place, reconciliation gives C showing `r`.
+2. **Accept fails after the reading saved.** As 1 through "reading ok" → accept fails → refresh requested, E over V (shows `r`, partial-success copy) → refresh lands with `P = r` → reconciliation: `submitted = null`, C showing `r`; the copy stays until the next action; `Accept` retries the accept only.
+3. **Retained rows** (not ignorable, or the published Accepted list). D → S → reading ok → V (shows `r`, announce `Reading saved.`) → refresh with `P = r` → C showing `r`.
+4. **Select back, then an external save.** `P = ¬r`. Select `r` (D) → select `¬r` (rule 1: equals `P`, `draft = null`, C) → another tab saves `r` → refresh with `P = r` → C showing `r`, NOT D. (The round-0 model resurrected "Save / Not saved yet" here.)
+5. **Failed save, refresh equals the draft, then an external revert.** `P = ¬r`. Select `r` (D) → Save (S) → fails (rule 3: `draft = r`, E over D, shows `r`) → refresh with `P = r` (the request committed despite the error, or another tab saved `r`) → reconciliation: `draft === P`, `draft = null`; C showing `r` → another tab reverts to `¬r` → refresh with `P = ¬r` → C showing `¬r`, NOT D.
+6. **Refresh during D with no change to `P`.** No reconciliation event; stays D showing `draft`.
+7. **Select attempted during V** (after a partial success, before the refresh lands): blocked, rows are soft-disabled; nothing changes until reconciliation returns the row to C.
+13. **Refresh lands without moving `P`** (another tab reverted between our Save and our refresh): with the second reconciliation trigger, `submitted` clears when the refresh commits and the row shows the authoritative `P`; without it, see L13.
+8. **Warning disappears during D or V** (re-scan): the row unmounts; nothing unsaved was written.
+9. **Report modal opened during D**: independent; the draft survives.
+10. **Modal closes during S**: the requests complete; post-unmount state updates are no-ops.
+11. **Published bulk accept during D** on a sibling card: the card moves to the Accepted list; its draft is dropped (L8).
+12. **Pending-apply note during D or V** (published): reflects persisted state only.
 
-Card chrome (§3) and the jumps (§5, §8) have no state transitions: kind is derived from the code, and jump presence from data. Scrolling uses the existing `motion-safe` smooth scroll and flash.
+Card chrome (§3), the shell link (§3.6), the disclosures (§6.4) and the jumps (§5, §8) have no state transitions of their own: kind is derived from the code, list membership from the partition, jump presence from data. Each disclosure's open state is native `<details>` state; a disclosure whose count drops to zero unmounts (instant), and a row moving between lists is the existing instant move. Scrolling uses the existing `motion-safe` smooth scroll and flash.
 
 ---
 
@@ -649,6 +794,12 @@ Card chrome (§3) and the jumps (§5, §8) have no state transitions: kind is de
 | `wizardSessionId` | absent | no choice control, no include button (existing gates) |
 | `decision` | undefined | `transform-active`, persisted reading = ours |
 | `dq` | absent on a staged row | NO-PREVIEW: no controls at all (existing) |
+| `CompactAlertCard.sheetLink` | absent, `null` (href null, or `driveFileId` null) | no icon; message row keeps today's classes (no 44px floor) |
+| `sheetLink.subjectLabel` | `stripEmphasis(title)` whitespace-only | the component's no-subject phrasing |
+| ignored partition | 0 accepted rows / 0 other rows | that disclosure does not render; with both 0, neither renders (wizard all-clean copy and the published empty-seam guard unchanged) |
+| ignored record without a `reportSurfaceId` match (published) | records split as records (§6.4), never by warning position | each row reads its own record's id |
+| `submitted` vs refreshed `persistedRaw` | refreshed value differs from what was sent | the refreshed value wins (rule 5) |
+| archived tab name for the include accessible name | blank | the sr-only suffix is omitted; the visible label stands alone |
 | Unknown anchor `kind` or several empty venue-address rows | | venue region link, never a guessed cell |
 
 ---
@@ -668,12 +819,18 @@ Each test states the failure it catches. Real-browser tests run in the existing 
 | `weReadGuestsText`, `sheetSaysText`, `casePreviewsText` tables: 0, 1, cap, cap+1 names; blank names; non-string input; 159/160/161 chars; 0, 3, 4 previews; blank preview | off-by-one at each cap; blank leaking as an empty name |
 | Wizard row kind matrix: one needs-look, one judgment, one info fixture; assert chip glyph, dot class, tag presence, sr prefix, and that the text `warn` / `info` appears nowhere in the row (scan the row with the title node removed so a title containing "info" cannot satisfy or break it) | the word surviving; tag on the wrong kind |
 | Published card renders the tag for a judgment code and not for a needs-look code, in both tones, with the expected border class per plate | tag missing on published; wrong border on tinted plate |
+| `CompactAlertCard` with and without `sheetLink`, per tone: the anchor renders last in `compact-alert-message` with `ringOffset` from `LINK_PLATE`; without `sheetLink` the row's `className` equals today's literal; `HealthAlertsPanel` and `AttentionBanner` renders unchanged | link in the wrong band; consumers that pass nothing changing |
+| `PerShowActionableWarnings` and `NoteWarningCard`: no `Open in Sheet` text and no `NewTabHint` remain; the icon carries the link; `controlsBand` holds controls only; a note card has no controls band | the text link surviving beside the icon; an empty controls band |
+| `SheetIconLink` class-token set for the two new `ringOffset` keys (extend `tests/components/admin/sheetIconLink.test.tsx:127` first) and wash steps pinned in `tests/styles/status-token-contrast.test.ts` (surface on warning-bg 1.103 / 1.347; surface on surface-sunken 1.109 / 1.092) | a token edit that makes the press wash vanish |
 | `DataQualityWarningControls` labels and announcements per kind and mode, testids unchanged | judgment rows still reading Ignore; testid churn breaking other suites |
-| Deferred choice, inside the provider: select → no action call (spy on the server-action module) and Save appears; Cancel → no call, focus on main button; Save → reading action then ignore, in that order, then one refresh; reading fails → no ignore call, stays dirty; ignore fails → refresh happens and the partial-success copy renders; arrow keys select without calling | auto-save surviving; accept running on a failed save; double refresh; wrong order |
-| Deferred choice transition audit: drive every reachable pair in §14 and assert the unreachable ones stay unreachable (S → D blocked while busy) | missing state handling |
+| Deferred choice rules (§6.3), one assertion per rule: select non-persisted → `draft` set, Save shown, no action call (spy on the server-action module); select persisted → `draft = null`, clean; Save → `submitted = draft`, `draft = null`, rows and Cancel disabled; Save fails → `draft = submitted`, `submitted = null`, error, still dirty; Save ok → `submitted` kept, accept starts only when active and ignorable; accept fails → refresh requested, partial-success copy, `Accept` retries the accept request only; reconciliation clears `draft` when equal and `submitted` always; Cancel → `draft = null`, focus on the main button; arrow keys select without calling | auto-save surviving; accept on a failed save; the snap-back and dormant-draft defects |
+| **Deferred-response probe** (jsdom, React Testing Library): the reading-action promise, the accept promise and the prop update (re-render with a new `decision`) are each controlled by the test and resolved in a chosen order. For every §14 sequence 1 to 7 and 13, assert the checked radio (`aria-checked`), the main button label, and the presence of `Not saved yet` after EACH step. Sequence 1 asserts the checked row is `r` after reading ok, after accept ok, and during the delayed refresh; sequences 4 and 5 assert no `Save` after the external change. The same harness probes the UNRATIFIED second reconciliation trigger (§6.3 rule 5) against a real `next/navigation` router stub whose refresh resolves after a delay | the two round-1 defects; any ordering the model does not cover |
+| Transition audit: every reachable pair in §14 reached, every unreachable one asserted unreachable (S → D, V → D, C → V) | missing state handling |
 | Provider absent: `UseRawControl` still saves on tap | fallback regression |
-| Ignored-list row with a dirty pick: Save calls only the reading action, announces `Reading saved.` | re-accepting an accepted row |
-| `BulkIgnoreControls` judgment group labels and names | chip still saying Ignore |
+| Published Accepted-list row with a draft: Save calls only the reading action, announces `Reading saved.`, no accept request | re-accepting an accepted row |
+| Accepted / Ignored split, wizard and published: judgment rows only in `…-accepted-…`, others only in `…-ignored-…`; each disclosure absent at 0; order Ignored then Accepted; rail and heading counts unchanged from the unsplit partition; published rows carry the report id of THEIR record (fixture with a judgment row between two non-judgment rows in `model.ignored`, asserting each row's `reportSurfaceId`) | report ids misaligned by the split; a disclosure rendering at 0; counts drifting |
+| `BulkIgnoreControls` judgment group labels and names; after a bulk accept the cards appear under `Accepted (N)` | chip still saying Ignore; bulk-accepted cards landing in Ignored |
+| Include label: `ArchivedTabIncludeButton` (card, Pack list, Resolve box) and `PublishedArchivedTabOffer` render `Use this pull sheet`, accessible name `Use this pull sheet from tab <name>`, pending `Including…`; update the pins listed in §7.3 | a surface keeping an old label |
 | `KIND_TO_SECTION` routes both archived-tab codes to `packlist`; `warningsBySection` buckets them there; re-run every suite that imports `KIND_TO_SECTION` (`tests/parser/sectionKind.test.ts`, `tests/parser/fuzz/groundTruth.ts`, `tests/components/admin/review/routedWarningsGate.test.tsx`, `tests/components/admin/review/__fixtures__/reviewSnapshot.ts` consumers, `tests/components/admin/wizard/step3ReviewSections.test.tsx`) | routing missed for the content-changed code; a snapshot that silently assumed Warnings |
 | Archived card: lines from the matched tab; fallback split from `rawSnippet`; include button only when in `offers`; POST body equals `ArchivedTabOffer`'s for the same tab (both through `ArchivedTabIncludeButton`) | include on an already-overridden tab; a second POST shape |
 | Section jump presence: per code, per rendered-section set; `VENUE_ADDRESS_MISSING` never; info rows never; published never | jump on the venue card; jump to an unrendered section |
@@ -685,14 +842,28 @@ Each test states the failure it catches. Real-browser tests run in the existing 
 | Test | Why not jsdom |
 |---|---|
 | §13 DI-1 to DI-11 on the wizard title row | layout and hit-testing |
+| §13.2 DI-C1 to DI-C9 on the compact card message row (published harness, plus `tests/e2e/_compactAlertCardLiveEntry.tsx`) | layout and hit-testing |
 | Tap floors: every new button (jumps, Save, Cancel, include, marker link) ≥ 44px tall by rect | layout |
 | Card → section jump: click `Go to Pack list`, assert the Pack list section top is within 8px of the scroller top after settle and the rail's active item is Pack list | real scrolling |
 | Card → reservation and reservation → card: the target element carries `data-step3-warning-flash` and is in view | real scrolling plus flash attribute |
 | One full Save flow on the step-3 harness with the action module stubbed: pick, Save, card leaves the active list, focus lands on the panel focus anchor | focus after unmount needs a real document |
 
-### 16.3 Line-keyed censuses and pinned counts to re-derive
+### 16.3 Line-keyed censuses, pinned counts and snapshots to re-derive
 
-Edits shift lines in `components/admin/wizard/step3ReviewSections.tsx`, `components/admin/review/ShowReviewSurface.tsx`, `components/admin/UseRawControl.tsx`, `components/admin/PerShowActionableWarnings.tsx` and `components/admin/DataQualityWarningControls.tsx`. Re-key, by kind and text, never by line arithmetic: `tests/styles/tapTargetCensus.ts` (rows at `tapTargetCensus.ts:329`, `tapTargetCensus.ts:540`), `tests/styles/forcedColorsCensus.ts` (UseRawControl `forcedColorsCensus.ts:415-426`, PerShowActionableWarnings `forcedColorsCensus.ts:501`, ShowReviewSurface rows), `tests/styles/controlOutlineScan.ts` (`controlOutlineScan.ts:200`, `controlOutlineScan.ts:249`, `controlOutlineScan.ts:326-327`). Re-derive the pinned counts in `tests/components/admin/sheetIconLinkContainment.test.ts` (call-site counts at `sheetIconLinkContainment.test.ts:1111`, `sheetIconLinkContainment.test.ts:1166`, `sheetIconLinkContainment.test.ts:1266`) and the new-tab census in `tests/styles/_metaNewTabAnnouncement.test.ts` (one text link with `NewTabHint` removed, one `SheetIconLink` added). Re-run each guard after the LAST edit to its file.
+Edits shift lines in `components/admin/wizard/step3ReviewSections.tsx`, `components/admin/review/ShowReviewSurface.tsx`, `components/admin/UseRawControl.tsx`, `components/admin/PerShowActionableWarnings.tsx`, `components/admin/NoteWarningCard.tsx`, `components/admin/CompactAlertCard.tsx`, `components/admin/DataQualityWarningControls.tsx`, `components/admin/showpage/sectionWarningExtras.tsx`, `components/admin/wizard/archivedTabOffer.tsx` and `components/admin/review/PublishedArchivedTabOffer.tsx`. Re-key by kind and text, never by line arithmetic:
+
+- `tests/styles/tapTargetCensus.ts` (rows at `tapTargetCensus.ts:329`, `tapTargetCensus.ts:540`, `tapTargetCensus.ts:584`), plus rows for every new button and the new Accepted `<summary>` on both surfaces.
+- `tests/styles/forcedColorsCensus.ts`: the `PerShowActionableWarnings.tsx:458` row (`forcedColorsCensus.ts:501`, the text link's ring-offset pair) is DELETED with the link; the UseRawControl rows (`forcedColorsCensus.ts:415-426`) and ShowReviewSurface rows re-key.
+- `tests/styles/controlOutlineScan.ts` (`controlOutlineScan.ts:200`, `controlOutlineScan.ts:249`, `controlOutlineScan.ts:326-327`).
+- `tests/styles/subtleInteractiveExemptions.ts`: the Ignored `<summary>` rows (`subtleInteractiveExemptions.ts:128-144`) re-key, and two new rows register the Accepted `<summary>` (same classes) in `step3ReviewSections.tsx` and `sectionWarningExtras.tsx`.
+- `tests/components/admin/sheetIconLinkContainment.test.ts`: call-site counts (`sheetIconLinkContainment.test.ts:1111`, `sheetIconLinkContainment.test.ts:1166`, `sheetIconLinkContainment.test.ts:1266`) gain the second `step3ReviewSections.tsx` site and the new `CompactAlertCard.tsx` site.
+- `tests/styles/_metaNewTabAnnouncement.test.ts`: three `NewTabHint` text links removed (wizard row, `PerShowActionableWarnings`, `NoteWarningCard`), two `SheetIconLink` call sites added.
+- `tests/styles/noBareRingOffset.test.ts`: the `BACKDROP_SKIN` registration (`noBareRingOffset.test.ts:28`) covers the new keys; re-run.
+- `tests/components/admin/__snapshots__/stagedCardBaseline.test.tsx.snap`: the staged review card baseline contains the text link and must be regenerated deliberately, with the diff reviewed to show only the link-to-icon change and the tag.
+- Tests that assert the text link or its placement: `tests/admin/perShowActionableRenderControls.test.tsx`, `tests/components/admin/compactAlertCard.test.tsx`, `tests/components/admin/sheetWarningsPanel.test.tsx`, `tests/components/admin/showpage/publishedReviewModal.test.tsx`, `tests/components/a11y/newTabAnnouncementBehavior.test.tsx`, `tests/parser/parseWarningDeepLinkRender.test.tsx`.
+- Tests that put judgment rows in an ignored fixture and expect them under `Ignored`: re-derive from the list in `tests/` matching `ignored-summary|ignored-warnings|Ignored \(` (for example `tests/components/admin/showpage/sectionWarningControls.test.tsx`, `tests/components/admin/showpage/publishedWarningsPanel.test.tsx`, `tests/components/admin/wizard/step3ReviewSections.test.tsx`); run the grep, do not trust this list.
+
+Re-run each guard after the LAST edit to its file.
 
 ---
 
@@ -707,11 +878,13 @@ Edits shift lines in `components/admin/wizard/step3ReviewSections.tsx`, `compone
 | L5 | warnings persisted before this change | venue cards stay link-less and inline hotel cards show no `We read` until the next scan or sync | jsonb additive fields appear on re-parse |
 | L6 | venue block on a hidden tab | Sheets lands on the last visible tab (the UNKNOWN_FIELD scan does not filter hidden tabs) | same limit the UNKNOWN_FIELD links carry today |
 | L7 | archived-tab card with no matching staged tab | previews come from splitting `rawSnippet` on ` | `; a preview containing ` | ` splits in two | display only |
-| L8 | published bulk accept over a card with an unsaved pick | the pick is dropped; the persisted reading is what gets accepted | nothing was saved, nothing is lost that was persisted |
+| L8 | published bulk accept over a card with an unsaved draft | the draft is dropped; the persisted reading is what gets accepted | nothing was saved, nothing is lost that was persisted |
 | L9 | wizard Ignore on the archived-tab card | the Pack list and Resolve box offers stay visible (offers derive from tabs, not warnings) | pre-existing wizard behavior; the published surface already hides its offer |
 | L10 | `HOTEL_INLINE_GROUP_*` cards | no `We read` line (the emitter records no reading); the reservation jump shows what we read | no parsed data to show truthfully |
 | L11 | the reservation marker on the published modal | not rendered | the card already sits in the same Hotels panel there |
 | L12 | other `disabled` use-raw reasons (`empty-raw`, `invalid-dmy`, `no-split-to-undo`) | keep their single sentence | out of the brief's subject; revisit if Eric asks |
+| L13 | only if the UNRATIFIED second reconciliation trigger (§6.3 rule 5) fails its probe: a refresh that does not move `persistedRaw` after a successful Save (another tab reverted in between, or identical props returned) | the row keeps showing the reading this tab saved, rows stay locked, until `persistedRaw` next changes or the review remounts | no write is wrong; the `Selected` marker (not `In use`) already says crew pages may differ; the window needs two concurrent editors |
+| L14 | a `CompactAlertCard` message row with a sheet link but no help trigger | grows from about 42px to 44px | the 44px row is the link's tap floor (§3.6) |
 
 ---
 
@@ -721,17 +894,24 @@ N/A: no config flag, env var or persisted toggle is added. The new booleans are 
 
 ---
 
-## 19. Builder's calls (decisions the brief did not settle)
+## 19. Decisions: Eric's answers and the builder's calls
+
+**Eric's answers to round-0 open questions (2026-10-26)**, recorded as R11 to R13 in §1.1:
+
+- **R11, was B1:** the published compact cards also get the sheet icon, at the end of the message row, through `CompactAlertCard` (§3.6). Supersedes `PerShowActionableWarnings.tsx:22-30`.
+- **R12, was D3:** accepted judgment rows go in their own `Accepted (N)` disclosure, both surfaces (§6.4).
+- **R13, was E3:** one include label, `Use this pull sheet`, on the card, Pack list and the Resolve box (§7.3).
 
 **Chrome**
 
-- **B1. Published compact cards keep the text "Open in Sheet" link.** The defect Eric named, a link "on its own row", is the wizard layout; the published link already shares the controls band with Report and Ignore, a placement ratified by the compact-card spec (`PerShowActionableWarnings.tsx:22-30`). Moving it into `CompactAlertCard`'s message row means making that shared shell meet SheetIconLink's four requirements, a shell redesign this PR does not otherwise touch (class-sweep exceptions (b) and (c)). **Open question for Eric:** swap it there too in a follow-up?
 - **B2. The tag also renders on the published card** (and so on the staged review page, which mounts no controls), because the Accept wording lands on the published card and needs the label to make sense there.
 - **B3. sr-only prefixes** (`Needs a look: `, `Note: `) replace what the removed visible word carried for screen readers.
 - **B4. Chip glyph and dot ink.** Judgment chip = lucide `Circle` in `text-text-subtle` on `info-bg`; dot = `size-1.5` hollow ring in `border-text-subtle`. `text-faint` fails on `info-bg`, and the 6px dot is a different box and plate from the 8px pill marks, so it does not route through `attentionMarkClass` (and is not mark-shaped for the parity walk, which keys on `size-2`, `tests/components/admin/attentionMarkParity.test.ts:93-94`).
-- **B5. Tag look** mirrors the quiet judgment-only pill (sunken fill, ring via `attentionMarkClass("judgment", "sunken")`), not the section header's info-bg "Parsed with judgment" pill (`step3ReviewSections.tsx:1104`), because a ring on info-bg has no verified ink.
-- **B6. Link accessible name** uses the card title (`stripEmphasis(title)`) as the subject. The component's wording is fixed and pinned; changing it is out of scope.
-- **B7. Testid** `…-warning-${i}-open` becomes `…-warning-${i}-sheetlink`.
+- **B5. Tag look** mirrors the quiet judgment-only pill (sunken fill, ring via `attentionMarkClass("judgment", "sunken")`), not the section header's info-bg "Parsed with judgment" pill (`step3ReviewSections.tsx:1104`), because a ring on info-bg has no verified ink. On the amber card the sunken fill is near-invisible in light mode (1.006:1 against `warning-bg`); the `border-control-outline-tinted` border delineates the tag there.
+- **B6. Link accessible name** uses the card title (`stripEmphasis(title)`) as the subject, on every surface. The component's wording is fixed and pinned.
+- **B7. Testids:** wizard `…-warning-${i}-open` becomes `…-warning-${i}-sheetlink`; the published card's icon is `per-show-actionable-sheetlink`; the note card keeps `note-warning-sheet-link` on its icon.
+- **B8. The shell owns the published `SheetIconLink` call site** (data prop `sheetLink`, not a ReactNode slot), so the four consuming-context requirements live in one file and adapters cannot pass a link with the wrong positional classes. `SheetIconLink` gains `warning-bg` and `surface-sunken` backdrops, each washing to `bg-surface` (measured steps in §3.6), the same neutral-step rule its header states (`SheetIconLink.tsx:64-69`).
+- **B9. The AttentionBanner alert action link stays text** (`AttentionBanner.tsx:179-195`): a label-driven alert action, not the warning card's sheet link. Class-sweep exception (a): changing alert actions is a product decision R11 did not make. **Open question for Eric** if he wants it.
 
 **Hotel**
 
@@ -744,22 +924,26 @@ N/A: no config flag, env var or persisted toggle is added. The new booleans are 
 
 **Accept and Save**
 
-- **D1. Accept covers all seven judgment codes** on both surfaces, including the bulk chip and the Ignored-list button (`Undo accept`). Testids stay keyed on the mechanism.
+- **D1. Accept covers all seven judgment codes** on both surfaces, including the bulk chip and the Accepted-list button (`Undo accept`). Testids stay keyed on the mechanism.
 - **D2. Selection plumbing** is a per-row context provider plus one extracted action caller (§6.3). The provider-less fallback keeps immediate save and is unreachable in production.
-- **D3. The "Ignored (N)" heading is unchanged.** Accepted judgment rows sit under it with an `Undo accept` button. **Open question for Eric:** split them into their own "Accepted (N)" disclosure?
-- **D4. Dirty markers:** the persisted reading keeps its "In use" marker while unchecked; the hint lives in the action row and describes Save.
+- **D4. Markers:** the persisted reading keeps its marker while unchecked during a draft; a submitted reading awaiting reconciliation shows `Selected`; the hint lives in the action row and describes Save.
 - **D5. Save order** is reading first, then accept; partial success refreshes and says the reading is saved.
 - **D6. Arrow keys select without writing**, a direct consequence of R6.
 - **D7. Apostrophes follow the host file:** ASCII `'` in new `DataQualityWarningControls` and `BulkIgnoreControls` strings (matching `Couldn't ignore`, `DataQualityWarningControls.tsx:120`), `&rsquo;` in `UseRawControl` JSX (`UseRawControl.tsx:597`), `’` in `archivedTabOffer.tsx` strings (`archivedTabOffer.tsx:183`). A REUSED string keeps the apostrophe it ships with, so the reused "That didn’t save" sentence stays typographic when the action bar renders it. Copy assertions are apostrophe-agnostic (precedent `tests/components/step3SheetCard.test.tsx:491`).
+- **D8. The reading model** is the round-1 two-state model (`draft`, `submitted`) the coordinator specified; two additions are the builder's: radio rows stay soft-disabled while `submitted !== null`, so a select can never land invisibly, and an UNRATIFIED second reconciliation trigger on refresh commit closes the case where a refresh does not move `persistedRaw` (L13 if the probe refutes it).
+- **D9. Disclosure order** is Ignored then Accepted, matching the attention menu's group order; each disclosure renders only at a count above zero.
+- **D10. The published split filters records, not warnings,** so every row keeps its own `reportSurfaceId` (§6.4).
 
 **Archived pull sheet and sections**
 
 - **E1. Route `pull_sheet_archived_tab` to `packlist`.** It gives the card its "Go to Pack list" from the existing routing instead of a special case, flags the section the warning is about, and on published places the card beside the published include offer, which removes the need for a published card-level control. Consequences in §7.2.
-- **E2. Extract `ArchivedTabIncludeButton`** instead of nesting the whole `ArchivedTabOffer` card inside the warning card (a card in a card, duplicating the title and previews).
-- **E3. Card button label `Use this pull sheet`** (the approved mockup), while Pack list and the Resolve box keep `Use this show’s gear`. **Open question for Eric:** unify on one label?
+- **E2. Extract `ArchivedTabIncludeButton`** instead of nesting the whole `ArchivedTabOffer` card inside the warning card (a card in a card, duplicating the title and previews). After R13 it owns the label; there is no `label` prop.
 - **E4. Fix both "Gear section" rows** (class sweep), not only the one the brief named.
 - **E5. Jumps are warn-row only, staged only,** one per card, with the venue exclusion keyed on the one code Eric named.
 - **E6. The venue value cell** is derived from the UNKNOWN_FIELD anchor scan (kind `venue`, `resolveAlias === "venue.address"`, empty value), the label anchor column plus one.
+- **E7. The published Pack list offer joins R13** (`Include this gear` becomes `Use this pull sheet`): same action, same section, so the class-sweep default applies though the decision text names the staged button.
+- **E8. Pending text stays `Including…`** on every surface: it names the system action (include) the catalog copy also uses, and a third verb would add nothing.
+- **E9. One accessible-name format** for the include button: `Use this pull sheet from tab <name>` while idle (sr-only suffix), `Including…` while pending, replacing the published `aria-label` so the visible label is always the start of the name.
 
 ---
 
@@ -777,7 +961,10 @@ Named values and their single definitions:
 | `MAX_HOTELS` | 4 (existing) | `lib/parser/blocks/hotels.ts:57` |
 | `--spacing-tap-min` | 44px (existing) | `app/globals.css:224` |
 | `--spacing-tile-pad` | 20px (existing) | `app/globals.css:240` |
+| Compact row link spacing | `gap-2.5` (10px) + `ml-3` (12px) = 22px heading side; `mr-0.5` (2px) + `p-3` (12px) = 14px trailing | `CompactAlertCard.tsx` (§3.6) |
+| Help trigger overlay | 11px each side (existing) | `components/admin/HoverHelp.tsx:555` |
+| `ARCHIVED_TAB_INCLUDE_LABEL` / `ARCHIVED_TAB_INCLUDE_PENDING` | `Use this pull sheet` / `Including…` | `archivedTabOffer.tsx` (§7.3) |
 
-Counts stated in prose and their sources: seven judgment codes = `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-27`); four radio codes = `USE_RAW_CODES` (today `IN_SCOPE`, `UseRawControl.tsx:55-60`); four hotel reservation codes (§5.1); three catalog rows (§9); six lockstep places (§9 table). Tests derive these from the named sets, never from the literals in this document.
+Counts stated in prose and their sources: seven judgment codes = `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-27`); four radio codes = `USE_RAW_CODES` (today `IN_SCOPE`, `UseRawControl.tsx:55-60`); four hotel reservation codes (§5.1); three catalog rows (§9); six lockstep places (§9 table); three warning text-link sites (§2); four `CompactAlertCard` consumers (§3.6); two disclosures per surface (§6.4); five transition states (§14). Tests derive these from the named sets, never from the literals in this document.
 
-Out-of-scope claims to keep consistent: published compact link form (§3.6, B1); published reservation marker (§5.4, L11); "Ignored (N)" heading (§1.3, D3); published archived card control (§7.4, E1).
+Out-of-scope claims to keep consistent: the AttentionBanner alert link (§2, B9); compact-card consumers without `sheetLink` (§1.3, DI-C2); published reservation marker (§5.4, L11); the ignored partition and its counts (§1.3, §6.4); published archived card control (§7.4, E1). Round-1 sweep: every place that derived the checked row or dirtiness now uses §6.3's model (§6.3, §12, §14, §15, §16.1); every mention of the include label reads `Use this pull sheet` (§1.1, §7.3, §11, §16.1, §19); every Ignored-list mention of judgment rows now points at the Accepted list (§6.2, §6.4, §12, §16.1).
