@@ -583,8 +583,8 @@ function ActiveRow({
   const UNRESOLVED = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
   const messageResolved = message !== null && !UNRESOLVED.test(plainCatalogText(message, params));
   const suppressChip = INLINE_IDENTITY_CODES.has(entry.code) && messageResolved;
-  // Dot shows only while genuinely unread AND not yet optimistically cleared
-  // this session (a failed read POST does not un-clear it — spec §4 fail-quiet).
+  // Dot shows only while genuinely unread AND not optimistically cleared. A read
+  // POST the server did not record restores it (BellPanel's beginRead).
   const dotVisible = entry.unread && !readCleared;
   const tone = rowTone(entry);
   const ToneIcon = TONE[tone].icon;
@@ -654,7 +654,8 @@ function ActiveRow({
             // read (impeccable A11y P2). aria-label prepends the action and still
             // CONTAINS the visible title (WCAG 2.5.3 label-in-name). One-way
             // action, so aria-pressed is deliberately absent (not a toggle).
-            aria-label={`Mark as read: ${title}`}
+            // The dot is aria-hidden, so the unread state rides the name too.
+            aria-label={`${dotVisible ? "Unread. " : ""}Mark as read: ${title}`}
             className="flex min-h-tap-min min-w-0 flex-1 items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             {/* Title weight is CONSTANT across read/unread — a weight swap
@@ -999,34 +1000,48 @@ export function BellPanel({
     [onCountStale],
   );
 
-  // Fires the `/bell/read` POST once with the SERVER activityAt and clears the
-  // unread marker optimistically. Shared by the row toggle's onClick (spec
-  // §3.1/D3, Task 7: the toggle is mark-read-only, no expand/collapse state)
-  // and mark-all-read (no per-row navigation side effect either way — no
-  // panel-jump / state clobber). Fail-quiet (spec §4): a failed POST leaves the
-  // marker cleared for the session; the readFiredRef guard keeps it at exactly
-  // once per row. Once the POST settles either way, the badge refetches so the
-  // read row leaves the count.
+  // Clears a row's unread marker optimistically and fires its `/bell/read` POST once,
+  // with the SERVER activityAt. Shared by the row toggle's onClick (spec §3.1/D3,
+  // Task 7: the toggle is mark-read-only, no expand/collapse state) and mark-all-read
+  // (no per-row navigation side effect either way: no panel-jump / state clobber).
+  // The badge counts what the server holds, so a POST the server did not record
+  // (network fault or non-2xx) restores the marker and releases the once-per-row
+  // guard: the row and the badge stay in agreement and the read can be retried.
+  // Returns the settled POST, or null when this row's read already fired.
+  const beginRead = useCallback((entry: BellEntry): Promise<void> | null => {
+    if (readFiredRef.current.has(entry.alertId)) return null;
+    readFiredRef.current.add(entry.alertId);
+    setReadClearedIds((prev) => new Set(prev).add(entry.alertId));
+    return (async () => {
+      let recorded = false;
+      try {
+        const res = await fetch(READ_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ alertId: entry.alertId, seenActivityAt: entry.activityAt }),
+        });
+        recorded = res.ok;
+      } catch {
+        // fail-quiet (spec §4): no error UI, only the marker comes back below
+      }
+      if (!recorded) {
+        readFiredRef.current.delete(entry.alertId);
+        setReadClearedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(entry.alertId);
+          return next;
+        });
+      }
+    })();
+  }, []);
+
+  // One row: refresh the badge once its POST settles, either way.
   const markRead = useCallback(
     (entry: BellEntry) => {
-      if (readFiredRef.current.has(entry.alertId)) return;
-      readFiredRef.current.add(entry.alertId);
-      setReadClearedIds((prev) => new Set(prev).add(entry.alertId));
-      void (async () => {
-        try {
-          await fetch(READ_ENDPOINT, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ alertId: entry.alertId, seenActivityAt: entry.activityAt }),
-          });
-        } catch {
-          // fail-quiet: the dot stays cleared this session (spec §4)
-        } finally {
-          onCountStale();
-        }
-      })();
+      const settled = beginRead(entry);
+      if (settled) void settled.finally(onCountStale);
     },
-    [onCountStale],
+    [beginRead, onCountStale],
   );
 
   // Mount-once load + unmount invalidation (R4 Finding 1). didLoadRef keeps the
@@ -1262,7 +1277,15 @@ export function BellPanel({
       )
     : [];
   const showMarkAll = activeUnread.length > 0 && !(readyFeed?.truncated ?? false);
-  const onMarkAllRead = () => activeUnread.forEach((entry) => markRead(entry));
+  // One badge refresh after EVERY row's POST settles, not one per row. The button
+  // unmounts once nothing is unread, so focus moves to Close (still inside the
+  // dialog's Tab trap) and the live region says what happened.
+  const onMarkAllRead = () => {
+    const posts = activeUnread.flatMap((entry) => beginRead(entry) ?? []);
+    closeRef.current?.focus();
+    setLiveMessage("All marked read");
+    void Promise.allSettled(posts).then(() => onCountStale());
+  };
 
   return (
     <>

@@ -330,7 +330,9 @@ describe("BellPanel — read gesture (spec §7.3 / D3, Task 7: toggle is mark-re
     expect(queryByTestId("bell-context-u-1")).toBeNull();
   });
 
-  it("read POST failure → dot stays cleared this session, no error UI (fail-quiet, spec §4)", async () => {
+  // The badge counts what the server holds. A read the server did not record has to show
+  // its dot again, or the row reads as read while the badge still counts it.
+  it("read POST failure → the dot comes back so the row matches the badge, no error UI", async () => {
     const entry = makeEntry({ alertId: "u-2", state: "active", unread: true });
     routeFetch({ feed: () => feedBody({ entries: [entry] }), read: () => jsonErr(503) });
     const { getByTestId } = renderPanel();
@@ -340,11 +342,16 @@ describe("BellPanel — read gesture (spec §7.3 / D3, Task 7: toggle is mark-re
     fireEvent.click(toggle);
     await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(1));
 
-    // Dot stays cleared despite the failed POST; no error surface appears.
+    // The failed read is undone: dot visible again, row tinted unread, no error surface.
     await waitFor(() =>
-      expect(within(panel).getByTestId("bell-unread-dot-u-2").className).toContain("opacity-0"),
+      expect(within(panel).getByTestId("bell-unread-dot-u-2").className).toContain("opacity-100"),
     );
+    expect(within(panel).getByTestId("bell-entry-u-2").getAttribute("data-unread")).toBe("true");
     expect(within(panel).queryByTestId("bell-error")).toBeNull();
+
+    // And a retry is allowed: the once-per-row guard was released with it.
+    fireEvent.click(toggle);
+    await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(2));
   });
 
   it("repeated taps of the toggle fire the read POST only once (first tap only)", async () => {
@@ -495,7 +502,7 @@ describe("BellPanel — badge count staleness (onCountStale)", () => {
   it("a read POST that rejects still calls onCountStale", async () => {
     // Defect caught: the badge refresh sits on the success path only, so a
     // network fault mid-read leaves the badge on its pre-read number while the
-    // row's dot is already cleared (fail-quiet keeps the dot cleared).
+    // row's dot was cleared optimistically.
     const entry = makeEntry({ alertId: "s-2", state: "active", unread: true });
     fetchMock.mockImplementation((url: string) => {
       const u = String(url);
@@ -512,9 +519,9 @@ describe("BellPanel — badge count staleness (onCountStale)", () => {
     await waitFor(() => expect(onCountStale).toHaveBeenCalledTimes(2));
   });
 
-  it("Mark all read calls onCountStale once per row read POST it fires", async () => {
-    // Defect caught: Mark all read clears every dot but the badge keeps the old
-    // count, which is the exact mismatch the badge rule exists to prevent.
+  it("Mark all read refreshes the badge ONCE, after every read POST settles", async () => {
+    // Defects caught: (1) Mark all read clears every dot but the badge keeps the old count;
+    // (2) one count refetch per row, up to the feed cap, for a single gesture.
     const entries = [
       makeEntry({ alertId: "m-1", state: "active", unread: true }),
       makeEntry({ alertId: "m-2", state: "active", unread: true }),
@@ -527,7 +534,26 @@ describe("BellPanel — badge count staleness (onCountStale)", () => {
 
     fireEvent.click(markAll);
     await waitFor(() => expect(callsTo("/bell/read")).toHaveLength(entries.length));
-    await waitFor(() => expect(onCountStale).toHaveBeenCalledTimes(1 + entries.length));
+    await waitFor(() => expect(onCountStale).toHaveBeenCalledTimes(2));
+    // Give any stray per-row refresh a chance to land before asserting there was none.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onCountStale).toHaveBeenCalledTimes(2);
+  });
+
+  it("Mark all read keeps focus inside the panel and confirms it to screen readers", async () => {
+    // Defect caught: the button unmounts once nothing is unread, which dropped focus to
+    // <body>, outside the dialog's Tab trap, with no spoken confirmation.
+    const entries = [makeEntry({ alertId: "f-1", state: "active", unread: true })];
+    routeFetch({ feed: () => feedBody({ entries }) });
+    const { getByTestId } = renderPanel();
+    const panel = getByTestId("bell-panel");
+    const markAll = await within(panel).findByTestId("bell-mark-all-read");
+    markAll.focus();
+
+    fireEvent.click(markAll);
+    await waitFor(() => expect(within(panel).queryByTestId("bell-mark-all-read")).toBeNull());
+    expect(document.activeElement).toBe(within(panel).getByRole("button", { name: /close/i }));
+    expect(panel.textContent).toContain("All marked read");
   });
 
   it("a resolve refetch calls onCountStale even though seenThrough did not change", async () => {
