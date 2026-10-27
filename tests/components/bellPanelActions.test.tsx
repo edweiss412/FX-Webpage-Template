@@ -75,7 +75,7 @@ function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
 
 type FeedOver = Partial<{
   entries: BellEntry[];
-  unseenCount: number;
+  unreadCount: number;
   truncated: boolean;
   historyDays: number;
   feedCap: number;
@@ -84,7 +84,7 @@ type FeedOver = Partial<{
 function feedBody(over: FeedOver = {}) {
   return {
     entries: [],
-    unseenCount: 0,
+    unreadCount: 0,
     truncated: false,
     historyDays: 14,
     feedCap: 50,

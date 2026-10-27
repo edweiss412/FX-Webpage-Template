@@ -63,7 +63,7 @@ export type BellFeedResult =
   | {
       kind: "ok";
       entries: BellEntry[];
-      unseenCount: number;
+      unreadCount: number;
       truncated: boolean;
       /** Active-list truncation only (spec §1.1 R4) — gates severity grouping. */
       activeTruncated: boolean;
@@ -106,14 +106,13 @@ export function shapeBellEntries(
   feedCap: number,
 ): {
   entries: Omit<BellEntry, "identity">[];
-  unseenCount: number;
+  unreadCount: number;
   truncated: boolean;
   activeTruncated: boolean;
   seenThrough: string;
 } {
   const meta = rows.find((r) => r.is_meta);
   if (!meta || !meta.seen_through) throw new BellFeedShapeError("missing meta row");
-  const openedAt = meta.viewer_opened_at;
   const entryRows = rows.filter((r) => !r.is_meta);
   const shaped = entryRows.map((r) => {
     const activityAt = r.raised_at! > r.last_seen_at! ? r.raised_at! : r.last_seen_at!;
@@ -155,10 +154,13 @@ export function shapeBellEntries(
         : (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? ""),
   );
   const sliced = shaped.slice(0, feedCap);
-  const unseenCount = sliced.filter((e) => openedAt === null || e.activityAt > openedAt).length;
+  // The badge counts exactly the rows the panel marks with the unread dot (active, and
+  // not read since their latest activity). Opening the panel does not clear it: a row
+  // leaves the count when it is read or resolves.
+  const unreadCount = sliced.filter((e) => e.unread).length;
   return {
     entries: sliced,
-    unseenCount,
+    unreadCount,
     truncated:
       Boolean(meta.active_hit_cap) ||
       Boolean(meta.history_hit_cap) ||
@@ -365,7 +367,7 @@ export async function loadBellFeed(
   return {
     kind: "ok",
     entries,
-    unseenCount: shaped.unseenCount,
+    unreadCount: shaped.unreadCount,
     truncated: shaped.truncated,
     activeTruncated: shaped.activeTruncated,
     historyDays,
@@ -380,5 +382,5 @@ export async function loadBellUnseenCount(
 ): Promise<BellCountResult> {
   const pipeline = await runBellPipeline(viewerEmail, viewerIsDeveloper);
   if (pipeline.kind === "infra_error") return { kind: "infra_error" };
-  return { kind: "ok", count: pipeline.shaped.unseenCount };
+  return { kind: "ok", count: pipeline.shaped.unreadCount };
 }

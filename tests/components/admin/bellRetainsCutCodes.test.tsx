@@ -80,7 +80,7 @@ function entryFor(code: string, alertId: string): BellEntry {
 function feedBody(entries: BellEntry[]) {
   return {
     entries,
-    unseenCount: 0,
+    unreadCount: 0,
     truncated: false,
     historyDays: 14,
     feedCap: 50,

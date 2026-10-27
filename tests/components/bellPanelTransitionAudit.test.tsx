@@ -56,7 +56,7 @@ function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
 function feedBody(over: Record<string, unknown> = {}) {
   return {
     entries: [],
-    unseenCount: 0,
+    unreadCount: 0,
     truncated: false,
     activeTruncated: false,
     historyDays: 14,
