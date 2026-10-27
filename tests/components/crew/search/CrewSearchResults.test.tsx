@@ -81,7 +81,13 @@ function Probe() {
 
 function tree(index: SearchIndex, cardReport: CardReportContext | null = CREW_REPORT) {
   return (
-    <CrewSearchProvider index={index} showId={SHOW_ID} cardReport={cardReport} missLogging={false}>
+    <CrewSearchProvider
+      slug="spring-gala"
+      index={index}
+      showId={SHOW_ID}
+      cardReport={cardReport}
+      missLogging={false}
+    >
       <CrewSearchField />
       <CrewSearchResults />
       <Probe />

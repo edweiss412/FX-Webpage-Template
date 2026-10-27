@@ -300,6 +300,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // 227 -> 228, re-derived on the merged tree by running this guard (225 -> 226
     // on the branch's own base).
     expect(rel).toContain("lib/search/snippet.ts");
+    // The crew search miss-logging task (Task 18) imports lib/search/normalize.ts
+    // directly from components/crew/search/CrewSearchProvider.tsx, to key each
+    // missed query once per page load. Pure, no clock read. On its own base this
+    // joined the module (226 -> 227); on the tree merged with the section tasks it
+    // is already a member through travelRows.ts, so nothing joins: 228 -> 228,
+    // re-derived by running this guard.
+    expect(rel).toContain("lib/search/normalize.ts");
     expect(rel.length).toBe(228);
   });
 

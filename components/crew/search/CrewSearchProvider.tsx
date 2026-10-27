@@ -14,13 +14,32 @@
  *
  * Phase (spec §6.2): Idle (not active), Hint (active, query under 2 normalized
  * characters), Results (at least one hit), No match (searched, zero hits).
+ *
+ * Missed searches (spec §7.1): with `missLogging` on, a No match query is sent
+ * to `/api/show/<slug>/search-miss` once typing has rested for MISS_DEBOUNCE_MS,
+ * or at once when search ends on it. Each normalized query goes at most once per
+ * page load (this provider lives as long as the page). The send is
+ * fire-and-forget: a failure is ignored, with no UI and no retry.
  */
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import type { CardReportContext } from "@/lib/crew/cardReportContext";
 import { isSearchableQuery, prepareIndex, searchIndex } from "@/lib/search/match";
+import { normalize } from "@/lib/search/normalize";
 import type { SearchIndex, SearchResult } from "@/lib/search/types";
+
+/** How long typing rests on a zero-hit query before it counts as a miss. */
+const MISS_DEBOUNCE_MS = 2000;
 
 export type SearchPhase = "idle" | "hint" | "results" | "nomatch";
 
@@ -53,6 +72,8 @@ const CrewSearchContext = createContext<CrewSearchState | null>(null);
 export interface CrewSearchProviderProps {
   index: SearchIndex;
   missLogging: boolean;
+  /** The show's slug, for the missed-search route. */
+  slug: string;
   showId: string;
   cardReport: CardReportContext | null;
   children: ReactNode;
@@ -61,6 +82,7 @@ export interface CrewSearchProviderProps {
 export function CrewSearchProvider({
   index,
   missLogging,
+  slug,
   showId,
   cardReport,
   children,
@@ -77,10 +99,45 @@ export function CrewSearchProvider({
     else phase = result.total > 0 ? "results" : "nomatch";
   }
 
-  const endSearch = useCallback(({ keepQuery }: { keepQuery: boolean }) => {
-    setActive(false);
-    if (!keepQuery) setQuery("");
-  }, []);
+  // Missed searches (spec §7.1).
+  const sentMisses = useRef(new Set<string>());
+  const isMiss = phase === "nomatch";
+  const sendMiss = useCallback(
+    (missed: string) => {
+      if (!missLogging) return;
+      const key = normalize(missed)
+        .map((token) => token.text)
+        .join(" ");
+      if (sentMisses.current.has(key)) return;
+      sentMisses.current.add(key);
+      try {
+        fetch(`/api/show/${encodeURIComponent(slug)}/search-miss`, {
+          method: "POST",
+          keepalive: true,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query: missed.trim() }),
+        }).catch(() => {});
+      } catch {
+        // Telemetry only: a send that cannot even start is dropped.
+      }
+    },
+    [missLogging, slug],
+  );
+
+  useEffect(() => {
+    if (!isMiss) return;
+    const timer = window.setTimeout(() => sendMiss(query), MISS_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [isMiss, query, sendMiss]);
+
+  const endSearch = useCallback(
+    ({ keepQuery }: { keepQuery: boolean }) => {
+      if (isMiss) sendMiss(query);
+      setActive(false);
+      if (!keepQuery) setQuery("");
+    },
+    [isMiss, query, sendMiss],
+  );
 
   const value = useMemo<CrewSearchState>(
     () => ({

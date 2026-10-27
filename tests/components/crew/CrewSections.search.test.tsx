@@ -131,7 +131,13 @@ function nodes(): Partial<Record<SectionId, ReactNode>> {
 
 function renderShell(initialSection: SectionId = "today") {
   render(
-    <CrewSearchProvider index={FIXTURE_INDEX} missLogging={false} showId="show-1" cardReport={null}>
+    <CrewSearchProvider
+      slug="spring-gala"
+      index={FIXTURE_INDEX}
+      missLogging={false}
+      showId="show-1"
+      cardReport={null}
+    >
       <CrewSearchField />
       <CrewSections initialSection={initialSection} budgetVisible={false} sectionNodes={nodes()} />
     </CrewSearchProvider>,
@@ -220,6 +226,7 @@ describe("openSectionAndReveal", () => {
     );
     render(
       <CrewSearchProvider
+        slug="spring-gala"
         index={FIXTURE_INDEX}
         missLogging={false}
         showId="show-1"
