@@ -120,6 +120,11 @@ export type Phase2Args = {
   // F1 (R60-1/R65-1): wizard Phase B first-seen apply only — forwarded into applyShowSnapshot so
   // the first-seen INSERT writes shows.wizard_created_session_id (provenance discriminator).
   wizardCreatedSessionId?: string;
+  // Wizard Phase B first-seen ONLY, and only when the admin approved this row (its staged
+  // wizard_approved flag, which a rescan resets). The roster, LEAD included, was on screen when they
+  // approved it, so the role-flags notice is recorded but raises no bell alert.
+  wizardApproved?: true;
+
   // Phase 2: MI-11 items from the decision rule (Phase1 outcome 'auto_apply_with_holds'). Each is
   // written as a mi11_pending hold AFTER the snapshot (so liveCrewByName is the prior snapshot) and
   // BEFORE the hold-aware applyParseResult sees the open holds.
@@ -165,6 +170,9 @@ export type Phase2Args = {
 export type RoleFlagsNotice = {
   showId: string;
   code: "ROLE_FLAGS_NOTICE";
+  // Set when the onboarding wizard CREATED this show from a row the admin approved: they saw the
+  // roster, LEAD included, so the change is recorded (LEAD_ROLE_APPLIED) but raises no bell alert.
+  auditOnly?: true;
   context: {
     drive_file_id: string;
     changes: Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }>;
@@ -664,6 +672,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       ? {
           showId: snapshot.showId,
           code: "ROLE_FLAGS_NOTICE" as const,
+          ...(args.wizardApproved ? { auditOnly: true as const } : {}),
           context: {
             drive_file_id: args.driveFileId,
             changes: roleFlagChanges,

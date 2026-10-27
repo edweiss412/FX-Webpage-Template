@@ -93,12 +93,12 @@ const collectedRealCodes = (() => {
 // ── Assertions ────────────────────────────────────────────────────────────────
 
 describe("data-gap class completeness (drift guard)", () => {
-  it("Layer 1 — the 4 buckets are pairwise disjoint and total 61 (40/8/2/11)", () => {
-    expect(DATA_GAP_CODES.size).toBe(40);
+  it("Layer 1 — the 4 buckets are pairwise disjoint and total 62 (41/8/2/11)", () => {
+    expect(DATA_GAP_CODES.size).toBe(41);
     expect(BENIGN_WARN_CODES.size).toBe(8);
     expect(BENIGN_INFO_CODES.size).toBe(2);
     expect(ASSET_WARN_CODES.size).toBe(11);
-    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(61); // Set dedups → proves pairwise-disjoint
+    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(62); // Set dedups → proves pairwise-disjoint
 
     // explicit pairwise-disjoint (also vs the ignore-list)
     const buckets = [

@@ -263,6 +263,9 @@ describe("spec 2026-08-27-wizard-warning-row-links-copy §4: the control sentenc
     // VENUE_ADDRESS_MISSING, added 2026-10-25 (nearmiss-read-blocks-and-venue-address
     // §4.3): it fires only when the trimmed venue name is non-empty, and its rawSnippet is
     // that name, so hasIgnorableSnippet holds for every emission and Ignore always renders.
+    //
+    // PULL_SHEET_MISSING, added 2026-10-26 (pack-list-missing-warning §4.3): its rawSnippet is
+    // the constant "no pack list" on every emission, so Ignore always renders.
     const namesIgnore = Object.entries(CATALOG)
       .filter(
         ([, e]) =>
@@ -270,7 +273,7 @@ describe("spec 2026-08-27-wizard-warning-row-links-copy §4: the control sentenc
       )
       .map(([c]) => c)
       .sort();
-    expect(namesIgnore).toEqual(["UNKNOWN_FIELD", "VENUE_ADDRESS_MISSING"]);
+    expect(namesIgnore).toEqual(["PULL_SHEET_MISSING", "UNKNOWN_FIELD", "VENUE_ADDRESS_MISSING"]);
   });
 
   it("no helpfulContext of a card code names a card control; the sentence lives in controlsNote", () => {

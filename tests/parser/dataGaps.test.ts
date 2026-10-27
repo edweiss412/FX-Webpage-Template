@@ -41,8 +41,8 @@ const classesWith = (overrides: Record<string, number>): Record<string, number> 
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
   it("has exactly 40 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(40);
-    expect(DATA_GAP_CODES.size).toBe(40);
+    expect(GAP_CLASSES).toHaveLength(41);
+    expect(DATA_GAP_CODES.size).toBe(41);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
@@ -145,6 +145,16 @@ describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
     const withOther = summarizeDataGaps([warn("REF_ERROR_LITERAL"), warn("ROW_CELLS_FUSED")]);
     expect(isQualityRegression(prior, withOther)).toBe(true);
     expect(isQualityRegression(prior, withVenue)).toBe(false);
+  });
+
+  it("a new PULL_SHEET_MISSING alone is not a quality regression (gateExempt, 2026-10-26 §4.4)", () => {
+    // Most published shows have no pull sheet tab, so the first sync after this shipped would
+    // otherwise alert on nearly all of them. Same positive control as the venue case above.
+    const prior = summarizeDataGaps([warn("REF_ERROR_LITERAL")]);
+    const withNotice = summarizeDataGaps([warn("REF_ERROR_LITERAL"), warn("PULL_SHEET_MISSING")]);
+    const withOther = summarizeDataGaps([warn("REF_ERROR_LITERAL"), warn("ROW_CELLS_FUSED")]);
+    expect(isQualityRegression(prior, withOther)).toBe(true);
+    expect(isQualityRegression(prior, withNotice)).toBe(false);
   });
 });
 

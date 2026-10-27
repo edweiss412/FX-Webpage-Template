@@ -265,7 +265,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // both the crew Today card and the admin step-3 row render. Pure string parsing,
     // no clock read. 221 -> 222.
     expect(rel).toContain("lib/crew/dressCodeLines.ts");
-    expect(rel.length).toBe(222);
+    // Joined, from fix/post-onboarding-alert-noise: lib/dataQuality/partitionByIgnored.ts,
+    // now imported by components/admin/Dashboard.tsx so the warning badge drops ignored
+    // warnings the same way the show pop-up does. A pure partition over a fingerprint
+    // set, no clock read. 222 -> 223.
+    expect(rel).toContain("lib/dataQuality/partitionByIgnored.ts");
+    expect(rel.length).toBe(223);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

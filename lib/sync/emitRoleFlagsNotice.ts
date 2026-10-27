@@ -37,7 +37,8 @@ export async function emitRoleFlagsNotice(
   // Rides the SAME site as the feed nudge so no apply path is missed (cross-caller topology —
   // tests/sync/_metaLeadRoleAppliedTopology.test.ts now pins THIS file as the single site).
   await emitLeadRoleApplied(roleFlagsNotice, { source: opts.source ?? ROLE_FLAGS_EMIT_SOURCE });
-  await upsertAdminAlert(roleFlagsNotice);
+  // A wizard-created show's roster was reviewed before approval: audit it, but no bell alert.
+  if (!roleFlagsNotice.auditOnly) await upsertAdminAlert(roleFlagsNotice);
 }
 
 /**

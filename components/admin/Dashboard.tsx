@@ -26,6 +26,8 @@ import {
   type AutoFixSummary,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
+import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
+import { log } from "@/lib/log";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
@@ -369,15 +371,53 @@ export async function fetchDashboardData(
     gaps: Map<string, DataGapsSummary>;
     autoFixes: Map<string, AutoFixSummary>;
   };
+  // Ignored-warning fingerprints per show. A read fault returns an EMPTY map so
+  // every warning still counts: the same fail-toward-visible direction the show
+  // pop-up takes (app/admin/_showReviewModal.tsx), so the two never disagree by
+  // hiding a warning.
+  const readIgnoredFingerprints = async (): Promise<Map<string, Set<string>>> => {
+    const byShow = new Map<string, Set<string>>();
+    try {
+      const { data, error } = await supabase
+        .from("ignored_warnings")
+        .select("show_id, fingerprint")
+        .in("show_id", activeShowIds);
+      if (error) {
+        void log.error("dashboard ignored_warnings read returned error", {
+          source: "admin.dashboard",
+          code: "DASHBOARD_IGNORED_WARNINGS_READ_FAILED",
+          error,
+        });
+        return byShow;
+      }
+      for (const r of (data ?? []) as ReadonlyArray<{ show_id: string; fingerprint: string }>) {
+        const set = byShow.get(r.show_id);
+        if (set) set.add(r.fingerprint);
+        else byShow.set(r.show_id, new Set([r.fingerprint]));
+      }
+      return byShow;
+    } catch (err) {
+      void log.error("dashboard ignored_warnings read threw", {
+        source: "admin.dashboard",
+        code: "DASHBOARD_IGNORED_WARNINGS_READ_FAILED",
+        error: err,
+      });
+      return new Map();
+    }
+  };
+
   const readDataGaps = async (): Promise<DataQualityMaps | InfraResult> => {
     const byShow = new Map<string, DataGapsSummary>();
     const autoByShow = new Map<string, AutoFixSummary>();
     if (activeShowIds.length === 0) return { gaps: byShow, autoFixes: autoByShow };
     try {
-      const { data, error } = await supabase
-        .from("shows_internal")
-        .select("show_id, parse_warnings")
-        .in("show_id", activeShowIds);
+      const [{ data, error }, ignoredByShow] = await Promise.all([
+        supabase
+          .from("shows_internal")
+          .select("show_id, parse_warnings")
+          .in("show_id", activeShowIds),
+        readIgnoredFingerprints(),
+      ]);
       if (error) {
         return {
           kind: "infra_error",
@@ -393,7 +433,12 @@ export async function fetchDashboardData(
         // NO second Supabase read (Flow 6 §3.2; invariant 9 untriggered).
         try {
           const warns = r.parse_warnings as ParseWarning[];
-          const summary = summarizeDataGaps(warns);
+          // An ignored warning has left the show's pop-up (partitionByIgnored there
+          // too), so it leaves the badge. Auto-fixes count everything: an ignore is
+          // a decision about a gap, not about a fix the parser already made.
+          const ignored = ignoredByShow.get(r.show_id);
+          const counted = ignored ? partitionByIgnored(warns, ignored).active : warns;
+          const summary = summarizeDataGaps(counted);
           if (summary.total > 0) byShow.set(r.show_id, summary);
           const auto = summarizeAutoFixes(warns);
           if (auto.total > 0) autoByShow.set(r.show_id, auto);

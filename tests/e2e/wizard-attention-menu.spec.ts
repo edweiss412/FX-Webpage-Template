@@ -738,6 +738,42 @@ test.describe("wizard attention pill + menu geometry (spec §9)", () => {
     expect(visible, "the noun returns above the breakpoint").toMatch(/need a look|judgment call/);
   });
 
+  test("T-WIZ-COUNTS @1280: each count is visibly spaced from its noun", async ({ page }) => {
+    // The DOM always held the " " between count and noun, so the text walk
+    // above passed while the pill painted "1needs a look". An `inline-flex` wrap
+    // unit made the count an anonymous flex item, and a flex item's trailing
+    // space collapses. Only painted geometry shows it: measure the gap between
+    // the count's last glyph and the noun's box.
+    await openModal(page, 1280, 812);
+    const pairs = await page.locator(CHIP).evaluate((el) => {
+      const out: { noun: string; gap: number }[] = [];
+      for (const noun of Array.from(el.querySelectorAll<HTMLElement>("span"))) {
+        const text = noun.textContent?.trim() ?? "";
+        if (!/^(needs? a look|judgment calls?)$/.test(text)) continue;
+        let prev = noun.previousSibling;
+        while (prev && prev.nodeType === Node.TEXT_NODE && !/\d/.test(prev.textContent ?? "")) {
+          prev = prev.previousSibling;
+        }
+        if (!prev || prev.nodeType !== Node.TEXT_NODE) continue;
+        const len = prev.textContent?.length ?? 0;
+        const range = document.createRange();
+        range.setStart(prev, len - 1);
+        range.setEnd(prev, len);
+        out.push({
+          noun: text,
+          gap: noun.getBoundingClientRect().left - range.getBoundingClientRect().right,
+        });
+      }
+      return out;
+    });
+    // Premise: the harness renders the COMPOSITE pill, so both pairs exist.
+    // Without it a walk that matched nothing would pass vacuously.
+    expect(pairs.map((p) => p.noun.split(" ")[0]).sort()).toEqual(["judgment", "need"]);
+    for (const p of pairs) {
+      expect(p.gap, `"${p.noun}" sits flush against its count`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   test("the composite pill leaves the show title legible at 375 (spec §9, PRODUCT.md persona)", async ({
     page,
   }) => {

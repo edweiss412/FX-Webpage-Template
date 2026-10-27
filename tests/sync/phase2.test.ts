@@ -853,6 +853,49 @@ describe("runPhase2 destructive snapshot", () => {
     });
   });
 
+  // The onboarding wizard showed this roster before the admin approved it, so a show the wizard
+  // CREATES keeps its durable LEAD audit but raises no bell alert. A cron first-seen apply has no
+  // such review and still alerts.
+  test("a wizard-created show the admin approved marks its LEAD notice audit-only", async () => {
+    const tx = new FakePhase2Tx();
+    const result = await runWith(tx, {
+      wizardCreatedSessionId: "wizard-session-1",
+      wizardApproved: true,
+      parseResult: parseResult({ crewMembers: [crewWithFlags("Bob", ["A1", "LEAD"])] }),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "applied",
+      roleFlagsNotice: {
+        code: "ROLE_FLAGS_NOTICE",
+        auditOnly: true,
+        context: { changes: [{ crew_name: "Bob", prior_flags: [], new_flags: ["A1", "LEAD"] }] },
+      },
+    });
+  });
+
+  // finalize also creates the shows the admin left unchecked (Held). Nobody approved that roster.
+  test("a wizard-created show the admin did NOT approve still raises the bell alert", async () => {
+    const tx = new FakePhase2Tx();
+    const result = await runWith(tx, {
+      wizardCreatedSessionId: "wizard-session-1",
+      parseResult: parseResult({ crewMembers: [crewWithFlags("Bob", ["A1", "LEAD"])] }),
+    });
+
+    premiseHolds("the first-seen apply produced a notice", "roleFlagsNotice" in result);
+    expect("auditOnly" in (result as { roleFlagsNotice: object }).roleFlagsNotice).toBe(false);
+  });
+
+  test("a cron first-seen show with a LEAD still raises the bell alert", async () => {
+    const tx = new FakePhase2Tx();
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crewWithFlags("Bob", ["A1", "LEAD"])] }),
+    });
+
+    premiseHolds("the first-seen apply produced a notice", "roleFlagsNotice" in result);
+    expect("auditOnly" in (result as { roleFlagsNotice: object }).roleFlagsNotice).toBe(false);
+  });
+
   test("a brand-new crew member WITHOUT LEAD produces no ROLE_FLAGS_NOTICE (crew_added covers it)", async () => {
     const tx = new FakePhase2Tx();
     tx.shows.set("file-1", {

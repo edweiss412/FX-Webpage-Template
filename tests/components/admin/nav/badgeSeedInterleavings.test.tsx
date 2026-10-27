@@ -5,7 +5,7 @@
  * The layout stops awaiting the two badge loaders and hands each hook an
  * unresolved promise instead. That turns "the server prop is fresh at mount"
  * into "a value arrives at an arbitrary later instant", so every ordering of
- * (seed resolution) against (pathname refetch, zeroNow, a newer promise) needs
+ * (seed resolution) against (pathname refetch, a newer promise) needs
  * a pinned outcome. One named test per §3.2 / §3.7 row, both hooks where the
  * row applies.
  *
@@ -115,26 +115,19 @@ function renderAttention(seed: Promise<NeedsAttentionCountResult> | null = null)
 type BellFrame = { count: number | null; degraded: boolean };
 type BellProbe = {
   paints: BellFrame[];
-  zeroNow: () => void;
-  refetch: () => void;
   rerender: (props: { seed: Promise<BellCountResult> | null }) => void;
 };
 
 function renderBell(seed: Promise<BellCountResult> | null = null): BellProbe {
   const paints: BellFrame[] = [];
-  const api = { zeroNow: () => {}, refetch: () => {} };
   function Probe({ seed: s }: { seed: Promise<BellCountResult> | null }) {
     const bell = useBellBadge(null, s);
     paints.push({ count: bell.count, degraded: bell.degraded });
-    api.zeroNow = bell.zeroNow;
-    api.refetch = bell.refetch;
     return null;
   }
   const view = render(<Probe seed={seed} />);
   return {
     paints,
-    zeroNow: () => api.zeroNow(),
-    refetch: () => api.refetch(),
     rerender: (props) => view.rerender(<Probe seed={props.seed} />),
   };
 }
@@ -465,47 +458,6 @@ describe("useBellBadge — async seed arm (AC-4, AC-5)", () => {
     await waitFor(() => expect(countFetches()).toBe(fetchesBeforeSeed + 1));
     await waitFor(() => expect(probe.paints.at(-1)?.count).toBe(4));
     expect(probe.paints.map((p) => p.count)).not.toContain(1);
-  });
-
-  it("§3.2 row 3: zeroNow() before the seed resolves → the seed is demoted, the zero is not resurrected", async () => {
-    bellCountsInOrder(0);
-    const seed = deferred<BellCountResult>();
-    const probe = renderBell(seed.promise);
-
-    await act(async () => {
-      probe.zeroNow();
-    });
-    expect(probe.paints.at(-1)?.count).toBe(0);
-    const fetchesBeforeSeed = countFetches();
-
-    await settle(() => seed.resolve({ kind: "ok", count: 6 }));
-
-    await waitFor(() => expect(countFetches()).toBe(fetchesBeforeSeed + 1));
-    expect(probe.paints.map((p) => p.count)).not.toContain(6);
-  });
-
-  it("§3.7 compound: opened+zeroed, restoring fetch commits 0, THEN the refresh seed resolves the pre-open count → never painted", async () => {
-    bellCountsInOrder(0, 0);
-    const seed = deferred<BellCountResult>();
-    const probe = renderBell(seed.promise);
-
-    // Open gesture zeroes client-side, then the panel's onOpened={refetch}
-    // restores server truth (0 — nothing arrived post-snapshot).
-    await act(async () => {
-      probe.zeroNow();
-    });
-    await act(async () => {
-      probe.refetch();
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(probe.paints.at(-1)?.count).toBe(0));
-
-    // The refresh promise, issued BEFORE the open gesture, now resolves with
-    // the pre-open count.
-    await settle(() => seed.resolve({ kind: "ok", count: 5 }));
-
-    expect(probe.paints.map((p) => p.count)).not.toContain(5);
-    expect(probe.paints.at(-1)?.count).toBe(0);
   });
 
   it("§3.2 row 5: a seed that never resolves leaves the pending shape; the first pathname refetch repopulates", async () => {

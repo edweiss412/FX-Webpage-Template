@@ -32,7 +32,7 @@ export function bellAnnounceableCount(count: number | null, degraded: boolean): 
  */
 export function bellAccessibleName(count: number | null, degraded: boolean): string {
   const n = bellAnnounceableCount(count, degraded);
-  return n === null ? "Notifications" : `Notifications: ${n} unseen`;
+  return n === null ? "Notifications" : `Notifications: ${n} unread`;
 }
 
 /** Finite and above zero, the one filter both halves of the sentence apply. */
@@ -58,7 +58,7 @@ export function navBadgeArrivalAnnouncement(
   // function including a real className one. Removing the array removes the
   // hazard instead of excusing it, and reads no worse at two halves.
   const bellSentence = speakable(bell)
-    ? `${bell} unseen notification${bell === 1 ? "" : "s"}.`
+    ? `${bell} unread notification${bell === 1 ? "" : "s"}.`
     : null;
   const attentionSentence = speakable(attention)
     ? `${attention} item${attention === 1 ? "" : "s"} need${attention === 1 ? "s" : ""} attention.`

@@ -1,0 +1,20 @@
+TABLE-A raw fixtures
+  2024-05-east-coast-family-office.md                            1 case(s), 91 item(s)
+  2025-03-dci-rpas-central.md                                    null
+  2025-04-asset-mgmt-cfo-coo.md                                  null
+  2025-05-redefining-fixed-income-private-credit.md              1 case(s), 91 item(s)
+  2025-06-ria-investment-forum.md                                null
+  2025-10-consultants-roundtable.md                              null
+  2025-10-fixed-income-trading-summit.md                         null
+  2026-03-rpas-central-four-seasons.md                           null
+  2026-04-asset-mgmt-cfo-coo-waldorf.md                          null
+  2026-05-fintech-forum-cto-summit.md                            null
+TABLE-B exporter fixtures
+  consultants.md       null                     archived=[]                       FIRES
+  east-coast.md        1 case(s), 91 item(s)    archived=[]                       QUIET
+  fintech.md           null                     archived=[]                       FIRES
+  fixed-income.md      null                     archived=[]                       FIRES
+  redefining-fi.md     null                     archived=["OLD PULL SHEET"]       SUPPRESSED
+  ria.md               null                     archived=[]                       FIRES
+  rpas.md              null                     archived=[]                       FIRES
+CONTROL round-trip mismatches: 0
