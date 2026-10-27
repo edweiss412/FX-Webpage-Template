@@ -69,6 +69,9 @@ export const LINK_ONLY_ANCHORED: ReadonlySet<string> = new Set([
   "AGENDA_LINK_NOT_CLICKABLE",
   ...TRAVEL_FLIGHT_CODES,
   "PULL_SHEET_ON_ARCHIVED_TAB",
+  // The empty address cell of the venue block, else the venue region (warning-card-fixes
+  // §4.2). Not OPERATOR_ACTIONABLE_ANCHORED: the staged card selection is unchanged.
+  "VENUE_ADDRESS_MISSING",
 ]);
 
 /** The codes that carry a source-cell/region anchor: the render gate
@@ -179,6 +182,9 @@ export type WarningAnchorSources = {
   // Cells located by content and the visible-tab map (lib/drive/contentAnchors.ts). Optional:
   // absent means no scan ran, and the LINK_ONLY codes that read it stay link-less.
   content?: ContentAnchors | undefined;
+  // The venue block's empty address cell (lib/drive/venueAddressAnchor.ts). Optional like
+  // `unknownField`: absent or null means VENUE_ADDRESS_MISSING falls back to the venue region.
+  venueAddress?: SourceAnchor | null;
   region: Record<string, SourceAnchor>;
 };
 
@@ -268,6 +274,10 @@ export function attachSourceCellAnchors(
         // read, and blockRef carries a hotel NAME, not a coordinate. A missing region
         // degrades to null (a link-less card), never to another section's range.
         cell = sources.region["hotels"] ?? null;
+      } else if (w.code === "VENUE_ADDRESS_MISSING") {
+        // The empty value cell when it is uniquely found, else the venue region
+        // (warning-card-fixes §4.2 item 2).
+        cell = sources.venueAddress ?? sources.region["venue"] ?? null;
       } else if (Object.hasOwn(CODE_TO_REGION, w.code)) {
         cell = sources.region[CODE_TO_REGION[w.code]!] ?? null;
       } else if (w.code === "SECTION_HEADER_NO_FIELDS") {

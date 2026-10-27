@@ -50,6 +50,7 @@ describe("parse-warning deep-link render invariants", () => {
       "TRAVEL_FLIGHT_UNPARSEABLE",
       "TRAVEL_TRANSPORT_NAME_UNMATCHED",
       "UNKNOWN_SECTION_HEADER",
+      "VENUE_ADDRESS_MISSING",
       "VENUE_GEOCODE_UNRESOLVED",
       "VENUE_TIMEZONE_UNRESOLVED",
     ]);

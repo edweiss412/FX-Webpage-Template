@@ -7,6 +7,7 @@ import { extractContentAnchors, visibleTabGids } from "@/lib/drive/contentAnchor
 import { extractCrewRoleAnchors } from "@/lib/drive/crewRoleAnchors";
 import { extractUnknownFieldAnchors } from "@/lib/drive/unknownFieldAnchors";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import { extractVenueAddressAnchor } from "@/lib/drive/venueAddressAnchor";
 import {
   extractWaveCodeSites,
   hiddenTabRefSuppressions,
@@ -85,6 +86,7 @@ export async function attachWarningAnchors(
     unknownField: safe(() => extractUnknownFieldAnchors(bytes, gids), []),
     wave: safe(() => pairAllWaveCodes(warnings, waveSites), {}),
     content: safe(() => extractContentAnchors(bytes, gids), undefined),
+    venueAddress: safe(() => extractVenueAddressAnchor(bytes, gids), null),
     region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
   });
   // Output gate first: with no parsed output, or a literal anywhere in it, keep everything.

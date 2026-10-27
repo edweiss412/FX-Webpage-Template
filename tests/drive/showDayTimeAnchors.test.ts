@@ -637,11 +637,12 @@ describe("attachSourceCellAnchors: link-only codes outside the render gate (Shee
     "TRAVEL_FLIGHT_UNPARSEABLE",
     "TRAVEL_TRANSPORT_NAME_UNMATCHED",
     "UNKNOWN_SECTION_HEADER",
+    "VENUE_ADDRESS_MISSING",
     "VENUE_GEOCODE_UNRESOLVED",
     "VENUE_TIMEZONE_UNRESOLVED",
   ];
 
-  it("LINK_ONLY_ANCHORED is exactly these thirteen codes: population-gated, never render-gated", () => {
+  it("LINK_ONLY_ANCHORED is exactly these fourteen codes: population-gated, never render-gated", () => {
     expect([...LINK_ONLY_ANCHORED].sort()).toEqual(LINK_ONLY);
     for (const code of LINK_ONLY) {
       expect(CELL_ANCHORED_CODES.has(code), code).toBe(true);

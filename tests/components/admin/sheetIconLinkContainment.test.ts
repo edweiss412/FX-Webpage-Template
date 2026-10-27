@@ -1138,6 +1138,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "lib/drive/showDayTimeAnchors.ts": 1,
         "lib/drive/sourceAnchors.ts": 1,
         "lib/drive/unknownFieldAnchors.ts": 2,
+        // The venue block's empty address cell (warning-card-fixes §4.2 item 3): its one
+        // `@/lib/sheet-links/buildSheetDeepLink` import, for `REGION_ANCHOR_SPEC`,
+        // `SOURCE_LINK_ALLOWLIST` and the `SourceAnchor` type, never the builder.
+        "lib/drive/venueAddressAnchor.ts": 1,
         // Type-only `SourceAnchor` import on the wave-code anchor replay, the second
         // raw-workbook scanner that sets `scope: "cell"` (spec 2026-08-29 §2). Same shape
         // as `showDayTimeAnchors.ts` above: a type, never the builder.
