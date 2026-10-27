@@ -1,0 +1,236 @@
+/**
+ * The saved-copy marker (spec 4.3): the one element every crew-route page
+ * renders and the service worker reads, from the complete body, before it
+ * chooses what to serve.
+ *
+ * Pure and dependency-free: the worker bundle imports this file, the server
+ * spreads `markerAttributes` onto a `<template>`, and Vitest imports the same
+ * source.
+ *
+ * The reader fails closed. A marker it cannot fully validate is `invalid` and
+ * a body with no marker is `absent`; the worker acts on both as `purge`. It
+ * never throws, whatever the body holds.
+ */
+
+export const MARKER_ID = "fxav-saved-copy";
+export const MARKER_VERSION = "3";
+
+export type SaveMarker = {
+  disposition: "save";
+  showId: string;
+  renderedAt: string;
+  epoch: number;
+  viewer: string;
+  assets: readonly string[];
+};
+export type KeepMarker = { disposition: "keep"; showId: string; viewer: string };
+export type BareMarker = { disposition: "hold" | "check" | "purge"; showId: string | null };
+export type Marker = SaveMarker | KeepMarker | BareMarker;
+
+/** What the worker read from a complete body. "absent" and "invalid" both act as purge. */
+export type MarkerRead =
+  | { kind: "valid"; marker: Marker }
+  | { kind: "invalid"; showId: string | null }
+  | { kind: "absent" };
+
+/** The attributes of the marker's `<template>` element, in the order they are written. */
+export function markerAttributes(marker: Marker): Record<string, string> {
+  const base = {
+    id: MARKER_ID,
+    "data-v": MARKER_VERSION,
+    "data-disposition": marker.disposition,
+  };
+  switch (marker.disposition) {
+    case "save":
+      return {
+        ...base,
+        "data-show-id": marker.showId,
+        "data-rendered-at": marker.renderedAt,
+        "data-epoch": String(marker.epoch),
+        "data-viewer": marker.viewer,
+        "data-assets": JSON.stringify(marker.assets),
+      };
+    case "keep":
+      return { ...base, "data-show-id": marker.showId, "data-viewer": marker.viewer };
+    default:
+      return marker.showId === null ? base : { ...base, "data-show-id": marker.showId };
+  }
+}
+
+/** The first marker element in `html`; see `MarkerRead` for what each answer means. */
+export function readMarker(html: string): MarkerRead {
+  const attributes = findMarkerAttributes(html);
+  if (attributes === null) return { kind: "absent" };
+  const marker = parseMarker(attributes);
+  if (marker !== null) return { kind: "valid", marker };
+  // The purge can still name the show when the id is well formed.
+  const showId = attributes.get("data-show-id");
+  return { kind: "invalid", showId: showId !== undefined && UUID.test(showId) ? showId : null };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const EPOCH = /^(?:0|[1-9]\d*)$/;
+const ASSET_PREFIX = "/api/asset/";
+const ASSET_BASE = "https://assets.invalid";
+
+function nonEmpty(value: string | undefined): string | undefined {
+  return value === "" ? undefined : value;
+}
+
+function parseMarker(attributes: ReadonlyMap<string, string>): Marker | null {
+  if (attributes.get("data-v") !== MARKER_VERSION) return null;
+  const disposition = attributes.get("data-disposition");
+  const showId = nonEmpty(attributes.get("data-show-id"));
+  const viewer = nonEmpty(attributes.get("data-viewer"));
+
+  if (disposition === "hold" || disposition === "check" || disposition === "purge") {
+    return { disposition, showId: showId ?? null };
+  }
+  if (disposition === "keep") {
+    return showId === undefined || viewer === undefined ? null : { disposition, showId, viewer };
+  }
+  if (disposition === "save") {
+    const renderedAt = attributes.get("data-rendered-at");
+    const epoch = parseEpoch(attributes.get("data-epoch"));
+    const assets = parseAssets(attributes.get("data-assets"));
+    if (
+      showId === undefined ||
+      viewer === undefined ||
+      renderedAt === undefined ||
+      !isIsoUtc(renderedAt) ||
+      epoch === null ||
+      assets === null
+    ) {
+      return null;
+    }
+    return { disposition, showId, renderedAt, epoch, viewer, assets };
+  }
+  return null;
+}
+
+function isIsoUtc(value: string): boolean {
+  if (!ISO_UTC.test(value)) return false;
+  const time = Date.parse(value);
+  // Date.parse rolls February 30 over to March and 24:00 over to the next day;
+  // a real timestamp survives a round trip through toISOString.
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 19) === value.slice(0, 19);
+}
+
+function parseEpoch(value: string | undefined): number | null {
+  if (value === undefined || !EPOCH.test(value)) return null;
+  const epoch = Number(value);
+  return Number.isSafeInteger(epoch) ? epoch : null;
+}
+
+function parseAssets(value: string | undefined): readonly string[] | null {
+  if (value === undefined) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  return Array.isArray(parsed) && parsed.every(isAssetPath) ? parsed : null;
+}
+
+function isAssetPath(value: unknown): value is string {
+  if (typeof value !== "string" || !value.startsWith(ASSET_PREFIX)) return false;
+  try {
+    // Resolving collapses "..", "%2e%2e" and backslashes, so a path cannot climb out of the prefix.
+    return new URL(value, ASSET_BASE).pathname.startsWith(ASSET_PREFIX);
+  } catch {
+    return false;
+  }
+}
+
+// --- Finding the element -----------------------------------------------------
+//
+// A small tokenizer, not a pattern over the whole body. The body also holds the
+// RSC flight payload, which spells the marker out as JSON (`"id":"fxav-saved-copy"`),
+// and a bare search for the id would take that for the element. So the scan walks
+// start tags the way a browser would: attribute values are quote-aware, and
+// comments, scripts and styles are skipped, because nothing inside them is an element.
+
+const TAG_NAME = /<([a-zA-Z][^\s/>]*)/y;
+const ATTRIBUTE = /[\s/]*(?:(>)|([^\s/>][^\s/>=]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?)/y;
+/** A Map, not an object: a `<constructor>` tag must not find an inherited property. */
+const RAW_TEXT_END = new Map<string, RegExp>([
+  ["script", /<\/script/gi],
+  ["style", /<\/style/gi],
+]);
+const ENTITIES: ReadonlyMap<string, string> = new Map([
+  ["&quot;", '"'],
+  ["&amp;", "&"],
+  ["&#x27;", "'"],
+  ["&#39;", "'"],
+  ["&lt;", "<"],
+  ["&gt;", ">"],
+]);
+
+/** One pass, so `&amp;quot;` decodes to the text `&quot;`, not to a quote. */
+function decodeEntities(value: string): string {
+  return value.replace(
+    /&(?:quot|amp|#x27|#39|lt|gt);/g,
+    (entity) => ENTITIES.get(entity) ?? entity,
+  );
+}
+
+/** The attributes of the tag whose name ends at `from`, or null when the tag never closes. */
+function parseAttributes(
+  html: string,
+  from: number,
+): { attributes: Map<string, string>; end: number } | null {
+  const attributes = new Map<string, string>();
+  let at = from;
+  for (;;) {
+    ATTRIBUTE.lastIndex = at;
+    const match = ATTRIBUTE.exec(html);
+    if (match === null) return null;
+    at = ATTRIBUTE.lastIndex;
+    if (match[1] !== undefined) return { attributes, end: at };
+    const name = (match[2] ?? "").toLowerCase();
+    // As in HTML, the first of two same-named attributes wins.
+    if (!attributes.has(name)) {
+      attributes.set(name, decodeEntities(match[3] ?? match[4] ?? match[5] ?? ""));
+    }
+  }
+}
+
+/** The attributes of the first `<template id="fxav-saved-copy">` element, or null when there is none. */
+function findMarkerAttributes(html: string): Map<string, string> | null {
+  let at = 0;
+  for (;;) {
+    at = html.indexOf("<", at);
+    if (at === -1) return null;
+
+    if (html.startsWith("<!--", at)) {
+      // From at + 2, so the empty comments `<!-->` and `<!--->` end where a browser ends them.
+      const end = html.indexOf("-->", at + 2);
+      if (end === -1) return null;
+      at = end + 3;
+      continue;
+    }
+
+    TAG_NAME.lastIndex = at;
+    const name = TAG_NAME.exec(html);
+    if (name === null) {
+      at += 1;
+      continue;
+    }
+    const tag = parseAttributes(html, TAG_NAME.lastIndex);
+    if (tag === null) return null;
+    at = tag.end;
+
+    const tagName = (name[1] ?? "").toLowerCase();
+    if (tagName === "template" && tag.attributes.get("id") === MARKER_ID) return tag.attributes;
+
+    const rawTextEnd = RAW_TEXT_END.get(tagName);
+    if (rawTextEnd !== undefined) {
+      rawTextEnd.lastIndex = at;
+      const close = rawTextEnd.exec(html);
+      if (close === null) return null;
+      at = close.index;
+    }
+  }
+}
