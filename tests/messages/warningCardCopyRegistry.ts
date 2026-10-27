@@ -244,7 +244,7 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   HOTEL_CARDINALITY_EXCEEDED:
     "Your sheet lists more than four hotels; we kept the first four and dropped the rest. Remove old or duplicate hotel blocks so the four we keep are the right ones.",
   HOTEL_GUEST_SPLIT_AMBIGUOUS:
-    "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
+    "If we split it wrong, fix the names in the sheet. Two people may have been merged, one split, part of the hotel name read as a person, or someone left out.",
   HOTEL_INLINE_GROUP_HOTEL_SUSPECTED:
     "A reservation on a shared hotel line may be under the wrong hotel. Check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
   HOTEL_INLINE_GROUP_OWN_HOTEL:
@@ -256,9 +256,9 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   PULL_SHEET_AMBIGUOUS_FORMAT:
     "This looks like a PULL SHEET, but its columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like this layout supported.",
   PULL_SHEET_ON_ARCHIVED_TAB:
-    "We found a PULL SHEET on a tab that looks like an older copy, so we left it out to avoid mixing old gear in. If it really is this show's gear, the Gear section on this page offers to include it.",
+    "We found a PULL SHEET on a tab that looks like an older copy, so we left it out to avoid mixing old gear in. If it really is this show's gear, include it from the Pack list section.",
   PULL_SHEET_OVERRIDE_CONTENT_CHANGED:
-    "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Gear section.",
+    "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Pack list section.",
   PULL_SHEET_PARSE_PARTIAL:
     "Some pull-sheet rows have a QTY we couldn't read (a word, or a range like '1-2'), so those rows show their original text.",
   PULL_SHEET_UNKNOWN_VARIANT:

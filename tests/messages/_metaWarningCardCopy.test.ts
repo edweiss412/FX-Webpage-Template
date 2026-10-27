@@ -28,6 +28,8 @@ import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
 import { premise, premiseHolds } from "../_shared/premise";
 import { CARD_SURFACED_LOG_ONLY } from "@/lib/messages/cardSurfacedLogOnly";
+import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import { AMBIGUITY_CODES } from "@/lib/parser/ambiguityCodes";
 import {
   WARNING_CARD_COPY_CODES,
   EXPECTED_TRIGGER_CONTEXT,
@@ -301,6 +303,27 @@ describe("spec 2026-08-27-wizard-warning-row-links-copy §4: the control sentenc
         `${code} carries controlsNote but is not a card code`,
       ).toBe(true);
       expect(/\b(Report|Ignore)\b/.test(note), `${code}.controlsNote names no control`).toBe(true);
+    }
+  });
+});
+
+// warning-card-fixes §6.1: judgment rows read Accept, never Ignore, so no judgment code's
+// controlsNote may name Ignore. A ratchet: green on today's catalog (no judgment code
+// carries a note), red the moment one gains a note that names Ignore.
+describe("warning-card-fixes §6.1: judgment codes never point at Ignore", () => {
+  const NAMES_IGNORE = /\bIgnore\b/;
+
+  it("no judgment code's controlsNote names Ignore (warning-card-fixes §6.1)", () => {
+    premiseHolds(
+      "the predicate fires on a planted note",
+      NAMES_IGNORE.test("Use Report, or Ignore to hide this notice"),
+    );
+    const codes = [...AMBIGUITY_CODES];
+    premiseHolds("the judgment set is non-empty", codes.length > 0);
+    for (const code of codes) {
+      if (!isMessageCode(code)) throw new Error(`${code} has no catalog row`);
+      const note = messageFor(code).controlsNote;
+      expect(note == null || !NAMES_IGNORE.test(note), code).toBe(true);
     }
   });
 });
