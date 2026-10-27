@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { CrewSubNav } from "@/components/crew/CrewSubNav";
+import { FactRows } from "@/components/crew/primitives/FactRows";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider, useCrewSearch } from "@/components/crew/search/CrewSearchProvider";
 import { CrewSearchResults } from "@/components/crew/search/CrewSearchResults";
@@ -354,6 +355,43 @@ describe("copy (spec §6.4, §6.5)", () => {
     expect(
       within(rowFor(hotel)).getByRole("button", { name: "Copy hotel confirmation" }),
     ).toBeInTheDocument();
+  });
+
+  // Impeccable critique A2: on the page, a value someone types back character by
+  // character (Wi-Fi password, hotel and flight confirmation) carries the
+  // code treatment, the slashed zero. The result row keeps it, so a zero in a
+  // copied-by-hand code does not read as O. The class is READ from the page's
+  // own row primitive, not typed here.
+  it("copyable codes keep the page's code style; the network name and other lines do not", () => {
+    const page = render(
+      <FactRows
+        rows={[
+          { k: "Code", v: "C0DE", code: true },
+          { k: "Plain", v: "PLA1N" },
+        ]}
+      />,
+    );
+    const classesOf = (text: string) => new Set(page.getByText(text).classList);
+    const plain = classesOf("PLA1N");
+    const codeClasses = [...classesOf("C0DE")].filter((c) => !plain.has(c));
+    premiseHolds("FactRows adds exactly one class for a code row", codeClasses.length === 1);
+    const codeClass = codeClasses[0]!;
+    page.unmount();
+
+    renderResults();
+    const value = (entry: SearchEntry) =>
+      within(rowFor(entry)).getByTestId("crew-search-row-value");
+
+    search("wifi");
+    expect(value(entryWhere({ label: "Wi-Fi password" }))).toHaveClass(codeClass);
+    expect(value(entryWhere({ label: "Wi-Fi network" }))).not.toHaveClass(codeClass);
+    expect(value(entryWhere({ section: "gear", group: "Other" }))).not.toHaveClass(codeClass);
+
+    search("confirmation");
+    const flight = entryWhere({ section: "travel", group: "Your flight", label: "Confirmation" });
+    const hotel = entryWhere({ section: "travel", group: "Hotels", label: "Confirmation" });
+    expect(value(flight)).toHaveClass(codeClass);
+    expect(value(hotel)).toHaveClass(codeClass);
   });
 
   it("copies the exact text and shows the kind's toast for 2000 ms", async () => {

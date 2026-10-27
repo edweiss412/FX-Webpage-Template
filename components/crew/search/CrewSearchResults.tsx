@@ -36,6 +36,7 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { SEARCH_COPY } from "@/lib/search/copy";
 import { snippet } from "@/lib/search/snippet";
 import type { Range, SearchCopy, SearchEntry, SearchHit } from "@/lib/search/types";
+import { cn } from "@/lib/ui/cn";
 import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
 
 /** Rows per section in the All view. */
@@ -73,6 +74,18 @@ function highlighted(text: string, ranges: readonly Range[], keyPrefix: string):
   return parts;
 }
 
+/**
+ * Copy kinds whose value someone types back character by character. Their rows
+ * on the page carry `.code-value` (slashed zero, tabular figures: the Wi-Fi
+ * password in `venueRows.ts`, both confirmations in Travel), so their result
+ * rows do too. The network name is picked from a list and takes neither.
+ */
+const CODE_KINDS: ReadonlySet<SearchCopy["kind"]> = new Set([
+  "password",
+  "hotelConfirmation",
+  "flightConfirmation",
+]);
+
 /** The copy button's name, one per copy kind (spec §10). */
 function copyButtonLabel(copy: SearchCopy): string {
   return SEARCH_COPY.copyButton[copy.kind];
@@ -96,6 +109,7 @@ function ResultRow({
   const value = snippet(entry.value, ranges.value);
   const short = entry.value.length <= SHORT_VALUE_CHARS;
   const copy = entry.copy;
+  const code = copy !== null && CODE_KINDS.has(copy.kind);
 
   return (
     <li
@@ -120,11 +134,12 @@ function ResultRow({
           ) : null}
           <span
             data-testid="crew-search-row-value"
-            className={
+            className={cn(
               short
                 ? "text-base font-semibold text-text-strong wrap-anywhere"
-                : "text-base text-text wrap-anywhere"
-            }
+                : "text-base text-text wrap-anywhere",
+              code && "code-value",
+            )}
           >
             {highlighted(value.text, value.ranges, "value")}
           </span>
