@@ -219,7 +219,12 @@ export function assertParity(
       );
     }
     const group = ws(e.group);
-    if (!headings.some((h) => h.region === region && h.text === group)) {
+    const regionHeadings = headings.filter((h) => h.region === region);
+    // An empty group is right exactly when the region has no group heading at all
+    // (spec §2.3 clause 2: Today's bare Mode A key-times strip).
+    const groupOk =
+      group === "" ? regionHeadings.length === 0 : regionHeadings.some((h) => h.text === group);
+    if (!groupOk) {
       add(
         "group-not-in-region",
         `entry "${e.id}" group "${e.group}" is not a group heading in ${describeRegion(region, root)}`,

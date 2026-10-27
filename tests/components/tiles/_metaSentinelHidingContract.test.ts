@@ -340,6 +340,11 @@ const NON_TILE_FILES = new Set<string>([
  * Recursively collect `.tsx` and `.ts` files under `dir`, returning each as a
  * path RELATIVE to `REPO_ROOT` (so `readTileSource` resolves it from the root
  * regardless of which base dir it came from). A non-existent dir yields [].
+ *
+ * Plain `.ts` modules in the crew trees are collected too: the section rows
+ * modules (e.g. `components/crew/sections/todayRows.ts`) hold the row
+ * derivations the sections and their search builders share, so the field reads
+ * this contract guards moved there from the `.tsx` sections.
  */
 function walkTsxFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];

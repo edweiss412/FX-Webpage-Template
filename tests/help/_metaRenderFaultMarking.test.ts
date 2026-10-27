@@ -513,7 +513,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same `tile-errors` rooms row, still marked. Nothing joined or left: membership is
     // still 34, and reverting that ONE row in the scan output reproduces 27e71472...
     // byte-for-byte.
-    expect(digest).toBe("dbbf398312223f3706b39e80a7796e48d7f9cb06b021433f5e00171f3be386a0");
+    // Regenerated for the crew search Today section task (Task 12), to the same bar.
+    // EXACTLY THREE inputs changed, all line numbers, in the one file of this set the task edits:
+    //   components/crew/sections/TodaySection.tsx 646/647/648 -> 396/397/398 (-250: the
+    //   mode, card rows and notes derivation moved to the sibling todayRows.ts)
+    // The same rooms / hotel / contacts `SectionTileError` rows in the same order, still
+    // marked. Nothing joined or left: membership is still 34, and reverting those three
+    // rows in the scan output reproduces dbbf3983... byte-for-byte.
+    expect(digest).toBe("ddb7e342ac03336845e454af08c667bfe4d0e454e160a82ede219a0892884504");
   });
 });
 

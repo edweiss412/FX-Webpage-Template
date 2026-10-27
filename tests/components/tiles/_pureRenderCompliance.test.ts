@@ -48,6 +48,8 @@ function walkTsx(dir: string): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...walkTsx(full));
+    // `.ts` too: the section rows modules (e.g. todayRows.ts) hold derivations
+    // the sections render from, so the purity contract follows them there.
     else if (entry.endsWith(".tsx") || entry.endsWith(".ts")) out.push(full);
   }
   return out;

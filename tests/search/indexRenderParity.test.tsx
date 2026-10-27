@@ -41,6 +41,7 @@ import * as travelRows from "@/components/crew/sections/travelRows";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
 import * as scheduleRows from "@/components/crew/sections/scheduleRows";
+import * as todayRows from "@/components/crew/sections/todayRows";
 import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
 import { driftNote } from "@/lib/agenda/agendaPaint";
 import { agendaDisplayLabel } from "@/lib/agenda/agendaLabel";
@@ -1608,5 +1609,230 @@ describe("schedule", () => {
 
   test("overCaps premise: more show days than SHOWS_CAP", () => {
     premise("overCaps show days", overCaps.data.show.dates.showDays.length, SHOWS_CAP);
+  });
+});
+
+// ── today ───────────────────────────────────────────────────────────────────
+
+describe("today", () => {
+  const notesOf = (root: HTMLElement) => root.querySelector('[data-testid="today-notes"]');
+
+  /**
+   * The gate each case exists to flip, read off the Today render. Cases not
+   * listed flip nothing Today renders differently; their parity still runs.
+   */
+  const PREMISES: Partial<Record<string, (root: HTMLElement, c: ViewerCase) => void>> = {
+    crewNoTransport: (root, c) => {
+      premiseHolds(
+        "crewNoTransport carries a transport note",
+        Boolean(c.data.transportation?.notes),
+      );
+      premiseHolds(
+        "crewNoTransport renders no transport note and no run of show (Mode B)",
+        notesOf(root)?.querySelector('[data-source="transport"]') == null &&
+          root.querySelector('[data-testid="today-run-of-show"]') === null,
+      );
+    },
+    crewWithTransport: (root) => {
+      premiseHolds(
+        "crewWithTransport renders its transport note",
+        notesOf(root)?.querySelector('[data-source="transport"]') != null,
+      );
+      premiseHolds(
+        "crewWithTransport renders Mode A with its load-out row",
+        root.querySelector('[data-testid="today-run-of-show"] [data-entry-kind="loadout"]') !==
+          null,
+      );
+    },
+    dateSuppressed: (root) => {
+      const tonight = root.querySelector('[data-testid="today-tonight"]');
+      premiseHolds("dateSuppressed renders the Tonight card", tonight !== null);
+      premiseHolds(
+        "dateSuppressed shows no check-in date and no key times",
+        ![...tonight!.querySelectorAll("dt")].some((dt) => dt.textContent === "Check in") &&
+          root.querySelector('[data-testid="key-times-strip"]') === null,
+      );
+    },
+    overCaps: (root) => {
+      premiseHolds(
+        "overCaps drops notes past SOURCE_CAP behind the stub",
+        root.querySelector('[data-testid="today-notes-overflow"]') !== null,
+      );
+      premiseHolds(
+        "overCaps renders the carded key times (Mode B)",
+        root.querySelector('[data-testid="today-key-times"] [data-testid="key-times-strip"]') !==
+          null,
+      );
+    },
+    todayOnlyLines: (root) => {
+      premiseHolds(
+        "todayOnlyLines renders the room note and the past-cap contact note",
+        notesOf(root)?.querySelector('[data-source="room"]') != null &&
+          (notesOf(root)?.textContent ?? "").includes("Past Cap Contact"),
+      );
+    },
+    modeAToday: (root) => {
+      premiseHolds(
+        "modeAToday renders the bare strip and the merged timeline",
+        root.querySelector('[data-testid="today-mode-a-grid"]') !== null &&
+          root.querySelector('[data-testid="timeline-agenda-session"]') !== null,
+      );
+    },
+    fullContent: (root) => {
+      premiseHolds(
+        "fullContent renders the plain run-of-show list with a folded title",
+        root.querySelector(
+          '[data-testid="today-run-of-show"] [data-testid="agenda-title-truncated"]',
+        ) !== null,
+      );
+      premiseHolds(
+        "fullContent folds a long note",
+        notesOf(root)?.querySelector('li[data-truncated="true"]') != null,
+      );
+    },
+  };
+
+  test.each(ALL_CASES.map((c) => [c.name, c] as const))("%s: index equals render", (_name, c) => {
+    const root = renderSection("today", c);
+    PREMISES[c.name]?.(root, c);
+    expect(assertParity(root, build("today", c))).toEqual([]);
+  });
+
+  const at = (es: readonly SearchEntry[], region: string) =>
+    es.filter((e) => regionOf(e) === region);
+  const isShowAnchor = (e: SearchEntry) =>
+    e.label !== null && e.label !== "Set" && e.label !== "Strike";
+
+  const LINE_KINDS: readonly LineKind[] = [
+    ...(["Hotel", "Check in", "Check out"] as const).map((label, i) => ({
+      kind: `Tonight ${label} (T${i + 1})`,
+      caseName: "fullContent",
+      present: (es: readonly SearchEntry[]) =>
+        at(es, "today-tonight").some((e) => e.group === "Tonight" && e.label === label),
+    })),
+    {
+      kind: "Where Venue (T4)",
+      caseName: "fullContent",
+      present: (es) => at(es, "today-where").some((e) => e.label === "Venue"),
+    },
+    {
+      kind: "Where City (T5)",
+      caseName: "modeAToday",
+      present: (es) => at(es, "today-where").some((e) => e.label === "City"),
+    },
+    {
+      kind: "Where Address (T6)",
+      caseName: "fullContent",
+      present: (es) => at(es, "today-where").some((e) => e.label === "Address"),
+    },
+    {
+      kind: "Where Loading dock (T7)",
+      caseName: "fullContent",
+      present: (es) => at(es, "today-where").some((e) => e.label === "Loading dock"),
+    },
+    {
+      kind: "Need something contact (T8)",
+      caseName: "fullContent",
+      present: (es) => at(es, "today-contact").some((e) => e.group === "Need something"),
+    },
+    {
+      kind: "key time in the Key times card (T9-T11, Mode B)",
+      caseName: "overCaps",
+      present: (es) => at(es, "today-key-times").some((e) => e.group === "Key times"),
+    },
+    {
+      kind: "Set key time on the bare strip (T9, Mode A)",
+      caseName: "fullContent",
+      present: (es) => at(es, "none").some((e) => e.group === "" && e.label === "Set"),
+    },
+    {
+      kind: "show-day key time on the bare strip (T10, Mode A)",
+      caseName: "modeAToday",
+      present: (es) => at(es, "none").some((e) => e.group === "" && isShowAnchor(e)),
+    },
+    {
+      kind: "Strike key time on the bare strip (T11, Mode A)",
+      caseName: "fullContent",
+      present: (es) => at(es, "none").some((e) => e.group === "" && e.label === "Strike"),
+    },
+    {
+      kind: "dress code phase line (T12)",
+      caseName: "fullContent",
+      present: (es) => at(es, "today-dress").some((e) => e.label !== null),
+    },
+    {
+      kind: "dress code paragraph (T13)",
+      caseName: "modeAToday",
+      present: (es) => at(es, "today-dress").some((e) => e.label === null),
+    },
+    {
+      kind: "note folded past TRUNCATE_AT (T14)",
+      caseName: "fullContent",
+      present: (es) => {
+        const venueNote = fullContent.data.show.venue?.notes ?? "";
+        return at(es, "today-notes").some((e) => e.value === venueNote.trim());
+      },
+    },
+    {
+      kind: "room note, Today's only render site (T14)",
+      caseName: "todayOnlyLines",
+      present: (es) => at(es, "today-notes").some((e) => e.label?.startsWith("Room") === true),
+    },
+    {
+      kind: "transport note (T14, transport gate)",
+      caseName: "crewWithTransport",
+      present: (es) => at(es, "today-notes").some((e) => e.label === "Transport"),
+    },
+    {
+      kind: "run-of-show entry on the plain list (T15)",
+      caseName: "fullContent",
+      present: (es) => at(es, "today-run-of-show").some((e) => e.group === "Run of show"),
+    },
+    {
+      kind: "crew entry on the merged timeline (T16)",
+      caseName: "modeAToday",
+      present: (es) => {
+        const crew = Object.values(caseNamed(ALL_CASES, "modeAToday").data.runOfShow ?? {}).flatMap(
+          (d) => d.entries,
+        );
+        return at(es, "today-run-of-show").some((e) => crew.some((r) => r.title === e.value));
+      },
+    },
+    {
+      kind: "agenda session on the merged timeline (T17)",
+      caseName: "modeAToday",
+      present: (es) => {
+        const sessions = caseNamed(ALL_CASES, "modeAToday").data.show.agenda_links.flatMap(
+          (l) => normalizeAgendaExtraction(l.extracted)?.days.flatMap((d) => d.sessions) ?? [],
+        );
+        return at(es, "today-run-of-show").some((e) =>
+          sessions.some((s) => s.title === e.value && s.time === e.label),
+        );
+      },
+    },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind reached: %s", (_kind, k) => {
+    const c = caseNamed(ALL_CASES, k.caseName);
+    expect(k.present(build("today", c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing Today derivation renders the fallback and builds nothing", () => {
+    // Today's whole body is one WrappedSection, so a fault anywhere in its
+    // derivation replaces every card: no target renders and no entry is built.
+    // Green against a stub builder by construction; the builder-without-guard
+    // mutant (recorded in the commit) is what proves this case can fail.
+    vi.spyOn(todayRows, "todayRows").mockImplementation(() => {
+      throw new Error("planted Today derivation fault");
+    });
+    const root = renderSection("today", fullContent);
+    premiseHolds(
+      "the section renders its fallback and no card",
+      root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
+        root.querySelector("[data-card-id]") === null,
+    );
+    const entries = build("today", fullContent);
+    expect(entries).toEqual([]);
+    expect(assertParity(root, entries)).toEqual([]);
   });
 });

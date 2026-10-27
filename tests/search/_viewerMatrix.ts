@@ -483,6 +483,8 @@ export const modeAToday = makeCase(
       },
     } satisfies Record<string, ScheduleDay>,
     show: {
+      // A geocoded city, so Today's Where card renders its City row.
+      venue: { name: "Grand Hall", address: "123 Main St", city: "Chicago" },
       event_details: {
         ...BASE_EVENT_DETAILS,
         dress_code: "All black, no logos. Closed-toe shoes on the floor.",

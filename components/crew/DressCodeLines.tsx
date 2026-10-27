@@ -37,10 +37,27 @@
  */
 import { parseDressCodeLines } from "@/lib/crew/dressCodeLines";
 
-export function DressCodeLines({ value }: { value: string }) {
+export function DressCodeLines({
+  value,
+  searchTargets,
+}: {
+  value: string;
+  /**
+   * Search target ids from the crew Today card: one per phase line, or one for
+   * the paragraph. Absent (the admin step-3 row) renders no search markers.
+   */
+  searchTargets?: readonly (string | undefined)[];
+}) {
   const lines = parseDressCodeLines(value);
   if (lines === null) {
-    return <p className="whitespace-pre-line wrap-break-word text-sm/relaxed text-text">{value}</p>;
+    return (
+      <p
+        data-search-target={searchTargets?.[0]}
+        className="whitespace-pre-line wrap-break-word text-sm/relaxed text-text"
+      >
+        {value}
+      </p>
+    );
   }
   return (
     <div className="@container">
@@ -48,6 +65,7 @@ export function DressCodeLines({ value }: { value: string }) {
         {lines.map(({ phase, attire }, idx) => (
           <div
             key={idx}
+            data-search-target={searchTargets?.[idx]}
             className="grid grid-cols-1 gap-y-1 @sm:col-span-2 @sm:grid-cols-subgrid @sm:items-baseline"
           >
             <dt className="wrap-break-word text-sm font-semibold text-text-strong">{phase}</dt>

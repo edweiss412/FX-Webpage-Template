@@ -6,6 +6,7 @@ import { buildBudgetEntries } from "./budget";
 import { buildCrewEntries } from "./crew";
 import { buildGearEntries } from "./gear";
 import { buildScheduleEntries } from "./schedule";
+import { buildTodayEntries } from "./today";
 import { buildTravelEntries } from "./travel";
 import { buildVenueEntries } from "./venue";
 
@@ -20,7 +21,7 @@ import { buildVenueEntries } from "./venue";
  * render), plus what the shell computes once: `budgetVisible`
  * (`financialsVisible(...)`) and `staticPreview`.
  *
- * Every builder is a stub returning `[]` until its section task replaces it.
+ * Each section task replaced its stub with the section's own builder.
  * Builders import only from modules without `"use client"`: a value imported
  * from a client module is a client reference on the server, not the value.
  */
@@ -34,10 +35,8 @@ export type SectionBuildInput = {
 
 export type SectionBuilder = (input: SectionBuildInput) => SearchEntry[];
 
-const notYetBuilt: SectionBuilder = () => [];
-
 export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
-  today: notYetBuilt,
+  today: buildTodayEntries,
   schedule: buildScheduleEntries,
   venue: buildVenueEntries,
   travel: buildTravelEntries,

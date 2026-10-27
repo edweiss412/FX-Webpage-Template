@@ -161,6 +161,18 @@ describe("clause 2: nothing extra in the entry", () => {
     ]);
   });
 
+  it("an empty group passes where the region has no group heading at all", () => {
+    // Spec §2.3 clause 2: Today's Mode A key-times strip renders bare, outside
+    // every card, so its region has no heading and its entries' group is "".
+    const html = `<dl><div data-search-target="t-set"><dt>Set</dt><dd>6:00 AM</dd></div></dl>`;
+    const set = entry({ id: "t-set", section: "today", group: "", label: "Set", value: "6:00 AM" });
+    expect(check(html, [set])).toEqual([]);
+  });
+
+  it("an empty group fails where the region has a group heading", () => {
+    expect(check(BASE_HTML, withEntry("t-dock", { group: "" }))).toEqual(["group-not-in-region"]);
+  });
+
   it("a context string found only in another region", () => {
     expect(check(BASE_HTML, withEntry("t-dock", { context: ["FOH plot"] }))).toEqual([
       "context-not-in-region",

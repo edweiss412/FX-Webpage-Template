@@ -7,13 +7,18 @@ import { describe, expect, it } from "vitest";
 // value SOURCE for all four sections, CALL-SCOPED: the literals must live INSIDE the
 // transportTileVisible({ ... }) object, not merely somewhere in the file (a comment / unused
 // object could satisfy a file-wide regex while the real call passes null).
+//
+// Today's call moved to its sibling rows module (todayRows.ts), which the section and
+// its search builder share; the Schedule search builder makes its own call, mirroring
+// the section's, so it is pinned the same way.
 const FILES: ReadonlyArray<{ name: string; file: string }> = [
   { name: "ScheduleSection", file: "components/crew/sections/ScheduleSection.tsx" },
-  { name: "TodaySection", file: "components/crew/sections/TodaySection.tsx" },
+  { name: "TodaySection", file: "components/crew/sections/todayRows.ts" },
   { name: "TravelSection", file: "components/crew/sections/TravelSection.tsx" },
   // Since crew search (2026-10-26) VenueSection's call lives in its rows module,
   // which the search builder shares; the delegation itself is pinned below.
   { name: "VenueSection", file: "components/crew/sections/venueRows.ts" },
+  { name: "Schedule search builder", file: "lib/search/sections/schedule.ts" },
 ];
 
 describe("transport tile gate is wired from data, not a stale literal", () => {

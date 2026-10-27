@@ -469,6 +469,9 @@ export function RightNowHero({ context }: RightNowHeroProps) {
   return (
     <section
       data-testid="right-now-hero"
+      // A live-clock summary of lines the page shows elsewhere: outside search
+      // coverage (spec §2.5).
+      data-search-skip=""
       data-degraded={degraded ? "true" : "false"}
       data-stale={isStale ? "true" : "false"}
       data-prefers-reduced-motion={
