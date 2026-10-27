@@ -166,7 +166,7 @@ Red because `CrewSection` renders no `data-search-target` and lib/search/section
 
 Red because `VenueSection` renders no `data-search-target` and lib/search/sections/venue.ts does not exist, so the venue parity case reports a coverage violation on every text node. Follows the section task shape above.
 
-- Where, Facilities (Wi-Fi network and password with `copy`), status, gallery. `INITIAL_VISIBLE` and the fallback-name decision live in DiagramsBlock.tsx/Gallery.tsx; thumbnails are image targets.
+- Where, Facilities (Wi-Fi network and password with `copy`), status, gallery. `INITIAL_VISIBLE` comes from components/diagrams/galleryLimits.ts (Task 5); the fallback-name decision lives in `components/crew/DiagramsBlock.tsx`; thumbnails are image targets.
 
 ## Task 9: Travel section entries
 
@@ -182,7 +182,7 @@ Red because `TravelSection` renders no `data-search-target` and lib/search/secti
 
 Red because `GearSection` renders no `data-search-target` and lib/search/sections/gear.ts does not exist, so the gear parity case reports a coverage violation on every text node. Follows the section task shape above.
 
-- scope cards per discipline (audio, video, lighting, scenic, other), group = discipline, label = room; pack list when `isPackListVisibleToday`; tech specs; room details; keynote; opening reel. CardinalityCapBoundary.test.tsx imports the newly exported caps instead of reading source.
+- scope cards per discipline (audio, video, lighting, scenic, other), group = discipline, label = room; pack list when `isPackListVisibleToday`; tech specs; room details; keynote; opening reel. Caps were exported and the cap guard migrated in Task 5.
 
 ## Task 11: Schedule section entries
 
