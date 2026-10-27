@@ -347,7 +347,7 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
     messageParams: {
       "sheet-name": "'II - RIA Investment Forum'",
       "role-changes": "Doug Larson's role changed from A1 to A1 + LEAD.",
-      "lead-hint": " Leads can see the show's financials.",
+      "lead-hint": " Leads can see the show's financials. If that's wrong, fix it in the sheet.",
     },
     actions: [
       { label: "Review in show page", href: "/admin?show=ria-forum", external: false },
@@ -368,7 +368,7 @@ describe("condensed inline-context rows (spec 2026-07-17)", () => {
     // is split across elements — assert the block's concatenated textContent.
     const block = screen.getByTestId(`bell-msg-${roleFlagsEntry.alertId}`);
     expect(block.textContent).toContain(
-      "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Leads can see the show's financials.",
+      "In 'II - RIA Investment Forum', Doug Larson's role changed from A1 to A1 + LEAD. Leads can see the show's financials. If that's wrong, fix it in the sheet.",
     );
     // And the identity name IS bold (name-tier, not the prose).
     expect(block.querySelector("strong")?.textContent).toBe("'II - RIA Investment Forum'");
@@ -525,7 +525,7 @@ describe("WI-3 BellPanel identity-bold wiring", () => {
     messageParams: {
       "sheet-name": "'East Coast'",
       "role-changes": "Doug's role changed from A1 to A1 + LEAD.",
-      "lead-hint": " Leads can see the show's financials.",
+      "lead-hint": " Leads can see the show's financials. If that's wrong, fix it in the sheet.",
     },
   });
 
