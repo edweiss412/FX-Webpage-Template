@@ -472,7 +472,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   above it)
     // Same `tile-errors` row, still marked. Nothing joined or left: membership is still
     // 34, and recomputing on the branch's base reproduces 6c20e86f... byte-for-byte.
-    expect(digest).toBe("8aceadb3b7d10b8f4e2c3b9d1390b3d3776f0bf2484156873f59157e1036c765");
+    // Regenerated for the crew search Travel section task, to the same bar. EXACTLY TWO
+    // inputs changed, both line numbers, in the one file of this set the task edits:
+    //   components/crew/sections/TravelSection.tsx 700/701 -> 484/485 (-216: the row
+    //   derivations move to the sibling module sections/travelRows.ts)
+    // The same transportation / hotel `tile-errors` rows, still marked. Nothing joined or
+    // left: membership is still 34, and reverting those two rows reproduces 8aceadb3...
+    // byte-for-byte.
+    expect(digest).toBe("d2955fca7d759ab3cb8a4b8aaaf56223f1db3bd45e82b983a0f463fee310884c");
   });
 });
 

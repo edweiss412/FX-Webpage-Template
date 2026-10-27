@@ -800,7 +800,14 @@ export function scanCandidates(): Candidate[] {
       // branch, so the 78 below is unchanged. Re-derived by running the guard on
       // the branch after merging origin/main (main itself still computes 745).
       //
-      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // 747 -> 743 on the crew search Travel section task: TravelSection's
+      // driver, load-out and vehicle rows (three `hasX && xPrimary ? <TravelRow/>`
+      // ternaries) became one `.map` over derived rows with `if` branches, and the
+      // driver and load-out meta ternaries (`lines.length > 0 ? <span/>`) became
+      // one. Four fewer JSX-bearing ternaries, none a fault branch, so the 78
+      // below is unchanged. Re-derived by running the guard on the branch.
+      //
+      // Probed: 743 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

@@ -270,7 +270,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // warnings the same way the show pop-up does. A pure partition over a fingerprint
     // set, no clock read. 222 -> 223.
     expect(rel).toContain("lib/dataQuality/partitionByIgnored.ts");
-    expect(rel.length).toBe(223);
+    // Joined, from the crew search Travel section task: lib/search/entryId.ts and
+    // lib/search/normalize.ts, now imported by components/crew/sections/travelRows.ts,
+    // the Travel row derivations TravelSection renders from. A content hash and a
+    // tokenizer, no clock read. 223 -> 225.
+    expect(rel).toContain("lib/search/entryId.ts");
+    expect(rel).toContain("lib/search/normalize.ts");
+    expect(rel.length).toBe(225);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

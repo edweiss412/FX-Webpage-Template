@@ -727,6 +727,24 @@ export const fullContent = makeCase(
   }),
 );
 
+/**
+ * The viewer's own flight, for a viewer whose dates are NOT suppressed, so the
+ * Travel flight card renders every line `hideDates` strips (`dateSuppressed`
+ * carries a flight too, with those lines withheld): a TRAVEL-shaped first leg
+ * whose leading token is the itinerary-level "Confirmation", a TECH-shaped
+ * second leg with a trailing per-segment "Conf", and a third part with no date,
+ * which renders as its raw line. The second leg is after `MATRIX_TODAY`, so it
+ * carries the "Next" chip.
+ */
+export const flightVisible = makeCase(
+  "flightVisible",
+  CREW_VIEWER,
+  base({
+    viewerFlightInfo:
+      "HQ7PNR 5/13 AA3002 LGA - ORD 7:00am - 9:30am | ORD-LGA UNITED 5/16 - 6:05pm - 9:15pm GEUZAB | Hotel shuttle from baggage claim",
+  }),
+);
+
 export const ALL_CASES: readonly ViewerCase[] = [
   crewNoTransport,
   crewWithTransport,
@@ -741,4 +759,5 @@ export const ALL_CASES: readonly ViewerCase[] = [
   wifiNotes,
   modeAToday,
   fullContent,
+  flightVisible,
 ];

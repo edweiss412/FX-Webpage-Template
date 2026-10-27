@@ -35,14 +35,19 @@ const CREW_DIRS = [
   join("components", "crew", "primitives"),
 ];
 
-/** Recursively collect `.tsx` files under `dir` (repo-relative). [] if absent. */
+/**
+ * Recursively collect `.tsx` and `.ts` files under `dir` (repo-relative). [] if
+ * absent. `.ts` because a section's row derivations live in a sibling non-client
+ * module (e.g. `sections/travelRows.ts`, crew search plan) that the section's
+ * `WrappedSection` render path calls, so it is held to the same contract.
+ */
 function walkTsx(dir: string): string[] {
   if (!existsSync(dir)) return [];
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...walkTsx(full));
-    else if (entry.endsWith(".tsx")) out.push(full);
+    else if (entry.endsWith(".tsx") || entry.endsWith(".ts")) out.push(full);
   }
   return out;
 }

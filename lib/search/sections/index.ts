@@ -2,6 +2,8 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import type { SearchEntry } from "@/lib/search/types";
 
+import { buildTravelEntries } from "./travel";
+
 /**
  * Per-section search index builders (spec §2.4).
  *
@@ -33,7 +35,7 @@ export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   today: notYetBuilt,
   schedule: notYetBuilt,
   venue: notYetBuilt,
-  travel: notYetBuilt,
+  travel: buildTravelEntries,
   crew: notYetBuilt,
   gear: notYetBuilt,
   budget: notYetBuilt,

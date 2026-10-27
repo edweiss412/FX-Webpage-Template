@@ -93,9 +93,12 @@ const TILES_DIR = join(REPO_ROOT, "components", "tiles");
  * fields without routing through `shouldHideGenericOptional` fails at CI
  * (rather than as a future adversarial-review finding).
  *
- * Each entry is walked recursively for `.tsx` files. A directory that does
- * not yet exist (e.g. `components/crew/sections/` before the sections land)
- * is simply skipped — the walk extends as those trees fill in.
+ * Each entry is walked recursively for `.tsx` and `.ts` files: a section's row
+ * derivations live in a sibling non-client module (e.g.
+ * `sections/travelRows.ts`, crew search plan), and the reads moved there must
+ * stay under this contract. A directory that does not yet exist (e.g.
+ * `components/crew/sections/` before the sections land) is simply skipped —
+ * the walk extends as those trees fill in.
  */
 const CREW_DIRS: ReadonlyArray<string> = [
   join(REPO_ROOT, "components", "crew", "sections"),
@@ -332,8 +335,8 @@ const NON_TILE_FILES = new Set<string>([
 ]);
 
 /**
- * Recursively collect `.tsx` files under `dir`, returning each as a path
- * RELATIVE to `REPO_ROOT` (so `readTileSource` resolves it from the root
+ * Recursively collect `.tsx` and `.ts` files under `dir`, returning each as a
+ * path RELATIVE to `REPO_ROOT` (so `readTileSource` resolves it from the root
  * regardless of which base dir it came from). A non-existent dir yields [].
  */
 function walkTsxFiles(dir: string): string[] {
@@ -343,7 +346,7 @@ function walkTsxFiles(dir: string): string[] {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
       out.push(...walkTsxFiles(full));
-    } else if (entry.endsWith(".tsx")) {
+    } else if (entry.endsWith(".tsx") || entry.endsWith(".ts")) {
       out.push(full.slice(REPO_ROOT.length + 1));
     }
   }
@@ -353,7 +356,7 @@ function walkTsxFiles(dir: string): string[] {
 /**
  * Returns every tile + crew section/primitive file as a repo-root-relative
  * path, with the NON_TILE_FILES exemption (matched on basename) applied and
- * the `.tsx` filter enforced.
+ * the tiles' `.tsx` filter enforced.
  */
 function listTileFiles(): string[] {
   const tiles = readdirSync(TILES_DIR)
