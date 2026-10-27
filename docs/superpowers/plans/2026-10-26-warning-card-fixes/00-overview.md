@@ -304,6 +304,110 @@ The other 16 files carry no judgment code; no change.
 
 writing-plans requires a layout-dimensions task (§13) and a transition-audit task (§14, §14.1). Written after the code they measure, both would pass the moment they are authored, which the red-contract rejects. So the real-browser DI assertions are the RED of the two tasks that build the host rows (Task 7: wizard title row, DI-1 to DI-11; Task 9: compact card message row, DI-C1 to DI-C9), and the §14 transition audit with its deferred-response probe is the RED of the task that builds the reading model (Task 14), which also pastes and re-asserts §14.1 over the archived row Task 13 built. Each of those task bodies pastes its spec table verbatim.
 
+## Spec coverage: §14, §14.1 and every named boundary (derived, no empty cell)
+
+Rows are derived from the spec text, never typed from memory. With the shell variable S set to `docs/superpowers/specs/2026-10-26-warning-card-fixes-design.md`:
+
+```
+sed -n '/^## 14\. /,/^### 14\.1 /p' $S | grep -cE '^\| \*\*[A-Z]\*\* '      # §14 states             -> 5
+sed -n '/^## 14\. /,/^### 14\.1 /p' $S | grep -cE '^\| [A-Z] → '            # §14 pair rows          -> 18
+sed -n '/^## 14\. /,/^### 14\.1 /p' $S | grep -cE '^[0-9]+\. \*\*'          # §14 sequences          -> 13
+sed -n '/^### 14\.1 /,/^### 14\.2 /p' $S | grep -oE '\*\*[A-Z]\*\* [A-Za-z]' | wc -l   # §14.1 states -> 3
+sed -n '/^### 14\.1 /,/^### 14\.2 /p' $S | grep -cE '^\| [A-Z] → '         # §14.1 pairs            -> 6
+sed -n '/^### 14\.1 /,/^### 14\.2 /p' $S | grep -cE '^[0-9]+\. \*\*'       # §14.1 compounds        -> 5
+sed -n '/^## 20\. /,$p' $S | grep -E '^\| ' | grep -vcE '^\| (Name|---)'      # §20 named values       -> 13
+grep -cE '0 <= index|>= hotelCount|i < shown.length|cap\+1|more than three|at most|n > cap|n ≤ cap|longer than|0 →|1 →|`1 accepted.`|isSafeInteger' $S   # boundary lines -> 9
+sed -n '/^Counts stated in prose/p' $S | grep -oE '(seven|six|five|four|three|two) ' | wc -l   # §20 prose counts -> 9
+```
+
+81 rows. Each names the task, the test (by its `it(...)` title or case label) and the new code path it goes through: the reading provider (P), the archived-row wrapper (W), the published bulk path (B), or the module or component named.
+
+| # | Spec row | Task | Test that exercises it | Path |
+|---|---|---|---|---|
+| 1 | §14 state C | 14 | `§14 pair D → C`, `§14 pair V → C` (C asserted: persisted row checked, `Accept`) | P |
+| 2 | §14 state D | 14 | `§14 pair C → D` (draft checked, `Save`, `Cancel`, `Not saved yet`) | P |
+| 3 | §14 state S | 14 | `§14 pair C → S`, `§14 pair D → S` (`Accepting…` / `Saving…`, disabled, rows `aria-disabled`) | P |
+| 4 | §14 state V | 14 | `§14 pair S → V` (submitted row checked, `Selected` marker, rows `aria-disabled`) | P |
+| 5 | §14 state E | 14 | `§14 pair S → E` (`role="alert"` copy) | P |
+| 6 | §14 pair C → D | 14 | `§14 pair C → D` | P |
+| 7 | §14 pair D → C | 14 | `§14 pair D → C` (Cancel; select persisted; reconciliation), focus on main button | P |
+| 8 | §14 pair C → S | 14 | `§14 pair C → S` | P |
+| 9 | §14 pair S → C | 14 | `§14 pair S → C` (plain Accept, row stays) | P |
+| 10 | §14 pair D → S | 14 | `§14 pair D → S` | P |
+| 11 | §14 pair S → D (unreachable) | 14 | `§14 pair S → D` (select while busy changes nothing) | P |
+| 12 | §14 pair C → V (unreachable) | 14 | `§14 pair C → V` (`submitted` never set from C) | P |
+| 13 | §14 pair V → C | 14 | `§14 pair V → C` (reconciliation) | P |
+| 14 | §14 pair D → V (only through S) | 14 | `§14 pair D → V` (no V without an S step) | P |
+| 15 | §14 pair V → D (unreachable) | 14 | `§14 pair V → D` (rows `aria-disabled`) | P |
+| 16 | §14 pair S → V | 14 | `§14 pair S → V` | P |
+| 17 | §14 pair V → S | 14 | `§14 pair V → S` (accept retry) | P |
+| 18 | §14 pairs C/D/V → E (only through S) | 14 | `§14 pair C/D/V → E` (no alert without an S step) | P |
+| 19 | §14 pair S → E | 14 | `§14 pair S → E` (failed Save; failed accept) | P |
+| 20 | §14 pair E → C | 14 | `§14 pair E → C` | P |
+| 21 | §14 pair E → D | 14 | `§14 pair E → D` | P |
+| 22 | §14 pair E → S | 14 | `§14 pair E → S` | P |
+| 23 | §14 pair E → V (unreachable directly) | 14 | `§14 pair E → V` | P |
+| 24 | §14 seq 1 full success, delayed refresh | 14 | `§14 seq 1` (checked `r` after reading ok, after accept ok, during delayed refresh) | P |
+| 25 | §14 seq 2 accept fails after the reading saved | 14 | `§14 seq 2` | P |
+| 26 | §14 seq 3 retained rows | 14 | `§14 seq 3` (`mode="ignored"`: `Reading saved.`, no accept request) | P |
+| 27 | §14 seq 4 select back, then an external save | 14 | `§14 seq 4` (no `Save` after the external change) | P |
+| 28 | §14 seq 5 failed save, refresh equals draft, external revert | 14 | `§14 seq 5` | P |
+| 29 | §14 seq 6 refresh during D, `P` unchanged | 14 | `§14 seq 6` | P |
+| 30 | §14 seq 7 select attempted during V | 14 | `§14 seq 7` | P |
+| 31 | §14 seq 8 warning disappears during D or V | 14 | `§14 seq 8: the row unmounting during D or V writes nothing more` | P |
+| 32 | §14 seq 9 Report modal opened during D | 14 | `§14 seq 9: opening Report during D keeps the draft` | P |
+| 33 | §14 seq 10 modal closes during S | 14 | `§14 seq 10: closing the modal during S lets the in-flight request complete` (accept continuation unasserted, ambiguity 8) | P |
+| 34 | §14 seq 11 published bulk accept during D | 15 | `§14 seq 11: a published bulk accept during D drops the unsaved draft` | B + P |
+| 35 | §14 seq 12 pending-apply note during D or V | 14 | `§14 seq 12: the pending-apply note follows persisted state only` | P |
+| 36 | §14 seq 13 refresh lands without moving `P` | 14 | `§14 seq 13` (stays V, rows `aria-disabled`, then C on the next change) | P |
+| 37 | §14.1 state I | 13, 14 | `§14.1 row lock` (both enabled before any press); `§14.1 pair N → I` | W |
+| 38 | §14.1 state N | 13, 14 | `§14.1 row lock` (include `Including…`, Ignore disabled, Report enabled); `§14.1 pair I → N` | W |
+| 39 | §14.1 state G | 13, 14 | `§14.1 row lock` (include disabled with idle label); `§14.1 pair I → G` | W |
+| 40 | §14.1 pair I → N | 14 | `§14.1 pair I → N` | W |
+| 41 | §14.1 pair N → I | 14 | `§14.1 pair N → I` (failure; success re-enables before refresh) | W |
+| 42 | §14.1 pair I → G | 14 | `§14.1 pair I → G` | W |
+| 43 | §14.1 pair G → I | 14 | `§14.1 pair G → I` | W |
+| 44 | §14.1 pair N → G (unreachable) | 13, 14 | `§14.1 row lock` (Ignore click sends 0 requests during N); `§14.1 pair N → G` | W |
+| 45 | §14.1 pair G → N (unreachable) | 13, 14 | `§14.1 row lock` (include click sends no `fetch` during G); `§14.1 pair G → N` | W |
+| 46 | §14.1 c1 include succeeds, refresh not landed | 14 | `§14.1 c1` | W |
+| 47 | §14.1 c2 Ignore succeeds, refresh not landed | 13 | `§14.1 c2: an archived Ignore success hands focus to the panel before the refresh` | W |
+| 48 | §14.1 c3 same tab included from another placement during N | 14 | `§14.1 c3` (two POSTs, each its own request, asserted by URL) | W |
+| 49 | §14.1 c4 Report opened during N or G | 13 | `§14.1 c4: Report stays usable during N and G and unmounts with the row` | W |
+| 50 | §14.1 c5 `ArchivedTabOffer` during an include | 13 | case 5, shared pending (`Keep skipped` disabled for the whole request) | `ArchivedTabOffer` via `ArchivedTabIncludeButton` |
+| 51 | §20 `SHEET_SAYS_CAP` 160 | 4, 10 | `B-SHEET` rows 159 / 160 / 160+`y`; Task 10 render of 160+`y` | module; `UseRawControl` |
+| 52 | §20 `WE_READ_NAMES_CAP` 6 | 4, 10 | `B-NAMES` rows 5 / 6 / 7 names; Task 10 render of 7 names | module; `UseRawControl` |
+| 53 | §20 `CASE_PREVIEWS_CAP` 3 | 4, 13 | `B-CASES` rows 2 / 3 / 4 / 5 previews; Task 13 case 1 card with 3 and 4 previews (literals) | module; W |
+| 54 | §20 `CASE_PREVIEW_CHARS` 40 | 4, 13 | `B-CHARS` rows 39 / 40 / 40+`b`; Task 13 case 1 card with 40+`b` | module; W |
+| 55 | §20 `HOTELS_CAP` 12 | 16, 17 | `B-HOTELS-CAP` (13-hotel list: index 11 marked, 12 not); `B-JUMP-INDEX` via the real spread (11 → reservation, 12 → `Go to Hotels`) | marker; staged spread |
+| 56 | §20 `MAX_HOTELS` 4 | 16 | `B-MAX-HOTELS` (five rows parse to four; parsed indices stay below `HOTELS_CAP`) | parser feeding the marker |
+| 57 | §20 `--spacing-tap-min` 44px | 7, 9, 13, 15, 16, 17 | DI-1, DI-C1; e2e rect height ≥ 44 for include, Save, Cancel, marker jump, card jumps | real browser |
+| 58 | §20 `--spacing-tile-pad` 20px | 7 | CSS premise (panel `padding-left` 20px) and DI-8 | real browser |
+| 59 | §20 compact row link spacing 22 / 14 px | 9 | DI-C6, DI-C7, DI-C8 | `CompactAlertCard` |
+| 60 | §20 help trigger overlay 11px | 9 | DI-C6 hit tests | `CompactAlertCard` |
+| 61 | §20 venue label columns `i` in [0, 1] | 2 | cases 1 (`i = 1`, 3-column), 2 (`i = 0`, 2-column), 4 (both resolve → `i = 0`) | venue anchor |
+| 62 | §20 venue block header | 2 | case 4 (no `VENUE` header row → `null`); case 1 (header found) | venue anchor |
+| 63 | §20 include label / pending constants | 13 | case 3 literal pin and every-placement labels | W, `ArchivedTabOffer`, published offer |
+| 64 | spec line 337: marker index rule | 16 | `B-INDEX` (0, `shown.length - 1` marked; `shown.length`, -1, NaN, 1.5, absent not) | marker |
+| 65 | spec line 382: `sheetSaysText` definition | 4 | `B-SHEET` | module |
+| 66 | spec line 383: `weReadGuestsText` definition | 4 | `B-NAMES` (0, 1, cap-1, cap, cap+1; blanks; non-strings) | module |
+| 67 | spec line 420: bulk chip copy | 11 | judgment group chip text and accessible names per state | B |
+| 68 | spec line 541: `Cases` line only with at least one preview | 13 | `B-PRESENCE` (no previews → no line; one → line) | W |
+| 69 | spec line 608: card jump index range | 17 | `B-JUMP-INDEX` (0 and `hotelCount - 1` → reservation; `hotelCount`, -1, NaN, 1.5 → Hotels) | card jump |
+| 70 | spec line 670: `1 accepted.` / `<n> accepted.` | 11 | `B-BULK` groups of 1, 2, 3 | B |
+| 71 | spec line 833: `blockRef.index` guard row | 16, 17 | `B-INDEX`, `B-JUMP-INDEX` | marker; card jump |
+| 72 | spec line 869: §16.1 cap table row | 4 | `B-SHEET`, `B-NAMES`, `B-CASES` | module |
+| 73 | §20 count: seven judgment codes | 4, 5 | `isJudgmentCall` rows; Task 5 guard iterates all of `AMBIGUITY_CODES` | module; catalog |
+| 74 | §20 count: four radio codes | 4 | `USE_RAW_CODES` size 4, each in `AMBIGUITY_CODES` | module |
+| 75 | §20 count: four hotel reservation codes | 4 | `HOTEL_RESERVATION_JUDGMENT_CODES` size 4, each in `AMBIGUITY_CODES` | module |
+| 76 | §20 count: three catalog rows | 5 | the three `EXPECTED_HELPFUL_CONTEXT` rows and the hotel pin | catalog |
+| 77 | §20 count: six lockstep places | 5 | one commit carrying all six files; x1 parity, `_metaWarningCardCopy`, the hotel pin | catalog |
+| 78 | §20 count: three warning text-link sites | 7, 9 | no `Open in Sheet` text on the wizard row (Task 7), `PerShowActionableWarnings` and `NoteWarningCard` (Task 9) | wizard row; adapters |
+| 79 | §20 count: four `CompactAlertCard` consumers | 9 | two adapters pass `sheetLink`; DI-C2 literal class on `HealthAlertsPanel` and `AttentionBanner` | `CompactAlertCard` |
+| 80 | §20 count: two disclosures per surface | 12 | wizard and published split cases | both surfaces |
+| 81 | §20 count: five transition states | 14 | rows 1 to 5 above | P |
+
+No spec row lacked a feasible test. One row is only partly decidable: §14 sequence 10 does not say whether the accept request may start after the tree unmounts, so row 33 pins completion and no-throw only (ambiguity 8).
+
 ## Spec ambiguities, resolutions and builder's calls
 
 1. **RESOLVED by spec R14 (orchestrator relaying Eric, 2026-10-26).** The round-0 venue lookup went through the UNKNOWN_FIELD scan and reached no committed workbook that raises the warning (all 3-column). The spec now derives the anchor from the venue grid block itself, at label column 0 or 1, so the 3-column layout links its empty value cell; the generic scan is unchanged. Remaining limits (combined `VENUE NAME/VENUE ADDRESS` label row, horizontal header-table layout, a venue table with no `VENUE` header row, unread labels) fall back to the region (spec §17 L1-L3). Task 2 implements and tests it.
@@ -316,6 +420,7 @@ writing-plans requires a layout-dimensions task (§13) and a transition-audit ta
 5. **Save + accept announcement** is `Reading saved. Judgment call accepted.`, from §11 (§6.3 rule 4 only says "announce").
 6. **Census coverage beyond §16.3** (sweep S1, S2): `tests/help/_metaRenderFaultMarking.test.ts` and the inline census in `tests/styles/_metaControlOutlineResidue.test.ts` also key on moved lines; `tests/components/step3SheetCard.test.tsx` and `tests/components/admin/parsePanelComposition.test.tsx` pin the removed link and word. All are in tasks.
 7. **`ArchivedTabIncludeButton` gets an optional `testId` prop** (§7.3 names the card's testid, not the prop); Pack list and the Resolve box keep their testids on the wrapping `ArchivedTabOffer`.
+8. **§14 sequence 10 is silent on one point (an open question, not decided here):** it says the in-flight requests complete when the modal closes during S, but not whether the ACCEPT request that follows a successful reading may still start once the tree is gone. Task 14's case pins completion and no-throw only; deciding the accept continuation is the spec author's call.
 
 ## Task index
 
