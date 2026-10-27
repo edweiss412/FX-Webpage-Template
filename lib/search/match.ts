@@ -92,6 +92,16 @@ export function prepareIndex(index: SearchIndex): PreparedIndex {
 }
 
 /**
+ * Whether a query is long enough to run a match (spec §5.2): at least 2
+ * normalized characters. The search UI reads this to tell its Hint state (too
+ * short to search) from No match (searched, nothing found), which `searchIndex`
+ * alone cannot, since both return an empty result.
+ */
+export function isSearchableQuery(query: string): boolean {
+  return queryTokens(query) !== null;
+}
+
+/**
  * Query tokens after the stop-word rule, or null when the query is under the
  * 2-character floor. The floor counts normalized characters (token text only),
  * so punctuation and spaces never lift a 1-letter query over it.

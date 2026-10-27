@@ -807,7 +807,14 @@ export function scanCandidates(): Candidate[] {
       // one. Four fewer JSX-bearing ternaries, none a fault branch, so the 78
       // below is unchanged. Re-derived by running the guard on the branch.
       //
-      // Probed: 743 such ternaries under the derived roots, 78 on a
+      // 743 -> 746 on feat/crew-show-search (Task 15): three JSX-bearing
+      // ternaries, none a fault branch: Header's optional `search` row, and the
+      // search field's clear button and Cancel button, each rendered only in its
+      // state. Re-derived by running the meta-test on the tree merged with the
+      // section tasks, which computed 746 (the branch's own base read 747 -> 750);
+      // the 78 is unchanged.
+      //
+      // Probed: 746 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

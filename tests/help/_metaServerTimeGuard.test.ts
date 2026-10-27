@@ -285,7 +285,16 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // components/crew/sections/scheduleRows.ts, the rows module ScheduleSection and its
     // search builder share. Already members through travelRows.ts, so nothing joins:
     // 225 -> 225, re-derived on the merged tree.
-    expect(rel.length).toBe(225);
+    // Joined, from feat/crew-show-search (Task 15): lib/search/match.ts (the
+    // matcher, imported by components/crew/search/CrewSearchProvider.tsx) and
+    // lib/search/copy.ts (the search UI's strings, imported by
+    // components/crew/search/CrewSearchField.tsx). Pure: no clock read in
+    // either. 225 -> 227, re-derived on the merged tree by running this guard
+    // (the Task 15 branch read 223 -> 225 on its own base, before the section
+    // tasks' entryId.ts and normalize.ts joined).
+    expect(rel).toContain("lib/search/match.ts");
+    expect(rel).toContain("lib/search/copy.ts");
+    expect(rel.length).toBe(227);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
