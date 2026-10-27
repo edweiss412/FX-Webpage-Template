@@ -442,7 +442,7 @@ Offline ("You're offline. Info from 6:05 AM.") and search empty results ("No mat
 - Day buttons: "Sun Jun 14, show day 1" (plus `aria-pressed`). The "Now" button: "Now, your live status".
 - Copy buttons: "Copy Wi-Fi details", "Copy hotel confirmation number".
 - Sheet close: "Close" + the section name ("Close crew").
-- Theme switch: "Switch to dark mode" / "Switch to light mode" (existing `ThemeToggle`, unchanged).
+- Theme switch: the existing `ThemeToggle`, unchanged: accessible name "Dark mode" with `aria-pressed` reporting whether dark is on (`components/layout/ThemeToggle.tsx:122-124`), the same toggle model as the avatar menu's checkbox.
 - Call and text buttons: "Call Dana Ortiz", "Text Dana Ortiz".
 
 ## 10. Flag lifecycle

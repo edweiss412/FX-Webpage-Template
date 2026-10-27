@@ -14,25 +14,25 @@ The criteria live in the spec (§13); this plan claims them by task.
 
 | Spec criterion | Task(s) |
 |---|---|
-| AC-1 compact order | Task 12 |
+| AC-1 compact order | Task 12, Task 13 |
 | AC-2 sheet open/close/Back | Task 7, Task 8 |
 | AC-3 wide nav and stack | Task 6, Task 8 |
 | AC-4 old `?s=` values | Task 8 (PR A ids unchanged; aliases arrive in PR B) |
 | AC-5 theme switch | Task 1, Task 9 |
-| AC-6 no withheld data | Task 3, Task 4, Task 11, Task 12 |
-| AC-7 quick facts rules | Task 2, Task 12 |
-| AC-8 copy toast | Task 12 |
+| AC-6 no withheld data | Task 3, Task 4, Task 11, Task 12, Task 13 |
+| AC-7 quick facts rules | Task 2, Task 13 |
+| AC-8 copy toast | Task 13 |
 | AC-9 admin renders shared bodies | PR B / PR C plans |
 | AC-10 ids and groups equal admin | PR C plan |
-| AC-11 dimensional invariants | Task 14 |
-| AC-12 transitions | Task 13 |
+| AC-11 dimensional invariants | Task 15 |
+| AC-12 transitions | Task 14 |
 | AC-13 copy | every UI task; closeout sweep |
 | AC-14 UI gate | closeout |
 
 ## Meta-test inventory
 
 - **Creates:** tests/styles/_metaBodyOverflowWriters.test.ts (new, Task 5): no file but the lock module writes `document.body.style.overflow`.
-- **Extends:** `tests/components/tiles/_metaSentinelHidingContract.test.ts` and `tests/components/tiles/_pureRenderCompliance.test.ts` walk the new crew components (the task that adds each component); `tests/crew/_metaTileProducerTopology.test.ts` ownership map (Task 11, Task 12); `tests/styles/tapTargetCensus.ts`, `tests/styles/forcedColorsCensus.ts`, `tests/styles/subtleInteractiveExemptions.ts` rows for new and moved controls (the task that adds or moves each control); `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts` for the new wide spec (Task 8); `tests/styles/_metaZIndexBands.test.ts` band for the sheet (Task 7); `tests/crew/transitionAudit.test.ts` rows (Task 13).
+- **Extends:** `tests/components/tiles/_metaSentinelHidingContract.test.ts` and `tests/components/tiles/_pureRenderCompliance.test.ts` walk the new crew components (the task that adds each component); `tests/crew/_metaTileProducerTopology.test.ts` ownership map (Task 11, Task 13); `tests/styles/tapTargetCensus.ts`, `tests/styles/forcedColorsCensus.ts`, `tests/styles/subtleInteractiveExemptions.ts` rows for new and moved controls (the task that adds or moves each control); `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts` for the new wide spec (Task 8); `tests/styles/_metaZIndexBands.test.ts` band for the sheet (Task 7); `tests/crew/transitionAudit.test.ts` rows (Task 14).
 - **Not applicable:** no Supabase call site, admin-alert producer, advisory lock, mutation surface or email path changes in PR A (invariants 2, 3, 9, 10).
 
 ## E2E harness readiness
@@ -92,9 +92,9 @@ Red: the component does not exist. Green: the sheet per spec §5.2: `role="dialo
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "sheet|wide nav"` ac=AC-2,AC-3,AC-4 -->
 
-Step 1, red: register tests/e2e/crew-wide-nav.spec.ts (new) in `playwright.config.ts` `desktop-chromium` `testMatch`, the `.github/workflows/crew-e2e.yml` run line, `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts`; write the wide cases there (nav click scrolls and focuses the heading, `replaceState` only, scroll-spy follows via Task 6, deep link scrolls, Back/Forward over compact-created entries) and the compact cases in `crew-section-toggle.spec.ts` (every row of the spec §5.2 history table; a row link keeps `gate`; refresh with the sheet open). They fail because `components/crew/CrewSections.tsx` renders tabs: there is no sheet, no nav and no `data-crew-controller-ready`. Matching Vitest cases go in `tests/components/crew/crewSections.test.tsx`.
+Step 1, red: register tests/e2e/crew-wide-nav.spec.ts (new) in `playwright.config.ts` `desktop-chromium` `testMatch`, the `.github/workflows/crew-e2e.yml` run line, `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts`; write the wide cases there (nav click scrolls and focuses the heading, `replaceState` only, scroll-spy follows via Task 6, deep link scrolls, Back/Forward over compact-created entries) and the compact cases in `crew-section-toggle.spec.ts` (every row of the spec §5.2 history table except "realtime refresh removes the open section", which Task 14 owns; opening from an "All sections" row; a row link keeps `gate`; refresh with the sheet open). They fail because `components/crew/CrewSections.tsx` renders tabs: there is no sheet, no nav and no `data-crew-controller-ready`. Matching Vitest cases go in `tests/components/crew/crewSections.test.tsx`.
 
-Step 2, green: the controller renders compact home plus sheet (Task 7) and wide nav plus stacked sections from the same server-rendered `sectionNodes` (freshness invariant unchanged); applies the §5.2 history table; sets the readiness attribute; exports the `useSectionController()` hook returning `{ openSectionAndReveal(sectionId, targetId) }`, the shape the search session's spec uses (its §9, branch `feat/crew-show-search`). Compound transitions (§7 compound rows) are Task 13, not this task.
+Step 2, green: the "All sections" list (spec §4.6: rows from Task 4's membership and peeks, links built with `buildSectionHref` so `gate` survives); the controller renders compact home plus sheet (Task 7) and wide nav plus stacked sections from the same server-rendered `sectionNodes` (freshness invariant unchanged); applies the §5.2 history table; sets the readiness attribute; exports the `useSectionController()` hook returning `{ openSectionAndReveal(sectionId, targetId) }`, the shape the search session's spec uses (its §9, branch `feat/crew-show-search`). Compound transitions (§7 compound rows) are Task 14, not this task.
 
 Step 3, migrate then delete: re-run `rg -l "CrewSubNav|components/crew/CrewSections|data-active-section" tests` and migrate every hit (including `tests/components/crew/crewSubNav.test.tsx`, `noPrefetchAlert.test.tsx`, and the nav cases in `crew-page.spec.ts` and `crew-section-toggle.spec.ts`), carrying each failure mode over (aria-current on the active item, 44px targets, no `next/link`, no network on a switch, the budget gate); update the `forcedColorsCensus.ts` and `subtleInteractiveExemptions.ts` rows that pin `CrewSubNav.tsx`; then delete `CrewSubNav`.
 
@@ -108,7 +108,7 @@ Red: `components/layout/Header.tsx:141` renders `ThemeToggle` only for identity-
 
 <!-- task: red=`pnpm vitest run tests/components/crew/dayRow.test.tsx` ac=AC-1,AC-6 -->
 
-Red: the component does not exist. Green: spec §4.2. Cases: `live` presses today's button only when today is in the set; a "Now" button renders exactly when today is not in the set, is pressed in `live`, and returns to `live`; tapping another day sets `day(iso)`; tapping today returns to `live`; hidden for suppressed, empty and degraded; layout counts buttons, not days: up to 4 buttons in a grid, 5 or more scroll (so 4 days plus "Now" scroll); accessible names per spec §9.4. The day set equals `ScheduleSection`'s rendered day list for the same fixture and viewer.
+Red: the component does not exist. Green: spec §4.2. Cases: `live` presses today's button only when today is in the set; a "Now" button renders exactly when today is not in the set, is pressed in `live`, and returns to `live`; tapping another day sets `day(iso)`; tapping today returns to `live`; hidden for suppressed, empty and degraded; layout counts buttons, not days: up to 4 buttons in a grid, 5 or more scroll (so 4 days plus "Now" scroll); accessible names per spec §9.4; the pressed button (or, in `live` with no pressed day, the nearest upcoming day) is scrolled into view on mount (spy on `scrollIntoView`); a fresh mount always starts in `live`, so a reload resets a chosen day; the row reads the same client clock as the pass, and advancing fake timers past midnight in the show timezone moves the pressed Today button or brings the "Now" button in or out without a remount. The day set equals `ScheduleSection`'s rendered day list for the same fixture and viewer.
 
 ## Task 11: Pass component, retire RightNowHero
 
@@ -120,27 +120,33 @@ Step 2, green: the pass per spec §4.3, wrapping the `RightNowHero` machinery, p
 
 Step 3, migrate then delete: re-run `rg -l "RightNowHero|right-now-hero" tests` and migrate every hit, including `tests/specLint/canonicalTokenIdentity.test.ts` and `tests/docs/_retiredIdentifiers.ts`; update `_metaTileProducerTopology`'s ownership map; then delete `RightNowHero`.
 
-## Task 12: Home cards and composition
+## Task 12: Run-of-show card
+
+<!-- task: red=`pnpm vitest run tests/components/crew/runOfShowCard.test.tsx` ac=AC-1,AC-6 -->
+
+Red: the card does not exist, so every case fails. Cases, each against the spec §4.4 rule it pins: the whole card, agenda merge included, is absent on a day that is not the viewer's own (`eligible`, `components/crew/sections/TodaySection.tsx:222-224`) and for a suppressed viewer; a raw entry, including a viewer-hidden load-out, suppresses the synthetic "Show Start" row; an agenda-only day with no `ScheduleDay` renders its sessions; more than 6 rows renders 6 and a "Full schedule" link; the "Next" marker sits on the first row at or after now in `live` and never in `day(iso)`; a null `clockToMinutes` row never gets the marker. Green: the card per spec §4.4, rendering through `ShowDayTimelineList` and `RunOfShowList` as Today does now, with Today's card header actions (spec §6.4).
+
+## Task 13: Home composition
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-page.spec.ts -g "home"` ac=AC-1,AC-6,AC-7,AC-8 -->
 
 Step 1, red: browser cases in `crew-page.spec.ts` for AC-1 order (header, day row, pass, run of show, quick facts, show notes, Dress code card, "All sections"); copy success and failure toasts with selectable text on failure; a flight-only viewer's HTML and RSC payload contain no transport field; tonight's hotel matches the server-pinned day. They fail: the shell still renders the Today section.
 
-Step 2, green: the run-of-show card (spec §4.4: the `eligible` gate of `components/crew/sections/TodaySection.tsx:222-224` around the whole card including the agenda merge; cap 6; `live`-only Next marker; raw entries to `showStartDisplayEntry`; an agenda-only day with no `ScheduleDay` still renders); the quick facts block (Task 2 data, polite live-region toast, grid spans); the show notes card and the full Dress code card (today's renderings, kept on home through PR A and PR B); card header actions per spec §6.4; the "All sections" list (Task 4) with `buildSectionHref` links; `_CrewShell` composes the home. Vitest component cases in tests/components/crew/homeCards.test.tsx (new).
+Step 2, green: the quick facts block (Task 2 data, polite live-region toast, grid spans); the show notes card and the full Dress code card (today's renderings, kept on home through PR A and PR B); `_CrewShell` composes the home from Tasks 9 to 12 and the Task 8 list. Vitest component cases in tests/components/crew/homeCards.test.tsx (new).
 
-## Task 13: Compound transitions
+## Task 14: Compound transitions
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "compound"` ac=AC-12 -->
 
-Step 1, red: browser cases for every compound row of spec §7: viewport crossing into wide with the sheet open and mid-drag; crossing back into compact (`replaceState` drops `s` and the marker); a realtime refresh with the sheet open (stays open) and one that removes the open section from membership (stays open, fresh empty or degraded state); a refresh removing the selected day (back to `live`); a refresh removing a nested dialog's owner (dialog unmounts alone, scroll stays locked); Esc with a nested dialog open; Back to another route with the sheet and a nested dialog open (destination page scrollable); a second day tap mid-crossfade (the second wins). They fail: Task 8 implemented only the simple paths.
+Step 1, red: browser cases for every compound row of spec §7: viewport crossing into wide with the sheet open and mid-drag; crossing back into compact (`replaceState` drops `s` and the marker); a realtime refresh with the sheet open (stays open) and one that removes the open section from membership (stays open, fresh empty or degraded state); a refresh removing the selected day (back to `live`); a refresh removing a nested dialog's owner (dialog unmounts alone, scroll stays locked); Esc with each nested dialog open (agenda viewer, lightbox, report modal: Esc closes only that dialog and focus returns inside the sheet); Back to another route with the sheet and a nested dialog open (destination page scrollable); a second day tap mid-crossfade (the second wins). They fail: Task 8 implemented only the simple paths, and `ReportModal` has no Escape handling.
 
-Step 2, green: the controller's breakpoint listener (dismiss without animation, scroll to the section, keep or drop the marker per §7), the drag cancel on breakpoint change, the day-row fallback to `live` on removal, the never-close-on-refresh rule, and the crossfade replacement; every `AnimatePresence`, ternary render and conditional block in the new components gets its row in `tests/crew/transitionAudit.test.ts` with the §7 treatment, reduced motion instant. The spec §7 table is copied into the test file header.
+Step 2, green: the controller's breakpoint listener (dismiss without animation, scroll to the section, keep or drop the marker per §7), the drag cancel on breakpoint change, the day-row fallback to `live` on removal, the never-close-on-refresh rule, the crossfade replacement, and Escape-to-close on `ReportModal`, which today handles only Ctrl/Cmd+Enter (`components/shared/ReportModal.tsx:331`): Escape runs the same `handleClose` as its close button and backdrop (`components/shared/ReportModal.tsx:440`), so its draft behavior is unchanged; every `AnimatePresence`, ternary render and conditional block in the new components gets its row in `tests/crew/transitionAudit.test.ts` with the §7 treatment, reduced motion instant. The spec §7 table is copied into the test file header.
 
-## Task 14: Layout dimensions
+## Task 15: Layout dimensions
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-page.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "dimensional"` ac=AC-11 -->
 
-Step 1, red: `getBoundingClientRect()` assertions (±0.5px) for every spec §8 invariant, copied verbatim into the test file headers: compact cases in `crew-page.spec.ts`, wide cases in crew-wide-nav.spec.ts (new in Task 8). (1) day row equal tracks and full-height buttons at 4 buttons, scroll with 64px minimum at 5; (2) pass minimum height constant across a day crossfade and a live-state swap, fact cells shrink rather than widen; (3) quick-fact tiles share a row height, a spanning tile is full width; (4) sheet height at most 90dvh with the body scrolling inside; (5) wide nav 240px, sticky, content column fills; (6) header height equals a section anchor's scroll margin. They fail because Tasks 7 to 12 build structure only: the invariant classes are this task's production lines.
+Step 1, red: `getBoundingClientRect()` assertions (±0.5px) for every spec §8 invariant, copied verbatim into the test file headers: compact cases in `crew-page.spec.ts`, wide cases in crew-wide-nav.spec.ts (new in Task 8). (1) day row equal tracks and full-height buttons at 4 buttons, scroll with 64px minimum at 5; (2) pass minimum height constant across a day crossfade and a live-state swap, fact cells shrink rather than widen; (3) quick-fact tiles share a row height, a spanning tile is full width; (4) sheet height at most 90dvh with the body scrolling inside; (5) wide nav 240px, sticky, content column fills; (6) header height equals a section anchor's scroll margin. They fail because Tasks 7 to 13 build structure only: the invariant classes are this task's production lines.
 
 Step 2, green: add exactly the classes and token spec §8 names (`items-stretch` + `h-full` on the day row and quick facts, `min-w-0` on fact cells, the pass `min-h` token, `max-h-[90dvh]` with `flex-1 min-h-0 overflow-y-auto` on the sheet body, `w-60 shrink-0` sticky nav with `h-[calc(100dvh-var(--crew-header-h))]`, the `--crew-header-h` token on the header and as `scroll-margin-top`).
 
