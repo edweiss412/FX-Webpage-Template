@@ -19,19 +19,19 @@ The criteria live in the spec (§13); this plan claims them by task.
 | AC-3 wide nav and stack | Task 6, Task 11 |
 | AC-4 old `?s=` values | Task 6 (PR A ids unchanged; aliases arrive in PR B) |
 | AC-5 theme switch | Task 1, Task 7 |
-| AC-6 no withheld data | Task 2, Task 3, Task 4, Task 6, Task 8, Task 9, Task 10, Task 11 (harness rule "Client props") |
+| AC-6 no withheld data | Task 2, Task 3, Task 4, Task 6, Task 8, Task 9, Task 10 (harness rule "Client props"); Task 11 (page-level payload search) |
 | AC-7 quick facts rules | Task 2, Task 11 |
 | AC-8 copy toast | Task 11 |
 | AC-9 admin renders shared bodies | PR B / PR C plans |
 | AC-10 ids and groups equal admin | PR C plan |
 | AC-11 dimensional invariants | Task 13 |
 | AC-12 transitions | Task 12 |
-| AC-13 copy | every UI task; closeout step 2 (copy sweep) |
+| AC-13 copy | the §9 rows of the clause map, each owned by a task |
 | AC-14 UI gate | closeout |
 
 ## Spec clause map
 
-Every bullet and table row of spec §3.1, §3.2, §4.1 to §4.6, §5.1 to §5.3, §7, §8, §10 and §11, keyed by its spec line, with the task that builds it and the task whose cases pin it. The list was derived from the spec, not written from memory: a script extracts every list item and table row in those sections and checks that each line number appears below (144 clauses, 144 mapped at `f7664499a`'s spec). "PR B" and "PR C" mean that plan.
+Every bullet and table row of spec §3.1, §3.2, §4.1 to §4.6, §5.1 to §5.3, §7, §8, §9.1 to §9.4, §10 and §11, keyed by its spec line, with the task that builds it and the task whose cases pin it. The list was derived from the spec, not written from memory: a script extracts every list item and table row in those sections and checks that each line number appears below (181 clauses, 181 mapped). Copy rows are asserted through a template filled from fixture values, never a hardcoded example such as "Dana Ortiz" (spec §12). "PR B" and "PR C" mean that plan.
 
 | Spec line | Clause | Task |
 |---|---|---|
@@ -160,6 +160,43 @@ Every bullet and table row of spec §3.1, §3.2, §4.1 to §4.6, §5.1 to §5.3,
 | L385 | Dimensions: sheet | 13 |
 | L386 | Dimensions: wide layout | 13 |
 | L387 | Dimensions: header height token | 13 |
+| L397 | Copy: the day card's region label "Your day, <date>" | 9 |
+| L398 | Copy: "Show day N" (day row), "Show day N of M" (pass) | 8, 9 |
+| L399 | Copy: "Load in", combined "Travel in, load in" | 8, 9 |
+| L400 | Copy: "Show" as the show-day big-time label | 9 |
+| L401 | Copy: "Hotels" section label; "Hotel" tile; "Hotel tonight" cell | 2, 3, PR B |
+| L402 | Copy: "Venue" section label; "Venue" tile | 2, PR B |
+| L403 | Copy: "Transport" section label | PR B |
+| L404 | Copy: "Crew" and "Contacts" section labels | PR B |
+| L405 | Copy: "Billing & docs" section label | PR B |
+| L406 | Copy: "Dress code" | 2, 11 |
+| L407 | Copy: "Who to call" | 2 |
+| L408 | Copy: "Run of show", "Full schedule" | 10 |
+| L409 | Copy: "All sections" | 6 |
+| L410 | Copy: "Copied" | 11 |
+| L411 | Copy: report row "Something looks wrong?" and "Report this" | 11 |
+| L415 | Copy: times as written; strike carries its day | 3, 9 |
+| L416 | Copy: countdown wording | 3 |
+| L417 | Copy: last run-of-show line is the sheet's own title | 10 |
+| L418 | Copy: "Your lead" | 3 |
+| L419 | Copy: transport times "leaves" | PR B |
+| L420 | Copy: quick facts label every copyable value | 2 |
+| L421 | Copy: the nav shows no counts | 6 |
+| L422 | Copy: roles exactly as the sheet writes them | 3 |
+| L423 | Copy: "Next" typed in sentence case, uppercased by CSS | 10 |
+| L424 | Copy: "Wi-Fi" everywhere | 2, 11 |
+| L430 | Copy: "Not scheduled today." and the next-day line | 9 |
+| L431 | Copy: "Show started at <time>." | 3, 9 |
+| L432 | Copy: "Your days are done." | 9 |
+| L433 | Copy: "Your days aren't confirmed yet." | 9 |
+| L434 | Copy: "Dates aren't finalized." | 9 |
+| L435 | Copy: clipboard failure toast | 11 |
+| L436 | Copy: no quick facts, no empty-state copy | 11 |
+| L442 | Name: day buttons and "Now, your live status" | 8 |
+| L443 | Name: copy buttons | 2, 11 |
+| L444 | Name: sheet close "Close <section>" | 6 |
+| L445 | Name: theme switch unchanged | 1, 7 |
+| L446 | Name: "Call <name>", "Text <name>" | 11 |
 | L452 | Flag: open section `s` | 6 |
 | L453 | Flag: selected day | 8 |
 | L454 | Flag: theme override | 1 |
@@ -177,7 +214,7 @@ Every bullet and table row of spec §3.1, §3.2, §4.1 to §4.6, §5.1 to §5.3,
 | L473 | Guard: clipboard absent or rejected | 11 |
 | L474 | Guard: no reservation covers the night | 2, 3 |
 | L475 | Guard: section peek absent | 4 |
-| L476 | Guard: viewer has no sections | 4, 6 |
+| L476 | Guard: viewer has no sections (unreachable from a real page in PR A, where the five base sections are always listed; pinned by a Vitest controller case) | 6 |
 | L477 | Guard: `matchMedia` unavailable | 6 |
 
 ## Meta-test inventory
@@ -188,7 +225,7 @@ Every bullet and table row of spec §3.1, §3.2, §4.1 to §4.6, §5.1 to §5.3,
 
 ## Commit gate (every task)
 
-Before each task's commit, the full unit suite is green: `pnpm heavy pnpm vitest run`. Structural guards that name no file (orphaned components, live-region mounting, the interaction-timing inventory, re-export importers such as `tests/components/admin/wizard/Step3ReviewModal.test.tsx`) are only caught by running everything, so no task chooses directories. Each task also runs every Playwright spec it touched (through `pnpm heavy`), updates the crew e2e oracle (below) from the observed run, and re-captures the canonical baseline when it changes the pass's rect. The task bodies name the pins known at authoring time; this gate is what closes the set.
+Before each task's commit, the full unit suite is green: `pnpm heavy pnpm vitest run`. Structural guards that name no file (orphaned components, live-region mounting, the interaction-timing inventory, re-export importers such as `tests/components/admin/wizard/Step3ReviewModal.test.tsx`) are only caught by running everything, so no task chooses directories. **Red covers every case.** Every case a task's text lists, in whichever step it is named, is written before that task's first production line and observed failing; a task with cases under both Vitest and Playwright runs both red and records both runs in its commit body. An absence check (a serialize-and-search case or a payload search) also carries a positive control: the same search over a viewer allowed to see the values must find them, so it cannot pass because the values were never there. Each task also runs every Playwright spec it touched (through `pnpm heavy`), updates the crew e2e oracle (below) from the observed run, and re-captures the canonical baseline when it changes the pass's rect. The task bodies name the pins known at authoring time; this gate is what closes the set.
 
 ## E2E harness readiness
 
@@ -230,7 +267,7 @@ Red: lib/crew/passModel.ts (new) does not exist. Green: the server-side builder 
 
 <!-- task: red=`pnpm vitest run tests/crew/crewSections.test.ts tests/crew/sectionPeek.test.ts` ac=AC-6 -->
 
-Red: lib/crew/crewSections.ts (new) and lib/crew/sectionPeek.ts (new) do not exist. Green: PR A membership (the five base sections, `budget` only when `financialsVisible`, matching `app/show/[slug]/[shareToken]/_CrewShell.tsx:243`), and peeks that read only gated fields. Cases: a transport leg never feeds the Travel peek for a viewer the transport gate excludes; no date reaches a peek for a suppressed viewer; an empty peek is null, never placeholder text; a domain whose fetch failed (`tileErrors`) keeps its section listed (spec §5.1, L241); a viewer with no sections gets an empty list.
+Red: lib/crew/crewSections.ts (new) and lib/crew/sectionPeek.ts (new) do not exist. Green: PR A membership (the five base sections, `budget` only when `financialsVisible`, matching `app/show/[slug]/[shareToken]/_CrewShell.tsx:243`), and peeks that read only gated fields. Cases: a transport leg never feeds the Travel peek for a viewer the transport gate excludes; no date reaches a peek for a suppressed viewer; an empty peek is null, never placeholder text; a domain whose fetch failed (`tileErrors`) keeps its section listed (spec §5.1, L241).
 
 ## Task 5: Shared sheet constants and scroll lock
 
@@ -242,9 +279,11 @@ Red: no shared module exports the drag thresholds (`components/admin/review/Revi
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "sheet|wide nav"` ac=AC-2,AC-3,AC-4 -->
 
-Step 1, red: register tests/e2e/crew-wide-nav.spec.ts (new) in `playwright.config.ts` `desktop-chromium` `testMatch`, the `.github/workflows/crew-e2e.yml` run line, `scripts/check-crew-e2e-executed.mjs`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts`. Write the wide cases there (nav click scrolls and focuses the heading, `replaceState` only, scroll-spy follows and pauses during a nav-click scroll, deep link scrolls, Back/Forward over compact-created entries) and the compact cases in `crew-section-toggle.spec.ts` (every row of the spec §5.2 history table except "realtime refresh removes the open section", which Task 12 owns, and the in-sheet link row below; opening from an "All sections" row; a row link keeps `gate`; refresh with the sheet open; the sheet's close button is named "Close" plus the section name, spec §9.4; a drag released before the threshold springs back to open; the sheet is full width below 640px and centred at the panel max width from 640px; a viewer with no sections sees no "All sections" card while the Today block still renders). The wide cases also cover a nav click under reduced motion (instant scroll), the accent indicator moving to the active item, and a viewer with no sections (no nav, Today block still rendered). They fail because `components/crew/CrewSections.tsx` renders tabs: no sheet, no nav, no list, no `data-crew-controller-ready`.
+Step 1, red: register tests/e2e/crew-wide-nav.spec.ts (new) in `playwright.config.ts` `desktop-chromium` `testMatch`, the `.github/workflows/crew-e2e.yml` run line, `scripts/check-crew-e2e-executed.mjs`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts`. Write the wide cases there (nav click scrolls and focuses the heading, `replaceState` only, scroll-spy follows and pauses during a nav-click scroll, deep link scrolls, Back/Forward over compact-created entries) and the compact cases in `crew-section-toggle.spec.ts` (every row of the spec §5.2 history table except "realtime refresh removes the open section", which Task 12 owns, and the in-sheet link row below; opening from an "All sections" row; a row link keeps `gate`; refresh with the sheet open; the sheet's close button is named "Close" plus the section name, spec §9.4; a drag released before the threshold springs back to open; the sheet is full width below 640px and centred at the panel max width from 640px). The wide cases also cover a nav click under reduced motion (instant scroll) and the accent indicator moving to the active item. They fail because `components/crew/CrewSections.tsx` renders tabs: no sheet, no nav, no list, no `data-crew-controller-ready`.
 
-Step 2, green, with Vitest cases alongside in `tests/components/crew/crewSections.test.tsx` and tests/components/crew/bottomSheet.test.tsx (new):
+Its Vitest cases, in `tests/components/crew/crewSections.test.tsx` and tests/components/crew/bottomSheet.test.tsx (new), are written in this step too and observed red (commit gate). They include an empty membership input: no "All sections" card in compact and no nav in wide, while the Today block still renders (spec §11 L476; no real PR A page has zero sections).
+
+Step 2, green:
 - The bottom sheet (spec §5.2): `role="dialog"`, `aria-modal`, labelled by its title; focus to the title on open and back to the opener on close; focus trap; page `inert`; scroll lock through Task 5; every close path (button, scrim, Esc, swipe past the Task 5 threshold) calls one `onRequestClose`; Esc, scrim and swipe ignored while another `aria-modal="true"` dialog is open; width rules; its z-index band registered.
 - The scroll-spy rule: `activeSectionFor` (exported at `components/admin/review/ShowReviewSurface.tsx:97`) moves unchanged to a shared pure module so crew code never imports from `components/admin/**`; `ShowReviewSurface` imports it from there and keeps re-exporting it, so `components/admin/wizard/Step3ReviewModal.tsx:105-110` and its importers are untouched; admin DOM and the 50 section-header PNGs unchanged.
 - The "All sections" list (spec §4.6, Task 4's membership and peeks, links from `buildSectionHref`), with the harness client-props case for its peeks.
@@ -258,7 +297,7 @@ Step 3, migrate then delete: re-run `rg -l "CrewSubNav|components/crew/CrewSecti
 
 <!-- task: red=`pnpm vitest run tests/components/layout/crewHeader.test.tsx` ac=AC-5 -->
 
-Red: `components/layout/Header.tsx:141` renders `ThemeToggle` only for identity-less viewers, and the client and venue render separately (`components/layout/Header.tsx:70-74`, `components/layout/Header.tsx:102-115`). Green: the joined eyebrow "client · venue" with each part sentinel-hidden and the separator only between two present parts; the toggle for every crew-page viewer; the search slot (renders search's field when present, otherwise nothing); the status slot. Cases: an identified viewer sees the header toggle and the avatar checkbox, and they agree (Task 1); each eyebrow sentinel combination. `tests/components/Header.test.tsx` cases pinning the old row (`tests/components/Header.test.tsx:51-104`) and the identity-less-only toggle (`tests/components/Header.test.tsx:184-190`) migrate in this commit.
+Red: `components/layout/Header.tsx:141` renders `ThemeToggle` only for identity-less viewers, and the client and venue render separately (`components/layout/Header.tsx:70-74`, `components/layout/Header.tsx:102-115`). Green: the joined eyebrow "client · venue" with each part sentinel-hidden and the separator only between two present parts; the toggle for every crew-page viewer; the search slot (renders search's field when present, otherwise nothing); the status slot. Cases: an identified viewer sees the header toggle and the avatar checkbox, and they agree (Task 1); each eyebrow sentinel combination; the status slot is an empty element immediately after the header bar; the search slot renders the node it is given and no wrapper when given none. Slot placement per mode needs search's field to exist, so its browser case lands with search (spec §1.2): in search's own plan if search merges first, else in PR A's rebase onto it. `tests/components/Header.test.tsx` cases pinning the old row (`tests/components/Header.test.tsx:51-104`) and the identity-less-only toggle (`tests/components/Header.test.tsx:184-190`) migrate in this commit.
 
 ## Task 8: Day row and shared crew clock
 
@@ -272,7 +311,7 @@ Red: neither the day row nor a shared clock exists; the client clock is private 
 
 Step 1, red: retarget the hero's browser coverage to the pass, titles carrying "pass": `tests/e2e/right-now-transitions.spec.ts` with `tests/e2e/helpers/rightNow.ts`, and `tests/e2e/canonical-class-dimensions.spec.ts` (its exact-key reads at `tests/e2e/canonical-class-dimensions.spec.ts:96`, `tests/e2e/canonical-class-dimensions.spec.ts:591`, `tests/e2e/canonical-class-dimensions.spec.ts:635`); add pass cases in `crew-page.spec.ts` (dark surface in both themes; the pass's height never drops below the minimum-height token while a day crossfade and a live-state swap run, sampled every animation frame inside one `page.evaluate` (the canonical spec samples rest states only, `tests/e2e/canonical-class-dimensions.spec.ts:37`); the `live` body; tapping a day in the Task 8 row shows its `day(iso)` body; personal cells through the preview route). They fail: no pass exists.
 
-Step 2, green: the pass per spec §4.3 replaces the hero in the home, wrapping its machinery with Task 8's clock and taking only Task 3's props, never `RightNowContext`; the harness client-props case serializes the pass's props for each named viewer; the `rightNowHero*` Vitest suites migrate to the pass; the baseline key is renamed and its value re-captured in this commit (harness, "Canonical baseline").
+Step 2, green: the pass per spec §4.3 replaces the hero in the home, wrapping its machinery with Task 8's clock and taking only Task 3's props, never `RightNowContext`; the footer's report autocapture, which today forwards the full `RightNowContext` to the client `ReportButton` (`app/show/[slug]/[shareToken]/_CrewShell.tsx:546-557`, `components/layout/Footer.tsx:193`), receives the same scrubbed props; the harness client-props case serializes the pass's props for each named viewer; the `rightNowHero*` Vitest suites migrate to the pass; the baseline key is renamed and its value re-captured in this commit (harness, "Canonical baseline").
 
 Step 3, migrate then delete: re-run `rg -l "RightNowHero|right-now-hero" tests`, plus the retired-id search (harness), and migrate every hit, including `tests/specLint/canonicalTokenIdentity.test.ts` and `tests/docs/_retiredIdentifiers.ts`; update `_metaTileProducerTopology`'s ownership map; then delete `RightNowHero`.
 
@@ -286,7 +325,7 @@ Red: the card does not exist, so every case fails. Cases, each against the spec 
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-page.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "home"` ac=AC-1,AC-3,AC-6,AC-7,AC-8 -->
 
-Step 1, red: browser cases titled with "home": AC-1 order (header, day row, pass, run of show, quick facts, show notes, Dress code card, "All sections"); copy success and failure toasts with selectable text on failure; a flight-only viewer's HTML and RSC payload contain no transport field (preview route); tonight's hotel matches the server-pinned day (preview route); the preview banner shows in both modes on the preview route; the copy toast fades and rises in, holds 2 seconds and fades out, instant under reduced motion; and in the wide spec, the Today block (quick facts beside the run of show, show notes and the Dress code card inside it, no "All sections") followed by every section. They fail: the home still shows the Today section body.
+Step 1, red: browser cases titled with "home": AC-1 order (header, day row, pass, run of show, quick facts, show notes, Dress code card, "All sections"); copy success and failure toasts with selectable text on failure; a flight-only viewer's HTML and RSC payload contain no transport field (preview route); a date-suppressed viewer's HTML and RSC payload contain no ISO date of the show and no hotel date (preview route), with the same search over an unrestricted viewer's payload finding them as the positive control, so every carrier on the page is covered rather than the ones a task names; tonight's hotel matches the server-pinned day (preview route); the preview banner shows in both modes on the preview route; the copy toast fades and rises in, holds 2 seconds and fades out, instant under reduced motion; and in the wide spec, the Today block (quick facts beside the run of show, show notes and the Dress code card inside it, no "All sections") followed by every section. They fail: the home still shows the Today section body.
 
 Step 2, green: the quick facts block (Task 2 data built on the server, with the harness client-props case; grid spans; a toast in a polite live region that stays mounted while only its text changes); the show notes card and the full Dress code card (today's renderings, kept through PR A and PR B) with their card ids (`today-notes`, `today-dress`); `_CrewShell` composes the finished home and wide Today block; the toast hold gets its `DESIGN.md` §5.5 row; the canonical baseline is re-captured (the pass moved).
 
@@ -313,7 +352,6 @@ Step 2, green: add exactly the classes and token spec §8 names, row by row: day
 ## Closeout
 
 1. **Full sweep.** `pnpm heavy pnpm vitest run` green; every crew e2e spec on the `crew-e2e.yml` run line plus `crew-layout-dimensions` and `canonical-class-dimensions` green through `pnpm heavy`; `rg -l "RightNowHero|CrewSubNav|components/crew/CrewSections|right-now-hero|TodaySection" tests` returns only migrated files, and every Playwright spec that references an id a retired component produced has run green.
-2. **Copy sweep.** Every spec §9 string (labels, empty and failure copy, accessible names) is asserted by at least one case: for each literal in §9, `rg -F` over `tests` finds it, and any literal with no hit gets a case before the PR opens.
-3. **Design record.** `DESIGN.md` amendments per spec §3.3 (section sheet exception, crew left nav), committed as `docs(design): record crew sheet and left nav`; `pnpm heavy pnpm vitest run tests/docs` stays green.
-4. **Help screenshots.** Regenerate `public/help/screenshots/crew-preview-{today,gear,schedule}-mobile-{light,dark}.webp` through the pinned-image `screenshots-regen` workflow (`gh workflow run screenshots-regen.yml --ref feat/crew-page-redesign`), never from a dev host; the PR's `screenshots-drift` job must pass.
-5. The invariant-8 UI gate runs on the PR A diff before the cross-model diff review; its findings and dispositions are recorded here, with the closeout marker line, in the gate-run commit. Then the whole-diff cross-model review to APPROVE, real CI green on every required check, `gh pr merge --merge`, and local `main` fast-forwarded to `0  0`.
+2. **Design record.** `DESIGN.md` amendments per spec §3.3 (section sheet exception, crew left nav), committed as `docs(design): record crew sheet and left nav`; `pnpm heavy pnpm vitest run tests/docs` stays green.
+3. **Help screenshots.** Regenerate `public/help/screenshots/crew-preview-{today,gear,schedule}-mobile-{light,dark}.webp` through the pinned-image `screenshots-regen` workflow (`gh workflow run screenshots-regen.yml --ref feat/crew-page-redesign`), never from a dev host; the PR's `screenshots-drift` job must pass.
+4. The invariant-8 UI gate runs on the PR A diff before the cross-model diff review; its findings and dispositions are recorded here, with the closeout marker line, in the gate-run commit. Then the whole-diff cross-model review to APPROVE, real CI green on every required check, `gh pr merge --merge`, and local `main` fast-forwarded to `0  0`.
