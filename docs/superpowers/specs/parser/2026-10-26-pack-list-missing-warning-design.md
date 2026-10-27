@@ -1,6 +1,6 @@
 # Missing-pack-list notice — design
 
-**Status:** Draft (spec review round 1 pending)
+**Status:** Approved (spec review round 4, 2026-10-26)
 **Date:** 2026-10-26
 **Branch:** `feat/pack-list-missing-warning` (no ledger row; found live on the FinTech Forum CTO Summit 2026 review)
 **Template:** `docs/superpowers/specs/parser/2026-10-25-nearmiss-read-blocks-and-venue-address-design.md` §4 (the `VENUE_ADDRESS_MISSING` notice). This notice copies its shape on purpose; where this document is silent on a mechanic, that spec's §4 governs.
