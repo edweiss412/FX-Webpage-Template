@@ -220,6 +220,7 @@ afterAll(() => {
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "app/api/auth/google/start/route.ts",
   "app/api/auth/picker-bootstrap/route.ts",
+  "app/api/show/[slug]/search-miss/route.ts",
   "app/api/show/[slug]/version/route.ts",
   "app/auth/callback/route.ts",
   "app/auth/sign-in/page.tsx",

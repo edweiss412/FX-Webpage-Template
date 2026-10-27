@@ -74,6 +74,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/asset/reel/[show]/route.ts", chain: "auth-library-exception" },
   { path: "app/api/realtime/subscriber-token/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/version/route.ts", chain: "auth-library-exception" },
+  // Crew show search (spec 2026-10-26-crew-show-search §7.2): missed-search telemetry, the
+  // version route's access model (slug lookup, isAdminSession, picker cookie).
+  { path: "app/api/show/[slug]/search-miss/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/unpublish/route.ts", chain: "public" },
   // M12.13: emailed-undo confirm page — public BY DESIGN (spec §10); the
   // single-use 24h token + the recipient binding r (unrevoked admin_emails

@@ -10,6 +10,7 @@ const DATA_API_CONSUMERS = [
   "app/api/asset/reel/[show]/route.ts",
   "app/api/asset/agenda/[show]/[id]/route.ts",
   "app/api/show/[slug]/version/route.ts",
+  "app/api/show/[slug]/search-miss/route.ts",
   "app/api/report/route.ts",
 ] as const;
 
