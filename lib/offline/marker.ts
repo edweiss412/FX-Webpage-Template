@@ -197,16 +197,19 @@ function parseAttributes(
   }
 }
 
-/** One start tag the scan walked past: its lower-cased name and its decoded attributes. */
-export type StartTag = { name: string; attributes: ReadonlyMap<string, string> };
+/**
+ * One start tag the scan walked past: its lower-cased name, its decoded
+ * attributes, and `end`, the offset just past its closing `>`.
+ */
+export type StartTag = { name: string; attributes: ReadonlyMap<string, string>; end: number };
 
 /**
  * Every start tag in `html`, in document order, the way the tokenizer above
  * walks them: comments, script bodies and style bodies are skipped, so text
  * inside them is never taken for an element. Ends quietly at a comment, a tag or
- * a script or style body that never closes. Shared by the marker reader and the
- * completeness scan (completeness.ts), so the two cannot disagree about what is
- * an element.
+ * a script or style body that never closes. Shared by the marker reader, the
+ * completeness scan (completeness.ts) and the head injection (inject.ts), so they
+ * cannot disagree about what is an element.
  */
 export function* startTags(html: string): Generator<StartTag, void, undefined> {
   let at = 0;
@@ -233,7 +236,7 @@ export function* startTags(html: string): Generator<StartTag, void, undefined> {
     at = tag.end;
 
     const tagName = (name[1] ?? "").toLowerCase();
-    yield { name: tagName, attributes: tag.attributes };
+    yield { name: tagName, attributes: tag.attributes, end: tag.end };
 
     const rawTextEnd = RAW_TEXT_END.get(tagName);
     if (rawTextEnd !== undefined) {
