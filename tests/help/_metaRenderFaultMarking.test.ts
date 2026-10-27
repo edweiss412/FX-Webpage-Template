@@ -465,7 +465,20 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   readIgnoredFingerprints lands above it)
     // Same `in-operator` row, still marked. Nothing joined or left: membership is still 34,
     // and recomputing on origin/main reproduces 755b2e86... byte-for-byte.
-    expect(digest).toBe("6c20e86fddb9648c3b02cdef3475c31c4ad4b08ac30149c167355c2ebc804e04");
+    // Regenerated 2026-10-27 for feat/crew-page-redesign, to the same bar. EXACTLY
+    // THREE inputs changed, all line numbers, in the two files of this set the arc edits:
+    //   components/crew/sections/TravelSection.tsx 700/701 -> 678/679 (-22: one
+    //   import added, the 23-line visible-leg filter moved out to
+    //   lib/crew/transportLegs.ts)
+    //   components/crew/sections/VenueSection.tsx 469 -> 423 (-46: the synthesized
+    //   room-name constant, the Wi-Fi split and the general-session room rule moved
+    //   out to lib/crew/wifiDisplay.ts and lib/crew/generalSessionRoom.ts)
+    // They are the same transportation / hotel `SectionTileError` rows and the same
+    // Venue transportation row, each the same `tile-errors` form, still marked, and
+    // the text at each new line matches the text origin/main carries at the old one.
+    // Nothing joined or left: membership is still 34. Reverting those three rows
+    // reproduces 6c20e86f... byte-for-byte, so the sets differ by them alone.
+    expect(digest).toBe("242e037f81776ba061d8a0a62b98f2d32f0c4f118fd11bab3e553486b2f2caaf");
   });
 });
 

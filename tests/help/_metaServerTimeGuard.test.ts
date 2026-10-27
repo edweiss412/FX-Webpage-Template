@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 219 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 226 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -270,7 +270,28 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // warnings the same way the show pop-up does. A pure partition over a fingerprint
     // set, no clock read. 222 -> 223.
     expect(rel).toContain("lib/dataQuality/partitionByIgnored.ts");
-    expect(rel.length).toBe(223);
+    // 223 -> 226 (2026-10-27, feat/crew-page-redesign): THREE modules joined and
+    // none left, re-derived against this tree and against its merge base with
+    // origin/main by the same deriveImportedLibFiles call, not added up from the
+    // diff. Each joined because a RENDERED file now imports it directly; none
+    // makes a clock read, and the waiver set and violation count below are
+    // unchanged.
+    //   lib/crew/generalSessionRoom.ts, the general-session room rule lifted out
+    //   of components/crew/sections/VenueSection.tsx, which imports it.
+    //   lib/crew/transportLegs.ts, the visible transport-leg rule lifted out of
+    //   components/crew/sections/TravelSection.tsx, which imports it.
+    //   lib/ui/scrollLock.ts, the shared body scroll lock, imported by
+    //   components/agenda/AgendaEmbed.tsx, components/diagrams/GalleryLightbox.tsx,
+    //   components/admin/FinalizeButton.tsx and
+    //   components/admin/review/ReviewModalShell.tsx in place of each one's own
+    //   save-and-restore of body overflow.
+    // The arc's other new lib modules (passModel, quickFacts, sectionPeek,
+    // crewSections) are ABSENT at this commit: only other lib modules import
+    // them, so they sit at depth 2. That is the depth-1 rule, not an omission.
+    expect(rel).toContain("lib/crew/generalSessionRoom.ts");
+    expect(rel).toContain("lib/crew/transportLegs.ts");
+    expect(rel).toContain("lib/ui/scrollLock.ts");
+    expect(rel.length).toBe(226);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

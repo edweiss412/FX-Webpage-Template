@@ -276,7 +276,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/FinalizeButton.tsx",
-    line: 880,
+    // 880 -> 876 on feat/crew-page-redesign (2026-10-27): the body-overflow save-and-restore effect above it became one `acquireScrollLock` call. Same scrim button, confirmed by reading its className at the new key.
+    line: 876,
     tag: "button",
     category: "full-bleed",
     reason: "Finalize details scrim: `absolute inset-0 bg-overlay-scrim`.",
@@ -407,7 +408,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // confirmed by reading that className at the new key.
     // 822 -> 864 on the R2 repairs; still the `fixed inset-0 z-overlay` surface.
     // 882 -> 1059 on the retry check-in arc; still that surface, confirmed by reading the className at the new key rather than trusting the delta.
-    line: 1061,
+    // 1061 -> 1056 on feat/crew-page-redesign (2026-10-27): the body-overflow save-and-restore effect above it became one `acquireScrollLock` call. Still the `fixed inset-0 z-overlay flex` surface, read at the new key.
+    line: 1056,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",
@@ -612,7 +614,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/review/ReviewModalShell.tsx",
-    line: 609,
+    // 609 -> 605 on feat/crew-page-redesign (2026-10-27): the drag-threshold constants above it moved to components/shared/sheetConstants.ts (re-exported here) and the body-overflow effect became one `acquireScrollLock` call. Same scrim button with the same two spreads, read at the new key.
+    line: 605,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:
