@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { newAggregator } from "@/lib/parser/warnings";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 const guestWarnings = (md: string, version: "v1" | "v2" | "v4" = "v2") => {
   const agg = newAggregator();
@@ -62,10 +63,52 @@ describe("inline hotel guest ambiguity", () => {
     ])("%s", (_label, cell) => {
       const { warnings } = guestWarnings(inline(cell));
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]!.resolution).toEqual({
+      // toMatchObject: the resolution also carries `readAs` (warning-card-fixes
+      // §5.2), pinned exactly by the case below.
+      expect(warnings[0]!.resolution).toMatchObject({
         resolvable: false,
         reason: "raw-not-guest-scoped",
       });
+    });
+
+    // warning-card-fixes §5.2: the inline emitter keeps the names it read, so
+    // the card can show "We read". A plain loop, not it.each, so the premise
+    // never sits in a zero-case callback.
+    it("readAs carries the reservation's own names on every producing exit", () => {
+      const CELLS = [
+        "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525",
+        "Hyatt Regency Eric Weiss - 110525",
+        "Four Seasons Chicago Eric Weiss 2004173 In on the 6th out on the 10th",
+      ] as const;
+      premiseHolds(
+        "at least one producing exit parses a non-empty names list",
+        CELLS.some((c) => guestWarnings(inline(c)).hotels.some((h) => h.names.length > 0)),
+      );
+      for (const cell of CELLS) {
+        const { hotels, warnings } = guestWarnings(inline(cell));
+        expect(warnings).toHaveLength(1);
+        const w = warnings[0];
+        if (w === undefined) throw new Error("no HOTEL_GUEST_SPLIT_AMBIGUOUS warning");
+        const idx = w.blockRef?.index;
+        if (idx === undefined || !Number.isSafeInteger(idx)) {
+          throw new Error("blockRef.index is not a safe integer");
+        }
+        const reservation = hotels[idx];
+        if (reservation === undefined) throw new Error("no reservation at blockRef.index");
+        expect(w.resolution).toEqual({
+          resolvable: false,
+          reason: "raw-not-guest-scoped",
+          readAs: { kind: "hotels", names: reservation.names },
+        });
+        const r = w.resolution;
+        const readAs: unknown = r !== undefined && "readAs" in r ? r.readAs : undefined;
+        if (typeof readAs !== "object" || readAs === null || !("names" in readAs)) {
+          throw new Error("readAs.names absent");
+        }
+        // The emitter copies (spec §5.2): an aliased array would let a later
+        // mutation of the reservation rewrite what the card says we read.
+        expect(readAs.names).not.toBe(reservation.names);
+      }
     });
   });
 

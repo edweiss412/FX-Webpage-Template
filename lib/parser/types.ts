@@ -62,6 +62,11 @@ export type UseRawResolution =
         | "raw-not-guest-scoped"
         // Nothing was split, so parsed and raw are byte-identical.
         | "no-split-to-undo";
+      /** What we read, for a read-only comparison. Set ONLY by
+       *  emitInlineHotelGuestAmbiguity (reason "raw-not-guest-scoped"). Absent on
+       *  every other emit and on warnings persisted before 2026-10-26 (jsonb,
+       *  additive, no migration: the same posture as `resolution` itself). */
+      readAs?: { kind: "hotels"; names: string[] };
     };
 
 export type ParseWarning = {
