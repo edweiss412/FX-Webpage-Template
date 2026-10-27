@@ -57,6 +57,9 @@ const REVEAL_WAIT_MS = 1500;
 const REVEAL_HIGHLIGHT_MS = 1600;
 /** Under reduced motion the tint holds without fading for this long, then goes at once. */
 const REVEAL_HIGHLIGHT_REDUCED_MS = 2000;
+// not-subject:M5-D8: a polite status announcement for a search result whose line
+// changed under it, not an error path and carries no code; the copy is pinned in
+// the search spec §10 and asserted literally in CrewSections.search.test.tsx.
 const REVEAL_GONE_MESSAGE = "That line isn't on the page anymore.";
 
 /** The target with this exact id inside `root`; compared as a string, so no selector escaping. */
