@@ -41,7 +41,10 @@ const REPORTED_RESIDUE: Record<string, string> = {
     "instanceof on an error class, not a kind comparison. The admin shell's failure screen — layer 0 catches it, because the capture selector disappears with the shell.",
   "app/admin/wizard/preview/[stagedId]/page.tsx:126":
     "a kind comparison against decode_error, not infra_error. Renders the same marked FailureSurface, so the DOM carries the marker even though the guard is outside the accept-set.",
-  "components/admin/UseRawControl.tsx:433":
+  // 433 -> 428 on feat/warning-card-fixes Task 4; located by its own element (still the
+  // `if (state === "legacy-unavailable")` guard): the module-local IN_SCOPE set moved out
+  // to lib/admin/warningReadingDisplay.ts above it.
+  "components/admin/UseRawControl.tsx:428":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
   // 4085 -> 4101 (2026-08-29, wizard-warning-ignore-controls). Located by identity on
   // the live tree — still the bare `if (failed)` this reason describes — never by
@@ -465,7 +468,13 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   readIgnoredFingerprints lands above it)
     // Same `in-operator` row, still marked. Nothing joined or left: membership is still 34,
     // and recomputing on origin/main reproduces 755b2e86... byte-for-byte.
-    expect(digest).toBe("6c20e86fddb9648c3b02cdef3475c31c4ad4b08ac30149c167355c2ebc804e04");
+    // Regenerated for feat/warning-card-fixes Task 4, to the same bar. EXACTLY ONE input
+    // changed, a line number, in the one file of this set the task edits:
+    //   components/admin/UseRawControl.tsx 433 -> 428 (-5: the IN_SCOPE set above it moved
+    //   to lib/admin/warningReadingDisplay.ts as USE_RAW_CODES)
+    // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
+    // reproduces 6c20e86f... byte-for-byte.
+    expect(digest).toBe("d79bb1f1121c5f1619f25d7df0e8be1642131ac10ca68110019bd1087470b5d2");
   });
 });
 

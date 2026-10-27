@@ -411,19 +411,22 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     disposition: "carrier-survives",
     reason: "same",
   },
+  // The three UseRawControl rows: 334 -> 329, 360 -> 355, 372 -> 367 (and the dot the first
+  // reason cites, 368 -> 363) on feat/warning-card-fixes Task 4; located by their own
+  // elements (the ChoiceRow <button>, its radio-dot <span>, its label <span>).
   {
-    site: "components/admin/UseRawControl.tsx:334",
+    site: "components/admin/UseRawControl.tsx:329",
     disposition: "carrier-survives",
     reason:
-      "role=radio with aria-checked AND a rendered dot (components/admin/UseRawControl.tsx:368)",
+      "role=radio with aria-checked AND a rendered dot (components/admin/UseRawControl.tsx:363)",
   },
   {
-    site: "components/admin/UseRawControl.tsx:360",
+    site: "components/admin/UseRawControl.tsx:355",
     disposition: "carrier-survives",
     reason: "the checked row renders In use or Selected beside the dot",
   },
   {
-    site: "components/admin/UseRawControl.tsx:372",
+    site: "components/admin/UseRawControl.tsx:367",
     disposition: "carrier-survives",
     reason: "same",
   },

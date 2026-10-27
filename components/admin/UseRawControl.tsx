@@ -4,6 +4,9 @@ import { Fragment, useRef, useState, useTransition } from "react";
 import type { ParseWarning, UseRawResolution } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import type { WarningControlSite } from "@/components/admin/warningControlSite";
+// The four in-scope codes (the caller also filters; the control guards too). One set, shared
+// with the reading-display rules (warning-card-fixes spec §5.6).
+import { USE_RAW_CODES } from "@/lib/admin/warningReadingDisplay";
 
 // Kind → radiogroup accessible name (spec 2026-07-17 §6.2). Exhaustive over the
 // UseRawResolution parsed-kind union; a new kind is a compile error here.
@@ -51,14 +54,6 @@ export type UseRawControlState =
   | "legacy-unavailable"
   | "pending";
 
-/** The four in-scope codes (the caller also filters; the control guards too). */
-const IN_SCOPE = new Set([
-  "ROOM_HEADER_SPLIT_AMBIGUOUS",
-  "HOTEL_GUEST_SPLIT_AMBIGUOUS",
-  "DATE_ORDER_SUGGESTS_DMY",
-  "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
-]);
-
 /**
  * Pure state derivation (spec §8 guard precedence + persisted-state machine). Kept
  * exported + free-standing so the transition-audit test can drive every cell
@@ -69,7 +64,7 @@ export function deriveUseRawControlState(
   decision: UseRawDecision | undefined,
   inFlight: boolean,
 ): UseRawControlState | null {
-  if (!IN_SCOPE.has(warning.code)) return null; // (1) out of scope → render nothing
+  if (!USE_RAW_CODES.has(warning.code)) return null; // (1) out of scope → render nothing
   // Resolution guards precede the optimistic in-flight overlay: a warning with no
   // resolvable resolution can never show a "pending" raw substitution. A refresh mid-toggle
   // can deliver an unresolvable version of the SAME in-scope warning while `inFlight` is

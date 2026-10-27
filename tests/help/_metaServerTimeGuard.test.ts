@@ -270,7 +270,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // warnings the same way the show pop-up does. A pure partition over a fingerprint
     // set, no clock read. 222 -> 223.
     expect(rel).toContain("lib/dataQuality/partitionByIgnored.ts");
-    expect(rel.length).toBe(223);
+    // Joined, from feat/warning-card-fixes Task 4: lib/admin/warningReadingDisplay.ts, a new
+    // module holding the reading-display caps and formats and the USE_RAW_CODES set, now
+    // imported directly by components/admin/UseRawControl.tsx. Pure string formatting and
+    // set membership, no clock read. 223 -> 224.
+    expect(rel).toContain("lib/admin/warningReadingDisplay.ts");
+    expect(rel.length).toBe(224);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
