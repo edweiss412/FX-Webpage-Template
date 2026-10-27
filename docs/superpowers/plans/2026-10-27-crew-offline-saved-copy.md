@@ -444,7 +444,7 @@ Leads per mode: `offline` `No signal.`; `slow` `Slow connection.`; `server-error
 
 ### Task 5: Navigation decision tables (§4.4)
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/navigation.test.ts` red-state=authored red-target=`lib/offline/navigation.ts` why=`decideStep3, decideEndedStep1, decideCheckOutcome and decideNoResponse are stubs that throw, so every row of the step tables fails on the throw` ac=AC-3 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/navigation.test.ts` red-state=authored red-target=`lib/offline/navigation.ts` why=`decideStep3, decideEndedStep1, decideEndedFetch, decideCheckOutcome and decideNoResponse are stubs that throw (with lib/offline/store.ts holding the types, per preflight ruling D1), so every row of the step tables fails on the throw` ac=AC-3 -->
 
 **What is red and why:** every decision function is a throwing stub.
 
@@ -611,7 +611,7 @@ export function copyAtUrl(state: StoreState, url: string): StoredCopy | null {
 
 ### Task 7: Completeness (HTML and CSS font references), caps, eviction and static retention
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/completeness.test.ts tests/lib/offline/caps.test.ts` red-state=authored red-target=`lib/offline/caps.ts` why=`requiredStaticUrls, fontUrlsFromCss, admitAsset, evictionVictims and staticEvictions are throwing stubs, so each extraction, cap boundary, eviction and retention case fails on the throw` ac=AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/completeness.test.ts tests/lib/offline/caps.test.ts` red-state=authored red-target=`lib/offline/caps.ts` why=`requiredStaticUrls and fontUrlsFromCss (lib/offline/completeness.ts) and admitAsset, evictionVictims and staticEvictions (lib/offline/caps.ts) are throwing stubs, so each extraction, cap boundary, eviction and retention case fails on the throw (preflight ruling D23)` ac=AC-5 -->
 
 **What is red and why:** all five functions are throwing stubs.
 
