@@ -33,18 +33,7 @@
 - Invariant 5: no code string renders; `callUseRawAction` returns `"ok" | "failed"`.
 - Invariant 10: no new `"use server"` file or export, no new route, no inline server action (spec §10, R10). components/admin/useRawDraft.tsx is `"use client"`. `tests/log/_metaMutationSurfaceObservability.test.ts` is re-run in Task 20 to confirm.
 - Invariant 2: each Save runs two existing endpoints one after the other from the client; no lock nests.
-- Invariant 1 and 6: one task, one commit, conventional-commit message. **Declared exception, the census window:** six suites key rows by source LINE, so an edit above a keyed line turns them red until Task 18 re-keys them once, after the last component edit (re-keying earlier would be redone by every later task). **No green command from Task 1 to Task 17 runs any of them**, and every other suite a task touches, including the COUNT-keyed registries, is green at that task's commit. Exactly these, with the first task that moves one of their rows (from sweep S1):
-
-  | Suite (registry) | Keyed files this arc edits | Expected red from |
-  |---|---|---|
-  | `tests/help/_metaRenderFaultMarking.test.ts` (`REPORTED_RESIDUE`) | `UseRawControl.tsx` | Task 4 (`IN_SCOPE` leaves the file) |
-  | `tests/styles/_metaForcedColors.test.ts` (`tests/styles/forcedColorsCensus.ts`) | `UseRawControl.tsx`, `PerShowActionableWarnings.tsx`, `ShowReviewSurface.tsx` | Task 4 |
-  | `tests/styles/_metaTapTargetFloor.test.ts` (`tests/styles/tapTargetCensus.ts`) | `SheetIconLink.tsx`, `step3ReviewSections.tsx`, `DataQualityWarningControls.tsx` | Task 6 |
-  | `tests/styles/_metaControlOutlineFill.test.ts` (`tests/styles/controlOutlineScan.ts`) | `step3ReviewSections.tsx`, `ShowReviewSurface.tsx` | Task 7 |
-  | `tests/styles/_metaControlOutlineResidue.test.ts` (`controlOutlineScan.ts` and its inline `RESIDUE_CENSUS`) | `step3ReviewSections.tsx`, `ShowReviewSurface.tsx` | Task 7 |
-  | `tests/styles/_metaSubtleOnInteractive.test.ts` (`tests/styles/subtleInteractiveExemptions.ts`) | `step3ReviewSections.tsx`, `sectionWarningExtras.tsx` | Task 7 |
-
-  The walker cover below excludes these six by name; Task 18 is where they return to green, and Task 19 re-keys any row a gate fix moves.
+- Invariant 1 and 6: one task, one commit, conventional-commit message, and **every commit leaves the full suite green**. A task whose edits move a registry (count-keyed or line-keyed) reconciles it in its OWN commit, in a Reconcile step before the commit ("Registry reconciliation per task" below), and its green command runs the full walker set, the six line-keyed census suites included. No suite is expected red between tasks.
 - Heavy phases: any full-suite vitest, non-interactive Playwright, or build runs as `pnpm heavy <cmd>` (outermost only). Scoped vitest with explicit files runs unwrapped.
 - New `.tsx` test files never quote the sheet icon's accessible-name phrase verbatim (it is counted repo-wide by `tests/components/admin/sheetIconLinkContainment.test.ts:46`); they assert the `aria-label` CONTAINS the card title.
 - New jsdom suites start with `// @vitest-environment jsdom`.
@@ -85,7 +74,7 @@ EXTENDS (a registry row or a new case lands in the named task):
 - `tests/styles/noBareRingOffset.test.ts` — re-run; `BACKDROP_SKIN` registration (`tests/styles/noBareRingOffset.test.ts:28`) covers the two new keys (Task 6).
 - `tests/components/admin/attentionMarkParity.test.ts` — re-run; `JudgmentCallTag` routes its ring through `attentionMarkClass("judgment", "sunken")`, so no exemption row (Task 7).
 - `tests/ci/_metaSpecRegistration.test.ts` via `tests/e2e/standalone-baseline.json` — every task adding Playwright tests regenerates the baseline (Tasks 7, 9, 13, 15, 16, 17).
-- Line-keyed censuses re-keyed in Task 18: `tests/styles/tapTargetCensus.ts`, `tests/styles/forcedColorsCensus.ts`, `tests/styles/controlOutlineScan.ts`, `tests/styles/subtleInteractiveExemptions.ts`, `tests/styles/_metaControlOutlineResidue.test.ts` (its inline `RESIDUE_CENSUS`), `tests/help/_metaRenderFaultMarking.test.ts` (`REPORTED_RESIDUE`).
+- Line-keyed censuses, reconciled by each task that moves a row (per-task table below) and re-verified whole-tree by Task 18: `tests/styles/tapTargetCensus.ts`, `tests/styles/forcedColorsCensus.ts` (its `site:` keys), `tests/styles/controlOutlineScan.ts`, `tests/styles/subtleInteractiveExemptions.ts`, `tests/styles/_metaControlOutlineResidue.test.ts` (its inline `RESIDUE_CENSUS`), `tests/help/_metaRenderFaultMarking.test.ts` (`REPORTED_RESIDUE`).
 
 - `tests/admin/no-inline-email-normalization.test.ts` — scans every `lib/drive` and `lib/sync` file (`tests/admin/no-inline-email-normalization.test.ts:95-96`) and rejects unexempted `.trim()` / `.toLowerCase()`. Task 2's new lib/drive/venueAddressAnchor.ts uses `/\S/` and `resolveAlias` instead, so it needs no `canonicalize-exempt:` line; the suite is in Task 2's green command.
 
@@ -118,13 +107,14 @@ def walks(p,seen):
     s=open(p,errors="ignore").read()
     r=bool(WALK.search(s)) or any(walks(q,seen) for q in (resolve(p,m) for m in IMP.findall(s)) if q)
     memo[p]=r; return r
-DEFER={"tests/styles/_metaTapTargetFloor.test.ts","tests/styles/_metaForcedColors.test.ts","tests/styles/_metaControlOutlineFill.test.ts","tests/styles/_metaControlOutlineResidue.test.ts","tests/styles/_metaSubtleOnInteractive.test.ts","tests/help/_metaRenderFaultMarking.test.ts"}
 tests=sorted(p for p in tracked if re.search(r"^tests/.*\.test\.tsx?$",p) and not p.endswith(".db.test.ts") and "realdb" not in p)
 cover=[t for t in tests if walks(t,set())]
-open(out_path,"w").write("\n".join(t for t in cover if t not in DEFER)+"\n")
+open(out_path,"w").write("\n".join(cover)+"\n")
 ```
 
-Run as `python3 "$SCRATCH/walker-cover.py" "$SCRATCH/walker-cover.txt" && pnpm heavy pnpm exec vitest run $(cat "$SCRATCH/walker-cover.txt")`, re-derived each time (earlier tasks add test files). Measured 2026-10-26 on the plan commit: 294 walker suites, the six census suites among them (detected, so the derivation reaches helper-module walks), 288 after excluding those six. Run at plan time: the first 286 in one invocation, `270 passed | 2 skipped (272 files)`, `7185 passed | 18 skipped`, 404s, DB-free; the two `tests/e2e` vitest suites added when the derivation stopped excluding that directory (`tests/e2e/_metaFontFidelityWiring.test.ts`, `tests/e2e/_metaLiveEntryToolchain.test.ts`) in a second, green. Among them, by the new file they scan: `tests/admin/no-inline-email-normalization.test.ts` and `tests/sync/_scopeCheckContract.test.ts` (lib/drive), `tests/admin/_metaInfraEmitCover.test.ts` (lib/admin), `tests/styles/_metaEmDashCopy.test.ts`, `tests/styles/noBareRingOffset.test.ts`, `tests/components/_metaLiveRegionMounting.test.ts`, `tests/components/admin/attentionMarkParity.test.ts`, `tests/components/admin/sheetIconLinkContainment.test.ts`, `tests/styles/_metaNewTabAnnouncement.test.ts`, `tests/log/_metaMutationSurfaceObservability.test.ts` (components and app), `tests/ci/_metaSpecRegistration.test.ts`, `tests/cross-cutting/vitest-projects-partition.test.ts`, `tests/cross-cutting/test-fast-deferred.test.ts`, `tests/e2e/_metaLiveEntryToolchain.test.ts` (tests). Tasks 2, 4, 7, 12, 13, 14, 15, 16 and 17 create files and run the cover at their green step; Tasks 1, 3, 5, 6, 8, 9, 10 and 11 create none.
+Run as `git add <the task's new files> && python3 "$SCRATCH/walker-cover.py" "$SCRATCH/walker-cover.txt" && pnpm heavy pnpm exec vitest run $(cat "$SCRATCH/walker-cover.txt")`, re-derived each time (earlier tasks add test files). **Stage new files first:** `tests/admin/_metaInfraEmitCover.test.ts` asserts its filesystem walk agrees with `git ls-files`, so an untracked new file fails its premise (measured below). Measured 2026-10-26: 294 walker suites, the six line-keyed census suites among them (so the derivation reaches helper-module walks). Baseline on the plan commit: green (the 286 non-census suites `270 passed | 2 skipped` in 404s; the two `tests/e2e` vitest suites and the six census suites in separate green runs), DB-free.
+
+**New-file probe, run at plan time.** The four new source files, written in their planned shape (Task 2's module with its planned imports and rule, Task 4's module with its planned imports, `JudgmentCallTag` with spec §3.3's markup verbatim, useRawDraft.tsx with both action imports), untracked, then the full 294-suite walker set: `3 failed | 275 passed | 2 skipped (280 files)`. The three, and who owns each: `tests/components/admin/sheetIconLinkContainment.test.ts` builder census wants a new row `"lib/drive/venueAddressAnchor.ts": 1` (Task 2 adds it); `tests/components/_metaOrphanedComponents.test.ts` reports JudgmentCallTag.tsx and useRawDraft.tsx until something imports them (Tasks 7 and 14 wire them in the same commit that creates them, so no allowlist row); `tests/admin/_metaInfraEmitCover.test.ts` failed its walk-versus-git premise for the untracked `lib/admin` file (staging, above). No census suite reported a new element from the four files. Probe files deleted; the worktree held only `docs/` changes afterwards.
 
 Not applicable, with reason: Supabase call boundaries (`tests/auth/_metaInfraContract.test.ts`) — no new Supabase call (§10). Sentinel hiding (`tests/components/tiles/_metaSentinelHidingContract.test.ts`) — no crew tile changes. Admin-alert catalog — no admin alert. Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no lock surface; each endpoint keeps its own single holder. Mutation-surface registry (`tests/log/_auditableMutations.ts`) — no new surface (R10); exercised, not extended.
 
@@ -187,7 +177,7 @@ Run 2026-10-26 on the branch tip (`f9fe5c0ec`), `grep -c -F <symbol> <file>` per
 
 Test paths, harnesses and scripts each confirmed present with `test -e` (43 paths, 0 missing), including `tests/e2e/standalone.config.ts`, `tests/e2e/_step3ReviewModalHarness.tsx`, `tests/e2e/_step3ReviewModalBundle.mjs`, `tests/e2e/_compactAlertCardLiveEntry.tsx`, `tests/e2e/helpers/liveEntryToolchain.ts`, `scripts/check-standalone-baseline.mjs`, `tests/_shared/premise.ts`.
 
-**Strict-TS snippet probe (plan round 1 repair).** Every fenced code block in this unit was extracted and checked: the five `ts`/`tsx` blocks (Task 1 loop, Task 5 guard, Task 10 render, Task 13 props, Task 14 interfaces) each written to a scratch file that imports the real modules, compiled by `pnpm exec tsc -p <scratch tsconfig extending tsconfig.json>` (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), with one path override mapping `@/lib/admin/warningReadingDisplay` to a declaration stub of Task 4's Interfaces (the module does not exist before Task 4): exit 0. Negative control in the same configuration: the round-1 shapes (`messageFor` over a `Set<string>`, an unguarded `arr[0]`) produced `TS2345` and `TS2532`, so the probe discriminates. The `js` census script passed `node --check`, the `python` walker-cover script `py_compile`. Earlier, every signature the tasks introduce (the `readAs` variant, the venue anchor pair, `CompactAlertCard.sheetLink`, `JudgmentCallTag` props, the archived props, the lock props, `UseRawSurface`, `callUseRawAction`, `UseRawDraftValue`, `offersReadingChoice`) compiled the same way. Scratch removed.
+**Strict-TS snippet probe (plan round 1 repair).** Every fenced code block in this unit was extracted and checked: the seven `ts`/`tsx` blocks (Task 1 loop, Task 5 guard, Task 7 stub, Task 10 render, Task 13 props, Task 14 interfaces, Task 14 stub; re-run after plan round 2) each written to a scratch file that imports the real modules, compiled by `pnpm exec tsc -p <scratch tsconfig extending tsconfig.json>` (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), with one path override mapping `@/lib/admin/warningReadingDisplay` to a declaration stub of Task 4's Interfaces (the module does not exist before Task 4): exit 0. Negative controls in the same configuration: the round-1 shapes (`messageFor` over a `Set<string>`, an unguarded `arr[0]`) produced `TS2345` and `TS2532`, and the round-2 shape (a `ReactElement` stub returning `null`) produced `TS2322`, so the probe discriminates. Every stub-first step (Tasks 2, 4, 7, 13, 14) declares its return type: the lib stubs return `null` or `false` into `T | null` / `boolean`, `ArchivedTabIncludeButton` / `ArchivedTabWarningActions` are declared `ReactElement | null`, and the two `ReactElement` stubs (`JudgmentCallTag`, `UseRawDraftProvider`) return elements. The `js` census script passed `node --check`, the `python` walker-cover script `py_compile`. Earlier, every signature the tasks introduce (the `readAs` variant, the venue anchor pair, `CompactAlertCard.sheetLink`, `JudgmentCallTag` props, the archived props, the lock props, `UseRawSurface`, `callUseRawAction`, `UseRawDraftValue`, `offersReadingChoice`) compiled the same way. Scratch removed.
 
 **Plan-time probes** (throwaway `node --import tsx` scripts, removed):
 
@@ -236,16 +226,42 @@ tests/styles/tapTargetCensus.ts | Step3ReviewModal.tsx:1084 | <input
 tests/styles/tapTargetCensus.ts | step3ReviewSections.tsx:4375 | <a
 ```
 
-Dispositions (applied in Task 18, by element identity, never by line arithmetic):
+Dispositions (applied by the task whose edit moves the row, by element identity, never by line arithmetic; Task 18 re-verifies the whole tree):
 
 - `forcedColorsCensus.ts` `PerShowActionableWarnings.tsx:458` `<a` — **DELETE** (the text link is removed in Task 9; spec §16.3).
 - `Step3ReviewModal.tsx` rows (6) — **no change expected**: no task edits `Step3ReviewModal.tsx`. Task 18 re-runs the sweep; a Step3ReviewModal row that moved is a defect to investigate, not a re-key.
 - Every other row (23) — **RE-KEY**: same element, new line, located by its tag + class string on the final tree.
-- **ADD**: Task 18 adds rows only for elements the scanners report as new and unprovable (expected candidates: the Accepted `<summary>` on both surfaces in `subtleInteractiveExemptions.ts`, per §16.3). Each added row's reason is copied from its Ignored twin.
+- **ADD**: the task that adds an element adds its row, only when a scanner reports it as new and unprovable (expected candidates: the Accepted `<summary>` on both surfaces in `subtleInteractiveExemptions.ts`, per §16.3). Each added row's reason is copied from its Ignored twin.
 
 The baseline run of all ten census and count-pin suites on this tip was green (`10 passed, 644 tests`), so any red after Task 18 is this arc's.
 
-**Two registries §16.3 does not list, found by this sweep:** `tests/help/_metaRenderFaultMarking.test.ts` (`UseRawControl.tsx:433`, edited by Tasks 4, 10, 14) and the inline census in `tests/styles/_metaControlOutlineResidue.test.ts` (`step3ReviewSections.tsx:2500`, shifted by Tasks 7, 8, 12, 13, 16, 17). Both are in Task 18.
+**Two registries §16.3 does not list, found by this sweep:** `tests/help/_metaRenderFaultMarking.test.ts` (`UseRawControl.tsx:433`, edited by Tasks 4, 10, 14) and the inline census in `tests/styles/_metaControlOutlineResidue.test.ts` (`step3ReviewSections.tsx:2500`, shifted by Tasks 7, 8, 12, 13, 16, 17). Both are reconciled per task (table below).
+
+### S1b. Registry reconciliation per task (derived: S1 rows in the files each task edits, plus the count registries keyed by those files and the new-file probe)
+
+Every task's **Reconcile** step, before its commit: stage the task's files, run the full walker set (the walker-cover command above, censuses included), and for each red registry update the rows FROM THE OBSERVED OUTPUT. Procedure (house form; there is no census update script): locate the SAME element on the edited tree by its tag plus its class string or testid, confirm the row's stated reason still describes it, change only its `line` / `site` coordinate, and append a one-line provenance comment ("<old> -> <new> on feat/warning-card-fixes Task N; located by its own element"), as `tests/styles/controlOutlineScan.ts:168-178`, `tests/styles/tapTargetCensus.ts:221-225` and `tests/help/_metaRenderFaultMarking.test.ts:46-50` do; never add a delta to a retyped number. Count registries take the count the suite reports, only when the change is the one this table names; any other movement stops the task. Re-run after commit hooks (prettier can move lines) and amend nothing: a post-hook fix is a new commit of the same task.
+
+| Task | Files it edits that a census keys | Line-keyed rows it can move (S1) | Count-keyed rows it moves |
+|---|---|---|---|
+| 1 | none | 0 | 0 |
+| 2 | none | 0 | 1 ADD: builder census `"lib/drive/venueAddressAnchor.ts": 1` (`tests/components/admin/sheetIconLinkContainment.test.ts:1093`, probed) |
+| 3 | none | 0 | 0 |
+| 4 | `UseRawControl.tsx` | 4: render-fault line 433; forced-colors line 334, line 360, line 372 | 0 |
+| 5 | none | 0 | 0 |
+| 6 | `SheetIconLink.tsx` | 1: tap-target line 91 | 0 (phrase count 2 and icon-anchor count 1 unchanged) |
+| 7 | `step3ReviewSections.tsx` | 6: residue line 2500; control-outline line 4975, line 5057; subtle line 1692, line 3511; tap-target line 4375 | 0 (the file's phrase 1, builder 8, `sheetHref` 7 and icon-anchor 4 counts and its adopter row are unchanged: the href is rebuilt in the title row, and the deleted link was a text anchor) |
+| 8 | `step3ReviewSections.tsx` | 6 (same rows) | 0 |
+| 9 | `PerShowActionableWarnings.tsx` | 1 DELETE: forced-colors `PerShowActionableWarnings.tsx:458` (the text link leaves) | 1 ADD: adopter set `components/admin/CompactAlertCard.tsx` (`tests/components/admin/sheetIconLinkContainment.test.ts:2166`) |
+| 10 | `UseRawControl.tsx` | 4 (as Task 4) | 0 |
+| 11 | `DataQualityWarningControls.tsx` | 1: tap-target line 239 | 0 |
+| 12 | `step3ReviewSections.tsx`, `sectionWarningExtras.tsx` | 7: the six of Task 7, subtle `sectionWarningExtras.tsx:285`; 2 ADD: subtle rows for the Accepted `<summary>` on both surfaces (spec §16.3) | 0 |
+| 13 | `step3ReviewSections.tsx`, `DataQualityWarningControls.tsx` | 7: the six, tap-target line 239; ADD only if a scanner reports the include button | 0 |
+| 14 | `UseRawControl.tsx`, `DataQualityWarningControls.tsx` | 5: the four of Task 4, tap-target line 239; ADD only if a scanner reports the Cancel button | 0 |
+| 15 | `step3ReviewSections.tsx`, `sectionWarningExtras.tsx` | 7 (as Task 12, minus its ADDs) | 0 |
+| 16 | `step3ReviewSections.tsx` | 6 | 0 |
+| 17 | `step3ReviewSections.tsx`, `ShowReviewSurface.tsx` | 16: the six, control-outline `ShowReviewSurface.tsx:844` and line 1025, forced-colors line 811, line 825, line 829, line 844, line 932, line 945, line 951, line 1025 | 0 |
+
+The line-keyed column is the CEILING (every row in a file the task edits); the suites report which of them actually moved. Totals: 70 possible re-keys (ceiling), 1 delete and 2 to 4 adds line-keyed; 2 count-keyed rows. Every task (1 to 17) runs the walker set in its Reconcile step, before its commit; tasks that create files stage them first. `Step3ReviewModal.tsx` rows: none, since no task edits it.
 
 ### S2. Tests pinning what this arc removes or renames
 
