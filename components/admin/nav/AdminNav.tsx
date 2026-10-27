@@ -97,8 +97,8 @@ export function AdminNav({
   // Two things are tracked per half and they are NOT the same thing. Whether a
   // half has SETTLED is a latch, set once and never cleared. What it would
   // ANNOUNCE is read LIVE, at the instant the announcement is built, because a
-  // value frozen at settle time goes stale: `zeroNow()` can commit 0 after the
-  // bell settles, and a later refetch can restore a count.
+  // value frozen at settle time goes stale: a refetch after a row is read can
+  // commit a lower count after the bell settles, and a later one a higher count.
   //
   // The bell half reports itself through NotifBell's `onBellState`, since the
   // promise's resolved value is not always what the bell displays. The

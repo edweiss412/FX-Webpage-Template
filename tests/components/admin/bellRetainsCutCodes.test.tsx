@@ -80,7 +80,7 @@ function entryFor(code: string, alertId: string): BellEntry {
 function feedBody(entries: BellEntry[]) {
   return {
     entries,
-    unseenCount: 0,
+    unreadCount: 0,
     truncated: false,
     historyDays: 14,
     feedCap: 50,
@@ -96,10 +96,10 @@ describe("the bell still renders the codes cut from the modal", () => {
     const entries = CUT_FROM_MODAL.map((code, i) => entryFor(code, `cut-${i + 1}`));
     fetchMock.mockResolvedValue(jsonOk(feedBody(entries)));
 
-    // Every required prop supplied: an omitted `onOpened` throws asynchronously
+    // Every required prop supplied: an omitted `onCountStale` throws asynchronously
     // AFTER the assertions pass, which vitest reports as an unhandled rejection
     // and a non-zero exit while the Tests line still reads all-green.
-    render(<BellPanel viewerIsDeveloper={false} onClose={() => {}} onOpened={() => {}} />);
+    render(<BellPanel viewerIsDeveloper={false} onClose={() => {}} onCountStale={() => {}} />);
 
     for (let i = 0; i < CUT_FROM_MODAL.length; i += 1) {
       const el = await screen.findByTestId(`bell-entry-cut-${i + 1}`);
@@ -124,7 +124,7 @@ describe("the bell's own exclusion mechanism keeps them", () => {
 
   it("the feed's ONLY code-filter input is that list, not a literal beside it", () => {
     // Whole-diff review B8: asserting `bellExcludedCodes` omits the codes proves
-    // nothing if the feed passes something else. `lib/admin/bellFeed.ts:222` is
+    // nothing if the feed passes something else. `lib/admin/bellFeed.ts:224` is
     // the single RPC call site, and `p_excluded_codes` is its only
     // code-filtering parameter, so pin that the argument IS the helper's result.
     const src = readFileSync(resolve(process.cwd(), "lib/admin/bellFeed.ts"), "utf8");

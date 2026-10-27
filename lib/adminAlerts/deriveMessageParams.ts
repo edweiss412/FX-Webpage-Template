@@ -23,7 +23,11 @@ import type { MessageParams } from "@/lib/messages/lookup";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import { ALERT_IDENTITY_MAP } from "@/lib/adminAlerts/alertIdentityMap";
 
-const LEAD_HINT = " Lead changes must be confirmed in the show page.";
+// Why a LEAD change is worth a look, and where to correct one (catalog helpfulContext:
+// "correct it in the sheet"). It used to say the change "must be confirmed in the show
+// page", but nothing there confirms it: the alert is informational and its Confirm
+// button only marks it seen.
+const LEAD_HINT = " Leads can see the show's financials. If that's wrong, fix it in the sheet.";
 const ROLE_CHANGES_FALLBACK = "a crew member's role flags changed; see the show page.";
 const CHANGE_LINE_CAP = 3;
 
@@ -364,8 +368,8 @@ export function deriveAlertMessageParams(
   if (code === "ROLE_FLAGS_NOTICE") {
     const changes = parseChanges(context);
     params["role-changes"] = roleChangesParam(changes);
-    // Show scope suppresses the hint: it points at the page the reader is
-    // already looking at, and the confirm button sits in the same card.
+    // Show scope suppresses the hint: the show page does not list this
+    // informational alert, so the bell is the only place it reads.
     params["lead-hint"] = scope === "show" ? "" : leadHintParam(changes);
   }
   return params as MessageParams;

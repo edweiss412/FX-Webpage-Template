@@ -285,7 +285,7 @@ describe("infraEmitScan — satisfied and exempt cases", () => {
   });
 
   test("a propagation guard, consequent, callee declared LOCALLY inside the cover", () => {
-    // runBellPipeline (lib/admin/bellFeed.ts:191) is the live witness. An
+    // runBellPipeline (lib/admin/bellFeed.ts:193) is the live witness. An
     // imported-only rule reports this and its "repair" is a duplicate emit.
     const s = only(`function f(){ if (sub.kind === "infra_error") { ${RET} } }`, {
       calleeOrigin: () => ({ inCover: true, origin: "local", emits: true }),

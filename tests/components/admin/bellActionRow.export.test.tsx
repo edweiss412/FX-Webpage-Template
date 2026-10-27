@@ -4,7 +4,7 @@
  *
  * T3 must mount BellPanel's action row from a real-component harness to assert the
  * `flex-1` pusher is gone. That row is currently unreachable: `ActionCell` is private
- * (components/admin/BellPanel.tsx:259) and server-rendering `<BellPanel>` yields only
+ * (components/admin/BellPanel.tsx:263) and server-rendering `<BellPanel>` yields only
  * its initial loading state, so neither `isAutoResolving` branch can be emitted.
  *
  * This is the RED: the export does not exist yet, so the import is unresolved. It is a
@@ -14,7 +14,7 @@
  *
  * The extraction must also carry the STATE, not just the markup: the false branch uses
  * `resolving` for the button's disabled/aria-busy and its pending copy
- * (components/admin/BellPanel.tsx:332-342), so a props-only presentational child would
+ * (components/admin/BellPanel.tsx:336-342), so a props-only presentational child would
  * lose behaviour. These assertions pin that.
  */
 import { act, render, within } from "@testing-library/react";

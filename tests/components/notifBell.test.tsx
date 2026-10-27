@@ -9,7 +9,6 @@
  * tests/components/useBellBadge.test.tsx. `global.fetch` is stubbed so the
  * BellPanel that mounts on open does not hit the network.
  */
-import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { NotifBell } from "@/components/admin/nav/NotifBell";
@@ -17,22 +16,17 @@ import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import type { BellCountResult } from "@/lib/admin/bellFeed";
 
 const refetchMock = vi.fn();
-// Stateful stand-in for the real hook: it derives the initial count from the
-// prop (spec §4/§5 — ok→count, infra_error→degraded) AND exposes a working
-// `zeroNow` so the immediate-zero-on-open contract (spec §7.2) is observable at
-// the NotifBell boundary. The real hook's race-safe machinery is covered by
-// tests/components/useBellBadge.test.tsx.
+// Stand-in for the real hook: it derives the count from the prop (spec §4/§5 —
+// ok→count, infra_error→degraded). The real hook's race-safe machinery is
+// covered by tests/components/useBellBadge.test.tsx, and opening the panel
+// against the REAL hook by tests/components/admin/nav/notifBellFirstSettled.test.tsx.
 vi.mock("@/components/admin/nav/useBellBadge", () => ({
-  useBellBadge: (initial: BellCountResult) => {
-    const [count, setCount] = useState<number | null>(initial.kind === "ok" ? initial.count : null);
-    return {
-      count,
-      degraded: initial.kind === "infra_error",
-      refetch: refetchMock,
-      zeroNow: () => setCount(0),
-      pingSignal: 0,
-    };
-  },
+  useBellBadge: (initial: BellCountResult) => ({
+    count: initial.kind === "ok" ? initial.count : null,
+    degraded: initial.kind === "infra_error",
+    refetch: refetchMock,
+    pingSignal: 0,
+  }),
 }));
 
 const fetchMock = vi.fn();
@@ -78,14 +72,13 @@ describe("NotifBell — badge (spec §7.1 / §12 guards)", () => {
   });
 });
 
-describe("NotifBell — aria-label (unseen-count semantics, Finding 2)", () => {
-  // The badge counts UNSEEN entries (it clears on open), so the label must speak
-  // to unseen notifications — NOT "unresolved alerts", which stays false for a
-  // screen reader after the panel is opened while active alerts remain.
-  it("count > 0 → label reads unseen notifications, not 'unresolved alerts'", () => {
+describe("NotifBell — aria-label (unread-count semantics, Finding 2)", () => {
+  // The label must speak to unread notifications — NOT "unresolved alerts",
+  // which reads false to a screen reader once the active alerts are read.
+  it("count > 0 → label reads unread notifications, not 'unresolved alerts'", () => {
     const { getByTestId } = renderBell({ kind: "ok", count: 3 });
     const bell = getByTestId("admin-notif-bell");
-    expect(bell.getAttribute("aria-label")).toBe("Notifications: 3 unseen");
+    expect(bell.getAttribute("aria-label")).toBe("Notifications: 3 unread");
     expect(bell.getAttribute("aria-label")).not.toContain("unresolved");
   });
 
@@ -131,21 +124,20 @@ describe("NotifBell — panel trigger (spec §7.1/§7.2)", () => {
     await waitFor(() => expect(document.activeElement).toBe(getByTestId("admin-notif-bell")));
   });
 
-  it("R4 Finding 2: clicking the bell zeroes the badge immediately — before any fetch settles — and flips the aria-label to the zero state (spec §7.2)", () => {
-    // The feed fetch stays pending (beforeEach), so nothing has settled when we
-    // assert: the badge must be gone and the label must read the zero-count
-    // wording purely from the synchronous client-side zero.
-    const { getByTestId, queryByTestId } = renderBell({ kind: "ok", count: 3 });
-    const bell = getByTestId("admin-notif-bell");
+  it("clicking the bell keeps the badge count and its label, and opens the panel", () => {
+    // Defect caught: the open gesture zeroing the badge. The count tracks rows
+    // the panel still marks unread, and opening the panel reads none of them, so
+    // the number must survive the click unchanged. The feed fetch stays pending
+    // (beforeEach), so only the click itself can have moved anything.
+    const { getByTestId } = renderBell({ kind: "ok", count: 3 });
     expect(getByTestId("admin-notif-badge").textContent).toBe("3");
-    expect(bell.getAttribute("aria-label")).toBe("Notifications: 3 unseen");
 
-    fireEvent.click(bell);
+    fireEvent.click(getByTestId("admin-notif-bell"));
 
-    // Immediate zero: badge node gone, label back to the plain zero-state copy.
-    expect(queryByTestId("admin-notif-badge")).toBeNull();
-    expect(getByTestId("admin-notif-bell").getAttribute("aria-label")).toBe("Notifications");
-    // The panel still opened in the same gesture.
     expect(getByTestId("bell-panel")).toBeTruthy();
+    expect(getByTestId("admin-notif-badge").textContent).toBe("3");
+    expect(getByTestId("admin-notif-bell").getAttribute("aria-label")).toBe(
+      "Notifications: 3 unread",
+    );
   });
 });

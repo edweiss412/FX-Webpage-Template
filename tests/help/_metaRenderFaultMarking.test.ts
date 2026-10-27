@@ -120,12 +120,12 @@ const REPORTED_RESIDUE: Record<string, string> = {
  * is not written down here: the case below DERIVES it from the declarations, so
  * a newly hand-marked site is covered the moment it is declared.
  */ const UNREACHED_RESIDUE: Record<string, { cause: UnreachedCause; reason: string }> = {
-  "components/admin/Dashboard.tsx:858:ignoredDegraded": {
+  "components/admin/Dashboard.tsx:903:ignoredDegraded": {
     cause: "unreached-ternary",
     reason:
       "reaches dashboard-overview: adds a notice and removes warning badges. Dropped by the ConditionalExpression arm, whose guard classifyExpression cannot classify, not by shape.",
   },
-  "components/admin/Dashboard.tsx:674:dataGapsDegraded": {
+  "components/admin/Dashboard.tsx:719:dataGapsDegraded": {
     cause: "unreached-ternary",
     reason:
       "reaches dashboard-overview: a shows_internal read failure removes data-quality badges. Same ternary shape and the same declined asymmetry.",
@@ -459,7 +459,13 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // order. Nothing joined or left: membership is still 34, the file set is unchanged,
     // and every `form` and `marked` value is unchanged. Recomputing on origin/main
     // reproduces ed124ebc... byte-for-byte, and those three rows are the whole diff.
-    expect(digest).toBe("755b2e86bed95616e9ff62b37855b3b1d03410f11b7bf5da7847560779d31b17");
+    // Regenerated for fix/post-onboarding-alert-noise, to the same bar. EXACTLY ONE input
+    // changed, a line number, in the one file of this set the arc edits:
+    //   components/admin/Dashboard.tsx 595 -> 640 (+45: the ignored-warnings read
+    //   readIgnoredFingerprints lands above it)
+    // Same `in-operator` row, still marked. Nothing joined or left: membership is still 34,
+    // and recomputing on origin/main reproduces 755b2e86... byte-for-byte.
+    expect(digest).toBe("6c20e86fddb9648c3b02cdef3475c31c4ad4b08ac30149c167355c2ebc804e04");
   });
 });
 

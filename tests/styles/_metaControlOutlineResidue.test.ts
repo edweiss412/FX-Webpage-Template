@@ -1533,7 +1533,7 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
     // reason - they now carry `border-text-faint`, which this blinded oracle
     // still classifies perfectly well.
     expect(under.elements.map((e) => `${e.file}:${e.line}`).sort()).toEqual([
-      "components/admin/BellPanel.tsx:1221",
+      "components/admin/BellPanel.tsx:1248",
       "components/admin/IgnoredSheetsDisclosure.tsx:97",
       "components/admin/RecentAutoAppliedStrip.tsx:447",
       "components/admin/RecentAutoAppliedStrip.tsx:474",

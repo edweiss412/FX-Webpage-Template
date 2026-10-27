@@ -53,8 +53,8 @@
  *         infra_error, not seedable in this e2e).
  *   - normal button `count > 0 ? <span admin-notif-badge> : null` (B+↔B0)
  *       → instant mount/unmount, no count-down/pulse (§13 rows B+→B0, B0→B+).
- *         Tested: HERE — badge shows "1"/"2", then unmounts after the panel open
- *         stamps the watermark (B+→B0).
+ *         Tested: HERE — badge shows "1"/"2", then unmounts once its only row
+ *         is read (B+→B0).
  *   - badge text `count > 9 ? "9+" : String(count)` (B+→B+ count text swap)
  *       → instant text swap. Tested: HERE ("1"→"2" via a fresh commit) + unit
  *         (the 9+ cap).
@@ -394,7 +394,7 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     await page.setViewportSize({ width: 1280, height: VP_HEIGHT });
     await gotoAdmin(page);
 
-    // Badge reflects the one unseen alert (opened_at absent → unseen).
+    // Badge reflects the one unread alert.
     const badge = page.getByTestId("admin-notif-badge");
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText("1");
@@ -403,6 +403,10 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     const entry = page.getByTestId(`bell-entry-${id}`);
     await expect(entry).toBeVisible();
     await settleAnimations(inner);
+
+    // Opening the panel reads nothing, so the badge stays. The panel's post-load
+    // count refetch has to land on the same number, not on zero.
+    await expect(badge, "badge survives the panel opening (row still unread)").toHaveText("1");
 
     const dot = page.getByTestId(`bell-unread-dot-${id}`);
     const toggle = page.getByTestId(`bell-entry-toggle-${id}`);
@@ -474,10 +478,11 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
       "row header height unchanged across read (dot slot no-shift)",
     ).toBeLessThanOrEqual(TOL);
 
-    // B+→B0: opening the panel stamped the watermark, so the badge unmounts.
+    // B+→B0: the read POST settles, the badge refetches, and the only unread
+    // row has left the count, so the badge unmounts. Opening alone would not.
     await expect(
       page.getByTestId("admin-notif-badge"),
-      "badge unmounts after panel open stamps the watermark (B+→B0)",
+      "badge unmounts once its only unread row is read (B+→B0)",
     ).toHaveCount(0);
   });
 

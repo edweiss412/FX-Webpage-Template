@@ -19,6 +19,7 @@ import {
   emitOrphanedCrewRows,
   emitVenueAddressMissing,
   venueAddressMissingName,
+  emitPullSheetMissing,
 } from "./warnings";
 import {
   isKnownSectionHeader,
@@ -677,6 +678,8 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const pullSheetResult = parsePullSheet(markdown);
   agg.warnings.push(...pullSheetResult.warnings);
   const pullSheet = pullSheetResult.pullSheet;
+  // No pack list at all: crew cannot look up which case gear is in (2026-10-26 spec §4.1).
+  if (pullSheet === null) emitPullSheetMissing(agg);
 
   // parseDiagrams is a pure exact-label extractor. If the DIagrams label was misspelled,
   // its exact scan misses — but parseEventDetails (typo-tolerant, PR-D1) already recovered the

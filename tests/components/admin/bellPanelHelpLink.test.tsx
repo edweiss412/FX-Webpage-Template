@@ -71,7 +71,7 @@ function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
 function feedBody(entries: BellEntry[]) {
   return {
     entries,
-    unseenCount: 0,
+    unreadCount: 0,
     truncated: false,
     historyDays: 14,
     feedCap: 50,
@@ -89,7 +89,7 @@ function routeFetch(entries: BellEntry[]) {
 }
 
 function renderPanel() {
-  return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onOpened={vi.fn()} />);
+  return render(<BellPanel viewerIsDeveloper={false} onClose={vi.fn()} onCountStale={vi.fn()} />);
 }
 
 describe("BellPanel — Learn more help link (impeccable P1)", () => {
@@ -135,7 +135,7 @@ describe("BellPanel — Learn more help link (impeccable P1)", () => {
  * structural guard never saw it (DEFERRED.md:91-92).
  */
 describe("BellPanel — the telemetry link is internal and wears no new-tab glyph (§2.5)", () => {
-  /** components/admin/BellPanel.tsx:101 — the code the watch arm gates on. */
+  /** components/admin/BellPanel.tsx:105 — the code the watch arm gates on. */
   const WATCH_CODE: MessageCode = "WATCH_CHANNEL_ORPHANED";
 
   /**
@@ -169,7 +169,7 @@ describe("BellPanel — the telemetry link is internal and wears no new-tab glyp
         <BellPanel
           viewerIsDeveloper={branch.viewerIsDeveloper}
           onClose={vi.fn()}
-          onOpened={vi.fn()}
+          onCountStale={vi.fn()}
         />,
       );
       const row = await within(getByTestId("bell-panel")).findByTestId(
@@ -195,7 +195,7 @@ describe("BellPanel — the telemetry link is internal and wears no new-tab glyp
     const entry = makeEntry({ alertId: "g-none", isHealth: false, code: HELP_CODE });
     routeFetch([entry]);
     const { getByTestId } = render(
-      <BellPanel viewerIsDeveloper={true} onClose={vi.fn()} onOpened={vi.fn()} />,
+      <BellPanel viewerIsDeveloper={true} onClose={vi.fn()} onCountStale={vi.fn()} />,
     );
     const row = await within(getByTestId("bell-panel")).findByTestId("bell-entry-g-none");
     expect(within(row).queryByTestId("bell-telemetry-g-none")).toBeNull();

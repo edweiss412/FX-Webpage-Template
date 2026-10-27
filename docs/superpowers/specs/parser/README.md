@@ -42,4 +42,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-27-venue-block-predicate-design.md`](./2026-08-27-venue-block-predicate-design.md) | 2026-08-27 |
 | [`2026-08-28-nearmiss-candidacy-field-lists-design.md`](./2026-08-28-nearmiss-candidacy-field-lists-design.md) | 2026-08-28 |
 | [`2026-10-25-nearmiss-read-blocks-and-venue-address-design.md`](./2026-10-25-nearmiss-read-blocks-and-venue-address-design.md) | 2026-10-25 |
+| [`2026-10-26-pack-list-missing-warning-design.md`](./2026-10-26-pack-list-missing-warning-design.md) | 2026-10-26 |
 | [`probes`](./probes) | 2026-08-07 |

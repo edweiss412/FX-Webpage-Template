@@ -386,31 +386,45 @@ describe("shapeBellEntries", () => {
     expect(neither.activeTruncated).toBe(false);
   });
 
-  test("9. unseenCount: activityAt > openedAt entries only; openedAt null → all count", () => {
+  // The badge counts what the panel highlights: ACTIVE rows still showing the unread dot.
+  // Opening the panel moves viewer_opened_at and must NOT clear it; reading a row, or the
+  // alert resolving, does. A re-bump after the read makes the row unread again.
+  test("9. unreadCount: active rows with the unread dot; opening the panel does not clear it", () => {
+    const openedAfterEverything = "2026-07-09T00:00:00.000Z";
     const rows = [
-      metaRow({ viewer_opened_at: "2026-07-02T00:00:00.000Z" }),
+      metaRow({ viewer_opened_at: openedAfterEverything }),
       activeRow({
-        id: "a1",
+        id: "never-read",
         raised_at: "2026-07-01T00:00:00.000Z",
         last_seen_at: "2026-07-01T00:00:00.000Z",
-      }), // before opened
+        viewer_read_at: null,
+      }),
       activeRow({
-        id: "a2",
+        id: "read",
+        raised_at: "2026-07-02T00:00:00.000Z",
+        last_seen_at: "2026-07-02T00:00:00.000Z",
+        viewer_read_at: "2026-07-02T00:00:00.000Z",
+      }),
+      activeRow({
+        id: "re-bumped-after-read",
         raised_at: "2026-07-03T00:00:00.000Z",
-        last_seen_at: "2026-07-03T00:00:00.000Z",
-      }), // after opened
-      activeRow({
-        id: "a3",
-        raised_at: "2026-07-04T00:00:00.000Z",
-        last_seen_at: "2026-07-04T00:00:00.000Z",
-      }), // after opened
+        last_seen_at: "2026-07-05T00:00:00.000Z",
+        viewer_read_at: "2026-07-03T00:00:00.000Z",
+      }),
+      historyRow({ id: "resolved-never-read", viewer_read_at: null }),
     ];
-    const { unseenCount } = shapeBellEntries(rows, 50);
-    expect(unseenCount).toBe(2);
+    const { unreadCount, entries } = shapeBellEntries(rows, 50);
+    expect(unreadCount).toBe(2);
+    // The count and the dots come from one predicate.
+    expect(
+      entries
+        .filter((e) => e.unread)
+        .map((e) => e.alertId)
+        .sort(),
+    ).toEqual(["never-read", "re-bumped-after-read"]);
 
-    const rowsNullOpened = rows.map((r) => (r.is_meta ? metaRow({ viewer_opened_at: null }) : r));
-    const { unseenCount: unseenAll } = shapeBellEntries(rowsNullOpened, 50);
-    expect(unseenAll).toBe(3);
+    const neverOpened = rows.map((r) => (r.is_meta ? metaRow({ viewer_opened_at: null }) : r));
+    expect(shapeBellEntries(neverOpened, 50).unreadCount).toBe(2);
   });
 
   test("9b. CAP BOUNDARY (R4.2): oldest excluded from entries+count; re-bumped it enters sliced set unread", () => {
@@ -433,7 +447,7 @@ describe("shapeBellEntries", () => {
 
     const first = shapeBellEntries([meta, a, b, c], 2);
     expect(first.entries.map((e) => e.alertId)).toEqual(["c-newest", "b-mid"]);
-    expect(first.unseenCount).toBe(2); // a-oldest neither entered nor counted
+    expect(first.unreadCount).toBe(2); // a-oldest neither entered nor counted
 
     const aRebumped = activeRow({
       id: "a-oldest",
@@ -623,7 +637,7 @@ describe("loadBellFeed", () => {
       "Doug Larson's role changed from A1 to A1 + LEAD.",
     );
     expect(entry.messageParams["lead-hint"]).toBe(
-      " Lead changes must be confirmed in the show page.",
+      " Leads can see the show's financials. If that's wrong, fix it in the sheet.",
     );
     expect(entry.actions.map((a) => a.label)).toEqual(["Open in Sheet"]);
     expect(entry).not.toHaveProperty("action");
@@ -631,7 +645,7 @@ describe("loadBellFeed", () => {
 });
 
 describe("loadBellUnseenCount", () => {
-  test("ok: returns the same unseenCount the feed pipeline would compute", async () => {
+  test("ok: returns the same unreadCount the feed pipeline would compute", async () => {
     state.rpcRows = [
       metaRow({ viewer_opened_at: "2026-07-01T00:00:00.000Z" }),
       activeRow({
@@ -643,6 +657,7 @@ describe("loadBellUnseenCount", () => {
         id: "a2",
         raised_at: "2026-06-01T00:00:00.000Z",
         last_seen_at: "2026-06-01T00:00:00.000Z",
+        viewer_read_at: "2026-06-01T00:00:00.000Z",
       }),
     ];
     const result = await loadBellUnseenCount("admin@fxav.test", false);

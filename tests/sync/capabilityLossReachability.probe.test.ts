@@ -5,7 +5,7 @@
  * own first step: "a probe per hold kind, not a patch". This is that probe.
  *
  * THE CLAIM UNDER TEST. `capabilityRoleChangesForNotice` arm (c)
- * (`lib/sync/phase2.ts:347-356`) reports a capability loss for any
+ * (`lib/sync/phase2.ts:355-356`) reports a capability loss for any
  * `previousCrewMembers` entry absent from `nextByName` and absent from
  * `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the
  * post-hold PARSE list (`lib/sync/applyParseResult.ts:189`), while
@@ -101,7 +101,7 @@ async function inRollback<T>(fn: (tx: Sql) => Promise<T>): Promise<T> {
 const MT1 = "2026-06-08T12:00:00.000Z";
 const MT2 = "2026-06-09T12:00:00.000Z";
 
-/** Arm (c) only fires for a prior row carrying a capability flag (`lib/sync/phase2.ts:255`). */
+/** Arm (c) only fires for a prior row carrying a capability flag (`lib/sync/phase2.ts:263`). */
 const LEAD: RoleFlag[] = ["A1", "LEAD"];
 
 function runArgs(driveFileId: string, next: ReturnType<typeof parseResult>) {

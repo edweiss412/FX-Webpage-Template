@@ -1439,6 +1439,8 @@ async function processApprovedRow(
     // R59-1/R60-1: threaded ApplyStagedCoreArgs → Phase2Args → applyShowSnapshot → the
     // first-seen INSERT writes shows.wizard_created_session_id in the SAME statement.
     wizardCreatedSessionId: wizardSessionId,
+    // An approved row's roster was reviewed on screen: its LEAD notice is audit-only.
+    ...(coercedRow.wizard_approved ? { wizardApproved: true as const } : {}),
     // Task 6: thread the staged "use raw" decisions (read under the generation-scoped lock) into
     // the runPhase2 overlay. First-seen wizard finalize still honors an admin's use-raw choice.
     useRawDecisions: normalizeUseRawDecisions(locked.use_raw_decisions),

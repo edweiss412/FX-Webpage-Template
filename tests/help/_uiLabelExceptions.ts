@@ -239,7 +239,7 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     // Dashboard.tsx), so they need no declared-registry entry here.
     label: "Active shows",
     file: "app/help/admin/review-queues/page.mdx",
-    note: "Dashboard split-column heading — components/admin/Dashboard.tsx:449.",
+    note: "Dashboard split-column heading — components/admin/Dashboard.tsx:494.",
   },
   {
     label: "Apply",

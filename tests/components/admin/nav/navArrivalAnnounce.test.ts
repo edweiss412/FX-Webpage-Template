@@ -18,14 +18,14 @@ describe("navBadgeArrivalAnnouncement", () => {
   it("joins both halves, bell first", () => {
     // Catches: wrong order, wrong join, a missing half.
     expect(navBadgeArrivalAnnouncement(3, 2)).toBe(
-      "3 unseen notifications. 2 items need attention.",
+      "3 unread notifications. 2 items need attention.",
     );
   });
 
   it("uses the singular noun on both halves at a count of 1", () => {
     // Catches: a plural-only implementation.
     expect(navBadgeArrivalAnnouncement(1, 1)).toBe(
-      "1 unseen notification. 1 item needs attention.",
+      "1 unread notification. 1 item needs attention.",
     );
   });
 
@@ -34,19 +34,19 @@ describe("navBadgeArrivalAnnouncement", () => {
   // them, and passed all twelve cases of an earlier revision of this table.
   it("picks the bell's grammar from the bell count, not the attention count", () => {
     expect(navBadgeArrivalAnnouncement(1, 2)).toBe(
-      "1 unseen notification. 2 items need attention.",
+      "1 unread notification. 2 items need attention.",
     );
   });
 
   it("picks the attention grammar from the attention count, not the bell count", () => {
     expect(navBadgeArrivalAnnouncement(3, 1)).toBe(
-      "3 unseen notifications. 1 item needs attention.",
+      "3 unread notifications. 1 item needs attention.",
     );
   });
 
   it("drops a zero attention half", () => {
     // Catches: a zero leaking into the sentence.
-    expect(navBadgeArrivalAnnouncement(3, 0)).toBe("3 unseen notifications.");
+    expect(navBadgeArrivalAnnouncement(3, 0)).toBe("3 unread notifications.");
   });
 
   it("drops a zero bell half", () => {
@@ -66,7 +66,7 @@ describe("navBadgeArrivalAnnouncement", () => {
   it("speaks a non-integer count, because the contract is total", () => {
     // Catches: Number.isInteger substituted for Number.isFinite. Neither loader
     // can produce a fraction; spec §3.6 specifies the function as total anyway.
-    expect(navBadgeArrivalAnnouncement(2.5, null)).toBe("2.5 unseen notifications.");
+    expect(navBadgeArrivalAnnouncement(2.5, null)).toBe("2.5 unread notifications.");
   });
 
   it("drops NaN", () => {
@@ -83,7 +83,7 @@ describe("navBadgeArrivalAnnouncement", () => {
   });
 
   it("speaks the true bell count above the 9+ display cap", () => {
-    expect(navBadgeArrivalAnnouncement(12, null)).toBe("12 unseen notifications.");
+    expect(navBadgeArrivalAnnouncement(12, null)).toBe("12 unread notifications.");
   });
 
   it("speaks the true attention count above the 9+ display cap", () => {
@@ -112,7 +112,7 @@ describe("bellAnnounceableCount", () => {
 
 describe("bellAccessibleName", () => {
   it("interpolates the true count above the display cap", () => {
-    expect(bellAccessibleName(12, false)).toBe("Notifications: 12 unseen");
+    expect(bellAccessibleName(12, false)).toBe("Notifications: 12 unread");
   });
 
   it("omits the count entirely at zero", () => {

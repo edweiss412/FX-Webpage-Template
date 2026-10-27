@@ -29,7 +29,7 @@ describe("parseBellTimestamp", () => {
     expect(parseBellTimestamp("2026-07-05T10:00:00")).toBeNull(); // no zone designator
   });
 
-  test("accepts a canonical toISOString value (…Z) and normalizes it", () => {
+  test("accepts a canonical toISOString value (…Z) unchanged", () => {
     // Fix the clock ahead so an in-range past stamp is never skew-rejected.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
@@ -37,12 +37,23 @@ describe("parseBellTimestamp", () => {
     expect(parseBellTimestamp(value)).toBe("2026-07-05T10:00:00.000Z");
   });
 
-  test("accepts an explicit numeric offset and normalizes to UTC", () => {
+  test("accepts an explicit numeric offset and passes it through as written", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
-    // 10:00:00-00:00 is the same instant as 10:00:00Z.
-    expect(parseBellTimestamp("2026-07-05T10:00:00+00:00")).toBe("2026-07-05T10:00:00.000Z");
-    expect(parseBellTimestamp("2026-07-05T05:00:00-05:00")).toBe("2026-07-05T10:00:00.000Z");
+    // Postgres reads the offset itself; the instant is what the timestamptz stores.
+    expect(parseBellTimestamp("2026-07-05T10:00:00+00:00")).toBe("2026-07-05T10:00:00+00:00");
+    expect(parseBellTimestamp("2026-07-05T05:00:00-05:00")).toBe("2026-07-05T05:00:00-05:00");
+  });
+
+  // The read route stores this value as the row's read stamp, and a row stays unread while
+  // read_at < activity_at. Postgres stamps alerts to the MICROSECOND; rounding through a JS
+  // Date kept milliseconds only, so the stored read sat just before the activity it marked
+  // and the row (and the bell badge) came back unread on the next load.
+  test("keeps microsecond precision from a Postgres timestamp", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-26T23:40:00.000Z"));
+    const fromFeed = "2026-10-26T23:32:30.405007+00:00";
+    expect(parseBellTimestamp(fromFeed)).toBe(fromFeed);
   });
 
   test("rejects a stamp more than the skew allowance ahead of the server clock", () => {

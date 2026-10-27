@@ -35,7 +35,7 @@ export interface Resolver {
   isConstAlias(id: ts.Identifier): boolean;
   /**
    * Where is this callee DECLARED? Not "was it imported": `runBellPipeline` is a
-   * local function in lib/admin/bellFeed.ts:191, and an imported-only rule reports
+   * local function in lib/admin/bellFeed.ts:193, and an imported-only rule reports
    * the two propagation sites it exists to exempt (plan R2 F3). Returns null when
    * the symbol does not resolve at all.
    */

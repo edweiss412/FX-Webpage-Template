@@ -152,7 +152,7 @@ test.beforeAll(async () => {
       res.end(
         JSON.stringify({
           entries: [BELL_ENTRY],
-          unseenCount: 0,
+          unreadCount: 0,
           truncated: false,
           historyDays: 14,
           feedCap: 50,

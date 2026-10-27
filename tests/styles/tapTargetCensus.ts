@@ -101,7 +101,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   // which is a census row, not a defect (whole-diff R1 F3).
   {
     file: "components/admin/BellPanel.tsx",
-    line: 720,
+    line: 725,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -269,7 +269,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/BellPanel.tsx",
-    line: 1267,
+    line: 1302,
     tag: "div",
     category: "full-bleed",
     reason: "Bell-panel scrim: `fixed inset-0 z-banner bg-overlay-scrim`.",
