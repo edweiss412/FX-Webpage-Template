@@ -1,6 +1,6 @@
 # Crew page offline: saved copy, age note, offline reports
 
-**Status:** Draft v2, 2026-10-26 (after cross-model spec review round 1). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
+**Status:** Draft v3, 2026-10-26 (after cross-model spec review round 2). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
 **Scope:** the crew show page at `app/show/[slug]/[shareToken]/**` and the report flow it hosts.
 **Mockups (owner-reviewed):** https://claude.ai/artifact/8RA9JS4oMpLZFf9TyLwrJc
 **Spike record:** `docs/superpowers/specs/probes/2026-10-26-crew-offline-sw-spike.md` (summary in §11).
@@ -37,7 +37,8 @@ Every item below was decided by the owner in the 2026-10-26 brainstorm, or is ma
 | R11 | Call and email links work as usual offline. "Open in Maps" hands off to the Maps app. "Not you? Switch person" is disabled offline with "Needs signal". | Author's call, played back |
 | R12 | Hand-written service worker, no new runtime dependency. | Author's call (§4.1 says why) |
 | R13 | One saved copy per show link per phone. A copy is never served to a viewer other than the crew identity it was rendered for, as far as the phone can know (§4.6, §9). | Brief constraint (parent session), owner-confirmed via R5 |
-| R14 | Sheet-removed detection reuses `shows.last_sync_status = 'sheet_unavailable'`. No sync change, no new column. | Recon finding, §3.4 |
+| R14 | Sheet-removed detection reuses `shows.last_sync_status = 'sheet_unavailable'`. No sync change. | Recon finding, §3.4 |
+| R15 | An unpublish at any time after the copy was saved wipes it, even if the show is archived later (R4 read literally: "unless show has been unpublished by admin"). This needs one new nullable column, `shows.unpublished_at` (§4.11). | Author's call from the owner's wording |
 
 ## 2. Goals, non-goals, anti-goals
 
@@ -89,14 +90,16 @@ Citations are file plus symbol; line numbers are drafting-time locators.
 - Stage diagrams load from `/api/asset/diagram/<show>/<rev>/<key>` (`components/diagrams/Gallery.tsx`), a cookie-auth proxy that streams bytes with `private, max-age=0`.
 - Agenda PDFs load from `/api/asset/agenda/<show>/<fileId>`, but `AgendaEmbed` (`components/agenda/AgendaEmbed.tsx`) builds that URL only after a tap (`openFileId` starts `null`), and `AgendaPdfViewer` is a `dynamic()` import with `ssr: false` that sets up the pdf.js worker through `import.meta.url` only when it loads. An unopened agenda leaves no URL in the HTML and no viewer code in any cache.
 - Fonts are self-hosted under `/fonts/` (`app/fonts.css`), outside `/_next/static`.
-- Network actions: `POST /api/report` from `components/shared/ReportModal.tsx`; picker Server Actions `selectIdentity`, `clearIdentity` (`components/auth/IdentityChip.tsx`, invoked from `components/auth/AvatarMenu.tsx`), `clearIdentityAndSkip` (`_SignInOrSkipGate.tsx`); `/me` sign-out is a plain form `POST /auth/sign-out` (`app/me/page.tsx`, `data-testid="me-sign-out-form"`); `tel:` and `mailto:` links (`components/crew/primitives/PersonRow.tsx`).
+- Network actions: `POST /api/report` from `components/shared/ReportModal.tsx`; picker Server Actions `selectIdentity` (wired by `selectIdentityFormAction` in `_PickerInterstitial.tsx`), `clearIdentity` (wrapped in `components/auth/IdentityChip.tsx` and submitted from `components/auth/AvatarMenu.tsx`), `clearIdentityAndSkip` (`_SignInOrSkipGate.tsx`); `/me` sign-out is a plain form `POST /auth/sign-out` (`app/me/page.tsx`, `data-testid="me-sign-out-form"`), which clears the Supabase session and the picker cookie only after `await` on the Supabase sign-out (`app/auth/sign-out/route.ts`); Google sign-in completes at `/auth/callback`, and `/api/auth/picker-bootstrap` writes a picker selection from the Google identity; `tel:` and `mailto:` links (`components/crew/primitives/PersonRow.tsx`).
 - No service worker, web manifest, CSP header, or middleware exists today.
 
 ### 3.4 Lifecycle signals the design reuses
 
 - **Archive.** `_archive_show_core` (`supabase/migrations/20260601000000_b2_show_lifecycle.sql`) sets `archived = true`, `published = false`, bumps `picker_epoch` by one, and **rotates the share token**. A saved archived link is therefore a dead token, exactly like a reset link.
 - **Share link reset.** `rotate_show_share_token` rotates the token and bumps `picker_epoch`; it refuses archived shows (`supabase/migrations/20260601000001_b2_def1_lifecycle_guard.sql`). Unarchive rotates again.
-- **Telling them apart.** After an archive alone, `picker_epoch` is exactly one more than the epoch the phone saved under and `archived` is true. Any reset or extra epoch bump makes the gap two or more. §4.5 uses this.
+- **Unpublish.** `_unpublish_show_core` (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql`) sets `published = false` and leaves `picker_epoch` alone; nothing on the row records that it happened. Unarchive (`supabase/migrations/20260718000001_unarchive_show_apply_gate_free.sql`) rotates the token and bumps the epoch again.
+- **Telling them apart.** After an archive alone, `picker_epoch` is exactly one more than the epoch the phone saved under and `archived` is true. Any reset or extra epoch bump makes the gap two or more. An unpublish leaves no trace, so §4.11 adds `unpublished_at`. §4.5 uses all three.
+- **Identity.** Whether a request is the crew member a copy was saved for depends on more than the picker cookie: `resolveShowPageAccess` checks the admin session and the Google session (`validateGoogleSession`, then a Google-to-selection match and claim checks), and `resolvePickerSelection` checks the epoch, roster membership, `selections_reset_at`, `claimed_via_oauth_at`, and the signed-in email against the crew row. §4.5 reuses that code instead of restating it.
 - **Sheet gone.** The Drive listing returns only `trashed = false` sheets (`lib/drive/list.ts`). A sheet that is trashed, deleted, moved out, or unshared drops off, and the cron sync sets `shows.last_sync_status = 'sheet_unavailable'` (`lib/sync/runScheduledCronSync.ts`). `_CrewShell.tsx` receives it as `data.lastSyncStatus`. A later successful sync replaces it.
 - **Version endpoint.** `GET /api/show/[slug]/version` sees a reset as `epoch_stale` (401) and an archive or unpublish as 410 `PICKER_SHOW_UNAVAILABLE` (`resolvePickerSelection.ts`: `showRow.archived || !showRow.published`). It cannot say whether the archive is the only change since a given epoch, so §4.5 adds a purpose-built route.
 
@@ -136,10 +139,10 @@ The worker registers at scope `/` and acts only on:
 | Request | Handling |
 |---|---|
 | `GET` navigation whose path is a crew URL: `/show/<slug>/<token>` with an optional trailing slash, where `<token>` is not `unpublish` | §4.4 |
-| Any navigation (`GET` or `POST`) to `/auth/sign-out` | Observed, never answered: purge every saved copy (§4.6), then let the request through untouched |
+| Any navigation (`GET` or `POST`) to `/auth/sign-out`, `/auth/callback`, or `/api/auth/picker-bootstrap` | Passed through unchanged (`respondWith(fetch(request))` with the request's own redirect mode), with every saved copy purged before the request is sent and again after its response arrives (§4.6) |
 | `GET /_next/static/**` and `GET /fonts/**` | Cache first, store on first fetch (§4.8) |
 | `GET /api/asset/diagram/**` and `GET /api/asset/agenda/**` listed by a saved copy | Network first with a 5-second timeout, falling back to the stored asset (§4.8) |
-| Everything else, including Next RSC requests (`_rsc` query parameter or `RSC: 1` header), Server Action POSTs, all other `/api/**`, admin pages, `/show/<slug>/unpublish` | Never answered: the worker does not call `respondWith`, so the browser behaves exactly as today |
+| Everything else, including Next RSC requests (`_rsc` query parameter or `RSC: 1` header), Server Action POSTs, all other `/api/**` and `/auth/**`, admin pages, `/show/<slug>/unpublish` | Never answered: the worker does not call `respondWith`, so the browser behaves exactly as today |
 
 The crew-URL test is derived, not listed: a unit test walks `app/show/[slug]/` and asserts that every static sibling of `[shareToken]` is excluded, so a sibling added later fails the test instead of being swallowed.
 
@@ -148,17 +151,19 @@ The crew-URL test is derived, not listed: a unit test walks `app/show/[slug]/` a
 Every page this route renders carries exactly one marker element in its body:
 
 ```html
-<template id="fxav-saved-copy" data-v="2" data-disposition="save|keep|check|purge" ...></template>
+<template id="fxav-saved-copy" data-v="3" data-disposition="save|keep|hold|check|purge" ...></template>
 ```
 
-A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8).
+A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8). A `keep` marker carries `data-show-id` and `data-viewer` for the crew identity the server had already resolved when it failed.
 
 | Page rendered | Disposition | Rendered by |
 |---|---|---|
 | `<CrewShell>` for `viewer.kind === "crew"` | `save` | `<SavedCopySlot>` in `_CrewShell.tsx` |
 | `<CrewShell>` for `admin`, `admin_preview`, or `staticPreview` | `purge` | `<SavedCopySlot>` (strict R13: a phone now showing an admin view drops the crew copy) |
 | `<PickerInterstitial>`, `<SignInOrSkipGate>`, `<ShowUnavailable />` | `purge` | `<SavedCopyPurge>` in each |
-| `<TerminalFailure>` on this route, and the route's `error.tsx` | `keep` | marker added to each |
+| `<TerminalFailure>` in the `resolved` crew arm, after identity resolved (the `getShowForViewer` failure) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
+| `<TerminalFailure>` in the `infra_error` arm (identity never resolved), and the route's `error.tsx` | `hold` | marker added to each |
+| `<TerminalFailure>` anywhere else: `renderPickerRepick` and `renderRacedCrewMiss` roster failures (after an identity rejection), the `no_auth` roster failure, the admin data failure | `purge` | marker passed into `<TerminalFailure>` |
 | The route's `not-found.tsx` | `check` | marker added to it |
 | Anything else, including a streamed `redirect()` and a page with no marker | treated as `purge` | none (fail closed) |
 
@@ -166,22 +171,24 @@ The worker reads the first `id="fxav-saved-copy"` element in the complete body (
 
 ### 4.4 Navigation
 
-For a crew-URL navigation to `U` (path, trailing slash removed, query ignored), with `S(U)` the saved copy if any:
+For a crew-URL navigation, `U` is the storage key (path, trailing slash removed, query ignored) and the fetch always uses the full request URL, query included, so `?gate=skip` and `?s=` keep working online. `S(U)` is the saved copy, if any.
 
-1. **If `S(U)` is marked ended** (§4.5), serve it in `ended` mode without touching the network. The link is dead by construction (§3.4), so the network has nothing newer.
-2. **Otherwise fetch `U` and buffer the whole response**, up to 8 seconds for headers and body together.
+1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error: serve the network not-found by fetching the page as in step 2, and keep `S(U)`.
+2. **Otherwise fetch the request URL and buffer the whole response**, up to 8 seconds for headers and body together.
 3. **Complete response in time.** Read the marker, then:
 
 | Marker | `S(U)` exists | Serve | Then |
 |---|---|---|---|
 | `save` | either | the network response | commit it as `S(U)` under the save rules (§4.6, §4.8) |
-| `keep` | yes | `S(U)` in `server-error` mode | none |
+| `keep` | yes, same `data-show-id` and `data-viewer` | `S(U)` in `server-error` mode | none |
+| `keep` | yes, different viewer or show | the network response | purge `S(U)` |
 | `keep` | no | the network response | none |
+| `hold` | either | the network response | none |
 | `check` | yes | ask the status route (5 s). `ended`: mark `S(U)` ended and serve it in `ended` mode. `gone`: purge, serve the network response. Error or timeout: serve the network response, keep `S(U)` | none |
 | `check` | no | the network response | none |
 | `purge`, or treated as `purge` | either | the network response | purge `S(U)` |
 
-A response that is not HTML: an opaque redirect (navigations use `redirect: "manual"`) is served and purges `S(U)`, since every redirect this route issues starts an identity change; any other non-HTML response with status 500 or above serves `S(U)` in `server-error` mode when it exists; anything else is served and changes nothing.
+A response that is not HTML: an opaque redirect (navigations use `redirect: "manual"`) is served and purges `S(U)`, since every redirect this route issues starts an identity change; any other response with status 500 or above and no marker (a platform error before the app ran) serves `S(U)` in `server-error` mode when it exists, the same as no response at all, since it carries no information about the viewer; anything else without a marker is treated as `purge`.
 
 4. **Network error before completion.** `S(U)` exists: serve it in `offline` mode. No `S(U)`: serve the built-in "not saved yet" page (§4.7.5).
 5. **8 seconds pass without a complete response.** `S(U)` exists: serve it in `slow` mode and let the fetch run on, for up to 60 seconds more. When it completes, apply the step 3 table without serving anything; if that saved a new copy, post `fresh-ready(U)` to open pages of `U`; if it purged, post `purged(U)`. No `S(U)`: keep waiting for the network with no worker timeout, since there is nothing better to show.
@@ -192,23 +199,39 @@ Buffering costs crew the route's streamed loading skeleton once the worker is in
 
 ### 4.5 Status route
 
-`GET /api/saved-copy/status?show=<showId>&epoch=<n>&viewer=<key>` answers one question: is this saved copy's show archived, with no other change since the copy was saved, and is the same person still picked on this phone?
+`GET /api/saved-copy/status?show=<showId>&epoch=<n>&viewer=<key>&saved=<savedAt>` answers one question: would the page, if this show were still live, resolve this request to the crew member the copy was saved for, and has nothing but an archive happened to the show since the copy was saved?
 
-It returns `200 { "state": "ended" }` only when all of these hold, and `200 { "state": "gone" }` otherwise:
+It returns `200 { "state": "ended" }` only when every condition below holds, and `200 { "state": "gone" }` otherwise.
 
-- the request's `__Host-fxav_picker` envelope has a selection for `show` whose `e` equals `epoch` and whose crew member id produces `viewer` under the same HMAC as §4.3;
-- the show row exists and `archived = true`;
-- the show's current `picker_epoch` equals `epoch + 1`.
+**Lifecycle conditions**, read from the show row by `show`:
 
-Infra faults return `500 { "error": "<code>" }`, which the worker treats as a timeout. `Cache-Control: no-store`. The route only reads. It tells a caller who already holds the saved copy's ids and the matching picker cookie that the show ended, which the saved copy itself is about to say. Supabase calls follow invariant 9 (destructured `{ data, error }`, typed infra result, registry row or inline exemption). It is a `GET` handler, so it is not an invariant-10 mutation surface.
+- the row exists and `archived = true`;
+- `picker_epoch = epoch + 1` (the archive's own bump, and nothing else; §3.4);
+- `unpublished_at` is null or earlier than `saved` (no unpublish since the copy was saved; §4.11).
 
-Cases: archive alone keeps the copy (R3). A reset before or after the archive leaves a gap of two or more and wipes it (R4). "Not you?" or sign-out clears or changes the selection and wipes it (R5). Unarchive rotates the token again, but a copy already marked ended keeps serving as ended (§4.4 step 1) until a purge.
+**Identity conditions.** The route runs the page's own identity resolution, not a restatement of it: the identity half of `resolveShowPageAccess` and `resolvePickerSelection` is extracted into one function that both the page and this route call. The page calls it after its lifecycle gates; the route calls it with the lifecycle gates replaced by the three conditions above, and with the picker entry's epoch compared to `epoch` instead of the row's current epoch. The identity verdict must be the crew member whose viewer key is `viewer`. Every identity input the page consults is therefore consulted here, in the same order: admin session (an admin is never this crew member), Google session and its match to the selection, the picker entry for `show`, roster membership, `selections_reset_at`, `claimed_via_oauth_at`, and the signed-in email against the crew row.
+
+A parity test pins this: one table of identity scenarios, covering every input above in both its passing and failing state, runs through the page's resolver for a live show and through this route for the same show archived, and asserts the same allow or deny for every row. A new identity input added to the page later fails the parity test until the route consults it too.
+
+Infra faults return `500 { "error": "<code>" }`, which the worker treats as a timeout. `Cache-Control: no-store`. The route only reads. Its answer tells a caller who already holds the copy's ids and the matching identity that the show ended, which the copy is about to say. Supabase calls follow invariant 9. It is a `GET` handler, so it is not an invariant-10 mutation surface.
+
+Cases: archive alone keeps the copy (R3). A reset before or after the archive leaves an epoch gap of two or more and wipes it (R4). An unpublish since the save wipes it (R15). "Not you?", sign-out, a different Google account, an admin session, roster removal, a selection reset, or a claim each fail the identity conditions and wipe it (R5, R13).
 
 ### 4.6 Saving, purging, and ordering
 
-**One copy per URL.** `S(U)` stores the HTML, the marker fields, the `savedAt` time (`data-rendered-at`), the request start ordinal, and the list of asset and static URLs it depends on.
+**One copy per URL.** `S(U)` stores the HTML, the marker fields (including `showId` and `viewer`), the `savedAt` time (`data-rendered-at`), the request start ordinal, and the list of asset and static URLs it depends on. A show can have several URLs over time (every reset, archive and unarchive issues a new token), so every purge of a show removes all saved copies whose `showId` matches, not only the URL in hand.
 
-**Ordering.** The worker keeps a persisted global generation counter `G` and a per-URL counter `g(U)`. Every purge of `U` increments `g(U)`; a purge of everything increments `G`. Every save captures `(G, g(U))` and a monotonically increasing request ordinal when its fetch starts, and commits only if, at commit time, both counters are unchanged and its ordinal is greater than the stored copy's. A slow response for viewer A that finishes after "Not you?" therefore never lands, whichever of the three save sources it came from (navigation, `ensure-saved`, or a step-5 continuation).
+**Ordering.** The worker keeps a persisted global generation counter `G` and a per-show counter `g(showId)`. Every purge of a show increments `g(showId)`; a purge of everything increments `G`. Every save captures `(G, g(showId))` and a monotonically increasing request ordinal when its fetch starts (the show id comes from the URL's existing copy or, for a first save, is checked against the marker at commit), and commits only if, at commit time, both counters are unchanged and its ordinal is greater than the stored copy's. A slow response for viewer A that finishes after a purge therefore never lands, whichever of the three save sources it came from (navigation, `ensure-saved`, or a step-5 continuation).
+
+**Identity transitions are bracketed.** A purge before a transition stops saves that started earlier, but a save can start after that purge and still carry the old cookies until the transition completes. So every identity transition the phone can see purges twice, once before it starts and once after it completes, and any save that started in between fails the generation check:
+
+| Transition | First purge | Second purge |
+|---|---|---|
+| "Not you? Switch person" | `AvatarMenu` posts `purge(showId)` and waits up to 500 ms for the acknowledgement before submitting `clearIdentity` | `AvatarMenu` posts `purge(showId)` again when the action settles, success or failure |
+| `/me` sign-out (`/auth/sign-out`) | Worker, when the navigation request starts (§4.2) | Worker, when its response arrives |
+| Google sign-in completing (`/auth/callback`) | Worker, request start | Worker, response |
+| Picker bootstrap (`/api/auth/picker-bootstrap`) | Worker, request start | Worker, response |
+| Picking a name in the picker | `<SavedCopyPurge>` on the picker's mount (the picker only renders when no valid selection exists) | Not needed: after the pick, the page renders for the new viewer, whose `save` replaces the copy |
 
 **Completeness.** A save commits only after every asset in `data-assets` (within caps, §4.8) and every `/_next/static/**` and `/fonts/**` URL referenced in the saved HTML is present in the worker's caches, fetching any that are missing. If any required static file cannot be fetched, the save is abandoned and the previous `S(U)` stays. A committed copy can therefore always hydrate offline, including a copy fetched in the background from a newer deployment.
 
@@ -219,11 +242,10 @@ Cases: archive alone keeps the copy (R3). A reset before or after the archive le
 | A complete response for `U` whose marker is `purge`, absent, or invalid | Worker, §4.4 |
 | An opaque redirect for `U` | Worker, §4.4 |
 | Status route answers `gone` | Worker, §4.4 |
-| "Not you? Switch person" | `AvatarMenu` posts `purge(U)` and waits up to 500 ms for the acknowledgement before submitting `clearIdentity`. The generation counter covers any save still in flight |
-| A client-side render (RSC refresh) of the picker, the sign-in gate, `ShowUnavailable`, or an admin `CrewShell` | `<SavedCopyPurge>` / `<SavedCopySlot>` posts `purge(U)` on mount |
-| `/me` sign-out | The worker observes the `POST /auth/sign-out` navigation and purges everything (§4.2) |
+| Identity transitions | The brackets above |
+| A client-side render (RSC refresh) of the picker, the sign-in gate, `ShowUnavailable`, or an admin `CrewShell` | `<SavedCopyPurge>` / `<SavedCopySlot>` posts `purge(showId)` on mount |
 
-**What the phone cannot know.** With no signal, the phone cannot tell who is holding it. A saved copy belongs to the last crew identity that loaded the link on this phone and has not since switched, signed out, or been replaced through a page the phone saw. §9 records this limit.
+**What the phone cannot know.** With no signal, the phone cannot tell who is holding it. A saved copy belongs to the last crew identity that loaded the link on this phone and has not since switched, signed out, or been replaced through a transition the phone saw. Online, every decision to serve a copy is backed by the server: a `save` or `keep` marker naming the same viewer, or a status-route `ended` answer that ran the page's own identity checks. Only when the app gives no answer (a network error, a timeout, or a platform error page with no marker) does the phone serve a copy on its own judgement. §9 records this limit.
 
 Saved copies live in this origin's Cache Storage and IndexedDB, readable only by this browser profile. Nothing is sent anywhere.
 
@@ -378,13 +400,32 @@ A new deployment changes the bundled worker source, so the browser installs the 
 
 Both reads happen at runtime, per request; the route handler opts out of static rendering. The plan proves it with requests to /sw.js with the variable set and unset. With the worker gone, no page is served from a saved copy, so the bar shows only for `online` false on an open live page and for `sheet-gone`.
 
+### 4.11 Database change
+
+One nullable column and one function body. Everything else in piece 1 reads existing data.
+
+<!-- spec-lint: ignore — migration file created by this spec's implementation; not yet tracked -->
+New migration `supabase/migrations/<timestamp>_shows_unpublished_at.sql`: `alter table public.shows add column if not exists unpublished_at timestamptz;` and `create or replace function public._unpublish_show_core` with its body unchanged except that the same `update public.shows` also sets `unpublished_at = clock_timestamp()`. Republish does not clear it; only "unpublished since the save" matters (§4.5).
+
+| Layer | Action |
+|---|---|
+| Table DDL | Add `shows.unpublished_at timestamptz` (nullable, no default, no backfill: a null reads as "never unpublished since this feature shipped", and copies saved before the feature do not exist) |
+| Inline CHECKs | N/A, no constraint |
+| Write path | `_unpublish_show_core` only. It already runs inside its caller's per-show advisory lock (invariant 2); the change adds a column to its existing `update`, so no new lock holder |
+| Read path | The status route (§4.5), service role |
+| Triggers, cleanup | N/A |
+| RLS and PostgREST grants | Unchanged; the column inherits the table's existing policies, and crew never read it directly |
+| Schema manifest | Regenerate with `pnpm gen:schema-manifest` in the same PR |
+| Validation project | Apply the migration surgically and reload the PostgREST schema, per the `validation-schema-parity` checklist in AGENTS.md |
+| Tests | Unit test of the status route's unpublish condition; a DB test that `_unpublish_show_core` stamps the column |
+
 ## 5. Piece 2: offline reports
 
 ### 5.1 Queue
 
-- **Storage.** A phone-wide queue in `localStorage` under one versioned key, holding one record per report: `{ id (the idempotency key), showId, slug, surface, surfaceId, context, message, writtenAt, pageRenderedAt, writer, status }`. `context` is the full autocaptured context the modal would have sent. `writer` is the page's opaque viewer key (§4.3 `data-viewer`). The record holds the complete request body, so it can be sent from any page. `sessionStorage` is not used for queued reports: it dies with the tab.
+- **Storage.** A phone-wide queue in IndexedDB: one versioned database with one object store keyed by the idempotency key, one record per report: `{ id, showId, slug, surface, surfaceId, context, message, writtenAt, pageRenderedAt, writer, status }`. Every change touches one record in its own transaction (`add` to enqueue, `put` to change status, `delete` on success), so two tabs never overwrite each other's reports; the cap check and the `add` run in one read-write transaction. `context` is the full autocaptured context the modal would have sent. `writer` is the page's opaque viewer key (§4.3 `data-viewer`). The record holds the complete request body, so it can be sent from any page. `sessionStorage` and `localStorage` are not used for queued reports: the first dies with the tab, and a single `localStorage` value would let two tabs overwrite each other.
 - **When a report is queued.** `POST /api/report` fails with a network error, or `navigator.onLine` is false at submit. The modal shows "**Saved on your phone.** It will send by itself when you have signal." and a Done button. A new report from the same surface gets a fresh record and key; it never overwrites a queued one.
-- **Sending.** A sender mounted beside the report button in `components/layout/Footer.tsx` sends every queued record on page load, `online`, `visibilitychange` to visible, and every 60 seconds while any is queued. It holds a Web Lock (`navigator.locks`) where available so two tabs do not send the same record at once; the idempotency key prevents a duplicate issue either way.
+- **Sending.** A sender mounted beside the report button in `components/layout/Footer.tsx` sends every queued record on page load, `online`, `visibilitychange` to visible, and every 60 seconds while any is queued. It holds a Web Lock (`navigator.locks`) where available so two tabs do not send the same record at once; the idempotency key prevents a duplicate issue either way, and per-record transactions mean a lost lock race can only resend, never drop.
 - **Identity.** The request carries `writer`. The server computes the viewer key for the authenticated reporter and, if it differs, rejects the request with the route's existing authentication-failure response and does not file it. The client then marks the record failed with the existing failure copy and keeps the text for a manual resend, so a report is never filed under someone else's name. "Not you? Switch person" needs signal (R11); before it submits, it waits up to 3 seconds for the sender to flush queued records.
 - **Results.** Success removes the record. `REPORT_HORIZON_EXPIRED` and other non-retryable answers move it to the existing expired or failed handling. Network errors keep it queued.
 - **Button count.** While records for this show are queued, the report button shows "1 report waiting for signal" (or "N reports waiting for signal") in `bg-warning-bg text-warning-text`.
@@ -419,9 +460,11 @@ TDD per task (invariant 1). The plans own the task lists; this section sets the 
 
 - **Worker logic** lives in plain modules under `lib/offline/` (crew-URL match, marker parsing, the §4.4 tables, ordering counters, completeness, caps, eviction, meta and CSS injection), imported by the worker bundle and by Vitest. Every row of §4.3 and §4.4 and every ordering race in §4.6 has a unit test. The worker entry is thin glue. A freshness test fails if the committed bundle differs from a fresh `pnpm gen:sw`.
 - **Real-browser e2e** (Playwright, non-interactive) against a production build. The spike found `context.setOffline(true)` unusable for worker tests, so the suite puts a small proxy between the browser and the server with three modes: pass, refuse (network error) and hang (accepts, never answers). WebKit runs over HTTPS through the same proxy (the `__Host-` picker cookie needs a secure context) in an ephemeral context. Cases, in Chromium and WebKit: offline reload shows full content, a working tab switch, and the bar; first visit is saved; hang shows `slow` then updates by itself; archive keeps the copy with the ended bar; reset, unpublish, "Not you?", sign-out and an admin view each wipe it; the "not saved yet" page appears with no copy; an unopened agenda opens offline; JavaScript blocked on a saved copy still shows the CSS notice; dimensional invariants.
+- **Identity parity:** the §4.5 scenario table through the page resolver and the status route, same verdict on every row.
+- **Brackets:** for each §4.6 transition, a save started between the two purges does not commit.
 - **Kill switch:** /sw.js with `CREW_OFFLINE_DISABLED` set and unset.
 - **Bar:** every state's copy, precedence, guard rows, reduced motion, and the transition inventory.
-- **Reports:** queue on network failure; persistence across tab close; multiple records; send on `online`; idempotent replay; writer mismatch refuses to file; issue body section; cap; button count.
+- **Reports:** queue on network failure; persistence across tab close; multiple records; two tabs enqueueing at once both keep their records; send on `online`; idempotent replay; writer mismatch refuses to file; issue body section; cap; button count.
 
 ## 8. Rollout, PR split, concurrency
 
@@ -431,13 +474,14 @@ TDD per task (invariant 1). The plans own the task lists; this section sets the 
 | B | `feat/crew-offline-saved-copy` | Piece 1, with its own plan | A merged |
 | C | `feat/crew-offline-reports` | Piece 2, with its own plan | A merged |
 
-B and C run at the same time in separate sessions and worktrees. B edits `_CrewShell.tsx` (one line), the route's `not-found.tsx`, `error.tsx`, `_PickerInterstitial.tsx`, `_SignInOrSkipGate.tsx`, `ShowUnavailable.tsx`, `components/auth/TerminalFailure.tsx`, `components/auth/AvatarMenu.tsx`, and adds the §4.1 files. C edits `components/shared/ReportModal.tsx`, `components/shared/ReportButton.tsx`, `components/layout/Footer.tsx`, `app/api/report/route.ts`, `lib/reports/submit.ts`. Both need the viewer-key helper (§5.3). The pre-switch flush in `AvatarMenu` (§5.1) is C's: C adds it after B merges, or B adds a no-op hook C fills; whichever merges second rebases.
+B and C run at the same time in separate sessions and worktrees. B edits `_CrewShell.tsx` (one line), the route's `page.tsx` (passing markers to `<TerminalFailure>`), `not-found.tsx`, `error.tsx`, `_PickerInterstitial.tsx`, `_SignInOrSkipGate.tsx`, `ShowUnavailable.tsx`, `components/auth/TerminalFailure.tsx`, `components/auth/AvatarMenu.tsx`, `lib/auth/picker/resolveShowPageAccess.ts` and `lib/auth/picker/resolvePickerSelection.ts` (the identity extraction, §4.5), adds the §4.1 files, and adds the §4.11 migration. C edits `components/shared/ReportModal.tsx`, `components/shared/ReportButton.tsx`, `components/layout/Footer.tsx`, `app/api/report/route.ts`, `lib/reports/submit.ts`. Both need the viewer-key helper (§5.3). The pre-switch flush in `AvatarMenu` (§5.1) is C's: C adds it after B merges, or B adds a no-op hook C fills; whichever merges second rebases.
 
 The crew layout redesign runs in parallel in another session. B keeps its `_CrewShell.tsx` change to the single `<SavedCopySlot>` line after `<Header>`, and the redesign keeps a full-width slot under the header for it. Both UI PRs pass the invariant-8 UI gate before review.
 
 ## 9. Documented limits
 
-- **Who holds the phone.** With no signal, the phone cannot know who is holding it. A copy belongs to the last crew identity that loaded the link on this phone without switching, signing out, or being replaced through a page the phone saw. A lost phone that never reconnects keeps its copy.
+- **Who holds the phone.** With no answer from the app, the phone cannot know who is holding it. A copy belongs to the last crew identity that loaded the link on this phone without switching, signing out, or being replaced through a transition the phone saw. An ended copy with no signal is served without the status check. A lost phone that never reconnects keeps its copy.
+- **Identity changes the phone never sees.** A roster removal, selection reset, or claim made on the server while the phone stays offline takes effect at the phone's next online visit to that show, not before.
 - **iPhone storage eviction.** Safari deletes a site's scripted storage after 7 days of Safari use without visiting the site, unless it is added to the Home Screen. "Kept by default" (R3) is best effort on iPhone. A web manifest would make Home Screen installs nicer; it is a candidate follow-up, not part of this work.
 - **"Bars but no data."** `navigator.onLine` reports true on a connection that carries no traffic. An open live page then shows no bar until it is reloaded, when the 8-second budget serves the saved copy in `slow` mode.
 - **No streamed skeleton.** Once the worker is installed, crew pages appear when complete instead of streaming (§4.4).
