@@ -260,6 +260,9 @@ export const INTERNAL_CODE_ENUMS = {
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     source: "parse_warnings.code"
   },
+  PULL_SHEET_MISSING: {
+    source: "parse_warnings.code"
+  },
   PULL_SHEET_ON_ARCHIVED_TAB: {
     source: "parse_warnings.code,pending_ingestions.last_error_code"
   },
