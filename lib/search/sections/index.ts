@@ -6,6 +6,7 @@ import { buildBudgetEntries } from "./budget";
 import { buildCrewEntries } from "./crew";
 import { buildGearEntries } from "./gear";
 import { buildTravelEntries } from "./travel";
+import { buildVenueEntries } from "./venue";
 
 /**
  * Per-section search index builders (spec §2.4).
@@ -37,7 +38,7 @@ const notYetBuilt: SectionBuilder = () => [];
 export const SECTION_BUILDERS: Record<SectionId, SectionBuilder> = {
   today: notYetBuilt,
   schedule: notYetBuilt,
-  venue: notYetBuilt,
+  venue: buildVenueEntries,
   travel: buildTravelEntries,
   crew: buildCrewEntries,
   gear: buildGearEntries,

@@ -37,9 +37,10 @@ const CREW_DIRS = [
 
 /**
  * Recursively collect `.tsx` and `.ts` files under `dir` (repo-relative). [] if
- * absent. `.ts` because a section's row derivations live in a sibling non-client
- * module (e.g. `sections/travelRows.ts`, crew search plan) that the section's
- * `WrappedSection` render path calls, so it is held to the same contract.
+ * absent. `.ts` since crew search (2026-10-26): a section's row derivations
+ * live in a sibling non-client `<section>Rows.ts` module (e.g. `travelRows.ts`,
+ * `venueRows.ts`) that the section's `WrappedSection` render path calls, so it
+ * is held to the same contract.
  */
 function walkTsx(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -114,6 +115,9 @@ describe("META crew section/primitive pure-render compliance", () => {
     expect(files.length).toBeGreaterThanOrEqual(10);
     expect(files.some((f) => f.includes(join("crew", "sections")))).toBe(true);
     expect(files.some((f) => f.includes(join("crew", "primitives")))).toBe(true);
+    expect(files, "the walk reaches the sibling .ts row modules").toContain(
+      join("components", "crew", "sections", "venueRows.ts"),
+    );
   });
 
   test.each(listSectionFiles())("%s has no forbidden infra imports", (file) => {

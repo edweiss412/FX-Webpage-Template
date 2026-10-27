@@ -30,6 +30,7 @@ import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import * as budgetRowsModule from "@/components/crew/sections/budgetRows";
 import * as crewRowsModule from "@/components/crew/sections/crewRows";
 import { contactFallbackLabel } from "@/components/crew/sections/crewRows";
+import * as diagramItemsModule from "@/components/crew/diagramItems";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
@@ -38,10 +39,12 @@ import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import * as travelRows from "@/components/crew/sections/travelRows";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
+import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
+import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { SECTION_BUILDERS } from "@/lib/search/sections";
@@ -54,9 +57,14 @@ import {
   crewNoTransport,
   crewWithTransport,
   dateSuppressed,
+  diagramsNamedAndUnnamed,
   flightVisible,
   fullContent,
   leadWithFinancials,
+  overCaps,
+  wifiNotes,
+  wifiRaw,
+  wifiSplit,
   type ViewerCase,
 } from "@/tests/search/_viewerMatrix";
 
@@ -966,5 +974,393 @@ describe("crew", () => {
     premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
     expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
+  });
+});
+
+// ── venue ────────────────────────────────────────────────────────────────────
+
+describe("venue", () => {
+  const REGION = (card: string) => (e: SearchEntry) => e.id.startsWith(`venue:${card}:`);
+  const inRegion = (es: readonly SearchEntry[], card: string) => es.filter(REGION(card));
+  const has = (root: HTMLElement, selector: string) => root.querySelector(selector) !== null;
+  const textOf = (root: HTMLElement, selector: string) =>
+    root.querySelector(selector)?.textContent ?? "";
+
+  const SNAPSHOT = (i: number) =>
+    `diagram-snapshots/shows/${SHOW_ID}/rev/embedded-v-${i}.png` as const;
+  const embeddedImage = (i: number, alt: string | undefined, snapshotPath: string | null) => ({
+    sheetTab: "DIAGRAMS",
+    objectId: `v-${i}`,
+    mimeType: "image/png",
+    ...(alt === undefined ? {} : { alt }),
+    sheetsRevisionId: "sheet-rev-1",
+    embeddedFingerprint: `fp-v-${i}`,
+    recovery_disposition: "normal" as const,
+    snapshotPath,
+  });
+
+  /** A geocoded city (its own City row, stripped from the name) and a Maps link. */
+  const cityAndMaps = variant(fullContent, "venueCityAndMaps", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: {
+        ...d.show.venue!,
+        name: "Four Seasons Hotel Chicago",
+        address: "120 E Delaware Pl",
+        city: "Chicago",
+        googleLink: "https://maps.example.com/?q=four-seasons",
+      },
+    },
+  }));
+  /**
+   * Every gallery item form: a named thumbnail, an unnamed one (the gallery
+   * invents "Diagram N"), a named image that is unavailable (its name is
+   * screen-reader text, not an alt), a whitespace name, a linked-folder item, and
+   * a second thumbnail with the first one's name (a duplicate line, `~2`).
+   */
+  const diagramForms = variant(diagramsNamedAndUnnamed, "venueDiagramForms", (d) => ({
+    ...d,
+    diagrams: {
+      ...d.diagrams!,
+      embeddedImages: [
+        embeddedImage(1, "FOH plot", SNAPSHOT(1)),
+        embeddedImage(2, undefined, SNAPSHOT(2)),
+        embeddedImage(3, "Stage plot", null),
+        embeddedImage(4, "   ", SNAPSHOT(4)),
+        embeddedImage(5, "FOH plot", SNAPSHOT(5)),
+      ],
+      linkedFolderItems: [
+        {
+          driveFileId: "drv-rig",
+          mimeType: "image/jpeg",
+          alt: "Rigging plan",
+          drive_modified_time: "2026-05-01T12:00:00Z",
+          headRevisionId: "head-1",
+          md5Checksum: "md5-1",
+          snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/rev/folder-drv-rig.jpg`,
+        },
+      ],
+    },
+  }));
+  /** An admin whose transportation fetch failed: the error block renders above the cards. */
+  const transportFailed = variant(adminViewer, "venueTransportFailed", (d) => ({
+    ...d,
+    tileErrors: { ...d.tileErrors, transportation: "boom" },
+  }));
+  /** Sentinel values everywhere a Facilities row reads, and a sentinel-named GS room. */
+  const sentinels = variant(fullContent, "venueSentinels", (d) => ({
+    ...d,
+    show: {
+      ...d.show,
+      venue: { ...d.show.venue!, loadingDock: "TBD", notes: "N/A" },
+      coi_status: "TBA",
+      event_details: { ...d.show.event_details, internet: "TBD", power: "N/A" },
+    },
+    rooms: d.rooms.map((r) => (r.kind === "gs" ? { ...r, name: "TBD" } : r)),
+  }));
+  /** The parser's synthesized GS room name, which the Room row suppresses. */
+  const synthRoom = variant(fullContent, "venueSynthesizedRoom", (d) => ({
+    ...d,
+    rooms: d.rooms.map((r) => (r.kind === "gs" ? { ...r, name: "General Session" } : r)),
+  }));
+  /** Nothing to show at all: the section-level empty state. */
+  const allHidden = variant(adminViewer, "venueAllHidden", (d) => ({
+    ...d,
+    show: { ...d.show, venue: { name: "", address: "" }, coi_status: null, event_details: {} },
+    rooms: [],
+    diagrams: null,
+    transportation: null,
+  }));
+  const local = [cityAndMaps, diagramForms, transportFailed, sentinels, synthRoom, allHidden];
+  const cases = [...ALL_CASES, ...local];
+
+  const facilities = (root: HTMLElement) => textOf(root, '[data-card-id="venue-facilities"]');
+  const thumbnails = (root: HTMLElement) =>
+    root.querySelectorAll('[data-card-id="venue-diagrams"] [data-testid^="diagram-slot-"]');
+  const PREMISES: Record<string, (root: HTMLElement) => void> = {
+    crewNoTransport: (root) =>
+      premiseHolds("crewNoTransport hides the Parking row", !facilities(root).includes("Parking")),
+    crewWithTransport: (root) =>
+      premiseHolds("crewWithTransport shows the Parking row", facilities(root).includes("Parking")),
+    adminViewer: (root) =>
+      premiseHolds("adminViewer shows the Parking row", facilities(root).includes("Parking")),
+    wifiSplit: (root) =>
+      premiseHolds(
+        "wifiSplit renders the network and password rows",
+        has(root, '[data-testid="venue-wifi-ssid"]') &&
+          has(root, '[data-testid="venue-wifi-password"]'),
+      ),
+    wifiRaw: (root) =>
+      premiseHolds(
+        "wifiRaw renders the raw row only",
+        !has(root, '[data-testid="venue-wifi-ssid"]') && facilities(root).includes("Crew Wi-Fi"),
+      ),
+    wifiNotes: (root) =>
+      premiseHolds(
+        "wifiNotes renders the notes row",
+        has(root, '[data-testid="venue-wifi-notes"]'),
+      ),
+    overCaps: (root) => {
+      premise(
+        "overCaps has more diagrams than the gallery shows",
+        overCaps.data.diagrams!.embeddedImages.length,
+        INITIAL_VISIBLE,
+      );
+      premiseHolds(
+        "overCaps renders exactly the first INITIAL_VISIBLE thumbnails",
+        thumbnails(root).length === INITIAL_VISIBLE,
+      );
+    },
+    diagramsNamedAndUnnamed: (root) =>
+      premiseHolds(
+        "diagramsNamedAndUnnamed renders a named and an unnamed thumbnail",
+        thumbnails(root).length === 2,
+      ),
+    fullContent: (root) =>
+      premiseHolds(
+        "fullContent renders COI, venue notes and the loading dock",
+        has(root, '[data-testid="coi-status"]') &&
+          textOf(root, '[data-card-id="venue-status"]').includes("Venue notes") &&
+          facilities(root).includes("Loading dock"),
+      ),
+    venueCityAndMaps: (root) => {
+      const where = textOf(root, '[data-card-id="venue-where"]');
+      premiseHolds(
+        "venueCityAndMaps renders the City row and the Maps link",
+        where.includes("City") && has(root, '[data-card-id="venue-where"] a[href^="https://"]'),
+      );
+    },
+    venueDiagramForms: (root) =>
+      premiseHolds(
+        "venueDiagramForms renders an unavailable slot",
+        has(root, '[data-card-id="venue-diagrams"] [data-unavailable="true"]'),
+      ),
+    venueTransportFailed: (root) =>
+      premiseHolds(
+        "venueTransportFailed renders the error block",
+        has(root, '[data-testid="section-tile-error-transportation"]'),
+      ),
+    venueSentinels: (root) =>
+      premiseHolds(
+        "venueSentinels hides the dock, Wi-Fi, power, room, COI and notes",
+        !has(root, '[data-card-id="venue-status"]') &&
+          !/Loading dock|Wi-Fi|Power|Room/.test(facilities(root)),
+      ),
+    venueSynthesizedRoom: (root) =>
+      premiseHolds(
+        "venueSynthesizedRoom suppresses the Room row",
+        !has(root, '[data-testid="venue-room"]'),
+      ),
+    venueAllHidden: (root) =>
+      premiseHolds(
+        "venueAllHidden renders the empty state",
+        has(root, '[data-testid="section-empty"]'),
+      ),
+  };
+  const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
+    premiseHolds(`${c.name} renders the Where card`, has(root, '[data-card-id="venue-where"]'));
+
+  test.each(cases.map((c) => [c.name, c] as const))("parity: %s", (_name, c) => {
+    const root = renderSection("venue", c);
+    (PREMISES[c.name] ?? defaultPremise(c))(root);
+    expect(assertParity(root, build("venue", c))).toEqual([]);
+  });
+
+  const wifi = (c: ViewerCase) => parseWifiValue(c.data.show.event_details["internet"] ?? "");
+  const altsOf = (c: ViewerCase) => [
+    ...(c.data.diagrams?.embeddedImages ?? []).map((i) => i.alt),
+    ...(c.data.diagrams?.linkedFolderItems ?? []).map((i) => i.alt),
+  ];
+  const LINE_KINDS: LineKind[] = [
+    {
+      kind: "V1 venue name",
+      caseName: "crewNoTransport",
+      present: (es) =>
+        inRegion(es, "venue-where").some((e) => e.value === crewNoTransport.data.show.venue?.name),
+    },
+    {
+      kind: "V2 city",
+      caseName: "venueCityAndMaps",
+      present: (es) =>
+        inRegion(es, "venue-where").some((e) => e.value === cityAndMaps.data.show.venue?.city),
+    },
+    {
+      kind: "V3 address",
+      caseName: "crewNoTransport",
+      present: (es) =>
+        inRegion(es, "venue-where").some(
+          (e) => e.value === crewNoTransport.data.show.venue?.address,
+        ),
+    },
+    {
+      kind: "V4 loading dock",
+      caseName: "fullContent",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some(
+          (e) => e.value === fullContent.data.show.venue?.loadingDock,
+        ),
+    },
+    {
+      kind: "V5 parking",
+      caseName: "crewWithTransport",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some(
+          (e) => e.value === crewWithTransport.data.transportation?.parking,
+        ),
+    },
+    {
+      kind: "V6 room",
+      caseName: "crewNoTransport",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some((e) =>
+          crewNoTransport.data.rooms.some((r) => r.kind === "gs" && r.name === e.value),
+        ),
+    },
+    {
+      kind: "V7 Wi-Fi network (copy network)",
+      caseName: "wifiSplit",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some(
+          (e) =>
+            e.value === wifi(wifiSplit)?.ssid &&
+            e.copy?.kind === "network" &&
+            e.copy.text === e.value,
+        ),
+    },
+    {
+      kind: "V8 Wi-Fi password (copy password)",
+      caseName: "wifiSplit",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some(
+          (e) =>
+            e.value === wifi(wifiSplit)?.password &&
+            e.copy?.kind === "password" &&
+            e.copy.text === e.value,
+        ),
+    },
+    {
+      kind: "V9 internet notes",
+      caseName: "wifiNotes",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some((e) => e.value === wifi(wifiNotes)?.notes),
+    },
+    {
+      kind: "V10 raw Crew Wi-Fi",
+      caseName: "wifiRaw",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some(
+          (e) => e.value === wifiRaw.data.show.event_details["internet"]?.trim() && e.copy === null,
+        ),
+    },
+    {
+      kind: "V11 power",
+      caseName: "crewNoTransport",
+      present: (es) =>
+        inRegion(es, "venue-facilities").some(
+          (e) => e.value === crewNoTransport.data.show.event_details["power"],
+        ),
+    },
+    {
+      kind: "V12 COI",
+      caseName: "fullContent",
+      present: (es) =>
+        inRegion(es, "venue-status").some((e) => e.value === fullContent.data.show.coi_status),
+    },
+    {
+      kind: "V13 venue notes",
+      caseName: "fullContent",
+      present: (es) =>
+        inRegion(es, "venue-status").some((e) => e.value === fullContent.data.show.venue?.notes),
+    },
+    {
+      kind: "V14 diagrams card title",
+      caseName: "diagramsNamedAndUnnamed",
+      present: (es) =>
+        inRegion(es, "venue-diagrams").some((e) => e.label === null && e.value === e.group),
+    },
+    {
+      kind: "V15 diagram name",
+      caseName: "diagramsNamedAndUnnamed",
+      present: (es) =>
+        inRegion(es, "venue-diagrams").some((e) =>
+          altsOf(diagramsNamedAndUnnamed).includes(e.value),
+        ),
+    },
+    {
+      kind: "V15 unavailable diagram name",
+      caseName: "venueDiagramForms",
+      present: (es) => inRegion(es, "venue-diagrams").some((e) => e.value === "Stage plot"),
+    },
+    {
+      kind: "V15 linked-folder diagram name",
+      caseName: "venueDiagramForms",
+      present: (es) => inRegion(es, "venue-diagrams").some((e) => e.value === "Rigging plan"),
+    },
+  ];
+
+  test.each(LINE_KINDS.map((k) => [k.kind, k] as const))("line kind %s renders", (_k, kind) => {
+    const c = caseNamed(cases, kind.caseName);
+    expect(kind.present(build("venue", c), c)).toBe(true);
+  });
+
+  test("error guard: a throwing gallery derivation drops the diagrams block only", () => {
+    // The diagrams block is Venue's one WrappedSection; Where, Facilities and
+    // Venue status render outside it and must be indexed exactly as before.
+    const c = diagramsNamedAndUnnamed;
+    const intact = build("venue", c).filter((e) => !REGION("venue-diagrams")(e));
+    premise("the blocks outside the boundary contribute entries", intact.length, 0);
+
+    const spy = vi.spyOn(diagramItemsModule, "diagramGalleryItems").mockImplementation(() => {
+      throw new Error("planted diagram gallery fault");
+    });
+    const root = renderSection("venue", c);
+    premiseHolds("the planted fault reached the component", spy.mock.calls.length > 0);
+    premiseHolds(
+      "the diagrams block rendered its tile fallback and the other cards rendered",
+      has(root, '[data-card-id="venue-diagrams"] [data-testid="tile-error-fallback"]') &&
+        !has(root, '[data-testid="diagrams-tile"]') &&
+        has(root, '[data-card-id="venue-where"]'),
+    );
+    const calls = spy.mock.calls.length;
+    const entries = build("venue", c);
+    premiseHolds("the planted fault reached the builder", spy.mock.calls.length > calls);
+    expect(inRegion(entries, "venue-diagrams")).toEqual([]);
+    expect(entries).toEqual(intact);
+    expect(assertParity(root, entries)).toEqual([]);
+  });
+
+  test("a thumbnail the gallery names itself (no sheet name) is skipped, never indexed", () => {
+    // Parity cannot see this rule: a page and an index that BOTH took the
+    // invented "Diagram N" would agree with each other. So the slot whose
+    // source has no name is located, and its rendered alt checked against both.
+    for (const c of [diagramsNamedAndUnnamed, diagramForms]) {
+      const root = renderSection("venue", c);
+      const slots = [...thumbnails(root)];
+      const sources = [
+        ...(c.data.diagrams?.embeddedImages ?? []),
+        ...(c.data.diagrams?.linkedFolderItems ?? []),
+      ];
+      const unnamed = sources.flatMap((src, i) =>
+        src.alt === undefined || src.alt.trim().length === 0 ? [i] : [],
+      );
+      premise(`${c.name} has thumbnails the sheet did not name`, unnamed.length, 0);
+      const values = inRegion(build("venue", c), "venue-diagrams").map((e) => e.value);
+      for (const i of unnamed) {
+        const slot = slots[i]!;
+        const alt = slot.querySelector("img")?.getAttribute("alt") ?? "";
+        expect(slot.hasAttribute("data-search-skip"), `${c.name} slot ${i}`).toBe(true);
+        expect(slot.hasAttribute("data-search-target"), `${c.name} slot ${i}`).toBe(false);
+        if (alt.trim().length > 0) expect(values, `${c.name} slot ${i}`).not.toContain(alt);
+      }
+      cleanup();
+    }
+  });
+
+  test("past the gallery's first INITIAL_VISIBLE thumbnails, no diagram is indexed by name", () => {
+    const names = overCaps.data.diagrams!.embeddedImages.map((i) => i.alt);
+    const indexed = inRegion(build("venue", overCaps), "venue-diagrams").map((e) => e.value);
+    premise("overCaps names more diagrams than the gallery shows", names.length, INITIAL_VISIBLE);
+    expect(indexed.filter((v) => names.includes(v))).toEqual(names.slice(0, INITIAL_VISIBLE));
   });
 });

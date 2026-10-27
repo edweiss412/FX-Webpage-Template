@@ -499,7 +499,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Same `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still marked.
     // Nothing joined or left: membership is still 34, and reverting that one row
     // reproduces d385077b... byte-for-byte.
-    expect(digest).toBe("38ef2727788c7524b62a20af714af5219df490570a74c0f1b4ca9ca8689548e6");
+    // Regenerated for the crew search Venue section task (Task 8), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/VenueSection.tsx 469 -> 310 (-159: the Where,
+    //   Facilities and Venue status derivations moved to venueRows.ts above it)
+    // Same `tile-errors` row (`transportFetchFailed ? <SectionTileError`), still marked.
+    // Nothing joined or left: membership is still 34, and reverting that one row
+    // reproduces 38ef2727... byte-for-byte.
+    expect(digest).toBe("27e71472f9e20b1436b442ce5d982833dd03bf3198a5239fe725fb601a5fcfca");
   });
 });
 
