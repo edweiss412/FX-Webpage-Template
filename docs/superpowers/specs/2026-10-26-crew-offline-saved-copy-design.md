@@ -133,7 +133,7 @@ The worker registers at scope `/` (it has to see navigations to /show/...), and 
 | Request | Handling |
 |---|---|
 | Navigation to a crew show page, path matching `^/show/[^/]+/[^/]+/?$` | §4.4 decision table |
-| `GET /_next/static/**` | Cache first, store on first fetch (§4.8) |
+| `GET /_next/static/**` and `GET /fonts/**` | Cache first, store on first fetch (§4.8). `/fonts/` holds the self-hosted Inter file, which the spike found outside `/_next/static` and only offline-available by luck of the HTTP cache (§11) |
 | `GET /api/asset/diagram/**`, `GET /api/asset/agenda/**` belonging to a saved show | Network first with a 5-second timeout, falling back to the saved asset (§4.8) |
 | Everything else, including Next RSC requests (`_rsc` query parameter or `RSC: 1` header), all `/api/**` other than the two asset families, Server Action POSTs, admin pages | Not handled: the worker never calls `respondWith`, so the browser behaves exactly as it does today |
 
@@ -175,7 +175,9 @@ For a navigation to a crew show page URL `U`, with or without a saved copy `S(U)
 | Network error, or no response within 8 s | yes | `S(U)` in offline mode | let the network request finish; if it returns 200 with marker `save`, store it and tell the page a fresh version is ready (§4.7) |
 | Network error, or no response within 8 s | no | the built-in "not saved yet" page (§4.7.4) | none |
 
-8 seconds is the author's call: long enough for a weak but working connection to finish, short enough that a dead one does not leave crew staring at a blank screen.
+8 seconds is the author's call: long enough for a weak but working connection to finish, short enough that a dead one does not leave crew staring at a blank screen. The spike measured the fallback at 8.05 s in both engines (§11).
+
+**The first visit.** The worker does not exist yet during the navigation that installs it, so that navigation is never seen by it (§11). To keep R1 (save on every load with signal), the page asks the worker to `ensure-saved(U, renderedAt)` once the worker controls the page (§4.7.3). The worker skips the request when it already holds, or is already storing, a copy of `U` with that `renderedAt`; otherwise it fetches `U` itself, with the page's cookies, and runs the 200 row above.
 
 ### 4.5 Status route
 
@@ -205,12 +207,9 @@ Saved copies live in the browser's Cache Storage for this origin, which only thi
 
 #### 4.7.1 How the page knows it is a saved copy
 
-The worker tells the page which mode it served the document in: `live` (network), `offline`, `server-error`, or `ended`. The transport is chosen by the spike (§11) and is **UNRATIFIED until §11 is filled**:
+The worker tells the page which mode it served the document in. When it serves `S(U)`, it inserts `<meta name="fxav-served" content="offline|server-error|ended">` immediately after `<head>` and drops the stored `content-length` and `content-encoding` headers. The bar reads the meta synchronously on mount. A document without the meta is `live`. An unknown `content` value is treated as `offline`, so an unrecognised saved-copy mode still shows a bar.
 
-- (a) the worker injects `<meta name="fxav-served" content="<mode>">` into the stored HTML's `<head>` when serving `S(U)`, and the bar reads it on mount; or
-- (b) the worker records `FetchEvent.resultingClientId -> mode` in Cache Storage and the bar asks the worker by message on mount.
-
-Whichever ships, the default when no answer arrives within 1 second is `live`, which is only safe because a document served from `S(U)` always carries the answer by construction in (a), and the plan must prove the same for (b) with a test that kills the worker between serving and asking.
+Ratified by the spike (§11): the injected meta produced no hydration warning or error in Chromium or WebKit, and the page hydrated identically to a byte-for-byte copy. It needs no round trip and cannot be lost to a worker restart, because the answer travels inside the document. The message-based alternative (`resultingClientId` recorded at navigation, queried on mount) also worked but needs a live controller and an asynchronous reply, so it is not used.
 
 #### 4.7.2 The pinned bar
 
@@ -292,7 +291,13 @@ While the page shows a saved copy (`offline` or `server-error` mode), the bar li
 
 A live page that loses signal while open shows `offline-*` from `navigator.onLine`. When it comes back online it hides the bar; the existing `ShowRealtimeBridge` reconnect check refreshes the content as it does today. No reload.
 
-After any RSC refresh on a live page (the bar sees `renderedAt` change), the bar asks the worker to re-save `U`, debounced to once per 10 seconds, so the saved copy keeps up with realtime updates.
+On a live page, the registrar posts `ensure-saved(U, renderedAt)` once the worker controls the page, and again whenever `renderedAt` changes after an RSC refresh, debounced to once per 10 seconds. That one message covers the first visit (§4.4) and keeps the saved copy current with realtime updates.
+
+A `router.refresh()` that fires while the network is down makes Next fall back to a full page load (§11), which the worker answers from `S(U)`. The page survives, with the bar, but open menus and modal state are lost.
+
+#### 4.7.3a The section in the URL
+
+The saved copy is keyed by path, not query, so it opens on the section that was showing when it was saved, whatever `?s=` the URL carries; `CrewSections` seeds its state from the server's `initialSection` and does not reconcile the URL on mount (`components/crew/CrewSections.tsx`, `useState(initialSection)`). The spike saw both directions of the mismatch (§11). In a saved-copy mode, the bar replaces the URL's `s` parameter with the rendered section, read from the `data-active-section` attribute of the `crew-shell-sections` wrapper, using `history.replaceState`. The URL then tells the truth about what is on screen, and no file under `components/crew/**` changes. If the attribute is absent, the URL is left alone.
 
 #### 4.7.4 The "not saved yet" page
 
@@ -378,7 +383,7 @@ No new mutation surface in piece 1: the status route and /sw.js are GET handlers
 TDD per task (invariant 1). The plans own the task list; this section sets the bar.
 
 - **Worker logic** lives in plain functions (decision table, marker parsing, URL matching, caps, eviction) imported by both the worker bundle and Vitest, so each table row in §4.4 and each row of §4.3 has a unit test. The worker file is thin glue.
-- **Real-browser e2e** (Playwright, non-interactive): load a seeded crew page online, go offline (`context.setOffline(true)`), reload, assert full content, a working tab switch, and the `offline-fresh` bar. Also: 404-ended keeps the copy with the ended bar; link reset wipes it; "Not you?" wipes it; unpublish wipes it; admin view never saves; the not-saved-yet page appears with no copy. Browsers per §11.
+- **Real-browser e2e** (Playwright, non-interactive): load a seeded crew page online, cut the network, reload, assert full content, a working tab switch, and the `offline-fresh` bar. The spike found `context.setOffline(true)` unusable for worker tests (Chromium stops covering the worker's own fetches by the second reload; WebKit's reload throws), so the suite cuts the network by stopping the server (refused connection) and by a listener that accepts and never answers (the 8-second timeout). WebKit needs HTTPS for the `__Host-` picker cookie and an ephemeral context (§11). Also: 404-ended keeps the copy with the ended bar; link reset wipes it; "Not you?" wipes it; unpublish wipes it; admin view never saves; the not-saved-yet page appears with no copy. Chromium and WebKit.
 - **Kill switch:** /sw.js with `CREW_OFFLINE_DISABLED` set and unset.
 - **Bar:** every state's copy, precedence, guard rows, reduced motion, every reachable cell of the §4.7.2 transition inventory, and the dimensional invariants in a real browser.
 - **Reports:** queue on network failure, persistence across reload, send on `online`, idempotent replay, issue body section, cap, and the button count.
@@ -404,6 +409,8 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 - **First visit with no signal** gets the "not saved yet" page, by definition.
 - **Data use.** Diagram and agenda prefetch happens on whatever connection the phone has, up to the §4.8 caps.
 - **Report clock.** `writtenAt` is phone time and is labelled as such.
+- **Offline realtime noise.** `ShowRealtimeBridge` keeps retrying its token mint while offline (about 12 failed requests in the spike's WebKit window). Harmless, unchanged by this work.
+- **Section on reload.** An offline reload opens on the section that was showing at save time (§4.7.3a).
 
 ## 10. Left to the builder
 
@@ -414,4 +421,19 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 
 ## 11. Spike findings
 
-To be filled from the empirical spike before review (spec self-review rule: framework behavior is probed, not designed in prose). Questions: offline reload plus hydration in Chromium and WebKit; RSC pass-through; served-mode transport (a) versus (b); online recovery; page and asset sizes.
+Full record: `docs/superpowers/specs/probes/2026-10-26-crew-offline-sw-spike.md` (run 2026-10-26 against a production build of `origin/main` 044c5f90a, Next 16.3.0, Playwright 1.59.1, seeded Waldorf show). Findings this spec relies on:
+
+| Question | Result | Used in |
+|---|---|---|
+| Offline reload in Chromium | Full crew page rendered from the stored copy; tabs and avatar menu worked; no hydration or page errors | §4.4 |
+| Offline reload in WebKit | Same, over HTTPS. Over plain http WebKit never stores the `__Host-` picker cookie, so no crew identity renders | §4.4, §7 |
+| How the page learns it is a saved copy | Injected meta and the message protocol both worked in both engines; the meta caused no hydration warning | §4.7.1 |
+| RSC requests | Passed through untouched, `router.refresh()` online worked; offline it fell back to a full load answered by the stored copy | §4.2, §4.7.3 |
+| Back online | `location.reload()` got the fresh page through the worker and replaced the stored copy | §4.7.3 |
+| Sizes | HTML 154 to 196 KB decoded (about 26 KB gzip); 19 static files, 1.62 MB decoded; Inter font 179 KB under `/fonts/` | §4.2, §4.8 |
+| Old build offline | A copy from build A rendered offline with build A chunks after the server moved to build B; reconnecting hard-navigated into build B cleanly | §4.8 |
+| First visit | Never stored: the worker installs during it | §4.4 |
+| Query parameter | Stored copy keyed by path renders its own saved section regardless of `?s=` | §4.7.3a |
+| Test harness | `context.setOffline` unreliable for workers; stopping or hanging the server is reliable in both engines | §7 |
+
+Not verified by the spike: real iOS Safari, Home Screen mode, storage eviction, real-show diagram sizes, purge on switch person. The plan covers purge in e2e; the rest are §9 limits.
