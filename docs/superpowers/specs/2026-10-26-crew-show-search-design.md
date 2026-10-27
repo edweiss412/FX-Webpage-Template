@@ -282,8 +282,8 @@ Each section group is a heading (section label) and a list. Each row:
 
 ### 6.5 Copy
 
-- Writes `copy.text` with `navigator.clipboard.writeText` (the mechanism `CopyFactValue` uses). On success: toast per kind (§10) for `COPY_FEEDBACK_RESET_MS` (`lib/ui/copyFeedback.ts`). On rejection or missing API: the failure toast.
-- The toast is `role="status"`, sits over the results near the top of the viewport, and is announced once. A second copy replaces the first toast and restarts the timer.
+- Writes `copy.text` with `navigator.clipboard.writeText` (the mechanism `CopyFactValue` uses). On success: toast per kind (§10) for `COPY_FEEDBACK_RESET_MS` (`lib/ui/copyFeedback.ts`, 2000 ms). On rejection or missing API: the failure toast, held for 6000 ms (`COPY_FAILED_TOAST_MS` in `CrewSearchResults.tsx`, DESIGN.md §5.5), because it is an instruction to read and follow, not a confirmation.
+- The toast is `role="status"`, sits over the results near the top of the viewport, and is announced once. A second copy replaces the first toast and restarts the timer with the new toast's own window.
 - The app has no toast today (`ArchiveShowButton.tsx` comment). This adds one, local to the search island, not a global toast system.
 
 ### 6.6 Opening a result

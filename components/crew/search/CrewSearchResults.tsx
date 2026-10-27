@@ -47,6 +47,12 @@ const SECTION_VIEW_ROWS = 50;
 const SHORT_VALUE_CHARS = 40;
 /** Delay before the result count is announced, so it speaks once typing stops. */
 const RESULT_COUNT_ANNOUNCE_MS = 300;
+/**
+ * How long the copy-failure toast stays. It is an 11-word instruction, not a
+ * confirmation, so it outlasts the 2 s `COPY_FEEDBACK_RESET_MS` a "copied" toast
+ * gets (impeccable critique A6, audit U4).
+ */
+const COPY_FAILED_TOAST_MS = 6000;
 
 type Chip = SectionId | "all";
 type Toast = { id: number; text: string; copied: boolean };
@@ -216,12 +222,18 @@ export function CrewSearchResults() {
     setChip("all");
   }
 
-  // The copied toast: a second copy replaces the first and restarts its window.
+  // The copy toast: a second copy replaces the first and restarts the window,
+  // which is the replacing toast's own (short for "copied", long for failure).
   const [toast, setToast] = useState<Toast | null>(null);
   const toastSeq = useRef(0);
   useEffect(() => {
     if (toast === null) return;
-    const timer = window.setTimeout(() => setToast(null), COPY_FEEDBACK_RESET_MS);
+    const dismiss = () => setToast(null);
+    // Two calls, each with a named delay, so the timing inventory scanner
+    // resolves both (DESIGN.md §5.5); a computed delay would report unclassified.
+    const timer = toast.copied
+      ? window.setTimeout(dismiss, COPY_FEEDBACK_RESET_MS)
+      : window.setTimeout(dismiss, COPY_FAILED_TOAST_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
 

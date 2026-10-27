@@ -508,6 +508,61 @@ describe("copy (spec §6.4, §6.5)", () => {
       "Couldn't copy. Tap the line, then press and hold the text.",
     );
   });
+
+  // Impeccable critique A6 / audit U4: the failure toast is an 11-word
+  // instruction, so it holds for 6000 ms instead of the 2000 ms "copied" window.
+  // Both durations are typed from spec §6.5, never imported.
+  it("the failure toast holds for 6000 ms", async () => {
+    vi.useFakeTimers();
+    clipboardWrite.mockRejectedValue(new Error("NotAllowedError"));
+    renderResults();
+    search("wifi");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Wi-Fi password" }));
+    });
+    const FAILED = "Couldn't copy. Tap the line, then press and hold the text.";
+    expect(screen.getByTestId("crew-search-toast")).toHaveTextContent(FAILED);
+    act(() => vi.advanceTimersByTime(5999));
+    expect(screen.getByTestId("crew-search-toast")).toHaveTextContent(FAILED);
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByTestId("crew-search-toast")).toBeNull();
+  });
+
+  it("each toast keeps its own window when one replaces the other", async () => {
+    vi.useFakeTimers();
+    clipboardWrite.mockRejectedValueOnce(new Error("NotAllowedError"));
+    renderResults();
+    search("wifi");
+    const FAILED = "Couldn't copy. Tap the line, then press and hold the text.";
+
+    // A failure, then a success: the success gets the short window.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Wi-Fi password" }));
+    });
+    expect(screen.getByTestId("crew-search-toast")).toHaveTextContent(FAILED);
+    act(() => vi.advanceTimersByTime(1000));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Wi-Fi password" }));
+    });
+    expect(screen.getByTestId("crew-search-toast")).toHaveTextContent("Password copied");
+    act(() => vi.advanceTimersByTime(2000));
+    expect(screen.queryByTestId("crew-search-toast")).toBeNull();
+
+    // A success, then a failure: the failure gets the long window from its own start.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Wi-Fi network" }));
+    });
+    act(() => vi.advanceTimersByTime(1000));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Wi-Fi password" }));
+    });
+    expect(screen.getByTestId("crew-search-toast")).toHaveTextContent(FAILED);
+    act(() => vi.advanceTimersByTime(5999));
+    expect(screen.getByTestId("crew-search-toast")).toHaveTextContent(FAILED);
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByTestId("crew-search-toast")).toBeNull();
+  });
 });
 
 describe("no match and the report row (spec §6.7, §10)", () => {
