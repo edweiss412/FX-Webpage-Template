@@ -11,11 +11,16 @@
  */
 import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
 import { CASE_CAP, ROOM_DETAIL_CAP } from "@/components/crew/sections/GearSection";
-import { SOURCE_CAP } from "@/components/crew/sections/TodaySection";
+import { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/TodaySection";
 import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
 import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
+import type { AgendaDay, AgendaExtraction } from "@/lib/agenda/types";
+import { TITLE_TRUNCATE_AT } from "@/lib/crew/agendaDisplay";
+import { CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetailsSpecs";
+import type { RoomDetailKey } from "@/lib/crew/roomDetailFields";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
+import type { GearDiscipline } from "@/lib/parser/gearClassification";
 import type {
   ContactRow,
   PersistedDiagrams,
@@ -120,10 +125,17 @@ const HOTEL = {
 
 type Overrides = NonNullable<Parameters<typeof makeShowForViewer>[0]>;
 
+/** The event details every case shares. A case that sets `event_details` spreads these first. */
+const BASE_EVENT_DETAILS = {
+  internet: "SSID: FXAV Password: ORDTG.",
+  power: "Two 20A circuits",
+} as const;
+
 /**
  * Venue and show fields every case shares, so every section has lines to
  * render. `over` replaces top-level fields wholesale, except `show`, whose
- * fields merge over the shared ones.
+ * fields merge over the shared ones (so a case's `event_details` replaces
+ * `BASE_EVENT_DETAILS` whole).
  */
 function base(over: Overrides = {}): ShowForViewer {
   const { show, ...rest } = over;
@@ -143,7 +155,7 @@ function base(over: Overrides = {}): ShowForViewer {
         showDays: [MATRIX_TODAY_ISO],
         travelOut: isoDay(1),
       },
-      event_details: { internet: "SSID: FXAV Password: ORDTG.", power: "Two 20A circuits" },
+      event_details: BASE_EVENT_DETAILS,
       ...show,
     },
   });
@@ -338,6 +350,383 @@ export const adminViewer = makeCase(
   }),
 );
 
+// ── Content cases ────────────────────────────────────────────────────────────
+// The default fixture renders almost none of the page (no dates, empty
+// `event_details`, no agenda, no run of show), so a line kind no case renders
+// would pass parity vacuously. Each case below exists to make a set of line
+// kinds render; tests/search/viewerMatrix.test.tsx proves each one does.
+
+/**
+ * Joins `parts` with spaces, cycling, until the text is strictly longer than
+ * `limit`. Truncation fixtures derive their length from the exported constant
+ * this way, so a changed constant cannot silently stop them truncating.
+ */
+function textLongerThan(limit: number, parts: readonly string[]): string {
+  const taken: string[] = [];
+  while (taken.join(" ").length <= limit) taken.push(parts[taken.length % parts.length]!);
+  return taken.join(" ");
+}
+
+/** "Thursday, May 14, 2026": the agenda day-label form `parseIsoFromDayLabel` reads. */
+function agendaDayLabel(iso: string): string {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function agendaLink(label: string, fileId: string, days: AgendaDay[]) {
+  const extracted: AgendaExtraction = {
+    confidence: "high",
+    corrections: 0,
+    extractorVersion: 2,
+    days,
+  };
+  return { label, fileId, extracted };
+}
+
+/** Wi-Fi split form: a labeled network and password, no prose. */
+export const wifiSplit = makeCase(
+  "wifiSplit",
+  CREW_VIEWER,
+  base({
+    show: {
+      event_details: { ...BASE_EVENT_DETAILS, internet: "SSID: Hyatt_Meeting\nPassword: ORDTG." },
+    },
+  }),
+);
+
+/**
+ * Wi-Fi raw form: a password label with no network label before it, outside
+ * the accept-set, so the whole cell renders verbatim as "Crew Wi-Fi".
+ */
+export const wifiRaw = makeCase(
+  "wifiRaw",
+  CREW_VIEWER,
+  base({
+    show: {
+      event_details: {
+        ...BASE_EVENT_DETAILS,
+        internet: "Wifi Ritz-Carlton_CONFERENCE Password: ritzvip",
+      },
+    },
+  }),
+);
+
+/** Wi-Fi split form with leading prose, which renders as the "Internet notes" row. */
+export const wifiNotes = makeCase(
+  "wifiNotes",
+  CREW_VIEWER,
+  base({
+    show: {
+      event_details: {
+        ...BASE_EVENT_DETAILS,
+        internet: "Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025",
+      },
+    },
+  }),
+);
+
+/**
+ * Today Mode A: today is the show day, the viewer is date-eligible, and today
+ * has run-of-show entries AND agenda sessions, so Today renders the bare key
+ * times strip (no card) and the merged run-of-show timeline. The GS room's set
+ * and strike times give the strip its Set and Strike anchors. The dress code
+ * is one paragraph (the unparsed form); `fullContent` carries the phase form.
+ */
+export const modeAToday = makeCase(
+  "modeAToday",
+  CREW_VIEWER,
+  base({
+    rooms: [
+      {
+        id: "room-gs",
+        kind: "gs",
+        name: "Grand Ballroom",
+        video: "LED wall",
+        audio: "Two lavs",
+        set_time: "6:00 AM",
+        strike_time: "6:00 PM",
+      },
+    ],
+    runOfShow: {
+      [MATRIX_TODAY_ISO]: {
+        entries: [
+          { start: "6:30 AM", title: "Crew Call", room: "Grand Ballroom" },
+          { start: "7:00 AM", finish: "7:45 AM", trt: "0:45", title: "Sound Check", av: "A1" },
+        ],
+        showStart: "6:30 AM",
+        showEnd: null,
+        window: null,
+      },
+    } satisfies Record<string, ScheduleDay>,
+    show: {
+      event_details: {
+        ...BASE_EVENT_DETAILS,
+        dress_code: "All black, no logos. Closed-toe shoes on the floor.",
+      },
+      agenda_links: [
+        agendaLink("AGENDA", "agenda-mode-a", [
+          {
+            dayLabel: agendaDayLabel(MATRIX_TODAY_ISO),
+            date: null,
+            sessions: [
+              {
+                time: "8:00 AM – 8:45 AM",
+                title: "Breakfast and Registration",
+                room: "Foyer",
+                tracks: [],
+                drift: null,
+              },
+              {
+                time: "9:00 AM – 9:40 AM",
+                title: "Opening Remarks",
+                room: "Grand Ballroom",
+                tracks: [],
+                drift: null,
+              },
+            ],
+          },
+        ]),
+      ],
+    },
+  }),
+);
+
+/** One value per scope discipline, typed over `GearDiscipline` so a new discipline fails tsc. */
+const GS_SCOPE: Record<GearDiscipline, string> = {
+  audio: "Two handheld wireless, four lavs, podium mic",
+  video: "Two 16:9 screens, front projection, confidence monitor at DSL",
+  lighting: "Stage wash and two uplights on the step-and-repeat",
+  scenic: "Pipe and drape upstage, client banner stage right",
+  other: "Client laptops at the tech table, presenter clicker",
+};
+
+/** Every room-detail field, typed over `RoomDetailKey` so a new field fails tsc. */
+const GS_DETAILS: Record<RoomDetailKey, string> = {
+  dimensions: "120' x 80'",
+  floor: "Level 2",
+  setup: "Classroom for 300 with a center aisle",
+  set_time: "6:00 AM",
+  show_time: "8:00 AM",
+  strike_time: "5:30 PM",
+};
+
+/** Every whitelisted tech spec, typed over `CREW_TECH_SPEC_KEYS` so a new key fails tsc. */
+const TECH_SPECS: Record<(typeof CREW_TECH_SPEC_KEYS)[number], string> = {
+  stage_size: "24' x 12' x 2' with ADA ramp stage left",
+  podium_type: "Clear acrylic lectern",
+  polling: "Slido polling on the GS screens",
+  led: "12' x 7' LED wall upstage center",
+  scenic: "Branded step-and-repeat at registration",
+  gooseneck: "Two goosenecks on the panel table",
+  digital_signage: "Room signs on easels outside each breakout",
+  test_pattern: "Send the test pattern to the client by 5/8",
+  fonts: "Client fonts in the shared folder (Gotham, Mercury)",
+  equipment_storage: "Salon 4, behind the GS",
+  staff_office_room: "Boardroom 2, second floor",
+  record: "Record GS sessions to ProRes, hand drives over at strike",
+  virtual_speaker: "One remote speaker on Zoom for the 10:30 panel",
+  virtual_audience: "Livestream to the client's event page",
+  notes: "Walk-in music at 8:45 AM sharp",
+};
+
+/** A run-of-show title past `TITLE_TRUNCATE_AT`, so it folds into a `<details>`. */
+const LONG_TITLE = textLongerThan(TITLE_TRUNCATE_AT, [
+  "Panel: Private Credit in a Higher-for-Longer World,",
+  "with live audience polling and Q&A from the floor",
+]);
+
+/** A venue note past `TRUNCATE_AT`, so Today's notes card folds it into a `<details>`. */
+const LONG_VENUE_NOTE = textLongerThan(TRUNCATE_AT, [
+  "Houseman's name is Fikret and he's very helpful.",
+  "Leave an ID with security to get a card for the dock door.",
+  "The freight elevator is on the north side, past the kitchen.",
+  "Union labor is required for any rigging over ten feet.",
+]);
+
+const FULL_SHOW_DAYS = [isoDay(-1), isoDay(0)];
+
+/**
+ * Everything a show sheet can fill, for a date-eligible crew viewer on the
+ * last show day, which is also the Strike day: show days and dates, two agenda
+ * PDFs (both for the FIRST show day, so Today keeps the plain run-of-show list
+ * while `modeAToday` covers the merged timeline), run of show with a title
+ * longer than `TITLE_TRUNCATE_AT`, a venue note longer than `TRUNCATE_AT`, the
+ * phase form of the dress code, COI, venue notes, power, every whitelisted tech
+ * spec, keynote, opening reel, every gear discipline, the pack list (today's
+ * phases include Strike), and rooms with every detail field.
+ */
+export const fullContent = makeCase(
+  "fullContent",
+  CREW_VIEWER,
+  base({
+    crewMembers: [
+      viewerRow(),
+      { ...crewRow("crew-lead", "Dana Lee"), role: "A1", roleFlags: ["LEAD"] },
+      { ...crewRow("crew-v1", "Marcus Hill"), role: "V1" },
+    ],
+    hotelReservations: [{ ...HOTEL, check_in: isoDay(-3), check_out: isoDay(1) }],
+    contacts: [
+      {
+        kind: "venue",
+        name: "Kurt Ashcraft",
+        email: null,
+        phone: "312-555-0142",
+        notes: "Text before calling, he's on the floor all day",
+      },
+      {
+        kind: "in_house_av",
+        name: "Chris Mercado",
+        email: null,
+        phone: "312-555-0177",
+        notes: null,
+      },
+    ],
+    rooms: [
+      {
+        id: "room-gs",
+        kind: "gs",
+        name: "Grand Ballroom",
+        ...GS_SCOPE,
+        ...GS_DETAILS,
+        notes: "House power drop is behind the stage left curtain",
+      },
+      {
+        id: "room-salon-1",
+        kind: "breakout",
+        name: "Salon 1",
+        audio: "One handheld, one lav",
+        video: "One 65-inch monitor on a cart",
+        dimensions: "40' x 30'",
+        floor: "Level 2",
+        setup: "Theater for 80",
+      },
+    ],
+    runOfShow: {
+      [FULL_SHOW_DAYS[0]!]: {
+        entries: [
+          { start: "7:00 AM", title: "Crew Call", room: "Grand Ballroom" },
+          {
+            start: "9:00 AM",
+            finish: "9:40 AM",
+            trt: "0:40",
+            title: "Opening Remarks",
+            room: "Grand Ballroom",
+            av: "A1, V1",
+          },
+        ],
+        showStart: "7:00 AM",
+        showEnd: null,
+        window: null,
+      },
+      [FULL_SHOW_DAYS[1]!]: {
+        entries: [
+          { start: "7:30 AM", title: "Crew Call", room: "Grand Ballroom" },
+          {
+            start: "9:00 AM",
+            finish: "10:15 AM",
+            trt: "1:15",
+            title: LONG_TITLE,
+            room: "Grand Ballroom",
+            av: "A1, V1, L1",
+          },
+          { start: "4:30 PM", title: "Strike: GS and breakouts", kind: "strike" },
+        ],
+        showStart: "7:30 AM",
+        showEnd: null,
+        window: null,
+      },
+    } satisfies Record<string, ScheduleDay>,
+    pullSheet: [
+      {
+        caseLabel: "Audio Rack 1",
+        items: [
+          { qty: 1, cat: "Audio", subCat: "Console", item: "Yamaha QL1" },
+          { qty: 4, cat: "Audio", subCat: "Wireless", item: "Shure ULXD4 receiver" },
+        ],
+      },
+      {
+        caseLabel: "Video Case A",
+        items: [{ qty: 2, cat: "Video", subCat: "Projector", item: "Panasonic PT-RZ970" }],
+      },
+    ],
+    show: {
+      venue: {
+        name: "Grand Hall",
+        address: "123 Main St",
+        loadingDock: "Freight entrance on Rush St, dock 3",
+        notes: LONG_VENUE_NOTE,
+      },
+      dates: {
+        travelIn: isoDay(-3),
+        set: isoDay(-2),
+        showDays: FULL_SHOW_DAYS,
+        travelOut: isoDay(1),
+      },
+      schedule_phases: {
+        [isoDay(-2)]: ["Load In", "Set"],
+        [FULL_SHOW_DAYS[0]!]: ["Show"],
+        [FULL_SHOW_DAYS[1]!]: ["Show", "Strike"],
+        [isoDay(1)]: ["Load Out"],
+      },
+      coi_status: "COI received 5/1",
+      event_details: {
+        ...BASE_EVENT_DETAILS,
+        ...TECH_SPECS,
+        dress_code: "Set/Strike: Black pants, black FXAV polo\nShow: Business casual, no jeans",
+        keynote_requirements: "Confidence monitor at DSL, clicker and timer at the lectern",
+        opening_reel: "YES - https://drive.google.com/file/d/1AbCdEfGhIjK/view",
+      },
+      agenda_links: [
+        agendaLink("AGENDA - General Session", "agenda-gs", [
+          {
+            dayLabel: agendaDayLabel(FULL_SHOW_DAYS[0]!),
+            date: null,
+            sessions: [
+              {
+                time: "8:00 AM – 8:45 AM",
+                title: "Breakfast and Registration",
+                room: "Foyer",
+                tracks: [],
+                drift: null,
+              },
+              {
+                time: "12:25 PM – 1:15 PM",
+                title: "Lunch Keynote",
+                room: "Grand Ballroom",
+                tracks: [],
+                drift: "start→12:25 PM (source: 12:25 AM)",
+              },
+            ],
+          },
+        ]),
+        agendaLink("AGENDA - Breakouts", "agenda-breakouts", [
+          {
+            dayLabel: agendaDayLabel(FULL_SHOW_DAYS[0]!),
+            date: null,
+            sessions: [
+              {
+                time: "2:00 PM – 2:45 PM",
+                title: "Breakout Sessions",
+                room: null,
+                tracks: [
+                  { label: "Track A", title: "Direct Lending Outlook", room: "Salon 1" },
+                  { label: "Track B", title: "Fund Finance 101", room: "Salon 2" },
+                ],
+                drift: null,
+              },
+            ],
+          },
+        ]),
+      ],
+    },
+  }),
+);
+
 export const ALL_CASES: readonly ViewerCase[] = [
   crewNoTransport,
   crewWithTransport,
@@ -347,4 +736,9 @@ export const ALL_CASES: readonly ViewerCase[] = [
   todayOnlyLines,
   diagramsNamedAndUnnamed,
   adminViewer,
+  wifiSplit,
+  wifiRaw,
+  wifiNotes,
+  modeAToday,
+  fullContent,
 ];
