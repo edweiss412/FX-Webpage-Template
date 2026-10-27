@@ -62,7 +62,7 @@ import {
 } from "@/components/crew/icons/sectionIcons";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { compareRooms } from "@/lib/crew/resolveKeyTimes";
+import { generalSessionRoomName } from "@/lib/crew/generalSessionRoom";
 import { resolveWifiDisplay } from "@/lib/crew/wifiDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
@@ -78,18 +78,6 @@ type VenueSectionProps = {
   ledger: TileRenderLedger;
   cardReport?: CardReportContext | null;
 };
-
-/**
- * The name the parser synthesizes when a v1 / metadata-trimmed sheet heads its
- * general-session block with nothing nameable (`lib/parser/blocks/rooms.ts` —
- * "fall back to 'General Session' rather than mis-naming the GS room"). Five of
- * the ten raw fixtures parse to exactly this. A row reading "Room: General
- * Session" restates the block heading and tells a crew member nothing, so it is
- * suppressed. Held locally rather than imported because the parser is out of
- * scope for this change; the suppression test is fixture-derived (it runs the
- * real parser) so a renamed fallback fails loudly instead of passing vacuously.
- */
-const SYNTHESIZED_GS_ROOM_NAME = "General Session";
 
 /**
  * URL-validity guard for the Maps anchor. Byte-identical to VenueTile's
@@ -174,27 +162,9 @@ export function VenueSection({
   const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
 
   // --- Room: the general-session room's name ---------------------------------
-  // Already parsed (ROOMS header line 2, section prefix stripped) — surfaced
-  // here, never re-derived. Suppressed on a rooms fetch failure: `readRooms`
-  // fail-softs to `[]` with `tileErrors.rooms`, so the array alone cannot tell
-  // "no rooms" from "we could not read them", and the failure is already
-  // surfaced by the rooms-consuming tiles' SectionTileError. Suppressed for the
-  // parser's synthesized fallback name too: a v1 sheet that never named its room
-  // gets the literal "General Session" from the parser, and echoing that back is
-  // noise, not information.
-  const roomsFetchFailed = Boolean(data.tileErrors["rooms"]);
-  const gsRoom = roomsFetchFailed
-    ? null
-    : (data.rooms.filter((room) => room.kind === "gs").sort(compareRooms)[0] ?? null);
-  // Sentinel-gated at the READ SITE like every other value in this component: a
-  // room literally named "TBD" would otherwise be pushed as a row, counted by
-  // `hasFacts`, and then dropped by FactRows — rendering an empty Facilities
-  // card when Room is the only fact (diff review R2 F2).
-  const gsRoomName = shouldHideGenericOptional(gsRoom?.name ?? null) ? "" : gsRoom!.name.trim();
-  const roomName =
-    gsRoomName.length > 0 && gsRoomName.toLowerCase() !== SYNTHESIZED_GS_ROOM_NAME.toLowerCase()
-      ? gsRoomName
-      : null;
+  // `generalSessionRoomName` holds the rule (fetch-failure, sentinel and
+  // synthesized-fallback suppression), shared with the crew home's pass.
+  const roomName = generalSessionRoomName(data);
 
   // --- COI status — sentinel-guarded; span omitted entirely when hidden ------
   const rawCoi = data.show.coi_status ?? null;
