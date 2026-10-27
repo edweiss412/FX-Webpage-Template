@@ -1,6 +1,6 @@
 # Crew page offline: saved copy, age note, offline reports
 
-**Status:** Draft v4, 2026-10-26 (after spec review round 3). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
+**Status:** Draft v5, 2026-10-26 (after spec review round 4). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
 **Scope:** the crew show page at `app/show/[slug]/[shareToken]/**` and the report flow it hosts.
 **Mockups (owner-reviewed):** https://claude.ai/artifact/8RA9JS4oMpLZFf9TyLwrJc
 **Spike record:** `docs/superpowers/specs/probes/2026-10-26-crew-offline-sw-spike.md` (summary in §11).
@@ -36,7 +36,7 @@ Every item below was decided by the owner in the 2026-10-26 brainstorm, or is ma
 | R10 | Reports written offline are held and sent automatically when signal returns. Doug's copy says it was written with no signal, when it was written versus sent, and how old the crew member's page was. | Owner |
 | R11 | Call and email links work as usual offline. "Open in Maps" hands off to the Maps app. "Not you? Switch person" is disabled offline with "Needs signal". | Author's call, played back |
 | R12 | Hand-written service worker, no new runtime dependency. | Author's call (§4.1 says why) |
-| R13 | One saved copy per show link per phone. A copy is never served to a viewer other than the crew identity it was rendered for, as far as the phone can know (§4.6, §9). | Brief constraint (parent session), owner-confirmed via R5 |
+| R13 | One saved copy per show per phone, whatever link it was saved under. A copy is never served to a viewer other than the crew identity it was rendered for, as far as the phone can know (§4.6, §9). | Brief constraint (parent session), owner-confirmed via R5; "per show" rather than "per link" is the author's call after review round 4 (§4.6) |
 | R14 | Sheet-removed detection reuses `shows.last_sync_status = 'sheet_unavailable'`. No sync change. | Recon finding, §3.4 |
 | R15 | An unpublish at any time after the copy was saved wipes it, even if the show is archived later (R4 read literally: "unless show has been unpublished by admin"). This needs one new nullable column, `shows.unpublished_at` (§4.11). | Author's call from the owner's wording |
 
@@ -139,7 +139,7 @@ The worker registers at scope `/` and acts only on:
 | Request | Handling |
 |---|---|
 | `GET` navigation whose path is a crew URL: exactly `/show/<slug>/<token>`, no trailing slash, where `<token>` is not `unpublish` | §4.4. The trailing-slash form is not handled: Next's 308 sends the browser to the slash-less URL, which is handled |
-| Any navigation (`GET` or `POST`) to `/auth/sign-out`, `/auth/callback`, or `/api/auth/picker-bootstrap` | Passed through unchanged (`respondWith(fetch(request))` with the request's own redirect mode), with every saved copy purged before the request is sent and again after its response arrives (§4.6) |
+| Any navigation (`GET` or `POST`) to `/auth/sign-out` or `/auth/callback` | Passed through unchanged (`respondWith(fetch(request))` with the request's own redirect mode), with every saved copy purged before the request is sent and again after its response arrives (§4.6) |
 | `GET /_next/static/**` and `GET /fonts/**` | Cache first, store on first fetch (§4.8) |
 | `GET /api/asset/diagram/**` and `GET /api/asset/agenda/**` listed by a saved copy | Network first with a 5-second timeout, falling back to the stored asset (§4.8) |
 | Everything else, including Next RSC requests (`_rsc` query parameter or `RSC: 1` header), Server Action POSTs, all other `/api/**` and `/auth/**`, admin pages, `/show/<slug>/unpublish` | Never answered: the worker does not call `respondWith`, so the browser behaves exactly as today |
@@ -154,7 +154,7 @@ Every page this route renders carries exactly one marker element in its body:
 <template id="fxav-saved-copy" data-v="3" data-disposition="save|keep|hold|check|purge" ...></template>
 ```
 
-A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8). A `keep` marker carries `data-show-id` and `data-viewer` for the crew identity the server had already resolved when it failed.
+A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8). A `keep` marker carries `data-viewer` for the crew identity the server had already resolved when it failed. **Every marker carries `data-show-id` whenever the server knows the show**, which is every arm except the not-found page (the token resolved to no show) and the `infra_error` arm (resolution never finished). Arms whose access result lacks the show id today (the `unpublished` result) gain it, since the RPC has already resolved it.
 
 | Page rendered | Disposition | Rendered by |
 |---|---|---|
@@ -163,17 +163,18 @@ A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UT
 | `<PickerInterstitial>`, `<SignInOrSkipGate>`, `<ShowUnavailable />` | `purge` | `<SavedCopyMarker>` in each |
 | `<TerminalFailure>` in the `resolved` crew arm, after identity resolved (the `getShowForViewer` failure) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
 | `<TerminalFailure>` in the `infra_error` arm (identity never resolved), and the route's `error.tsx` | `hold` | marker added to each |
-| `<TerminalFailure>` anywhere else: `renderPickerRepick` and `renderRacedCrewMiss` roster failures (after an identity rejection), the `no_auth` roster failure, the admin data failure | `purge` | marker passed into `<TerminalFailure>` |
+| `<TerminalFailure>` in `_CrewShell.tsx` for `MalformedProjectionError` (identity resolved, data malformed) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
+| `<TerminalFailure>` anywhere else: `renderPickerRepick` and `renderRacedCrewMiss` roster failures (after an identity rejection), the `no_auth` roster failure, the admin data failure, and `_CrewShell.tsx`'s `UnmatchedViewerError` (the viewer does not match the data) | `purge` | marker passed into `<TerminalFailure>` |
 | The route's `not-found.tsx` | `check` | marker added to it |
 | Anything else, including a streamed `redirect()` and a page with no marker | treated as `purge` | none (fail closed) |
 
 The worker reads the first `id="fxav-saved-copy"` element in the complete body (§4.4). An unknown `data-v` or `data-disposition`, or a `save` marker missing any required attribute, is treated as `purge`.
 
-**The marker also speaks for client-side renders.** Many renders never pass through the worker as a document: `ShowRealtimeBridge` calls `router.refresh()` on every invalidation (a reset, an archive and an unpublish all publish one) and on a 401, 403 or 410 from the version endpoint, and `<TerminalFailure>`'s retry link is a soft navigation. So the marker is a client component, `<SavedCopyMarker>`, that renders the template above and, on mount, posts the same disposition to the worker with the page's URL: `purge` purges the copy at that URL and every copy sharing its stored `showId`; `check` runs the §4.5 check for the copy at that URL and, on `ended`, marks it and reloads the page so the worker serves it in `ended` mode; `keep` and `hold` do nothing; `save` is the live-page `ensure-saved` (§4.7.3). One component therefore covers a document load and an RSC render identically, and the purge triggers in §4.6 are its consequences, not separate code paths.
+**The marker also speaks for client-side renders.** Many renders never pass through the worker as a document: `ShowRealtimeBridge` calls `router.refresh()` on every invalidation (a reset, an archive and an unpublish all publish one) and on a 401, 403 or 410 from the version endpoint, and `<TerminalFailure>`'s retry link is a soft navigation. So the marker is a client component, `<SavedCopyMarker>`, that renders the template above and, on mount, posts the same disposition to the worker with the page's URL: `purge` purges the copy of the marker's show (`data-show-id`), or, when the marker has no show id, the copy stored at that URL; `check` runs the §4.5 check for the copy at that URL and, on `ended`, marks it and reloads the page so the worker serves it in `ended` mode; `keep` and `hold` do nothing; `save` is the live-page `ensure-saved` (§4.7.3). One component therefore covers a document load and an RSC render identically, and the purge triggers in §4.6 are its consequences, not separate code paths.
 
 ### 4.4 Navigation
 
-For a crew-URL navigation, `U` is the storage key (path, trailing slash removed, query ignored) and the fetch always uses the full request URL, query included, so `?gate=skip` and `?s=` keep working online. `S(U)` is the saved copy, if any.
+For a crew-URL navigation, `U` is the request's path (query ignored) and the fetch always uses the full request URL, query included, so `?gate=skip` and `?s=` keep working online. `S(U)` is the saved copy whose stored URL is `U`, if any (copies are stored one per show, each remembering the URL it was saved under, §4.6).
 
 1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error: serve the network not-found by fetching the page as in step 2, and keep `S(U)`.
 2. **Otherwise fetch the request URL and buffer the whole response**, up to 8 seconds for headers and body together.
@@ -215,13 +216,17 @@ It returns `200 { "state": "ended" }` only when every condition below holds, and
 
 A parity test pins this: one table of identity scenarios, covering every input above in both its passing and failing state, runs through the page's resolver for a live show and through this route for the same show archived, and asserts the same allow or deny for every row. A new identity input added to the page later fails the parity test until the route consults it too.
 
-Infra faults return `500 { "error": "<code>" }`, which the worker treats as a timeout. `Cache-Control: no-store`. The route only reads. Its answer tells a caller who already holds the copy's ids and the matching identity that the show ended, which the copy is about to say. Supabase calls follow invariant 9. It is a `GET` handler, so it is not an invariant-10 mutation surface.
+Infra faults return `500 { "error": "<code>" }`. The worker treats that as the app answering without a verdict: it does not serve the copy and keeps it (§4.4 step 1). Only a network error or timeout, where the app gives no answer at all, lets the worker serve an ended copy on its own judgement. `Cache-Control: no-store`. The route only reads. Its answer tells a caller who already holds the copy's ids and the matching identity that the show ended, which the copy is about to say. Supabase calls follow invariant 9. It is a `GET` handler, so it is not an invariant-10 mutation surface.
 
 Cases: archive alone keeps the copy (R3). A reset before or after the archive leaves an epoch gap of two or more and wipes it (R4). An unpublish since the save wipes it (R15). "Not you?", sign-out, a different Google account, an admin session, roster removal, a selection reset, or a claim each fail the identity conditions and wipe it (R5, R13).
 
 ### 4.6 Saving, purging, and ordering
 
-**One copy per URL.** `S(U)` stores the HTML, the marker fields (including `showId` and `viewer`), the `savedAt` time (`data-rendered-at`), the request start ordinal, and the list of asset and static URLs it depends on. A show can have several URLs over time (every reset, archive and unarchive issues a new token), so every purge of a show removes all saved copies whose `showId` matches, not only the URL in hand.
+**One copy per show.** Copies are stored by show id. A copy stores the URL it was saved under, the HTML, the marker fields (including `showId` and `viewer`), the `savedAt` time (`data-rendered-at`), the request start ordinal, and the list of asset and static URLs it depends on. A show can have several URLs over time (every reset, archive and unarchive issues a new token), so keying by show means:
+
+- a `save` for a show replaces that show's copy, whatever URL the old copy was saved under, so a new viewer's save at a new link displaces the previous viewer's copy at an old link;
+- a purge names the show and removes its one copy, wherever it was saved;
+- an old link whose show's copy now lives under a newer link has no copy of its own (`S(U)` is absent), so with no signal it gets the "not saved yet" page rather than another link's content.
 
 **Ordering.** The worker keeps one persisted generation counter `G`, incremented by every purge of any scope. Every save captures `G` and a monotonically increasing request ordinal when its fetch starts, and commits only if `G` is unchanged at commit time and its ordinal is greater than the stored copy's. A save that starts before any purge therefore never lands after it, whether it is the copy's first save or a replacement, and whichever source it came from (navigation, `ensure-saved`, or a step-5 continuation). A purge of one show also voids in-flight saves of other shows; they are simply retried on the next load.
 
@@ -232,8 +237,9 @@ Cases: archive alone keeps the copy (R3). A reset before or after the archive le
 | "Not you? Switch person" | `AvatarMenu` posts `purge(showId)` and waits up to 500 ms for the acknowledgement before submitting `clearIdentity` | `AvatarMenu` posts `purge(showId)` again when the action settles, success or failure |
 | `/me` sign-out (`/auth/sign-out`) | Worker, when the navigation request starts (§4.2) | Worker, when its response arrives |
 | Google sign-in completing (`/auth/callback`) | Worker, request start | Worker, response |
-| Picker bootstrap (`/api/auth/picker-bootstrap`) | Worker, request start | Worker, response |
 | Picking a name in the picker | `<SavedCopyMarker>` on the picker's mount (the picker only renders when no valid selection exists) | Not needed: after the pick, the page renders for the new viewer, whose `save` replaces the copy |
+
+The picker bootstrap is not bracketed: its `redirect()` arrives as a streamed response with no marker (a purge), and Next performs it client-side through the router, so it is never a navigation the worker can watch. A bootstrap follows either a Google sign-in, whose `/auth/callback` bracket already purged everything, or a picker entry that no longer matches, which the page answered with a purge.
 
 **Completeness.** A save commits only after every asset in `data-assets` (within caps, §4.8) and every `/_next/static/**` and `/fonts/**` URL referenced in the saved HTML is present in the worker's caches, fetching any that are missing. If any required static file cannot be fetched, the save is abandoned and the previous `S(U)` stays. A committed copy can therefore always hydrate offline, including a copy fetched in the background from a newer deployment.
 
@@ -241,8 +247,7 @@ Cases: archive alone keeps the copy (R3). A reset before or after the archive le
 
 | Trigger | Mechanism |
 |---|---|
-| A complete response for `U` whose marker is `purge`, absent, or invalid | Worker, §4.4 |
-| An opaque redirect for `U` | Worker, §4.4 |
+| A complete response for `U` whose marker is `purge`, absent, or invalid | Worker, §4.4 (by the marker's show id, or the copy at `U` when there is none) |
 | Status route answers `gone` | Worker, §4.4 |
 | Identity transitions | The brackets above |
 | A client-side render (RSC refresh or soft navigation) of any page whose marker is `purge`, or of the not-found page (`check`) | `<SavedCopyMarker>` posts its disposition on mount (§4.3) |
@@ -421,7 +426,7 @@ New migration `supabase/migrations/<timestamp>_shows_unpublished_at.sql`: `alter
 | RLS and PostgREST grants | Unchanged; the column inherits the table's existing policies, and crew never read it directly |
 | Schema manifest | Regenerate with `pnpm gen:schema-manifest` in the same PR |
 | Validation project | Apply the migration surgically and reload the PostgREST schema, per the `validation-schema-parity` checklist in AGENTS.md |
-| Tests | Unit test of the status route's unpublish condition; a DB test that both unpublish paths stamp the column and that archive does not; add `unpublished_at` to `unpublishedStateSnapshot` (`tests/db/_b2Helpers.ts`) so the existing unpublish parity tests compare it |
+| Tests | Unit test of the status route's unpublish condition; a DB test that both unpublish paths stamp the column and that archive does not; add `unpublished_at_null: show.unpublished_at == null` to `unpublishedStateSnapshot` (`tests/db/_b2Helpers.ts`), in the same null-or-not form as its other timestamps, so the existing parity tests compare whether each path stamped it |
 
 ## 5. Piece 2: offline reports
 
@@ -466,7 +471,8 @@ TDD per task (invariant 1). The plans own the task lists; this section sets the 
 - **Worker logic** lives in plain modules under `lib/offline/` (crew-URL match, marker parsing, the §4.4 tables, ordering counters, completeness, caps, eviction, meta and CSS injection), imported by the worker bundle and by Vitest. Every row of §4.3 and §4.4 and every ordering race in §4.6 has a unit test. The worker entry is thin glue. A freshness test fails if the committed bundle differs from a fresh `pnpm gen:sw`.
 - **Real-browser e2e** (Playwright, non-interactive) against a production build. The spike found `context.setOffline(true)` unusable for worker tests, so the suite puts a small proxy between the browser and the server with three modes: pass, refuse (network error) and hang (accepts, never answers). WebKit runs over HTTPS through the same proxy (the `__Host-` picker cookie needs a secure context) in an ephemeral context. Cases, in Chromium and WebKit: offline reload shows full content, a working tab switch, and the bar; first visit is saved; hang shows `slow` then updates by itself; archive keeps the copy with the ended bar; reset, unpublish, "Not you?", sign-out and an admin view each wipe it; the "not saved yet" page appears with no copy; an unopened agenda opens offline; JavaScript blocked on a saved copy still shows the CSS notice; dimensional invariants.
 - **Identity parity:** the §4.5 scenario table through the page resolver and the status route, same verdict on every row.
-- **Brackets:** for each §4.6 transition, a save started between the two purges does not commit, including a first save of a URL with no copy.
+- **Brackets:** for each §4.6 transition, a save started between the two purges does not commit, including a first save of a show with no copy.
+- **One copy per show:** a save at a new link replaces the copy saved at an old link; a purge at a new link removes a copy saved at an old link; the old link then gets the "not saved yet" page offline.
 - **Client-side renders:** with the page open, a reset, an archive and an unpublish each arrive by realtime refresh; the copy is wiped (reset, unpublish) or marked ended (archive), and a following offline reload shows the matching result.
 - **Kill switch:** /sw.js with `CREW_OFFLINE_DISABLED` set and unset.
 - **Bar:** every state's copy, precedence, guard rows, reduced motion, and the transition inventory.
