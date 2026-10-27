@@ -53,7 +53,7 @@ describe("GET /api/admin/alerts/bell/feed", () => {
     loadBellFeedMock.mockResolvedValue({
       kind: "ok",
       entries: [],
-      unseenCount: 3,
+      unreadCount: 3,
       truncated: false,
       activeTruncated: false,
       historyDays: 30,
@@ -68,7 +68,7 @@ describe("GET /api/admin/alerts/bell/feed", () => {
     // client (the route spreads the ok arm minus `kind`).
     expect(await response.json()).toEqual({
       entries: [],
-      unseenCount: 3,
+      unreadCount: 3,
       truncated: false,
       activeTruncated: false,
       historyDays: 30,
@@ -116,7 +116,7 @@ describe("GET /api/admin/alerts/bell/feed", () => {
     loadBellFeedMock.mockResolvedValue({
       kind: "ok",
       entries: [],
-      unseenCount: 0,
+      unreadCount: 0,
       truncated: false,
       activeTruncated: false,
       historyDays: 30,

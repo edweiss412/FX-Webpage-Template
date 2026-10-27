@@ -83,7 +83,7 @@ function Surfaces() {
   return (
     <div className="bg-bg flex flex-col gap-8 p-4">
       {surface === "bell" ? (
-        <BellPanel viewerIsDeveloper onClose={() => {}} onOpened={() => {}} />
+        <BellPanel viewerIsDeveloper onClose={() => {}} onCountStale={() => {}} />
       ) : null}
       {/* `bg-surface`, NOT the page's `bg-bg`. The closed arm paints no fill of
           its own, so the ground it is read against is whatever it sits on, and

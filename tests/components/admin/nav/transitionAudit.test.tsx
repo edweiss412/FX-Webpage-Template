@@ -241,9 +241,9 @@ describe("NotifBell — badge appear/disappear is instant", () => {
  *     ignored; pending shape persists |
  *   | compound: P2 arrives and HANGS after P1 invalidated | pending shape
  *     persists; next pathname refetch repopulates |
- *   | compound: refresh promise pending, bell opened + zeroed, restoring fetch
- *     commits 0, THEN refresh promise resolves with the pre-open count | the
- *     resolved value is DEMOTED to a fresh fetch; never painted |
+ *
+ * The spec's "bell opened + zeroed" compound row is retired: opening the panel
+ * no longer zeroes the badge, so there is no zero for a late seed to resurrect.
  *
  * The compound rows are BEHAVIORAL and are asserted in
  * tests/components/admin/nav/badgeSeedInterleavings.test.tsx (one named test

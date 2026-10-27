@@ -158,7 +158,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
       kind: "duplicate",
     },
   },
-  // 15. lib/sync/phase2.ts:423-432 — showId is the RoleFlagsNotice.showId (the row column)
+  // 15. lib/sync/phase2.ts:431-432 — showId is the RoleFlagsNotice.showId (the row column)
   {
     code: "ROLE_FLAGS_NOTICE",
     showId: SHOW_ID,

@@ -69,9 +69,9 @@ export const CENSUS: readonly CensusRow[] = [
   // spec §4.2 row 4 — two-arm ternary, BOTH arms carry the token
   { file: "components/admin/ArchiveShowButton.tsx", line: 369 },
   // spec §4.2 row 5
-  { file: "components/admin/BellPanel.tsx", line: 858 },
+  { file: "components/admin/BellPanel.tsx", line: 863 },
   // spec §4.2 row 6
-  { file: "components/admin/BellPanel.tsx", line: 1080 },
+  { file: "components/admin/BellPanel.tsx", line: 1107 },
   // spec §4.2 row 7 — reject branch
   { file: "components/admin/Mi11GateActions.tsx", line: 69 },
   // spec §4.2 row 8
@@ -361,7 +361,7 @@ export const CENSUS: readonly CensusRow[] = [
  * violate the exclusion while looking clean (plan review R1 F2).
  */
 export const DIVIDERS: readonly CensusRow[] = [
-  { file: "components/admin/BellPanel.tsx", line: 1221 },
+  { file: "components/admin/BellPanel.tsx", line: 1248 },
   { file: "components/admin/RecentAutoAppliedStrip.tsx", line: 447 },
   // :189 until 2026-08-27. The needs-you row moved into the exported
   // AttentionMenuRow (spec §5) so the wizard index renders the same row; the

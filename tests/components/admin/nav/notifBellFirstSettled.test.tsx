@@ -36,11 +36,11 @@ vi.mock("@/lib/supabase/browser", () => ({
 vi.mock("@/lib/realtime/subscribeToBell", () => ({ subscribeToBell: vi.fn() }));
 
 // The panel is not the subject. It is stubbed to a marker that fires
-// `onOpened` on mount, which is the real component's contract and the second
-// restoration route (NotifBell.tsx:112).
+// `onCountStale` on mount, standing in for the real panel's call after its first
+// feed load, which NotifBell wires to the hook's `refetch`.
 vi.mock("@/components/admin/BellPanel", () => ({
-  BellPanel: ({ onOpened }: { onOpened: () => void }) => {
-    onOpened();
+  BellPanel: ({ onCountStale }: { onCountStale: () => void }) => {
+    onCountStale();
     return <div data-testid="bell-panel-stub" />;
   },
 }));
@@ -227,17 +227,17 @@ describe("NotifBell onBellState reporting", () => {
     expect(reports[2]).toEqual({ settled: true, announceable: 5 });
   });
 
-  it("reports the FULL four-step sequence across a panel-refetch restoration", async () => {
-    // This is the ONOPENED route, not the demoted-seed one: the seed resolves
-    // before the panel opens, so it cannot also demote. The demoted-seed route
-    // needs the seed still in flight at the moment of opening, and lives in the
-    // integration suite where the distinction is observable.
+  it("reports the FULL sequence across a panel refetch, with no zero step in between", async () => {
+    // This is the panel-refetch route, not the demoted-seed one: the seed
+    // resolves before the panel opens, so it cannot also demote. The
+    // demoted-seed route needs the seed still in flight at the moment of
+    // opening, and lives in the integration suite where the distinction is
+    // observable.
     //
-    // The plan's row is a SEQUENCE, and an earlier version of this case opened
-    // the panel while still pending and asserted only the last report. It never
-    // produced {true,4} at all, and would have accepted duplicates or a missing
-    // intermediate. The sequence is the contract: the parent reads the last
-    // pair, but a report that skips a state is a report that can go stale.
+    // The plan's row is a SEQUENCE: the parent reads the last pair, but a report
+    // that skips a state is a report that can go stale. Defect caught: the open
+    // gesture zeroing the badge, which shows up here as a {true,null} report
+    // between the 4 and the 2.
     const seed = deferred<BellCountResult>();
     const reports: Report[] = [];
     fetchSpy.mockImplementation((url: string) =>
@@ -257,8 +257,8 @@ describe("NotifBell onBellState reporting", () => {
     });
     await waitFor(() => expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("4"));
 
-    // Opening zeroes the badge (zeroNow) and fires onOpened={refetch}, which
-    // commits 2. Both transitions must be reported, in order.
+    // Opening fires onCountStale={refetch}, which commits 2. The count goes
+    // straight from 4 to 2: opening the panel reads no row, so nothing zeroes it.
     await act(async () => {
       fireEvent.click(screen.getByTestId("admin-notif-bell"));
     });
@@ -267,13 +267,41 @@ describe("NotifBell onBellState reporting", () => {
     expect(reports).toEqual([
       { settled: false, announceable: null },
       { settled: true, announceable: 4 },
-      { settled: true, announceable: null },
       { settled: true, announceable: 2 },
     ]);
   });
 
-  it("reports the SELECTOR output, never the raw zero, when the panel opens first", async () => {
+  it("a server count prop after the panel opens still shows as-is: no zero, no demotion", async () => {
+    // Defect caught: an open gesture that zeroes the badge, or one that leaves
+    // later props demoted to fetch triggers. The panel's refetch is held
+    // pending (the beforeEach default), so the only way the badge can read 5 is
+    // the prop committing.
+    const { rerender } = render(
+      <NotifBell initialCount={{ kind: "ok", count: 3 }} viewerIsDeveloper={false} />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-notif-bell"));
+    });
+    premiseHolds(
+      "the panel's count refetch was issued",
+      fetchSpy.mock.calls.some((call) => call[0] === COUNT_ENDPOINT),
+    );
+    expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("3");
+
+    rerender(<NotifBell initialCount={{ kind: "ok", count: 5 }} viewerIsDeveloper={false} />);
+    expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("5");
+  });
+
+  it("opening while pending does not settle the bell; a refetch landing 0 reports the SELECTOR output, never the raw zero", async () => {
+    // Defect caught: an open gesture that commits a client-side 0 settles the
+    // bell before any server count arrives, so the parent could announce a
+    // number nobody read. Opening must leave the pending tuple alone.
     const seed = deferred<BellCountResult>();
+    const refetched = deferred<unknown>();
+    fetchSpy.mockImplementation((url: string) =>
+      url === COUNT_ENDPOINT ? refetched.promise : new Promise(() => {}),
+    );
     const reports: Report[] = [];
     render(
       <NotifBell
@@ -286,9 +314,15 @@ describe("NotifBell onBellState reporting", () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId("admin-notif-bell"));
     });
+    premiseHolds("the panel stub mounted", screen.queryByTestId("bell-panel-stub") !== null);
+    expect(reports).toEqual([{ settled: false, announceable: null }]);
 
-    // zeroNow commits 0, and bellAnnounceableCount(0, false) is null. Reporting
-    // the raw count here would announce "0 unseen notifications".
+    // The server count is 0, and bellAnnounceableCount(0, false) is null.
+    // Reporting the raw count here would announce "0 unread notifications".
+    await act(async () => {
+      refetched.resolve(okResponse({ count: 0 }));
+      await refetched.promise;
+    });
     await waitFor(() => expect(reports).toHaveLength(2));
     expect(reports[1]).toEqual({ settled: true, announceable: null });
   });
@@ -400,7 +434,7 @@ describe("NotifBell without the prop", () => {
     expect(screen.getByTestId("admin-notif-badge")).toHaveTextContent("3");
     expect(screen.getByTestId("admin-notif-bell")).toHaveAttribute(
       "aria-label",
-      "Notifications: 3 unseen",
+      "Notifications: 3 unread",
     );
 
     await act(async () => {
