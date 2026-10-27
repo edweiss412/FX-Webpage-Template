@@ -36,6 +36,7 @@ Eric approved a mockup of the design below ("looks good") and settled two follow
 | R11 | The published cards ALSO get the sheet icon: `PerShowActionableWarnings` and `NoteWarningCard` move their "Open in Sheet" text link to a `SheetIconLink` at the end of the message row, through their shared shell `CompactAlertCard`. This supersedes the compact-card placement ratified at `PerShowActionableWarnings.tsx:22-30` (link inline at the left of the controls band) and the compact-card spec's footer-link line (`docs/superpowers/specs/2026-07-20-show-alert-compact.md:172`). | Eric, answer to open question B1, 2026-10-26 | CLOSED |
 | R12 | Accepted judgment rows get their own collapsed "Accepted (N)" disclosure; every other ignored row stays in "Ignored (N)". Both surfaces. | Eric, answer to open question D3, 2026-10-26 | CLOSED |
 | R13 | One include label everywhere: `Use this pull sheet`, on the card, in Pack list, and in the Resolve box (today `Use this show’s gear`, `components/admin/wizard/archivedTabOffer.tsx:183`). | Eric, answer to open question E3, 2026-10-26 | CLOSED |
+| R14 | The venue empty-cell link must work on the layout Eric's shows use: the v2/v1 3-column scope block (`| VENUE | VENUE NAME | <value> |` then `|  | VENUE ADDRESS | <value> |`, `lib/parser/blocks/venue.ts:194-235`), the layout of every committed workbook that raises `VENUE_ADDRESS_MISSING`. A dedicated anchor computed from the venue grid block replaces the round-0 lookup through the UNKNOWN_FIELD scan, which cannot see that layout; the generic UNKNOWN_FIELD scan is unchanged (§4.2). | Orchestrator relaying Eric's request, 2026-10-26 (plan-time probe) | CLOSED |
 
 ### 1.2 Goals
 
@@ -56,7 +57,7 @@ Eric approved a mockup of the design below ("looks good") and settled two follow
 ### 1.4 Anti-goals (things this must not become)
 
 - A second state machine for the reading choice. The deferred selection is a thin local overlay on the existing pure derivation `deriveUseRawControlState` (`components/admin/UseRawControl.tsx:67-86`), not a replacement for it.
-- A new recognizer. The venue value-cell lookup reuses the existing UNKNOWN_FIELD anchor scan and the parser's own alias resolver; it adds no grammar.
+- A new recognizer. The venue value-cell lookup reads the exporter's own grid blocks (the pipeline the UNKNOWN_FIELD scan already uses), the venue region's own header rule, and the parser's own alias resolver, at two fixed label columns; it adds no grammar and leaves the generic UNKNOWN_FIELD scan unchanged.
 - A copy fork. Each new string has one source; the reading-display helpers live in one pure module used by both surfaces.
 
 ### 1.5 Constraints
@@ -238,6 +239,8 @@ Every published mount inherits this: active section cards, crew under-row conden
 - The two label scans anchor the LABEL column only: `extractContentAnchors` (`lib/drive/contentAnchors.ts:63-77`) and `extractUnknownFieldAnchors` (`lib/drive/unknownFieldAnchors.ts:65-96`), both `c: block.absCol0`. The UNKNOWN_FIELD scan also records `kind` (`anchorNamespace`, `lib/parser/fieldNearMiss.ts:286-290`, `"venue"` for venue openers) and the row's normalized value.
 - A grid block's cells are a contiguous column slice starting at `absCol0` (`lib/drive/exportSheetToMarkdown.ts:258-265`), so `cells[1]` sits at sheet column `absCol0 + 1`.
 - The 2-column venue parser reads the address from `row[1]` when `col0Canon === "venue.address"` (`lib/parser/blocks/venue.ts:281-289`); `"venue.address"` aliases are `VENUE ADDRESS`, `Venue Address`, `Hotel Address` (`lib/parser/aliases.ts:31`), matched by `resolveAlias` (`aliases.ts:166-168`).
+- The 3-column scope layout (`lib/parser/blocks/venue.ts:194-235`) puts the label in the block's SECOND column on blank-col0 continuation rows (`|  | VENUE ADDRESS | <value> |`). The UNKNOWN_FIELD scan skips a row whose first cell is blank (`lib/drive/unknownFieldAnchors.ts:81`), so no lookup keyed on that scan can reach this layout. Plan-time probe over the committed workbooks: `VENUE_ADDRESS_MISSING` fires on `fintech.xlsx`, `rpas.xlsx` and `fixed-income.xlsx`, all 3-column; only `east-coast.xlsx` is 2-column (`INFO!A8` `Hotel Address`), and it fires only with its address cell blanked.
+- The venue REGION link is `REGION_ANCHOR_SPEC.venue` (`lib/sheet-links/buildSheetDeepLink.ts:126-131`): tab `INFO`, strategy `header-block`, header `/^VENUE$/i`. `extractSourceAnchors` picks the first spec tab present in the gid map and in `SOURCE_LINK_ALLOWLIST` (`lib/drive/sourceAnchors.ts:197-207`), and `headerBlock` (`lib/drive/sourceAnchors.ts:149`) starts the range at the first row whose first non-blank cell matches the header.
 
 ### 4.2 Change
 
@@ -246,13 +249,22 @@ Every published mount inherits this: active section cards, crew under-row conden
 
    ```ts
    } else if (w.code === "VENUE_ADDRESS_MISSING") {
-     cell = resolveVenueAddressValueCell(sources.unknownField ?? []) ?? sources.region["venue"] ?? null;
+     cell = sources.venueAddress ?? sources.region["venue"] ?? null;
    }
    ```
-3. New exported pure function `resolveVenueAddressValueCell(anchors: UnknownFieldAnchor[]): SourceAnchor | null` in `lib/drive/unknownFieldAnchors.ts`:
-   - candidates = anchors where `a.kind === "venue"`, `resolveAlias(a.label) === "venue.address"`, and `a.value === ""`;
-   - exactly one candidate with `a.anchor.scope === "cell"` and a colon-free `a1`: decode its `a1`, add one to the column, re-encode, and return `{ title, gid, a1: valueA1, scope: "cell" }`;
-   - zero or several: `null` (the caller falls back to the venue region). Same never-wrong-cell posture as `resolveUnknownFieldCell` (`unknownFieldAnchors.ts:111-127`).
+
+   `WarningAnchorSources` (`showDayTimeAnchors.ts:168-183`) gains `venueAddress?: SourceAnchor | null`, optional like `unknownField` so every existing `{ showDay, crewRole, region }` call site still typechecks. `attachWarningAnchors` populates it beside the other families (`lib/sync/attachWarningAnchors.ts:82-89`) as `venueAddress: safe(() => extractVenueAddressAnchor(bytes, gids), null)`. The cron's region-only pass (`lib/sync/applyParseResult.ts:316-321`) and the archived-tab pass (`lib/sync/attachWarningAnchors.ts:115`) pass none, so they fall to the region or leave the warning alone.
+3. New module lib/drive/venueAddressAnchor.ts (new file), pure apart from the one workbook read:
+   - `resolveVenueAddressCell(blocks: readonly SynthesizedBlock[], titleToGid: ReadonlyMap<string, number>): SourceAnchor | null`;
+   - `extractVenueAddressAnchor(buffer: ArrayBuffer, titleToGid: ReadonlyMap<string, number>): SourceAnchor | null`, which is `resolveVenueAddressCell(synthesizeBlocksFromXlsx(buffer).blocks, titleToGid)` (`lib/drive/exportSheetToMarkdown.ts:395`).
+
+   The rule, stated once:
+   - **Tab:** the first tab in `REGION_ANCHOR_SPEC.venue.tabs` that is in `titleToGid` and in `SOURCE_LINK_ALLOWLIST`, the same choice `extractSourceAnchors` makes for the venue region. None → `null`.
+   - **Venue block(s):** each `kind: "grid"` block on that tab that has a row whose `cells[0]`, trimmed, matches `REGION_ANCHOR_SPEC.venue.header` (`/^VENUE$/i`, the row the region's `header-block` starts at). Rows considered: from that header row to the end of its block, skipping rows whose `absRow` is `null`.
+   - **Address rows:** a row is an address row when, for the FIRST `i` in `[0, 1]`, `resolveAlias(cells[i] ?? "") === "venue.address"`. `i = 0` is the 2-column layout (`Hotel Address | <value>`); `i = 1` is the 3-column continuation row (`| | VENUE ADDRESS | <value> |`).
+   - **Link:** exactly one address row across the venue block(s), AND its value cell `cells[i + 1] ?? ""` trims to empty (the condition that raised the warning) → `{ title: tab, gid, a1: XLSX.utils.encode_cell({ r: absRow, c: block.absCol0 + i + 1 }), scope: "cell" }`. A grid block's cells are a contiguous column slice from `absCol0` (`lib/drive/exportSheetToMarkdown.ts:258-265`), so `absCol0 + i + 1` is the value column. Zero address rows, several, or a non-empty value cell → `null`, and the caller falls back to the venue region. Same never-wrong-cell posture as `resolveUnknownFieldCell` (`unknownFieldAnchors.ts:111-127`).
+
+   Plan-time probe of this rule on every committed workbook: `fintech.xlsx`, `rpas.xlsx` and `fixed-income.xlsx` (3-column, all emit the warning) each resolve to `INFO!C14`; `east-coast.xlsx` with `INFO!B8` blanked resolves to `INFO!B8`; unedited `east-coast.xlsx`, `ria.xlsx`, `consultants.xlsx` and `redefining-fi.xlsx` each have exactly one address row with a non-empty value, so they resolve to `null` (and emit no warning).
 
 The never-demote rule (`showDayTimeAnchors.ts:314`) means the cron's later region-only pass (`lib/sync/applyParseResult.ts:316`) cannot replace a value cell with the region range.
 
@@ -838,7 +850,7 @@ Card chrome (§3), the shell link (§3.6), the disclosures (§6.4) and the jumps
 | | `blocked` true, `pending` false | disabled, idle label `Use this pull sheet`; a click is a no-op |
 | `DataQualityWarningControls.blocked` | true | main button disabled; Report enabled |
 | `DataQualityWarningControls.onRunningChange` | absent | no report; every existing mount is unchanged |
-| Unknown anchor `kind` or several empty venue-address rows | | venue region link, never a guessed cell |
+| venue block | no venue tab in the gid map, no `VENUE` header row, zero or several address rows, or a non-empty value cell | venue region link (link-less when the region is absent too), never a guessed cell |
 
 ---
 
@@ -850,7 +862,7 @@ Each test states the failure it catches. Real-browser tests run in the existing 
 
 | Test | Catches |
 |---|---|
-| `resolveVenueAddressValueCell` over anchors built from a real xlsx fixture (2-col venue block, empty address) | value cell off by a column; matching a `Hotel Address` row in a hotel block (kind filter dropped); picking one of two empty rows (must be null) |
+| `resolveVenueAddressCell` / `extractVenueAddressAnchor` on real workbooks: a 3-column fixture that emits the warning (`fintech.xlsx`) gets the empty value cell, its `a1` derived from the fixture (the INFO cell whose text is `VENUE ADDRESS`, same row, next column), not typed; `east-coast.xlsx` with its address cell blanked gets that cell; negatives in the same suite: two address rows in one venue block → `null`, unedited `east-coast.xlsx` (non-empty value) → `null` | value cell off by a column on either layout; a 3-column row missed; matching an address row with a value; picking one of two rows |
 | `attachSourceCellAnchors` with both a cell and a region source, then a second region-only pass | region assigned when a cell exists; a later region pass demoting the cell |
 | `LINK_ONLY_ANCHORED` exact-membership pins (`tests/drive/showDayTimeAnchors.test.ts`, `tests/parser/parseWarningDeepLinkRender.test.tsx`) updated | silent set drift |
 | `emitInlineHotelGuestAmbiguity` emits `readAs.names` equal to the reservation's `names` (assert against the parsed `hotelReservations[index].names`, not a literal) | emitter storing names that differ from what the reservation shows |
@@ -912,12 +924,12 @@ Re-run each guard after the LAST edit to its file.
 
 | ID | Input | Behavior | Why it is a limit, not a defect |
 |---|---|---|---|
-| L1 | v2/v1 3-column venue rows (`| VENUE | VENUE ADDRESS | <value> |`, `lib/parser/blocks/venue.ts:194-235`) | the anchor scan skips continuation rows with a blank first cell (`unknownFieldAnchors.ts:80-81`), so the card links the venue region | correct region, never a wrong cell |
+| L1 | venue address shapes the §4.2 rule does not read: a combined `VENUE NAME/VENUE ADDRESS` label row (one label naming two fields, so no row resolves to `venue.address`); the horizontal header-table layout (venue fields across one header row, values in the row below); a venue table with no row opening on `VENUE` (the v4 `VENUE NAME`-opened table), which the venue region does not find either | the card links the venue region, or stays link-less when the region is absent too (the same as the region-linked venue siblings) | correct region or no link, never a wrong cell; the 2-column and 3-column scope layouts, which every committed workbook uses, are covered |
 | L2 | address under a label we do not read | no `venue.address` alias match → region | the near-miss detector's own `UNKNOWN_FIELD` card carries that row's link |
 | L3 | address label recovered by fuzzy correction (`FIELD_LABEL_AUTOCORRECTED`) | exact `resolveAlias` misses → region | same posture |
-| L4 | label cell merged across two columns | `absCol0 + 1` lands inside the label's merge, on the right row | the link opens the right row; no data is changed |
+| L4 | label cell merged across two columns | `absCol0 + i + 1` lands inside the label's merge, on the right row | the link opens the right row; no data is changed |
 | L5 | warnings persisted before this change | venue cards stay link-less and inline hotel cards show no `We read` until the next scan or sync | jsonb additive fields appear on re-parse |
-| L6 | venue block on a hidden tab | Sheets lands on the last visible tab (the UNKNOWN_FIELD scan does not filter hidden tabs) | same limit the UNKNOWN_FIELD links carry today |
+| L6 | venue block on a hidden tab | Sheets lands on the last visible tab (the venue anchor, like the venue region, does not filter hidden tabs) | same limit the UNKNOWN_FIELD links carry today |
 | L7 | archived-tab card with no matching staged tab | previews come from splitting `rawSnippet` on ` | `; a preview containing ` | ` splits in two | display only |
 | L8 | published bulk accept over a card with an unsaved draft | the draft is dropped; the persisted reading is what gets accepted | nothing was saved, nothing is lost that was persisted |
 | L9 | wizard Ignore on the archived-tab card | the Pack list and Resolve box offers stay visible (offers derive from tabs, not warnings) | pre-existing wizard behavior; the published surface already hides its offer |
@@ -982,7 +994,7 @@ N/A: no config flag, env var or persisted toggle is added. The new booleans are 
 - **E10. Report is exempt from row locks** (the archived row and the §6.3 action bar): it writes nothing any lock protects, `ReportButton` has no disabled state, and Report already stays enabled while Ignore runs today.
 - **E4. Fix both "Gear section" rows** (class sweep), not only the one the brief named.
 - **E5. Jumps are warn-row only, staged only,** one per card, with the venue exclusion keyed on the one code Eric named.
-- **E6. The venue value cell** is derived from the UNKNOWN_FIELD anchor scan (kind `venue`, `resolveAlias === "venue.address"`, empty value), the label anchor column plus one.
+- **E6. The venue value cell** comes from the venue grid block itself (R14): the row whose label at column 0 or 1 resolves to `venue.address`, value column `absCol0 + i + 1`, linked only when that row is unique and its value is empty. The round-0 derivation from the UNKNOWN_FIELD anchor scan was dropped because that scan skips the 3-column layout's blank-col0 rows (`lib/drive/unknownFieldAnchors.ts:81`), which is every committed workbook that raises the warning.
 - **E7. The published Pack list offer joins R13** (`Include this gear` becomes `Use this pull sheet`): same action, same section, so the class-sweep default applies though the decision text names the staged button.
 - **E8. Pending text stays `Including…`** on every surface: it names the system action (include) the catalog copy also uses, and a third verb would add nothing.
 - **E9. One accessible-name format** for the include button: `Use this pull sheet from tab <name>` while idle (sr-only suffix), `Including…` while pending, replacing the published `aria-label` so the visible label is always the start of the name.
@@ -1005,8 +1017,10 @@ Named values and their single definitions:
 | `--spacing-tile-pad` | 20px (existing) | `app/globals.css:240` |
 | Compact row link spacing | `gap-2.5` (10px) + `ml-3` (12px) = 22px heading side; `mr-0.5` (2px) + `p-3` (12px) = 14px trailing | `CompactAlertCard.tsx` (§3.6) |
 | Help trigger overlay | 11px each side (existing) | `components/admin/HoverHelp.tsx:555` |
+| Venue address label columns | `i` in `[0, 1]` (2-column, 3-column scope rows); value column `absCol0 + i + 1` | lib/drive/venueAddressAnchor.ts (new file) (§4.2) |
+| Venue block header | `REGION_ANCHOR_SPEC.venue.header` (`/^VENUE$/i`), read, never retyped | `lib/sheet-links/buildSheetDeepLink.ts:126-131` |
 | `ARCHIVED_TAB_INCLUDE_LABEL` / `ARCHIVED_TAB_INCLUDE_PENDING` | `Use this pull sheet` / `Including…` | `archivedTabOffer.tsx` (§7.3) |
 
 Counts stated in prose and their sources: seven judgment codes = `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-27`); four radio codes = `USE_RAW_CODES` (today `IN_SCOPE`, `UseRawControl.tsx:55-60`); four hotel reservation codes (§5.1); three catalog rows (§9); six lockstep places (§9 table); three warning text-link sites (§2); four `CompactAlertCard` consumers (§3.6); two disclosures per surface (§6.4); five transition states (§14). Tests derive these from the named sets, never from the literals in this document.
 
-Out-of-scope claims to keep consistent: the AttentionBanner alert link (§2, B9); compact-card consumers without `sheetLink` (§1.3, DI-C2); published reservation marker (§5.4, L11); the ignored partition and its counts (§1.3, §6.4); published archived card control (§7.4, E1). Round-1 sweep: every place that derived the checked row or dirtiness now uses §6.3's model (§6.3, §12, §14, §15, §16.1); every mention of the include label reads `Use this pull sheet` (§1.1, §7.3, §11, §16.1, §19); every Ignored-list mention of judgment rows now points at the Accepted list (§6.2, §6.4, §12, §16.1). Round-2 sweep: every sibling that shares a pending or running state is stated with its owner (the use-raw provider's busy, §6.3; the archived row's two flags, §7.3, §14.1; `ArchivedTabOffer` and `PublishedArchivedTabOffer` keep one flag each); nothing in the spec keys on refresh completion (§6.3 rule 5, §14 sequence 13, L13).
+Out-of-scope claims to keep consistent: the AttentionBanner alert link (§2, B9); compact-card consumers without `sheetLink` (§1.3, DI-C2); published reservation marker (§5.4, L11); the ignored partition and its counts (§1.3, §6.4); published archived card control (§7.4, E1). Round-1 sweep: every place that derived the checked row or dirtiness now uses §6.3's model (§6.3, §12, §14, §15, §16.1); every mention of the include label reads `Use this pull sheet` (§1.1, §7.3, §11, §16.1, §19); every Ignored-list mention of judgment rows now points at the Accepted list (§6.2, §6.4, §12, §16.1). Round-2 sweep: every sibling that shares a pending or running state is stated with its owner (the use-raw provider's busy, §6.3; the archived row's two flags, §7.3, §14.1; `ArchivedTabOffer` and `PublishedArchivedTabOffer` keep one flag each); nothing in the spec keys on refresh completion (§6.3 rule 5, §14 sequence 13, L13). R14 amendment sweep: every mention of the venue lookup now names the venue-block anchor and no longer the UNKNOWN_FIELD scan (§1.1 R14, §1.4, §4.1, §4.2, §15, §16.1, §17 L1, L4, L6, §19 E6); the venue code stays in `LINK_ONLY_ANCHORED` and nowhere else (§4.2 item 1).

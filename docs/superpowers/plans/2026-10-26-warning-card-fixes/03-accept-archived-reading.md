@@ -1,0 +1,252 @@
+# Warning card fixes — Tasks 10-15: the reading, Accept, Accepted, the archived card, Save
+
+Read 00-overview.md first. Task 14 is the transition-audit task; it pastes spec §14 and §14.1.
+
+<!-- tasks: depth=2 red-contract -->
+
+## Task 10 — Read-only "Sheet says / We read" comparison
+
+<!-- task: red=`pnpm exec vitest run tests/components/UseRawControl.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:444` why=`the disabled branch starting on this line renders only the DISABLED_REASON sentence, so the new inline guest split cases expecting a use-raw-reading grid with Sheet says and We read above that sentence fail until the branch renders the comparison` ac=AC-4 -->
+
+What is red and why: the `disabled` branch shows one sentence; nothing shows what was read.
+
+Claims AC-4 (declared in 00-overview.md, Acceptance criteria).
+
+**Files:**
+- Modify: `components/admin/UseRawControl.tsx:385-399` (`warning` prop widens to `Pick<ParseWarning, "code" | "resolution" | "rawSnippet">`), `components/admin/UseRawControl.tsx:444-458` (comparison block, spec §5.3 markup)
+- Modify: `tests/components/UseRawControl.test.tsx`
+
+**Interfaces:** consumes Task 4 `sheetSaysText`, `weReadGuestsText`; Task 1 `readAs`. Testids `use-raw-reading`, `use-raw-sheet-says`, `use-raw-we-read` through the existing `tid()` suffixing.
+
+- [ ] **Step 1: RED.** New `describe("inline guest split comparison (warning-card-fixes §5.3)")`:
+  - From a real parse: `parseHotels(\`| Hotel Reservations | Hyatt Regency Eric Weiss - 110525 |\`, "v2", agg)` (a producing exit from `tests/parser/blocks/hotels.inlineGuestAmbiguity.test.ts`); render `UseRawControl` with that warning and `site="list"`. Assert `use-raw-sheet-says-list` text equals `sheetSaysText(w.rawSnippet)`, `use-raw-we-read-list` text equals `weReadGuestsText(w.resolution.readAs)`, and every name in the parsed `hotels[0].names` appears in the We read text (cross-check against the reservation, not the helper alone). Premise: the parse yields at least one name.
+  - The comparison grid precedes the reason sentence in document order; the sentence still renders.
+  - Legacy (no `readAs`): Sheet says renders, no `use-raw-we-read`. Blank `rawSnippet` and no `readAs`: no `use-raw-reading` at all.
+  - `ROOM_HEADER_SPLIT_AMBIGUOUS` with `{ resolvable: false, reason: "empty-raw" }`: no comparison (L12).
+  Failure modes: comparison on the wrong code; a blank raw cell rendered as an empty "Sheet says".
+- [ ] **Step 2: GREEN.** Widen the prop (both boundaries already pass the full warning, `components/admin/UseRawControlBoundary.tsx:84-89`); render the block when `warning.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS"` and at least one of the two values is non-null.
+- [ ] **Step 3: green.** Red command; `pnpm exec vitest run tests/components/admin/parsePanelComposition.test.tsx tests/admin/warningFixAffordance.test.tsx`.
+- [ ] **Step 4: commit** `feat(admin): show what the sheet says and what we read on the inline hotel split card`.
+
+## Task 11 — Accept wording on judgment rows and bulk chips
+
+<!-- task: red=`pnpm exec vitest run tests/components/admin/dataQualityWarningControls.test.tsx tests/components/admin/bulkIgnoreControls.test.tsx` red-state=authored red-target=`components/admin/DataQualityWarningControls.tsx:250` why=`the button label on this line is Ignore for every active row whatever its code, and the bulk chip text is Ignore for every group, so the new judgment-row cases expecting Accept, Accepting, Undo accept, the accepted announcements and the accept error copy fail until both components branch on isJudgmentCall` ac=AC-5 -->
+
+What is red and why: labels, announcements and error copy do not depend on the code.
+
+Claims AC-5 (declared in 00-overview.md, Acceptance criteria).
+
+**Files:**
+- Modify: `components/admin/DataQualityWarningControls.tsx:116-121` (fail copy), `components/admin/DataQualityWarningControls.tsx:179` (announce), `components/admin/DataQualityWarningControls.tsx:247-253` (labels)
+- Modify: `components/admin/BulkIgnoreControls.tsx:110` (fail), `components/admin/BulkIgnoreControls.tsx:135` (announce), `components/admin/BulkIgnoreControls.tsx:146` (partial), `components/admin/BulkIgnoreControls.tsx:173-178` (chip text and name)
+- Modify: `tests/components/admin/dataQualityWarningControls.test.tsx`, `tests/components/admin/bulkIgnoreControls.test.tsx`
+
+**Interfaces:** consumes Task 4 `isJudgmentCall`; bulk groups use `isAmbiguityCode(group.code)` (a bulk group is one active warn code). Every string is spec §6.2 verbatim; ASCII apostrophes in both files (D7). Partial-success for a judgment group: `Accepted ${ok} of ${n}. Refresh to see the rest.` (builder's call 2).
+
+- [ ] **Step 1: RED.** In each suite, one table-driven case per (kind × mode × state) with a needs-look control row in the SAME test (differential): judgment active `Accept` / `Accepting…`, announce `Judgment call accepted.`, error `Couldn't accept that judgment call. Refresh and try again.`; judgment `mode="ignored"` `Undo accept` / `Undoing…`, announce `Judgment call restored.`, error `Couldn't undo that. Refresh and try again.`; needs-look unchanged; testids `dq-ignore-<id>` / `dq-unignore-<id>` unchanged for both kinds. Bulk: judgment group chip text `Accept` → `Are you sure?` → `Accepting…`, accessible names `Accept <n>` / `Are you sure? Accept <n>` / `Accepting…`, announce `1 accepted.` and `<n> accepted.`, fail `Couldn't accept those judgment calls. Refresh and try again.`, partial `Accepted 1 of 2. Refresh to see the rest.`; testid `dq-bulk-ignore-<code>` unchanged. `<n>` comes from the fixture group size.
+- [ ] **Step 2: GREEN.** Branch each string on the row's kind.
+- [ ] **Step 3: green.** Red command; `pnpm exec vitest run tests/components/admin/showpage/sectionWarningControls.test.tsx tests/components/admin/showpage/crewWarningAttachment.test.tsx tests/components/admin/dataQualityTransitionAudit.test.ts tests/styles/_metaEmDashCopy.test.ts`.
+- [ ] **Step 4: commit** `feat(admin): say Accept, not Ignore, on judgment calls`.
+
+## Task 12 — Accepted (N) disclosures on both surfaces
+
+<!-- task: red=`pnpm exec vitest run tests/components/admin/acceptedDisclosure.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:3083` why=`ignoredItems on this line is the whole ignored partition, rendered as one Ignored disclosure, and the published extras read model.ignored by position in one list, so the new suite expecting judgment rows only under the accepted testids, each row carrying its own record's report id, fails until both surfaces split the partition at render` ac=AC-8 -->
+
+What is red and why: one disclosure holds every dismissed row on each surface.
+
+Claims AC-8 (declared in 00-overview.md, Acceptance criteria).
+
+**Files:**
+- Modify: `components/admin/wizard/step3ReviewSections.tsx:3083-3089` (split `ignoredItems`, its keys) and `components/admin/wizard/step3ReviewSections.tsx:3509-3604` (two `<details>`, spec §6.4)
+- Modify: `components/admin/showpage/sectionWarningExtras.tsx:168` and `components/admin/showpage/sectionWarningExtras.tsx:283-317` (split the RECORDS, two `<details>`)
+- Create: tests/components/admin/acceptedDisclosure.test.tsx
+- Re-run (sweep S3): `tests/components/admin/showpage/sectionWarningControls.test.tsx`, `tests/components/admin/wizard/step3ReviewSections.test.tsx`, consumers of `tests/helpers/publishedSurfaceProps.tsx`
+
+**Interfaces:** new testids per spec §6.4 (`wizard-step3-card-${dfid}-accepted-warnings` / `-accepted-summary` / `-accepted-list`; `section-accepted-warnings-${id}` / `section-accepted-summary-${id}` / `section-accepted-list-${id}`). Summary text `Accepted (<n>)`. Partition by `isJudgmentCall` (Task 4).
+
+- [ ] **Step 1: RED.** tests/components/admin/acceptedDisclosure.test.tsx (`// @vitest-environment jsdom`):
+  - Wizard: `WarningsBreakdown` with a `dq` model whose `ignored` holds one needs-look and one judgment item (plus one active row): the Ignored list holds exactly the needs-look row, the Accepted list exactly the judgment row; the Accepted row's button reads `Undo accept`; DOM order Ignored then Accepted; with zero judgment ignored the Accepted disclosure is absent, with zero needs-look ignored the Ignored disclosure is absent, with both zero neither renders and the all-clean copy is unchanged; `wizardPanelCount` (`lib/admin/sheetWarningsCount.ts`) returns the same value before and after the split for the same model (counts derive from the partition, not the render).
+  - Published: `buildSectionWarningExtras` with `model.ignored = [needsLookA, judgmentJ, needsLookB]` (judgment between two needs-look, distinct `reportSurfaceId`s): each rendered row's `dq-unignore-<id>` uses ITS record's id; J under `section-accepted-list-<id>`, A and B under `section-ignored-list-<id>`; a section with only an accepted row still renders (empty-seam guard tests the union).
+  Failure modes: report ids misaligned by the split; a disclosure rendering at 0; counts drifting.
+- [ ] **Step 2: GREEN.** Spec §6.4 for both surfaces, same classes as today's Ignored disclosure on each.
+- [ ] **Step 3: green.** Red command and the re-run list; a re-run failure is repaired only where a judgment row was expected under Ignored (it moves to Accepted), each repair citing spec §6.4.
+- [ ] **Step 4: commit** `feat(admin): give accepted judgment calls their own disclosure`.
+
+## Task 13 — The archived pull sheet card: one include button, row locks
+
+<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/archivedTabWarningCard.test.tsx` red-state=authored red-target=`components/admin/wizard/archivedTabOffer.tsx:183` why=`the include button is inline in ArchivedTabOffer on this line with its own label and its own pending flag, so there is no extracted button, no shared label, no card body and no row lock, and the new suite expecting the Tab and Cases lines, Use this pull sheet on every placement and include and Ignore locking each other fails until the button is extracted and mounted on the card` ac=AC-6 -->
+
+What is red and why: the archived card shows only the generic row; the include action lives only in `ArchivedTabOffer`; `DataQualityWarningControls` has no lock props.
+
+Claims AC-6 (declared in 00-overview.md, Acceptance criteria).
+
+**Files:**
+- Modify: `components/admin/wizard/archivedTabOffer.tsx:107-210` (export `ARCHIVED_TAB_INCLUDE_LABEL`, `ARCHIVED_TAB_INCLUDE_PENDING`, `ArchivedTabIncludeButton`, `ArchivedTabWarningActions`; `ArchivedTabOffer` renders its button through the extracted one and keeps its single `pending`)
+- Modify: `components/admin/review/PublishedArchivedTabOffer.tsx:167-176` (label, pending text, sr suffix replaces `aria-label`)
+- Modify: `components/admin/DataQualityWarningControls.tsx:24-62` (props `blocked`, `onRunningChange`), `components/admin/DataQualityWarningControls.tsx:150-151` (report running), the main button's `disabled`
+- Modify: `components/admin/wizard/step3ReviewSections.tsx` (`WarningsBreakdown` props `archivedPullSheetTabs`, `pullSheetOverride` via the `isStaged(s)` spread at `components/admin/wizard/step3ReviewSections.tsx:5332-5344`; card body lines in the row-label slot; `ArchivedTabWarningActions` replaces the row's `DataQualityWarningControls` for `PULL_SHEET_ON_ARCHIVED_TAB`)
+- Create: tests/components/admin/wizard/archivedTabWarningCard.test.tsx
+- Modify: `tests/components/admin/wizard/archivedTabOffer.render.test.tsx:27`, `tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx:166` and lines 218, 242, 259, 272, 286, `tests/components/admin/review/publishedArchivedTabOffer.test.tsx` (ten label assertions)
+- Modify: `tests/e2e/_step3ReviewModalHarness.tsx`, tests/e2e/_warningCardLiveEntry.tsx (`?scenario=archived`), tests/e2e/warning-card-layout.spec.ts (include tap floor), `tests/e2e/standalone-baseline.json`
+
+**Interfaces (typechecked at plan time):**
+
+```ts
+type ArchivedTabIncludeButtonProps = {
+  dfid: string | null;
+  wizardSessionId: string;
+  tab: ArchivedPullSheetTab;
+  plate: "tinted" | "surface";
+  pending: boolean;
+  onPendingChange: (next: boolean) => void;
+  blocked?: boolean;
+  onBeforeRefresh?: () => void;
+  testId?: string;
+};
+type ArchivedTabWarningActionsProps = {
+  dfid: string;
+  wizardSessionId: string;
+  offeredTab: ArchivedPullSheetTab | null;
+  includeTestId: string;
+  onBeforeRefresh: () => void;
+  jump: ReactNode; // null until Task 17
+  renderControls: (lock: { blocked: boolean; onRunningChange: (running: boolean) => void }) => ReactNode;
+};
+// DataQualityWarningControls gains: blocked?: boolean; onRunningChange?: (running: boolean) => void;
+```
+
+`ArchivedTabWarningActions` owns `includePending` and `ignoreRunning`, renders the include button (when `offeredTab` is non-null), then `jump`, then `renderControls({ blocked: includePending, onRunningChange: setIgnoreRunning })`, and passes `blocked={ignoreRunning}` to the button: the §7.3 bullet order (builder's call 4). The include button is `plate="surface"` with `onBeforeRefresh={holdFocusInPanel}`. Report is never locked (E10).
+
+- [ ] **Step 1: RED.** tests/components/admin/wizard/archivedTabWarningCard.test.tsx (`// @vitest-environment jsdom`; `vi.mock` of `next/navigation`, of `@/app/admin/onboarding/_actions/stagedWarningIgnore` as `tests/components/admin/dataQualityWarningControls.test.tsx:156` does, and a `fetch` spy holding the pull-sheet-override POST in a controlled promise). Fixture: a staged `WarningsBreakdown` with one `PULL_SHEET_ON_ARCHIVED_TAB` (`blockRef: { kind: "pull_sheet_archived_tab", name: "OLD GEAR" }`, `rawSnippet` the previews joined by ` | `), `archivedPullSheetTabs` holding the matching tab (four previews, one blank) and `pullSheetOverride: null`. Cases, one per spec §16.1 row:
+  1. Lines: `…-archived-tab` reads `Tab OLD GEAR`; `…-archived-cases` reads `Cases ` + `casePreviewsText(tab.headerPreviews)`; with no matching tab, previews come from `rawSnippet.split(" | ")` (L7).
+  2. Include presence: present when the tab is in `deriveArchivedOffers(tabs, true, override).offers`; absent when `pullSheetOverride` is non-null; absent without `wizardSessionId`; a warning with no or blank `blockRef.name` renders no `Tab` line and no include; jump slot and Ignore still render in every case.
+  3. Label on every placement: card, `ArchivedTabOffer` (Pack list), `ArchivedTabOffer showDismiss={false}` (Resolve box) and `PublishedArchivedTabOffer` render `ARCHIVED_TAB_INCLUDE_LABEL`, accessible name `Use this pull sheet from tab OLD GEAR` (`getByRole("button", { name })`), pending `ARCHIVED_TAB_INCLUDE_PENDING`; a blank tab name drops the suffix.
+  4. POST body: the card's include body deep-equals `ArchivedTabOffer`'s for the same tab (both captured from the `fetch` spy).
+  5. Shared pending in `ArchivedTabOffer` (regression guard, round-2 defect): hold the POST, click include, `Keep skipped` is disabled and clicking it does not dismiss; reject the POST, both re-enable and the error region shows `ARCHIVED_TAB_ERROR`'s text.
+  6. Row lock: hold the include POST → card Ignore disabled, Report enabled, an Ignore click calls `setStagedWarningIgnore` 0 times; release; hold the Ignore request → include disabled with its idle label, an include click issues no second `fetch`. Assert each held state's request count after an attempted click on the other control (N → G and G → N unreachable).
+  7. `ArchivedTabIncludeButton` driven by props: `pending` true → disabled, `Including…`, click is a no-op; `blocked` true and `pending` false → disabled, idle label; `onPendingChange` called `true` then `false` on success and on failure; re-rendering with `pending={false}` mid-request re-enables it (it holds no flag).
+  8. `DataQualityWarningControls`: `blocked` disables the main button only (Report enabled); `onRunningChange` called `true` at request start and `false` at end, success and failure; absent props change nothing (existing suite stays green).
+- [ ] **Step 2: GREEN.** Extract per spec §7.3 ("It owns no pending state", "Pending ownership, per placement"), add the lock props, mount on the card, thread the two staged props. `PublishedArchivedTabOffer` keeps its own POST, its `Skip` and its one `pending`.
+- [ ] **Step 3: real-browser tap floor.** Add `archivedTabs` to the harness, `?scenario=archived` to the live entry, and one case to tests/e2e/warning-card-layout.spec.ts: the include button's rect height ≥ 44 at 375 and 1280. Regenerate the standalone baseline.
+- [ ] **Step 4: repair label pins** (the three suites under Files) to the new label and name; nothing else in them changes.
+- [ ] **Step 5: green.** Red command; `pnpm exec vitest run tests/components/admin/wizard/archivedTabOffer.render.test.tsx tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx tests/components/admin/review/publishedArchivedTabOffer.test.tsx tests/components/admin/dataQualityWarningControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx tests/ci/_metaSpecRegistration.test.ts`; `pnpm heavy node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/warning-card-layout.spec.ts tests/e2e/packlist-rescan-recovery.spec.ts`.
+- [ ] **Step 6: commit** `feat(onboarding): resolve the archived pull sheet from its own warning card`.
+
+## Task 14 — Transition audit: the deferred reading choice
+
+<!-- task: red=`pnpm exec vitest run tests/components/admin/useRawDraft.transitions.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:545` why=`ChoiceRow onSelect on this line calls fire, which writes the reading the moment a row is tapped, and no provider, Save, Cancel or reconciliation exists, so every pair of the spec 14 inventory and every deferred-response sequence in the new suite fails until selection is a local draft and the action bar owns Save` ac=AC-5,AC-11 -->
+
+What is red and why: selecting a reading writes immediately; there is no draft, no Save, no Cancel, no reconciliation.
+
+Claims AC-5, AC-11 (declared in 00-overview.md, Acceptance criteria).
+
+**Files:**
+- Create: components/admin/useRawDraft.tsx (`"use client"`)
+- Modify: `components/admin/UseRawControlBoundary.tsx:56-82` (its `onToggle` calls `callUseRawAction`, throws on `"failed"`, refreshes on `"ok"`)
+- Modify: `components/admin/UseRawControl.tsx:305-378` (`ChoiceRow` takes a per-row `marker`), `components/admin/UseRawControl.tsx:385-612` (provider path: rows select through the draft, soft-disable while busy or `submitted !== null`, no in-control error, retry or `Saving…` inside a provider)
+- Modify: `components/admin/DataQualityWarningControls.tsx:197-266` (inside a provider: one morphing main button, Cancel, hint, Save sequence)
+- Create: tests/components/admin/useRawDraft.transitions.test.tsx
+
+**Interfaces (components/admin/useRawDraft.tsx; typechecked at plan time):**
+
+```ts
+export type UseRawSurface =
+  | { surface: "show"; showId: string }
+  | { surface: "wizard"; wizardSessionId: string; driveFileId: string };
+export function callUseRawAction(surface: UseRawSurface, warning: ParseWarning, useRaw: boolean): Promise<"ok" | "failed">;
+export type UseRawDraftValue = {
+  persistedRaw: boolean;
+  displayedRaw: boolean;   // submitted ?? draft ?? persistedRaw
+  dirty: boolean;          // submitted === null && draft !== null
+  submitted: boolean | null;
+  busy: boolean;
+  error: string | null;
+  select: (useRaw: boolean) => void;          // rule 1
+  cancel: () => void;                         // rule 6
+  save: () => Promise<"ok" | "failed">;       // rules 2-3
+  setBusy: (busy: boolean) => void;
+  setError: (copy: string | null) => void;
+};
+export function UseRawDraftProvider(props: { warning: ParseWarning; decision: UseRawDecision | undefined; children: ReactNode } & UseRawSurface): ReactElement;
+export function useUseRawDraft(): UseRawDraftValue | null;
+export function offersReadingChoice(warning: ParseWarning, decision: UseRawDecision | undefined): boolean; // deriveUseRawControlState(w, decision, false) is one of the four radio states
+```
+
+The model is spec §6.3 exactly ("The reading model (exact)", rules 1-6); reconciliation uses the store-the-previous-prop pattern during render, never an effect, and keys on nothing but a change of `persistedRaw` (§6.3 rule 5; `router.refresh()` has no completion signal). The action-bar table, Cancel classes, hint id and error copy are spec §6.3 "Action bar" verbatim. Busy is the action bar's `running`, reported through `onRunningChange` (Task 13) to `setBusy`. The accept leg of rule 4 lives in `DataQualityWarningControls`: after `save()` resolves `"ok"`, if `mode === "active"` and the row is ignorable it runs today's accept request; on accept success announce `Reading saved. Judgment call accepted.` (§11, builder's call 5), `onBeforeRefresh?.()`, `router.refresh()`; on accept failure `router.refresh()` and show `Your reading is saved, but we couldn't accept the judgment call. Refresh and try again.`, main button `Accept` (retries accept only); not ignorable or `mode === "ignored"`: announce `Reading saved.`, `router.refresh()`.
+
+**The inventory this task audits (spec §14, verbatim):**
+
+| State | Definition | Displayed reading | Main button |
+|---|---|---|---|
+| **C** clean | `submitted === null && draft === null`, not busy | `P` | `Accept` / `Undo accept` |
+| **D** dirty | `submitted === null && draft !== null`, not busy | `draft` | `Save` (+ Cancel, hint) |
+| **S** saving | busy (a reading or accept request in flight) | `submitted ?? draft ?? P` | `Saving…` / `Accepting…` / `Undoing…`, disabled |
+| **V** saved, not yet reconciled | `submitted !== null`, not busy | `submitted` | `Accept` (retry accept only) or `Undo accept` |
+| **E** error | an error is shown, over D (failed Save), over V (accept failed after a saved reading), or over C (failed plain Accept) | as the underlying state | as the underlying state |
+
+| Pair | Reachable as | Treatment |
+|---|---|---|
+| C → D | select the non-persisted reading (rule 1) | instant, local state |
+| D → C | Cancel (rule 6); select the persisted reading (rule 1); reconciliation with `draft === P` (rule 5) | instant; Cancel moves focus to the main button |
+| C → S | Accept | instant label swap `Accepting…` |
+| S → C | plain Accept succeeds and the row stays (refresh keeps it) | instant |
+| D → S | Save (rule 2) | instant label swap `Saving…`; radio rows and Cancel disabled |
+| S → D | unreachable directly: a failed Save goes S → E (over D) | n/a |
+| C → V | unreachable: `submitted` is only set from D | n/a |
+| V → C | reconciliation clears `submitted` (rule 5) | instant; the displayed reading becomes `P`, which after a successful save equals `submitted` |
+| D → V | only through S | n/a |
+| V → D | unreachable: radio rows are soft-disabled while `submitted !== null` | n/a |
+| S → V | reading request succeeds (rule 4) | instant; the acknowledged reading stays checked |
+| V → S | Accept retry after a partial success | instant label swap `Accepting…` |
+| C → E / D → E / V → E | only through S | n/a |
+| S → E | any failure (rules 3 and 4) | instant; `role="alert"` paragraph appears |
+| E → C | Cancel from E over D; reconciliation from E over V | instant; error cleared by the next action |
+| E → D | select a reading from E over D or E over C | instant; error cleared |
+| E → S | retry Save or Accept | instant |
+| E → V | unreachable directly | n/a |
+
+**And the archived row it re-asserts (spec §14.1, verbatim; built in Task 13):** states I idle, N include pending, G Ignore pending; Report enabled in all three.
+
+| Pair | Reachable as | Treatment |
+|---|---|---|
+| I → N | include pressed | instant; include shows `Including…`, Ignore disabled |
+| N → I | include ends: failure (error in the include's status region), or success (the existing code clears the flag in `finally` after requesting a refresh, `archivedTabOffer.tsx:129-137`) | instant |
+| I → G | Ignore pressed | instant; Ignore shows `Ignoring…`, include disabled with its idle label |
+| G → I | Ignore ends: failure (the existing `dq-error` alert) or success | instant |
+| N → G | unreachable: Ignore is disabled during N | n/a |
+| G → N | unreachable: include is disabled during G | n/a |
+
+No state animates (spec §14, §14.2): every change is a text or presence swap, so the audit asserts presence and labels only, and no `prefers-reduced-motion` branch exists. Conditional blocks to enumerate in the audit (each asserted present or absent per state): the Cancel button, the `Not saved yet` hint, the `role="alert"` error paragraph, the in-control `Saving…` text (absent inside a provider), the in-control error and `Try again` (absent inside a provider), the `In use` / `Selected` markers, the pending-apply notes.
+
+- [ ] **Step 1: RED.** tests/components/admin/useRawDraft.transitions.test.tsx (`// @vitest-environment jsdom`). Mount `UseRawDraftProvider` (wizard surface) around `UseRawControlBoundary` and `DataQualityWarningControls` (`mode="active"`, an ignorable `ROOM_HEADER_SPLIT_AMBIGUOUS` with a resolvable resolution, `ground="surface"`). `vi.mock` `@/app/admin/onboarding/_actions/useRawStaged` and `@/app/admin/onboarding/_actions/stagedWarningIgnore` with functions returning test-controlled promises; `vi.mock("next/navigation")` with a plain `refresh` spy (asserted called, never "completed"); re-render with a new `decision` prop to model a refresh landing. Cases:
+  - **Pairs:** one case per reachable pair in the §14 table (reach it, assert the checked radio via `aria-checked`, the main button label, presence of `Not saved yet`, Cancel and the alert); one case per unreachable pair asserting the attempt changes nothing (S → D: a select while busy is ignored; V → D: rows `aria-disabled` while `submitted !== null`; C → V: `submitted` never set from C).
+  - **Deferred-response probe**, sequences 1 to 7 and 13 of spec §14 (1 full success with delayed refresh; 2 accept fails after the reading saved; 3 retained rows: `mode="ignored"` announces `Reading saved.` and sends no accept request; 4 select back then an external save; 5 failed save, refresh equal to the draft, then an external revert; 6 refresh during D with no change to `P`; 7 select attempted during V; 13 refresh lands without moving `P`), asserting checked radio, main button label and `Not saved yet` presence after EACH step. Sequence 1 asserts the checked row is `r` after reading ok, after accept ok, and during the delayed refresh; 4 and 5 assert no `Save` after the external change; 13 asserts V (checked `r`, rows `aria-disabled`, no `Save`) after a re-render with an unchanged `persistedRaw`, then C on the next change.
+  - **Rules (§16.1 "Deferred choice rules")**: select non-persisted calls no action (spy count 0); arrow keys move focus and select without calling; Save failure restores `draft` and shows `That didn’t save. The cell may have changed.` (apostrophe-agnostic match); Cancel moves focus to the main button; the hint's `id` equals the main button's `aria-describedby`; Report stays enabled while busy.
+  - **Provider absent:** the boundary alone still saves on tap (spy called once).
+  - **§14.1 re-assertion**: render the Task 13 card row and assert each reachable pair, N → G and G → N refused, and compound transitions 1 and 3 (include success before refresh re-enables both controls; a second placement's POST is its own request).
+- [ ] **Step 2: GREEN.** Build the provider and wire the two components per the Interfaces paragraph.
+- [ ] **Step 3: green.** Red command; `pnpm exec vitest run tests/components/UseRawControl.test.tsx tests/components/admin/dataQualityWarningControls.test.tsx tests/components/admin/wizard/archivedTabWarningCard.test.tsx tests/help/_metaRenderFaultMarking.test.ts tests/styles/_metaEmDashCopy.test.ts` (the render-fault row moves here and is re-keyed in Task 18; this task's green set excludes it, per 00-overview.md).
+- [ ] **Step 4: commit** `feat(admin): make a reading change wait for Save`.
+
+## Task 15 — Mount the deferred choice on both surfaces; Save flow in a real browser
+
+<!-- task: red=`pnpm exec vitest run tests/components/admin/deferredChoiceMount.test.tsx` red-state=authored red-target=`components/admin/showpage/sectionWarningExtras.tsx:122` why=`SectionWarningItemControls renders DataQualityWarningControls first on this line with no provider around it, and the wizard row renders its choice control with no provider either, so the new suite expecting no action on select, Save in the action bar, and the choice control before the controls on published fails until both surfaces mount UseRawDraftProvider` ac=AC-5 -->
+
+What is red and why: neither surface mounts the provider, so production rows still save on tap.
+
+Claims AC-5 (declared in 00-overview.md, Acceptance criteria).
+
+**Files:**
+- Modify: `components/admin/wizard/step3ReviewSections.tsx:3445-3497` (wrap the row's controls block in `UseRawDraftProvider` when `wizardSessionId && dfid && dq && isWarn && offersReadingChoice(w, decision)`)
+- Modify: `components/admin/showpage/sectionWarningExtras.tsx:119-147` (`SectionWarningItemControls` wraps its fragment the same way and, for those rows only, renders the choice control BEFORE `DataQualityWarningControls`)
+- Create: tests/components/admin/deferredChoiceMount.test.tsx
+- Create: tests/e2e/warning-card-flows.spec.ts, tests/e2e/_warningCardActionStub.ts
+- Modify: `tests/e2e/_step3ReviewModalBundle.mjs` (optional fourth argv: a JSON alias map passed as esbuild `alias`; absent → `{}`, a byte-identical bundle for every existing caller), tests/e2e/_warningCardLiveEntry.tsx (`?scenario=save`), `tests/e2e/standalone.config.ts:85` (`warning-card-flows`), `tests/e2e/standalone-baseline.json`
+
+- [ ] **Step 1: RED (unit).** tests/components/admin/deferredChoiceMount.test.tsx (`// @vitest-environment jsdom`, the same mocks as Task 14): wizard row with a resolvable `ROOM_HEADER_SPLIT_AMBIGUOUS` and a `dq` model: clicking the other reading calls the staged use-raw action 0 times and the row's main button reads `Save`; a non-judgment row is unchanged (no provider: its controls render exactly as before). Published active and Accepted-list cards: the choice control precedes `dq-controls` in document order for a use-raw row and follows it for none (other codes render no choice control); Save on an Accepted-list row calls only the reading action and announces `Reading saved.`.
+- [ ] **Step 2: RED (real browser).** tests/e2e/_warningCardActionStub.ts exports `setStagedUseRawDecisionAction` and `setStagedWarningIgnore`, each resolving `window.__warningCardActions?.[name] ?? { ok: true }` (the ignore stub's default `{ ok: true, state: "ignored" }`), and recording calls on `window.__warningCardCalls`. The live entry's `save` scenario mounts the real `Step3ReviewModal` under its own `AppRouterContext.Provider` whose `refresh()` calls `window.__onRefresh`, which swaps harness state so the row's index moves from `dq.model.active` to `dq.model.ignored` and the decision persists. The spec bundles with `_step3ReviewModalBundle.mjs` and the alias map `{ "@/app/admin/onboarding/_actions/useRawStaged": <stub>, "@/app/admin/onboarding/_actions/stagedWarningIgnore": <stub> }` (plan-time probe: esbuild substitutes `@/` specifiers). One test: pick the other reading, assert `Save` and `Cancel` ≥ 44px tall by rect, press Save, wait for the row's testid to reach count 0 (detach-safe), assert `document.activeElement` carries `wizard-step3-card-${dfid}-warnings-focus-anchor` and `__warningCardCalls` holds exactly one use-raw call then one ignore call, in that order. Register `warning-card-flows`; regenerate the baseline.
+- [ ] **Step 3: GREEN.** The two mounts.
+- [ ] **Step 4: green.** Both red commands (`pnpm heavy node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/warning-card-flows.spec.ts` for the browser one); `pnpm exec vitest run tests/components/admin/showpage/sectionWarningControls.test.tsx tests/components/admin/parsePanelComposition.test.tsx tests/components/admin/useRawDraft.transitions.test.tsx tests/components/admin/acceptedDisclosure.test.tsx tests/ci/_metaSpecRegistration.test.ts`; `pnpm heavy node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts tests/e2e/step3-review-modal.interactions.spec.ts tests/e2e/packlist-rescan-recovery.spec.ts` (the bundler change is byte-identical for them).
+- [ ] **Step 5: commit** `feat(admin): mount the Save-gated reading choice on the wizard and the show page`.
+
+<!-- tasks: end -->
