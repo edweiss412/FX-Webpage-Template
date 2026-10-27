@@ -819,7 +819,12 @@ export function scanCandidates(): Candidate[] {
       // `controls ?`. Added: `isJudgmentCall(w) ? <JudgmentCallTag/> : null` and the
       // shell's `sheetLink ? <SheetIconLink/> : null`. None is a fault branch; 78 kept.
       //
-      // Probed: 746 such ternaries under the derived roots, 78 on a
+      // 746 -> 748 on feat/warning-card-fixes Task 10: the inline hotel guest split's
+      // read-only comparison in UseRawControl adds `sheetSays ? <>…</> : null` and
+      // `weRead ? <>…</> : null`. Neither is a fault branch; 78 kept. Re-derived by
+      // running the guard, which reported 748 against the tree.
+      //
+      // Probed: 748 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

@@ -25,6 +25,10 @@ import {
   deriveUseRawControlState,
   segmentRawReading,
 } from "@/components/admin/UseRawControl";
+import { parseHotels } from "@/lib/parser/blocks/hotels";
+import { newAggregator } from "@/lib/parser/warnings";
+import { sheetSaysText, weReadGuestsText } from "@/lib/admin/warningReadingDisplay";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 afterEach(() => cleanup());
 
@@ -996,5 +1000,135 @@ describe("hotel-name — normative copy oracles", () => {
     const parsedNode = q.container.querySelector('[data-testid$="use-raw-parsed"]')!;
     expect(parsedNode, "the parsed reading node must render").toBeTruthy();
     expect(parsedNode.textContent).toContain("(no hotel name read)");
+  });
+});
+
+// warning-card-fixes §5.3: the inline hotel guest split shows what the sheet says and what
+// we read above the reason sentence. The first case reads a REAL parse, so a We read line
+// that drifts from the reservation's own names fails here, not only in the helper's table.
+describe("inline guest split comparison (warning-card-fixes §5.3)", () => {
+  const noop = () => {};
+
+  it("renders Sheet says and We read from a real inline parse, matching the reservation", () => {
+    const agg = newAggregator();
+    const hotels = parseHotels(
+      "| Hotel Reservations | Hyatt Regency Eric Weiss - 110525 |",
+      "v2",
+      agg,
+    );
+    const w = agg.warnings.find((x) => x.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS");
+    if (w === undefined) throw new Error("no inline guest split warning");
+    const reservation = hotels[0];
+    if (reservation === undefined) throw new Error("no reservation");
+    premiseHolds("the parse yields at least one name", reservation.names.length > 0);
+    const r = w.resolution;
+    if (r === undefined || r.resolvable !== false) throw new Error("expected the disabled variant");
+    const readAs: unknown = "readAs" in r ? r.readAs : undefined;
+
+    const q = render(
+      <UseRawControl warning={w} decision={undefined} onToggle={noop} site="list" />,
+    );
+    expect(q.getByTestId("use-raw-sheet-says-list").textContent).toBe(sheetSaysText(w.rawSnippet));
+    const weRead = q.getByTestId("use-raw-we-read-list").textContent ?? "";
+    expect(weRead).toBe(weReadGuestsText(readAs));
+    for (const name of reservation.names) expect(weRead).toContain(name);
+  });
+
+  it("cuts Sheet says at 160 characters and We read at six names (B-SHEET, B-NAMES)", () => {
+    const q = render(
+      <UseRawControl
+        warning={{
+          code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+          rawSnippet: "x".repeat(160) + "y",
+          resolution: {
+            resolvable: false,
+            reason: "raw-not-guest-scoped",
+            readAs: { kind: "hotels", names: ["A", "B", "C", "D", "E", "F", "G"] },
+          },
+        }}
+        decision={undefined}
+        onToggle={noop}
+        site="list"
+      />,
+    );
+    expect(q.getByTestId("use-raw-sheet-says-list").textContent).toBe("x".repeat(160) + "…");
+    expect(q.getByTestId("use-raw-we-read-list").textContent).toBe(
+      "7 guests: A, B, C, D, E, F, and 1 more",
+    );
+  });
+
+  it("puts the comparison above the reason sentence, and the sentence still renders", () => {
+    const q = render(
+      <UseRawControl
+        warning={{
+          code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+          rawSnippet: "Hyatt Eric Weiss",
+          resolution: {
+            resolvable: false,
+            reason: "raw-not-guest-scoped",
+            readAs: { kind: "hotels", names: ["Eric Weiss"] },
+          },
+        }}
+        decision={undefined}
+        onToggle={noop}
+      />,
+    );
+    const grid = q.getByTestId("use-raw-reading");
+    const sentence = q.getByText(
+      "This hotel line runs the hotel and the booking details together, so there's nothing safe to swap in.",
+    );
+    // DOCUMENT_POSITION_FOLLOWING: the sentence comes after the grid.
+    expect(grid.compareDocumentPosition(sentence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(grid.contains(sentence)).toBe(false);
+  });
+
+  it("a legacy warning with no readAs shows Sheet says and no We read line", () => {
+    const q = render(
+      <UseRawControl
+        warning={{
+          code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+          rawSnippet: "Hyatt Eric",
+          resolution: { resolvable: false, reason: "raw-not-guest-scoped" },
+        }}
+        decision={undefined}
+        onToggle={noop}
+      />,
+    );
+    expect(q.getByTestId("use-raw-sheet-says").textContent).toBe("Hyatt Eric");
+    expect(q.queryByTestId("use-raw-we-read")).toBeNull();
+  });
+
+  it("a blank raw cell with no readAs renders no comparison at all", () => {
+    const q = render(
+      <UseRawControl
+        warning={{
+          code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+          rawSnippet: "   ",
+          resolution: { resolvable: false, reason: "raw-not-guest-scoped" },
+        }}
+        decision={undefined}
+        onToggle={noop}
+      />,
+    );
+    expect(q.queryByTestId("use-raw-reading")).toBeNull();
+    // The blank cell never renders as an empty "Sheet says" label either.
+    expect(q.queryByText("Sheet says")).toBeNull();
+    expect(q.getByTestId("use-raw-control").textContent).toContain("booking details together");
+  });
+
+  it("a disabled room split renders no comparison (L12)", () => {
+    const q = render(
+      <UseRawControl
+        warning={{
+          code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+          rawSnippet: "Ballroom A / B",
+          resolution: { resolvable: false, reason: "empty-raw" },
+        }}
+        decision={undefined}
+        onToggle={noop}
+      />,
+    );
+    expect(q.queryByTestId("use-raw-reading")).toBeNull();
+    expect(q.queryByText("Sheet says")).toBeNull();
   });
 });

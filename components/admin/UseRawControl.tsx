@@ -6,7 +6,7 @@ import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import type { WarningControlSite } from "@/components/admin/warningControlSite";
 // The four in-scope codes (the caller also filters; the control guards too). One set, shared
 // with the reading-display rules (warning-card-fixes spec §5.6).
-import { USE_RAW_CODES } from "@/lib/admin/warningReadingDisplay";
+import { USE_RAW_CODES, sheetSaysText, weReadGuestsText } from "@/lib/admin/warningReadingDisplay";
 
 // Kind → radiogroup accessible name (spec 2026-07-17 §6.2). Exhaustive over the
 // UseRawResolution parsed-kind union; a new kind is a compile error here.
@@ -383,7 +383,8 @@ export function UseRawControl({
   onToggle,
   site,
 }: {
-  warning: Pick<ParseWarning, "code" | "resolution">;
+  /** `rawSnippet` feeds the inline hotel guest split's read-only comparison (§5.3). */
+  warning: Pick<ParseWarning, "code" | "resolution" | "rawSnippet">;
   /** The persisted decision for this warning's `(code, contentHash)`, or undefined. */
   decision: UseRawDecision | undefined;
   /** Binds to the surface's server action; resolves after the re-read. */
@@ -441,14 +442,55 @@ export function UseRawControl({
       warning.resolution !== undefined && warning.resolution.resolvable === false
         ? DISABLED_REASON[warning.resolution.reason]
         : "";
+    // warning-card-fixes §5.3: the inline hotel guest split cannot swap readings, so it
+    // shows what the sheet says and what we read, above the reason. Every other code, and a
+    // guest split with nothing to show, keeps the one sentence.
+    const resolution = warning.resolution;
+    const readAs =
+      resolution !== undefined && resolution.resolvable === false ? resolution.readAs : undefined;
+    const isGuestSplit = warning.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS";
+    const sheetSays = isGuestSplit ? sheetSaysText(warning.rawSnippet) : null;
+    const weRead = isGuestSplit ? weReadGuestsText(readAs) : null;
+    if (sheetSays === null && weRead === null) {
+      return (
+        <p
+          data-testid={tid("use-raw-control")}
+          data-state={state}
+          className="mt-1 text-xs text-text-subtle"
+        >
+          {reason}
+        </p>
+      );
+    }
     return (
-      <p
+      <div
         data-testid={tid("use-raw-control")}
         data-state={state}
-        className="mt-1 text-xs text-text-subtle"
+        className="mt-1 flex flex-col gap-1"
       >
-        {reason}
-      </p>
+        <span
+          data-testid={tid("use-raw-reading")}
+          className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs"
+        >
+          {sheetSays ? (
+            <>
+              <span className="text-text-subtle">Sheet says</span>
+              <span data-testid={tid("use-raw-sheet-says")} className="wrap-break-word text-text">
+                {sheetSays}
+              </span>
+            </>
+          ) : null}
+          {weRead ? (
+            <>
+              <span className="text-text-subtle">We read</span>
+              <span data-testid={tid("use-raw-we-read")} className="wrap-break-word text-text">
+                {weRead}
+              </span>
+            </>
+          ) : null}
+        </span>
+        <p className="text-xs text-text-subtle">{reason}</p>
+      </div>
     );
   }
 

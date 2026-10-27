@@ -44,7 +44,9 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // 433 -> 428 on feat/warning-card-fixes Task 4; located by its own element (still the
   // `if (state === "legacy-unavailable")` guard): the module-local IN_SCOPE set moved out
   // to lib/admin/warningReadingDisplay.ts above it.
-  "components/admin/UseRawControl.tsx:428":
+  // 428 -> 429 on feat/warning-card-fixes Task 10; located by its own element (still that
+  // guard): a one-line doc comment on the widened `warning` prop lands above it.
+  "components/admin/UseRawControl.tsx:429":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
   // 4085 -> 4101 (2026-08-29, wizard-warning-ignore-controls). Located by identity on
   // the live tree — still the bare `if (failed)` this reason describes — never by
@@ -474,7 +476,13 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   to lib/admin/warningReadingDisplay.ts as USE_RAW_CODES)
     // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
     // reproduces 6c20e86f... byte-for-byte.
-    expect(digest).toBe("d79bb1f1121c5f1619f25d7df0e8be1642131ac10ca68110019bd1087470b5d2");
+    // Regenerated for feat/warning-card-fixes Task 10, to the same bar. EXACTLY ONE input
+    // changed, a line number, in the one file of this set the task edits:
+    //   components/admin/UseRawControl.tsx 428 -> 429 (+1: a doc comment on the widened
+    //   `warning` prop lands above it)
+    // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
+    // reproduces d79bb1f1... byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("fc41f556608dfd16103d31e8c2c8e2394b998ba2b76990d43ca8ba72f0d521c7");
   });
 });
 
