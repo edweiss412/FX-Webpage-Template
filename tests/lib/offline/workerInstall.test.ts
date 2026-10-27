@@ -1729,21 +1729,58 @@ describe("completeness", () => {
     expect((await worker.store.staticIndex()).get(CSS)).toBe(START);
   });
 
+  // Controller ruling (Task 10): only the files a copy needs to hydrate are
+  // mandatory. A static file that cannot be had abandons the save; a listed asset
+  // that cannot be had is skipped like an asset over the caps (spec 4.8).
   test.each([
     ["a font that answers 404", FONT, () => new Response("missing", { status: 404 })],
     ["a font that cannot be fetched", FONT, "refuse"],
     ["a chunk that answers 404", CHUNK, () => new Response("missing", { status: 404 })],
-  ] as const)("%s abandons the save and the previous copy stays", async (_label, path, failure) => {
-    const worker = boot();
-    await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
-    worker.net.on(path, failure === "refuse" ? refuse : reply(failure));
-    worker.net.on(
-      U,
-      reply(() => htmlResponse(page(save({ renderedAt: LATER }), "new"))),
-    );
-    expect(await (await open(worker, U)).text()).toContain("new");
-    expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
-  });
+    ["a chunk that cannot be fetched", CHUNK, "refuse"],
+  ] as const)(
+    "a static file: %s abandons the save and the previous copy stays",
+    async (_label, path, failure) => {
+      const worker = boot();
+      await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
+      worker.net.on(path, failure === "refuse" ? refuse : reply(failure));
+      worker.net.on(
+        U,
+        reply(() => htmlResponse(page(save({ renderedAt: LATER, assets: [AGENDA] }), "new"))),
+      );
+      worker.net.on(
+        AGENDA,
+        reply(() => new Response("%PDF")),
+      );
+      expect(await (await open(worker, U)).text()).toContain("new");
+      expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
+    },
+  );
+
+  test.each([
+    ["answers 404", () => Promise.resolve(new Response("gone", { status: 404 }))],
+    ["answers 502", () => Promise.resolve(new Response("bad gateway", { status: 502 }))],
+    ["cannot be fetched", () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["fails mid-stream", () => Promise.resolve(brokenBody())],
+  ] as const)(
+    "a listed asset that %s is skipped: the save commits without it",
+    async (_label, failure) => {
+      const worker = boot();
+      await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
+      worker.net.on(DIAGRAM, () => failure());
+      worker.net.on(
+        AGENDA,
+        reply(() => new Response("%PDF")),
+      );
+      worker.net.on(
+        U,
+        reply(() => htmlResponse(page(save({ renderedAt: LATER, assets: [DIAGRAM, AGENDA] })))),
+      );
+      await open(worker, U);
+      premise("the failing asset was requested", worker.net.callsTo(DIAGRAM).length, 0);
+      expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: LATER, assets: [AGENDA] });
+      expect(worker.assetCache().paths()).toEqual([AGENDA]);
+    },
+  );
 
   test("a quota error on put abandons the save and posts save-failed to pages of U", async () => {
     const worker = boot();
@@ -1759,20 +1796,6 @@ describe("completeness", () => {
     expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
     expect(onU.received).toEqual([{ type: "save-failed", url: U, reason: "quota" }]);
     expect(elsewhere.received).toEqual([]);
-  });
-
-  test("an asset that cannot be fetched abandons the save (every listed asset within caps is required)", async () => {
-    const worker = boot();
-    worker.net.on(
-      DIAGRAM,
-      reply(() => new Response("gone", { status: 404 })),
-    );
-    worker.net.on(
-      U,
-      reply(() => htmlResponse(page(save({ assets: [DIAGRAM] })))),
-    );
-    await open(worker, U);
-    expect(await worker.store.copyAtUrl(U)).toBeNull();
   });
 
   test("listed assets are stored with the copy; one already cached is not fetched again", async () => {

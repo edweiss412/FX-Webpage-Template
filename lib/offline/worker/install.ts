@@ -418,8 +418,10 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   /**
    * Every listed asset within the caps, present in the asset cache, in list
    * order: one over 25 MB is skipped, and the show's prefetch stops before its
-   * total would pass 75 MB. An asset within the caps that cannot be fetched
-   * throws, because the save then cannot commit (spec 4.6). Returns the assets
+   * total would pass 75 MB. An asset that cannot be fetched (a network error, a
+   * status other than 200, a body that fails mid-stream) is skipped the same way:
+   * it fails offline the way it does today (spec 4.8, controller ruling on Task
+   * 10). Only static files are mandatory for a commit. Returns the assets
    * stored, which are the ones the copy lists.
    */
   async function storeAssets(
@@ -444,8 +446,12 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
         continue;
       }
 
-      const response = await deps.fetch(url);
-      if (response.status !== 200) throw new Error(`asset unavailable: ${path}`);
+      const response = await deps.fetch(url).catch(() => null);
+      if (response === null) continue;
+      if (response.status !== 200) {
+        await response.body?.cancel();
+        continue;
+      }
       const declared = admitAsset(total, declaredLength(response));
       if (declared !== "admit") {
         await response.body?.cancel();
@@ -455,7 +461,8 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       const body = await readCapped(
         response,
         Math.min(ASSET_MAX_BYTES, SHOW_PREFETCH_MAX_BYTES - total),
-      );
+      ).catch(() => null);
+      if (body === null) continue;
       const size = body.kind === "read" ? body.bytes.byteLength : body.read;
       const verdict = admitAsset(total, size);
       if (verdict === "stop") break;
