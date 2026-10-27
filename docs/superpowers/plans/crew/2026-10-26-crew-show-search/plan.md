@@ -278,7 +278,7 @@ Red because nothing posts misses.
 
 ## Task 19: wire the shell, end to end
 
-<!-- task: red=`CREW_E2E_ONLY=1 E2E_PORT=3110 pnpm heavy pnpm exec playwright test --project desktop-chromium tests/e2e/crew-search.spec.ts` ac=AC-5,AC-11,AC-13,AC-15,AC-16 -->
+<!-- task: red=`CREW_E2E_ONLY=1 E2E_PORT=3110 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/crew-search.spec.ts` ac=AC-5,AC-11,AC-13,AC-15,AC-16 -->
 
 Red because `_CrewShell.tsx` builds no index and mounts no search field, so the e2e's first step (find the search box named "Search this show" on the seeded crew page) fails; the component test's header assertion fails for the same reason. Everything the e2e exercises below the field was built in Tasks 15 to 18 and is reached on the real page for the first time here.
 
