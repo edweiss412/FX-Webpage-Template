@@ -1,6 +1,6 @@
 # Crew page offline: saved copy, age note, offline reports
 
-**Status:** Draft v6, 2026-10-26 (after spec review round 5). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
+**Status:** Draft v7, 2026-10-27 (after spec review round 6). Owner-approved for autonomous ship (Eric, brainstorm 2026-10-26).
 **Scope:** the crew show page at `app/show/[slug]/[shareToken]/**` and the report flow it hosts.
 **Mockups (owner-reviewed):** https://claude.ai/artifact/8RA9JS4oMpLZFf9TyLwrJc
 **Spike record:** `docs/superpowers/specs/probes/2026-10-26-crew-offline-sw-spike.md` (summary in §11).
@@ -20,7 +20,15 @@ The brainstorm first split the work three ways, with sheet-removed detection as 
 
 ### 1.1 Resolved scope, do not relitigate
 
-Every item below was decided by the owner in the 2026-10-26 brainstorm, or is marked as the author's call. Author's calls R1 to R12 were played back to the owner, who approved the playback ("looks good"). R13's "per show" wording and R15 came later, out of cross-model review, and were not played back; they follow from the owner's own words and the R13 constraint, and the PR reports them. A reviewer verifies these against this section; they are not open for redesign.
+Every item below was decided by the owner in the 2026-10-26 brainstorm, is marked as the author's call, or is marked as a recon finding. The first draft's author's calls were played back to the owner, who approved the playback ("looks good"). Review rounds then changed some rows, and those changes were not played back; the PR lists them for the owner:
+
+- R5 dropped "immediately": the wipe happens at the bracket purges (§4.6), which run at once on the phone, so the word added nothing and implied a guarantee the generation counter gives instead.
+- R12 gained "runtime": the worker is bundled with the existing `esbuild` dev dependency.
+- R13 gained "as far as the phone can know" and "per show". The first is a limit no design can remove: with no answer from the app, a phone cannot tell who holds it (§9). The second came from review round 4.
+- R14 dropped "no new column", because R15 adds one.
+- R15 is new, from review round 2, read from the owner's own wording.
+
+A reviewer verifies these against this section; they are not open for redesign.
 
 | # | Decision | Source |
 |---|---|---|
@@ -37,7 +45,7 @@ Every item below was decided by the owner in the 2026-10-26 brainstorm, or is ma
 | R11 | Call and email links work as usual offline. "Open in Maps" hands off to the Maps app. "Not you? Switch person" is disabled offline with "Needs signal". | Author's call, played back |
 | R12 | Hand-written service worker, no new runtime dependency. | Author's call (§4.1 says why) |
 | R13 | One saved copy per show per phone, whatever link it was saved under. A copy is never served to a viewer other than the crew identity it was rendered for, as far as the phone can know (§4.6, §9). | Brief constraint (parent session), owner-confirmed via R5; "per show" rather than "per link" is the author's call after review round 4 (§4.6) |
-| R14 | Sheet-removed detection reuses `shows.last_sync_status = 'sheet_unavailable'`. No sync change. | Recon finding, §3.4 |
+| R14 | Sheet-removed detection reuses `shows.last_sync_status = 'sheet_unavailable'`. No sync change. | Recon finding (§3.4); reusing it is the author's call |
 | R15 | An unpublish at any time after the copy was saved wipes it, even if the show is archived later (R4 read literally: "unless show has been unpublished by admin"). This needs one new nullable column, `shows.unpublished_at` (§4.11). | Author's call from the owner's wording |
 
 ## 2. Goals, non-goals, anti-goals
@@ -176,7 +184,7 @@ The worker reads the first `id="fxav-saved-copy"` element in the complete body (
 
 For a crew-URL navigation, `U` is the request's path (query ignored) and the fetch always uses the full request URL, query included, so `?gate=skip` and `?s=` keep working online. `S(U)` is the saved copy whose stored URL is `U`, if any. `C(X)` is show X's one copy, wherever it was saved (copies are stored one per show, each remembering the URL it was saved under, §4.6). Serving decisions use `S(U)`, because a copy is only ever served at the URL it was saved under; purges use `C(X)` whenever the marker names show X, so they reach the copy wherever it lives.
 
-1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error: fetch the page and serve whatever it returns as is, without running steps 3 to 5, and keep `S(U)`.
+1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error (the app answered without a verdict): fetch the page under the step 2 budget and keep `S(U)`. A complete response is served as is, without the step 3 table; a network error or a timeout serves `S(U)` in `ended` mode, because the app then gave no answer at all.
 2. **Otherwise fetch the request URL and buffer the whole response**, up to 8 seconds for headers and body together.
 3. **Complete response in time.** Read the marker, then:
 
@@ -252,7 +260,7 @@ The picker bootstrap is not bracketed. On a document load its streamed `redirect
 | Identity transitions | The brackets above |
 | A client-side render (RSC refresh or soft navigation) of any page whose marker is `purge`, or of the not-found page (`check`) | `<SavedCopyMarker>` posts its disposition on mount (§4.3) |
 
-**What the phone cannot know.** With no signal, the phone cannot tell who is holding it. A saved copy belongs to the last crew identity that loaded the link on this phone and has not since switched, signed out, or been replaced through a transition the phone saw. Online, every decision to serve a copy is backed by the server: a `save` or `keep` marker naming the same viewer, or a status-route `ended` answer that ran the page's own identity checks. Only when the app gives no answer (a network error, a timeout, or a platform error page with no marker) does the phone serve a copy on its own judgement. §9 records this limit.
+**What the phone cannot know.** With no signal, the phone cannot tell who is holding it. A saved copy belongs to the last crew identity that loaded any link of the show on this phone and has not since switched, signed out, or been replaced through a transition the phone saw. Online, every decision to serve a copy is backed by the server: a `save` or `keep` marker naming the same viewer, or a status-route `ended` answer that ran the page's own identity checks. Only when the app gives no answer (a network error, a timeout, or a platform error page with no marker) does the phone serve a copy on its own judgement. §9 records this limit.
 
 Saved copies live in this origin's Cache Storage and IndexedDB, readable only by this browser profile. Nothing is sent anywhere.
 
@@ -492,7 +500,7 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 
 ## 9. Documented limits
 
-- **Who holds the phone.** With no answer from the app, the phone cannot know who is holding it. A copy belongs to the last crew identity that loaded the link on this phone without switching, signing out, or being replaced through a transition the phone saw. An ended copy with no signal is served without the status check. A lost phone that never reconnects keeps its copy.
+- **Who holds the phone.** With no answer from the app, the phone cannot know who is holding it. A copy belongs to the last crew identity that loaded any link of the show on this phone without switching, signing out, or being replaced through a transition the phone saw. An ended copy with no signal is served without the status check. A lost phone that never reconnects keeps its copy.
 - **Ended copies last as long as the picker cookie entry.** The picker cookie has a 90-day max-age and evicts its oldest entries past 3800 bytes (`lib/auth/picker/cookieEnvelope.ts`). Once a show's entry is gone, the status route's identity check fails and the ended copy is wiped; the crew member then sees the normal not-found.
 - **Identity changes the phone never sees.** A roster removal, selection reset, or claim made on the server while the phone stays offline takes effect at the phone's next online visit to that show, not before.
 - **iPhone storage eviction.** Safari deletes a site's scripted storage after 7 days of Safari use without visiting the site, unless it is added to the Home Screen. "Kept by default" (R3) is best effort on iPhone. A web manifest would make Home Screen installs nicer; it is a candidate follow-up, not part of this work.
