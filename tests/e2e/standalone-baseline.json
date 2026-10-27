@@ -807,7 +807,8 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-cc29697e016e8d4eb42f\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"a tap-opened menu keeps its Escape after WIDENING past the boundary\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-d473292bda15643dd44e\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"the compiled CSS actually carries the rules these assertions depend on\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-ecd32f5c1a9694338402\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"a tap-opened menu keeps its Escape after SHRINKING past the boundary\"]]",
-      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-ef10a84fb7d98f2d2b65\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"AUTO-opened at desktop, then shrunk below sm: the menu stays open\"]]"
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-ef10a84fb7d98f2d2b65\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"AUTO-opened at desktop, then shrunk below sm: the menu stays open\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"9158c3856caba3612a32-f16f3d42f5bf6364eda8\",[\"wizard-attention-menu.spec.ts\",\"wizard attention pill + menu geometry (spec §9)\",\"T-WIZ-COUNTS @1280: each count is visibly spaced from its noun\"]]"
     ],
     "tests/e2e/wizard-blocker-modal.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-66131e70b73208914383\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"opening the modal does NOT change the sticky footer height (no layout shift)\"]]",
@@ -815,5 +816,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 710
+  "totalTests": 711
 }
