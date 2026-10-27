@@ -252,14 +252,15 @@ The search island has four states. One mode at every width: results replace the 
 
 | State | When | Renders |
 |---|---|---|
-| Idle | Input not focused and query empty | Field only. Page as today. |
+| Idle | Search not active: the query is empty, or kept from a search a result tap ended | Field only, with the clear button when a query is kept. Page as today. |
 | Hint | Search active, query under 2 characters | Cancel button. Below the header: hint text. Sub-nav and section body hidden. |
 | Results | Search active, query ≥ 2 characters, ≥ 1 hit | Cancel, chips, grouped results, report row. Sub-nav and body hidden. |
 | No match | Search active, query ≥ 2 characters, 0 hits | Cancel, no-match text, report row. Sub-nav and body hidden. |
 
-- Search becomes active when the input gains focus. It stays active when the input blurs (dismissing the phone keyboard must not drop the results).
-- It ends on Cancel, on Escape when the query is empty, and when a result is tapped. Ending by a result tap keeps the query, so focusing the field again shows the same results. Cancel and Escape clear the query.
-- The clear (×) button empties the query, keeps search active and refocuses the input. It renders only when the query is non-empty.
+- Focus alone changes nothing (WCAG 3.2.1 On Focus). Search hides the sub-nav and the section body, which is a change of context, so focusing the field, by keyboard, click or tap, never starts it.
+- Search becomes active when an edit leaves the query non-empty. The first typed character enters Hint; a paste of 2 or more characters enters Results or No match directly. It stays active when the input blurs (dismissing the phone keyboard must not drop the results), and when an edit empties the query (Hint).
+- It ends on Cancel, on Escape when the query is empty, and when a result is tapped. Cancel and Escape clear the query. Ending by a result tap keeps the query. Focusing the field again does not bring its results back, for the same 3.2.1 reason; the next edit that leaves the query non-empty does, and so does Enter (the phone keyboard's Search key), an explicit submit. An edit that empties a kept query, and Enter on an empty field, start nothing.
+- The clear (×) button empties the query and refocuses the input. Search stays active if it was (Hint), and stays ended if it was (a kept query after a result tap). It renders only when the query is non-empty.
 - Hiding uses the `hidden` attribute on `CrewSections`' sub-nav and section body, so section state (open disclosures) survives a search. The fixed bottom sub-nav on narrow screens (`CrewSubNav`) is hidden with it.
 
 ### 6.3 Chips
@@ -289,7 +290,7 @@ Each section group is a heading (section label) and a list. Each row:
 
 - Tapping a row calls `openSectionAndReveal(entry.section, entry.id)` (§9.1) and ends search with the query kept.
 - On today's page the controller: sets the active section the way a tab tap does (`setActive`, `pushState` to the section href, as `onSelect` in `CrewSections.tsx` does). The destination section mounts only after `CrewSectionTransition` (`AnimatePresence mode="wait"`, 220 ms, 0 under reduced motion) finishes the outgoing exit, so the controller waits for the target: it looks for `[data-search-target="<id>"]` inside the section body on each animation frame until found or 1500 ms pass. When found, it opens every `<details>` that contains the target and every `<details>` inside it, scrolls the element to the vertical center, moves focus to it (`tabIndex=-1`, `preventScroll`) and sets `data-search-reveal` for the highlight.
-- Highlight: a background tint that fades out over 1600 ms. Under `prefers-reduced-motion: reduce`, the tint shows without fading for 2000 ms and is removed instantly.
+- Highlight: a 2px `warning-text` ring plus a `warning-bg` tint, held at full strength for the first half of the 1600 ms window, then faded (DESIGN.md §5.5, `REVEAL_HIGHLIGHT_MS`). The tint alone was not findable (1.10:1 on a light card), so the ring carries the cue; its contrast is pinned in `tests/styles/searchRevealCue.test.ts`. Under `prefers-reduced-motion: reduce`, the tint and the ring are held steady for 2000 ms and removed at once.
 - If the target is not found within 1500 ms (the line changed or was removed by a refresh; ids are content-addressed, so a changed line never matches an old id), the section stays open at the top and a polite live region says "That line isn't on the page anymore."
 - Back after a reveal behaves like Back after a tab tap today (the `popstate` handler in `CrewSections.tsx` re-resolves `?s=`). Search does not reopen. No history entry is pushed when search opens.
 
@@ -303,6 +304,8 @@ Each section group is a heading (section label) and a list. Each row:
 - The field is `<input type="search">` with an accessible name, inside `role="search"`.
 - A polite live region announces the result count 300 ms after typing stops ("4 results", "1 result", "No matches").
 - Escape: clears a non-empty query; ends search on an empty one. Focus returns to the input after clear.
+- Cancel ends search and moves focus to the input, which is then idle and empty, so focus never falls to the document body. That focus starts nothing (§6.2).
+- Focus alone never starts search (§6.2, WCAG 3.2.1).
 - The page body is hidden with `hidden`, so assistive tech does not reach stale content behind results.
 - Every interactive element is at least 44 px tall.
 
@@ -319,8 +322,8 @@ States: Idle (I), Hint (H), Results (R), No match (N).
 | Pair | Treatment |
 |---|---|
 | I ↔ H | Instant. |
-| I ↔ R | Instant (R is reached from I only by focusing a field that kept its query). |
-| I ↔ N | Instant (same path as I ↔ R). |
+| I ↔ R | Instant (R is reached from I by an edit or Enter on a field that kept its query, or by pasting 2 or more characters; never by focus, §6.2). |
+| I ↔ N | Instant (same paths as I ↔ R). |
 | H ↔ R | Instant. |
 | H ↔ N | Instant. |
 | R ↔ N | Instant. |
