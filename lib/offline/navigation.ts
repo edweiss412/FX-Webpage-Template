@@ -49,7 +49,9 @@ export type CheckDecision =
 /**
  * Step 1 for an S(U) marked ended. "step-2" purges, then runs steps 2 to 5 as for
  * any navigation; "fetch-keep" fetches under the step 2 budget, keeps S(U), and
- * hands the result to `decideEndedFetch`.
+ * hands the result to `decideEndedFetch`. After a "step-2" purge the caller reads
+ * the SavedView again before `decideStep3` or `decideNoResponse`: the view read for
+ * step 1 still holds the copy the purge removed.
  */
 export type EndedStep1 =
   | { next: "serve-saved"; mode: "ended" }
@@ -72,8 +74,9 @@ export type NoResponseDecision =
   | { serve: "saved"; mode: "slow"; continueForMs: number }
   | { serve: "wait" };
 
-const NETWORK_NONE: Step3 = { serve: "network", then: "none" };
-const SAVED_SERVER_ERROR: Step3 = { serve: "saved", mode: "server-error" };
+// Shared by several rows, so frozen: a caller writing to one would change every later answer.
+const NETWORK_NONE: Step3 = Object.freeze({ serve: "network", then: "none" });
+const SAVED_SERVER_ERROR: Step3 = Object.freeze({ serve: "saved", mode: "server-error" });
 
 /** Step 3: the marker of a response that completed in time decides, against S(U) and C(X). */
 export function decideStep3(url: string, response: CompleteResponse, saved: SavedView): Step3 {

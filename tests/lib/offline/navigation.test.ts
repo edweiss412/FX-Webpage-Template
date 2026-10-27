@@ -691,3 +691,26 @@ describe("steps 4 and 5: no complete response", () => {
     expect(decideNoResponse(reason, saved)).toStrictEqual(expected);
   });
 });
+
+describe("shared decisions cannot be changed by a caller", () => {
+  // Several rows return one shared object. A caller that wrote to it would change
+  // the answer every later navigation gets, so the shared objects are frozen.
+  const hold: CompleteResponse = {
+    kind: "body",
+    status: 200,
+    marker: { kind: "valid", marker: { disposition: "hold", showId: null } },
+  };
+  const platformError: CompleteResponse = { kind: "body", status: 502, marker: { kind: "absent" } };
+
+  test.each([
+    ["the network-and-nothing-else row", () => decideStep3(U, hold, view(U))],
+    ["the server-error row", () => decideStep3(U, platformError, view(U, MINE_AT_U))],
+  ])("%s is frozen", (_label, decide) => {
+    const first = decide();
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(() => {
+      (first as { serve: string }).serve = "saved";
+    }).toThrow(TypeError);
+    expect(decide()).toStrictEqual(first);
+  });
+});
