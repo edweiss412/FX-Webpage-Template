@@ -27,6 +27,15 @@ function warn(kind?: string, severity: "warn" | "info" = "warn"): ParseWarning {
   };
 }
 
+function archivedTabWarning(code: string): ParseWarning {
+  return {
+    severity: "warn",
+    code,
+    message: "Test warning",
+    blockRef: { kind: "pull_sheet_archived_tab", name: "OLD GEAR" },
+  };
+}
+
 describe("sectionForWarning", () => {
   // Crew section: crew, travel, flights
   test("crew → crew", () => {
@@ -102,6 +111,16 @@ describe("sectionForWarning", () => {
   test("missing blockRef → null", () => {
     expect(sectionForWarning(warn())).toBeNull();
   });
+
+  // warning-card-fixes spec §7.2: both archived-tab codes carry the sync-emitted
+  // `pull_sheet_archived_tab` kind (the shape lib/sync/pullSheetOverride.ts emits) and route
+  // to Pack list. The content-changed code is the one a single-code fix would miss.
+  test.each(["PULL_SHEET_ON_ARCHIVED_TAB", "PULL_SHEET_OVERRIDE_CONTENT_CHANGED"])(
+    "%s (pull_sheet_archived_tab) → packlist",
+    (code) => {
+      expect(sectionForWarning(archivedTabWarning(code))).toBe("packlist");
+    },
+  );
 
   test("fabricated future kind → null", () => {
     expect(sectionForWarning(warn("zzz_future"))).toBeNull();
@@ -246,6 +265,27 @@ describe("warningsBySection", () => {
     for (const list of map.values()) {
       expect(list.some((entry) => entry.warning === warnings[3])).toBe(false);
     }
+  });
+
+  // warning-card-fixes spec §7.2: the archived-tab codes land in Pack list when it renders,
+  // and in the warnings bucket (the existing fallback) when it does not.
+  test("archived-tab codes → packlist when rendered, warnings when not", () => {
+    const warnings = [
+      archivedTabWarning("PULL_SHEET_ON_ARCHIVED_TAB"),
+      archivedTabWarning("PULL_SHEET_OVERRIDE_CONTENT_CHANGED"),
+    ];
+    const both = [
+      { warning: warnings[0], index: 0 },
+      { warning: warnings[1], index: 1 },
+    ];
+    const rendered = warningsBySection(warnings, renderedSections);
+    expect(rendered.get("packlist")).toEqual(both);
+    expect(rendered.has("warnings")).toBe(false);
+
+    const withoutPacklist = new Set([...renderedSections].filter((s) => s !== "packlist"));
+    const fallback = warningsBySection(warnings, withoutPacklist);
+    expect(fallback.get("warnings")).toEqual(both);
+    expect(fallback.has("packlist")).toBe(false);
   });
 
   test("mapped + NOT rendered → warnings bucket", () => {
