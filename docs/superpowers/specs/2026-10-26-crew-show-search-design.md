@@ -110,7 +110,7 @@ The plan enumerates every target site from the live components (row primitives `
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 
 export type SearchCopy = {
-  kind: "network" | "password" | "confirmation";
+  kind: "network" | "password" | "hotelConfirmation" | "flightConfirmation";
   text: string; // the exact string written to the clipboard
 };
 
@@ -403,8 +403,8 @@ All crew-visible strings. No em dashes. "Wi-Fi" in visible text, aria-labels and
 | Show all | Show all {n} in {Section label} |
 | Section cap note | Showing the first 50. Add a word to narrow it. |
 | Alias note | Matched "{span}" |
-| Copy aria-labels | Copy Wi-Fi network / Copy Wi-Fi password / Copy hotel confirmation / Copy flight confirmation |
-| Copy toasts | Network name copied / Password copied / Confirmation copied |
+| Copy aria-labels, by `copy.kind` | `network`: Copy Wi-Fi network / `password`: Copy Wi-Fi password / `hotelConfirmation`: Copy hotel confirmation / `flightConfirmation`: Copy flight confirmation |
+| Copy toasts, by `copy.kind` | `network`: Network name copied / `password`: Password copied / `hotelConfirmation` and `flightConfirmation`: Confirmation copied |
 | Copy failed | Couldn't copy. Tap the line, then press and hold the text. |
 | No match | No matches. Try dock, hotel, or a name. |
 | Report row | Not what you need? / Tell Doug what's missing from the sheet. / Report |

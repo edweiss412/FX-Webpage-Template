@@ -73,9 +73,15 @@ function searchLine(
   };
 }
 
-/** A confirmation code as the clipboard should receive it. */
-const confirmationCopy = (code: string): SearchCopy => ({
-  kind: "confirmation",
+/**
+ * A confirmation code as the clipboard should receive it. The kind names whose
+ * confirmation it is, so the search UI never reads that from the entry id.
+ */
+const confirmationCopy = (
+  kind: "hotelConfirmation" | "flightConfirmation",
+  code: string,
+): SearchCopy => ({
+  kind,
   text: code.trim(),
 });
 
@@ -230,7 +236,15 @@ export function flightCard(data: ShowForViewer, today: Date, hideDates: boolean)
       times,
       line: segLine,
       confLine: conf
-        ? searchLine(FLIGHT.region, FLIGHT.group, "Conf", conf, [], seen, confirmationCopy(conf))
+        ? searchLine(
+            FLIGHT.region,
+            FLIGHT.group,
+            "Conf",
+            conf,
+            [],
+            seen,
+            confirmationCopy("flightConfirmation", conf),
+          )
         : null,
     };
   });
@@ -253,7 +267,7 @@ export function flightCard(data: ShowForViewer, today: Date, hideDates: boolean)
             confirmation,
             [],
             seen,
-            confirmationCopy(confirmation),
+            confirmationCopy("flightConfirmation", confirmation),
           )
         : null,
   };
@@ -576,7 +590,12 @@ export function hotelBlocks(
       if (confirmation)
         stay(
           { k: "Confirmation", v: confirmation, code: true },
-          line("Confirmation", confirmation, [name], confirmationCopy(confirmation)),
+          line(
+            "Confirmation",
+            confirmation,
+            [name],
+            confirmationCopy("hotelConfirmation", confirmation),
+          ),
         );
       if (resNotes) stay({ k: "Notes", v: resNotes }, line("Notes", resNotes, [name]));
 

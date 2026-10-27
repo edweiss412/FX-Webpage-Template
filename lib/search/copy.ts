@@ -26,7 +26,8 @@ export const SEARCH_COPY = {
   copied: {
     network: "Network name copied",
     password: "Password copied",
-    confirmation: "Confirmation copied",
+    hotelConfirmation: "Confirmation copied",
+    flightConfirmation: "Confirmation copied",
   },
   copyFailed: "Couldn't copy. Tap the line, then press and hold the text.",
   noMatch: "No matches. Try dock, hotel, or a name.",

@@ -73,15 +73,9 @@ function highlighted(text: string, ranges: readonly Range[], keyPrefix: string):
   return parts;
 }
 
-/** The copy button's name. Confirmations are told apart by the line's card. */
-function copyButtonLabel(entry: SearchEntry, copy: SearchCopy): string {
-  if (copy.kind === "network") return SEARCH_COPY.copyButton.network;
-  if (copy.kind === "password") return SEARCH_COPY.copyButton.password;
-  // Ids are `<section>:<region>:<hash>` (lib/search/entryId.ts). A confirmation
-  // is copyable on a flight segment or a hotel only (spec §3).
-  return entry.id.split(":")[1] === "travel-flight"
-    ? SEARCH_COPY.copyButton.flightConfirmation
-    : SEARCH_COPY.copyButton.hotelConfirmation;
+/** The copy button's name, one per copy kind (spec §10). */
+function copyButtonLabel(copy: SearchCopy): string {
+  return SEARCH_COPY.copyButton[copy.kind];
 }
 
 function ResultRow({
@@ -148,7 +142,7 @@ function ResultRow({
         <button
           type="button"
           data-testid="crew-search-copy"
-          aria-label={copyButtonLabel(entry, copy)}
+          aria-label={copyButtonLabel(copy)}
           onClick={() => onCopy(copy)}
           className="mr-1.5 inline-flex size-tap-min shrink-0 items-center justify-center self-center rounded-sm text-text transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >

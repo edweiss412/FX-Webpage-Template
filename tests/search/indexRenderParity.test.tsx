@@ -346,7 +346,10 @@ describe("travel", () => {
       caseName: flightVisible.name,
       present: (es) =>
         es.some(
-          (e) => inGroup(e, "Your flight") && e.label === "Conf" && e.copy?.kind === "confirmation",
+          (e) =>
+            inGroup(e, "Your flight") &&
+            e.label === "Conf" &&
+            e.copy?.kind === "flightConfirmation",
         ),
     },
     {
@@ -363,7 +366,7 @@ describe("travel", () => {
           (e) =>
             inGroup(e, "Your flight") &&
             e.label === "Confirmation" &&
-            e.copy?.kind === "confirmation",
+            e.copy?.kind === "flightConfirmation",
         ),
     },
     {
@@ -430,7 +433,9 @@ describe("travel", () => {
       present: (es) =>
         es.some(
           (e) =>
-            inGroup(e, "Hotels") && e.label === "Confirmation" && e.copy?.kind === "confirmation",
+            inGroup(e, "Hotels") &&
+            e.label === "Confirmation" &&
+            e.copy?.kind === "hotelConfirmation",
         ),
     },
     {
@@ -478,7 +483,9 @@ describe("travel", () => {
 
   test("dateSuppressed keeps the hotel confirmation copyable while the flight's is withheld", () => {
     const entries = SECTION_BUILDERS.travel(dateSuppressed);
-    expect(entries.some((e) => e.group === "Hotels" && e.copy?.kind === "confirmation")).toBe(true);
+    expect(entries.some((e) => e.group === "Hotels" && e.copy?.kind === "hotelConfirmation")).toBe(
+      true,
+    );
     expect(entries.some((e) => e.group === "Your flight" && e.copy !== null)).toBe(false);
   });
 });

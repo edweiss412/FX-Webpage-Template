@@ -403,6 +403,50 @@ describe("copy (spec §6.4, §6.5)", () => {
     expect(screen.getByTestId("crew-search-toast")).toHaveTextContent("Confirmation copied");
   });
 
+  it("a flight confirmation copy says Confirmation copied too", async () => {
+    renderResults();
+    search("confirmation");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy flight confirmation" }));
+    });
+    expect(clipboardWrite).toHaveBeenCalledWith("QX7RTP");
+    expect(screen.getByTestId("crew-search-toast")).toHaveTextContent("Confirmation copied");
+  });
+
+  it("names a confirmation by its copy kind, never by the line's card", () => {
+    // The regions are swapped against the kinds on purpose: a label read from the
+    // entry id's region would name each of these the other way round.
+    renderResults({
+      entries: buildEntries([
+        {
+          section: "travel",
+          region: "travel-hotels",
+          group: "Hotels",
+          label: "Booking",
+          value: "ZK4410",
+          copy: { kind: "flightConfirmation", text: "ZK4410" },
+        },
+        {
+          section: "travel",
+          region: "travel-flight",
+          group: "Your flight",
+          label: "Booking",
+          value: "ZK4411",
+          copy: { kind: "hotelConfirmation", text: "ZK4411" },
+        },
+      ]),
+    });
+    search("booking");
+    const rows = screen.getAllByTestId("crew-search-row");
+    premiseHolds("both swapped lines render as rows", rows.length === 2);
+    const nameIn = (value: string) =>
+      within(rows.find((r) => r.textContent?.includes(value))!)
+        .getByTestId("crew-search-copy")
+        .getAttribute("aria-label");
+    expect(nameIn("ZK4410")).toBe("Copy flight confirmation");
+    expect(nameIn("ZK4411")).toBe("Copy hotel confirmation");
+  });
+
   it("a rejected write shows the failure toast", async () => {
     clipboardWrite.mockRejectedValue(new Error("NotAllowedError"));
     renderResults();

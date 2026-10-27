@@ -6,7 +6,7 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
  */
 
 export type SearchCopy = {
-  kind: "network" | "password" | "confirmation";
+  kind: "network" | "password" | "hotelConfirmation" | "flightConfirmation";
   text: string; // the exact string written to the clipboard
 };
 

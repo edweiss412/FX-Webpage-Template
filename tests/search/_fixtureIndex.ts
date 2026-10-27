@@ -162,7 +162,7 @@ export const FIXTURE_INDEX: SearchIndex = {
       group: "Your flight",
       label: "Confirmation",
       value: "QX7RTP",
-      copy: { kind: "confirmation", text: "QX7RTP" },
+      copy: { kind: "flightConfirmation", text: "QX7RTP" },
     },
     {
       section: "travel",
@@ -187,7 +187,7 @@ export const FIXTURE_INDEX: SearchIndex = {
       label: "Confirmation",
       value: "83920174",
       context: [HYATT],
-      copy: { kind: "confirmation", text: "83920174" },
+      copy: { kind: "hotelConfirmation", text: "83920174" },
     },
     // Crew
     {
