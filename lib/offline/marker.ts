@@ -197,17 +197,27 @@ function parseAttributes(
   }
 }
 
-/** The attributes of the first `<template id="fxav-saved-copy">` element, or null when there is none. */
-function findMarkerAttributes(html: string): Map<string, string> | null {
+/** One start tag the scan walked past: its lower-cased name and its decoded attributes. */
+export type StartTag = { name: string; attributes: ReadonlyMap<string, string> };
+
+/**
+ * Every start tag in `html`, in document order, the way the tokenizer above
+ * walks them: comments, script bodies and style bodies are skipped, so text
+ * inside them is never taken for an element. Ends quietly at a comment, a tag or
+ * a script or style body that never closes. Shared by the marker reader and the
+ * completeness scan (completeness.ts), so the two cannot disagree about what is
+ * an element.
+ */
+export function* startTags(html: string): Generator<StartTag, void, undefined> {
   let at = 0;
   for (;;) {
     at = html.indexOf("<", at);
-    if (at === -1) return null;
+    if (at === -1) return;
 
     if (html.startsWith("<!--", at)) {
       // From at + 2, so the empty comments `<!-->` and `<!--->` end where a browser ends them.
       const end = html.indexOf("-->", at + 2);
-      if (end === -1) return null;
+      if (end === -1) return;
       at = end + 3;
       continue;
     }
@@ -219,18 +229,26 @@ function findMarkerAttributes(html: string): Map<string, string> | null {
       continue;
     }
     const tag = parseAttributes(html, TAG_NAME.lastIndex);
-    if (tag === null) return null;
+    if (tag === null) return;
     at = tag.end;
 
     const tagName = (name[1] ?? "").toLowerCase();
-    if (tagName === "template" && tag.attributes.get("id") === MARKER_ID) return tag.attributes;
+    yield { name: tagName, attributes: tag.attributes };
 
     const rawTextEnd = RAW_TEXT_END.get(tagName);
     if (rawTextEnd !== undefined) {
       rawTextEnd.lastIndex = at;
       const close = rawTextEnd.exec(html);
-      if (close === null) return null;
+      if (close === null) return;
       at = close.index;
     }
   }
+}
+
+/** The attributes of the first `<template id="fxav-saved-copy">` element, or null when there is none. */
+function findMarkerAttributes(html: string): ReadonlyMap<string, string> | null {
+  for (const tag of startTags(html)) {
+    if (tag.name === "template" && tag.attributes.get("id") === MARKER_ID) return tag.attributes;
+  }
+  return null;
 }

@@ -115,6 +115,13 @@ tests/components/admin/showpage/__fixtures__/published-attention-menu-baseline.h
 # the component actually emitted.
 tests/fixtures/venueSectionRawWifi.html
 
+# The captured production crew page is the input of the offline completeness
+# tests (tests/lib/offline/completeness.test.ts): they read static URLs out of
+# its markup, and its capture command is recorded beside them. Prettier would
+# re-flow the captured markup, so the committed bytes would stop being the bytes
+# the server sent.
+tests/lib/offline/fixtures/crew-page.html
+
 # The claim sweep's historical re-enactment fixtures are FROZEN BLOBS of the
 # incident arc's documents, checked out verbatim from `fede5f084` and
 # `c272ebed3` (spec §6). Every assertion over them is a
