@@ -41,6 +41,7 @@ import { AnnounceLogRegion, type AnnounceLogEntry } from "@/components/admin/ann
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import Image from "next/image";
 import { hasVariantTier, makeDiagramLoader } from "@/lib/images/diagramLoader";
+import { acquireScrollLock } from "@/lib/ui/scrollLock";
 
 type LightboxProps = {
   showId: string;
@@ -718,14 +719,8 @@ export function GalleryLightbox({
     // it.
   }, [handleClose, scrollPrev, scrollNext]);
 
-  // Lock background scroll while open.
-  useEffect(() => {
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = original;
-    };
-  }, []);
+  // Lock background scroll while open (shared reference-counted lock).
+  useEffect(() => acquireScrollLock(), []);
 
   // M9 C6 / M7-D1: lightbox entry/exit motion via framer-motion.
   // - Container: opacity 0 → 1 + scale 0.96 → 1 on enter, reversed on

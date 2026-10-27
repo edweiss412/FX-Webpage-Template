@@ -471,7 +471,7 @@ const HOVER_SUBTLE = [
   "components/admin/UnarchiveShowButton.tsx:67",
   "components/admin/nav/UserMenu.tsx:51",
   "components/admin/showpage/PublishedReviewModal.tsx:1133",
-  "components/agenda/AgendaEmbed.tsx:83",
+  "components/agenda/AgendaEmbed.tsx:84",
   "components/agenda/AgendaPdfViewer.tsx:198",
   "components/layout/ThemeToggle.tsx:92",
   "components/shared/ReportButton.tsx:142",
