@@ -232,6 +232,33 @@ describe("clause 4: group headings are represented", () => {
     expect(check(html, BASE_ENTRIES)).toEqual(["group-heading-unrepresented"]);
   });
 
+  it("a card that renders only its title has no target, so its heading is not owed an entry", () => {
+    // Venue "Where" with only the Maps link, or Show crew / Key contacts whose
+    // every row hid itself: past skipped controls, the card renders only its title.
+    const WHERE = `<div data-card-id="venue-where">
+      <h2 data-search-group="">Where</h2>
+      <a href="#maps" data-search-skip="">Open in Maps</a>
+    </div>`;
+    const titleOnly = edit(
+      BASE_HTML,
+      `<div data-card-id="venue-diagrams">`,
+      `${WHERE}<div data-card-id="venue-diagrams">`,
+    );
+    expect(check(titleOnly, BASE_ENTRIES)).toEqual([]);
+    // The exemption is the empty region only: once the card holds a target, its
+    // heading must be some entry's group there again.
+    const withLine = edit(
+      titleOnly,
+      `<a href="#maps" data-search-skip="">Open in Maps</a>`,
+      `<p data-search-target="t-hall">Grand Hall</p><a href="#maps" data-search-skip="">Open in Maps</a>`,
+    );
+    const hall = entry({ id: "t-hall", value: "Grand Hall" });
+    expect(check(withLine, [...BASE_ENTRIES, hall])).toEqual([
+      "group-not-in-region",
+      "group-heading-unrepresented",
+    ]);
+  });
+
   it("a line outside every card takes the section root as its region", () => {
     const html = `
       <h2 data-search-group="">Agenda</h2>
@@ -244,11 +271,13 @@ describe("clause 4: group headings are represented", () => {
       value: "Welcome",
     });
     expect(check(html, [s1])).toEqual([]);
-    // A card heading does not stand in for the root region's heading.
+    // A card heading does not stand in for the root region's heading. The card
+    // holds only its title, so its heading is owed no entry (clause 4); the
+    // root-region line still has no heading of its own.
     const carded = `
       <div data-card-id="schedule-days"><h2 data-search-group="">Agenda</h2></div>
       <ul><li data-search-target="t-s1"><span>9:00 AM</span> <span>Welcome</span></li></ul>`;
-    expect(check(carded, [s1])).toEqual(["group-not-in-region", "group-heading-unrepresented"]);
+    expect(check(carded, [s1])).toEqual(["group-not-in-region"]);
   });
 });
 
