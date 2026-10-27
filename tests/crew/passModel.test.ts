@@ -37,10 +37,11 @@ import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import { effectiveViewerDateRestriction } from "@/lib/crew/stageSchedule";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
 
 const RAW_DIR = "fixtures/shows/raw";
 const RAW_FIXTURES = readdirSync(RAW_DIR)
-  .filter((f) => f.endsWith(".md"))
+  .filter((f) => f.endsWith(".md") && !f.startsWith(CORPUS_TEMP_PREFIX))
   .sort();
 
 /** Separate travel-in, load-in, two show days, travel-out; a real GS room name; one hotel. */
