@@ -8,10 +8,12 @@
 
 ## 1. Problem
 
-The FinTech Forum CTO Summit 2026 review shows a bare "No pack list parsed." in its Pack list section (`components/admin/wizard/step3ReviewSections.tsx`, `PackListBreakdown`, the `isEmpty` branch). The parser is right: neither the live test copy (`1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY`) nor Doug's original (`1DlzndW4hgK673PvLjBIW45eOb9z6C1oy3cJem64y5OE`) has a tab whose name contains `PULL SHEET`. A pack list needs two things on its tab:
+The FinTech Forum CTO Summit 2026 review shows a bare "No pack list parsed." in its Pack list section (`components/admin/wizard/step3ReviewSections.tsx`, `PackListBreakdown`, the `isEmpty` branch). The parser is right: neither the live test copy (`1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY`) nor Doug's original (`1DlzndW4hgK673PvLjBIW45eOb9z6C1oy3cJem64y5OE`) has a tab whose name contains `PULL SHEET`, or any `PULL SHEET` heading at all. How a pack list is found:
 
-- **The tab name.** The exporter reshapes a pull-sheet grid only on a tab whose name matches `/PULL SHEET/i` (`lib/drive/exportSheetToMarkdown.ts`, `normalizePullSheetGrid`).
-- **The heading.** On that tab, the exporter joins the cells above the first gear row (a numeric QTY in column A with an item beside it) into one header row, and the parser accepts that row only when it contains `PULL SHEET` (`lib/parser/pull-sheet.ts`, `parsePullSheet`, the every-cell-contains-`PULL SHEET` header test). Probe from spec review round 1: renaming only `PULL SHEET!A1` in `east-coast.xlsx` to `PACK LIST` takes the parse from 1 case of 91 items to `pullSheet: null`, with the tab still named `PULL SHEET`.
+- **The heading is required.** The parser starts a pack-list case only at a header row whose every cell contains `PULL SHEET` (`lib/parser/pull-sheet.ts`, `parsePullSheet`). Probe from spec review round 1: renaming only `PULL SHEET!A1` in `east-coast.xlsx` to `PACK LIST` takes the parse from 1 case of 91 items to `pullSheet: null`, with the tab still named `PULL SHEET`.
+- **The tab name helps but is not required.** On a tab whose name matches `/PULL SHEET/i`, the exporter joins the cells above the first gear row (a numeric QTY in column A with an item beside it) into one header row, which is what makes a multi-row title read as a heading (`lib/drive/exportSheetToMarkdown.ts`, `normalizePullSheetGrid`). Probe from spec review round 3: renaming only the `east-coast.xlsx` tab to `PACK LIST` still parses 1 case of 91 items, because that sheet's heading row already reads `PULL SHEET` across every cell.
+
+So the shape that reliably works is the corpus's own: a tab named PULL SHEET with PULL SHEET at the top, above the gear rows. The copy recommends exactly that (§4.6).
 
 The empty section is silent. It reads the same whether the sheet has no pull sheet or a parse went wrong, it counts as nothing in review, and it gives Doug's team no hint that crew lose the one thing the pack list is for: looking up which case a piece of gear is packed in. The 2026 template sheets carry no pull sheet tab at all, so this is the common case, not an edge.
 
@@ -76,7 +78,7 @@ Not a condition: a pull sheet with cases but zero items. `parsePullSheet` keeps 
 - Emitted through a new exported helper in `lib/parser/warnings.ts`, `emitPullSheetMissing(agg)`, beside `emitVenueAddressMissing`, with an exported `PULL_SHEET_MISSING` constant beside `VENUE_ADDRESS_MISSING`. `finalizeArchivedTabs` filters on that constant.
 - `blockRef: { kind: "pull_sheet" }`, no `field`, no `name`. `KIND_TO_SECTION` already maps `pull_sheet` to `packlist` (`lib/admin/step3SectionStatus.ts`), the same kind the other `PULL_SHEET_*` parse warnings carry (`lib/parser/pull-sheet.ts`).
 - `rawSnippet: "no pack list"`, a fixed string. Ignore keys its fingerprint on code plus normalized `rawSnippet` (`lib/dataQuality/warningFingerprint.ts`) and is stored per show (`ignored_warnings`, `unique (show_id, fingerprint)`, `supabase/migrations/20260702120000_ignored_warnings.sql`). A blank snippet disables Ignore (`lib/dataQuality/ignorableSnippet.ts`, `hasIgnorableSnippet`). The notice is at most once per show and has no sheet text of its own to key on, so a constant is the whole identity. An Ignore holds for as long as the notice keeps firing on that show. Once an applied parse stops carrying the notice (a pack list appears, or an archived pull-sheet tab suppresses it), the orphan prune in the apply transaction deletes the Ignore (`lib/sync/runScheduledCronSync.ts`, the `DQIGNORE-3` comment above `delete from public.ignored_warnings … not (fingerprint = any($2))`), so if the pack list is later lost again the notice shows again. That is the behavior Doug would want. Because the snippet is never blank, the Ignore control always renders, which licenses a `controlsNote` naming Ignore (§4.6, §4.7 item 5).
-- `message` (internal, never shown): `No pack list found: no PULL SHEET block in the sheet.`
+- `message`: `We didn't find a pack list we could read in this sheet.` This string IS shown: the staged first-seen card joins the `.message` of every data-quality warning outside `OPERATOR_ACTIONABLE_ANCHORED` into its summary line (`app/admin/show/staged/[stagedId]/page.tsx`, `warningSummaryFor`; rendered as `staged-warning-summary` in `components/admin/StagedReviewCard.tsx`). So it is Doug-readable prose in the venue notice's style (`emitVenueAddressMissing`: `We read "<venue>" as the venue but found no address for it.`), with no code, no banned vocabulary from the copy contract, and no em dash.
 - No `sourceCell`, and the code is NOT added to `OPERATOR_ACTIONABLE_ANCHORED` (`lib/parser/dataGaps.ts`): there is no cell to point at.
 
 ### 4.4 Gap class and alert posture
@@ -91,11 +93,15 @@ Flag lifecycle for `gateExempt` on this entry is identical to the venue entry's 
 
 ### 4.5 Where it renders
 
-No component changes. The existing routing places it:
+No component changes. The existing routing places it, and the venue notice takes the same paths to the Venue section. `warningsBySection` (`lib/admin/step3SectionStatus.ts`) sends a warn-severity warning to its mapped section when that section is rendered, and the `packlist` section is always rendered (its registry entry in `components/admin/wizard/step3ReviewSections.tsx` has no visibility predicate). What the section shows then depends on the review mode:
 
-- `warningsBySection` (`lib/admin/step3SectionStatus.ts`) sends a warn-severity warning to its mapped section when that section is rendered. The `packlist` section is always rendered (its registry entry in `components/admin/wizard/step3ReviewSections.tsx` has no visibility predicate).
-- The review surface passes each flagged section its `calloutEntries` (`components/admin/wizard/step3ReviewSections.tsx`, the section-chrome `calloutEntries` prop), which renders the inline flag callout at the top of the Pack list section with the catalog title and a jump to the full card. The full card, with Report and Ignore, is in the Warnings section. This is the same path the venue notice takes to the Venue section.
-- The section body keeps "No pack list parsed." as its empty state. When the notice is ignored the callout goes, and the body line is still the correct thing to show. Replacing the line would need the section body to read the callout state, a new prop path through the section registry's `render: (s) => …` signature, for a duplicate-wording gain.
+| Surface | In the Pack list section | In the Warnings section | Source |
+| --- | --- | --- | --- |
+| Staged review (wizard) | Inline flag callout at the top: catalog title plus a jump to the full card | The full card, with Report and Ignore | `components/admin/review/ShowReviewSurface.tsx`, `calloutEntries` passed only under `isStaged(data)` |
+| Published review | The full card, with Report and Ignore, rendered in the section | Not listed: published warn rows routed to a section are removed from the generic panel | `components/admin/showpage/sectionWarningExtras.tsx`; `lib/admin/visibleWarningRows.ts` |
+| Staged first-seen card | Not a section view | The `.message` in the card's summary line (§4.3) | `app/admin/show/staged/[stagedId]/page.tsx`, `warningSummaryFor` |
+
+In both review modes the Pack list section body keeps "No pack list parsed." as its empty state, under the callout or card. When the notice is ignored, the callout or card goes and the body line is still the correct thing to show. Replacing the line would need the section body to read the warning state, a new prop path through the section registry's `render: (s) => …` signature, for a duplicate-wording gain.
 
 Because no file under `app/` (outside `app/api/**`) or `components/` changes, AGENTS.md invariant 8 (impeccable dual gate) does not apply: `impeccable-gate: N/A — no UI surface`.
 
@@ -103,7 +109,7 @@ Because no file under `app/` (outside `app/api/**`) or `components/` changes, AG
 
 Written to the warning-card copy contract (`docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md` §4.1): reader knows only sheet in, crew page out; voice "we found / we didn't find"; popover opens "Appears when"; none of the banned vocabulary; no em dash; straight apostrophes. "Tab", "row" and "heading" are sheet-world vocabulary and legal.
 
-The copy names both things a pack list needs (§1): a tab named PULL SHEET, and PULL SHEET at the top of that tab above the gear rows. A sheet that has the tab but lost the heading fires the notice too, and "add a tab" alone would send Doug to create a tab he already has. The copy says "a pack list we could read", not "no tab", for the same reason. The composed inline line (`helpfulContext`, a space, `controlsNote`) stays under the 300-character cap the copy meta-test enforces.
+The copy recommends the shape that reliably works (§1): a tab named PULL SHEET, with PULL SHEET at the top above the gear rows. The heading is the part the parser requires; the name is what lets a multi-row title read as that heading. A sheet that has the tab but lost the heading fires the notice too, and "add a tab" alone would send Doug to create a tab he already has. The copy says "a pack list we could read", not "no tab", for the same reason. The composed inline line (`helpfulContext`, a space, `controlsNote`) stays under the 300-character cap the copy meta-test enforces.
 
 | Field | Text |
 | --- | --- |
@@ -114,7 +120,7 @@ The copy names both things a pack list needs (§1): a tab named PULL SHEET, and 
 | `crewFacing` | `null` (§12.4 cell `—`). Crew never see this notice. |
 | `followUp` | Doug → add or fix the PULL SHEET tab (or Ignore) |
 | `controlsNote` | Use Report to flag it to us, or Ignore to hide this notice. |
-| `longExplanation` | We read a show's pack list from a tab with PULL SHEET in its name and PULL SHEET at the top of the tab, above the gear rows. This sheet has no such tab, or the tab's heading or rows aren't ones we could read, so the crew page shows no pack list. Once the tab is in place, the pack list shows the next time this show checks its sheet. |
+| `longExplanation` | We look for a show's pack list under a PULL SHEET heading at the top of a tab, above the gear rows, and a tab named PULL SHEET is the layout we read best. This sheet has no such heading, or the rows under it aren't ones we could read, so the crew page shows no pack list. Once it's in place, the pack list shows the next time this show checks its sheet. |
 | `helpHref` | `/help/errors#PULL_SHEET_MISSING` |
 | `warningClass` | `"parse_warning"` |
 
@@ -138,7 +144,7 @@ No migration: no CHECK or enum lists warning codes, and `parse_warnings` is `jso
 ## 5. Acceptance criteria
 
 - **AC-1.** On every fixture under `fixtures/shows/raw/` and `fixtures/shows/exporter-xlsx/`, `parseSheet` emits exactly one `PULL_SHEET_MISSING` when its parsed `pullSheet` is null and none otherwise. The expectation is computed from the parsed result in the test, never typed. Premise: at least one fixture fires and at least one does not (TABLE-A/B).
-- **AC-2.** The emitted warning carries `severity: "warn"`, `blockRef` deep-equal to `{ kind: "pull_sheet" }`, `rawSnippet === "no pack list"`, no `sourceCell`; `hasIgnorableSnippet` is true for it, and `sectionForWarning` (`lib/admin/step3SectionStatus.ts`) maps it to `packlist`.
+- **AC-2.** The emitted warning carries `severity: "warn"`, `blockRef` deep-equal to `{ kind: "pull_sheet" }`, `rawSnippet === "no pack list"`, `message` equal to the §4.3 string, no `sourceCell`; `hasIgnorableSnippet` is true for it, and `sectionForWarning` (`lib/admin/step3SectionStatus.ts`) maps it to `packlist`.
 - **AC-3.** `buildMinimalParsedSheet` output never carries the code: a sheet that fails version detection (MI-1) parses with `pullSheet: null` and no `PULL_SHEET_MISSING`.
 - **AC-4.** `finalizeArchivedTabs` removes every `PULL_SHEET_MISSING` when given at least one archived tab, included or not, keeps every other warning in order, and still appends one `PULL_SHEET_ON_ARCHIVED_TAB` per non-included tab. With an empty tab list it leaves `pr.warnings` exactly as it was. Premise: the input `pr.warnings` contains the code and at least one other warning.
 - **AC-5.** End to end through the exporter: synthesizing `fixtures/shows/exporter-xlsx/redefining-fi.xlsx` and finalizing its parse with the returned archived tabs leaves no `PULL_SHEET_MISSING`; the same flow on `fintech.xlsx` leaves exactly one. Both verdicts are read from the exporter's returned tab list, not typed.
