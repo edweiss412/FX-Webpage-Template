@@ -1121,13 +1121,21 @@ details[open] > summary [data-agenda-day-count] {
 
 /* Crew search: highlight on the line a result opened (crew show search spec
    §6.6). Same shape as the step-3 jump target above, for the same reason: the
-   reader must still find the line. Motion-safe: a tint that fades over
+   reader must still find the line. Unlike the step-3 row, the tint alone is
+   not enough here: warning-bg sits at 1.10:1 on a light card, and a crew member
+   lands on this line from a different screen. So the cue is a 2px warning-text
+   ring (8.7:1 or better on every ground it touches, both themes; pinned in
+   tests/styles/searchRevealCue.test.ts) plus the tint, held at full strength
+   for the first half of the window before it fades. Motion-safe: the window is
    REVEAL_HIGHLIGHT_MS (1600ms; keep in sync with components/crew/CrewSections.tsx,
-   which removes the attribute when the fade ends). Reduced motion: the tint
-   holds without fading for REVEAL_HIGHLIGHT_REDUCED_MS (2000ms) and goes with
-   the attribute. */
+   which removes the attribute, and with it the ring, when the fade ends).
+   Reduced motion: tint and ring hold without fading for
+   REVEAL_HIGHLIGHT_REDUCED_MS (2000ms) and go with the attribute. The ring
+   follows the line's own corners; it overrides the :focus-visible ring while
+   the cue runs, since the line has just been focused. */
 @keyframes search-reveal-flash {
-  from {
+  0%,
+  50% {
     background-color: var(--color-warning-bg);
   }
   to {
@@ -1136,11 +1144,17 @@ details[open] > summary [data-agenda-day-count] {
 }
 [data-search-reveal] {
   animation: search-reveal-flash 1600ms var(--ease-out-quart);
+  outline: 2px solid var(--color-warning-text);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 @media (prefers-reduced-motion: reduce) {
   [data-search-reveal] {
     animation: none;
     background-color: var(--color-warning-bg);
+    outline: 2px solid var(--color-warning-text);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
   }
 }
 
