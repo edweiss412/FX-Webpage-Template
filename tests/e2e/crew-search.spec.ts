@@ -194,5 +194,42 @@ for (const viewport of [
       expect(Math.abs(copy.width - 44)).toBeLessThanOrEqual(TOLERANCE);
       expect(Math.abs(copy.height - 44)).toBeLessThanOrEqual(TOLERANCE);
     });
+
+    // Impeccable gate A3/U3: the global unlayered :focus-visible outline beat the
+    // input's layered focus:outline-none, so the focused field drew a second ring
+    // inside the box's own. The box is the one ring; forced colors drop its
+    // box-shadow, so there the box carries an outline instead.
+    test("the focused field draws one ring, and keeps one under forced colors", async ({
+      page,
+    }) => {
+      await openAsCrew(page);
+      await searchBox(page).focus();
+
+      const styles = async () =>
+        page.evaluate(() => {
+          const input = document.querySelector<HTMLInputElement>(
+            '[data-testid="crew-search-input"]',
+          )!;
+          const box = document.querySelector<HTMLElement>('[data-testid="crew-search-box"]')!;
+          return {
+            inputFocusVisible: input.matches(":focus-visible"),
+            inputOutline: getComputedStyle(input).outlineStyle,
+            boxShadow: getComputedStyle(box).boxShadow,
+            boxOutline: getComputedStyle(box).outlineStyle,
+          };
+        });
+
+      const normal = await styles();
+      // Premise: the input is in the state the global ring targets.
+      expect(normal.inputFocusVisible).toBe(true);
+      expect(normal.inputOutline).toBe("none");
+      expect(normal.boxShadow).not.toBe("none");
+
+      await page.emulateMedia({ forcedColors: "active" });
+      const forced = await styles();
+      expect(forced.inputFocusVisible).toBe(true);
+      expect(forced.inputOutline).toBe("none");
+      expect(forced.boxOutline).toBe("solid");
+    });
   });
 }

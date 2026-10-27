@@ -902,6 +902,15 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* Crew search field: the box around the input draws the field's focus ring
+   (focus-within), so the input's own ring would be a second one inside it. The
+   input's `focus:outline-none` utility is layered and loses to the unlayered rule
+   above, hence this unlayered override. Forced colors drop the box's box-shadow
+   ring; the forced-colors block below gives the box an outline instead. */
+[data-testid="crew-search-box"] input:focus-visible {
+  outline: none;
+}
+
 /* M12.2 RECON-1 — admin AlertBanner disclosure (spec §6 + §3.3). */
 
 /* CLOSED-PANEL HIDE (F-P21 — NOT progressive enhancement; load-bearing).
@@ -1743,6 +1752,15 @@ details[open] > summary [data-agenda-day-count] {
      highlight window, ended by the attribute's removal, in both motion modes. */
   [data-search-reveal] {
     animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* The crew search field's focus ring is a box-shadow on its box, which forces
+     away here, and the input's own outline is removed (see the unlayered rule
+     after the global :focus-visible). The box carries an outline instead, so the
+     focused field keeps exactly one ring in this mode too. */
+  [data-testid="crew-search-box"]:focus-within {
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }
