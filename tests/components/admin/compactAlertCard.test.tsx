@@ -239,3 +239,60 @@ describe("CompactAlertCard surfaces — contrast guards (impeccable critique P1-
     expect(borderAlpha, `${rel}: control borders must not be alpha-dimmed`).toEqual([]);
   });
 });
+
+// ── warning-card-fixes spec §3.6 / §13.2: the sheet icon joins the message row ──
+
+/** DI-C2: the message row's className when `sheetLink` is absent, the literal it
+ *  carried before the icon existed. A literal here, never imported. */
+const MESSAGE_ROW_LITERAL = "flex gap-2.5 p-3 pb-2.5";
+/** The focus-ring backdrop each tone's icon must carry (spec §3.6 LINK_PLATE). */
+const TONE_RING_OFFSET = {
+  warning: "focus-visible:ring-offset-warning-bg",
+  muted: "focus-visible:ring-offset-surface-sunken",
+  neutral: "focus-visible:ring-offset-surface",
+} as const;
+const SHEET_LINK = {
+  // Not a sheet URL on purpose: the shell renders whatever href it is handed, and a
+  // literal sheet URL here would join the destination census for no reason.
+  href: "https://example.test/sheet#range=A5",
+  subjectLabel: "Row we couldn't match",
+  testId: "card-sheetlink",
+};
+const classTokens = (el: Element) => new Set(el.className.split(/\s+/).filter(Boolean));
+
+describe("CompactAlertCard — sheetLink in the message row (warning-card-fixes §3.6)", () => {
+  for (const tone of ["warning", "muted", "neutral"] as const) {
+    test(`tone=${tone}: the icon is the message row's LAST child, on its tone's plate, over a 44px floor`, () => {
+      render(
+        <CompactAlertCard
+          message="m"
+          tone={tone}
+          helpTrigger={<button type="button">?</button>}
+          sheetLink={SHEET_LINK}
+        />,
+      );
+      const row = screen.getByTestId("compact-alert-message");
+      const link = screen.getByTestId("card-sheetlink");
+      expect(row.lastElementChild).toBe(link);
+      expect(link.getAttribute("href")).toBe(SHEET_LINK.href);
+      expect(link.getAttribute("aria-label")).toContain(SHEET_LINK.subjectLabel);
+      const tokens = classTokens(link);
+      expect(tokens.has(TONE_RING_OFFSET[tone])).toBe(true);
+      for (const [other, token] of Object.entries(TONE_RING_OFFSET)) {
+        if (other !== tone) expect(tokens.has(token), token).toBe(false);
+      }
+      expect(tokens.has("ml-3") && tokens.has("mr-0.5")).toBe(true);
+      expect(classTokens(row).has("min-h-tap-min")).toBe(true);
+    });
+  }
+
+  test.each([
+    ["absent", undefined],
+    ["null", null],
+  ])("sheetLink %s: the message row renders exactly as before (DI-C2)", (_label, value) => {
+    render(<CompactAlertCard message="m" {...(value === undefined ? {} : { sheetLink: value })} />);
+    const row = screen.getByTestId("compact-alert-message");
+    expect(row.className).toBe(MESSAGE_ROW_LITERAL);
+    expect(row.querySelector("a")).toBeNull();
+  });
+});

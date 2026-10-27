@@ -17,8 +17,21 @@
  * (health rows) are NOT severity surfaces, so they force `stripe: "none"` and
  * omit the `!` glyph regardless of what a caller passes — a caller cannot
  * accidentally re-skin a non-severity card by severity (spec amendment A5).
+ *
+ * The source-sheet link (warning-card-fixes spec §3.6, Eric's R11): an optional
+ * `sheetLink` DATA prop, so the shell owns the one `SheetIconLink` call site and
+ * meets the icon's four consuming-context requirements (SheetIconLink.tsx header)
+ * in one place. The icon renders LAST in the message row. The row keeps its
+ * default stretch alignment (the glyph and help trigger stay top-aligned against a
+ * multi-line message), so the 20px anchor sits at the content-box top, 12px down,
+ * and `min-h-tap-min` gives its 12px vertical reach a 44px band starting at the row
+ * top. `ml-3` plus the row's `gap-2.5` is 22px, clear of the help trigger's 11px
+ * overlay plus the icon's 10px one; `mr-0.5` plus the row's 12px right padding is
+ * the icon's 14px trailing reach, ending at the card's inner edge. Absent or null,
+ * the message row renders byte-identically to before the icon existed (§13.2).
  */
 import type { ReactNode } from "react";
+import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { cn } from "@/lib/ui/cn";
 
 export type CompactAlertTone = "warning" | "muted" | "neutral";
@@ -37,6 +50,9 @@ export type CompactAlertCardProps = {
   footerRight?: ReactNode;
   /** Full-width band below the footer for expansive control clusters (§3.3). */
   controlsBand?: ReactNode;
+  /** Icon-only source-sheet link, rendered LAST in the message row (R11).
+   *  Absent, null: the message row renders byte-identically to today. */
+  sheetLink?: { href: string; subjectLabel: string; testId: string } | null;
   tone?: CompactAlertTone;
   stripe?: CompactAlertStripe;
   /** Merged onto the card root; never replaces the shell's own classes. */
@@ -67,6 +83,14 @@ const TONE_DASHED_DIVIDER: Record<CompactAlertTone, string> = {
   neutral: cn("border-border"),
 };
 
+/** The sheet icon's focus-ring backdrop per tone: the card's own fill, so the 2px ring
+ *  offset paints in the card's colour (warning-card-fixes spec §3.6). */
+const LINK_PLATE = {
+  warning: "warning-bg",
+  muted: "surface-sunken",
+  neutral: "surface",
+} as const satisfies Record<CompactAlertTone, "warning-bg" | "surface-sunken" | "surface">;
+
 const STRIPE_CLASS: Record<CompactAlertStripe, string> = {
   review: cn("border-l-[3px] border-l-status-review"),
   degraded: cn("border-l-[3px] border-l-status-degraded"),
@@ -80,6 +104,7 @@ export function CompactAlertCard({
   footerLeft,
   footerRight,
   controlsBand,
+  sheetLink,
   tone = "warning",
   stripe = "review",
   className,
@@ -98,7 +123,10 @@ export function CompactAlertCard({
       data-testid="compact-alert-card"
       className={`flex flex-col rounded-sm border ${TONE_SKIN[tone]} ${STRIPE_CLASS[effectiveStripe]} ${className ?? ""}`}
     >
-      <div data-testid="compact-alert-message" className="flex gap-2.5 p-3 pb-2.5">
+      <div
+        data-testid="compact-alert-message"
+        className={`flex gap-2.5 p-3 pb-2.5${sheetLink ? " min-h-tap-min" : ""}`}
+      >
         {isSeverity ? (
           <span
             aria-hidden="true"
@@ -111,6 +139,15 @@ export function CompactAlertCard({
           {message}
         </div>
         {present(helpTrigger) ? <div className="shrink-0">{helpTrigger}</div> : null}
+        {sheetLink ? (
+          <SheetIconLink
+            href={sheetLink.href}
+            subjectLabel={sheetLink.subjectLabel}
+            testId={sheetLink.testId}
+            ringOffset={LINK_PLATE[tone]}
+            className="ml-3 mr-0.5"
+          />
+        ) : null}
       </div>
 
       {present(detailBand) ? (

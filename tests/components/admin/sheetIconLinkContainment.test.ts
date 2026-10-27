@@ -2168,6 +2168,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // event — a new row lands only WITH its rect-intersection e2e and
       // impeccable pass.
       expect(adopters.sort()).toEqual([
+        // warning-card-fixes Task 9 (spec §3.6, R11): the compact card shell owns the
+        // published warning cards' one call site; its rect-intersection e2e is
+        // tests/e2e/compact-alert-card-layout.spec.ts (DI-C1 to DI-C9).
+        "components/admin/CompactAlertCard.tsx",
         "components/admin/showpage/PublishedReviewModal.tsx",
         "components/admin/wizard/Step3ReviewModal.tsx",
         "components/admin/wizard/step3ReviewSections.tsx",

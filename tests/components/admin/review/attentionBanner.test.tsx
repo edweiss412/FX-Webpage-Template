@@ -331,6 +331,17 @@ function needsLookItem(over: Parameters<typeof item>[0] = {}) {
   return item({ actionable: false, clearingKind: "needs_look", ...over });
 }
 
+describe("message row class (warning-card-fixes spec §13.2 DI-C2)", () => {
+  // The banner passes no sheetLink, so the shell's message row keeps the exact class
+  // string it had before the sheet icon existed.
+  test("the message row's className is the pre-icon literal", () => {
+    renderBanner(item({}));
+    const message = document.querySelector('[data-testid="compact-alert-message"]');
+    expect(message, "the banner rendered a compact card").not.toBeNull();
+    expect(message!.className).toBe("flex gap-2.5 p-3 pb-2.5");
+  });
+});
+
 describe("destination chip", () => {
   // Spec test 7.
   test("external action: footer-right holds the Google Sheets chip; note gone, no duplicate link", () => {

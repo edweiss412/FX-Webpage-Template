@@ -500,12 +500,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     disposition: "deliberate-flatten",
     reason: "switch track; the auto-refresh toggle wears the same ruled recipe (DESIGN.md 1.2a)",
   },
-  {
-    site: "components/admin/PerShowActionableWarnings.tsx:458",
-    disposition: "deliberate-flatten",
-    reason:
-      "the pair differs only in focus-visible:ring-offset-*; the ring is not this repo's focus indicator and an offset colour is invisible either way",
-  },
+  // components/admin/PerShowActionableWarnings.tsx:458 (deliberate-flatten) DELETED on
+  // feat/warning-card-fixes Task 9: that "Open in Sheet" text link left the card when
+  // the sheet link became the compact shell's icon (warning-card-fixes spec §3.6, R11).
   {
     site: "components/admin/showpage/PublishedReviewModal.tsx:1327",
     disposition: "deliberate-flatten",

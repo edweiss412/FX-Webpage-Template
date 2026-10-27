@@ -100,10 +100,18 @@
     ],
     "tests/e2e/compact-alert-card-layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-090b4a4b74878525de8f\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"unbroken token keeps the help trigger inside the card\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-10a83a0a78999f5abeae\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-1d52fdee27c0e5222cf3\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"opened popover actually paints where it measures (hit test)\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-2156fd51b2ef8976e137\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 320px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-36acd68f50afed199b8f\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 430px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-41746a2825aa845fd4a7\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"long-label footer at 320px wraps to a second line without overflowing\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-4fc15120236b1cda6a20\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 375px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-5c7465c13eb98d0415d1\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-unbreakable-320: no footer descendant escapes the bar's content box\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-6314e2f8ca86d75a1c99\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C2: a card with no sheetLink keeps the pre-icon message row class\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-66e118df6a42d4ba375e\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 375px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-7005fd67cdcbc85329e1\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 430px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-966b88a64d709c9b0db3\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"footer links meet the 44px tap-target floor\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-98504bcadbbf77922c4c\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-9b73fc241226c0c45b01\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-long-320: no footer descendant escapes the bar's content box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-a5311b528ffe39b5929d\",[\"compact-alert-card-layout.spec.ts\",\"compact trigger geometry (warning-card-copy-restore)\",\"compact trigger geometry - mount-warning-card (spec §3.4/§6/§7)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-b0a5c3a91ef5aec054de\",[\"compact-alert-card-layout.spec.ts\",\"compact trigger geometry (warning-card-copy-restore)\",\"trigger top-aligns with the title line WITH guidance rendered (spec §3.4)\"]]",
@@ -112,6 +120,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-cf91d3f99c04dd2af632\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"short-label footer stays on one line with clusters vertically centred\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-dd5defe2195c8066ec79\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-long-400: no footer descendant escapes the bar's content box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-ddf3c9313ff4c7914648\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-short-400: no footer descendant escapes the bar's content box\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-df07c7a1c2aa4a598311\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 320px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-f19f255170c48bc71f08\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"an unbreakable label ellipsizes rather than widening the row\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-f1ab1abb1a9ea2a71d3f\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-short-320: no footer descendant escapes the bar's content box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-fc333c34b753908d91f8\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"help trigger meets the 44px tap-target floor (22px box + overlay extent)\"]]"
@@ -827,5 +836,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 720
+  "totalTests": 729
 }

@@ -445,11 +445,13 @@ describe("forced-colors state collapse (Arm 1)", () => {
     ).toEqual([]);
   });
 
-  it("holds exactly 42 collapse rows, each disposed once", () => {
+  it("holds exactly 41 collapse rows, each disposed once", () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, and the family sum is what stops a new site landing in no family.
-    expect(COLLAPSE_CENSUS).toHaveLength(42);
-    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
+    // 42 -> 41 on feat/warning-card-fixes Task 9: the PerShowActionableWarnings
+    // "Open in Sheet" text link (a deliberate-flatten row) left with its element.
+    expect(COLLAPSE_CENSUS).toHaveLength(41);
+    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(41);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
     expect(repaired, "the repair set the pass owes AC-4").toHaveLength(12);
   });

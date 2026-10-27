@@ -99,6 +99,9 @@ describe("PerShowActionableWarnings — compact card placement (spec §4.2, A1)"
     ];
     render(<PerShowActionableWarnings items={withCell} driveFileId={null} />);
     expect(screen.queryByText(/Open in Sheet/)).toBeNull();
+    // warning-card-fixes §3.6: the link is the message-row icon now, so its absence is
+    // asserted by its own testid as well (a text query alone would pass vacuously).
+    expect(screen.queryByTestId("per-show-actionable-sheetlink")).toBeNull();
     // With neither link nor controls there is nothing to put in a footer.
     expect(screen.queryByTestId("compact-alert-footer")).toBeNull();
   });
@@ -367,5 +370,92 @@ describe("PerShowActionableWarnings — the Sheet cell line (spec §3)", () => {
     expect(screen.getByTestId("per-show-actionable-row-label-value").textContent).toBe("Backdrop");
     // rowLabel wins: dropping the `rowLabel === null` conjunct fails here.
     expect(screen.queryByTestId("per-show-actionable-cell")).toBeNull();
+  });
+});
+
+// ── warning-card-fixes spec §3.4 / §3.6: the sheet icon and the judgment tag ──
+
+describe("PerShowActionableWarnings — sheet icon in the message row (warning-card-fixes §3.6, R11)", () => {
+  const CELL: SourceAnchor = { title: "INFO", gid: 0, a1: "A5", scope: "cell" };
+  const needsLook: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: "m",
+    rawSnippet: "Storage | x",
+    sourceCell: CELL,
+  };
+  const judgment: ParseWarning = {
+    severity: "warn",
+    code: "CREW_COLUMN_POSITIONAL_FALLBACK",
+    message: "m",
+    sourceCell: CELL,
+  };
+
+  test("the icon sits in the message row; the controls band holds only the controls", () => {
+    render(
+      <PerShowActionableWarnings
+        items={[needsLook]}
+        driveFileId="df"
+        renderItemControls={() => <span data-testid="dq-controls">controls</span>}
+      />,
+    );
+    const link = screen.getByTestId("per-show-actionable-sheetlink");
+    const row = screen.getByTestId("compact-alert-message");
+    expect(row.contains(link)).toBe(true);
+    expect(row.lastElementChild).toBe(link);
+    const band = screen.getByTestId("compact-alert-controls-band");
+    expect(band.contains(screen.getByTestId("dq-controls"))).toBe(true);
+    expect(band.querySelector("a")).toBeNull();
+    // No visible link text and no NewTabHint text anywhere on the card: the icon's
+    // own aria-label carries the new-tab announcement, as an attribute.
+    const card = screen.getByTestId("compact-alert-card");
+    expect(card.textContent ?? "").not.toMatch(/Open in Sheet/);
+    expect(card.textContent ?? "").not.toMatch(/opens in a new tab/);
+  });
+
+  test("with a link and no controls, there is no controls band at all", () => {
+    render(<PerShowActionableWarnings items={[needsLook]} driveFileId="df" />);
+    expect(screen.getByTestId("per-show-actionable-sheetlink")).toBeTruthy();
+    expect(screen.queryByTestId("compact-alert-controls-band")).toBeNull();
+  });
+
+  test("the judgment tag sits beside the title, its border keyed on the card's plate", () => {
+    const expectBorder = { warning: "border-control-outline-tinted", muted: "border-text-faint" };
+    for (const tone of ["warning", "muted"] as const) {
+      const q = render(
+        <PerShowActionableWarnings items={[judgment]} driveFileId="df" tone={tone} />,
+      );
+      const tag = q.getByTestId("per-show-actionable-judgment-tag");
+      expect(tag.textContent).toBe("Judgment call");
+      const tokens = new Set(tag.className.split(/\s+/));
+      expect(tokens.has(expectBorder[tone]), tone).toBe(true);
+      const other = tone === "warning" ? expectBorder.muted : expectBorder.warning;
+      expect(tokens.has(other), tone).toBe(false);
+      // The title keeps its testid and shares the wrapper with the tag.
+      const title = q.getByTestId("per-show-actionable-title");
+      expect(title.parentElement).toBe(tag.parentElement);
+      q.unmount();
+    }
+  });
+
+  test("a needs-look code shows no judgment tag", () => {
+    render(<PerShowActionableWarnings items={[needsLook]} driveFileId="df" />);
+    expect(screen.queryByTestId("per-show-actionable-judgment-tag")).toBeNull();
+  });
+
+  test("a title that strips to whitespace names no subject in the icon's label", () => {
+    // An unknown code whose message is emphasis markers around a space: the title is
+    // the message, and stripEmphasis leaves only whitespace, which the icon trims.
+    const blankSubject: ParseWarning = {
+      severity: "warn",
+      code: "NOT_A_CATALOG_CODE",
+      message: "** **",
+      sourceCell: CELL,
+    };
+    render(<PerShowActionableWarnings items={[blankSubject]} driveFileId="df" />);
+    const label = screen.getByTestId("per-show-actionable-sheetlink").getAttribute("aria-label");
+    expect(label).not.toBeNull();
+    expect(label!.length).toBeGreaterThan(0);
+    expect(label).not.toContain(" for ");
   });
 });

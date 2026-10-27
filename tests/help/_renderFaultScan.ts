@@ -812,7 +812,14 @@ export function scanCandidates(): Candidate[] {
       // (`isWarn ? <AlertTriangle/> : <Info/>`) became a per-kind lookup
       // (WARNING_ROW_GLYPH), so it is no longer a ternary. Not a fault branch; 78 kept.
       //
-      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // 747 -> 746 on feat/warning-card-fixes Task 9: the published cards' sheet link
+      // moved into the compact shell. Gone: the two text-link ternaries
+      // (`href ? <a>… : null` in PerShowActionableWarnings and NoteWarningCard) and the
+      // controls band's inner `controls ? <div>… : null`, now redundant under its outer
+      // `controls ?`. Added: `isJudgmentCall(w) ? <JudgmentCallTag/> : null` and the
+      // shell's `sheetLink ? <SheetIconLink/> : null`. None is a fault branch; 78 kept.
+      //
+      // Probed: 746 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
