@@ -63,7 +63,7 @@ import {
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { compareRooms } from "@/lib/crew/resolveKeyTimes";
-import { parseWifiValue } from "@/lib/crew/wifiDisplay";
+import { resolveWifiDisplay } from "@/lib/crew/wifiDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
@@ -162,30 +162,14 @@ export function VenueSection({
     transportVisible && !shouldHideGenericOptional(rawParking) ? rawParking!.trim() : null;
 
   // --- Connectivity: Wi-Fi (internet) + power --------------------------------
-  const rawInternet = data.show.event_details["internet"] ?? null;
-  const internet = shouldHideGenericOptional(rawInternet) ? null : rawInternet!.trim();
-  // Display-time split into SSID / password / notes. `null` means the value is
-  // outside the observed label vocabulary, and the raw row below renders it
-  // verbatim — the value is never silently reshaped.
-  //
-  // The DERIVED ssid is re-checked against the sentinel predicate (diff review
-  // R2 F2). `SSID: TBD` is not a sentinel as a whole cell, so it reaches the
-  // split branch, but its ssid IS one — and FactRows drops sentinel rows, so the
-  // component committed to the split branch and then rendered nothing at all,
-  // losing the cell entirely. Rejecting the split here returns it to the raw row,
-  // which renders "SSID: TBD" verbatim.
-  const splitWifi = internet !== null ? parseWifiValue(internet) : null;
-  // EVERY derived field is re-checked, not just the ssid. FactRows drops a
-  // sentinel row, so a sentinel `password` or `notes` used to be suppressed
-  // AFTER the component had committed to the split — the raw row was gone too,
-  // and that text left the page entirely. One sentinel anywhere returns the
-  // whole cell to the raw row, where it renders verbatim.
-  const splitHasSentinel =
-    splitWifi !== null &&
-    [splitWifi.ssid, splitWifi.password, splitWifi.notes].some(
-      (value) => value !== null && shouldHideGenericOptional(value),
-    );
-  const wifi = splitWifi !== null && !splitHasSentinel ? splitWifi : null;
+  // The cell's sentinel hiding and the split's field-by-field sentinel re-check
+  // live in `resolveWifiDisplay`, shared with the crew home's Wi-Fi quick fact
+  // so the two surfaces cannot disagree. `wifi` is null when the split is
+  // outside the observed label vocabulary or carries a sentinel; the raw row
+  // below then renders `internet` verbatim, never silently reshaped.
+  const wifiDisplay = resolveWifiDisplay(data.show.event_details["internet"] ?? null);
+  const internet = wifiDisplay?.text ?? null;
+  const wifi = wifiDisplay?.split ?? null;
   const rawPower = data.show.event_details["power"] ?? null;
   const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
 

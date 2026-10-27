@@ -42,6 +42,7 @@
  * choice. A password with no network label returns `null` rather than a half
  * pair — guessing which network a password belongs to is the corruption class.
  */
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 export type WifiInfo = {
   ssid: string;
   password: string | null;
@@ -200,4 +201,30 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
   if (ambiguous || ssid === null) return null;
 
   return { ssid, password, notes: residues.length > 0 ? residues.join(" ") : null };
+}
+
+/** What a Wi-Fi surface renders: the cell's text, plus its split when the split is safe to show. */
+export type WifiDisplay = { text: string; split: WifiInfo | null };
+
+/**
+ * The Venue section's whole Wi-Fi rule, shared with the crew home's Wi-Fi quick
+ * fact so the two can never disagree (crew page redesign spec §4.5).
+ *
+ * A sentinel cell (`TBD`, `N/A`, …) renders nothing. Otherwise the split is
+ * re-checked field by field: `SSID: TBD` is not a sentinel as a whole cell, so it
+ * reaches the split, but its ssid IS one, and a renderer that drops sentinel rows
+ * would then commit to the split and show nothing at all (diff review R2 F2). One
+ * sentinel anywhere in the split returns the whole cell to its raw text, which
+ * renders verbatim. `split: null` means "show `text` as written".
+ */
+export function resolveWifiDisplay(raw: string | null | undefined): WifiDisplay | null {
+  if (raw == null || shouldHideGenericOptional(raw)) return null;
+  const text = raw.trim();
+  const split = parseWifiValue(text);
+  const splitHasSentinel =
+    split !== null &&
+    [split.ssid, split.password, split.notes].some(
+      (value) => value !== null && shouldHideGenericOptional(value),
+    );
+  return { text, split: split !== null && !splitHasSentinel ? split : null };
 }
