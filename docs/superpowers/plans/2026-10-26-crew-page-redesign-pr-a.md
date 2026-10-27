@@ -29,6 +29,157 @@ The criteria live in the spec (§13); this plan claims them by task.
 | AC-13 copy | every UI task; closeout step 2 (copy sweep) |
 | AC-14 UI gate | closeout |
 
+## Spec clause map
+
+Every bullet and table row of spec §3.1, §3.2, §4.1 to §4.6, §5.1 to §5.3, §7, §8, §10 and §11, keyed by its spec line, with the task that builds it and the task whose cases pin it. The list was derived from the spec, not written from memory: a script extracts every list item and table row in those sections and checks that each line number appears below (144 clauses, 144 mapped at `f7664499a`'s spec). "PR B" and "PR C" mean that plan.
+
+| Spec line | Clause | Task |
+|---|---|---|
+| L118 | Compact mode: home, sections in a sheet | 6, 11 |
+| L119 | Wide mode: nav plus one column, Today block first | 6, 11 |
+| L127 | Header row in both modes | 7 |
+| L128 | Day row in both modes | 8 |
+| L129 | Pass in both modes | 9 |
+| L130 | Run-of-show card in both modes | 10 |
+| L131 | Quick facts in both modes | 11 |
+| L132 | Show notes card | 11 |
+| L133 | Dress code card | 11 |
+| L134 | "All sections" list, compact only | 6 |
+| L135 | Left nav, wide only | 6 |
+| L136 | Section panels inside the sheet (today's bodies in PR A) | 6 |
+| L137 | `CrewSubNav` removed | 6 |
+| L138 | Preview banner in both modes when previewing | 11 |
+| L151 | Header eyebrow "client · venue" | 7 |
+| L152 | Theme switch for every viewer | 1, 7 |
+| L153 | Search slot | 7 |
+| L154 | Status slot | 7 |
+| L160 | Day row `live` | 8 |
+| L161 | Day row `day(iso)` | 8 |
+| L162 | "Now" button | 8 |
+| L163 | Day set equals the Schedule list | 8 |
+| L164 | Day row hidden (suppressed, empty, degraded) | 8 |
+| L165 | Selection is client state; a reload returns to `live` | 8 |
+| L166 | Button content (weekday or "Today", day, phase label, combined label) | 8 |
+| L167 | Cap: 4 in a grid, 5 or more scroll, pressed day scrolled into view | 8, 13 |
+| L168 | Tap target 44px by 64px | 8 |
+| L174 | Pass `live` follows every live state | 9 |
+| L175 | Pass `day(iso)` static facts | 3, 9 |
+| L176 | Pass layout | 3, 9 |
+| L177 | Eyebrow row | 3, 9 |
+| L178 | Status line and countdown window | 3, 9 |
+| L179 | Big time per day kind | 3, 9 |
+| L180 | Progress segments | 9 |
+| L181 | Fact grid candidates, order, omission | 3, 9 |
+| L182 | Personal cells only for `crew` and `admin_preview` | 3 |
+| L183 | "Your lead" | 3 |
+| L184 | "Hotel tonight" | 3 |
+| L185 | Suppressed dates never reach the pass | 3, 9 |
+| L186 | Degraded states | 3, 9 |
+| L187 | Dark in both themes | 9 |
+| L193 | Run card eligibility | 10 |
+| L194 | Run card entries, transport filter, agenda merge | 10 |
+| L195 | Run card omitted for suppressed viewers | 10 |
+| L196 | Run card cap and "Full schedule" | 10 |
+| L197 | "Next" marker | 10 |
+| L198 | Run card header actions | 10 |
+| L199 | Run card omitted when empty | 10 |
+| L205 | `QuickFactId` and default order | 2 |
+| L206 | `selectQuickFacts` | 2 |
+| L207 | Sources reuse each section's field and gate | 2 |
+| L211 | `wifi` source | 2 |
+| L212 | `hotel` source | 2 |
+| L213 | `dock` source | 2 |
+| L214 | `contact` source | 2 |
+| L215 | `parking` source | 2 |
+| L216 | `dressCode` source | 2 |
+| L217 | `address` source | 2 |
+| L219 | Wi-Fi reuses the Venue rule | 2 |
+| L220 | `reservationForNight` | 2 |
+| L221 | Quick facts layout and spans | 11, 13 |
+| L222 | Copy, toasts, selectable text | 11 |
+| L223 | Truncation: 3 lines then ellipsis | 13 |
+| L229 | List membership from `crewSectionsFor` | 4, 6 |
+| L230 | Peek lines | 4, 6 |
+| L231 | Rows are `buildSectionHref` links | 6 |
+| L237 | PR A ids and labels | 4, 6 |
+| L238 | PR B registry | PR B |
+| L239 | PR C moves | PR C |
+| L240 | Membership from PR B on | PR B |
+| L241 | Membership never depends on a fetch | 4 |
+| L242 | Legacy id aliases | PR B |
+| L246 | Sheet URL | 6 |
+| L247 | History rules | 6 |
+| L251 | Open from home | 6 |
+| L252 | Open another section while one is open | 6 |
+| L253 | Close with the marker set | 6 |
+| L254 | Close with the marker absent | 6 |
+| L255 | `popstate` to an entry without `s` | 6 |
+| L256 | `popstate` to an entitled `s` | 6 |
+| L257 | `popstate` to an unknown or non-entitled `s` | 6 |
+| L258 | Refresh removes the open section | 12 |
+| L261 | Drag to dismiss, shared thresholds | 5, 6 |
+| L262 | Modal behavior | 6 |
+| L263 | Nested dialogs | 12 |
+| L264 | Reference-counted scroll lock | 5 |
+| L265 | Sheet width below 640px and from 640px | 6 |
+| L266 | History mechanism as spiked | 6 |
+| L270 | Nav: 240px, sticky, "Today" then sections, no counts | 6, 13 |
+| L271 | Stacked sections with anchors | 6, 13 |
+| L272 | Nav click: scroll, focus, `replaceState`, instant under reduced motion | 6 |
+| L273 | Scroll-spy through the shared rule | 6 |
+| L274 | Back and Forward in wide mode | 6 |
+| L275 | Deep link in wide mode | 6 |
+| L276 | `openSectionAndReveal` in wide mode | 6 |
+| L348 | Sheet open animation | 6, 12 |
+| L349 | Sheet close animation | 6, 12 |
+| L350 | Release past the threshold | 6, 12 |
+| L351 | Release before the threshold springs back | 6, 12 |
+| L352 | In-sheet switch crossfade | 6, 12 |
+| L353 | Day crossfade; the pass keeps its height | 9, 10, 12 |
+| L354 | Live-state pairs unchanged | 9 |
+| L355 | Live to a day and back | 9, 12 |
+| L356 | Day button colour transition | 8, 12 |
+| L357 | "Now" appears or leaves instantly | 8 |
+| L358 | Nav accent bar moves | 6, 12 |
+| L359 | Copy toast fade, rise, hold | 11, 12 |
+| L360 | Theme swap instant; the pass unchanged | 1, 9 |
+| L361 | Server-driven presence changes instant | 12 |
+| L367 | Compound: refresh with the sheet open | 12 |
+| L368 | Compound: into wide with the sheet open | 12 |
+| L369 | Compound: into wide mid-drag | 12 |
+| L370 | Compound: into compact from a scrolled wide page | 12 |
+| L371 | Compound: refresh removes the selected day | 12 |
+| L372 | Compound: refresh removes the open section | 12 |
+| L373 | Compound: refresh removes a nested dialog's owner | 12 |
+| L374 | Compound: Esc with a nested dialog open | 12 |
+| L375 | Compound: second day tap mid-crossfade | 12 |
+| L376 | Compound: theme switch unreachable while the sheet is open | 12 |
+| L382 | Dimensions: day row | 13 |
+| L383 | Dimensions: pass | 9, 13 |
+| L384 | Dimensions: quick facts | 13 |
+| L385 | Dimensions: sheet | 13 |
+| L386 | Dimensions: wide layout | 13 |
+| L387 | Dimensions: header height token | 13 |
+| L452 | Flag: open section `s` | 6 |
+| L453 | Flag: selected day | 8 |
+| L454 | Flag: theme override | 1 |
+| L455 | Flag: sheet history marker | 6 |
+| L463 | Guard: `s` absent or unknown | 6 |
+| L464 | Guard: day set empty or duplicated | 8 |
+| L465 | Guard: selected day has no `ScheduleDay` | 3, 10 |
+| L466 | Guard: `showStart` absent or unparseable | 3 |
+| L467 | Guard: key-time anchors absent or sentinel | 3 |
+| L468 | Guard: fact grid cell value absent | 3, 9 |
+| L469 | Guard: every fact grid cell absent | 3, 9 |
+| L470 | Guard: viewer role absent | 3 |
+| L471 | Guard: quick fact source absent | 2 |
+| L472 | Guard: every quick fact absent | 11 |
+| L473 | Guard: clipboard absent or rejected | 11 |
+| L474 | Guard: no reservation covers the night | 2, 3 |
+| L475 | Guard: section peek absent | 4 |
+| L476 | Guard: viewer has no sections | 4, 6 |
+| L477 | Guard: `matchMedia` unavailable | 6 |
+
 ## Meta-test inventory
 
 - **Creates:** tests/styles/_metaBodyOverflowWriters.test.ts (new, Task 5): no file but the lock module writes `document.body.style.overflow`.
@@ -48,7 +199,7 @@ Before each task's commit, the full unit suite is green: `pnpm heavy pnpm vitest
 - **WebKit animations:** an installed page clock stalls framer `AnimatePresence` under mobile-safari and clicks hang (`tests/e2e/crew-page.spec.ts:1102-1105`). Every case that drives an animation pins the browser clock with `page.clock.setFixedTime`, which fixes `Date` but keeps timers running; `page.clock.install` is used only by cases that advance minute ticks and drive no animation.
 - **Crew e2e execution oracle:** `scripts/check-crew-e2e-executed.mjs` keys an exact executed-case count per spec on the `crew-e2e.yml` run line, and `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` pins that table, every spec's enrolment and the exact skipped titles. Every task that adds, removes, retitles or skips a case in a crew-e2e spec updates the count from the observed run and the pinned titles in the same commit.
 - **Filter words:** every case a task adds carries that task's `-g` filter word in its title, so the task's red collects it.
-- **Client props carry only what the viewer may see:** every client component a PR A task adds or rewires receives props built by a server-side builder, never a raw projection or `RightNowContext`. The same task serializes those props (`JSON.stringify`) for a date-suppressed viewer, a viewer the transport gate excludes and an explicitly date-restricted viewer, and searches them for every withheld value it could carry: every ISO date of the show, every hotel date, every load-out entry, every transport field, every day outside the viewer's restriction. This binds Tasks 6 (list peeks), 8 (day row), 9 (pass), 10 (run card) and 11 (quick facts); a pure-model case alone does not satisfy it, because the leak sits at the client boundary (`components/crew/sections/TodaySection.tsx:644`).
+- **Client props carry only what the viewer may see:** every client component a PR A task adds or rewires receives props built by a server-side builder, never a raw projection or `RightNowContext`. The same task serializes those props (`JSON.stringify`) and searches them for what each viewer is withheld, and only that: for a date-suppressed viewer, every ISO date of the show and every hotel date; for a viewer the transport gate excludes, every transport field and load-out entry; for an explicitly restricted viewer, only what the component itself filters to the viewer's days (the day row's day set, the run card's rows). An explicit viewer's show dates are not withheld (`lib/crew/dateSuppression.ts:62-63`), and the live pass needs them on the client for `selectRightNowState` (`lib/time/rightNow.ts:221-224`), so the pass is searched only for the first two viewers. This binds Tasks 6 (list peeks), 8 (day row), 9 (pass), 10 (run card) and 11 (quick facts); a pure-model case alone does not satisfy it, because the leak sits at the client boundary (`components/crew/sections/TodaySection.tsx:644`).
 - **Retiring a component retires its test ids too:** a retirement step derives the ids the component produces (`rg -o 'data-testid="[^"]+"' <file>`) and searches `tests` for each id as well as for the component name. Each id either stays on the component's successor or every spec using it migrates; every Playwright spec that references a retired or moved id runs in that task's commit gate, because the unit suite cannot see it.
 - **Canonical baseline:** `tests/e2e/__baselines__/canonical-dimensions.json` holds the hero's full rect, compared within 0.5px (`tests/e2e/canonical-class-dimensions.spec.ts:66`, `tests/e2e/canonical-class-dimensions.spec.ts:656`). Each task that changes the pass's rect (Tasks 9, 11 and 13) re-captures it with the spec's capture mode (`tests/e2e/canonical-class-dimensions.spec.ts:21-34`) in the pinned Playwright image, version v1.59.1-jammy, run with `--platform linux/amd64`, never on a dev host, so `lifecycle-layout-e2e` stays green between tasks.
 - **Detach safety:** geometry samplers read rects in one `page.evaluate` per sample rather than chained locator calls on elements a transition may unmount.
@@ -73,13 +224,13 @@ Red: lib/crew/quickFacts.ts (new) does not exist. Green: `QuickFactId`, `DEFAULT
 
 <!-- task: red=`pnpm vitest run tests/crew/passModel.test.ts` ac=AC-6 -->
 
-Red: lib/crew/passModel.ts (new) does not exist. Green: the server-side builder of the pass props for `live` and every `day(iso)` (spec §4.3). Cases: each day phase; each restriction kind; personal cells only for `crew` and `admin_preview`; "Your lead" is the first LEAD in roster render order and is omitted when it is the viewer; the fact grid (Room from `compareRooms`, Strike only when it is not the big time and always with its day, Load in only on travel-in days with a Set anchor, no grid when zero cells resolve); countdown eligibility through `clockToMinutes` for a parseable start within 3 hours, a start already past, a start beyond 3 hours and a null conversion; for a suppressed viewer the whole props object is serialized and searched for every ISO date of the show and every hotel date (failure mode: the §2.2 leak), and the server-computed state kind equals `selectRightNowState` run with the real dates for every raw fixture.
+Red: lib/crew/passModel.ts (new) does not exist. Green: the server-side builder of the pass props for `live` and every `day(iso)` (spec §4.3). Cases: each day phase; each restriction kind; personal cells only for `crew` and `admin_preview`; "Your lead" is the first LEAD in roster render order and is omitted when it is the viewer; the fact grid (Room from `compareRooms`, Strike only when it is not the big time and always with its day, Load in only on travel-in days with a Set anchor, no grid when zero cells resolve); countdown eligibility through `clockToMinutes` for a parseable start within 3 hours, a start already past, a start beyond 3 hours and a null conversion; for a suppressed viewer the whole props object is serialized and searched for every ISO date of the show and every hotel date (failure mode: the §2.2 leak), and the server-computed state kind equals `selectRightNowState` run with the real dates for every raw fixture. Guard cases (spec §11): a selected day with no `ScheduleDay` still builds its anchors from the key times, its fact grid and its phase label, on `fixtures/shows/raw/2024-05-east-coast-family-office.md` (the load-in big time comes from the dates, not from a schedule row); an unparseable `showStart` renders as written with no countdown; a `TBD`, `N/A` or `TBA` anchor is treated as absent; an absent viewer role omits the eyebrow's right side.
 
 ## Task 4: Section membership and peeks
 
 <!-- task: red=`pnpm vitest run tests/crew/crewSections.test.ts tests/crew/sectionPeek.test.ts` ac=AC-6 -->
 
-Red: lib/crew/crewSections.ts (new) and lib/crew/sectionPeek.ts (new) do not exist. Green: PR A membership (the five base sections, `budget` only when `financialsVisible`, matching `app/show/[slug]/[shareToken]/_CrewShell.tsx:243`), and peeks that read only gated fields. Cases: a transport leg never feeds the Travel peek for a viewer the transport gate excludes; no date reaches a peek for a suppressed viewer; an empty peek is null, never placeholder text.
+Red: lib/crew/crewSections.ts (new) and lib/crew/sectionPeek.ts (new) do not exist. Green: PR A membership (the five base sections, `budget` only when `financialsVisible`, matching `app/show/[slug]/[shareToken]/_CrewShell.tsx:243`), and peeks that read only gated fields. Cases: a transport leg never feeds the Travel peek for a viewer the transport gate excludes; no date reaches a peek for a suppressed viewer; an empty peek is null, never placeholder text; a domain whose fetch failed (`tileErrors`) keeps its section listed (spec §5.1, L241); a viewer with no sections gets an empty list.
 
 ## Task 5: Shared sheet constants and scroll lock
 
@@ -91,13 +242,14 @@ Red: no shared module exports the drag thresholds (`components/admin/review/Revi
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "sheet|wide nav"` ac=AC-2,AC-3,AC-4 -->
 
-Step 1, red: register tests/e2e/crew-wide-nav.spec.ts (new) in `playwright.config.ts` `desktop-chromium` `testMatch`, the `.github/workflows/crew-e2e.yml` run line, `scripts/check-crew-e2e-executed.mjs`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts`. Write the wide cases there (nav click scrolls and focuses the heading, `replaceState` only, scroll-spy follows and pauses during a nav-click scroll, deep link scrolls, Back/Forward over compact-created entries) and the compact cases in `crew-section-toggle.spec.ts` (every row of the spec §5.2 history table except "realtime refresh removes the open section", which Task 12 owns, and the in-sheet link row below; opening from an "All sections" row; a row link keeps `gate`; refresh with the sheet open; the sheet's close button is named "Close" plus the section name, spec §9.4). They fail because `components/crew/CrewSections.tsx` renders tabs: no sheet, no nav, no list, no `data-crew-controller-ready`.
+Step 1, red: register tests/e2e/crew-wide-nav.spec.ts (new) in `playwright.config.ts` `desktop-chromium` `testMatch`, the `.github/workflows/crew-e2e.yml` run line, `scripts/check-crew-e2e-executed.mjs`, `tests/ci/_metaE2eWorkflowCoverage.test.ts` and `tests/ci/_metaSpecRegistration.test.ts`. Write the wide cases there (nav click scrolls and focuses the heading, `replaceState` only, scroll-spy follows and pauses during a nav-click scroll, deep link scrolls, Back/Forward over compact-created entries) and the compact cases in `crew-section-toggle.spec.ts` (every row of the spec §5.2 history table except "realtime refresh removes the open section", which Task 12 owns, and the in-sheet link row below; opening from an "All sections" row; a row link keeps `gate`; refresh with the sheet open; the sheet's close button is named "Close" plus the section name, spec §9.4; a drag released before the threshold springs back to open; the sheet is full width below 640px and centred at the panel max width from 640px; a viewer with no sections sees no "All sections" card while the Today block still renders). The wide cases also cover a nav click under reduced motion (instant scroll), the accent indicator moving to the active item, and a viewer with no sections (no nav, Today block still rendered). They fail because `components/crew/CrewSections.tsx` renders tabs: no sheet, no nav, no list, no `data-crew-controller-ready`.
 
 Step 2, green, with Vitest cases alongside in `tests/components/crew/crewSections.test.tsx` and tests/components/crew/bottomSheet.test.tsx (new):
 - The bottom sheet (spec §5.2): `role="dialog"`, `aria-modal`, labelled by its title; focus to the title on open and back to the opener on close; focus trap; page `inert`; scroll lock through Task 5; every close path (button, scrim, Esc, swipe past the Task 5 threshold) calls one `onRequestClose`; Esc, scrim and swipe ignored while another `aria-modal="true"` dialog is open; width rules; its z-index band registered.
 - The scroll-spy rule: `activeSectionFor` (exported at `components/admin/review/ShowReviewSurface.tsx:97`) moves unchanged to a shared pure module so crew code never imports from `components/admin/**`; `ShowReviewSurface` imports it from there and keeps re-exporting it, so `components/admin/wizard/Step3ReviewModal.tsx:105-110` and its importers are untouched; admin DOM and the 50 section-header PNGs unchanged.
 - The "All sections" list (spec §4.6, Task 4's membership and peeks, links from `buildSectionHref`), with the harness client-props case for its peeks.
 - Paths nothing in PR A can trigger from a real page get Vitest cases on the controller with fixture section nodes: `openSectionAndReveal` in compact (opens the sheet, scrolls the target into view inside its body, highlights it) and wide (scrolls the page to the target, highlights it), called from a test consumer of `useSectionController()`; and the in-sheet link row of the §5.2 history table (a fixture node holding a `buildSectionHref` link: switching resets the sheet body's scroll to the top, and the following close lands on home, not the first section). No PR A section body contains an in-sheet link, and search's caller is unmerged (`feat/crew-show-search`), so the browser versions of these cases land with the first real caller: search's merge for `openSectionAndReveal`, PR B's shared bodies for in-sheet links.
+- The wide nav's active-item accent: one measured indicator that moves between items with `--duration-fast`, as the admin rail does (`components/admin/review/ShowReviewSurface.tsx:763-764`), not a per-item conditional render.
 - The controller: compact home plus sheet and wide nav plus stacked sections, from the same server-rendered `sectionNodes` (freshness invariant unchanged); the compact home shows today's Today section body followed by the list until Tasks 8 to 11 replace that body piece by piece; the §5.2 history table; the readiness attribute; the `useSectionController()` hook returning `{ openSectionAndReveal(sectionId, targetId) }` (the search session's §9 shape, branch `feat/crew-show-search`); compact behavior when `matchMedia` is absent. The sheet's animation durations get their `DESIGN.md` §5.5 rows.
 
 Step 3, migrate then delete: re-run `rg -l "CrewSubNav|components/crew/CrewSections|data-active-section" tests`, plus the retired-id search (harness), and migrate every hit (including `tests/components/crew/crewSubNav.test.tsx`, `noPrefetchAlert.test.tsx`, and the nav cases in `crew-page.spec.ts` and `crew-section-toggle.spec.ts`), carrying each failure mode over (aria-current on the active item, 44px targets, no `next/link`, no network on a switch, the budget gate); then delete `CrewSubNav`. Compound transitions are Task 12.
@@ -112,13 +264,13 @@ Red: `components/layout/Header.tsx:141` renders `ThemeToggle` only for identity-
 
 <!-- task: red=`pnpm vitest run tests/components/crew/dayRow.test.tsx tests/components/crew/useCrewClock.test.tsx` ac=AC-1,AC-6 -->
 
-Red: neither the day row nor a shared clock exists; the client clock is private state inside `components/crew/RightNowHero.tsx:339` and `components/crew/RightNowHero.tsx:349-361`. Green: the clock (client `new Date()`, a 60s tick, the `visibilitychange` refresh) moves into one module-level store with a single timer and a single `visibilitychange` listener, attached while any subscriber is mounted, read through a `useCrewClock()` hook built on `useSyncExternalStore` (Task 1's pattern), so the day row, the pass and the run card's "Next" marker read one `now` and a remount never starts a second clock. `RightNowHero` uses it unchanged in behavior; the `DESIGN.md` §5.5 timer row moves with it. Clock cases: two subscribers mounted a minute apart read the same `now` after a tick; unmounting and remounting one leaves exactly one interval registered. The day row reads the same hook and mounts in the compact home above the Today body (and atop the wide Today block). Cases: `live` presses today's button only when today is in the set; a "Now" button renders exactly when today is not in the set, is pressed in `live`, and returns to `live`; tapping another day sets `day(iso)`; tapping today returns to `live`; hidden for suppressed, empty and degraded; layout counts buttons, not days (4 buttons in a grid, 5 or more scroll); accessible names per spec §9.4; the pressed button (or the nearest upcoming day) is scrolled into view on mount; a fresh mount starts in `live`; advancing fake timers past midnight in the show timezone moves the pressed Today button or brings "Now" in or out without a remount; the day set equals `ScheduleSection`'s rendered list for the same fixture and viewer. The server builds the day row's props (the filtered day set and labels) and passes nothing else across the client boundary; a case serializes them for a suppressed and an explicitly restricted viewer and searches for every withheld date.
+Red: neither the day row nor a shared clock exists; the client clock is private state inside `components/crew/RightNowHero.tsx:339` and `components/crew/RightNowHero.tsx:349-361`. Green: the clock (client `new Date()`, a 60s tick, the `visibilitychange` refresh) moves into one module-level store with a single timer and a single `visibilitychange` listener, attached while any subscriber is mounted, read through a `useCrewClock()` hook built on `useSyncExternalStore` (Task 1's pattern), so the day row, the pass and the run card's "Next" marker read one `now` and a remount never starts a second clock. `RightNowHero` uses it unchanged in behavior; the `DESIGN.md` §5.5 timer row moves with it. Clock cases: two subscribers mounted a minute apart read the same `now` after a tick; unmounting and remounting one leaves exactly one interval registered. The day row reads the same hook and mounts in the compact home above the Today body (and atop the wide Today block). Cases: `live` presses today's button only when today is in the set; a "Now" button renders exactly when today is not in the set, is pressed in `live`, and returns to `live`; tapping another day sets `day(iso)`; tapping today returns to `live`; hidden for suppressed, empty and degraded; layout counts buttons, not days (4 buttons in a grid, 5 or more scroll); button content per spec §4.2 (weekday or "Today", day of month, phase label, "Travel in, load in" for a combined day) and accessible names per §9.4; every button at least 44px by 64px (its `tapTargetCensus` row); the pressed state changes background and text colour with a `--duration-fast` colour transition, instant under reduced motion; the pressed button (or the nearest upcoming day) is scrolled into view on mount; a fresh mount starts in `live`; advancing fake timers past midnight in the show timezone moves the pressed Today button or brings "Now" in or out without a remount; the day set equals `ScheduleSection`'s rendered list for the same fixture and viewer. The server builds the day row's props (the filtered day set and labels) and passes nothing else across the client boundary; a case serializes them for a suppressed and an explicitly restricted viewer and searches for every withheld date.
 
 ## Task 9: Pass, retire RightNowHero
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-page.spec.ts tests/e2e/right-now-transitions.spec.ts tests/e2e/canonical-class-dimensions.spec.ts -g "pass"` ac=AC-1,AC-6 -->
 
-Step 1, red: retarget the hero's browser coverage to the pass, titles carrying "pass": `tests/e2e/right-now-transitions.spec.ts` with `tests/e2e/helpers/rightNow.ts`, and `tests/e2e/canonical-class-dimensions.spec.ts` (its exact-key reads at `tests/e2e/canonical-class-dimensions.spec.ts:96`, `tests/e2e/canonical-class-dimensions.spec.ts:591`, `tests/e2e/canonical-class-dimensions.spec.ts:635`); add pass cases in `crew-page.spec.ts` (dark surface in both themes; the `live` body; tapping a day in the Task 8 row shows its `day(iso)` body; personal cells through the preview route). They fail: no pass exists.
+Step 1, red: retarget the hero's browser coverage to the pass, titles carrying "pass": `tests/e2e/right-now-transitions.spec.ts` with `tests/e2e/helpers/rightNow.ts`, and `tests/e2e/canonical-class-dimensions.spec.ts` (its exact-key reads at `tests/e2e/canonical-class-dimensions.spec.ts:96`, `tests/e2e/canonical-class-dimensions.spec.ts:591`, `tests/e2e/canonical-class-dimensions.spec.ts:635`); add pass cases in `crew-page.spec.ts` (dark surface in both themes; the pass's height never drops below the minimum-height token while a day crossfade and a live-state swap run, sampled every animation frame inside one `page.evaluate` (the canonical spec samples rest states only, `tests/e2e/canonical-class-dimensions.spec.ts:37`); the `live` body; tapping a day in the Task 8 row shows its `day(iso)` body; personal cells through the preview route). They fail: no pass exists.
 
 Step 2, green: the pass per spec §4.3 replaces the hero in the home, wrapping its machinery with Task 8's clock and taking only Task 3's props, never `RightNowContext`; the harness client-props case serializes the pass's props for each named viewer; the `rightNowHero*` Vitest suites migrate to the pass; the baseline key is renamed and its value re-captured in this commit (harness, "Canonical baseline").
 
@@ -134,7 +286,7 @@ Red: the card does not exist, so every case fails. Cases, each against the spec 
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-page.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "home"` ac=AC-1,AC-3,AC-6,AC-7,AC-8 -->
 
-Step 1, red: browser cases titled with "home": AC-1 order (header, day row, pass, run of show, quick facts, show notes, Dress code card, "All sections"); copy success and failure toasts with selectable text on failure; a flight-only viewer's HTML and RSC payload contain no transport field (preview route); tonight's hotel matches the server-pinned day (preview route); and in the wide spec, the Today block (quick facts beside the run of show, show notes and the Dress code card inside it, no "All sections") followed by every section. They fail: the home still shows the Today section body.
+Step 1, red: browser cases titled with "home": AC-1 order (header, day row, pass, run of show, quick facts, show notes, Dress code card, "All sections"); copy success and failure toasts with selectable text on failure; a flight-only viewer's HTML and RSC payload contain no transport field (preview route); tonight's hotel matches the server-pinned day (preview route); the preview banner shows in both modes on the preview route; the copy toast fades and rises in, holds 2 seconds and fades out, instant under reduced motion; and in the wide spec, the Today block (quick facts beside the run of show, show notes and the Dress code card inside it, no "All sections") followed by every section. They fail: the home still shows the Today section body.
 
 Step 2, green: the quick facts block (Task 2 data built on the server, with the harness client-props case; grid spans; a toast in a polite live region that stays mounted while only its text changes); the show notes card and the full Dress code card (today's renderings, kept through PR A and PR B) with their card ids (`today-notes`, `today-dress`); `_CrewShell` composes the finished home and wide Today block; the toast hold gets its `DESIGN.md` §5.5 row; the canonical baseline is re-captured (the pass moved).
 
@@ -146,15 +298,15 @@ Step 3, migrate then delete: re-run `rg -l "TodaySection" tests` (26 files at ba
 
 Step 1, red: browser cases titled with "compound" for every compound row of spec §7: viewport crossing into wide with the sheet open, mid-drag, and with a nested dialog open inside the sheet (the dialog unmounts with the sheet, and the page is scrollable afterwards whatever the unmount order); crossing back into compact (`replaceState` drops `s` and the marker); a realtime refresh with the sheet open (stays open) and one that removes the open section from membership (stays open, fresh empty or degraded state); a refresh removing the selected day (back to `live`); a refresh removing a nested dialog's owner (dialog unmounts alone, scroll stays locked); Esc with each nested dialog open (agenda viewer, lightbox, report modal: Esc closes only that dialog and focus returns inside the sheet); Back to another route with the sheet and a nested dialog open (destination page scrollable); a second day tap mid-crossfade (the second wins). They fail: Task 6 implemented only the simple paths, and `ReportModal` has no Escape handling.
 
-Step 2, green: the breakpoint listener, the drag cancel, the day-row fallback to `live`, the never-close-on-refresh rule, the crossfade replacement, and Escape-to-close on `ReportModal`, which today handles only Ctrl/Cmd+Enter (`components/shared/ReportModal.tsx:331`): Escape runs the same `handleClose` as its close button and backdrop (`components/shared/ReportModal.tsx:440`), so its draft behavior is unchanged. Every `AnimatePresence`, ternary render and conditional block in the new components gets its row in `tests/crew/transitionAudit.test.ts` with the §7 treatment, reduced motion instant; the spec §7 table is copied into the test file header.
+Step 2, green: the breakpoint listener, the drag cancel, the day-row fallback to `live`, the never-close-on-refresh rule, the crossfade replacement, and Escape-to-close on `ReportModal`, which today handles only Ctrl/Cmd+Enter (`components/shared/ReportModal.tsx:331`): Escape runs the same `handleClose` as its close button and backdrop (`components/shared/ReportModal.tsx:440`), so its draft behavior is unchanged. The spec §7 table is copied into the header of `tests/crew/transitionAudit.test.ts`, and every row of it (spec lines L348 to L361 in the clause map) is pinned there or by the browser case the map names, including the ones that are not conditional renders: the sheet spring-back, the nav indicator, the toast and the day button's colour transition. Every `AnimatePresence`, ternary render and conditional block in the new components also gets its row with its §7 treatment. Each row's reduced-motion treatment (instant) is asserted alongside it.
 
 ## Task 13: Layout dimensions
 
 <!-- task: red=`pnpm heavy pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-page.spec.ts tests/e2e/crew-wide-nav.spec.ts -g "dimensional"` ac=AC-11 -->
 
-Step 1, red: `getBoundingClientRect()` assertions (±0.5px), titled with "dimensional", for every spec §8 invariant, copied verbatim into the test file headers: compact cases in `crew-page.spec.ts`, wide cases in crew-wide-nav.spec.ts (new in Task 6). one or more assertions per spec §8 row: (1) at 4 buttons, equal tracks and every button the row's full height; at 5 or more, a scroll row with every button at least 64px wide and still the row's full height; (2) fact cells shrink rather than widen (the pass's minimum height is Task 9's, not re-asserted here); (3) quick-fact tiles in one row share a height, a spanning tile is full width; (4) sheet height at most 90dvh with the body scrolling inside; (5) wide nav 240px wide, sticky, its height the viewport minus the header, and the content column filling the rest; (6) header height equals a section anchor's scroll margin. Heights are measured on the visible element inside each grid or flex cell (the button face, the tile card), which fills its cell only through the named class, not on the cell, which the grid stretches by default. They fail because Tasks 6 to 11 build structure only: the invariant classes below are this task's production lines.
+Step 1, red: `getBoundingClientRect()` assertions (±0.5px), titled with "dimensional", for every spec §8 invariant, copied verbatim into the test file headers: compact cases in `crew-page.spec.ts`, wide cases in crew-wide-nav.spec.ts (new in Task 6). one or more assertions per spec §8 row, plus the two truncation rules (spec §4.3 L181, §4.5 L223): a long quick-fact value stops at 3 lines with an ellipsis, and a long fact-grid value stays on one line with an ellipsis, each checked by its rendered line count and `text-overflow`: (1) at 4 buttons, equal tracks and every button the row's full height; at 5 or more, a scroll row with every button at least 64px wide and still the row's full height; (2) fact cells shrink rather than widen (the pass's minimum height is Task 9's, not re-asserted here); (3) quick-fact tiles in one row share a height, a spanning tile is full width; (4) sheet height at most 90dvh with the body scrolling inside; (5) wide nav 240px wide, sticky, its height the viewport minus the header, and the content column filling the rest; (6) header height equals a section anchor's scroll margin. Heights are measured on the visible element inside each grid or flex cell (the button face, the tile card), which fills its cell only through the named class, not on the cell, which the grid stretches by default. They fail because Tasks 6 to 11 build structure only: the invariant classes below are this task's production lines.
 
-Step 2, green: add exactly the classes and token spec §8 names, row by row: day row `grid` + `grid-cols-[repeat(N,minmax(0,1fr))]` + `items-stretch` with `h-full` buttons, and at 5 or more a flex row with `min-w-16` `self-stretch` buttons and `snap-x`; `grid-cols-3` with `min-w-0` fact cells; quick facts `grid-cols-2` + `items-stretch`, `h-full` tiles, `col-span-2` for a spanning tile; the sheet `max-h-[90dvh]` flex column with a `shrink-0` header and a `flex-1 min-h-0 overflow-y-auto` body; the nav `w-60 shrink-0` sticky with `h-[calc(100dvh-var(--crew-header-h))]` and its own scroll, the content column `flex-1 min-w-0`; the `--crew-header-h` token on the header, the nav offset and every section anchor's `scroll-margin-top`. Re-capture the canonical baseline for the final layout.
+Step 2, green: add exactly the classes and token spec §8 names, row by row: day row `grid` + `grid-cols-[repeat(N,minmax(0,1fr))]` + `items-stretch` with `h-full` buttons, and at 5 or more a flex row with `min-w-16` `self-stretch` buttons and `snap-x`; `grid-cols-3` with `min-w-0` fact cells; quick facts `grid-cols-2` + `items-stretch`, `h-full` tiles, `col-span-2` for a spanning tile; the sheet `max-h-[90dvh]` flex column with a `shrink-0` header and a `flex-1 min-h-0 overflow-y-auto` body; the nav `w-60 shrink-0` sticky with `h-[calc(100dvh-var(--crew-header-h))]` and its own scroll, the content column `flex-1 min-w-0`; the `--crew-header-h` token on the header, the nav offset and every section anchor's `scroll-margin-top`. Truncation: `line-clamp-3` on quick-fact values and `truncate` on fact-grid values. Re-capture the canonical baseline for the final layout.
 
 <!-- tasks: end -->
 
