@@ -74,7 +74,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
       <div className="mx-auto flex w-full max-w-[1200px] items-baseline justify-between gap-6 px-4 py-3 sm:px-8 sm:py-4">
         <div className="min-w-0 flex-1">
           {show.client_label ? (
-            <p className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+            <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
               {show.client_label}
             </p>
           ) : null}

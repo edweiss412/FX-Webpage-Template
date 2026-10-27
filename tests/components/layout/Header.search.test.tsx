@@ -47,7 +47,7 @@ describe("Header without the search slot (markup unchanged)", () => {
             class="min-w-0 flex-1"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-faint"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
             >
               Acme Corp
             </p>
@@ -117,7 +117,7 @@ describe("Header without the search slot (markup unchanged)", () => {
             class="min-w-0 flex-1"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-faint"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
             >
               Acme Corp
             </p>
