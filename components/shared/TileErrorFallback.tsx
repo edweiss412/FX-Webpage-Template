@@ -26,6 +26,8 @@ export function TileErrorFallback({ message }: TileErrorFallbackProps = {}) {
   return (
     <div
       data-testid="tile-error-fallback"
+      // An error fallback, not sheet data: outside search coverage (spec §2.3).
+      data-search-skip=""
       role="status"
       aria-live="polite"
       className="rounded-md border border-border bg-surface-raised p-4 text-sm text-text-subtle"

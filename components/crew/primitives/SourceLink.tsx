@@ -94,6 +94,8 @@ export function SourceLink({
   return (
     <a
       data-slot="source-link"
+      // Action chrome, not sheet data: outside search coverage (spec §2.3).
+      data-search-skip=""
       href={href}
       target="_blank"
       rel="noopener noreferrer"

@@ -465,7 +465,14 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   readIgnoredFingerprints lands above it)
     // Same `in-operator` row, still marked. Nothing joined or left: membership is still 34,
     // and recomputing on origin/main reproduces 755b2e86... byte-for-byte.
-    expect(digest).toBe("6c20e86fddb9648c3b02cdef3475c31c4ad4b08ac30149c167355c2ebc804e04");
+    // Regenerated for feat/crew-show-search-impl, to the same bar. EXACTLY ONE input
+    // changed, a line number, in one file of this set the arc edits:
+    //   components/crew/sections/GearSection.tsx 277 -> 288 (+11: CASE_CAP and
+    //   ROOM_DETAIL_CAP move from the render callback to documented module exports
+    //   above it)
+    // Same `tile-errors` row, still marked. Nothing joined or left: membership is still
+    // 34, and recomputing on the branch's base reproduces 6c20e86f... byte-for-byte.
+    expect(digest).toBe("8aceadb3b7d10b8f4e2c3b9d1390b3d3776f0bf2484156873f59157e1036c765");
   });
 });
 

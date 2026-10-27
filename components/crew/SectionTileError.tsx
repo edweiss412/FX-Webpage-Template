@@ -63,6 +63,8 @@ export function SectionTileError({ domain }: { domain: string }): JSX.Element {
       // the same string in ten places.
       data-render-fault={`tile-${domain}`}
       data-variant="degraded"
+      // An error fallback, not sheet data: outside search coverage (spec §2.3).
+      data-search-skip=""
       className="rounded-sm border border-border-strong bg-warning-bg px-3 py-2 text-sm text-warning-text"
     >
       <p>{copy}</p>

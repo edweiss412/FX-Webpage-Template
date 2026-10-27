@@ -40,6 +40,7 @@
  *
  * Server Component (no `'use client'`) — props in, markup out.
  */
+import { Children, type ReactNode } from "react";
 import { CalendarDays } from "lucide-react";
 
 import { Avatar } from "@/components/atoms/Avatar";
@@ -68,6 +69,8 @@ type Person = {
   primary?: boolean;
   /** Partial-attendance label (e.g. "Oct 7 & 9 only") → a chip + data-partial hook. */
   partial?: string;
+  /** Search target ids for the identity line and the notes line (see `IdentityLine`). */
+  searchTarget?: { identity: string; notes?: string };
 };
 
 type PersonRowProps = {
@@ -123,7 +126,7 @@ const ACTION_CLASS = cn(
 );
 
 export function PersonRow({ person }: PersonRowProps) {
-  const { role, fallbackLabel, you, lead, primary, partial } = person;
+  const { role, fallbackLabel, you, lead, primary, partial, searchTarget } = person;
 
   const hasName = typeof person.name === "string" && person.name.trim().length > 0;
   const heading = hasName ? person.name : fallbackLabel;
@@ -162,34 +165,38 @@ export function PersonRow({ person }: PersonRowProps) {
     >
       <Avatar name={heading ?? ""} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {heading !== undefined ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {/* `min-w-0` lets `truncate` actually engage inside this flex row:
+        <IdentityLine searchTarget={searchTarget?.identity}>
+          {heading !== undefined ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {/* `min-w-0` lets `truncate` actually engage inside this flex row:
                 without it the nowrap name keeps its intrinsic width and pushes
                 the You/Lead/Primary chip past the card's right edge at 390px. */}
-            <p className="min-w-0 max-w-full truncate text-sm/tight font-semibold text-text-strong">
-              {heading}
-            </p>
-            {you ? (
-              <span className={cn(CHIP_CLASS, "bg-stale-tint text-accent-on-bg")}>You</span>
-            ) : null}
-            {lead ? (
-              <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Lead</span>
-            ) : null}
-            {primary ? (
-              <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Primary</span>
-            ) : null}
-            {partial ? (
-              <span data-partial="true" title={partial} className={PARTIAL_CHIP_CLASS}>
-                <CalendarDays className="size-3 shrink-0" aria-hidden />
-                <span className="min-w-0 truncate">{partial}</span>
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-        {role !== undefined && role.trim().length > 0 ? (
-          <p className="truncate text-xs uppercase tracking-eyebrow text-text-subtle">{role}</p>
-        ) : null}
+              <p className="min-w-0 max-w-full truncate text-sm/tight font-semibold text-text-strong">
+                {heading}
+              </p>
+              {you ? (
+                <span className={cn(CHIP_CLASS, "bg-stale-tint text-accent-on-bg")}>You</span>
+              ) : null}
+              {lead ? (
+                <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Lead</span>
+              ) : null}
+              {primary ? (
+                <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>
+                  Primary
+                </span>
+              ) : null}
+              {partial ? (
+                <span data-partial="true" title={partial} className={PARTIAL_CHIP_CLASS}>
+                  <CalendarDays className="size-3 shrink-0" aria-hidden />
+                  <span className="min-w-0 truncate">{partial}</span>
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {role !== undefined && role.trim().length > 0 ? (
+            <p className="truncate text-xs uppercase tracking-eyebrow text-text-subtle">{role}</p>
+          ) : null}
+        </IdentityLine>
         {phoneActionable || emailActionable ? (
           <div className="flex min-w-0 flex-wrap gap-2 pt-1">
             {phoneActionable ? (
@@ -222,8 +229,42 @@ export function PersonRow({ person }: PersonRowProps) {
             ) : null}
           </div>
         ) : null}
-        {showNotes ? <p className="pt-1 text-xs/snug text-text-subtle">{person.notes}</p> : null}
+        {showNotes ? (
+          <p
+            data-search-target={searchTarget?.notes}
+            className="pt-1 text-xs/snug text-text-subtle"
+          >
+            {person.notes}
+          </p>
+        ) : null}
       </div>
     </li>
+  );
+}
+
+/**
+ * The row's identity line (heading with its chips, then the role) as ONE search
+ * target (spec §2.3): a row renders two lines, identity and notes, and each is
+ * its own target, never the `<li>`, never nested.
+ *
+ * Without a `searchTarget`, or with nothing to wrap, the children render bare, so a
+ * row that is not a search target keeps exactly the markup it had. With one,
+ * they sit in a `flex-col gap-1` wrapper, the same box their parent column is,
+ * so the heading-to-role gap and the gap to the next line stay 4px.
+ */
+function IdentityLine({
+  searchTarget,
+  children,
+}: {
+  searchTarget: string | undefined;
+  children: ReactNode;
+}) {
+  if (searchTarget === undefined || Children.toArray(children).length === 0) {
+    return <>{children}</>;
+  }
+  return (
+    <div data-search-target={searchTarget} className="flex min-w-0 flex-col gap-1">
+      {children}
+    </div>
   );
 }

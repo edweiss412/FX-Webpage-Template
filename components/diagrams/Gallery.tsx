@@ -40,6 +40,7 @@ import {
   RETRY_CHECK_IN_MS,
   type RetryPhase,
 } from "@/components/diagrams/GalleryLightbox";
+import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
@@ -75,8 +76,6 @@ export type GalleryItem = {
   intrinsicWidth?: number;
   intrinsicHeight?: number;
 };
-
-const INITIAL_VISIBLE = 12;
 
 type GalleryProps = {
   /** Show UUID — the `<show>` segment of every emitted asset URL. */

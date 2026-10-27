@@ -71,9 +71,9 @@ import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { cn } from "@/lib/ui/cn";
 
-// Ported from NotesTile.tsx (:57-58) — the 5-source aggregation caps.
-const TRUNCATE_AT = 280;
-const SOURCE_CAP = 8;
+// Ported from NotesTile.tsx (:57-58) — the 5-source caps, exported for lib/search.
+export const TRUNCATE_AT = 280;
+export const SOURCE_CAP = 8;
 
 type NotesEntry = {
   source: "venue" | "hotel" | "room" | "transport" | "contact";

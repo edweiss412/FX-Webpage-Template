@@ -89,6 +89,19 @@ type GearSectionProps = {
 type Discipline = "audio" | "video" | "lighting" | "scenic" | "other";
 
 /**
+ * Pack-list cases rendered inline; cases past it are not in the DOM (a "+N more"
+ * stub renders instead). Exported so the crew search builder applies the same
+ * cap, and so the cap-boundary test reads the live value.
+ */
+export const CASE_CAP = 12;
+
+/**
+ * Room-detail blocks rendered; blocks past it are not in the DOM (an "…and N
+ * more rooms" line renders instead). Exported for the crew search builder.
+ */
+export const ROOM_DETAIL_CAP = 12;
+
+/**
  * Per-discipline static metadata: canonical A→V→L order, lucide glyph, the
  * human heading, and the per-room scalar accessor. The accessor reads
  * `r.audio` / `r.video` / `r.lighting` so the meta-test's
@@ -202,7 +215,6 @@ export function GearSection({
               restriction: ctx.stageRestriction,
               today,
             });
-          const CASE_CAP = 12;
           const visibleCases = packVisible ? data.pullSheet!.slice(0, CASE_CAP) : [];
           const overflowCount = packVisible ? Math.max(0, data.pullSheet!.length - CASE_CAP) : 0;
 
@@ -240,7 +252,6 @@ export function GearSection({
           // the parser captures but no card rendered. Room-first (a block per
           // room), distinct from the discipline-first scope cards. Sentinel-hidden
           // via KeyValueRows; String() coerces non-string JSONB without throwing.
-          const ROOM_DETAIL_CAP = 12;
           const roomDetailBlocks = [...data.rooms]
             .sort(compareRooms)
             .map((r) => ({

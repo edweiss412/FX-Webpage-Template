@@ -69,7 +69,7 @@ type KeyTimesStripProps = {
  * Show rows are capped at 8 (§6). When `shows.length > SHOWS_CAP`, the first 7
  * show rows render and the remainder collapse into a single overflow disclosure.
  */
-const SHOWS_CAP = 8;
+export const SHOWS_CAP = 8;
 /** Rows shown before the overflow disclosure when the cap is exceeded. */
 const VISIBLE_BEFORE_OVERFLOW = SHOWS_CAP - 1;
 

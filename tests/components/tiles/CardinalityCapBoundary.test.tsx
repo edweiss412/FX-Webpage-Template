@@ -13,10 +13,10 @@
  *                        rows: [data-testid="contact-person-row"]
  *                        overflow stub: [data-testid="contacts-overflow-stub"]
  *   - Show notes       — SOURCE_CAP = 8 / TRUNCATE_AT = 280 (TodaySection,
- *                        unexported → source-scan sync guard + behavioral)
+ *                        exported → value pin + behavioral)
  *                        rows: li[data-source]
  *                        overflow: [data-testid="today-notes-overflow"]
- *   - Pack list        — CASE_CAP = 12 (GearSection, unexported → sync guard)
+ *   - Pack list        — CASE_CAP = 12 (GearSection, exported → value pin)
  *                        rows: [data-testid="gear-pack-list-case"]
  *                        overflow stub: [data-testid="gear-pack-list-overflow-stub"]
  *
@@ -43,8 +43,6 @@
  * row counts are DOM-node counts (not name-substring presence); the rendered
  * tree is only the section under test, so substring assertions are scoped.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
@@ -53,8 +51,8 @@ import {
   CREW_INLINE_CAP,
   CONTACTS_INLINE_CAP,
 } from "@/components/crew/sections/CrewSection";
-import { GearSection } from "@/components/crew/sections/GearSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { CASE_CAP, GearSection } from "@/components/crew/sections/GearSection";
+import { SOURCE_CAP, TodaySection, TRUNCATE_AT } from "@/components/crew/sections/TodaySection";
 import {
   ScheduleSection,
   RUN_OF_SHOW_DISPLAY_CAP,
@@ -86,11 +84,6 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-
-/** Read a crew section/primitive source file for the cap sync guards. */
-function readSource(...parts: string[]): string {
-  return readFileSync(join(process.cwd(), ...parts), "utf8");
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Crew roster — CREW_INLINE_CAP = 8 (overflow formula + tail-trim)
@@ -219,21 +212,15 @@ describe("§8.4 cardinality-cap — Key contacts (CONTACTS_INLINE_CAP, CrewSecti
 // ─────────────────────────────────────────────────────────────────────
 // Show notes — SOURCE_CAP = 8 + TRUNCATE_AT = 280 (TodaySection)
 // Not covered by any Phase-3 section test — fully owned here.
-// The caps are unexported, so a source-scan sync guard pins the mirror.
+// The caps are exported (the search builders read the same constants), so the
+// boundary cases below run against the section's own values, and a value pin
+// keeps the spec'd numbers from drifting unnoticed.
 // ─────────────────────────────────────────────────────────────────────
 
 describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodaySection)", () => {
-  const SOURCE_CAP = 8;
-  const TRUNCATE_AT = 280;
-
-  test("sync guard — TodaySection still declares SOURCE_CAP + TRUNCATE_AT = mirrored values", () => {
-    const source = readSource("components", "crew", "sections", "TodaySection.tsx");
-    const capMatch = source.match(/const SOURCE_CAP\s*=\s*(\d+)\s*;/);
-    const truncMatch = source.match(/const TRUNCATE_AT\s*=\s*(\d+)\s*;/);
-    expect(capMatch, "SOURCE_CAP declaration not found in TodaySection.tsx").not.toBeNull();
-    expect(truncMatch, "TRUNCATE_AT declaration not found in TodaySection.tsx").not.toBeNull();
-    expect(Number(capMatch![1])).toBe(SOURCE_CAP);
-    expect(Number(truncMatch![1])).toBe(TRUNCATE_AT);
+  test("value pin — TodaySection exports SOURCE_CAP = 8 and TRUNCATE_AT = 280", () => {
+    expect(SOURCE_CAP).toBe(8);
+    expect(TRUNCATE_AT).toBe(280);
   });
 
   // Notes aggregate across venue → hotel → room → transport → contact in that
@@ -322,12 +309,10 @@ describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodayS
 // ─────────────────────────────────────────────────────────────────────
 // Pack list — CASE_CAP = 12 (GearSection)
 // GearSection.test.tsx pins gate-false omission only — the >12 overflow
-// boundary is owned here. The cap is unexported → source-scan sync guard.
+// boundary is owned here. The cap is exported → value pin + live constant.
 // ─────────────────────────────────────────────────────────────────────
 
 describe("§8.4 cardinality-cap — Pack list (CASE_CAP, GearSection)", () => {
-  const CASE_CAP = 12;
-
   // GearSection gates the pack list behind isPackListVisibleToday — the
   // default fixture's empty schedule_phases makes that false. Provide a
   // schedule_phase whose "today" lands on a Set phase so the list renders
@@ -360,11 +345,8 @@ describe("§8.4 cardinality-cap — Pack list (CASE_CAP, GearSection)", () => {
     ).container;
   }
 
-  test("sync guard — GearSection still declares CASE_CAP = mirrored value", () => {
-    const source = readSource("components", "crew", "sections", "GearSection.tsx");
-    const match = source.match(/const CASE_CAP\s*=\s*(\d+)\s*;/);
-    expect(match, "CASE_CAP declaration not found in GearSection.tsx").not.toBeNull();
-    expect(Number(match![1])).toBe(CASE_CAP);
+  test("value pin — GearSection exports CASE_CAP = 12", () => {
+    expect(CASE_CAP).toBe(12);
   });
 
   test(`cap-1 (${CASE_CAP - 1} cases) — all cases inline, NO overflow`, () => {

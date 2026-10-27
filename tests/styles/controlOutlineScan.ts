@@ -340,8 +340,10 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
   { file: "components/agenda/AgendaPdfViewer.tsx", line: 198 },
   { file: "components/crew/SectionChipLink.tsx", line: 48 },
-  { file: "components/crew/primitives/PersonRow.tsx", line: 196 },
-  { file: "components/crew/primitives/PersonRow.tsx", line: 213 },
+  // :196 and :213 until feat/crew-show-search-impl, which added the react import,
+  // the `searchTarget` field and the `IdentityLine` wrapper tags above both anchors.
+  { file: "components/crew/primitives/PersonRow.tsx", line: 203 },
+  { file: "components/crew/primitives/PersonRow.tsx", line: 220 },
   { file: "components/layout/ThemeToggle.tsx", line: 92 },
   { file: "components/shared/ReportButton.tsx", line: 142 },
   { file: "components/shared/ReportModal.tsx", line: 675 },
