@@ -1119,6 +1119,31 @@ details[open] > summary [data-agenda-day-count] {
   }
 }
 
+/* Crew search: highlight on the line a result opened (crew show search spec
+   §6.6). Same shape as the step-3 jump target above, for the same reason: the
+   reader must still find the line. Motion-safe: a tint that fades over
+   REVEAL_HIGHLIGHT_MS (1600ms; keep in sync with components/crew/CrewSections.tsx,
+   which removes the attribute when the fade ends). Reduced motion: the tint
+   holds without fading for REVEAL_HIGHLIGHT_REDUCED_MS (2000ms) and goes with
+   the attribute. */
+@keyframes search-reveal-flash {
+  from {
+    background-color: var(--color-warning-bg);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+[data-search-reveal] {
+  animation: search-reveal-flash 1600ms var(--ease-out-quart);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-search-reveal] {
+    animation: none;
+    background-color: var(--color-warning-bg);
+  }
+}
+
 /* ShareHub crew-link block: one-shot highlight after the share-token changes
    (spec 2026-07-24-share-link-chrome-backlog-design section 3.4, which makes
    this block NORMATIVE — a test compares the shipped rules against it rather
@@ -1694,6 +1719,15 @@ details[open] > summary [data-agenda-day-count] {
      persistent one. The rule below is unconditional for that reason: it holds
      whether or not the animation runs. */
   [data-step3-warning-flash] {
+    animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* The crew search reveal is the same kind of cue: a jump target the reader
+     must still locate, whose tint forces away here. A steady outline for the
+     highlight window, ended by the attribute's removal, in both motion modes. */
+  [data-search-reveal] {
     animation: none;
     outline: 2px solid Highlight;
     outline-offset: 2px;

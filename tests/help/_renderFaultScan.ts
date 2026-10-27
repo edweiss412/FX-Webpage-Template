@@ -814,7 +814,12 @@ export function scanCandidates(): Candidate[] {
       // section tasks, which computed 746 (the branch's own base read 747 -> 750);
       // the 78 is unchanged.
       //
-      // Probed: 746 such ternaries under the derived roots, 78 on a
+      // 746 -> 747 on feat/crew-show-search (Task 16): CrewSections renders the
+      // search panel in place of the hidden body only while search is active.
+      // Not a fault branch; re-derived the same way on the merged tree (750 -> 751
+      // on the branch's own base), 78 unchanged.
+      //
+      // Probed: 747 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
