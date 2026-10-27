@@ -13,8 +13,8 @@
  * stripped. A primitive that changed anything else fails here.
  */
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -23,7 +23,11 @@ import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/Key
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
 import { TileErrorFallback } from "@/components/shared/TileErrorFallback";
+import type { SearchEntry } from "@/lib/search/types";
+import { premiseHolds } from "@/tests/_shared/premise";
+import { assertParity } from "@/tests/search/_parity";
 
 afterEach(cleanup);
 
@@ -297,5 +301,105 @@ describe("non-sheet chrome is a skip subtree at its root", () => {
   it("SourceLink with no source sheet still renders nothing", () => {
     const { container } = render(<SourceLink driveFileId={null} />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("announce live regions are skip subtrees in a search render", () => {
+  // An announcement is not sheet data. Inside a target it would be part of the
+  // target's own text ("Copied." on the Wi-Fi password row, clause 3), and
+  // outside one it would be uncovered text (a gallery update, clause 5).
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+  });
+
+  const PASSWORD_ROW: FactRow = {
+    k: "Wi-Fi password",
+    v: "ORDTG.",
+    code: true,
+    copyLabel: "Copy Wi-Fi password",
+    testId: "venue-wifi-password",
+  };
+  const PASSWORD_ENTRY: SearchEntry = {
+    id: "t-pw",
+    section: "venue",
+    group: "Facilities",
+    label: "Wi-Fi password",
+    value: "ORDTG.",
+    context: [],
+    copy: { kind: "password", text: "ORDTG." },
+  };
+
+  async function tapCopy(row: FactRow): Promise<HTMLElement> {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    const { container } = render(
+      <div data-card-id="venue-facilities">
+        <h2 data-search-group="">Facilities</h2>
+        <FactRows rows={[row]} />
+      </div>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Wi-Fi password" }));
+    });
+    premiseHolds(
+      "the copy tap announced Copied. into the row's log",
+      screen.getByTestId("venue-wifi-copy-log").textContent === "Copied.",
+    );
+    return container;
+  }
+
+  it("a copy tap on a search row leaves the password target's own text unchanged", async () => {
+    const container = await tapCopy({ ...PASSWORD_ROW, searchTarget: "t-pw" });
+    expect(assertParity(container, [PASSWORD_ENTRY])).toEqual([]);
+    expect(screen.getByTestId("venue-wifi-copy-log").hasAttribute("data-search-skip")).toBe(true);
+  });
+
+  it("a copy row without searchTarget renders its log with no marker", async () => {
+    await tapCopy(PASSWORD_ROW);
+    expect(screen.getByTestId("venue-wifi-copy-log").hasAttribute("data-search-skip")).toBe(false);
+  });
+
+  const SHOW_ID = "11111111-1111-4111-8111-111111111111";
+  const REV = "22222222-2222-4222-8222-222222222222";
+  const ITEMS: GalleryItem[] = [1, 2].map((i) => ({
+    id: `embedded:obj-${i}`,
+    key: `embedded-obj-${i}.png`,
+    alt: `Plot ${i}`,
+    available: true,
+    variants: [],
+  }));
+
+  /** Fails the first thumbnail, which the gallery announces into its log. */
+  function announceInGallery(searchTargets?: Record<string, string>): HTMLElement {
+    render(
+      <Gallery
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={ITEMS}
+        {...(searchTargets !== undefined ? { searchTargets } : {})}
+      />,
+    );
+    const img = within(screen.getByTestId("diagram-slot-0")).getByRole("img");
+    act(() => {
+      fireEvent.error(img);
+    });
+    const log = screen.getByTestId("gallery-announce-log");
+    premiseHolds(
+      "the failed thumbnail was announced into the gallery log",
+      (log.textContent ?? "").includes("could not be loaded"),
+    );
+    return log;
+  }
+
+  it("the gallery's announce log is a skip subtree when the gallery renders search targets", () => {
+    const log = announceInGallery({ "embedded:obj-1": "t-plot-1", "embedded:obj-2": "t-plot-2" });
+    expect(log.hasAttribute("data-search-skip")).toBe(true);
+  });
+
+  it("the gallery's announce log carries no marker in a gallery without search targets", () => {
+    expect(announceInGallery().hasAttribute("data-search-skip")).toBe(false);
   });
 });

@@ -1136,6 +1136,7 @@ export function Gallery({
         entries={galleryEntries}
         label="Diagram updates"
         testId="gallery-announce-log"
+        searchSkip={searchTargets !== undefined}
       />
       <AnimatePresence onExitComplete={handleExitComplete}>
         {lightboxIndex !== null ? (

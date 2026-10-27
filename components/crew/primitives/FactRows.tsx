@@ -141,6 +141,7 @@ export function FactRows({ rows }: FactRowsProps) {
                     // distinct between rows, so a vacancy one row offers on
                     // unmount cannot be claimed by another row's island.
                     identity={row.testId !== undefined ? row.testId : `${row.k}-${i}`}
+                    searchSkip={row.searchTarget !== undefined}
                   />
                 </div>
               ) : (

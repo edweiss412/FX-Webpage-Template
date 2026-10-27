@@ -120,18 +120,31 @@ export function useAnnounceLog(options?: { ttlMs?: number }): {
  *  role="log" carries implicit polite + aria-atomic="false" + aria-relevant=
  *  "additions text": only the ADDED node is presented, and removals are silent.
  *  Those implicits are the contract, so no explicit aria-live / aria-atomic /
- *  aria-relevant attribute is written here. */
+ *  aria-relevant attribute is written here.
+ *
+ *  `searchSkip` (off by default, so every other caller keeps its markup) marks
+ *  the region `data-search-skip` for a crew-page render that carries search
+ *  markers: an announcement is not sheet data, and inside a search target it
+ *  would become that target's text (crew search spec §2.3). */
 export function AnnounceLogRegion({
   entries,
   label,
   testId,
+  searchSkip = false,
 }: {
   entries: ReadonlyArray<AnnounceLogEntry>;
   label: string;
   testId: string;
+  searchSkip?: boolean;
 }) {
   return (
-    <span role="log" aria-label={label} className="sr-only" data-testid={testId}>
+    <span
+      role="log"
+      aria-label={label}
+      className="sr-only"
+      data-testid={testId}
+      {...(searchSkip ? { "data-search-skip": "" } : {})}
+    >
       {entries.map((e) => (
         <span key={e.id} data-announce-id={e.id}>
           {e.text}

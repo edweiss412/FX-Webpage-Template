@@ -307,9 +307,13 @@ export function CopyFactValue({
   value,
   label,
   identity,
+  searchSkip = false,
 }: {
   value: string;
   label: string;
+  /** Marks the confirmation log `data-search-skip` (crew search spec §2.3): set
+   *  by a row that is a search target, so "Copied." never joins its text. */
+  searchSkip?: boolean;
   /** Stable across this row's remounts and distinct between rows — `FactRows`
    *  passes the row's `testId`, falling back to its label. It keys the VACANCY
    *  offered when this island unmounts, so it decides which incoming island may
@@ -582,6 +586,7 @@ export function CopyFactValue({
         entries={entries}
         label="Copy confirmations"
         testId="venue-wifi-copy-log"
+        searchSkip={searchSkip}
       />
     </>
   );
