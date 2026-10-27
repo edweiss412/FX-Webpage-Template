@@ -398,4 +398,26 @@ describe("SheetIconLink wash contrast (sheet-icon-link spec §3)", () => {
       });
     }
   }
+
+  // The two compact-card backdrops (warning-card-fixes spec §3.6) wash UP to
+  // bg-surface. A wash too close to its backdrop is invisible (the component
+  // header's 1.03:1 measurement), so each pair keeps a floor below every
+  // measured pair (min 1.092, dark sunken) and above that 1.03.
+  const WASH_STEP_FLOOR = 1.08;
+  for (const mode of MODES) {
+    for (const backdrop of [
+      "--color-warning-bg-runtime",
+      "--color-surface-sunken-runtime",
+    ] as const) {
+      it(`${mode.name}: the surface wash stays visible on ${backdrop}`, () => {
+        const wash = tokenIn(mode.src, "--color-surface-runtime");
+        expect(contrast(wash, tokenIn(mode.src, backdrop))).toBeGreaterThanOrEqual(WASH_STEP_FLOOR);
+      });
+    }
+    it(`${mode.name}: the resting glyph (text) clears >=4.5:1 AA on warning-bg`, () => {
+      const text = tokenIn(mode.src, "--color-text-runtime");
+      const amber = tokenIn(mode.src, "--color-warning-bg-runtime");
+      expect(contrast(text, amber)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+  }
 });

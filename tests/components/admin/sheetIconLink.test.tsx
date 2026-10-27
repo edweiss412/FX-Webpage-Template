@@ -123,6 +123,18 @@ const SURFACE_VARIANT_TOKENS = [
   "hover:bg-surface-sunken",
   "active:bg-surface-sunken",
 ];
+/** The two compact-card backdrops (warning-card-fixes spec §3.6): the amber
+ *  active card and the muted sunken card both wash UP to bg-surface. */
+const WARNING_BG_VARIANT_TOKENS = [
+  "focus-visible:ring-offset-warning-bg",
+  "hover:bg-surface",
+  "active:bg-surface",
+];
+const SURFACE_SUNKEN_VARIANT_TOKENS = [
+  "focus-visible:ring-offset-surface-sunken",
+  "hover:bg-surface",
+  "active:bg-surface",
+];
 
 describe("SheetIconLink class token set (spec §7.6 set-equality)", () => {
   it("ringOffset=bg renders EXACTLY base + the bg variant literals", () => {
@@ -133,6 +145,16 @@ describe("SheetIconLink class token set (spec §7.6 set-equality)", () => {
   it("ringOffset=surface renders EXACTLY base + the surface variant literals", () => {
     const link = renderLink({ ringOffset: "surface" });
     expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, ...SURFACE_VARIANT_TOKENS]));
+  });
+
+  it("ringOffset=warning-bg renders EXACTLY base + the warning-bg variant literals", () => {
+    const link = renderLink({ ringOffset: "warning-bg" });
+    expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, ...WARNING_BG_VARIANT_TOKENS]));
+  });
+
+  it("ringOffset=surface-sunken renders EXACTLY base + the surface-sunken variant literals", () => {
+    const link = renderLink({ ringOffset: "surface-sunken" });
+    expect(tokensOf(link)).toEqual(new Set([...BASE_TOKENS, ...SURFACE_SUNKEN_VARIANT_TOKENS]));
   });
 
   it("positional className tokens append, nothing else changes", () => {

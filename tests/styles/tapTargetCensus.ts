@@ -582,7 +582,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/SheetIconLink.tsx",
-    line: 91,
+    // 91 -> 94 on feat/warning-card-fixes Task 6; located by its own element
+    // (the one `<a` in the file), after the ringOffset union gained two keys.
+    line: 94,
     tag: "a",
     category: "unresolvable-dynamic",
     reason:
