@@ -120,8 +120,8 @@ export type Phase2Args = {
   // F1 (R60-1/R65-1): wizard Phase B first-seen apply only — forwarded into applyShowSnapshot so
   // the first-seen INSERT writes shows.wizard_created_session_id (provenance discriminator).
   wizardCreatedSessionId?: string;
-  // Wizard Phase B first-seen ONLY, and only when the admin approved this row (pending_syncs
-  // .wizard_approved, which a rescan resets). The roster, LEAD included, was on screen when they
+  // Wizard Phase B first-seen ONLY, and only when the admin approved this row (its staged
+  // wizard_approved flag, which a rescan resets). The roster, LEAD included, was on screen when they
   // approved it, so the role-flags notice is recorded but raises no bell alert.
   wizardApproved?: true;
 

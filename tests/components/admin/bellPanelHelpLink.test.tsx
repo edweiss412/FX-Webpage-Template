@@ -135,7 +135,7 @@ describe("BellPanel — Learn more help link (impeccable P1)", () => {
  * structural guard never saw it (DEFERRED.md:91-92).
  */
 describe("BellPanel — the telemetry link is internal and wears no new-tab glyph (§2.5)", () => {
-  /** components/admin/BellPanel.tsx:101 — the code the watch arm gates on. */
+  /** components/admin/BellPanel.tsx:105 — the code the watch arm gates on. */
   const WATCH_CODE: MessageCode = "WATCH_CHANNEL_ORPHANED";
 
   /**

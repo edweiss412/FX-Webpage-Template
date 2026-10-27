@@ -124,7 +124,7 @@ describe("the bell's own exclusion mechanism keeps them", () => {
 
   it("the feed's ONLY code-filter input is that list, not a literal beside it", () => {
     // Whole-diff review B8: asserting `bellExcludedCodes` omits the codes proves
-    // nothing if the feed passes something else. `lib/admin/bellFeed.ts:222` is
+    // nothing if the feed passes something else. `lib/admin/bellFeed.ts:224` is
     // the single RPC call site, and `p_excluded_codes` is its only
     // code-filtering parameter, so pin that the argument IS the helper's result.
     const src = readFileSync(resolve(process.cwd(), "lib/admin/bellFeed.ts"), "utf8");

@@ -437,8 +437,8 @@ export type ApplyStagedCoreArgs = {
   // PostgresPipelineTx INSERT, which writes shows.wizard_created_session_id (the show-side
   // provenance discriminator every created_show_id consumer joins on). Absent for live/Phase-D.
   wizardCreatedSessionId?: string;
-  // Wizard Phase B first-seen ONLY, and only when the admin approved this row (pending_syncs
-  // .wizard_approved, which a rescan resets). The roster, LEAD included, was on screen when they
+  // Wizard Phase B first-seen ONLY, and only when the admin approved this row (its staged
+  // wizard_approved flag, which a rescan resets). The roster, LEAD included, was on screen when they
   // approved it, so the role-flags notice is recorded but raises no bell alert.
   wizardApproved?: true;
   // R30-1: wizard Phase B only — first-seen INSERT writes published=false.
