@@ -8,7 +8,10 @@
 
 ## 1. Problem
 
-The FinTech Forum CTO Summit 2026 review shows a bare "No pack list parsed." in its Pack list section (`components/admin/wizard/step3ReviewSections.tsx`, `PackListBreakdown`, the `isEmpty` branch). The parser is right: neither the live test copy (`1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY`) nor Doug's original (`1DlzndW4hgK673PvLjBIW45eOb9z6C1oy3cJem64y5OE`) has a tab whose name contains `PULL SHEET`, and pack lists come only from such a tab (`lib/drive/exportSheetToMarkdown.ts`, `normalizePullSheetGrid`, the `/PULL SHEET/i` sheet-name gate; `lib/parser/pull-sheet.ts`, `parsePullSheet`, the every-cell-contains-`PULL SHEET` header test).
+The FinTech Forum CTO Summit 2026 review shows a bare "No pack list parsed." in its Pack list section (`components/admin/wizard/step3ReviewSections.tsx`, `PackListBreakdown`, the `isEmpty` branch). The parser is right: neither the live test copy (`1v856gW02Xx-RmefruhqBdjZlYqoFCnvYld1p3v0iVvY`) nor Doug's original (`1DlzndW4hgK673PvLjBIW45eOb9z6C1oy3cJem64y5OE`) has a tab whose name contains `PULL SHEET`. A pack list needs two things on its tab:
+
+- **The tab name.** The exporter reshapes a pull-sheet grid only on a tab whose name matches `/PULL SHEET/i` (`lib/drive/exportSheetToMarkdown.ts`, `normalizePullSheetGrid`).
+- **The heading.** On that tab, the exporter joins the cells above the first gear row (a numeric QTY in column A with an item beside it) into one header row, and the parser accepts that row only when it contains `PULL SHEET` (`lib/parser/pull-sheet.ts`, `parsePullSheet`, the every-cell-contains-`PULL SHEET` header test). Probe from spec review round 1: renaming only `PULL SHEET!A1` in `east-coast.xlsx` to `PACK LIST` takes the parse from 1 case of 91 items to `pullSheet: null`, with the tab still named `PULL SHEET`.
 
 The empty section is silent. It reads the same whether the sheet has no pull sheet or a parse went wrong, it counts as nothing in review, and it gives Doug's team no hint that crew lose the one thing the pack list is for: looking up which case a piece of gear is packed in. The 2026 template sheets carry no pull sheet tab at all, so this is the common case, not an edge.
 
@@ -72,7 +75,7 @@ Not a condition: a pull sheet with cases but zero items. `parsePullSheet` keeps 
 - `severity: "warn"`, `code: "PULL_SHEET_MISSING"` as a string LITERAL in the push (the code extractors read literals; the venue helper is the pattern).
 - Emitted through a new exported helper in `lib/parser/warnings.ts`, `emitPullSheetMissing(agg)`, beside `emitVenueAddressMissing`, with an exported `PULL_SHEET_MISSING` constant beside `VENUE_ADDRESS_MISSING`. `finalizeArchivedTabs` filters on that constant.
 - `blockRef: { kind: "pull_sheet" }`, no `field`, no `name`. `KIND_TO_SECTION` already maps `pull_sheet` to `packlist` (`lib/admin/step3SectionStatus.ts`), the same kind the other `PULL_SHEET_*` parse warnings carry (`lib/parser/pull-sheet.ts`).
-- `rawSnippet: "no pack list"`, a fixed string. Ignore keys its fingerprint on code plus normalized `rawSnippet` (`lib/dataQuality/warningFingerprint.ts`) and is stored per show (`ignored_warnings`, `unique (show_id, fingerprint)`, `supabase/migrations/20260702120000_ignored_warnings.sql`). A blank snippet disables Ignore (`lib/dataQuality/ignorableSnippet.ts`, `hasIgnorableSnippet`). The notice is at most once per show and has no sheet text of its own to key on, so a constant is the whole identity: an Ignore holds for that show until it is un-ignored. Because the snippet is never blank, the Ignore control always renders, which licenses a `controlsNote` naming Ignore (§4.6, §4.7 item 5).
+- `rawSnippet: "no pack list"`, a fixed string. Ignore keys its fingerprint on code plus normalized `rawSnippet` (`lib/dataQuality/warningFingerprint.ts`) and is stored per show (`ignored_warnings`, `unique (show_id, fingerprint)`, `supabase/migrations/20260702120000_ignored_warnings.sql`). A blank snippet disables Ignore (`lib/dataQuality/ignorableSnippet.ts`, `hasIgnorableSnippet`). The notice is at most once per show and has no sheet text of its own to key on, so a constant is the whole identity. An Ignore holds for as long as the notice keeps firing on that show. Once an applied parse stops carrying the notice (a pack list appears, or an archived pull-sheet tab suppresses it), the orphan prune in the apply transaction deletes the Ignore (`lib/sync/runScheduledCronSync.ts`, the `DQIGNORE-3` comment above `delete from public.ignored_warnings … not (fingerprint = any($2))`), so if the pack list is later lost again the notice shows again. That is the behavior Doug would want. Because the snippet is never blank, the Ignore control always renders, which licenses a `controlsNote` naming Ignore (§4.6, §4.7 item 5).
 - `message` (internal, never shown): `No pack list found: no PULL SHEET block in the sheet.`
 - No `sourceCell`, and the code is NOT added to `OPERATOR_ACTIONABLE_ANCHORED` (`lib/parser/dataGaps.ts`): there is no cell to point at.
 
@@ -98,18 +101,20 @@ Because no file under `app/` (outside `app/api/**`) or `components/` changes, AG
 
 ### 4.6 Copy (canonical — implementation copies verbatim)
 
-Written to the warning-card copy contract (`docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md` §4.1): reader knows only sheet in, crew page out; voice "we found / we didn't find"; popover opens "Appears when"; none of the banned vocabulary; no em dash; straight apostrophes. "Tab" is sheet-world vocabulary and legal. The copy says "pack list we could read", not "no tab", because the notice also fires when a pull sheet tab exists but holds nothing we read as a pack list. The composed inline line (`helpfulContext`, a space, `controlsNote`) stays under the 300-character cap the copy meta-test enforces.
+Written to the warning-card copy contract (`docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md` §4.1): reader knows only sheet in, crew page out; voice "we found / we didn't find"; popover opens "Appears when"; none of the banned vocabulary; no em dash; straight apostrophes. "Tab", "row" and "heading" are sheet-world vocabulary and legal.
+
+The copy names both things a pack list needs (§1): a tab named PULL SHEET, and PULL SHEET at the top of that tab above the gear rows. A sheet that has the tab but lost the heading fires the notice too, and "add a tab" alone would send Doug to create a tab he already has. The copy says "a pack list we could read", not "no tab", for the same reason. The composed inline line (`helpfulContext`, a space, `controlsNote`) stays under the 300-character cap the copy meta-test enforces.
 
 | Field | Text |
 | --- | --- |
 | `title` | No pack list found |
-| `helpfulContext` (inline) | We didn't find a pack list we could read in this sheet, so crew can't look up which case their gear is packed in. Add a pull sheet tab to the sheet if this show has one. |
-| `triggerContext` (popover) | Appears when the sheet has no pull sheet tab we can read. |
-| `dougFacing` (§12.4) | "We didn't find a pack list we could read in this sheet, so the crew page has no pack list and crew can't look up which case gear is packed in. Add a pull sheet tab to the sheet if this show has one." |
+| `helpfulContext` (inline) | We didn't find a pack list we could read in this sheet, so crew can't look up which case their gear is packed in. If this show has one, put it on a tab named PULL SHEET with PULL SHEET at the top. |
+| `triggerContext` (popover) | Appears when no tab in the sheet has a pack list we can read. |
+| `dougFacing` (§12.4) | "We didn't find a pack list we could read in this sheet, so the crew page has no pack list and crew can't look up which case gear is packed in. If this show has one, put it on a tab named PULL SHEET with PULL SHEET at the top." |
 | `crewFacing` | `null` (§12.4 cell `—`). Crew never see this notice. |
-| `followUp` | Doug → add a pull sheet tab (or Ignore) |
+| `followUp` | Doug → add or fix the PULL SHEET tab (or Ignore) |
 | `controlsNote` | Use Report to flag it to us, or Ignore to hide this notice. |
-| `longExplanation` | We read a show's pack list from a tab with PULL SHEET in its name. This sheet has no such tab, or the tab had nothing we could read as a pack list, so the crew page shows no pack list. Once a pull sheet tab is in the sheet, the pack list shows the next time this show checks its sheet. |
+| `longExplanation` | We read a show's pack list from a tab with PULL SHEET in its name and PULL SHEET at the top of the tab, above the gear rows. This sheet has no such tab, or the tab's heading or rows aren't ones we could read, so the crew page shows no pack list. Once the tab is in place, the pack list shows the next time this show checks its sheet. |
 | `helpHref` | `/help/errors#PULL_SHEET_MISSING` |
 | `warningClass` | `"parse_warning"` |
 
@@ -155,10 +160,9 @@ Anti-tautology: every suppression case pairs with a positive control that still 
 Filed here rather than as ledger rows, per the 2026-08-25 process freeze. Each names the condition that would make it a real finding.
 
 1. **A pull sheet with cases but no items.** `pullSheet` is a non-empty array, so the notice stays quiet while crew see case labels with nothing under them. No corpus fixture produces it. Re-file trigger: a live sheet whose review shows pack-list cases with zero items.
-2. **An Ignore outlives a pack list that comes and goes.** The fingerprint is constant per show (§4.3), so a notice ignored once stays ignored if a pull sheet tab is later added and then removed. The add-then-remove case is a regression MI-8c stages for approval, so it is not silent. Re-file trigger: Doug reports a lost pack list he was not told about.
-3. **The ignored-list discriminator reads oddly.** The wizard's ignored list labels each row with its snippet as `Sheet row <snippet>` (`components/admin/wizard/step3ReviewSections.tsx`, `ignoredRowSnippet`), so this row reads "Sheet row no pack list". The venue notice has the same framing with a venue name. Re-file trigger: Doug or a UI review flags the line as confusing.
-4. **Non-scan parse paths see the notice even beside an archived tab.** Suppression runs in `finalizeArchivedTabs`, which both production scan paths call. A parse that skips it (dev tooling such as `app/admin/dev/actions.ts`, probes) keeps the notice on a sheet whose only pull sheet is on an `OLD` tab. Re-file trigger: a production path that stores a parse result without calling `finalizeArchivedTabs`.
-5. **No "Open in Sheet" link.** There is no cell to point at (§4.3). Re-file trigger: Doug reports he could not tell where to add the tab.
+2. **The ignored-list discriminator reads oddly.** The wizard's ignored list labels each row with its snippet as `Sheet row <snippet>` (`components/admin/wizard/step3ReviewSections.tsx`, `ignoredRowSnippet`), so this row reads "Sheet row no pack list". The venue notice has the same framing with a venue name. Re-file trigger: Doug or a UI review flags the line as confusing.
+3. **Non-scan parse paths see the notice even beside an archived tab.** Suppression runs in `finalizeArchivedTabs`, which both production scan paths call. A parse that skips it (dev tooling such as `app/admin/dev/actions.ts`, probes) keeps the notice on a sheet whose only pull sheet is on an `OLD` tab. Re-file trigger: a production path that stores a parse result without calling `finalizeArchivedTabs`.
+4. **No "Open in Sheet" link.** There is no cell to point at (§4.3). Re-file trigger: Doug reports he could not tell where to add the tab.
 
 ## 8. Non-goals
 
