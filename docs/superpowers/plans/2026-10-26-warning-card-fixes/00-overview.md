@@ -20,7 +20,7 @@
 | 01-lib.md | Tasks 1-5: parser, anchors, routing, display module, catalog lockstep |
 | 02-chrome.md | Tasks 6-9: sheet icon backdrops, the two host rows (layout-dimensions tasks), wizard row kinds, published adapters |
 | 03-accept-archived-reading.md | Tasks 10-15: comparison, Accept wording, Accepted disclosure, archived card, transition audit + deferred choice, mounts |
-| 04-jumps-and-finish.md | Tasks 16-21: reservation marker, section jumps, census reconciliation, local verification, cross-model review, the UI quality gate, closeout |
+| 04-jumps-and-finish.md | Tasks 16-22: reservation marker, section jumps, census reconciliation, the UI quality gate, local verification, the final cross-model review, ship |
 | closeout.md | the closeout record, §12 filled at gate time |
 
 ## Global Constraints
@@ -31,9 +31,20 @@
 - Named values have one definition (§20): `SHEET_SAYS_CAP = 160`, `WE_READ_NAMES_CAP = 6`, `CASE_PREVIEWS_CAP = 3`, `CASE_PREVIEW_CHARS = 40` in lib/admin/warningReadingDisplay.ts; `ARCHIVED_TAB_INCLUDE_LABEL = "Use this pull sheet"`, `ARCHIVED_TAB_INCLUDE_PENDING = "Including…"` in `components/admin/wizard/archivedTabOffer.tsx`. Tests import these; they never retype them.
 - Counts in tests derive from the named sets (`AMBIGUITY_CODES`, `USE_RAW_CODES`, `HOTEL_RESERVATION_JUDGMENT_CODES`), never from literals.
 - Invariant 5: no code string renders; `callUseRawAction` returns `"ok" | "failed"`.
-- Invariant 10: no new `"use server"` file or export, no new route, no inline server action (spec §10, R10). components/admin/useRawDraft.tsx is `"use client"`. `tests/log/_metaMutationSurfaceObservability.test.ts` is re-run in Task 19 to confirm.
+- Invariant 10: no new `"use server"` file or export, no new route, no inline server action (spec §10, R10). components/admin/useRawDraft.tsx is `"use client"`. `tests/log/_metaMutationSurfaceObservability.test.ts` is re-run in Task 20 to confirm.
 - Invariant 2: each Save runs two existing endpoints one after the other from the client; no lock nests.
-- Invariant 1 and 6: one task, one commit, conventional-commit message. **Declared exception:** the line-keyed census suites `tests/styles/_metaTapTargetFloor.test.ts`, `tests/styles/_metaForcedColors.test.ts`, `tests/styles/_metaControlOutlineFill.test.ts`, `tests/styles/_metaControlOutlineResidue.test.ts`, `tests/styles/_metaSubtleOnInteractive.test.ts`, `tests/help/_metaRenderFaultMarking.test.ts` key rows by source LINE, so they go red from the first component task and are re-keyed once, in Task 18, after the last component edit (brief requirement; re-keying earlier would be redone by every later task). Every other suite a task touches is green at that task's commit, including the COUNT-keyed registries, which each task updates in its own commit.
+- Invariant 1 and 6: one task, one commit, conventional-commit message. **Declared exception, the census window:** six suites key rows by source LINE, so an edit above a keyed line turns them red until Task 18 re-keys them once, after the last component edit (re-keying earlier would be redone by every later task). **No green command from Task 1 to Task 17 runs any of them**, and every other suite a task touches, including the COUNT-keyed registries, is green at that task's commit. Exactly these, with the first task that moves one of their rows (from sweep S1):
+
+  | Suite (registry) | Keyed files this arc edits | Expected red from |
+  |---|---|---|
+  | `tests/help/_metaRenderFaultMarking.test.ts` (`REPORTED_RESIDUE`) | `UseRawControl.tsx` | Task 4 (`IN_SCOPE` leaves the file) |
+  | `tests/styles/_metaForcedColors.test.ts` (`tests/styles/forcedColorsCensus.ts`) | `UseRawControl.tsx`, `PerShowActionableWarnings.tsx`, `ShowReviewSurface.tsx` | Task 4 |
+  | `tests/styles/_metaTapTargetFloor.test.ts` (`tests/styles/tapTargetCensus.ts`) | `SheetIconLink.tsx`, `step3ReviewSections.tsx`, `DataQualityWarningControls.tsx` | Task 6 |
+  | `tests/styles/_metaControlOutlineFill.test.ts` (`tests/styles/controlOutlineScan.ts`) | `step3ReviewSections.tsx`, `ShowReviewSurface.tsx` | Task 7 |
+  | `tests/styles/_metaControlOutlineResidue.test.ts` (`controlOutlineScan.ts` and its inline `RESIDUE_CENSUS`) | `step3ReviewSections.tsx`, `ShowReviewSurface.tsx` | Task 7 |
+  | `tests/styles/_metaSubtleOnInteractive.test.ts` (`tests/styles/subtleInteractiveExemptions.ts`) | `step3ReviewSections.tsx`, `sectionWarningExtras.tsx` | Task 7 |
+
+  The walker cover below excludes these six by name; Task 18 is where they return to green, and Task 19 re-keys any row a gate fix moves.
 - Heavy phases: any full-suite vitest, non-interactive Playwright, or build runs as `pnpm heavy <cmd>` (outermost only). Scoped vitest with explicit files runs unwrapped.
 - New `.tsx` test files never quote the sheet icon's accessible-name phrase verbatim (it is counted repo-wide by `tests/components/admin/sheetIconLinkContainment.test.ts:46`); they assert the `aria-label` CONTAINS the card title.
 - New jsdom suites start with `// @vitest-environment jsdom`.
@@ -60,7 +71,7 @@ Derived from the spec's ratified decisions (§1.1) and its two mandatory invento
 - AC-7 — every staged-wizard warn card whose warning routes to a rendered section gets one Go to jump (R8) (discharged by Task 17)
 - AC-8 — accepted judgment rows sit in their own Accepted (N) disclosure on both surfaces; counts and the ignore store are unchanged (R12) (discharged by Task 12)
 - AC-9 — the three helpfulContext rows land in all six lockstep places in one commit (spec §9) (discharged by Task 5)
-- AC-10 — no new mutation surface; every write reuses a registered action or route (R10) (discharged by Task 19)
+- AC-10 — no new mutation surface; every write reuses a registered action or route (R10) (discharged by Task 20)
 - AC-11 — the §13 Dimensional Invariants hold in a real browser and every §14 / §14.1 transition is reached or proven unreachable (discharged by Task 7, Task 9 and Task 14)
 
 ## Meta-test inventory
@@ -76,9 +87,46 @@ EXTENDS (a registry row or a new case lands in the named task):
 - `tests/ci/_metaSpecRegistration.test.ts` via `tests/e2e/standalone-baseline.json` — every task adding Playwright tests regenerates the baseline (Tasks 7, 9, 13, 15, 16, 17).
 - Line-keyed censuses re-keyed in Task 18: `tests/styles/tapTargetCensus.ts`, `tests/styles/forcedColorsCensus.ts`, `tests/styles/controlOutlineScan.ts`, `tests/styles/subtleInteractiveExemptions.ts`, `tests/styles/_metaControlOutlineResidue.test.ts` (its inline `RESIDUE_CENSUS`), `tests/help/_metaRenderFaultMarking.test.ts` (`REPORTED_RESIDUE`).
 
+- `tests/admin/no-inline-email-normalization.test.ts` — scans every `lib/drive` and `lib/sync` file (`tests/admin/no-inline-email-normalization.test.ts:95-96`) and rejects unexempted `.trim()` / `.toLowerCase()`. Task 2's new lib/drive/venueAddressAnchor.ts uses `/\S/` and `resolveAlias` instead, so it needs no `canonicalize-exempt:` line; the suite is in Task 2's green command.
+
 CREATES: none. No new registry-style meta-test: every new surface reuses an enrolled one.
 
-Not applicable, with reason: Supabase call boundaries (`tests/auth/_metaInfraContract.test.ts`) — no new Supabase call (§10). Sentinel hiding (`tests/components/tiles/_metaSentinelHidingContract.test.ts`) — no crew tile changes. Admin-alert catalog — no admin alert. Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no lock surface; each endpoint keeps its own single holder. Email normalization — no email. Mutation-surface registry (`tests/log/_auditableMutations.ts`) — no new surface (R10); exercised, not extended.
+### Walker cover (every new file is scanned by existing walking guards)
+
+Every file this plan creates is scanned by guards that walk the tree. The cover is DERIVED, not listed: a DB-free test file is in it when its import closure (over `tests/**` and `lib/**`) reaches a filesystem walk (`readdirSync`, `globSync`, `opendirSync`, `git ls-files`, `walkSourceFiles(`). Derivation script (save to the session scratchpad as `walker-cover.py`; run from the worktree root):
+
+```python
+import os,re,subprocess,sys
+out_path=sys.argv[1]
+tracked=set(subprocess.run(["git","ls-files"],capture_output=True,text=True).stdout.split())
+WALK=re.compile(r"readdirSync|globSync|opendirSync|[\"']ls-files[\"']|walkSourceFiles\(")
+IMP=re.compile(r"(?:from|import)\s*\(?\s*[\"']([^\"']+)[\"']")
+EXTS=[".ts",".tsx",".mjs",".js","/index.ts","/index.tsx"]
+def resolve(src,spec):
+    if spec.startswith("@/"): base=spec[2:]
+    elif spec.startswith("."): base=os.path.normpath(os.path.join(os.path.dirname(src),spec))
+    else: return None
+    for e in [""]+EXTS:
+        if base+e in tracked: return base+e
+    return None
+memo={}
+def walks(p,seen):
+    if p in memo: return memo[p]
+    if p in seen: return False
+    seen.add(p)
+    if not (p.startswith("tests/") or p.startswith("lib/")): memo[p]=False; return False
+    s=open(p,errors="ignore").read()
+    r=bool(WALK.search(s)) or any(walks(q,seen) for q in (resolve(p,m) for m in IMP.findall(s)) if q)
+    memo[p]=r; return r
+DEFER={"tests/styles/_metaTapTargetFloor.test.ts","tests/styles/_metaForcedColors.test.ts","tests/styles/_metaControlOutlineFill.test.ts","tests/styles/_metaControlOutlineResidue.test.ts","tests/styles/_metaSubtleOnInteractive.test.ts","tests/help/_metaRenderFaultMarking.test.ts"}
+tests=sorted(p for p in tracked if re.search(r"^tests/.*\.test\.tsx?$",p) and not p.endswith(".db.test.ts") and "realdb" not in p)
+cover=[t for t in tests if walks(t,set())]
+open(out_path,"w").write("\n".join(t for t in cover if t not in DEFER)+"\n")
+```
+
+Run as `python3 "$SCRATCH/walker-cover.py" "$SCRATCH/walker-cover.txt" && pnpm heavy pnpm exec vitest run $(cat "$SCRATCH/walker-cover.txt")`, re-derived each time (earlier tasks add test files). Measured 2026-10-26 on the plan commit: 294 walker suites, the six census suites among them (detected, so the derivation reaches helper-module walks), 288 after excluding those six. Run at plan time: the first 286 in one invocation, `270 passed | 2 skipped (272 files)`, `7185 passed | 18 skipped`, 404s, DB-free; the two `tests/e2e` vitest suites added when the derivation stopped excluding that directory (`tests/e2e/_metaFontFidelityWiring.test.ts`, `tests/e2e/_metaLiveEntryToolchain.test.ts`) in a second, green. Among them, by the new file they scan: `tests/admin/no-inline-email-normalization.test.ts` and `tests/sync/_scopeCheckContract.test.ts` (lib/drive), `tests/admin/_metaInfraEmitCover.test.ts` (lib/admin), `tests/styles/_metaEmDashCopy.test.ts`, `tests/styles/noBareRingOffset.test.ts`, `tests/components/_metaLiveRegionMounting.test.ts`, `tests/components/admin/attentionMarkParity.test.ts`, `tests/components/admin/sheetIconLinkContainment.test.ts`, `tests/styles/_metaNewTabAnnouncement.test.ts`, `tests/log/_metaMutationSurfaceObservability.test.ts` (components and app), `tests/ci/_metaSpecRegistration.test.ts`, `tests/cross-cutting/vitest-projects-partition.test.ts`, `tests/cross-cutting/test-fast-deferred.test.ts`, `tests/e2e/_metaLiveEntryToolchain.test.ts` (tests). Tasks 2, 4, 7, 12, 13, 14, 15, 16 and 17 create files and run the cover at their green step; Tasks 1, 3, 5, 6, 8, 9, 10 and 11 create none.
+
+Not applicable, with reason: Supabase call boundaries (`tests/auth/_metaInfraContract.test.ts`) — no new Supabase call (§10). Sentinel hiding (`tests/components/tiles/_metaSentinelHidingContract.test.ts`) — no crew tile changes. Admin-alert catalog — no admin alert. Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — no lock surface; each endpoint keeps its own single holder. Mutation-surface registry (`tests/log/_auditableMutations.ts`) — no new surface (R10); exercised, not extended.
 
 ## Registry reconciliation (run at plan time)
 
@@ -139,7 +187,7 @@ Run 2026-10-26 on the branch tip (`f9fe5c0ec`), `grep -c -F <symbol> <file>` per
 
 Test paths, harnesses and scripts each confirmed present with `test -e` (43 paths, 0 missing), including `tests/e2e/standalone.config.ts`, `tests/e2e/_step3ReviewModalHarness.tsx`, `tests/e2e/_step3ReviewModalBundle.mjs`, `tests/e2e/_compactAlertCardLiveEntry.tsx`, `tests/e2e/helpers/liveEntryToolchain.ts`, `scripts/check-standalone-baseline.mjs`, `tests/_shared/premise.ts`.
 
-Every type, prop and signature the tasks introduce (the `readAs` variant, `resolveVenueAddressValueCell`, the display module exports, `CompactAlertCard.sheetLink`, `JudgmentCallTag` props, `ArchivedTabIncludeButton` / `ArchivedTabWarningActions` props, `DataQualityWarningControls` lock props, `UseRawSurface`, `callUseRawAction`, `UseRawDraftValue`, `offersReadingChoice`) was written into a scratch file importing the real repo types and checked with `pnpm exec tsc -p <scratch tsconfig extending tsconfig.json>`: exit 0. Scratch removed.
+**Strict-TS snippet probe (plan round 1 repair).** Every fenced code block in this unit was extracted and checked: the five `ts`/`tsx` blocks (Task 1 loop, Task 5 guard, Task 10 render, Task 13 props, Task 14 interfaces) each written to a scratch file that imports the real modules, compiled by `pnpm exec tsc -p <scratch tsconfig extending tsconfig.json>` (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), with one path override mapping `@/lib/admin/warningReadingDisplay` to a declaration stub of Task 4's Interfaces (the module does not exist before Task 4): exit 0. Negative control in the same configuration: the round-1 shapes (`messageFor` over a `Set<string>`, an unguarded `arr[0]`) produced `TS2345` and `TS2532`, so the probe discriminates. The `js` census script passed `node --check`, the `python` walker-cover script `py_compile`. Earlier, every signature the tasks introduce (the `readAs` variant, the venue anchor pair, `CompactAlertCard.sheetLink`, `JudgmentCallTag` props, the archived props, the lock props, `UseRawSurface`, `callUseRawAction`, `UseRawDraftValue`, `offersReadingChoice`) compiled the same way. Scratch removed.
 
 **Plan-time probes** (throwaway `node --import tsx` scripts, removed):
 
@@ -275,7 +323,7 @@ writing-plans requires a layout-dimensions task (§13) and a transition-audit ta
 | 16 | Hotels reservation marker and the two-way jump | 04 | `feat(onboarding)` |
 | 17 | Section jumps on staged wizard cards | 04 | `feat(onboarding)` |
 | 18 | Line-keyed census reconciliation | 04 | `test(admin)` |
-| 19 | Full local verification | 04 | none unless a fix lands |
-| 20 | Adversarial review (cross-model) — orchestrator | 04 | review-round corpus row |
-| 21 | Invariant-8 UI quality gate — orchestrator | 04 | `docs(onboarding)` |
-| 22 | Closeout | closeout.md | `docs(onboarding)` |
+| 19 | Invariant-8 UI quality gate, before verification and review — orchestrator | 04 | fixes + `docs(onboarding)` gate record |
+| 20 | Full local verification | 04 | none unless a fix lands |
+| 21 | Adversarial review (cross-model), final — orchestrator | 04 | its review-round corpus row only |
+| 22 | Ship | closeout.md | none |
