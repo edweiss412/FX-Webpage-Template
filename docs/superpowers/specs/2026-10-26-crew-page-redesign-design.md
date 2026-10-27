@@ -255,7 +255,7 @@ A single card listing every section this viewer may open, in nav order (§5.1), 
 | Browser Back or Forward (`popstate`) to an entry without `s` | none | closes |
 | `popstate` to an entry whose `s` is an entitled id | none | opens on that id |
 | `popstate` to an entry whose `s` is unknown or not entitled | `replaceState(url without s)` | closes |
-| Realtime refresh removes the open section from membership | none | stays open on that section with its fresh content (its empty or degraded state); membership changes only update the list and the nav. The clamp `CrewSections` applies today (`components/crew/CrewSections.tsx:103-104`) applies only to a section that is not open. |
+| Realtime refresh removes the open section from membership | none | stays open on that section with its fresh content (its empty or degraded state); membership changes only update the list and the nav. The clamp `CrewSections` applies today (`components/crew/CrewSections.tsx:103-104`) applies only to a section that is not open. **Amendment 2026-10-27 (plan review round 8):** when the section leaves because the viewer lost the entitlement to see it (PR A: `budget` once `financialsVisible` turns false), the server builds no body for it (`app/show/[slug]/[shareToken]/_CrewShell.tsx:446-454`), so there is no fresh state to show: keeping the old body would show withheld values (AC-6) and an empty body is an anti-goal (§1). The sheet then closes to home through the close rows above. |
 
   A deep link has no home entry beneath it, so its Back leaves the page; that is the browser's history, not a defect (ratified by the spike below).
 - **Drag to dismiss** uses the admin sheet's thresholds. `DRAG_DISMISS_THRESHOLD_PX` and `DRAG_SLOP_PX` move from `components/admin/review/ReviewModalShell.tsx:47-49` to a shared constants module both import; their values do not change.
@@ -369,7 +369,7 @@ Every state change gets a treatment. Durations come from the existing tokens (`-
 | Sheet mid-drag | Viewport crosses into wide | Drag is cancelled, then the row above applies. |
 | Wide, scrolled to section A | Viewport crosses into compact | Home screen at the top; no sheet opens automatically; `replaceState(url without s, state without crewSheet)`. |
 | Day `day(iso)` selected | Realtime refresh removes that day from the day set | Selection returns to `live`. |
-| Sheet open | Realtime refresh removes the open section from membership | Sheet stays open showing the section's fresh empty or degraded state (§5.2). |
+| Sheet open | Realtime refresh removes the open section from membership | Sheet stays open showing the section's fresh empty or degraded state (§5.2); after a lost entitlement it closes to home instead, without animation (§5.2 amendment 2026-10-27). |
 | Nested dialog open inside the sheet | Realtime refresh removes the dialog's owner | The nested dialog unmounts alone; the sheet stays open; scroll stays locked by the sheet. |
 | Nested dialog open inside the sheet | Esc pressed | Only the nested dialog closes (§5.2). |
 | Day crossfade running | Another day tapped | The second selection wins; the running fade is replaced, never queued. |
