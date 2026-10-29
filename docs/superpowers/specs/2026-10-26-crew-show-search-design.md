@@ -456,6 +456,7 @@ tests/api/searchMissRoute.test.ts (new): bad origin, bad content type, oversize 
 - **L3.** Rows a cap drops from the DOM (the Crew roster and contacts past their inline caps) are not on the page, so they are not in search. Rows a cap folds into a closed `<details>` are on the page and are indexed.
 - **L4.** Phone numbers and emails shown only as call and email links (`PersonRow`) are not searchable. Phone numbers and emails that render as text are.
 - **L11.** Two different lines in one section and region whose 32-bit hashes of their exact strings collide would be told apart only by the `~n` suffix in render order. The chance is negligible at page scale (hundreds of lines); a collision reveals a line from the same card.
+- **L12.** A realtime refresh that removes the result row or the "Show all" button holding keyboard focus leaves focus on the page. Chips, Cancel, "Show all" and a not-found reveal each move focus on purpose (§6.8); a row removed under the keyboard by a sheet edit mid-search is rare enough to accept.
 - **L5.** A Today line whose text differs from its twin elsewhere (Tonight shows the sheet's raw check-in string; Travel shows it formatted) is not recognized as a repeat, so both appear, under Today and Travel. Both are real lines.
 - **L10.** Diagrams past the gallery's first 12 thumbnails are not rendered until "Show all", so they are not indexed by name. The gallery card title still is.
 - **L6.** No stemming beyond prefix and fuzzy matching. "mic" finds "mics" by prefix; "microphones" finds "mics" by alias.
