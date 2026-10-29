@@ -7,9 +7,10 @@
  * INITIAL_VISIBLE.valueOf on the server"), and Vitest would not show it,
  * because Vitest ignores the directive. So this reads the source instead: every
  * file under lib/search/ (walked from disk, so a new builder is covered by
- * default) and every module those files import from `@/components` or `@/lib`
- * (one level, the modules whose exports a builder reads), and asserts none
- * starts with `"use client"`.
+ * default) and every module reached from them through value imports with an
+ * `@/` or relative specifier, transitively (a rows module's own imports, such as
+ * a primitive, run on the server too), and asserts none starts with
+ * `"use client"`.
  *
  * A whole-statement `import type` / `export type` is skipped: it is erased at
  * compile time and imports no value. Any other import of a client module,
@@ -65,12 +66,16 @@ function valueImports(path: string, source: string): string[] {
 
 /**
  * The file a followed specifier names, or `"unresolved"`; `null` for one not
- * followed (a package). `@/components`, `@/lib` and relative specifiers are
- * followed. An unresolved one is reported, so the scan fails closed.
+ * followed (a package). `@/` and relative specifiers are followed. An
+ * unresolved one is reported, so the scan fails closed.
  */
-function resolveImport(fromFile: string, spec: string): string | "unresolved" | null {
+function resolveImport(
+  fromFile: string,
+  spec: string,
+  overlay: ReadonlyMap<string, string> = new Map(),
+): string | "unresolved" | null {
   let base: string;
-  if (spec.startsWith("@/components/") || spec.startsWith("@/lib/")) {
+  if (spec.startsWith("@/")) {
     base = join(ROOT, spec.slice(2));
   } else if (spec.startsWith(".")) {
     base = resolve(dirname(fromFile), spec);
@@ -79,6 +84,7 @@ function resolveImport(fromFile: string, spec: string): string | "unresolved" | 
   }
   for (const suffix of RESOLVE_SUFFIXES) {
     const candidate = base + suffix;
+    if (overlay.has(candidate)) return candidate;
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
   return "unresolved";
@@ -86,24 +92,50 @@ function resolveImport(fromFile: string, spec: string): string | "unresolved" | 
 
 type Scan = { followed: string[]; violations: string[] };
 
-/** Scans the given lib/search sources and the modules they import, one level. */
-function scan(files: readonly { path: string; source: string }[]): Scan {
+/**
+ * Scans the given lib/search sources and, transitively, every module they
+ * import by value through `@/` or a relative specifier, so a `"use client"`
+ * that lands on a module a rows file imports (a primitive, a strip) is caught
+ * however deep it sits. A client module is reported and not descended into:
+ * its own imports run on the client. Each module is read once, so a cycle ends
+ * the walk. A violation below the first level names the root it was reached
+ * from. `overlay` maps absolute paths to in-memory sources that resolve before
+ * the disk, so a self-check can plant a module between a root and a real file.
+ */
+function scan(
+  files: readonly { path: string; source: string }[],
+  overlay: ReadonlyMap<string, string> = new Map(),
+): Scan {
   const followed = new Set<string>();
   const violations: string[] = [];
   const rel = (p: string) => relative(ROOT, p);
-  for (const { path, source } of files) {
-    if (isClientModule(path, source)) violations.push(`${rel(path)} is a "use client" module`);
+  const visited = new Set(files.map((f) => f.path));
+  const queue = files.map((f) => ({ ...f, root: f.path }));
+  for (const { path, root } of queue) {
+    if (path === root) {
+      const { source } = files.find((f) => f.path === path)!;
+      if (isClientModule(path, source)) violations.push(`${rel(path)} is a "use client" module`);
+    }
+  }
+  while (queue.length > 0) {
+    const { path, source, root } = queue.shift()!;
+    const via = path === root ? "" : ` (via ${rel(root)})`;
     for (const spec of valueImports(path, source)) {
-      const target = resolveImport(path, spec);
+      const target = resolveImport(path, spec, overlay);
       if (target === null) continue;
       if (target === "unresolved") {
-        violations.push(`${rel(path)} imports ${spec}, which does not resolve`);
+        violations.push(`${rel(path)} imports ${spec}, which does not resolve${via}`);
         continue;
       }
       followed.add(rel(target));
-      if (isClientModule(target, readFileSync(target, "utf8"))) {
-        violations.push(`${rel(path)} imports ${rel(target)}, a "use client" module`);
+      const targetSource = overlay.get(target) ?? readFileSync(target, "utf8");
+      if (isClientModule(target, targetSource)) {
+        violations.push(`${rel(path)} imports ${rel(target)}, a "use client" module${via}`);
+        continue;
       }
+      if (visited.has(target)) continue;
+      visited.add(target);
+      queue.push({ path: target, source: targetSource, root });
     }
   }
   return { followed: [...followed].sort(), violations };
@@ -130,6 +162,18 @@ describe("search index server boundary", () => {
       "the scan followed venue.ts's import of components/crew/diagramItems.ts",
       followed.includes("components/crew/diagramItems.ts"),
     );
+    // And it went past the first level: PersonRow.tsx is imported by crewRows.ts, never by a
+    // lib/search file, so only a transitive walk reaches it.
+    const PERSON_ROW = "components/crew/primitives/PersonRow.tsx";
+    premiseHolds(
+      `no lib/search file imports ${PERSON_ROW} directly`,
+      SEARCH_FILES.every(({ path, source }) =>
+        valueImports(path, source).every(
+          (spec) => resolveImport(path, spec) !== join(ROOT, PERSON_ROW),
+        ),
+      ),
+    );
+    premiseHolds(`the scan followed ${PERSON_ROW}`, followed.includes(PERSON_ROW));
 
     expect(violations).toEqual([]);
   });
@@ -171,6 +215,54 @@ describe("search index server boundary", () => {
       expect(missing.violations).toEqual([
         "lib/search/sections/planted.ts imports @/lib/search/doesNotExist, which does not resolve",
       ]);
+    });
+
+    test("follows imports transitively: a client module two levels down is flagged", () => {
+      // A planted row module between the root and Gallery.tsx, the shape a rows file has when
+      // it imports a primitive that later gains "use client".
+      const MID = "components/crew/sections/plantedRows.ts";
+      const overlay = new Map([
+        [
+          join(ROOT, MID),
+          `import { Gallery } from "@/components/diagrams/Gallery";\nexport const rows = [Gallery];\n`,
+        ],
+      ]);
+      premiseHolds(`${MID} is not on disk`, !existsSync(join(ROOT, MID)));
+      const { followed, violations } = scan(
+        planted(`import { rows } from "@/components/crew/sections/plantedRows";\n`),
+        overlay,
+      );
+      expect(followed).toContain(MID);
+      expect(violations).toEqual([
+        `${MID} imports ${GALLERY}, a "use client" module (via lib/search/sections/planted.ts)`,
+      ]);
+    });
+
+    test("a type-only import is not followed, at any depth", () => {
+      const MID = "components/crew/sections/plantedTypes.ts";
+      const overlay = new Map([
+        [join(ROOT, MID), `import type { GalleryProps } from "@/components/diagrams/Gallery";\n`],
+      ]);
+      const { violations } = scan(
+        planted(`import { x } from "@/components/crew/sections/plantedTypes";\n`),
+        overlay,
+      );
+      expect(violations).toEqual([]);
+    });
+
+    test("an import cycle ends the walk instead of looping", () => {
+      const A = "components/crew/sections/plantedCycleA.ts";
+      const B = "components/crew/sections/plantedCycleB.ts";
+      const overlay = new Map([
+        [join(ROOT, A), `import { b } from "./plantedCycleB";\nexport const a = 1;\n`],
+        [join(ROOT, B), `import { a } from "./plantedCycleA";\nexport const b = 2;\n`],
+      ]);
+      const { followed, violations } = scan(
+        planted(`import { a } from "@/components/crew/sections/plantedCycleA";\n`),
+        overlay,
+      );
+      expect(followed).toEqual(expect.arrayContaining([A, B]));
+      expect(violations).toEqual([]);
     });
 
     test("does not flag a type-only import, which imports no value", () => {
