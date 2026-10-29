@@ -815,4 +815,49 @@ describe("a realtime refresh under a query (spec §6.10)", () => {
     view.rerender(tree(noVenueWifi()));
     expect(document.activeElement).toBe(gearChip());
   });
+
+  it("a refresh that empties the only section with hits moves focus from its chip, or All, to the field", () => {
+    const oneSection: SearchIndex = {
+      entries: buildEntries([
+        {
+          section: "venue",
+          region: "venue-facilities",
+          group: "Facilities",
+          label: "Dock",
+          value: "Loading dock on Wacker",
+        },
+        {
+          section: "gear",
+          region: "gear-scope-audio",
+          group: "Audio",
+          label: "Console",
+          value: "Yamaha CL5",
+        },
+      ]),
+    };
+    const emptied = (): SearchIndex => ({
+      entries: oneSection.entries.filter((e) => e.section !== "venue"),
+    });
+    premiseHolds(
+      "dock hits Venue alone before the refresh and nothing after it",
+      match(oneSection, "dock")
+        .sections.map((s) => s.section)
+        .join() === "venue" && match(emptied(), "dock").total === 0,
+    );
+    const input = () => screen.getByRole("searchbox", { name: "Search this show" });
+    const chip = (section: string) =>
+      chips().find((c) => c.getAttribute("data-section") === section)!;
+
+    for (const focused of ["venue", "all"]) {
+      const view = renderResults(oneSection);
+      search("dock");
+      act(() => chip(focused).focus());
+      expect(document.activeElement).toBe(chip(focused));
+      view.rerender(tree(emptied()));
+      expect(screen.getByTestId("phase")).toHaveTextContent("nomatch");
+      expect(screen.queryByRole("navigation", { name: "Filter results by section" })).toBeNull();
+      expect(document.activeElement).toBe(input());
+      view.unmount();
+    }
+  });
 });

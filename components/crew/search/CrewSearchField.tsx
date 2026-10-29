@@ -28,14 +28,13 @@
  */
 
 import { SearchIcon, XIcon } from "lucide-react";
-import { useRef, type KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 
 import { useCrewSearch } from "@/components/crew/search/CrewSearchProvider";
 import { SEARCH_COPY } from "@/lib/search/copy";
 
 export function CrewSearchField() {
-  const { query, setQuery, active, setActive, endSearch } = useCrewSearch();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const { query, setQuery, active, setActive, endSearch, fieldRef } = useCrewSearch();
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") {
@@ -53,14 +52,14 @@ export function CrewSearchField() {
 
   const onClear = () => {
     setQuery("");
-    inputRef.current?.focus();
+    fieldRef.current?.focus();
   };
 
   const onCancel = () => {
     endSearch({ keepQuery: false });
     // The Cancel button is about to unmount; without this, focus falls to the
     // document body (impeccable audit U2).
-    inputRef.current?.focus();
+    fieldRef.current?.focus();
   };
 
   return (
@@ -71,7 +70,7 @@ export function CrewSearchField() {
       >
         <SearchIcon aria-hidden="true" className="size-5 shrink-0 text-text-subtle" />
         <input
-          ref={inputRef}
+          ref={fieldRef}
           type="search"
           data-testid="crew-search-input"
           aria-label={SEARCH_COPY.inputName}

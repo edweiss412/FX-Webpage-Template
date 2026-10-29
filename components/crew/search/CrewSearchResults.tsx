@@ -14,7 +14,7 @@
  * - All view: up to 5 rows per section, then "Show all n in Section", which
  *   selects that chip and moves focus to it. Section view: up to 50 rows, then
  *   a narrowing note. A focused chip whose section a refresh empties hands
- *   focus to All.
+ *   focus to All, or to the search field when no section has hits left.
  * - A row is one button that opens its line through `openSectionAndReveal` and
  *   ends search keeping the query; a copyable value gets a sibling 44px copy
  *   button and a "copied" toast (local to this island, not a global system).
@@ -210,7 +210,7 @@ function ChipButton({
 }
 
 export function CrewSearchResults() {
-  const { query, result, phase, endSearch, showId, cardReport } = useCrewSearch();
+  const { query, result, phase, endSearch, showId, cardReport, fieldRef } = useCrewSearch();
   const { openSectionAndReveal } = useSectionController();
 
   // Chip selection. A changed query resets it to All (spec §6.3); a refresh
@@ -276,7 +276,8 @@ export function CrewSearchResults() {
   // Focus that would fall to the page when the element holding it unmounts
   // (spec §6.8): "Show all" goes when its chip is selected, so focus moves to
   // that chip; a chip goes when a refresh leaves its section without hits, so
-  // focus moves to All. Checked after every commit.
+  // focus moves to All, or to the search field when the refresh left no hits
+  // at all and the whole chip row went with it. Checked after every commit.
   const navRef = useRef<HTMLElement>(null);
   const focusChipAfterRender = useRef<Chip | null>(null);
   const focusedChip = useRef<HTMLElement | null>(null);
@@ -291,7 +292,7 @@ export function CrewSearchResults() {
     }
     if (focusedChip.current !== null && !focusedChip.current.isConnected) {
       focusedChip.current = null;
-      chipButton("all")?.focus();
+      (chipButton("all") ?? fieldRef.current)?.focus();
     }
   });
 

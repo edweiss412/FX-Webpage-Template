@@ -31,6 +31,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 
 import type { CardReportContext } from "@/lib/crew/cardReportContext";
@@ -66,6 +67,12 @@ export type CrewSearchState = {
    * never does (spec §6.2).
    */
   endSearch: (options: { keepQuery: boolean }) => void;
+  /**
+   * The search input, attached by `CrewSearchField`. The results move focus to
+   * it when a refresh leaves no hits, so the chip row holding focus unmounts
+   * with no All chip left to take it (spec §6.8).
+   */
+  fieldRef: RefObject<HTMLInputElement | null>;
 };
 
 const CrewSearchContext = createContext<CrewSearchState | null>(null);
@@ -90,6 +97,7 @@ export function CrewSearchProvider({
 }: CrewSearchProviderProps) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(false);
+  const fieldRef = useRef<HTMLInputElement>(null);
 
   const prepared = useMemo(() => prepareIndex(index), [index]);
   const result = useMemo(() => searchIndex(prepared, query), [prepared, query]);
@@ -153,6 +161,7 @@ export function CrewSearchProvider({
       result,
       phase,
       endSearch,
+      fieldRef,
     }),
     [index, query, active, missLogging, showId, cardReport, result, phase, endSearch],
   );
