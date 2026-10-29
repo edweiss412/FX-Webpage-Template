@@ -12,7 +12,7 @@
  *      the database, and so can every warning this route or the access helpers emit, so the
  *      limiter is what bounds both;
  *   3. JSON content type, then the body read with a 2 KB limit before parsing;
- *   4. the query, trimmed, 2 to 100 characters, longer cut to 100;
+ *   4. the query, trimmed, 2 to 100 characters, longer cut to 100 code points;
  *   5. access, in the version route's order (app/api/show/[slug]/version/route.ts): the slug maps
  *      to a show id, an admin session is admitted and NOT logged, otherwise the picker cookie must
  *      resolve to a selection for this show. Only that crew viewer is logged;
@@ -124,7 +124,12 @@ async function readQuery(request: Request): Promise<string | null> {
   if (typeof raw !== "string") return null;
   const query = raw.trim();
   if (query.length < MIN_QUERY_CHARS) return null;
-  return query.slice(0, MAX_QUERY_CHARS);
+  // Cut by code points, not UTF-16 units: a unit cut through an astral character leaves a lone
+  // surrogate, which Postgres jsonb refuses.
+  const codePoints = Array.from(query);
+  return codePoints.length > MAX_QUERY_CHARS
+    ? codePoints.slice(0, MAX_QUERY_CHARS).join("")
+    : query;
 }
 
 type ShowLookup =

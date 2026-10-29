@@ -175,6 +175,24 @@ describe("POST /api/show/[slug]/search-miss: success", () => {
     expect(misses.map((m) => m.record.context.query)).toEqual(["ab", long.slice(0, 100)]);
     expect((misses[1]!.record.context.query as string).length).toBe(100);
   });
+
+  test("the 100-character cut counts code points, so an astral character on the boundary is kept whole", async () => {
+    // U+1F3A4 (microphone) is one code point and two UTF-16 units. Placed at code point 100 it
+    // straddles UTF-16 index 100, where a unit-based cut would leave a lone high surrogate that
+    // Postgres jsonb refuses.
+    const mic = "\u{1F3A4}";
+    const query = `${"x".repeat(99)}${mic}tail`;
+    expect(mic.length).toBe(2);
+    expect(Array.from(query)).toHaveLength(104);
+
+    await post({ query });
+
+    expect(misses).toHaveLength(1);
+    const recorded = misses[0]!.record.context.query as string;
+    expect(recorded).toBe(`${"x".repeat(99)}${mic}`);
+    expect(Array.from(recorded)).toHaveLength(100);
+    expect(recorded.isWellFormed()).toBe(true);
+  });
 });
 
 describe("POST /api/show/[slug]/search-miss: malformed requests", () => {
