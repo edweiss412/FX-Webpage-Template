@@ -16,8 +16,8 @@
  * remains byte-identical — only the import path moved from
  * `@/components/tiles/DiagramsTile` to `@/components/crew/DiagramsBlock`.
  *
- * AC-7.2b — embedded-first ordering: this block is the ONLY layer that decides
- * ordering. Both the Gallery and the Lightbox are pure renderers and relay the
+ * AC-7.2b — embedded-first ordering: this block (through diagramItems.ts, which
+ * the crew search builder shares) is the ONLY layer that decides ordering. Both the Gallery and the Lightbox are pure renderers and relay the
  * order verbatim. Embedded entries from `diagrams.embeddedImages` come first;
  * linked-folder entries from `diagrams.linkedFolderItems` follow.
  *
@@ -39,14 +39,10 @@
  */
 import { Section } from "@/components/atoms/Section";
 import { MapIcon } from "@/components/crew/icons/sectionIcons";
-import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
-import { diagramAssetKeyFromPath, isAllowedDiagramMime } from "@/lib/data/diagrams";
+import { DIAGRAMS_HEADING, diagramGalleryItems } from "@/components/crew/diagramItems";
+import { Gallery } from "@/components/diagrams/Gallery";
 import { shouldHideDiagrams } from "@/lib/visibility/emptyState";
-import type {
-  PersistedDiagrams,
-  PersistedEmbeddedImage,
-  PersistedLinkedFolderItem,
-} from "@/lib/parser/types";
+import type { PersistedDiagrams } from "@/lib/parser/types";
 
 type DiagramsTileProps = {
   showId: string;
@@ -55,67 +51,10 @@ type DiagramsTileProps = {
   thumbnailSizes?: string;
 };
 
-/**
- * The §4 manifest fields, carried through to the Gallery item verbatim.
- *
- * `variants` is normalised to an array here (never undefined) because the loader
- * treats it as one; the other three are OMITTED when absent, matching the
- * manifest's own serialization rule — a null would read as "generated, empty".
- */
-function variantFields(
-  entry: PersistedEmbeddedImage | PersistedLinkedFolderItem,
-): Pick<GalleryItem, "variants" | "blurDataURL" | "intrinsicWidth" | "intrinsicHeight"> {
-  return {
-    variants: entry.variants ?? [],
-    ...(entry.blurDataURL !== undefined ? { blurDataURL: entry.blurDataURL } : {}),
-    ...(entry.intrinsicWidth !== undefined ? { intrinsicWidth: entry.intrinsicWidth } : {}),
-    ...(entry.intrinsicHeight !== undefined ? { intrinsicHeight: entry.intrinsicHeight } : {}),
-  };
-}
-
-function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryItem {
-  return {
-    // Stable, list-unique React/failed-tracking identity — source-prefixed so
-    // it can never collide with a linked entry, and content-derived (not
-    // ordinal) so it survives reorder/insert. DISTINCT from `key`: two entries
-    // can share an asset `key`, so `id` must NOT reuse it.
-    id: `embedded:${entry.objectId}`,
-    // Asset-key derivation shared with the admin published-review diagrams
-    // sub-block via lib/data/diagrams.ts (single source of truth). Last path
-    // segment of snapshotPath byte-matches the diagram route's findAsset();
-    // null paths fall back to the parser-side id (a 410-regardless entry).
-    key: diagramAssetKeyFromPath(entry.snapshotPath, entry.objectId),
-    alt: entry.alt && entry.alt.length > 0 ? entry.alt : `Diagram ${ordinal}`,
-    // Codex R13 P1: availability MUST gate on the same MIME allowlist
-    // the asset route uses. Without this, a persisted `image/svg+xml`
-    // entry with a non-null snapshotPath would render as `<img>` here
-    // but always 410 at the proxy → broken image with no admin signal.
-    available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
-    ...variantFields(entry),
-  };
-}
-
-function linkedItem(entry: PersistedLinkedFolderItem, ordinal: number): GalleryItem {
-  return {
-    // See embeddedItem: source-prefixed so linked/embedded ids never collide.
-    id: `linked:${entry.driveFileId}`,
-    key: diagramAssetKeyFromPath(entry.snapshotPath, entry.driveFileId),
-    alt: entry.alt && entry.alt.length > 0 ? entry.alt : `Diagram ${ordinal}`,
-    // Codex R13 P1: see embeddedItem above. Same MIME allowlist gates
-    // availability so a linked-folder SVG entry never renders as a
-    // broken proxy URL on the crew page.
-    available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
-    ...variantFields(entry),
-  };
-}
-
 export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileProps) {
-  const embedded = diagrams?.embeddedImages ?? [];
-  const linked = diagrams?.linkedFolderItems ?? [];
-  const items: GalleryItem[] = [
-    ...embedded.map((entry, i) => embeddedItem(entry, i + 1)),
-    ...linked.map((entry, i) => linkedItem(entry, embedded.length + i + 1)),
-  ];
+  // Items (embedded first, availability, fallback names) and their search
+  // targets come from diagramItems.ts, which the search builder reads too.
+  const gallery = diagramGalleryItems(diagrams);
 
   // Whole-block-missing per §8.3 — no diagram content. The agenda PDF moved
   // to the Schedule section (§4.6), so this block now hides on diagram
@@ -124,7 +63,7 @@ export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileP
   // routes through the same visibility module as the sentinel-hiding helpers.
   if (shouldHideDiagrams(diagrams)) return null;
 
-  const heading = "Diagrams";
+  const heading = DIAGRAMS_HEADING;
 
   return (
     <Section
@@ -134,6 +73,8 @@ export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileP
       variant="primary"
       ariaLabel={heading}
       bodyAs="div"
+      // The card title is a search line and the group of the thumbnail lines.
+      headingSearchTarget={gallery.heading.id}
       // Mock `.card-head .ico` parity: the "Site diagrams" card carries the
       // mock's `map` glyph in the SAME sunken-square treatment SectionCard uses
       // (this section uses the Section primitive, not SectionCard, so the chip
@@ -151,7 +92,8 @@ export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileP
         <Gallery
           showId={showId}
           snapshotRevisionId={diagrams.snapshot_revision_id}
-          items={items}
+          items={gallery.items}
+          searchTargets={gallery.searchTargets}
           {...(thumbnailSizes ? { sizes: thumbnailSizes } : {})}
         />
       ) : null}

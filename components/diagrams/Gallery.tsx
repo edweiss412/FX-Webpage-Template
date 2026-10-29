@@ -40,6 +40,7 @@ import {
   RETRY_CHECK_IN_MS,
   type RetryPhase,
 } from "@/components/diagrams/GalleryLightbox";
+import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
@@ -76,8 +77,6 @@ export type GalleryItem = {
   intrinsicHeight?: number;
 };
 
-const INITIAL_VISIBLE = 12;
-
 type GalleryProps = {
   /** Show UUID — the `<show>` segment of every emitted asset URL. */
   showId: string;
@@ -101,6 +100,16 @@ type GalleryProps = {
    * pipeline exists to remove; under-declaring ships a blurry thumbnail.
    */
   sizes?: string;
+  /**
+   * Crew search (spec §2.5): `item.id` → search target id for the thumbnails
+   * that are search lines. When set, each slot carries `data-search-target`
+   * (its id) or `data-search-skip` (no id: a "Diagram N" fallback name, or a
+   * slot past `INITIAL_VISIBLE` that mounts on "Show all"), and the toggle is a
+   * skip. Absent, no slot or toggle carries a search attribute. (An unavailable
+   * slot's screen-reader text is always split into name and skipped suffix; it
+   * reads the same either way.)
+   */
+  searchTargets?: Readonly<Record<string, string>>;
 };
 
 /**
@@ -109,11 +118,22 @@ type GalleryProps = {
  */
 const DEFAULT_THUMBNAIL_SIZES = "(min-width: 1200px) 280px, (min-width: 640px) 23vw, 30vw";
 
+/** A slot's crew-search marker: its target id, a skip, or nothing off the search surface. */
+function searchSlotMarker(
+  searchTargets: Readonly<Record<string, string>> | undefined,
+  itemId: string,
+): Record<string, string> {
+  if (searchTargets === undefined) return {};
+  const target = searchTargets[itemId];
+  return target !== undefined ? { "data-search-target": target } : { "data-search-skip": "" };
+}
+
 export function Gallery({
   showId,
   snapshotRevisionId,
   items,
   sizes = DEFAULT_THUMBNAIL_SIZES,
+  searchTargets,
 }: GalleryProps) {
   const [expanded, setExpanded] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -793,6 +813,7 @@ export function Gallery({
               key={item.id}
               data-testid={`diagram-slot-${i}`}
               {...(isAvailable ? {} : { "data-unavailable": "true" })}
+              {...searchSlotMarker(searchTargets, item.id)}
               // `relative` lives HERE, not on the button: WebKit resolves the
               // button's `height: 100%` against this cell's aspect-ratio BORDER
               // box, so a `fill` image containing-blocked by the button came out
@@ -1064,7 +1085,12 @@ export function Gallery({
               ) : (
                 <div className="flex size-full flex-col items-center justify-center gap-1 text-text-subtle">
                   <ImageOff aria-hidden="true" className="size-5" />
-                  <span className="sr-only">{`${nameOf(item, i)}, image unavailable`}</span>
+                  {/* The name is the slot's search line and the suffix is not;
+                      read aloud, the two are the same string as before. */}
+                  <span className="sr-only">
+                    {nameOf(item, i)}
+                    <span data-search-skip="">, image unavailable</span>
+                  </span>
                 </div>
               )}
             </li>
@@ -1076,6 +1102,7 @@ export function Gallery({
           type="button"
           ref={showMoreRef}
           onClick={() => setExpanded((prev) => !prev)}
+          {...(searchTargets !== undefined ? { "data-search-skip": "" } : {})}
           className="inline-flex min-h-tap-min items-center gap-1 self-start rounded-sm px-3 py-2 text-sm font-medium text-accent-on-bg hover:bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           aria-expanded={expanded}
         >
@@ -1109,6 +1136,7 @@ export function Gallery({
         entries={galleryEntries}
         label="Diagram updates"
         testId="gallery-announce-log"
+        searchSkip={searchTargets !== undefined}
       />
       <AnimatePresence onExitComplete={handleExitComplete}>
         {lightboxIndex !== null ? (

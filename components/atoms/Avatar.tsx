@@ -42,6 +42,12 @@ type AvatarProps = {
    * stable.
    */
   name: string | null | undefined;
+  /**
+   * Marks the chip `data-search-skip`: the initials are decoration, not a line
+   * the crew search indexes (spec §2.3 clause 5). Off by default, so a caller
+   * that is not a search surface keeps the exact markup.
+   */
+  searchSkip?: boolean;
 };
 
 /**
@@ -68,12 +74,13 @@ export function deriveInitials(name: string | null | undefined): string {
   return (first.charAt(0) + last.charAt(0)).toUpperCase();
 }
 
-export function Avatar({ name }: AvatarProps): ReactNode {
+export function Avatar({ name, searchSkip = false }: AvatarProps): ReactNode {
   const initials = deriveInitials(name);
   return (
     <span
       aria-hidden="true"
       data-testid="avatar"
+      {...(searchSkip ? { "data-search-skip": "" } : {})}
       style={{ backgroundColor: avatarColor(name ?? "") }}
       className={cn(
         "inline-flex shrink-0 items-center justify-center",

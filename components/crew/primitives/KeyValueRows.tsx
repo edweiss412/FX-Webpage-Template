@@ -41,6 +41,12 @@ export type KeyValueRow = {
    * effect in the default single-column mode. Defaults to a 1-column cell.
    */
   span?: 1 | 2;
+  /**
+   * Search target id (lib/search/entryId.ts), rendered as `data-search-target`
+   * on the row element. Absent leaves the row's markup exactly as it was. A
+   * sentinel/empty `v` still omits the row, target and all.
+   */
+  searchTarget?: string;
 };
 
 type KeyValueRowsProps = {
@@ -90,6 +96,7 @@ export function KeyValueRows({ rows, columns = 1 }: KeyValueRowsProps) {
         // `span: 2` row spans both columns at ≥720px (headline fields).
         <div
           key={`${row.k}-${i}`}
+          data-search-target={row.searchTarget}
           className={
             grid && row.span === 2
               ? "flex min-w-0 flex-col gap-1 min-[720px]:col-span-2"

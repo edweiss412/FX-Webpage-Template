@@ -56,6 +56,9 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
             {title !== undefined ? (
               <h2
                 data-slot="section-card-title"
+                // The card title is a search group heading (spec §2.3): the
+                // `group` a card's search entries name.
+                data-search-group=""
                 className="truncate text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
               >
                 {title}

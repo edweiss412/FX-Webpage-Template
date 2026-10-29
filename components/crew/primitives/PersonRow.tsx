@@ -40,6 +40,7 @@
  *
  * Server Component (no `'use client'`) — props in, markup out.
  */
+import { Children, type ReactNode } from "react";
 import { CalendarDays } from "lucide-react";
 
 import { Avatar } from "@/components/atoms/Avatar";
@@ -47,7 +48,7 @@ import { digitsOnly } from "@/lib/format/phone";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { cn } from "@/lib/ui/cn";
 
-type Person = {
+export type Person = {
   /** Display name. Absent/blank → the row falls back to `fallbackLabel`. */
   name?: string;
   /** Role/title eyebrow (e.g. "Producer", "Venue contact"). */
@@ -68,7 +69,102 @@ type Person = {
   primary?: boolean;
   /** Partial-attendance label (e.g. "Oct 7 & 9 only") → a chip + data-partial hook. */
   partial?: string;
+  /**
+   * Search target ids for the identity line and the notes line (see
+   * `IdentityLine`). Setting it also marks the row's non-sheet text (the avatar
+   * initials and the call/email glyphs) `data-search-skip`.
+   */
+  searchTarget?: { identity?: string; notes?: string };
 };
+
+/**
+ * What a `PersonRow` renders for `person`, decided once: `PersonRow` renders
+ * from it, and the crew search builders index from it (via `personRowLines`),
+ * so the page and the index apply the same predicates (spec §2.4).
+ */
+export type PersonRowDisplay = {
+  /** False when the row has no identity and no action: `PersonRow` returns null. */
+  rendered: boolean;
+  /** The name when it is non-blank, else `fallbackLabel`. */
+  heading: string | undefined;
+  /** The role eyebrow, when it is non-blank. */
+  role: string | undefined;
+  phoneActionable: boolean;
+  emailActionable: boolean;
+  /** Accessible-name base for the tap controls. */
+  actionTarget: string;
+  showNotes: boolean;
+};
+
+export function personRowDisplay(person: Person): PersonRowDisplay {
+  const { role, fallbackLabel } = person;
+
+  const hasName = typeof person.name === "string" && person.name.trim().length > 0;
+  const heading = hasName ? person.name : fallbackLabel;
+
+  // Actionable only when the value is a real, non-sentinel address. Phone
+  // additionally requires ≥1 digit so a digit-less label can't make a
+  // `tel:` href with no number. Member access (`person.phone` / `.email` /
+  // `.notes`) is intentional so the §8.3 sentinel-hiding meta-test's
+  // field-access patterns enforce the predicate on THIS file.
+  const phoneActionable =
+    !shouldHideGenericOptional(person.phone ?? null) && digitsOnly(person.phone ?? "").length > 0;
+  const emailActionable = !shouldHideGenericOptional(person.email ?? null);
+
+  // §8.3 whole-row omission: no identity (name/role) AND no action
+  // (phone/email) → nothing to render.
+  const roleShown = typeof role === "string" && role.trim().length > 0;
+  const hasIdentity = hasName || roleShown;
+
+  // Accessible-name base for the tap controls: the heading if we have one,
+  // else a generic "contact" so the control is never unnamed.
+  const actionTarget = heading && heading.trim().length > 0 ? heading : "contact";
+
+  return {
+    rendered: hasIdentity || phoneActionable || emailActionable,
+    heading,
+    role: roleShown ? role : undefined,
+    phoneActionable,
+    emailActionable,
+    actionTarget,
+    showNotes: !shouldHideGenericOptional(person.notes ?? null),
+  };
+}
+
+/** One searchable line of a person row: its displayed text and the words around it. */
+export type PersonRowLine = { value: string; context: string[] };
+
+/**
+ * The lines a `PersonRow` renders for `person`, as search sees them (spec
+ * §2.3): the identity line (the heading with its chips, then the role) and the
+ * notes line, each `null` when it does not render. The identity's `value` is
+ * the heading, or the role when no heading renders; the chips and the role are
+ * its `context`. The notes line is placed by the identity's value.
+ */
+export function personRowLines(person: Person): {
+  identity: PersonRowLine | null;
+  notes: PersonRowLine | null;
+} {
+  const d = personRowDisplay(person);
+  if (!d.rendered) return { identity: null, notes: null };
+  let identity: PersonRowLine | null = null;
+  if (d.heading !== undefined) {
+    const chips = [
+      ...(person.you ? ["You"] : []),
+      ...(person.lead ? ["Lead"] : []),
+      ...(person.primary ? ["Primary"] : []),
+      ...(person.partial ? [person.partial] : []),
+    ];
+    identity = { value: d.heading, context: [...chips, ...(d.role !== undefined ? [d.role] : [])] };
+  } else if (d.role !== undefined) {
+    identity = { value: d.role, context: [] };
+  }
+  const notes =
+    d.showNotes && person.notes !== undefined
+      ? { value: person.notes, context: identity !== null ? [identity.value] : [] }
+      : null;
+  return { identity, notes };
+}
 
 type PersonRowProps = {
   person: Person;
@@ -123,31 +219,16 @@ const ACTION_CLASS = cn(
 );
 
 export function PersonRow({ person }: PersonRowProps) {
-  const { role, fallbackLabel, you, lead, primary, partial } = person;
-
-  const hasName = typeof person.name === "string" && person.name.trim().length > 0;
-  const heading = hasName ? person.name : fallbackLabel;
-
-  // Actionable only when the value is a real, non-sentinel address. Phone
-  // additionally requires ≥1 digit so a digit-less label can't make a
-  // `tel:` href with no number. Member access (`person.phone` / `.email` /
-  // `.notes`) is intentional so the §8.3 sentinel-hiding meta-test's
-  // field-access patterns enforce the predicate on THIS file.
-  const phoneActionable =
-    !shouldHideGenericOptional(person.phone ?? null) && digitsOnly(person.phone ?? "").length > 0;
-  const emailActionable = !shouldHideGenericOptional(person.email ?? null);
-
-  // §8.3 whole-row omission: no identity (name/role) AND no action
-  // (phone/email) → nothing to render.
-  const hasIdentity = hasName || (typeof role === "string" && role.trim().length > 0);
-  if (!hasIdentity && !phoneActionable && !emailActionable) {
+  const { role, you, lead, primary, partial, searchTarget } = person;
+  const { rendered, heading, phoneActionable, emailActionable, actionTarget, showNotes } =
+    personRowDisplay(person);
+  if (!rendered) {
     return null;
   }
-
-  // Accessible-name base for the tap controls: the heading if we have one,
-  // else a generic "contact" so the control is never unnamed.
-  const actionTarget = heading && heading.trim().length > 0 ? heading : "contact";
-  const showNotes = !shouldHideGenericOptional(person.notes ?? null);
+  // The avatar initials and the call/email glyphs are not sheet text; a row
+  // that is a search target marks them so (spec §2.3 clause 5). A row without
+  // one keeps exactly the markup it had.
+  const skip = searchTarget !== undefined ? { "data-search-skip": "" } : {};
 
   return (
     <li
@@ -160,38 +241,42 @@ export function PersonRow({ person }: PersonRowProps) {
       // Without it the row keeps its intrinsic width and overflows the card.
       className="flex min-w-0 items-start gap-3"
     >
-      <Avatar name={heading ?? ""} />
+      <Avatar name={heading ?? ""} searchSkip={searchTarget !== undefined} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {heading !== undefined ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {/* `min-w-0` lets `truncate` actually engage inside this flex row:
+        <IdentityLine searchTarget={searchTarget?.identity}>
+          {heading !== undefined ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {/* `min-w-0` lets `truncate` actually engage inside this flex row:
                 without it the nowrap name keeps its intrinsic width and pushes
                 the You/Lead/Primary chip past the card's right edge at 390px. */}
-            <p className="min-w-0 max-w-full truncate text-sm/tight font-semibold text-text-strong">
-              {heading}
-            </p>
-            {you ? (
-              <span className={cn(CHIP_CLASS, "bg-stale-tint text-accent-on-bg")}>You</span>
-            ) : null}
-            {lead ? (
-              <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Lead</span>
-            ) : null}
-            {primary ? (
-              <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Primary</span>
-            ) : null}
-            {partial ? (
-              <span data-partial="true" title={partial} className={PARTIAL_CHIP_CLASS}>
-                <CalendarDays className="size-3 shrink-0" aria-hidden />
-                <span className="min-w-0 truncate">{partial}</span>
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-        {role !== undefined && role.trim().length > 0 ? (
-          <p className="truncate text-xs uppercase tracking-eyebrow text-text-subtle">{role}</p>
-        ) : null}
+              <p className="min-w-0 max-w-full truncate text-sm/tight font-semibold text-text-strong">
+                {heading}
+              </p>
+              {you ? (
+                <span className={cn(CHIP_CLASS, "bg-stale-tint text-accent-on-bg")}>You</span>
+              ) : null}
+              {lead ? (
+                <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Lead</span>
+              ) : null}
+              {primary ? (
+                <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>
+                  Primary
+                </span>
+              ) : null}
+              {partial ? (
+                <span data-partial="true" title={partial} className={PARTIAL_CHIP_CLASS}>
+                  <CalendarDays className="size-3 shrink-0" aria-hidden />
+                  <span className="min-w-0 truncate">{partial}</span>
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {role !== undefined && role.trim().length > 0 ? (
+            <p className="truncate text-xs uppercase tracking-eyebrow text-text-subtle">{role}</p>
+          ) : null}
+        </IdentityLine>
         {phoneActionable || emailActionable ? (
-          <div className="flex min-w-0 flex-wrap gap-2 pt-1">
+          <div {...skip} className="flex min-w-0 flex-wrap gap-2 pt-1">
             {phoneActionable ? (
               <a
                 href={`tel:${digitsOnly(person.phone ?? "")}`}
@@ -222,8 +307,42 @@ export function PersonRow({ person }: PersonRowProps) {
             ) : null}
           </div>
         ) : null}
-        {showNotes ? <p className="pt-1 text-xs/snug text-text-subtle">{person.notes}</p> : null}
+        {showNotes ? (
+          <p
+            data-search-target={searchTarget?.notes}
+            className="pt-1 text-xs/snug text-text-subtle"
+          >
+            {person.notes}
+          </p>
+        ) : null}
       </div>
     </li>
+  );
+}
+
+/**
+ * The row's identity line (heading with its chips, then the role) as ONE search
+ * target (spec §2.3): a row renders two lines, identity and notes, and each is
+ * its own target, never the `<li>`, never nested.
+ *
+ * Without a `searchTarget`, or with nothing to wrap, the children render bare, so a
+ * row that is not a search target keeps exactly the markup it had. With one,
+ * they sit in a `flex-col gap-1` wrapper, the same box their parent column is,
+ * so the heading-to-role gap and the gap to the next line stay 4px.
+ */
+function IdentityLine({
+  searchTarget,
+  children,
+}: {
+  searchTarget: string | undefined;
+  children: ReactNode;
+}) {
+  if (searchTarget === undefined || Children.toArray(children).length === 0) {
+    return <>{children}</>;
+  }
+  return (
+    <div data-search-target={searchTarget} className="flex min-w-0 flex-col gap-1">
+      {children}
+    </div>
   );
 }
