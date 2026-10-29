@@ -174,6 +174,26 @@ describe("chips (spec §6.3)", () => {
     expect(groups().map((g) => g.getAttribute("data-section"))).toEqual(["gear"]);
   });
 
+  it("Show all moves focus to the chip it selects, so focus does not fall to the page", () => {
+    renderResults(CAP_INDEX);
+    search("cable");
+    const gear = match(CAP_INDEX, "cable").sections.find((s) => s.section === "gear")!;
+    const gearGroup = groups().find((g) => g.getAttribute("data-section") === "gear")!;
+    const showAll = within(gearGroup).getByRole("button", {
+      name: `Show all ${gear.rows.length} in Gear`,
+    });
+    act(() => showAll.focus());
+    expect(document.activeElement).toBe(showAll);
+
+    fireEvent.click(showAll);
+
+    // Premise: the button that held focus is gone, so focus had to go somewhere.
+    expect(showAll.isConnected).toBe(false);
+    const gearChip = chips().find((c) => c.getAttribute("data-section") === "gear")!;
+    expect(gearChip).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(gearChip);
+  });
+
   it("section view caps at 50 rows with the narrowing note", () => {
     renderResults(CAP_INDEX);
     search("cable");
@@ -729,5 +749,70 @@ describe("a realtime refresh under a query (spec §6.10)", () => {
     view.rerender(tree(noVenueWifi));
     expect(pressed()[0]!.textContent).toMatch(/^All /);
     expect(chips().some((c) => c.textContent?.startsWith("Venue "))).toBe(false);
+  });
+
+  const noVenueWifi = (): SearchIndex => ({
+    entries: FIXTURE_INDEX.entries.filter(
+      (e) => !(e.section === "venue" && e.label?.startsWith("Wi-Fi")),
+    ),
+  });
+
+  it("a focused chip whose section loses its last hit moves focus to All, selected or not", () => {
+    premiseHolds(
+      "the shrunken index has no Venue hits for wifi but still has hits",
+      !match(noVenueWifi(), "wifi").sections.some((s) => s.section === "venue") &&
+        match(noVenueWifi(), "wifi").total > 0,
+    );
+    const allChip = () => chips().find((c) => c.getAttribute("data-section") === "all")!;
+    const venueChip = () => chips().find((c) => c.getAttribute("data-section") === "venue");
+
+    // Selected and focused.
+    const view = renderResults();
+    search("wifi");
+    fireEvent.click(venueChip()!);
+    act(() => venueChip()!.focus());
+    expect(document.activeElement).toBe(venueChip());
+    view.rerender(tree(noVenueWifi()));
+    expect(venueChip()).toBeUndefined();
+    expect(document.activeElement).toBe(allChip());
+    view.unmount();
+
+    // Focused but not selected (All is pressed).
+    const again = renderResults();
+    search("wifi");
+    act(() => venueChip()!.focus());
+    expect(allChip()).toHaveAttribute("aria-pressed", "true");
+    again.rerender(tree(noVenueWifi()));
+    expect(venueChip()).toBeUndefined();
+    expect(document.activeElement).toBe(allChip());
+  });
+
+  it("a chip that lost focus before the refresh does not pull focus back to All", () => {
+    const view = renderResults();
+    search("wifi");
+    const venueChip = () => chips().find((c) => c.getAttribute("data-section") === "venue");
+    act(() => venueChip()!.focus());
+    // The viewer moves on to a Gear row, which the refresh keeps.
+    const gearRow = within(
+      groups().find((g) => g.getAttribute("data-section") === "gear")!,
+    ).getAllByTestId("crew-search-row-open")[0]!;
+    act(() => gearRow.focus());
+    view.rerender(tree(noVenueWifi()));
+    expect(venueChip()).toBeUndefined();
+    expect(gearRow.isConnected).toBe(true);
+    expect(document.activeElement).toBe(gearRow);
+  });
+
+  it("a refresh that keeps the focused chip's section leaves focus where it is", () => {
+    const view = renderResults();
+    search("wifi");
+    const gearChip = () => chips().find((c) => c.getAttribute("data-section") === "gear")!;
+    premiseHolds(
+      "Gear still has wifi hits after the refresh",
+      match(noVenueWifi(), "wifi").sections.some((s) => s.section === "gear"),
+    );
+    act(() => gearChip().focus());
+    view.rerender(tree(noVenueWifi()));
+    expect(document.activeElement).toBe(gearChip());
   });
 });

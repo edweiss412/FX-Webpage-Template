@@ -279,8 +279,53 @@ describe("openSectionAndReveal", () => {
     expect(status).toHaveTextContent("");
     act(() => vi.advanceTimersByTime(1));
     expect(status).toHaveTextContent(REVEAL_GONE);
-    // The frame loop ended with the wait: nothing is left scheduled.
+    // The frame loop ended with the wait: nothing is left scheduled. Focus moved to the body
+    // (spec §6.8), and jsdom's focus() queues a selectionchange task with a zero delay, which the
+    // fake clock runs after 1 ms, as Node does. A frame the loop left pending is 16 ms out, so a
+    // 1 ms tick does not run it and it still counts here.
+    act(() => vi.advanceTimersByTime(1));
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a tapped result whose line is gone moves focus to the opened section's body after the wait", () => {
+    vi.useFakeTimers();
+    frameOnTimers();
+    renderShell("venue");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this show" }), {
+      target: { value: "ordtg" },
+    });
+    const row = screen.getByTestId("crew-search-row-open");
+    act(() => row.focus());
+    fireEvent.click(row);
+    // Premise: the tapped row went with the search panel, and its line is not in the body.
+    expect(row.isConnected).toBe(false);
+    expect(screen.getByTestId("page-container").querySelector("[data-search-reveal]")).toBeNull();
+
+    act(() => vi.advanceTimersByTime(1499));
+    expect(document.activeElement).toBe(document.body);
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByTestId("crew-reveal-status")).toHaveTextContent(REVEAL_GONE);
+    const body = screen.getByTestId("page-container");
+    expect(document.activeElement).toBe(body);
+    expect(body).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("the gone-line fallback never takes focus from something the viewer moved to", () => {
+    vi.useFakeTimers();
+    frameOnTimers();
+    renderShell("venue");
+    const input = screen.getByRole("searchbox", { name: "Search this show" });
+    fireEvent.change(input, { target: { value: "ordtg" } });
+    const row = screen.getByTestId("crew-search-row-open");
+    act(() => row.focus());
+    fireEvent.click(row);
+    act(() => vi.advanceTimersByTime(500));
+    act(() => input.focus());
+
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByTestId("crew-reveal-status")).toHaveTextContent(REVEAL_GONE);
+    expect(document.activeElement).toBe(input);
+    expect(screen.getByTestId("page-container")).not.toHaveAttribute("tabindex");
   });
 
   it("a new reveal replaces a pending one, so the first never announces", () => {

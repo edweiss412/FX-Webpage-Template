@@ -79,6 +79,19 @@ function openDisclosures(el: HTMLElement): void {
   for (const d of el.querySelectorAll("details")) d.open = true;
 }
 
+/**
+ * After a reveal finds nothing, give focus a place in the opened section when it
+ * fell to the page, which it does because the tapped row went with the search
+ * panel (spec §6.8). Focus the viewer has moved somewhere else stays there.
+ */
+function focusBodyIfFocusFell(body: HTMLElement | null): void {
+  if (body === null || body.hidden) return;
+  const current = document.activeElement;
+  if (current !== null && current !== document.body && current.isConnected) return;
+  if (!body.hasAttribute("tabindex")) body.setAttribute("tabindex", "-1");
+  body.focus({ preventScroll: true });
+}
+
 type RevealRun = { frame: number; deadline: number };
 
 export function CrewSections({ initialSection, budgetVisible, sectionNodes }: CrewSectionsProps) {
@@ -200,6 +213,7 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
       run.deadline = window.setTimeout(() => {
         stopWaiting();
         setRevealStatus(REVEAL_GONE_MESSAGE);
+        focusBodyIfFocusFell(bodyRef.current);
       }, REVEAL_WAIT_MS);
       run.frame = window.requestAnimationFrame(look);
       revealRun.current = run;

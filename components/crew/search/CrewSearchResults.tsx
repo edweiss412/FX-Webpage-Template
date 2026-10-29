@@ -12,7 +12,9 @@
  *   chip to All; a refresh that leaves the chosen section without hits falls
  *   back to All.
  * - All view: up to 5 rows per section, then "Show all n in Section", which
- *   selects that chip. Section view: up to 50 rows, then a narrowing note.
+ *   selects that chip and moves focus to it. Section view: up to 50 rows, then
+ *   a narrowing note. A focused chip whose section a refresh empties hands
+ *   focus to All.
  * - A row is one button that opens its line through `openSectionAndReveal` and
  *   ends search keeping the query; a copyable value gets a sibling 44px copy
  *   button and a "copied" toast (local to this island, not a global system).
@@ -271,6 +273,33 @@ export function CrewSearchResults() {
     return () => window.clearTimeout(timer);
   }, [countMessage, query]);
 
+  // Focus that would fall to the page when the element holding it unmounts
+  // (spec §6.8): "Show all" goes when its chip is selected, so focus moves to
+  // that chip; a chip goes when a refresh leaves its section without hits, so
+  // focus moves to All. Checked after every commit.
+  const navRef = useRef<HTMLElement>(null);
+  const focusChipAfterRender = useRef<Chip | null>(null);
+  const focusedChip = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const chipButton = (c: Chip) =>
+      navRef.current?.querySelector<HTMLElement>(`[data-section="${c}"]`) ?? null;
+    const pending = focusChipAfterRender.current;
+    if (pending !== null) {
+      focusChipAfterRender.current = null;
+      chipButton(pending)?.focus();
+      return;
+    }
+    if (focusedChip.current !== null && !focusedChip.current.isConnected) {
+      focusedChip.current = null;
+      chipButton("all")?.focus();
+    }
+  });
+
+  const showAll = (section: SectionId) => {
+    focusChipAfterRender.current = section;
+    setChip(section);
+  };
+
   const [reportOpen, setReportOpen] = useState(false);
   const reporting = cardReport !== null && showId !== "";
 
@@ -289,7 +318,17 @@ export function CrewSearchResults() {
   return (
     <div data-testid="crew-search-results" className="flex flex-col gap-6">
       {phase === "results" ? (
-        <nav aria-label={SEARCH_COPY.chipsNav} className="flex gap-2 overflow-x-auto py-1">
+        <nav
+          ref={navRef}
+          aria-label={SEARCH_COPY.chipsNav}
+          onFocus={(event) => {
+            focusedChip.current = event.target;
+          }}
+          onBlur={() => {
+            focusedChip.current = null;
+          }}
+          className="flex gap-2 overflow-x-auto py-1"
+        >
           <ChipButton
             chip="all"
             label={SEARCH_COPY.allChip}
@@ -343,7 +382,7 @@ export function CrewSearchResults() {
                 {chip === "all" && rows.length > ALL_VIEW_ROWS ? (
                   <button
                     type="button"
-                    onClick={() => setChip(section)}
+                    onClick={() => showAll(section)}
                     className="inline-flex min-h-tap-min items-center self-start rounded-sm px-1 text-sm font-semibold text-text underline underline-offset-4 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                   >
                     {SEARCH_COPY.showAll(rows.length, SECTION_LABELS[section])}

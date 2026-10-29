@@ -305,6 +305,7 @@ Each section group is a heading (section label) and a list. Each row:
 - A polite live region announces the result count 300 ms after typing stops ("4 results", "1 result", "No matches").
 - Escape: clears a non-empty query; ends search on an empty one. Focus returns to the input after clear.
 - Cancel ends search and moves focus to the input, which is then idle and empty, so focus never falls to the document body. That focus starts nothing (§6.2).
+- Focus also has a place when the element holding it goes away: "Show all" moves it to the chip it selects, a focused chip whose section loses its last hit on a refresh moves it to the All chip, and a tapped result whose line is gone moves it to the opened section's body when the 1500 ms wait ends (§6.6), unless the viewer has already moved it elsewhere.
 - Focus alone never starts search (§6.2, WCAG 3.2.1).
 - The page body is hidden with `hidden`, so assistive tech does not reach stale content behind results.
 - Every interactive element is at least 44 px tall.
