@@ -367,6 +367,35 @@ describe("POST /api/show/[slug]/search-miss: infra faults", () => {
     expect(misses).toEqual([]);
   });
 
+  test("the infra warning is once per window ACROSS stages, not once per stage", async () => {
+    // Three different stages fail in one window: the admin session, then the picker, then the
+    // slug lookup. The once-per-window flag is shared, so only the first of them warns.
+    h.admin = { ok: false, reason: "infra_error" };
+    await post({ query: "wifi" });
+    h.admin = { ok: false, reason: "not_admin" };
+    h.picker = { kind: "infra_error", code: "PICKER_RESOLVER_LOOKUP_FAILED" };
+    await post({ query: "dock" });
+    h.showError = { message: "synthetic upstream 502" };
+    await post({ query: "hotel" });
+
+    // Premise: each request really reached its stage (the slug lookup ran three times, the admin
+    // check twice, the picker once), so the single warning is the flag, not a request that never
+    // got as far as its fault.
+    expect(h.slugLookups).toHaveLength(3);
+    expect(h.adminCalls).toBe(2);
+    expect(h.pickerCalls).toHaveLength(1);
+    const warns = codes("warn", "CREW_SEARCH_MISS_INFRA_ERROR");
+    expect(warns.map((w) => w.record.context.stage)).toEqual(["admin_session"]);
+    expect(misses).toEqual([]);
+
+    // A new window warns again, whichever stage fails first in it.
+    vi.setSystemTime(T0 + WINDOW_MS);
+    await post({ query: "parking" });
+    expect(
+      codes("warn", "CREW_SEARCH_MISS_INFRA_ERROR").map((w) => w.record.context.stage),
+    ).toEqual(["admin_session", "show_lookup"]);
+  });
+
   test("a picker infra fault warns and records no miss", async () => {
     h.picker = { kind: "infra_error", code: "PICKER_RESOLVER_LOOKUP_FAILED" };
     const res = await post({ query: "wifi" });
@@ -440,6 +469,35 @@ describe("POST /api/show/[slug]/search-miss: rate limit", () => {
     expect(h.constructorCalls).toBe(120);
     await post({ query: "wifi" }, { slug: "other-0" });
     expect(h.constructorCalls).toBe(120);
+  });
+
+  test("origin is checked before the limiter: a bad-origin request is 403 when the bucket is full, and spends no bucket when it is not", async () => {
+    const crossSite = { headers: { "sec-fetch-site": "cross-site" } };
+    // One admission left in the per-slug bucket.
+    for (let i = 0; i < 29; i += 1) await post({ query: "wifi" }, { slug: "busy-show" });
+    expect(h.constructorCalls).toBe(29);
+
+    // Bad-origin requests are refused and spend nothing: the last admission is still there.
+    for (let i = 0; i < 5; i += 1) {
+      const refused = await post({ query: "wifi" }, { slug: "busy-show", ...crossSite });
+      expect(refused.status).toBe(403);
+    }
+    expect(h.constructorCalls).toBe(29);
+    await post({ query: "wifi" }, { slug: "busy-show" });
+    expect(h.constructorCalls).toBe(30);
+    expect(misses).toHaveLength(30);
+
+    // Now the bucket is full. A bad-origin request is still 403, not the capped 204, and it does
+    // not spend the window's one capped warning.
+    const refusedWhenFull = await post({ query: "wifi" }, { slug: "busy-show", ...crossSite });
+    expect(refusedWhenFull.status).toBe(403);
+    expect(codes("warn", "CREW_SEARCH_MISS_RATE_CAPPED")).toEqual([]);
+
+    // Control: a well-formed request over the bucket is the capped 204 and warns once.
+    const capped = await post({ query: "wifi" }, { slug: "busy-show" });
+    expect(capped.status).toBe(204);
+    expect(codes("warn", "CREW_SEARCH_MISS_RATE_CAPPED")).toHaveLength(1);
+    expect(h.constructorCalls).toBe(30);
   });
 
   test("the limiter runs before parsing: a capped request with a malformed body is 204, not 400", async () => {
