@@ -162,7 +162,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/crew/AgendaScheduleBlock.tsx",
-    line: 107,
+    // 107 -> 116 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
+    // lines around it. Same `<summary>`, same token.
+    line: 116,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -171,7 +173,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/crew/primitives/KeyTimesStrip.tsx",
-    line: 191,
+    // 191 -> 196 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
+    // lines around it. Same `<summary>`, same token.
+    line: 196,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -180,7 +184,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   },
   {
     file: "components/crew/primitives/RunOfShowList.tsx",
-    line: 93,
+    // 93 -> 76 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
+    // lines around it. Same `<summary>`, same token.
+    line: 76,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

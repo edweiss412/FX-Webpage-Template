@@ -1576,7 +1576,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2503 -> 2504 on feat/warning-card-fixes Task 8 (the `Circle` lucide import line);
       // located by its own element, the same PackCountPill <span>.
       "components/admin/wizard/step3ReviewSections.tsx:2504",
-      "components/crew/primitives/KeyTimesStrip.tsx:191",
+      // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
+      "components/crew/primitives/KeyTimesStrip.tsx:196",
     ]);
 
     const stale = validateCensus(RESIDUE_CENSUS, under, blind, ledger).filter((p) =>

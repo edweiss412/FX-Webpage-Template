@@ -3,9 +3,10 @@
  *
  * The crew-page section shell — the full redesigned crew show page body
  * (§4.1). Composes:
- *   Header (identityChip) → CrewSections (the client controller: controlled
- *   CrewSubNav + CrewSectionTransition over the server-rendered section bodies)
- *   → ShowRealtimeBridge → Footer (per-viewer-kind report props).
+ *   Header (identityChip, search field) → CrewSections (the client controller:
+ *   controlled CrewSubNav + CrewSectionTransition over the server-rendered
+ *   section bodies), both inside CrewSearchProvider with the server-built
+ *   search index → ShowRealtimeBridge → Footer (per-viewer-kind report props).
  *
  * SECTION SWITCHING IS A CLIENT TOGGLE (client-section-toggle): the shell
  * renders ALL entitled section bodies SERVER-SIDE into `sectionNodes` and hands
@@ -40,6 +41,8 @@ import { after } from "next/server";
 import { IdentityChip } from "@/components/auth/IdentityChip";
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { CrewSections } from "@/components/crew/CrewSections";
+import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
+import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
@@ -69,6 +72,7 @@ import {
   resolveViewerContext,
   type ViewerContext,
 } from "@/lib/data/viewerContext";
+import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
 import { nowDate } from "@/lib/time/now";
 import { selectRightNowState, type RightNowState } from "@/lib/time/rightNow";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
@@ -453,6 +457,17 @@ export async function CrewShell({
     Record<SectionId, JSX.Element>
   >;
 
+  // Crew show search (spec §2.4, §6.1, §9.2). The index is built here, once per
+  // render, from the SAME inputs the section bodies above receive, so it holds
+  // exactly the lines they render for this viewer (INV-1) and is replaced on
+  // every ShowRealtimeBridge → router.refresh() re-render; the client never
+  // fetches or derives it. Misses are sent only for a crew viewer on the live
+  // page: never for an admin (preview-as included) and never for the staged
+  // preview (spec §7.1). The report row follows `cardReport`, which is null
+  // under staticPreview (spec §6.7).
+  const searchIndex = buildSearchIndex({ data, viewer, today, budgetVisible, staticPreview });
+  const missLogging = viewer.kind === "crew" && !staticPreview;
+
   // Post-response reconcile for TILE_SERVER_RENDER_FAILED. Registered
   // UNCONDITIONALLY, independent of the projection-alert branch above whose
   // condition is a different observation. The callback RETURNS the promise so
@@ -500,33 +515,46 @@ export async function CrewShell({
       data-testid="crew-shell"
       className="flex min-h-0 flex-1 flex-col pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] min-[720px]:pb-0"
     >
-      <Header
-        show={headerShow}
-        statusPill={statusPill}
-        identityChip={
-          identityChip ? (
-            <IdentityChip
-              name={identityChip.name}
-              role={identityChip.role}
-              slug={slug}
-              shareToken={identityChip.shareToken}
-              showId={showId}
-            />
-          ) : undefined
-        }
-      />
-      {/* The CrewSections client controller owns the live section state: it
+      {/* The search provider sits ABOVE the header (which holds the field) and the
+          section controller (which hides its body and shows the results), so both
+          read one search state (spec §9.2). It renders no element of its own, so
+          the flex chain below is unchanged. */}
+      <CrewSearchProvider
+        index={searchIndex}
+        missLogging={missLogging}
+        slug={slug}
+        showId={showId}
+        cardReport={cardReport}
+      >
+        <Header
+          show={headerShow}
+          statusPill={statusPill}
+          search={<CrewSearchField />}
+          identityChip={
+            identityChip ? (
+              <IdentityChip
+                name={identityChip.name}
+                role={identityChip.role}
+                slug={slug}
+                shareToken={identityChip.shareToken}
+                showId={showId}
+              />
+            ) : undefined
+          }
+        />
+        {/* The CrewSections client controller owns the live section state: it
           renders the controlled CrewSubNav + the <main data-testid="page-container">
           + the CrewSectionTransition over the SERVER-RENDERED `sectionNodes`.
           `initialSection` is the server-resolved, budget-gated active section
           (first paint); the controller toggles VISIBILITY only thereafter
           (freshness invariant). Header / ShowRealtimeBridge / Footer stay
           server-rendered siblings (section-independent). */}
-      <CrewSections
-        initialSection={activeSection}
-        budgetVisible={budgetVisible}
-        sectionNodes={sectionNodes}
-      />
+        <CrewSections
+          initialSection={activeSection}
+          budgetVisible={budgetVisible}
+          sectionNodes={sectionNodes}
+        />
+      </CrewSearchProvider>
       {/* Posture item 3 (spec §2.6): the bridge fetches a subscriber token and a
           version for a show with no row, so it is not mounted at all. */}
       {staticPreview ? null : (

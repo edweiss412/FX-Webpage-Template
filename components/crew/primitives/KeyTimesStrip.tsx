@@ -63,13 +63,18 @@ type KeyTimesStripProps = {
    * `span.last()`).
    */
   layout?: "stack" | "row";
+  /**
+   * Search target ids keyed by row key (`keyTimeRows(anchors)`: `set`,
+   * `show-<date>`, `strike`). Absent renders no search markers.
+   */
+  searchTargets?: Readonly<Record<string, string>>;
 };
 
 /**
  * Show rows are capped at 8 (§6). When `shows.length > SHOWS_CAP`, the first 7
  * show rows render and the remainder collapse into a single overflow disclosure.
  */
-const SHOWS_CAP = 8;
+export const SHOWS_CAP = 8;
 /** Rows shown before the overflow disclosure when the cap is exceeded. */
 const VISIBLE_BEFORE_OVERFLOW = SHOWS_CAP - 1;
 
@@ -80,7 +85,7 @@ const VISIBLE_BEFORE_OVERFLOW = SHOWS_CAP - 1;
  * the label in `<time>` on a per-day show row so a specific day can be targeted
  * and the date is machine-readable.
  */
-type Row = {
+export type KeyTimeRow = {
   /** Stable React key (anchor key or a synthetic overflow key). */
   rowKey: string;
   anchor?: "set" | "show" | "strike";
@@ -95,12 +100,21 @@ type Row = {
  * `anchor: undefined` (disclosed overflow rows) omits `data-anchor` so the row
  * is not counted among the visible show rows.
  */
-function AnchorRow({ row, anchorClass }: { row: Row; anchorClass: string }) {
+function AnchorRow({
+  row,
+  anchorClass,
+  searchTarget,
+}: {
+  row: KeyTimeRow;
+  anchorClass: string;
+  searchTarget: string | undefined;
+}) {
   const labelNode = row.date != null ? <time dateTime={row.date}>{row.label}</time> : row.label;
   return (
     <div
       {...(row.anchor != null ? { "data-anchor": row.anchor } : {})}
       {...(row.date != null ? { "data-anchor-date": row.date } : {})}
+      data-search-target={searchTarget}
       className={anchorClass}
     >
       <dt className="min-w-0">
@@ -115,17 +129,14 @@ function AnchorRow({ row, anchorClass }: { row: Row; anchorClass: string }) {
   );
 }
 
-export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps) {
-  const showAnchors = anchors.shows ?? [];
-  const overflow =
-    showAnchors.length > SHOWS_CAP ? showAnchors.length - VISIBLE_BEFORE_OVERFLOW : 0;
-  const visibleShows = overflow > 0 ? showAnchors.slice(0, VISIBLE_BEFORE_OVERFLOW) : showAnchors;
-  const hiddenShows = overflow > 0 ? showAnchors.slice(VISIBLE_BEFORE_OVERFLOW) : [];
+export function KeyTimesStrip({ anchors, layout = "stack", searchTargets }: KeyTimesStripProps) {
+  const { set, visibleShows, hiddenShows, overflow, strike } = keyTimeRows(anchors);
 
-  const hasAny =
-    anchors.set != null || visibleShows.length > 0 || overflow > 0 || anchors.strike != null;
+  const hasAny = set != null || visibleShows.length > 0 || overflow > 0 || strike != null;
   // Everything absent → render nothing so no empty strip reflows in.
   if (!hasAny) return null;
+  // Disclosure chrome ("More show days", "+N more days") is not sheet data.
+  const skip = searchTargets !== undefined ? "" : undefined;
 
   const isRow = layout === "row";
 
@@ -146,24 +157,16 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
 
   return (
     <dl data-testid="key-times-strip" data-layout={layout} className={containerClass}>
-      {anchors.set != null ? (
-        <AnchorRow
-          row={{ rowKey: "set", anchor: "set", label: "Set", value: anchors.set }}
-          anchorClass={anchorClass}
-        />
+      {set != null ? (
+        <AnchorRow row={set} anchorClass={anchorClass} searchTarget={searchTargets?.[set.rowKey]} />
       ) : null}
 
-      {visibleShows.map((s) => (
+      {visibleShows.map((row) => (
         <AnchorRow
-          key={`show-${s.date}`}
-          row={{
-            rowKey: `show-${s.date}`,
-            anchor: "show",
-            label: s.label,
-            value: s.time,
-            date: s.date,
-          }}
+          key={row.rowKey}
+          row={row}
           anchorClass={anchorClass}
+          searchTarget={searchTargets?.[row.rowKey]}
         />
       ))}
 
@@ -179,7 +182,9 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
         // a >8-show-day show never overflows the strip horizontally. Verified in a
         // real browser at 390px (stack) and 1000px (row) — D4.
         <div className="min-w-0 min-[720px]:basis-full min-[720px]:border-l-0">
-          <dt className="sr-only">More show days</dt>
+          <dt className="sr-only" data-search-skip={skip}>
+            More show days
+          </dt>
           <dd className="min-w-0">
             <details
               data-testid="key-times-shows-overflow"
@@ -188,7 +193,10 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
               // `motion-safe:` gates the rotation for reduced-motion users.
               className="group [&[open]_.kt-more]:hidden [&[open]_.kt-fewer]:inline [&[open]_.kt-chev]:rotate-90"
             >
-              <summary className="flex min-h-tap-min cursor-pointer list-none items-center gap-1.5 border-t border-border pt-2 text-xs font-medium tabular-nums text-text-subtle transition-colors duration-fast marker:content-none hover:text-accent-on-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface [&::-webkit-details-marker]:hidden">
+              <summary
+                data-search-skip={skip}
+                className="flex min-h-tap-min cursor-pointer list-none items-center gap-1.5 border-t border-border pt-2 text-xs font-medium tabular-nums text-text-subtle transition-colors duration-fast marker:content-none hover:text-accent-on-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface [&::-webkit-details-marker]:hidden"
+              >
                 <svg
                   aria-hidden="true"
                   viewBox="0 0 16 16"
@@ -207,14 +215,15 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
                 <span className="kt-fewer hidden">Show fewer days</span>
               </summary>
               <dl className="flex flex-col gap-2 pt-2">
-                {hiddenShows.map((s) => (
+                {hiddenShows.map((row) => (
                   // No `anchor` → no `data-anchor`, so these are not counted among
                   // the visible show rows; they still keep <dt>/<dd> + <time> for
                   // association + machine-readable dates.
                   <AnchorRow
-                    key={`show-${s.date}`}
-                    row={{ rowKey: `show-${s.date}`, label: s.label, value: s.time, date: s.date }}
+                    key={row.rowKey}
+                    row={row}
                     anchorClass={stackAnchorClass}
+                    searchTarget={searchTargets?.[row.rowKey]}
                   />
                 ))}
               </dl>
@@ -223,12 +232,60 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
         </div>
       ) : null}
 
-      {anchors.strike != null ? (
+      {strike != null ? (
         <AnchorRow
-          row={{ rowKey: "strike", anchor: "strike", label: "Strike", value: anchors.strike }}
+          row={strike}
           anchorClass={anchorClass}
+          searchTarget={searchTargets?.[strike.rowKey]}
         />
       ) : null}
     </dl>
   );
+}
+
+/**
+ * The rows the strip renders, in render order: Set, the visible show days, the
+ * show days folded past `SHOWS_CAP` (still in the DOM, inside the closed
+ * `<details>`), Strike. Shared with the search builders so an entry's label and
+ * value are the row's own strings.
+ */
+export function keyTimeRows(anchors: KeyTimeAnchors): {
+  set: KeyTimeRow | null;
+  visibleShows: KeyTimeRow[];
+  hiddenShows: KeyTimeRow[];
+  overflow: number;
+  strike: KeyTimeRow | null;
+  /** Every rendered row, in render order. */
+  all: KeyTimeRow[];
+} {
+  const showAnchors = anchors.shows ?? [];
+  const overflow =
+    showAnchors.length > SHOWS_CAP ? showAnchors.length - VISIBLE_BEFORE_OVERFLOW : 0;
+  const visible = overflow > 0 ? showAnchors.slice(0, VISIBLE_BEFORE_OVERFLOW) : showAnchors;
+  const hidden = overflow > 0 ? showAnchors.slice(VISIBLE_BEFORE_OVERFLOW) : [];
+  const set: KeyTimeRow | null =
+    anchors.set != null ? { rowKey: "set", anchor: "set", label: "Set", value: anchors.set } : null;
+  const visibleShows = visible.map(
+    (s): KeyTimeRow => ({
+      rowKey: `show-${s.date}`,
+      anchor: "show",
+      label: s.label,
+      value: s.time,
+      date: s.date,
+    }),
+  );
+  const hiddenShows = hidden.map(
+    (s): KeyTimeRow => ({ rowKey: `show-${s.date}`, label: s.label, value: s.time, date: s.date }),
+  );
+  const strike: KeyTimeRow | null =
+    anchors.strike != null
+      ? { rowKey: "strike", anchor: "strike", label: "Strike", value: anchors.strike }
+      : null;
+  const all = [
+    ...(set != null ? [set] : []),
+    ...visibleShows,
+    ...hiddenShows,
+    ...(strike != null ? [strike] : []),
+  ];
+  return { set, visibleShows, hiddenShows, overflow, strike, all };
 }

@@ -93,9 +93,14 @@ const TILES_DIR = join(REPO_ROOT, "components", "tiles");
  * fields without routing through `shouldHideGenericOptional` fails at CI
  * (rather than as a future adversarial-review finding).
  *
- * Each entry is walked recursively for `.tsx` files. A directory that does
- * not yet exist (e.g. `components/crew/sections/` before the sections land)
- * is simply skipped — the walk extends as those trees fill in.
+ * Each entry is walked recursively for `.tsx` files AND `.ts` files: crew
+ * search (2026-10-26) moved section row derivations into sibling non-client
+ * modules (`components/crew/sections/<section>Rows.ts`, e.g. `budgetRows.ts`,
+ * `travelRows.ts`) that both the section and the server-side search builder
+ * import, so a read site that left a `.tsx` keeps its contract instead of
+ * leaving the walk. A directory that does not yet exist (e.g.
+ * `components/crew/sections/` before the sections land) is simply skipped —
+ * the walk extends as those trees fill in.
  */
 const CREW_DIRS: ReadonlyArray<string> = [
   join(REPO_ROOT, "components", "crew", "sections"),
@@ -332,9 +337,14 @@ const NON_TILE_FILES = new Set<string>([
 ]);
 
 /**
- * Recursively collect `.tsx` files under `dir`, returning each as a path
- * RELATIVE to `REPO_ROOT` (so `readTileSource` resolves it from the root
+ * Recursively collect `.tsx` and `.ts` files under `dir`, returning each as a
+ * path RELATIVE to `REPO_ROOT` (so `readTileSource` resolves it from the root
  * regardless of which base dir it came from). A non-existent dir yields [].
+ *
+ * Plain `.ts` modules in the crew trees are collected too: the section rows
+ * modules (e.g. `components/crew/sections/todayRows.ts`) hold the row
+ * derivations the sections and their search builders share, so the field reads
+ * this contract guards moved there from the `.tsx` sections.
  */
 function walkTsxFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -343,7 +353,7 @@ function walkTsxFiles(dir: string): string[] {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
       out.push(...walkTsxFiles(full));
-    } else if (entry.endsWith(".tsx")) {
+    } else if (entry.endsWith(".tsx") || entry.endsWith(".ts")) {
       out.push(full.slice(REPO_ROOT.length + 1));
     }
   }
@@ -352,8 +362,8 @@ function walkTsxFiles(dir: string): string[] {
 
 /**
  * Returns every tile + crew section/primitive file as a repo-root-relative
- * path, with the NON_TILE_FILES exemption (matched on basename) applied and
- * the `.tsx` filter enforced.
+ * path, with the NON_TILE_FILES exemption (matched on basename) applied, the
+ * `.tsx` filter enforced on tiles, and `.tsx` + `.ts` walked in the crew dirs.
  */
 function listTileFiles(): string[] {
   const tiles = readdirSync(TILES_DIR)
@@ -385,6 +395,18 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/ + components
     const files = listTileFiles();
     const crewFiles = files.filter((rel) => rel.startsWith("components/crew/"));
     expect(crewFiles.length, "expected ≥1 components/crew/ file in the walk").toBeGreaterThan(0);
+  });
+
+  test("the walk includes the crew sibling .ts row modules (search extension guard)", () => {
+    // Pins the crew-search extension: a row derivation moved out of a section
+    // .tsx into its sibling .ts module must stay under this contract. If the
+    // walk regresses to .tsx-only, this fails before such a module can read a
+    // generic-optional field unguarded with green CI.
+    const files = listTileFiles();
+    const crewTs = files.filter((rel) => rel.startsWith("components/crew/") && rel.endsWith(".ts"));
+    expect(crewTs, "expected ≥1 components/crew/ .ts file in the walk").toContain(
+      "components/crew/sections/budgetRows.ts",
+    );
   });
 
   test("every tile/crew file that consumes a §8.3 generic-optional field imports shouldHideGenericOptional", () => {

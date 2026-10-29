@@ -14,7 +14,7 @@
  *   - Where card — the show venue (name + address + dock + notes-free meta).
  *   - Need-something card — the deterministic actionable primary contact via
  *     `selectPrimaryContact(contacts)` (omitted when no actionable contact).
- *   - Dress code line — the canonical `event_details.dress_code` key (the
+ *   - Dress code line — the canonical dress-code event detail (the
  *     attire/dress/dress-code label family is collapsed to it at parse time;
  *     see lib/parser/blocks/event.ts CANONICAL_KEY_MAP, M4-D1), gated by
  *     `shouldHideGenericOptional` so a sentinel value reflows out. Rendered by
@@ -36,7 +36,7 @@ import type { JSX } from "react";
 import { RightNowHero } from "@/components/crew/RightNowHero";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
-import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { ShowDayTimelineList } from "@/components/crew/primitives/ShowDayTimelineList";
@@ -56,102 +56,15 @@ import {
 } from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
-import { agendaSessionsForToday } from "@/lib/crew/agendaDayForToday";
-import { aggregateDays, scheduleEntriesForViewer } from "@/lib/crew/agendaDisplay";
-import { resolveKeyTimes, type KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
-import { buildShowDayTimeline } from "@/lib/crew/showDayTimeline";
-import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
-import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
+import { TODAY_TITLES, todayRows } from "@/components/crew/sections/todayRows";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
-import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
-import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
-import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { cn } from "@/lib/ui/cn";
 
-// Ported from NotesTile.tsx (:57-58) — the 5-source aggregation caps.
-const TRUNCATE_AT = 280;
-const SOURCE_CAP = 8;
-
-type NotesEntry = {
-  source: "venue" | "hotel" | "room" | "transport" | "contact";
-  label: string;
-  text: string;
-};
-
-/**
- * Identity-field non-empty predicate (NotesTile.tsx:88-92) — raw truthiness for
- * labels (hotel_name, room.name, contact.name) which may legitimately be a
- * sentinel-looking string.
- */
-function nonEmpty(s: string | null | undefined): string | null {
-  if (s === null || s === undefined) return null;
-  const t = s.trim();
-  return t === "" ? null : t;
-}
-
-/**
- * Notes-text predicate (NotesTile.tsx:104-108) — §8.3 generic-optional: hides
- * null/empty/whitespace AND the universal sentinels via the single predicate.
- */
-function notesText(s: string | null | undefined): string | null {
-  if (s === null || s === undefined) return null;
-  if (shouldHideGenericOptional(s)) return null;
-  return s.trim();
-}
-
-/**
- * Aggregate every notes source in the canonical order venue → hotel → room →
- * transport → contact (NotesTile.tsx:116-174). The transport source is only
- * included when `includeTransport` is true (the viewer can see the transport
- * tile per `transportTileVisible`).
- */
-function aggregateNotes(data: ShowForViewer, includeTransport: boolean): NotesEntry[] {
-  const out: NotesEntry[] = [];
-
-  const venueText = notesText(data.show.venue?.notes ?? null);
-  if (venueText) {
-    out.push({ source: "venue", label: "Venue", text: venueText });
-  }
-
-  for (const h of data.hotelReservations) {
-    const text = notesText(h.notes);
-    if (!text) continue;
-    const name = nonEmpty(h.hotel_name);
-    out.push({ source: "hotel", label: name ? `Hotel: ${name}` : "Hotel", text });
-  }
-
-  for (const r of data.rooms) {
-    const text = notesText(r.notes);
-    if (!text) continue;
-    const name = nonEmpty(r.name);
-    out.push({ source: "room", label: name ? `Room: ${name}` : "Room", text });
-  }
-
-  if (includeTransport && data.transportation) {
-    const text = notesText(data.transportation.notes);
-    if (text) {
-      out.push({ source: "transport", label: "Transport", text });
-    }
-  }
-
-  for (const c of data.contacts) {
-    const text = notesText(c.notes);
-    if (!text) continue;
-    const name = nonEmpty(c.name);
-    out.push({ source: "contact", label: name ? `Contact: ${name}` : "Contact", text });
-  }
-
-  return out;
-}
-
-/** Truncate on codepoint count; single Unicode ellipsis (NotesTile.tsx:184-187). */
-function truncate(text: string, max: number): { display: string; truncated: boolean } {
-  if (text.length <= max) return { display: text, truncated: false };
-  return { display: `${text.slice(0, max - 1).trimEnd()}…`, truncated: true };
-}
+// The 5-source notes caps (ported from NotesTile.tsx) now live with the notes
+// aggregation in todayRows.ts, which the search builder shares; re-exported here.
+export { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/todayRows";
 
 type TodaySectionProps = {
   data: ShowForViewer;
@@ -186,65 +99,11 @@ export function TodaySection({
         showId={showId}
         sheetName={data.show.title}
         render={() => {
-          // ── Mode A gate (the today-only run-of-show fork; §5). ────────────
-          // The Today run-of-show timeline is a NEW data surface that MUST
-          // enforce the IDENTICAL date-restriction trust boundary as
-          // ScheduleSection — via the SAME shared code path, never a
-          // re-implemented predicate. The viewer is resolved OUTSIDE this
-          // closure (`ctx`, above) so a malformed projection throws
-          // MalformedProjectionError at the route-level infra arm, not the
-          // per-block WrappedSection fallback (mirrors ScheduleSection).
-          //
-          //   - unknown_asterisk → ZERO leak: the *** marker is the operator's
-          //     "haven't told us yet" signal. NO timeline, NO show-day text →
-          //     Mode B (identical to ScheduleSection.tsx unknown_asterisk arm).
-          //   - todayIso is the SHOW-tz date (todayIsoInShowTimezone) — NEVER
-          //     new Date()/UTC. Around tz midnight the wrong run-of-show day
-          //     must not show, and a date-restricted viewer must not see the
-          //     NEXT day's agenda before it is actually that day in the show tz.
-          //   - isShowDay: todayIso ∈ aggregateDays(dates) (Codex plan R1 HIGH)
-          //     — guards a stale/off-aggregate runOfShow key whose date is not
-          //     one of THIS show's days.
-          //   - eligible: kind==='none' OR (kind==='explicit' AND days has
-          //     todayIso) — the SAME rule Schedule uses to intersect.
-          //   - todays: displayableEntries(...) — the SAME leak-critical filter
-          //     (URL-only/sentinel titles never occupy a row).
-          //
-          // Mode A iff isShowDay && eligible && (todays.length > 0 ||
-          // agendaToday.length > 0) — the unified timeline also activates on an
-          // agenda-only show day. Fail-closed: any ambiguity (unknown_asterisk,
-          // not a show day, ineligible, no crew AND no agenda) → Mode B
-          // (the full-width stack, unchanged).
-          // Data-driven render fork — instant, no animation (§ Transitions).
-          const dateRestriction = ctx.dateRestriction;
-          const todayIso = todayIsoInShowTimezone(data.show, today);
-          const isShowDay = aggregateDays(data.show.dates).some((d) => d.date === todayIso);
-          const eligible =
-            dateRestriction.kind === "none" ||
-            (dateRestriction.kind === "explicit" && new Set(dateRestriction.days).has(todayIso));
-          // §9.6 load-out trust boundary — computed BEFORE `todays` so the Mode-A
-          // gate and the rendered list are the SAME post-gate set: a viewer whose
-          // only today entry is a gated-out load-out falls to Mode B (no empty
-          // run-of-show). Also reused below for the 5-source notes transport gate.
-          const transportVisible = transportTileVisible({
-            transportation: data.transportation,
-            viewerId: data.viewerId,
-            transportationOwnerIds: data.transportationOwnerIds,
-            viewerName: data.viewerName,
-            viewerNameAliases: data.viewerNameAliases,
-            isAdmin: ctx.isAdmin,
-          });
-          const todays = suppressesDates(dateRestriction)
-            ? []
-            : scheduleEntriesForViewer(data.runOfShow?.[todayIso]?.entries, { transportVisible });
-          // Unified show-day timeline: today's PLACEABLE agenda sessions (high-conf,
-          // day-matched, aggregated across links). agendaToday.length>0 activates the merge.
-          const agendaToday = agendaSessionsForToday(
-            data.show.agenda_links ?? [],
-            data.show.dates.showDays ?? [],
-            todayIso,
-          );
-          const modeA = isShowDay && eligible && (todays.length > 0 || agendaToday.length > 0);
+          // Mode, key times, every card's rows and the notes, with their search
+          // targets: todayRows.ts, shared with the Today search builder. The
+          // Mode A gate and the date/transport trust boundaries live there.
+          const model = todayRows(data, ctx, today);
+          const { modeA, anchors, anchorsPresent, keyTimeTargets } = model;
 
           const rightNowContext = buildRightNowContext({
             show: data.show,
@@ -254,106 +113,6 @@ export function TodaySection({
             runOfShow: data.runOfShow ?? null, // NEW — carry per-day ShowAnchors
             stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
           });
-
-          // Today shows ONLY today's Show anchor — the full per-day breakdown
-          // belongs in Schedule (§5.4 / D6). set/strike are SHOW-WIDE milestones
-          // (§13.8) → pass through untouched. unknown_asterisk → resolveKeyTimes
-          // returns {} (§5.1) → all anchors absent → no strip / no card / no leak.
-          const resolved = resolveKeyTimes(
-            data.show,
-            data.rooms,
-            data.runOfShow ?? null,
-            ctx.dateRestriction,
-            ctx.stageRestriction, // #248 — off-stage Set/Strike gating
-          );
-          const anchors: KeyTimeAnchors = {
-            ...(resolved.set != null ? { set: resolved.set } : {}),
-            ...(resolved.strike != null ? { strike: resolved.strike } : {}),
-            ...((resolved.shows ?? []).some((s) => s.date === todayIso)
-              ? { shows: resolved.shows!.filter((s) => s.date === todayIso) }
-              : {}),
-          };
-
-          const firstHotel = data.hotelReservations[0] ?? null;
-          // Tonight uses the 2-up grid (columns={2} on the card below): the Hotel
-          // headline spans both columns (`span: 2`) so the name sits full width
-          // above Check in | Check out, which pair into the grid's two columns
-          // and fill the card instead of leaving a tall empty right side. Below
-          // 720px the grid collapses to the single stacked column.
-          // BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES: an `unknown_asterisk` viewer's
-          // days are unconfirmed, and a hotel check-in date IS the travel-in
-          // date — so this card was the one date-bearing surface still telling
-          // them when the show runs after the schedule, agenda and key-times
-          // strip all stopped. The NAME stays: the ratified decision is about
-          // dates, and dropping the whole card is a larger change nothing
-          // ratified. The Hotel row KEEPS `span: 2` when it is alone: in the 2-up
-          // grid that is what makes it full-width, so the card reads as one
-          // headline field. Dropping it — which this change did at first — puts
-          // the lone row in the LEFT column and leaves the right half empty at
-          // >=720px, which is the stranding it was meant to avoid. `span: 2` is
-          // "occupy both columns" (KeyValueRows.tsx:38), not "pair with a
-          // neighbour"; found by reading the primitive instead of the name.
-          const hideDates = suppressesDates(dateRestriction);
-          const tonightRows: KeyValueRow[] = firstHotel
-            ? hideDates
-              ? [{ k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 as const }]
-              : [
-                  { k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 },
-                  { k: "Check in", v: firstHotel.check_in ?? "" },
-                  { k: "Check out", v: firstHotel.check_out ?? "" },
-                ]
-            : [];
-
-          // Where stays single-column: Venue + Address are inherently full-width
-          // prose and Loading dock is the lone short field, so a 2-up grid would
-          // only strand Loading dock half-width with a wrapped eyebrow and dead
-          // space beside it (re-introducing the gap this change removes). Nothing
-          // pairs here, so densification doesn't apply to this card.
-          const venue = data.show.venue;
-          // Venue / City / Address as discrete rows. venueDisplay resolves the city
-          // (geocoded → structured-address → trailing-known-city in the NAME) and
-          // returns the name with a redundant trailing city stripped, so a blank-address
-          // FXAV venue ("Four Seasons Hotel Chicago") still shows a clean "Chicago" City
-          // row without printing the city twice. streetFromAddress drops the city tail
-          // from the Address value for the same reason; an empty street reflows the
-          // Address row out (KeyValueRows sentinel-hides empty values).
-          const { name: venueDisplayName, city: venueCity } = venueDisplay(venue);
-          const whereRows: KeyValueRow[] = venue
-            ? [
-                { k: "Venue", v: venueDisplayName ?? venue.name ?? "" },
-                ...(venueCity ? [{ k: "City", v: venueCity } as KeyValueRow] : []),
-                { k: "Address", v: streetFromAddress(venue.address, venueCity) ?? "" },
-                // Read-site sentinel guard (matches VenueSection's loadingDock contract):
-                // a "TBD"/"N/A" sentinel must reflow out at the READ site, not only at
-                // KeyValueRows render time, so the sentinel-hiding meta-test surface holds.
-                ...(shouldHideGenericOptional(venue.loadingDock ?? null)
-                  ? []
-                  : [{ k: "Loading dock", v: venue.loadingDock! } as KeyValueRow]),
-              ]
-            : [];
-
-          const primaryContact = selectPrimaryContact(data.contacts);
-
-          // Dress code — read the single canonical `dress_code` key. The parser
-          // (lib/parser/blocks/event.ts CANONICAL_KEY_MAP) is now the sole
-          // dress-key authority: the "attire" / "dress" / "dress code" label
-          // variants all collapse to `dress_code` at parse time, with
-          // sentinel-aware precedence so a real value wins over a sentinel
-          // regardless of sheet row order (M4-D1). The cross-key probe that used
-          // to live here is gone. The VALUE-level sentinel guard stays: a
-          // canonical `dress_code:"N/A"` must still reflow the block out. No
-          // read-side legacy-key fallback — no live prod data exists yet and a
-          // re-sync re-canonicalizes any non-canonical persisted key.
-          const dressValue = data.show.event_details.dress_code ?? null;
-          const dressRaw = shouldHideGenericOptional(dressValue) ? null : dressValue;
-          const showDress = dressRaw !== null;
-
-          // 5-source notes — transport source gated on transportTileVisible
-          // (computed above; the gate uses the projection's `viewerName`, per the
-          // NotesTile transport contract).
-          const noteEntries = aggregateNotes(data, transportVisible);
-          const visibleNotes = noteEntries.slice(0, SOURCE_CAP);
-          const overflowCount = Math.max(0, noteEntries.length - SOURCE_CAP);
 
           // §4.13 mechanism #3 — active-section FETCH-error visual fallback.
           // rooms feeds the KeyTimesStrip anchors (scope shown to all →
@@ -383,9 +142,9 @@ export function TodaySection({
           // only mounts when at least one card has data — a fully-empty stack
           // would reflow an empty band.
           const quickCardsStack =
-            firstHotel || venue || primaryContact ? (
+            model.tonightRows || model.whereRows || model.contact ? (
               <div data-testid="today-quick-cards" className="flex flex-col gap-3">
-                {firstHotel ? (
+                {model.tonightRows ? (
                   <div data-testid="today-card-tonight" className="flex min-w-0 flex-col">
                     <div
                       data-testid="today-tonight"
@@ -394,14 +153,15 @@ export function TodaySection({
                     >
                       <SectionCard
                         icon={<BedIcon />}
-                        title="Tonight"
+                        title={TODAY_TITLES.tonight}
                         action={
                           // "Booked" status pill (mock `.pill.ok`) + the recessive
                           // source link, sharing the header action slot. DESIGN.md
                           // §1 color-blind floor: the status-positive hue (calm
                           // teal, NOT green) is ALWAYS paired with a text label;
-                          // the dot + "Booked" word both carry the signal.
-                          <div className="flex items-center gap-2">
+                          // the dot + "Booked" word both carry the signal. The pill
+                          // is card status, not sheet data: outside search coverage.
+                          <div data-search-skip="" className="flex items-center gap-2">
                             <span className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text">
                               <span
                                 aria-hidden="true"
@@ -419,13 +179,13 @@ export function TodaySection({
                           </div>
                         }
                       >
-                        <KeyValueRows rows={tonightRows} columns={2} />
+                        <KeyValueRows rows={model.tonightRows} columns={2} />
                       </SectionCard>
                     </div>
                   </div>
                 ) : null}
 
-                {venue ? (
+                {model.whereRows ? (
                   <div data-testid="today-card-where" className="flex min-w-0 flex-col">
                     <div
                       data-testid="today-where"
@@ -434,7 +194,7 @@ export function TodaySection({
                     >
                       <SectionCard
                         icon={<MapPinIcon />}
-                        title="Where"
+                        title={TODAY_TITLES.where}
                         action={
                           <CardHeaderActions
                             cardId="today-where"
@@ -445,13 +205,13 @@ export function TodaySection({
                           />
                         }
                       >
-                        <KeyValueRows rows={whereRows} />
+                        <KeyValueRows rows={model.whereRows} />
                       </SectionCard>
                     </div>
                   </div>
                 ) : null}
 
-                {primaryContact ? (
+                {model.contact ? (
                   <div data-testid="today-card-need-something" className="flex min-w-0 flex-col">
                     <div
                       data-testid="today-need-something"
@@ -460,7 +220,7 @@ export function TodaySection({
                     >
                       <SectionCard
                         icon={<PhoneIcon />}
-                        title="Need something"
+                        title={TODAY_TITLES.contact}
                         action={
                           <CardHeaderActions
                             cardId="today-contact"
@@ -472,22 +232,7 @@ export function TodaySection({
                         }
                       >
                         <ul className="flex flex-col gap-3">
-                          <PersonRow
-                            person={{
-                              ...(primaryContact.name != null ? { name: primaryContact.name } : {}),
-                              fallbackLabel:
-                                primaryContact.kind === "in_house_av"
-                                  ? "In-house AV"
-                                  : "Venue contact",
-                              ...(primaryContact.phone != null
-                                ? { phone: primaryContact.phone }
-                                : {}),
-                              ...(primaryContact.email != null
-                                ? { email: primaryContact.email }
-                                : {}),
-                              primary: true,
-                            }}
-                          />
+                          <PersonRow person={model.contact} />
                         </ul>
                       </SectionCard>
                     </div>
@@ -503,10 +248,6 @@ export function TodaySection({
           // is null when its source is empty so a column never holds an empty
           // card. `anchorsPresent` mirrors KeyTimesStrip's own all-absent → null
           // rule, so the "Key times" card never wraps an empty strip.
-          const anchorsPresent =
-            anchors.set != null ||
-            (anchors.shows != null && anchors.shows.length > 0) ||
-            anchors.strike != null;
           // `layout="row"` lays the anchors out as an equal-width horizontal
           // strip — correct ONLY inside a BOUNDED column (Mode B's 1.6fr
           // day-context column), where it fills the width. In a FULL-WIDTH
@@ -519,7 +260,7 @@ export function TodaySection({
               <div data-testid="today-key-times" data-card-id="today-key-times">
                 <SectionCard
                   icon={<ClockIcon />}
-                  title="Key times"
+                  title={TODAY_TITLES.keyTimes}
                   action={
                     <CardHeaderActions
                       cardId="today-key-times"
@@ -530,14 +271,18 @@ export function TodaySection({
                     />
                   }
                 >
-                  <KeyTimesStrip anchors={anchors} {...(layout ? { layout } : {})} />
+                  <KeyTimesStrip
+                    anchors={anchors}
+                    searchTargets={keyTimeTargets}
+                    {...(layout ? { layout } : {})}
+                  />
                 </SectionCard>
               </div>
             ) : null;
-          const dressCard = showDress ? (
+          const dressCard = model.dress ? (
             <div data-testid="today-dress" data-card-id="today-dress">
               <SectionCard
-                title="Dress code"
+                title={TODAY_TITLES.dress}
                 action={
                   <CardHeaderActions
                     cardId="today-dress"
@@ -548,21 +293,24 @@ export function TodaySection({
                   />
                 }
               >
-                <DressCodeLines value={dressRaw} />
+                <DressCodeLines value={model.dress.value} searchTargets={model.dress.targets} />
               </SectionCard>
             </div>
           ) : null;
           const notesCard =
-            visibleNotes.length > 0 ? (
+            model.noteRows.length > 0 ? (
               <div data-testid="today-notes" data-card-id="today-notes">
-                <SectionCard icon={<NoteIcon />} title="Show notes">
+                <SectionCard icon={<NoteIcon />} title={TODAY_TITLES.showNotes}>
                   <ul className="flex flex-col gap-2">
-                    {visibleNotes.map((entry, idx) => {
-                      const { display, truncated } = truncate(entry.text, TRUNCATE_AT);
+                    {model.noteRows.map((entry, idx) => {
+                      const { display, truncated } = entry;
                       return (
                         <li
                           key={`${entry.source}-${idx}`}
                           data-source={entry.source}
+                          // One search line: the label and the FULL text. A
+                          // truncated note's cut preview below is skipped.
+                          data-search-target={entry.target}
                           {...(truncated ? { "data-truncated": "true" } : {})}
                           className="rounded-sm border border-border bg-surface"
                         >
@@ -584,6 +332,7 @@ export function TodaySection({
                                 />
                               </span>
                               <span
+                                data-search-skip={truncated ? "" : undefined}
                                 className={cn(
                                   "text-sm/snug text-text",
                                   truncated ? "group-open:hidden" : "",
@@ -602,13 +351,14 @@ export function TodaySection({
                       );
                     })}
                   </ul>
-                  {overflowCount > 0 ? (
+                  {model.notesOverflow > 0 ? (
                     <div
                       data-testid="today-notes-overflow"
+                      data-search-skip=""
                       className="mt-2 rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
                     >
-                      <span className="tabular-nums">+{overflowCount}</span>{" "}
-                      {overflowCount === 1 ? "more note" : "more notes"} on the source sheet
+                      <span className="tabular-nums">+{model.notesOverflow}</span>{" "}
+                      {model.notesOverflow === 1 ? "more note" : "more notes"} on the source sheet
                     </div>
                   ) : null}
                 </SectionCard>
@@ -653,7 +403,7 @@ export function TodaySection({
                       "row" posture is reserved for the CARDED Key times in the
                       bounded 1.6fr column; a full-width row strip would spread 2
                       anchors 50/50 across the page with a mid-page divider. */}
-                  <KeyTimesStrip anchors={anchors} />
+                  <KeyTimesStrip anchors={anchors} searchTargets={keyTimeTargets} />
                   <div
                     data-testid="today-mode-a-grid"
                     className={cn(
@@ -673,9 +423,10 @@ export function TodaySection({
                     >
                       <SectionCard
                         icon={<ClockIcon />}
-                        title="Run of show"
+                        title={TODAY_TITLES.runOfShow}
                         action={
-                          <div className="flex items-center gap-2">
+                          // "Full agenda" is a link to another section, not sheet data.
+                          <div data-search-skip="" className="flex items-center gap-2">
                             <SectionChipLink section="schedule" icon={<CalendarIcon />}>
                               Full agenda
                             </SectionChipLink>
@@ -689,13 +440,18 @@ export function TodaySection({
                           </div>
                         }
                       >
-                        {agendaToday.length > 0 ? (
+                        {model.runOfShow?.kind === "timeline" ? (
                           <ShowDayTimelineList
-                            items={buildShowDayTimeline(todays, agendaToday)}
-                            isoDate={todayIso}
+                            items={model.runOfShow.items}
+                            isoDate={model.todayIso}
+                            searchTargets={model.runOfShow.targets}
                           />
                         ) : (
-                          <RunOfShowList entries={todays} isoDate={todayIso} />
+                          <RunOfShowList
+                            entries={model.runOfShow?.entries ?? []}
+                            isoDate={model.todayIso}
+                            searchTargets={model.runOfShow?.targets ?? []}
+                          />
                         )}
                       </SectionCard>
                     </div>

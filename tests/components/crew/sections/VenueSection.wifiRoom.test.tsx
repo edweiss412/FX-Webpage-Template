@@ -501,13 +501,16 @@ const DOCUMENTED_ROW_GUARDS = [
 
 /**
  * The fact-row construction block, extracted with BOTH anchors proven present
- * and ordered (diff review R2 F5). `indexOf` returns -1 for a missing anchor and
+ * and ordered (diff review R2 F5). Since crew search (2026-10-26) the block lives
+ * in components/crew/sections/venueRows.ts (`venueFactRows`), which VenueSection
+ * and the search builder both call; the slice ends where it hands the rows to
+ * the target-id pass. `indexOf` returns -1 for a missing anchor and
  * `slice(start, -1)` still yields a long string, so a length-only premise passed
  * after an anchor was renamed — the audit kept "passing" against a slice that no
  * longer bounded what it claimed to bound.
  */
 const START_ANCHOR = "const factRows: FactRow[] = []";
-const END_ANCHOR = "const hasWhere =";
+const END_ANCHOR = "return withTargets(factRows";
 
 function factRowSectionOf(source: string): string {
   const start = source.indexOf(START_ANCHOR);
@@ -520,6 +523,8 @@ function factRowSectionOf(source: string): string {
 
 describe("transition audit — the new rows are instant by construction", () => {
   const source = readFileSync("components/crew/sections/VenueSection.tsx", "utf8");
+  // The Facilities rows are built here (moved out of VenueSection for search).
+  const rowsSource = readFileSync("components/crew/sections/venueRows.ts", "utf8");
   // The row RENDERER is part of this surface: a `"use client"` there would make
   // every one of these rows a client boundary, and scanning only VenueSection
   // could not see it (review R2 F5).
@@ -529,10 +534,13 @@ describe("transition audit — the new rows are instant by construction", () => 
     premiseHolds(
       "the audited sources were actually read",
       source.includes("export function VenueSection") &&
+        source.includes("venueFactRows(data") &&
+        rowsSource.includes("export function venueFactRows") &&
         factRowsSource.includes("export function FactRows"),
     );
     for (const [name, text] of [
       ["VenueSection.tsx", source],
+      ["venueRows.ts", rowsSource],
       ["FactRows.tsx", factRowsSource],
     ] as const) {
       expect(text, name).not.toContain('"use client"');
@@ -543,14 +551,14 @@ describe("transition audit — the new rows are instant by construction", () => 
     // `transition-colors` on the Maps anchor predates this change and is a CSS
     // hover treatment, not a row appear/disappear animation — the rows this
     // change adds introduce no `transition-` class of their own.
-    const factRowSection = factRowSectionOf(source);
+    const factRowSection = factRowSectionOf(rowsSource);
 
     expect(factRowSection).not.toContain("transition-");
     expect(factRowSection).not.toContain("animate");
   });
 
   test("every fact row is pushed under a plain conditional, one per documented state", () => {
-    const factRowSection = factRowSectionOf(source);
+    const factRowSection = factRowSectionOf(rowsSource);
     // The imperative push-guard style, not JSX ternaries: enumerate the guards
     // so a new row cannot be added without appearing in this audit.
     const conditions = [...factRowSection.matchAll(/^\s*(?:} else )?if \((.+?)\) \{$/gm)].map((m) =>

@@ -800,6 +800,33 @@ export function scanCandidates(): Candidate[] {
       // branch, so the 78 below is unchanged. Re-derived by running the guard on
       // the branch after merging origin/main (main itself still computes 745).
       //
+      // 747 -> 743 on the crew search Travel section task: TravelSection's
+      // driver, load-out and vehicle rows (three `hasX && xPrimary ? <TravelRow/>`
+      // ternaries) became one `.map` over derived rows with `if` branches, and the
+      // driver and load-out meta ternaries (`lines.length > 0 ? <span/>`) became
+      // one. Four fewer JSX-bearing ternaries, none a fault branch, so the 78
+      // below is unchanged. Re-derived by running the guard on the branch.
+      //
+      // 743 -> 746 on feat/crew-show-search (Task 15): three JSX-bearing
+      // ternaries, none a fault branch: Header's optional `search` row, and the
+      // search field's clear button and Cancel button, each rendered only in its
+      // state. Re-derived by running the meta-test on the tree merged with the
+      // section tasks, which computed 746 (the branch's own base read 747 -> 750);
+      // the 78 is unchanged.
+      //
+      // 746 -> 747 on feat/crew-show-search (Task 16): CrewSections renders the
+      // search panel in place of the hidden body only while search is active.
+      // Not a fault branch; re-derived the same way on the merged tree (750 -> 751
+      // on the branch's own base), 78 unchanged.
+      //
+      // 747 -> 760 on feat/crew-show-search (Task 17): thirteen in
+      // components/crew/search/CrewSearchResults.tsx, each a phase or a row's
+      // optional part (chips, groups, Show all, the cap note, No match, the
+      // report row and its modal, the alias note, the copy button or chevron, the
+      // toast and its check). None is a fault branch; re-derived on the merged
+      // tree (751 -> 764 on the branch's own base), 78 unchanged.
+      //
+      //
       // 747 -> 748 on feat/warning-card-fixes Task 7: the wizard warning card's title
       // row deleted one JSX-bearing ternary (the standalone `href ? <a>… : null` link)
       // and added two (`isJudgment ? <JudgmentCallTag/> : null` and
@@ -824,7 +851,12 @@ export function scanCandidates(): Candidate[] {
       // `weRead ? <>…</> : null`. Neither is a fault branch; 78 kept. Re-derived by
       // running the guard, which reported 748 against the tree.
       //
-      // Probed: 748 such ternaries under the derived roots, 78 on a
+      //
+      // 760 + 1 on the merge of origin/main into feat/warning-card-fixes (2026-10-29): main's
+      // crew-search history above (747 -> 760) and this branch's (747 -> 748) both start at 747,
+      // so the merged tree holds 761. Re-derived by running the guard on the merged tree.
+      //
+      // Probed: 761 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

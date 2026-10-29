@@ -470,6 +470,61 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   readIgnoredFingerprints lands above it)
     // Same `in-operator` row, still marked. Nothing joined or left: membership is still 34,
     // and recomputing on origin/main reproduces 755b2e86... byte-for-byte.
+    // Regenerated for feat/crew-show-search-impl, to the same bar. EXACTLY ONE input
+    // changed, a line number, in one file of this set the arc edits:
+    //   components/crew/sections/GearSection.tsx 277 -> 288 (+11: CASE_CAP and
+    //   ROOM_DETAIL_CAP move from the render callback to documented module exports
+    //   above it)
+    // Same `tile-errors` row, still marked. Nothing joined or left: membership is still
+    // 34, and recomputing on the branch's base reproduces 6c20e86f... byte-for-byte.
+    // Regenerated for the crew search Travel section task, to the same bar. EXACTLY TWO
+    // inputs changed, both line numbers, in the one file of this set the task edits:
+    //   components/crew/sections/TravelSection.tsx 700/701 -> 484/485 (-216: the row
+    //   derivations move to the sibling module sections/travelRows.ts)
+    // The same transportation / hotel `tile-errors` rows, still marked. Nothing joined or
+    // left: membership is still 34, and reverting those two rows reproduces 8aceadb3...
+    // byte-for-byte.
+    // Regenerated for the crew search Gear section task, to the same bar. EXACTLY ONE
+    // input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/GearSection.tsx 288 -> 175 (-113: the caps, the
+    //   discipline table and the row derivations move to sections/gearRows.ts)
+    // The same rooms `tile-errors` row, still marked. Nothing joined or left: membership
+    // is still 34, and reverting that row reproduces d2955fca... byte-for-byte.
+    // Regenerated for the crew search Budget section task (Task 6), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/BudgetSection.tsx 77 -> 75 (-2: the row derivation
+    //   moved to budgetRows.ts, net two import/helper lines fewer above it)
+    // Same `tile-errors` row, still marked (the guard reads
+    // `budgetFetchFailed(data.tileErrors, ctx)`). Nothing joined or left: membership is
+    // still 34, and reverting that one row reproduces 6f5d45e2... byte-for-byte.
+    // Regenerated for the crew search Crew section task (Task 7), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/CrewSection.tsx 146 -> 134 (-12: the caps, the
+    //   fallback label and the per-row person assembly moved to crewRows.ts above it)
+    // Same `tile-errors` row (`contactsFetchFailed ? <SectionTileError`), still marked.
+    // Nothing joined or left: membership is still 34, and reverting that one row
+    // reproduces d385077b... byte-for-byte.
+    // Regenerated for the crew search Venue section task (Task 8), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/VenueSection.tsx 469 -> 310 (-159: the Where,
+    //   Facilities and Venue status derivations moved to venueRows.ts above it)
+    // Same `tile-errors` row (`transportFetchFailed ? <SectionTileError`), still marked.
+    // Nothing joined or left: membership is still 34, and reverting that one row
+    // reproduces 38ef2727... byte-for-byte.
+    // Regenerated for the crew search Schedule section task (Task 11), to the same bar.
+    // EXACTLY ONE input changed, a line number, in the one file of this set the task edits:
+    //   components/crew/sections/ScheduleSection.tsx 455 -> 400 (-55: the per-day meta
+    //   and run-of-show derivation moved to the sibling scheduleRows.ts)
+    // Same `tile-errors` rooms row, still marked. Nothing joined or left: membership is
+    // still 34, and reverting that ONE row in the scan output reproduces 27e71472...
+    // byte-for-byte.
+    // Regenerated for the crew search Today section task (Task 12), to the same bar.
+    // EXACTLY THREE inputs changed, all line numbers, in the one file of this set the task edits:
+    //   components/crew/sections/TodaySection.tsx 646/647/648 -> 396/397/398 (-250: the
+    //   mode, card rows and notes derivation moved to the sibling todayRows.ts)
+    // The same rooms / hotel / contacts `SectionTileError` rows in the same order, still
+    // marked. Nothing joined or left: membership is still 34, and reverting those three
+    // rows in the scan output reproduces dbbf3983... byte-for-byte.
     // Regenerated for feat/warning-card-fixes Task 4, to the same bar. EXACTLY ONE input
     // changed, a line number, in the one file of this set the task edits:
     //   components/admin/UseRawControl.tsx 433 -> 428 (-5: the IN_SCOPE set above it moved
@@ -482,7 +537,10 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   `warning` prop lands above it)
     // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
     // reproduces d79bb1f1... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("fc41f556608dfd16103d31e8c2c8e2394b998ba2b76990d43ca8ba72f0d521c7");
+    // Recomputed on the merge of origin/main into feat/warning-card-fixes (2026-10-29): the
+    // two histories above touch disjoint files (crew sections vs UseRawControl.tsx), so the
+    // merged tree's digest is a fresh computation, not either side's value.
+    expect(digest).toBe("5fe71de36a745d4043004c627dcfd90449d50fc8051aa439b8f93a07000da56b");
   });
 });
 

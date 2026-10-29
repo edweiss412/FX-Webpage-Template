@@ -40,6 +40,12 @@ type HeaderProps = {
    * Header stays backward-compatible for consumers that never pass it.
    */
   statusPill?: ReactNode;
+  /**
+   * Optional crew search field (crew show search spec §6.1), rendered as a
+   * full-width row under the title block. Omitted entirely when null/undefined,
+   * so every caller that never passes it renders exactly as before.
+   */
+  search?: ReactNode;
 };
 
 /** Pick the show's display date — same fallback as the slug derivation. */
@@ -59,7 +65,7 @@ function formatHeaderDate(iso: string): string {
   });
 }
 
-export function Header({ show, identityChip, statusPill }: HeaderProps) {
+export function Header({ show, identityChip, statusPill, search }: HeaderProps) {
   const date = pickHeaderDate(show.dates);
   const venueLine = show.venue?.name ?? null;
 
@@ -68,7 +74,7 @@ export function Header({ show, identityChip, statusPill }: HeaderProps) {
       <div className="mx-auto flex w-full max-w-[1200px] items-baseline justify-between gap-6 px-4 py-3 sm:px-8 sm:py-4">
         <div className="min-w-0 flex-1">
           {show.client_label ? (
-            <p className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+            <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
               {show.client_label}
             </p>
           ) : null}
@@ -142,6 +148,14 @@ export function Header({ show, identityChip, statusPill }: HeaderProps) {
           </div>
         )}
       </div>
+      {search !== undefined && search !== null ? (
+        <div
+          data-testid="page-header-search"
+          className="mx-auto w-full max-w-[1200px] px-4 pb-3 sm:px-8 sm:pb-4"
+        >
+          {search}
+        </div>
+      ) : null}
     </header>
   );
 }
