@@ -556,7 +556,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // file nobody ships.
     // 215 -> 239 on the R2 repair: the reportShowId prop and its doc comment landed
     // above this button. Same `data-testid={`dq-${action}-${reportSurfaceId}`}`.
-    line: 239,
+    // 239 -> 275 on feat/warning-card-fixes Task 11; located by its own element (the same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the per-kind WORDS
+    // table and the isJudgmentCall import landed above it.
+    line: 275,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",

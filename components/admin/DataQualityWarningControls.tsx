@@ -5,6 +5,7 @@ import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounc
 import { ReportButton } from "@/components/shared/ReportButton";
 import { setStagedWarningIgnore } from "@/app/admin/onboarding/_actions/stagedWarningIgnore";
 import { hasIgnorableSnippet } from "@/lib/dataQuality/ignorableSnippet";
+import { isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
 import type { ParseWarning } from "@/lib/parser/types";
 import { cn } from "@/lib/ui/cn";
 
@@ -63,6 +64,38 @@ type Props = {
 };
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
+/** Every string this control says, by row kind and action (warning-card-fixes §6.2). */
+const WORDS = {
+  needsLook: {
+    ignore: {
+      idle: "Ignore",
+      running: "Ignoring…",
+      done: "Warning ignored.",
+      fail: "Couldn't ignore that warning. Refresh and try again.",
+    },
+    unignore: {
+      idle: "Un-ignore",
+      running: "Un-ignoring…",
+      done: "Warning restored.",
+      fail: "Couldn't un-ignore that warning. Refresh and try again.",
+    },
+  },
+  judgment: {
+    ignore: {
+      idle: "Accept",
+      running: "Accepting…",
+      done: "Judgment call accepted.",
+      fail: "Couldn't accept that judgment call. Refresh and try again.",
+    },
+    unignore: {
+      idle: "Undo accept",
+      running: "Undoing…",
+      done: "Judgment call restored.",
+      fail: "Couldn't undo that. Refresh and try again.",
+    },
+  },
+} as const;
+
 // No border COLOR here: it is per-plate, and lives in PLATE below beside the
 // ring offset it has to agree with. `cn` deliberately does not merge Tailwind
 // conflicts (lib/ui/cn.ts, ratified), so a second border-color appended at the
@@ -115,10 +148,11 @@ export function DataQualityWarningControls({
   const [state, setState] = useState<State>({ kind: "idle" });
   const ignorable = hasIgnorableSnippet(warning);
   const action = mode === "active" ? "ignore" : "unignore";
-  const failCopy =
-    action === "ignore"
-      ? "Couldn't ignore that warning. Refresh and try again."
-      : "Couldn't un-ignore that warning. Refresh and try again.";
+  // warning-card-fixes §6.2: a judgment call is ACCEPTED, not ignored. Same mechanism,
+  // endpoints and testids; only the words change.
+  const wordsKind = isJudgmentCall(warning) ? "judgment" : "needsLook";
+  const words = WORDS[wordsKind][action];
+  const failCopy = words.fail;
 
   /** The published route arm — byte-identical to what this component has always sent. */
   async function runShowArm(slug: string): Promise<"ignored" | "unignored" | null> {
@@ -176,7 +210,9 @@ export function DataQualityWarningControls({
       if (status !== null) {
         // Announcer spec 2026-07-22 §2.3: completion clause BEFORE the refresh
         // (ordering pinned by the producer tests); failures never announce.
-        announce(status === "ignored" ? "Warning ignored." : "Warning restored.");
+        announce(
+          status === "ignored" ? WORDS[wordsKind].ignore.done : WORDS[wordsKind].unignore.done,
+        );
         // Hand focus somewhere that survives this refresh, BEFORE the refresh: this
         // component is about to be unmounted by its own success.
         onBeforeRefresh?.();
@@ -244,13 +280,7 @@ export function DataQualityWarningControls({
             aria-busy={state.kind === "running"}
             className={`${NEUTRAL_BTN} ${PLATE[plate]}`}
           >
-            {mode === "active"
-              ? state.kind === "running"
-                ? "Ignoring…"
-                : "Ignore"
-              : state.kind === "running"
-                ? "Un-ignoring…"
-                : "Un-ignore"}
+            {state.kind === "running" ? words.running : words.idle}
           </button>
         ) : null}
       </div>

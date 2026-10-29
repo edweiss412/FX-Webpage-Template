@@ -679,3 +679,140 @@ describe("arm-expiry announcement — BulkIgnoreControls (per-group keying)", ()
     expect(regionOf(groupX.code).textContent).toBe(EXPIRY);
   });
 });
+
+// ── warning-card-fixes §6.2: the published bulk chip on a judgment group ────────
+//
+// A judgment group's chip reads Accept, and every string it owns says accept. Each case
+// renders a needs-look group BESIDE the judgment group in the same render, so a chip that
+// relabels every group (or none) fails: only a branch on the group's own code passes. The
+// `<n>` in each expectation is a literal for its fixture's size (B-BULK). Testids keep
+// naming the mechanism. Copy is compared apostrophe-agnostic.
+describe("BulkIgnoreControls — Accept wording on judgment groups (§6.2)", () => {
+  const JUDGMENT = "ROOM_HEADER_SPLIT_AMBIGUOUS";
+  const SNIPPETS = ["Ballroom A / B", "Salon 1 / 2", "Foyer 3 / 4"];
+  const judgmentGroup = (n: number): ActiveWarningGroup => ({
+    code: JUDGMENT,
+    label: null,
+    itemCount: n,
+    bulk: {
+      code: JUDGMENT,
+      label: null,
+      items: SNIPPETS.slice(0, n).map((rawSnippet) => ({ code: JUDGMENT, rawSnippet })),
+    },
+    cards: <ul data-testid={`cards-${JUDGMENT}`} />,
+  });
+  const needsLookGroup = (): ActiveWarningGroup => ({ ...bulkGroup(), label: null });
+  const apos = (s: string | null | undefined) => (s ?? "").replace(/[’']/g, "'");
+
+  function renderBoth(n: number) {
+    const announce = vi.fn();
+    render(
+      <WarningAnnounceContext.Provider value={{ announce }}>
+        <BulkIgnoreControls slug="rpas" groups={[judgmentGroup(n), needsLookGroup()]} />
+      </WarningAnnounceContext.Provider>,
+    );
+    return {
+      announce,
+      jChip: screen.getByTestId(`dq-bulk-ignore-${JUDGMENT}`),
+      nChip: screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"),
+    };
+  }
+
+  test("chip text and accessible name per state: idle, armed, running", async () => {
+    const releases: Array<() => void> = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          releases.push(() => resolve(okResponse()));
+        }),
+    );
+    const { jChip, nChip } = renderBoth(2);
+    expect(jChip.textContent).toBe("Accept");
+    expect(jChip.getAttribute("aria-label")).toBe("Accept 2");
+    expect(nChip.textContent).toBe("Ignore");
+    expect(nChip.getAttribute("aria-label")).toBe("Ignore 2");
+
+    fireEvent.click(jChip); // arm
+    expect(jChip.textContent).toBe("Are you sure?");
+    expect(jChip.getAttribute("aria-label")).toBe("Are you sure? Accept 2");
+    fireEvent.click(nChip); // arming the other group re-arms there instead
+    expect(nChip.getAttribute("aria-label")).toBe("Are you sure? Ignore 2");
+    expect(jChip.textContent).toBe("Accept");
+
+    fireEvent.click(jChip); // arm the judgment group again
+    fireEvent.click(jChip); // confirm → running
+    await waitFor(() => expect(jChip.textContent).toBe("Accepting…"));
+    expect(jChip.getAttribute("aria-label")).toBe("Accepting…");
+    expect(nChip.textContent).toBe("Ignore");
+    expect(releases).toHaveLength(2);
+    for (const release of releases) release();
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+  });
+
+  test.each([
+    [1, "1 accepted."],
+    [2, "2 accepted."],
+    [3, "3 accepted."],
+  ] as const)(
+    "a group of %i announces %s; the needs-look group still says ignored",
+    async (n, said) => {
+      fetchMock.mockResolvedValue(okResponse());
+      const { announce, jChip, nChip } = renderBoth(n);
+      fireEvent.click(jChip);
+      fireEvent.click(jChip);
+      await waitFor(() => expect(announce).toHaveBeenCalledTimes(1));
+      expect(announce).toHaveBeenLastCalledWith(said);
+      await waitFor(() => expect((nChip as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(nChip);
+      fireEvent.click(nChip);
+      await waitFor(() => expect(announce).toHaveBeenCalledTimes(2));
+      expect(announce).toHaveBeenLastCalledWith("2 ignored.");
+    },
+  );
+
+  test("total failure on a judgment group reads the accept copy; a needs-look group keeps its own", async () => {
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) } as unknown as Response);
+    const { jChip, nChip } = renderBoth(2);
+    fireEvent.click(jChip);
+    fireEvent.click(jChip);
+    const jGroup = screen.getByTestId(`dq-active-group-${JUDGMENT}`);
+    await waitFor(() => expect(within(jGroup).getByRole("alert")).toBeTruthy());
+    expect(apos(within(jGroup).getByRole("alert").textContent)).toBe(
+      "Couldn't accept those judgment calls. Refresh and try again.",
+    );
+    fireEvent.click(nChip);
+    fireEvent.click(nChip);
+    const nGroup = screen.getByTestId("dq-active-group-UNKNOWN_FIELD");
+    await waitFor(() => expect(within(nGroup).getByRole("alert")).toBeTruthy());
+    expect(apos(within(nGroup).getByRole("alert").textContent)).toBe(
+      "Couldn't ignore those warnings. Refresh and try again.",
+    );
+  });
+
+  test("partial failure on a judgment group reads Accepted 1 of 2; a needs-look group keeps Ignored", async () => {
+    const failed = { ok: false, json: async () => ({}) } as unknown as Response;
+    // Two fan-outs of two requests each, in click order: judgment then needs-look.
+    fetchMock
+      .mockResolvedValueOnce(okResponse())
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce(okResponse())
+      .mockResolvedValueOnce(failed);
+    const { jChip, nChip } = renderBoth(2);
+    fireEvent.click(jChip);
+    fireEvent.click(jChip);
+    const jGroup = screen.getByTestId(`dq-active-group-${JUDGMENT}`);
+    await waitFor(() => expect(within(jGroup).getByRole("alert")).toBeTruthy());
+    expect(within(jGroup).getByRole("alert").textContent).toBe(
+      "Accepted 1 of 2. Refresh to see the rest.",
+    );
+    fireEvent.click(nChip);
+    fireEvent.click(nChip);
+    const nGroup = screen.getByTestId("dq-active-group-UNKNOWN_FIELD");
+    await waitFor(() => expect(within(nGroup).getByRole("alert")).toBeTruthy());
+    expect(within(nGroup).getByRole("alert").textContent).toBe(
+      "Ignored 1 of 2. Refresh to see the rest.",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});

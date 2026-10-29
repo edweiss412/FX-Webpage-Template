@@ -281,7 +281,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // comment in components/messages/renderEmphasis.tsx named it. Pure string
     // formatting with no imports at all, no clock read. 224 -> 225.
     expect(rel).toContain("lib/messages/collapsedSummary.ts");
-    expect(rel.length).toBe(225);
+    // Joined, from feat/warning-card-fixes Task 11: lib/parser/ambiguityCodes.ts, now
+    // imported directly by components/admin/BulkIgnoreControls.tsx so a judgment group's
+    // bulk chip reads Accept (spec §6.2). A Set and a membership function with no imports
+    // at all, no clock read. 225 -> 226.
+    expect(rel).toContain("lib/parser/ambiguityCodes.ts");
+    expect(rel.length).toBe(226);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
