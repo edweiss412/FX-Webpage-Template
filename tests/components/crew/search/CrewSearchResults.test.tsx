@@ -656,6 +656,30 @@ describe("result count live region (spec §6.8)", () => {
     expect(region).toHaveTextContent(`${total} results`);
   });
 
+  it("re-announces an unchanged count after the query changes: the region clears, then speaks", () => {
+    // A status region only speaks when its text CHANGES. Two queries with the same count would
+    // otherwise set the same string twice, React would skip the second update, and the new
+    // query would never be announced.
+    vi.useFakeTimers();
+    renderResults();
+    const first = match(FIXTURE_INDEX, "wifi").total;
+    const second = match(FIXTURE_INDEX, "hotel").total;
+    premise("wifi has more than one hit", first, 1);
+    premiseHolds("wifi and hotel hit the same number of lines", first === second);
+    const region = screen.getByTestId("crew-search-count");
+    search("wifi");
+    act(() => vi.advanceTimersByTime(300));
+    expect(region).toHaveTextContent(`${first} results`);
+
+    // Cleared on the query change, so the same string set 300 ms later is a real change.
+    search("hotel");
+    expect(region.textContent).toBe("");
+    act(() => vi.advanceTimersByTime(299));
+    expect(region.textContent).toBe("");
+    act(() => vi.advanceTimersByTime(1));
+    expect(region.textContent).toBe(`${second} results`);
+  });
+
   it("says 1 result and No matches", () => {
     vi.useFakeTimers();
     renderResults();

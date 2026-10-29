@@ -213,11 +213,15 @@ export function CrewSearchResults() {
 
   // Chip selection. A changed query resets it to All (spec §6.3); a refresh
   // that leaves the chosen section without hits falls back to All (§6.10).
+  // A changed query also clears the count region, so the count set 300 ms
+  // later is a change even when it is the same string, and is spoken again.
   const [chip, setChip] = useState<Chip>("all");
+  const [announced, setAnnounced] = useState("");
   const [chipQuery, setChipQuery] = useState(query);
   if (query !== chipQuery) {
     setChipQuery(query);
     setChip("all");
+    setAnnounced("");
   } else if (chip !== "all" && !result.sections.some((s) => s.section === chip)) {
     setChip("all");
   }
@@ -262,7 +266,6 @@ export function CrewSearchResults() {
   // The result count, spoken once typing stops.
   const countMessage =
     phase === "results" || phase === "nomatch" ? SEARCH_COPY.resultCount(result.total) : "";
-  const [announced, setAnnounced] = useState("");
   useEffect(() => {
     const timer = window.setTimeout(() => setAnnounced(countMessage), RESULT_COUNT_ANNOUNCE_MS);
     return () => window.clearTimeout(timer);
