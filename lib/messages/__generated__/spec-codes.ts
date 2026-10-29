@@ -968,6 +968,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional Report",
     "helpfulContext": "This looks like a PULL SHEET, but its columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like this layout supported.",
   },
+  "PULL_SHEET_MISSING": {
+    "crewFacing": null,
+    "dougFacing": "We didn't find a pack list we could read in this sheet, so the crew page has no pack list and crew can't look up which case gear is packed in. If this show has one, put it on a tab named PULL SHEET with PULL SHEET at the top.",
+    "followUp": "Doug → add or fix the PULL SHEET tab (or Ignore)",
+    "helpfulContext": "We didn't find a pack list we could read in this sheet, so crew can't look up which case their gear is packed in. If this show has one, put it on a tab named PULL SHEET with PULL SHEET at the top.",
+  },
   "PULL_SHEET_ON_ARCHIVED_TAB": {
     "crewFacing": null,
     "dougFacing": "A pull sheet was found on an archived tab ('{tab}') and left out. If it's this show's gear, include it in review; otherwise ignore.",

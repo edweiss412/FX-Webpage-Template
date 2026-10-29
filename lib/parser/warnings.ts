@@ -235,6 +235,31 @@ export function emitVenueAddressMissing(agg: ParseAggregator | undefined, venueN
 }
 
 /**
+ * Missing-pack-list notice (2026-10-26 pack-list-missing-warning §4). `parseSheet` emits
+ * it when `parsePullSheet` returns null, so crew cannot look up which case gear is in.
+ * `finalizeArchivedTabs` (lib/sync/pullSheetOverride.ts) removes it when an archived
+ * pull-sheet tab exists, because that tab's own warning and offer already speak for it.
+ */
+export const PULL_SHEET_MISSING = "PULL_SHEET_MISSING";
+
+/**
+ * `blockRef.kind:"pull_sheet"` routes it to the review's Pack list section. `rawSnippet`
+ * is a constant: the notice is once per show with no sheet text of its own, and a
+ * non-blank snippet keeps Ignore available. `message` is shown on the staged first-seen
+ * card, so it is plain prose. No-ops when `agg` is undefined.
+ */
+export function emitPullSheetMissing(agg: ParseAggregator | undefined): void {
+  if (!agg) return;
+  agg.warnings.push({
+    severity: "warn",
+    code: "PULL_SHEET_MISSING",
+    message: "We didn't find a pack list we could read in this sheet.",
+    blockRef: { kind: "pull_sheet" },
+    rawSnippet: "no pack list",
+  });
+}
+
+/**
  * Emit an UNKNOWN_FIELD operator-review warning + a structured raw_unrecognized
  * entry for a row whose label resolved to no known field inside a block scope.
  * `block` names the source (diagnostic message + raw_unrecognized.block); `kind`

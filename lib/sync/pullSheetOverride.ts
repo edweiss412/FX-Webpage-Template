@@ -225,9 +225,22 @@ export async function discardAndRerun(args: {
  * path (onboarding, rescan, cron) runs after parse so the staged envelope always
  * carries `archivedPullSheetTabs` as a first-class field (§5.9). Mutates + returns
  * `pr` for call-site convenience.
+ *
+ * Any archived pull-sheet tab, included or not, also removes the parser's
+ * `PULL_SHEET_MISSING`: the tab's own warning, offer or note already speaks for the
+ * absence (2026-10-26 pack-list-missing-warning §4.1 stage 2). Removed in place so the
+ * array a caller holds stays the one it reads. Matched on the code literal rather than
+ * the `PULL_SHEET_MISSING` export of lib/parser/warnings: a client component
+ * (components/admin/wizard/archivedTabOffer.tsx) imports this module, and that one
+ * pulls node:crypto.
  */
 export function finalizeArchivedTabs(pr: ParseResult, tabs: ArchivedPullSheetTab[]): ParseResult {
   pr.archivedPullSheetTabs = tabs;
+  if (tabs.length > 0) {
+    for (let i = pr.warnings.length - 1; i >= 0; i--) {
+      if (pr.warnings[i]!.code === "PULL_SHEET_MISSING") pr.warnings.splice(i, 1);
+    }
+  }
   pr.warnings.push(...emitArchivedTabWarnings(tabs));
   return pr;
 }
