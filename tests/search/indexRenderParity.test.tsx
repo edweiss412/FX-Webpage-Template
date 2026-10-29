@@ -172,6 +172,20 @@ function caseNamed(cases: readonly ViewerCase[], name: string): ViewerCase {
   return c;
 }
 
+/**
+ * The sections every parity block covers, filled at collection time by
+ * `parityOver` and read by the coverage block at the end of the file. Spec §11.1
+ * derives the section list from `[...BASE_SECTION_IDS, "budget"]`, so a section
+ * added later without a block here fails coverage instead of being skipped.
+ */
+const PARITY_CASES = new Map<SectionId, string[]>();
+
+/** Registers `cases` as the cases section `id`'s `index equals render` test runs over. */
+function parityOver(id: SectionId, cases: readonly ViewerCase[]): readonly ViewerCase[] {
+  PARITY_CASES.set(id, [...(PARITY_CASES.get(id) ?? []), ...cases.map((c) => c.name)]);
+  return cases;
+}
+
 /** The `<region>` part of a `<section>:<region>:<hash>` entry id. */
 function regionOf(e: SearchEntry): string {
   return e.id.split(":")[1] ?? "";
@@ -317,7 +331,7 @@ describe("travel", () => {
     },
   };
 
-  test.each(cases)("$name: index equals render", (c) => {
+  test.each(parityOver("travel", cases))("$name: index equals render", (c) => {
     const root = renderTravel(c);
     PREMISES[c.name]?.(root, c);
     expect(assertParity(root, SECTION_BUILDERS.travel(c))).toEqual([]);
@@ -566,7 +580,7 @@ describe("gear", () => {
     },
   };
 
-  test.each(cases)("$name: index equals render", (c) => {
+  test.each(parityOver("gear", cases))("$name: index equals render", (c) => {
     const root = renderGear(c);
     PREMISES[c.name]?.(root, c);
     expect(assertParity(root, SECTION_BUILDERS.gear(c))).toEqual([]);
@@ -740,11 +754,14 @@ describe("budget", () => {
     premise("non-entitled matrix cases", notEntitled.length, 0);
   });
 
-  test.each(cases.map((c) => [c.name, c] as const))("parity: %s", (_name, c) => {
-    const root = renderSection("budget", c);
-    (PREMISES[c.name] ?? defaultPremise(c))(root);
-    expect(assertParity(root, build("budget", c))).toEqual([]);
-  });
+  test.each(parityOver("budget", cases).map((c) => [c.name, c] as const))(
+    "parity: %s",
+    (_name, c) => {
+      const root = renderSection("budget", c);
+      (PREMISES[c.name] ?? defaultPremise(c))(root);
+      expect(assertParity(root, build("budget", c))).toEqual([]);
+    },
+  );
 
   test("a viewer the shell does not render Budget for gets no Budget entries", () => {
     for (const c of notEntitled) expect(build("budget", c), c.name).toEqual([]);
@@ -905,11 +922,14 @@ describe("crew", () => {
   const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
     premiseHolds(`${c.name} renders the roster`, has(root, '[data-card-id="crew-roster"]'));
 
-  test.each(cases.map((c) => [c.name, c] as const))("parity: %s", (_name, c) => {
-    const root = renderSection("crew", c);
-    (PREMISES[c.name] ?? defaultPremise(c))(root);
-    expect(assertParity(root, build("crew", c))).toEqual([]);
-  });
+  test.each(parityOver("crew", cases).map((c) => [c.name, c] as const))(
+    "parity: %s",
+    (_name, c) => {
+      const root = renderSection("crew", c);
+      (PREMISES[c.name] ?? defaultPremise(c))(root);
+      expect(assertParity(root, build("crew", c))).toEqual([]);
+    },
+  );
 
   const viewerPartial = partialAttendanceLabel(
     resolveViewerContext(dateSuppressed.viewer, dateSuppressed.data).viewerCrew!.dateRestriction,
@@ -1181,11 +1201,14 @@ describe("venue", () => {
   const defaultPremise = (c: ViewerCase) => (root: HTMLElement) =>
     premiseHolds(`${c.name} renders the Where card`, has(root, '[data-card-id="venue-where"]'));
 
-  test.each(cases.map((c) => [c.name, c] as const))("parity: %s", (_name, c) => {
-    const root = renderSection("venue", c);
-    (PREMISES[c.name] ?? defaultPremise(c))(root);
-    expect(assertParity(root, build("venue", c))).toEqual([]);
-  });
+  test.each(parityOver("venue", cases).map((c) => [c.name, c] as const))(
+    "parity: %s",
+    (_name, c) => {
+      const root = renderSection("venue", c);
+      (PREMISES[c.name] ?? defaultPremise(c))(root);
+      expect(assertParity(root, build("venue", c))).toEqual([]);
+    },
+  );
 
   const wifi = (c: ViewerCase) => parseWifiValue(c.data.show.event_details["internet"] ?? "");
   const altsOf = (c: ViewerCase) => [
@@ -1439,11 +1462,14 @@ describe("schedule", () => {
     },
   };
 
-  test.each(ALL_CASES.map((c) => [c.name, c] as const))("%s: index equals render", (_name, c) => {
-    const root = renderSection("schedule", c);
-    PREMISES[c.name]?.(root, c);
-    expect(assertParity(root, build("schedule", c))).toEqual([]);
-  });
+  test.each(parityOver("schedule", ALL_CASES).map((c) => [c.name, c] as const))(
+    "%s: index equals render",
+    (_name, c) => {
+      const root = renderSection("schedule", c);
+      PREMISES[c.name]?.(root, c);
+      expect(assertParity(root, build("schedule", c))).toEqual([]);
+    },
+  );
 
   test("dateSuppressed builds no entries", () => {
     expect(build("schedule", caseNamed(ALL_CASES, "dateSuppressed"))).toEqual([]);
@@ -1699,11 +1725,14 @@ describe("today", () => {
     },
   };
 
-  test.each(ALL_CASES.map((c) => [c.name, c] as const))("%s: index equals render", (_name, c) => {
-    const root = renderSection("today", c);
-    PREMISES[c.name]?.(root, c);
-    expect(assertParity(root, build("today", c))).toEqual([]);
-  });
+  test.each(parityOver("today", ALL_CASES).map((c) => [c.name, c] as const))(
+    "%s: index equals render",
+    (_name, c) => {
+      const root = renderSection("today", c);
+      PREMISES[c.name]?.(root, c);
+      expect(assertParity(root, build("today", c))).toEqual([]);
+    },
+  );
 
   const at = (es: readonly SearchEntry[], region: string) =>
     es.filter((e) => regionOf(e) === region);
@@ -1841,5 +1870,35 @@ describe("today", () => {
     const entries = build("today", fullContent);
     expect(entries).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
+  });
+});
+
+// ── coverage ─────────────────────────────────────────────────────────────────
+
+/** The section list, derived, never typed (spec §11.1). */
+const DERIVED_SECTIONS: readonly SectionId[] = [...BASE_SECTION_IDS, "budget"];
+
+describe("coverage: every section has a parity block", () => {
+  test("SECTION_BUILDERS has a builder for exactly the derived section list", () => {
+    expect(Object.keys(SECTION_BUILDERS).sort()).toEqual([...DERIVED_SECTIONS].sort());
+  });
+
+  test("every derived section has a parity block, and no block names another section", () => {
+    const missing = DERIVED_SECTIONS.filter((id) => (PARITY_CASES.get(id)?.length ?? 0) === 0);
+    expect(missing, "sections with no `index equals render` block").toEqual([]);
+    const stray = [...PARITY_CASES.keys()].filter((id) => !DERIVED_SECTIONS.includes(id));
+    expect(stray).toEqual([]);
+  });
+
+  test("each section's parity block runs over every matrix case that can open it", () => {
+    for (const id of DERIVED_SECTIONS) {
+      const covered = new Set(PARITY_CASES.get(id) ?? []);
+      const expected = ALL_CASES.filter((c) => canOpen(id, c)).map((c) => c.name);
+      premise(`${id}: at least one matrix case can open it`, expected.length, 0);
+      expect(
+        expected.filter((name) => !covered.has(name)),
+        `${id}: matrix cases its parity block skips`,
+      ).toEqual([]);
+    }
   });
 });
