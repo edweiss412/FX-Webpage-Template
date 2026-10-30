@@ -11,8 +11,12 @@
  * source of the order with a per-show setting; the ids stay.
  */
 import type { ContactRow, HotelReservationRow } from "@/lib/parser/types";
-import type { ShowForViewer } from "@/lib/data/getShowForViewer";
+import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import { resolveViewerContext } from "@/lib/data/viewerContext";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
+import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
+import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { resolveWifiDisplay } from "@/lib/crew/wifiDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { digitsOnly } from "@/lib/format/phone";
@@ -218,4 +222,38 @@ export function selectQuickFacts(
     if (fact !== null) facts.push(fact);
   }
   return facts;
+}
+
+/**
+ * The quick facts one viewer gets on the home, built on the server: the shell's
+ * home body hands exactly this to the client island, so the props carry only
+ * what this viewer may see (plan harness rule "Client props").
+ *
+ * The viewer input is computed here from the projection and the request-scoped
+ * `today` (never a client clock): personal for `crew` and `admin_preview`
+ * (spec §4.3 personal cells), dates suppressed per `suppressesDates`, the
+ * parking gate the Venue section applies (`transportTileVisible`, the call
+ * `venueTransportVisible` makes), and tonight as today's ISO date in the show
+ * timezone, as the Schedule today-pin computes it.
+ */
+export function buildQuickFacts(input: {
+  data: ShowForViewer;
+  viewer: Viewer;
+  today: Date;
+}): QuickFact[] {
+  const { data, viewer, today } = input;
+  const ctx = resolveViewerContext(viewer, data);
+  return selectQuickFacts(DEFAULT_QUICK_FACT_ORDER, data, {
+    personal: viewer.kind === "crew" || viewer.kind === "admin_preview",
+    datesSuppressed: suppressesDates(ctx.dateRestriction),
+    transportVisible: transportTileVisible({
+      transportation: data.transportation,
+      viewerId: data.viewerId,
+      transportationOwnerIds: data.transportationOwnerIds,
+      viewerName: data.viewerName,
+      viewerNameAliases: data.viewerNameAliases,
+      isAdmin: ctx.isAdmin,
+    }),
+    tonightIso: todayIsoInShowTimezone(data.show, today),
+  });
 }

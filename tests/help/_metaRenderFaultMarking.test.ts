@@ -545,7 +545,16 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // The same rooms / hotel / contacts `SectionTileError` rows in the same order, still
     // marked. Nothing joined or left: membership is still 34, and reverting those three
     // rows in the scan output reproduces 071e2796... byte-for-byte.
-    expect(digest).toBe("acf1cfefcf9ef9b65d7371815768ad6d9225d3cca4dca383eb58420fb2909c68");
+    // Regenerated for the crew page redesign's Task 11 (the composed home retires
+    // TodaySection), to the same bar. EXACTLY THREE inputs changed, the same three
+    // rows changing FILE as well as line:
+    //   components/crew/sections/TodaySection.tsx 377/378/379 ->
+    //   components/crew/sections/HomeSection.tsx 192/193/194 (the home body took
+    //   over Today's rooms / hotel / contacts fetch-failure blocks, for the same
+    //   audience, with the same `tile-errors` form, still marked)
+    // Nothing joined or left: membership is still 34, and mapping those three rows
+    // back to TodaySection 377/378/379 reproduces acf1cfef... byte-for-byte.
+    expect(digest).toBe("ce25e4d67e893e5b38403bae0c642f0671c749a60d62b63daca07571d46b0e17");
   });
 });
 

@@ -17,7 +17,7 @@
  *     mis-wired body): each section component is mocked to a distinct marker
  *     `<div data-testid="section-<id>" />`, and for EVERY entitled id we render
  *     `sectionNodes[id]` and assert it shows `section-<id>` — proving today→
- *     TodaySection, schedule→ScheduleSection, …, not a swapped wiring.
+ *     HomeSection, schedule→ScheduleSection, …, not a swapped wiring.
  *   - a small integration assertion (CrewSections UNmocked) that the INITIAL
  *     active body renders and `data-testid="crew-shell"` is present.
  */
@@ -98,8 +98,8 @@ const sectionMarker = (testid: string) => {
 // real builder through the shell.
 vi.mock("@/lib/search/buildSearchIndex", () => ({ buildSearchIndex: () => ({ entries: [] }) }));
 
-vi.mock("@/components/crew/sections/TodaySection", () => ({
-  TodaySection: sectionMarker("section-today"),
+vi.mock("@/components/crew/sections/HomeSection", () => ({
+  HomeSection: sectionMarker("section-today"),
 }));
 vi.mock("@/components/crew/sections/ScheduleSection", () => ({
   ScheduleSection: sectionMarker("section-schedule"),

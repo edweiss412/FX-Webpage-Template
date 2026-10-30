@@ -150,7 +150,7 @@ export function ClockIcon({ className }: GlyphProps) {
   );
 }
 
-/** Bed — a headboard + mattress with a pillow (mock `bed`). Today "Tonight" card. */
+/** Bed — a headboard + mattress with a pillow (mock `bed`). The home's "Hotel" quick fact. */
 export function BedIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -160,7 +160,7 @@ export function BedIcon({ className }: GlyphProps) {
   );
 }
 
-/** Phone — a handset (mock `phone`). Today "Need something?" card. */
+/** Phone — a handset (mock `phone`). The home's "Who to call" quick fact. */
 export function PhoneIcon({ className }: GlyphProps) {
   return (
     <svg {...baseProps} className={className} aria-hidden="true">
@@ -230,6 +230,16 @@ export function BuildingIcon({ className }: GlyphProps) {
     <svg {...baseProps} className={className} aria-hidden="true">
       <path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M3 21h18" />
       <path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2" />
+    </svg>
+  );
+}
+
+/** Shirt — a T-shirt outline. The home's "Dress code" quick fact (no direct mock
+ *  glyph; traced in the same thin-stroke family). */
+export function ShirtIcon({ className }: GlyphProps) {
+  return (
+    <svg {...baseProps} className={className} aria-hidden="true">
+      <path d="M20.4 6.6 16 4a4 4 0 0 1-8 0L3.6 6.6a1 1 0 0 0-.5 1.2l1 3a1 1 0 0 0 1.3.6L7 10.8V20a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-9.2l1.6.6a1 1 0 0 0 1.3-.6l1-3a1 1 0 0 0-.5-1.2z" />
     </svg>
   );
 }

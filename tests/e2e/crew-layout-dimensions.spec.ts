@@ -309,8 +309,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     shareToken = await lookupShareToken(seeded.showId);
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
-    // Pin the SERVER's `today` to show-day-1 so TodaySection's Mode A gate fires
-    // (the section reads the server-supplied `today`, NOT a browser clock). The
+    // Pin the SERVER's `today` to show-day-1 so the home's run card mounts (the
+    // shell builds it from the server-supplied `today`, NOT a browser clock). The
     // port-3000 webServer carries ENABLE_TEST_AUTH=true + this exact
     // TEST_AUTH_SECRET, so nowDate() honors the frozen-now header (now.ts:37-73).
     // This header rides EVERY request from this context (sub-resources included),
@@ -580,164 +580,58 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     }
   });
 
-  // ── Today Mode B — the PERSISTENT split-wide (the non-show-day desktop
-  // two-column treatment; the fix for the wrapped/off-day Today stretching its
-  // cards full-bleed). Overriding the frozen server clock to a POST-show instant
-  // (2026-04-25 — the Waldorf seed's show days are 2026-04-21/22) makes
-  // `isShowDay` false → Mode B. The seed has a GS room with set/show/strike times
-  // (→ a "Key times" card in the LEFT day-context column) AND a hotel + venue (→
-  // the quick-cards RIGHT column), so [data-testid="today-mode-b-grid"] mounts.
-  // Mode B uses `items-start` (the day-context + cards stacks differ in height),
-  // so this asserts the 1.6 ratio + side-by-side (NOT equal-height) at 1000px and
-  // the single full-width stack at 390px.
-  test("today Mode B: persistent split-wide 1.6 ratio (1000px) / stacked (390px) on a non-show-day", async ({
+  // ── Today on a non-show-day: the home body under the pass ──────────────────
+  // Today's Mode B split grid (key times LEFT, quick cards RIGHT) retired with
+  // TodaySection (crew page redesign plan Task 11), and with it the 720px
+  // container split the Today block owned: the home body reads no container
+  // query. The failure modes carried over are the stack and the overflow: below
+  // 1024px the home body (quick facts, show notes, Dress code card) sits under
+  // the day row and the pass at the Today block's full width, and the page never
+  // scrolls sideways. A POST-show server clock (2026-04-25; the Waldorf seed's
+  // show days are 2026-04-21/22) keeps the run card out, as Mode B did.
+  test("today: on a non-show-day the home body stacks under the pass at the Today block's width (1000px / 390px)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
-
-    // Override the beforeEach show-day-1 clock with a POST-show instant → Mode B.
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": "2026-04-25T12:00:00Z",
       Authorization: `Bearer ${TEST_AUTH_SECRET}`,
     });
-
-    // First prove Mode B actually mounted (not Mode A, not the lone-stack fallback).
-    await page.setViewportSize({ width: 1000, height: 1000 });
-    await gotoSection(page, "today");
-    await expect(
-      page.getByTestId("today-run-of-show"),
-      "post-show Today must be Mode B (no run-of-show), not Mode A",
-    ).toHaveCount(0);
-    const grid = page.getByTestId("today-mode-b-grid");
-    await expect(
-      grid,
-      "Today Mode B persistent split-wide grid must mount (non-show-day + key-times LEFT + quick-cards RIGHT)",
-    ).toBeVisible();
-    // LEFT = day-context (key times); RIGHT = the quick-cards stack.
-    await expect(page.getByTestId("today-day-context")).toBeVisible();
-    await expect(page.getByTestId("today-quick-cards")).toBeVisible();
-
-    // 1000px: the two grid children are side-by-side, 1.6 ratio (NOT equal-height
-    // — Mode B is items-start, the two stacks differ in height by design).
-    const childRects: Rect[] = await grid.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(childRects.length, "Today Mode B grid must have exactly two columns").toBe(2);
-    // The split reads the Today block's container, not the window (DESIGN.md §6).
-    const wideSplit = await splitContainerOf(grid);
-    expect(wideSplit.testid, "Today Mode B grid's size container").toBe("crew-today-block");
-    expect(
-      wideSplit.split,
-      `@1000px the Today block is ${wideSplit.width}px against the ${CREW_SPLIT_PX}px split threshold`,
-    ).toBe(true);
-    const [left, right] = childRects as [Rect, Rect];
-    expect(right.left, "@1000px Today Mode B columns must be side-by-side").toBeGreaterThan(
-      left.left + 1,
-    );
-    const expectedLeft = 1.6 * right.width;
-    expect(
-      Math.abs(left.width - expectedLeft),
-      `@1000px Today Mode B left (day-context) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
-    ).toBeLessThanOrEqual(TOL_PX);
-    // Natural height: items-start asserted positively (Mode B has always been
-    // items-start; pinning it keeps the whole split-wide family uniform).
-    const alignB = await grid.evaluate((el) => getComputedStyle(el as HTMLElement).alignItems);
-    expect(
-      alignB,
-      `@1000px Today Mode B grid must be items-start (natural height), not stretched; got align-items=${alignB}`,
-    ).toBe("flex-start");
-
-    // 390px: stacked, single full-width column, no horizontal overflow.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoSection(page, "today");
-    const gridNarrow = page.getByTestId("today-mode-b-grid");
-    await expect(gridNarrow).toBeVisible();
-    const narrowRects: Rect[] = await gridNarrow.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(narrowRects.length, "Today Mode B grid must still have two columns at 390px").toBe(2);
-    const narrowSplit = await splitContainerOf(gridNarrow);
-    expect(narrowSplit.testid, "Today Mode B grid's size container @390px").toBe(
-      "crew-today-block",
-    );
-    expect(
-      narrowSplit.split,
-      `@390px the Today block is ${narrowSplit.width}px against the ${CREW_SPLIT_PX}px split threshold`,
-    ).toBe(false);
-    const [na, nb] = narrowRects as [Rect, Rect];
-    expect(
-      nb.top,
-      `@390px Today Mode B columns must stack (col2.top ≥ col1.bottom); col2.top=${nb.top} col1.bottom=${na.bottom}`,
-    ).toBeGreaterThanOrEqual(na.bottom - TOL_TIGHT);
-    expect(
-      Math.abs(na.left - nb.left),
-      `@390px stacked Today Mode B columns must share a left edge; ${na.left} vs ${nb.left}`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
-    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
-    expect(
-      scrollWidth,
-      `@390px Today (Mode B) must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
-    ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
-  });
-
-  // ── The compact home splits at the SAME window width as before ────────────
-  // Before the bodies went container-relative, Today split at a 720px window
-  // (`min-[720px]:`). Its container threshold was derived so that does not move
-  // (720 - 2 x 32px gutter, globals.css), so one pixel either side of that
-  // window must land on opposite sides of the threshold and lay out to match.
-  // A threshold off by even 1px fails one of the two legs; this is the case
-  // that pins the derivation, where every other case only sees a wide margin.
-  test("today: the compact home splits from the old 720px window, not before", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-    // The Today body's split grid: Mode B's (the run of show moved to its own
-    // card on the home, plan Task 10), entered with a POST-show server clock as
-    // the Mode B case above enters it.
-    await page.setExtraHTTPHeaders({
-      "X-Screenshot-Frozen-Now": "2026-04-25T12:00:00Z",
-      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
-    });
-    /** The window width the old viewport rule split Today at. */
-    const OLD_VIEWPORT_SPLIT_PX = 720;
-    for (const width of [OLD_VIEWPORT_SPLIT_PX - 1, OLD_VIEWPORT_SPLIT_PX]) {
-      await page.setViewportSize({ width, height: 1000 });
+    for (const [width, height] of [
+      [1000, 1000],
+      [390, 844],
+    ] as const) {
+      await page.setViewportSize({ width, height });
       await gotoSection(page, "today");
-      const grid = page.getByTestId("today-mode-b-grid");
-      await expect(grid, `@${width}px Today's split grid must mount`).toBeVisible();
-      await expectColumnsFollowSplit(
-        grid.locator(":scope > *").nth(0),
-        grid.locator(":scope > *").nth(1),
-        {
-          split: width >= OLD_VIEWPORT_SPLIT_PX,
-          container: "crew-today-block",
-          label: `@${width}px Today split grid`,
-          tolPx: TOL_TIGHT,
-        },
-      );
+      await expect(
+        page.getByTestId("today-run-of-show"),
+        "post-show Today has no run card",
+      ).toHaveCount(0);
+      const block = await rectOf(page.getByTestId("crew-today-block"));
+      const lead = await rectOf(page.getByTestId("crew-today-lead"));
+      const body = await rectOf(page.getByTestId("section-today"));
+      await expect(page.getByTestId("crew-quick-facts")).toBeVisible();
+      expect(
+        body.top,
+        `@${width}px the home body sits under the day row and the pass; body.top=${body.top} lead.bottom=${lead.bottom}`,
+      ).toBeGreaterThanOrEqual(lead.bottom - TOL_TIGHT);
+      for (const [name, r] of [
+        ["lead", lead],
+        ["home body", body],
+      ] as const) {
+        expect(
+          Math.abs(r.width - block.width),
+          `@${width}px the ${name} spans the Today block; ${r.width} vs ${block.width}`,
+        ).toBeLessThanOrEqual(TOL_TIGHT);
+      }
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        scrollWidth,
+        `@${width}px Today must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
+      ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
     }
   });
 
@@ -755,43 +649,10 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     ).toBeLessThanOrEqual(TOL_TIGHT);
   });
 
-  // ── §5.5 KeyTimesStrip row-layout equal-width cells ──────────────────────
-  // In a split-wide container the `layout="row"` posture gives every
-  // [data-anchor] cell `@min-crew-split:flex-1`. With ≥2 anchors present the
-  // cells must be equal-width
-  // (±2px). The seed populates two show days (2026-04-21 + 2026-04-22), so the
-  // strip renders ≥2 [data-anchor] cells (Set + Show×2 or Show×2 at minimum).
-  // Expected fail mode before §5 UI tasks: the strip renders only the single
-  // legacy `show` anchor → `n < 2` → the `≥2 row anchors` assertion fails.
-  test("§5.5 KeyTimesStrip row cells are equal-width in a split-wide container", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-    await page.setViewportSize({ width: 1000, height: 1200 });
-    await gotoSection(page, "today"); // Today wide → KeyTimesStrip layout="row"
-    const cells = page.locator('[data-testid="key-times-strip"][data-layout="row"] [data-anchor]');
-    const n = await cells.count();
-    expect(n, "expected ≥2 row anchors (Set + ≥1 Show)").toBeGreaterThanOrEqual(2);
-    const widths: number[] = [];
-    for (let i = 0; i < n; i++) widths.push((await rectOf(cells.nth(i))).width);
-    // DERIVED expectation (anti-hardcode): every cell ≈ the first cell's width.
-    // widths.length >= n >= 2 so widths[0] is always defined here.
-    const w0 = widths[0] as number;
-    for (const w of widths) expect(Math.abs(w - w0)).toBeLessThanOrEqual(2);
-    // Equal widths alone pass for a STACKED strip too (every row full width),
-    // so pin the branch: the strip's container is split and the cells sit in a
-    // row.
-    const strip = page.locator('[data-testid="key-times-strip"][data-layout="row"]').first();
-    const split = await splitContainerOf(strip);
-    expect(split.testid, "KeyTimesStrip's size container").toBe("crew-today-block");
-    expect(
-      split.split,
-      `@1000px the Today block is ${split.width}px against the ${CREW_SPLIT_PX}px split threshold`,
-    ).toBe(true);
-    const c0 = await rectOf(cells.nth(0));
-    const c1 = await rectOf(cells.nth(1));
-    expect(c1.left, "row-layout cells sit side by side").toBeGreaterThan(c0.left + 1);
-  });
+  // §5.5 KeyTimesStrip row-layout cells: the only `layout="row"` strip was
+  // Today's carded Key times, which retired with TodaySection (plan Task 11);
+  // Schedule's strip renders the default stack, so the row posture has no
+  // subject on the page and its equal-width case left with it.
 
   // ── §5.5 DayCard self-stretch vline fills the taller (meta-bearing) row ───
   // The bare-window day 2 card carries [data-slot="day-card-meta"] → it is the

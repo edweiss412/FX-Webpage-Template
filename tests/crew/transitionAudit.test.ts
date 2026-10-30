@@ -11,7 +11,7 @@ const SSR_SURFACES = [
   "components/crew/primitives/KeyTimesStrip.tsx",
   "components/crew/primitives/DayCard.tsx",
   "components/crew/sections/ScheduleSection.tsx",
-  "components/crew/sections/TodaySection.tsx",
+  "components/crew/sections/HomeSection.tsx",
 ];
 
 describe("§5.7 SSR surfaces stay instant (no client motion)", () => {

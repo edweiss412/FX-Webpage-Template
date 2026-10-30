@@ -63,6 +63,34 @@ export type SeedCrewMemberInput = {
   stageRestriction?: StageRestriction | null;
   /** crew_members.date_restriction jsonb. Omit → column left NULL ({kind:'none'} on read). */
   dateRestriction?: DateRestriction | null;
+  /** crew_members.flight_info text (the viewer's own flight). Omit → column left NULL. */
+  flightInfo?: string | null;
+};
+
+/** One hotel_reservations row; omitted fields are written NULL (names empty). */
+export type SeedHotelReservationInput = {
+  ordinal: number;
+  hotelName: string;
+  names: string[];
+  checkIn?: string | null;
+  checkOut?: string | null;
+  confirmationNo?: string | null;
+  hotelAddress?: string | null;
+  notes?: string | null;
+};
+
+/** The show's transportation row; omitted fields are written NULL (schedule empty). */
+export type SeedTransportationInput = {
+  driverName?: string | null;
+  driverPhone?: string | null;
+  vehicle?: string | null;
+  licensePlate?: string | null;
+  color?: string | null;
+  parking?: string | null;
+  notes?: string | null;
+  loadoutName?: string | null;
+  loadoutPhone?: string | null;
+  schedule?: unknown[];
 };
 
 export type SeededCrewMember = {
@@ -120,6 +148,19 @@ export type SeedShowWithCrewOptions = {
    * Omit → no shows_internal row (getShowForViewer projects runOfShow: null).
    */
   internal?: { runOfShow?: unknown; parseWarnings?: unknown };
+  /**
+   * shows.venue jsonb. Omit → column left NULL. Written by the same show insert,
+   * named only when supplied so every existing caller's SQL is unchanged.
+   */
+  venue?: ShowRow["venue"];
+  /**
+   * hotel_reservations rows, inserted in the same locked transaction after the
+   * show (the table is not lock-governed; riding the one transaction keeps the
+   * seed atomic). Omit → none.
+   */
+  hotelReservations?: SeedHotelReservationInput[];
+  /** The show's transportation row, inserted in the same transaction. Omit → none. */
+  transportation?: SeedTransportationInput;
 };
 
 export type SeededShow = {
@@ -247,6 +288,7 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     claimedViaOauthAt: c.claimedViaOauthAt ?? null,
     stageRestriction: c.stageRestriction ?? null,
     dateRestriction: c.dateRestriction ?? null,
+    flightInfo: c.flightInfo ?? null,
   }));
 
   // ONE locked transaction (invariant 2): purge residue, insert the show, insert
@@ -257,7 +299,9 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     `delete from public.shows where drive_file_id = ${sqlString(driveFileId)};`,
     `insert into public.shows
        (id, drive_file_id, slug, title, client_label, template_version,
-        published, archived, picker_epoch, dates, agenda_links, event_details)
+        published, archived, picker_epoch, dates, agenda_links, event_details${
+          options.venue === undefined ? "" : ", venue"
+        })
      values
        (${sqlString(showId)}::uuid, ${sqlString(driveFileId)}, ${sqlString(slug)},
         ${sqlString(options.title ?? "Picker E2E Show")},
@@ -266,19 +310,51 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
         ${options.published ?? true}, ${options.archived ?? false}, ${pickerEpoch},
         ${sqlJsonbOrNull(options.dates ?? null)},
         ${sqlJsonbOrNull(options.agendaLinks ?? null)},
-        ${sqlJsonbOrNull(options.eventDetails ?? null)});`,
+        ${sqlJsonbOrNull(options.eventDetails ?? null)}${
+          options.venue === undefined ? "" : `, ${sqlJsonbOrNull(options.venue)}`
+        });`,
   ];
   for (const row of crewRows) {
     statements.push(
       `insert into public.crew_members
          (id, show_id, name, role, email, role_flags, claimed_via_oauth_at,
-          stage_restriction, date_restriction)
+          stage_restriction, date_restriction, flight_info)
        values
          (${sqlString(row.id)}::uuid, ${sqlString(showId)}::uuid, ${sqlString(row.name)},
           ${sqlString(row.role)}, ${sqlTextOrNull(row.email)},
           ${sqlTextArray(row.roleFlags)},
           ${row.claimedViaOauthAt == null ? "null" : `${sqlString(row.claimedViaOauthAt)}::timestamptz`},
-          ${sqlJsonbOrNull(row.stageRestriction)}, ${sqlJsonbOrNull(row.dateRestriction)});`,
+          ${sqlJsonbOrNull(row.stageRestriction)}, ${sqlJsonbOrNull(row.dateRestriction)},
+          ${sqlTextOrNull(row.flightInfo)});`,
+    );
+  }
+  for (const h of options.hotelReservations ?? []) {
+    statements.push(
+      `insert into public.hotel_reservations
+         (show_id, ordinal, hotel_name, hotel_address, names, confirmation_no,
+          check_in, check_out, notes)
+       values
+         (${sqlString(showId)}::uuid, ${h.ordinal}, ${sqlString(h.hotelName)},
+          ${sqlTextOrNull(h.hotelAddress)}, ${sqlTextArray(h.names)},
+          ${sqlTextOrNull(h.confirmationNo)},
+          ${h.checkIn == null ? "null" : `${sqlString(h.checkIn)}::date`},
+          ${h.checkOut == null ? "null" : `${sqlString(h.checkOut)}::date`},
+          ${sqlTextOrNull(h.notes)});`,
+    );
+  }
+  if (options.transportation !== undefined) {
+    const t = options.transportation;
+    statements.push(
+      `insert into public.transportation
+         (show_id, driver_name, driver_phone, vehicle, license_plate, color, parking,
+          schedule, notes, loadout_name, loadout_phone)
+       values
+         (${sqlString(showId)}::uuid, ${sqlTextOrNull(t.driverName)},
+          ${sqlTextOrNull(t.driverPhone)}, ${sqlTextOrNull(t.vehicle)},
+          ${sqlTextOrNull(t.licensePlate)}, ${sqlTextOrNull(t.color)},
+          ${sqlTextOrNull(t.parking)}, ${sqlString(JSON.stringify(t.schedule ?? []))}::jsonb,
+          ${sqlTextOrNull(t.notes)}, ${sqlTextOrNull(t.loadoutName)},
+          ${sqlTextOrNull(t.loadoutPhone)});`,
     );
   }
   if (options.internal !== undefined) {

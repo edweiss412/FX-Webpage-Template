@@ -557,7 +557,12 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // load the share route and the preview route through gotoPass's `path`.
     // Same disposition: a crew page, with the snapshot loader off its path.
     // Re-derived from the failure's own count (20 candidates).
-    expectedCount: 20,
+    // 22 since the crew page redesign's Task 11: the composed home's cases load
+    // the share route and the preview route through a `path` variable, once in
+    // crew-page.spec.ts (gotoHome) and once in crew-wide-nav.spec.ts (loadWide).
+    // Same disposition: a crew page. Re-derived from the failure's own count
+    // (22 candidates).
+    expectedCount: 22,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -631,7 +636,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 14 since the crew page redesign's Task 9: crew-page.spec.ts's pass case
     // for the personal cells loads /admin/show/<slug>/preview/<crewId>, the
     // preview-as route. Re-derived from the failure's own count (14 candidates).
-    expectedCount: 14,
+    // 16 since the crew page redesign's Task 11: the composed home's cases build
+    // the preview-as path in crew-page.spec.ts (previewPath) and in
+    // crew-wide-nav.spec.ts (the wide banner case). Re-derived from the
+    // failure's own count (16 candidates).
+    expectedCount: 16,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

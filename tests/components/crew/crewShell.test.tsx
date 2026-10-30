@@ -94,8 +94,8 @@ const sectionMarker = (testid: string) => {
 // real builder through the shell.
 vi.mock("@/lib/search/buildSearchIndex", () => ({ buildSearchIndex: () => ({ entries: [] }) }));
 
-vi.mock("@/components/crew/sections/TodaySection", () => ({
-  TodaySection: ({ data }: { data: ShowForViewer }) => (
+vi.mock("@/components/crew/sections/HomeSection", () => ({
+  HomeSection: ({ data }: { data: ShowForViewer }) => (
     <section data-testid="section-today" data-show-title={data.show.title ?? ""} />
   ),
 }));

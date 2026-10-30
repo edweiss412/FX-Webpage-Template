@@ -5,10 +5,13 @@
  * page redesign spec §3, §5.2, §5.3).
  *
  * Two layouts from ONE set of server-rendered bodies (`sectionNodes`):
- *   - compact, below 1024px: the home (the Today block, then the "All
- *     sections" card) with any section in a bottom sheet (`CrewSectionSheet`);
+ *   - compact, below 1024px: the home (the Today block: day row, pass, run of
+ *     show, then the home body of quick facts, show notes and the Dress code
+ *     card; then the "All sections" card) with any section in a bottom sheet
+ *     (`CrewSectionSheet`);
  *   - wide, 1024px and up: a left nav ("Today" then the sections) beside one
- *     column, the Today block first and every section stacked under it.
+ *     column, the Today block first (the home body beside the day row, pass
+ *     and run of show) and every section stacked under it.
  * The server cannot know the viewport, so its render carries both, and CSS
  * shows the right one at the breakpoint until hydration resolves the mode
  * (`matchMedia("(min-width: 1024px)")`, compact when `matchMedia` is missing);
@@ -17,12 +20,12 @@
  * and its slot in the wide stack is filled after hydration, which is also when
  * a wide deep link scrolls to it.
  *
- * Every element that bounds a body is a size container (`@container`): the
- * Today block here, each wide stacked section, and the sheet body. A body's
- * grids switch on that container's width (`@min-crew-split:`, the
- * `--container-crew-split` token in app/globals.css), never the viewport, so
- * one body is single column in the 480px sheet and two columns in the wide
- * column at the same 1000px window.
+ * Every element that bounds a section body is a size container (`@container`):
+ * each wide stacked section and the sheet body. A body's grids switch on that
+ * container's width (`@min-crew-split:`, the `--container-crew-split` token in
+ * app/globals.css), never the viewport, so one body is single column in the
+ * 480px sheet and two columns in the wide column at the same 1000px window. The
+ * Today block is not one: its home body reads no container query (plan Task 11).
  *
  * FRESHNESS INVARIANT (NON-NEGOTIABLE): the controller chooses where a body
  * shows, never what it holds. It never fetches, derives or caches section data;
@@ -683,7 +686,14 @@ export function CrewSections({
                   ref={todayRef}
                   data-testid="crew-today-block"
                   aria-labelledby="crew-today-heading"
-                  className="@container"
+                  // Compact: one column, the home body under the run card.
+                  // Wide: two columns, the day row, pass and run card beside the
+                  // home body (quick facts, show notes, Dress code card), each
+                  // `flex-1` so a column that renders nothing (`empty:hidden`)
+                  // leaves the other the full width. Not a size container: the
+                  // home body reads no container query, and containment would
+                  // make this block the containing block of the fixed copy toast.
+                  className="flex flex-col lg:flex-row lg:items-start lg:gap-6"
                 >
                   <h2
                     id="crew-today-heading"
@@ -694,19 +704,24 @@ export function CrewSections({
                     {CREW_TODAY_LABEL}
                   </h2>
                   {/* The day row atop the Today block in both modes, then the pass
-                  and the run-of-show card under it, above the Today body (spec
-                  §3.2, §4.2 to §4.4). */}
-                  {dayRow ? (
-                    <div className="mb-4">
-                      <CrewDayRow {...dayRow} />
-                    </div>
-                  ) : null}
-                  {pass ? (
-                    <div className="mb-4">
-                      <CrewPass {...pass} />
-                    </div>
-                  ) : null}
-                  {runCard ? <CrewRunOfShowCard {...runCard} /> : null}
+                  and the run-of-show card under it, then the home body (spec
+                  §3.2, §4.2 to §4.6). */}
+                  <div
+                    data-testid="crew-today-lead"
+                    className="flex min-w-0 flex-col empty:hidden lg:flex-1"
+                  >
+                    {dayRow ? (
+                      <div className="mb-4">
+                        <CrewDayRow {...dayRow} />
+                      </div>
+                    ) : null}
+                    {pass ? (
+                      <div className="mb-4">
+                        <CrewPass {...pass} />
+                      </div>
+                    ) : null}
+                    {runCard ? <CrewRunOfShowCard {...runCard} /> : null}
+                  </div>
                   {sectionNodes.today}
                 </section>
                 {showCompact && hasSections ? (

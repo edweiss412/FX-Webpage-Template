@@ -15,11 +15,11 @@ import { readFileSync } from "node:fs";
  * dropped thread. This source-scan pins each caller so a dropped thread fails CI,
  * not silently in production. (The gating LOGIC itself is unit-tested in
  * resolveKeyTimes.test.ts / passModel.test.ts; the caller-render behavior
- * in ScheduleSection.test.tsx + TodaySection.test.tsx.)
+ * in ScheduleSection.test.tsx + the pass suites.)
  */
 
-/** Strip block + line comments so a bare `fn(` mention in prose (e.g. TodaySection's
- *  JSDoc "`resolveKeyTimes(show, rooms)` resolver") is not mistaken for a real call. */
+/** Strip block + line comments so a bare `fn(` mention in prose (e.g. a JSDoc
+ *  "`resolveKeyTimes(show, rooms)` resolver") is not mistaken for a real call. */
 
 /** Balanced-paren argument substrings of EVERY `${fn}(` occurrence in `src`. */
 function allCallArgs(src: string, fn: string): string[] {
@@ -46,8 +46,9 @@ function allCallArgs(src: string, fn: string): string[] {
 
 const CASES: Array<{ file: string; fn: string }> = [
   { file: "components/crew/sections/ScheduleSection.tsx", fn: "resolveKeyTimes" },
-  // Today's call moved to the rows module its section and search builder share.
-  { file: "components/crew/sections/todayRows.ts", fn: "resolveKeyTimes" },
+  // Today's own call (its key-times strip) retired with TodaySection (crew page
+  // redesign plan Task 11): the home's key times are the pass's, whose builder
+  // is pinned below.
   // The Schedule search builder mirrors the section's call for the key-time entries.
   { file: "lib/search/sections/schedule.ts", fn: "resolveKeyTimes" },
   // The pass's builder (crew page redesign spec §4.3), with the viewer's own restriction.

@@ -1,16 +1,17 @@
 // @vitest-environment jsdom
 /**
- * tests/components/crew/sections/TodaySection.bookends.test.tsx
+ * tests/components/crew/sections/HomeSection.bookends.test.tsx (moved for crew page
+ * redesign plan Task 11)
  * (schedule SET/strike/load-out inference — Task 13)
  *
- * The crew Today run-of-show (Mode A) must route entries through
+ * The home's run-of-show card must route entries through
  * scheduleEntriesForViewer so the synthesized SET Load In shows when today is
  * the set day, and the load-out is transport-gated: an unassigned crew viewer
  * is denied it (while the room-sourced strike still shows); admin + assigned
  * crew get it.
  *
  * matchMedia is stubbed for the section's client islands (mirrors the sibling
- * TodaySection tests; the right-now hero that first needed it was replaced by
+ * home body tests; the right-now hero that first needed it was replaced by
  * the pass, which mounts from the section controller).
  *
  * Anti-tautology: SET entry time asserted against data.show.dates.loadIn (source);
@@ -49,7 +50,7 @@ afterEach(() => {
 
 /**
  * The home's Today block (crew page redesign plan Task 10): the run-of-show
- * card, which left TodaySection for the home, above the Today body. The card
+ * card, which left the Today section for the home, above the home body. The card
  * reads the crew clock to find today, so `Date` is pinned at the case's `today`.
  */
 function renderBlock(el: JSX.Element) {

@@ -168,6 +168,10 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
     "agenda-note",
     "one arm of an either/or CONTENT branch (agenda present vs the note explaining its absence), not a post-action announcement",
   ],
+  [
+    "crew-quick-facts-status",
+    "gated on the block having any server-built fact (an early return, fixed for the render), not on the copy state; the region is mounted empty for the block's whole life and every copy toast toggles TEXT inside it (crew page redesign spec §4.5)",
+  ],
 ]);
 
 /**

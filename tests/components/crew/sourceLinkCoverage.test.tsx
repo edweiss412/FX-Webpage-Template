@@ -67,9 +67,9 @@ const DRIVE_FILE_ID = "drive-file-walker-1";
 // A populated fixture that makes EVERY source-backed card render. Today renders
 // Mode A (run-of-show present) so the `today-run-of-show` card mounts: the show
 // day equals the frozen `today` ISO and runOfShow[todayIso] has a displayable
-// entry. That card moved from TodaySection to the crew home (crew page redesign
-// plan Task 10), so Today renders as the home's Today block (the run card above
-// the body), on the crew clock pinned at the frozen `today`. Every region id gets a distinct, non-empty INFO anchor so a wrong
+// entry. That card moved to the crew home (crew page redesign plan Task 10), so
+// Today renders as the home's Today block (the run card above the home body,
+// plan Task 11), on the crew clock pinned at the frozen `today`. Every region id gets a distinct, non-empty INFO anchor so a wrong
 // region lookup would yield a different (failing) href.
 const TODAY_ISO = "2026-05-14";
 const FROZEN_TODAY = new Date("2026-05-14T15:00:00Z");
@@ -305,8 +305,22 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     // Sanity: the populated fixture must exercise a broad set of cards (not a
     // near-empty render that trivially passes). Both classes must appear.
     expect(cards.length, "no data-card-id cards were discovered").toBeGreaterThan(8);
-    // The home's run-of-show card is among them, with Today's card id (spec §6.4).
-    expect(cards.map((c) => c.getAttribute("data-card-id"))).toContain("today-run-of-show");
+    // The home's run-of-show card is among them, with Today's card id (spec §6.4),
+    // and so are the show notes and Dress code cards the composed home kept (plan
+    // Task 11). The cards it retired (Tonight, Where, Need something, Key times)
+    // render nowhere, and their ids left CARD_REGION_MAP: the quick facts and the
+    // pass that replaced them are composites with no source link.
+    const ids = cards.map((c) => c.getAttribute("data-card-id"));
+    for (const kept of ["today-run-of-show", "today-notes", "today-dress"]) {
+      expect(ids, kept).toContain(kept);
+    }
+    for (const retired of ["today-tonight", "today-where", "today-contact", "today-key-times"]) {
+      expect(ids, retired).not.toContain(retired);
+      expect(Object.prototype.hasOwnProperty.call(CARD_REGION_MAP, retired), retired).toBe(false);
+    }
+    // The home's quick facts rendered (their tiles are no card), so the retired
+    // cards' facts are on the page.
+    expect(container.querySelector('[data-testid="crew-quick-facts"]')).not.toBeNull();
 
     const outOfScope = new Set<string>(OUT_OF_SCOPE_CARDS);
     let sourceBackedSeen = 0;

@@ -170,8 +170,8 @@ const previewSectionMarker = (testid: string) => {
 // real builder through the shell.
 vi.mock("@/lib/search/buildSearchIndex", () => ({ buildSearchIndex: () => ({ entries: [] }) }));
 
-vi.mock("@/components/crew/sections/TodaySection", () => ({
-  TodaySection: previewSectionMarker("section-today"),
+vi.mock("@/components/crew/sections/HomeSection", () => ({
+  HomeSection: previewSectionMarker("section-today"),
 }));
 vi.mock("@/components/crew/sections/ScheduleSection", () => ({
   ScheduleSection: previewSectionMarker("section-schedule"),

@@ -164,8 +164,8 @@ describe("Wi-Fi forms (VenueSection)", () => {
   });
 });
 
-describe("modeAToday (TodaySection)", () => {
-  test("renders Mode A: the bare key times strip and the run card's merged timeline", () => {
+describe("modeAToday (the home)", () => {
+  test("renders the run card's merged timeline", () => {
     const todayIso = todayIsoInShowTimezone(modeAToday.data.show, modeAToday.today);
     const root = renderSection("today", modeAToday);
 
@@ -175,9 +175,6 @@ describe("modeAToday (TodaySection)", () => {
     expect(
       timeline.querySelectorAll('[data-testid="timeline-agenda-session"]').length,
     ).toBeGreaterThan(0);
-
-    const strips = [...root.querySelectorAll('[data-testid="key-times-strip"]')];
-    expect(strips.filter((s) => s.closest("[data-card-id]") === null)).toHaveLength(1);
   });
 
   test("renders the dress code as one paragraph (the unparsed form)", () => {
@@ -195,7 +192,7 @@ describe("fullContent", () => {
   const ed = fullContent.data.show.event_details;
   const venueNotes = fullContent.data.show.venue?.notes ?? null;
 
-  test("Today: Mode A with the plain run-of-show list, a long title and a long note folded", () => {
+  test("Today: the run card's plain run-of-show list, a long title and a long note folded", () => {
     const todayIso = todayIsoInShowTimezone(fullContent.data.show, fullContent.today);
     const root = renderSection("today", fullContent);
 

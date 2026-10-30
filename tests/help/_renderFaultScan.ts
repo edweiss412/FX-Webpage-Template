@@ -859,7 +859,13 @@ export function scanCandidates(): Candidate[] {
       // Mode A grid ternaries leave, three more in all. Re-derived by running the
       // guard.
       //
-      // Probed: 781 such ternaries under the derived roots, 78 on a
+      // 781 -> 783 with the crew page redesign's composed home (plan PR A, Task
+      // 11): TodaySection's ternaries leave (its retired cards, its key times and
+      // its Mode B grid) and the home's arrive (HomeSection's notes, dress and
+      // fetch-failure blocks, the quick facts' tiles, actions and toast), two
+      // more in all. Re-derived by running the guard.
+      //
+      // Probed: 783 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

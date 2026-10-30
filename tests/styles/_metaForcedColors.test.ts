@@ -669,7 +669,13 @@ describe("forced-colors state collapse (Arm 1)", () => {
       // census disposes (the search field's clear <XIcon>, a result row's
       // <ChevronRightIcon> and its copy button's <CopyIcon>). Both sides' rows are
       // present on the merged tree and nothing else moved.
-    ).toBe(130);
+      // 130 -> 134 on the crew page redesign's Task 11 (the composed home), re-derived
+      // by running findUndecidable on the tree: four lucide glyphs arrived in the home's
+      // quick facts (the Who to call tile's <PhoneIcon>, <MessageSquareIcon> and
+      // <MailIcon> links and the copy button's <CopyIcon>), each aria-hidden decoration
+      // inside a control the census disposes; the show notes' <ChevronRight> moved from
+      // the retired TodaySection to HomeSection, so it is one row, not a new one.
+    ).toBe(134);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

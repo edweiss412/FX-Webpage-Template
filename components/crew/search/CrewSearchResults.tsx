@@ -40,7 +40,7 @@ import { SEARCH_COPY } from "@/lib/search/copy";
 import { snippet } from "@/lib/search/snippet";
 import type { Range, SearchCopy, SearchEntry, SearchHit } from "@/lib/search/types";
 import { cn } from "@/lib/ui/cn";
-import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
+import { COPY_FAILED_TOAST_MS, COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
 
 /** Rows per section in the All view. */
 const ALL_VIEW_ROWS = 5;
@@ -50,12 +50,6 @@ const SECTION_VIEW_ROWS = 50;
 const SHORT_VALUE_CHARS = 40;
 /** Delay before the result count is announced, so it speaks once typing stops. */
 const RESULT_COUNT_ANNOUNCE_MS = 300;
-/**
- * How long the copy-failure toast stays. It is an 11-word instruction, not a
- * confirmation, so it outlasts the 2 s `COPY_FEEDBACK_RESET_MS` a "copied" toast
- * gets (impeccable critique A6, audit U4).
- */
-const COPY_FAILED_TOAST_MS = 6000;
 
 type Chip = SectionId | "all";
 type Toast = { id: number; text: string; copied: boolean };

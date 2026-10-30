@@ -29,6 +29,7 @@ import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { SCROLL_SPY_OFFSET_PX } from "@/lib/ui/scrollSpy";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 
@@ -358,5 +359,164 @@ test.describe("crew wide nav (spec §5.3)", () => {
       return { top: b.top, bottom: b.bottom };
     });
     expect(overlaps(t, r.chip), "theme switch and identity chip share a row").toBe(true);
+  });
+});
+
+/**
+ * The composed home in the wide layout (crew page redesign plan Task 11, spec
+ * §3.1, §3.2): the Today block (day row, pass and run of show, with the quick
+ * facts beside them and the show notes and Dress code card inside the block),
+ * then every section stacked, and no "All sections" card. One seeded show
+ * carries a run of show, a venue with notes, a split Wi-Fi value and a dress
+ * code; values are read from the seed input, never typed. Titles carry "home".
+ */
+test.describe("the composed home, wide (crew page redesign Task 11)", () => {
+  test.setTimeout(180_000);
+
+  const SHOW_DAY_1 = "2026-04-21";
+  const SHOW_DAYS = [SHOW_DAY_1, "2026-04-22"];
+  const VENUE = {
+    name: "Wide Home Ballroom",
+    address: "300 Plaza Way",
+    loadingDock: "Dock 7 off Pine St",
+    notes: "Load the freight elevator two carts at a time",
+  };
+  const EVENT_DETAILS = {
+    internet: "SSID: WideHomeCrew code: WIDEPASS26",
+    dress_code: "Show blacks",
+  };
+  const RUN_ROWS = ["Wide Day One Call", "Wide Day One Doors"];
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Wide Home Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: SHOW_DAYS,
+        travelOut: "2026-04-23",
+      },
+      venue: VENUE as never,
+      eventDetails: EVENT_DETAILS as never,
+      crew: [{ name: "Wide Home Crew", role: "A1" }],
+      internal: {
+        runOfShow: Object.fromEntries(
+          SHOW_DAYS.map((iso) => [
+            iso,
+            {
+              entries: RUN_ROWS.map((title, i) => ({ start: `${7 + i}:00 AM`, title })),
+              showStart: "7:00 AM",
+              showEnd: null,
+              window: null,
+            },
+          ]),
+        ),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await page.setViewportSize(WIDE);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  async function loadWide(page: Page, path: string) {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    const root = page.getByTestId("crew-shell-sections");
+    await expect(root).toHaveAttribute("data-crew-controller-ready", "true", { timeout: 30_000 });
+    await expect(root).toHaveAttribute("data-crew-mode", "wide");
+  }
+
+  test("home: the wide Today block puts the quick facts beside the run of show, the notes and Dress code card inside it, then every section", async ({
+    page,
+  }) => {
+    await loadWide(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+    const r = await page.evaluate(() => {
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { top: b.top, bottom: b.bottom, left: b.left, right: b.right, h: b.height };
+      };
+      const block = document.querySelector('[data-testid="crew-today-block"]');
+      const inBlock = (sel: string) => Boolean(block?.querySelector(sel));
+      return {
+        block: box('[data-testid="crew-today-block"]'),
+        dayRow: box('[data-testid="crew-day-row"]'),
+        pass: box('[data-testid="crew-pass"]'),
+        run: box('[data-testid="today-run-of-show"]'),
+        facts: box('[data-testid="crew-quick-facts"]'),
+        notes: box('[data-testid="today-notes"]'),
+        dress: box('[data-testid="today-dress"]'),
+        firstSection: box('[data-testid="crew-wide-section"]'),
+        inside: {
+          facts: inBlock('[data-testid="crew-quick-facts"]'),
+          notes: inBlock('[data-testid="today-notes"]'),
+          dress: inBlock('[data-testid="today-dress"]'),
+          run: inBlock('[data-testid="today-run-of-show"]'),
+        },
+      };
+    });
+    for (const key of [
+      "block",
+      "dayRow",
+      "pass",
+      "run",
+      "facts",
+      "notes",
+      "dress",
+      "firstSection",
+    ] as const) {
+      expect(r[key], `${key} renders`).not.toBeNull();
+      expect(r[key]!.h, `${key} has height`).toBeGreaterThan(0);
+    }
+    expect(r.inside).toEqual({ facts: true, notes: true, dress: true, run: true });
+    const TOL = 0.5;
+    // Beside: the quick facts sit to the right of the run-of-show column and
+    // share its vertical span.
+    expect(r.facts!.left, JSON.stringify(r)).toBeGreaterThanOrEqual(r.run!.right - TOL);
+    expect(r.facts!.top).toBeLessThan(r.run!.bottom);
+    expect(r.facts!.left).toBeGreaterThanOrEqual(r.pass!.right - TOL);
+    // The notes then the Dress code card under the quick facts, in that column.
+    expect(r.notes!.top).toBeGreaterThanOrEqual(r.facts!.bottom - TOL);
+    expect(r.dress!.top).toBeGreaterThanOrEqual(r.notes!.bottom - TOL);
+    expect(r.notes!.left).toBeGreaterThanOrEqual(r.run!.right - TOL);
+    // The left column reads day row, pass, run of show.
+    expect(r.pass!.top).toBeGreaterThanOrEqual(r.dayRow!.bottom - TOL);
+    expect(r.run!.top).toBeGreaterThanOrEqual(r.pass!.bottom - TOL);
+    // Every section follows the Today block.
+    expect(r.firstSection!.top).toBeGreaterThanOrEqual(r.block!.bottom - TOL);
+    await expect(page.getByTestId("crew-all-sections")).toHaveCount(0);
+    await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[0]!);
+    await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
+  });
+
+  test("home: the preview banner shows above the wide home on the preview route", async ({
+    page,
+  }) => {
+    const crewId = seeded.crew[0]!.id;
+    await loadWide(page, `/admin/show/${seeded.slug}/preview/${crewId}`);
+    await expect(page.getByTestId("admin-preview-banner")).toBeVisible();
+    await expect(page.getByTestId("section-today")).toBeVisible();
+    await expect(page.getByTestId("crew-quick-facts")).toBeVisible();
+    await expect(page.getByTestId("crew-wide-nav")).toBeVisible();
+    const above = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="admin-preview-banner"]')!;
+      const h = document.querySelector('[data-testid="crew-today-block"]')!;
+      return b.getBoundingClientRect().bottom <= h.getBoundingClientRect().top + 0.5;
+    });
+    expect(above, "the banner sits above the Today block").toBe(true);
   });
 });

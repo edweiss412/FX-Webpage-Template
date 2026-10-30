@@ -202,8 +202,8 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
     if (testInfo.project.name !== "mobile-safari") return;
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
-    // Pin the SERVER's `today` to show-day-1 — TodaySection reads the server-supplied
-    // `today`, NOT a browser clock. The :3000 webServer carries ENABLE_TEST_AUTH=true and
+    // Pin the SERVER's `today` to show-day-1 — the shell builds the home from the
+    // server-supplied `today`, NOT a browser clock. The :3000 webServer carries ENABLE_TEST_AUTH=true and
     // this exact TEST_AUTH_SECRET, so nowDate() honors the frozen-now header.
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": SHOW_DAY_1_INSTANT,

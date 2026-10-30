@@ -415,69 +415,78 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       .toBeGreaterThan(1);
   }
 
-  // ── Invariant 1 — Today quick-cards STACK (Tonight / Where / Need-something) ──
-  // Per the Claude design mock (owner decision), the three quick cards stack in a
-  // single FULL-WIDTH vertical column at ALL widths — they are NOT a horizontal
-  // equal-height row. So the obsolete "equal heights == row height" contract is
-  // REPLACED by a stack contract: every present card is ≈ the container width and
-  // the cards stack top-to-bottom, non-overlapping (each card's top ≥ the prior
-  // card's bottom). Verified at 390px AND 760px so a desktop-only `flex-row`
-  // regression (a re-introduced horizontal row at ≥720px) is also caught.
-  test("inv1: Today quick-cards stack full-width, non-overlapping (390px + 760px)", async ({
+  // ── Invariant 1 — the home's quick facts grid (spec §4.5, §8 invariant 3) ──
+  // Today's Tonight / Where / Need-something stack retired with TodaySection
+  // (plan Task 11); the quick facts replaced it. The failure mode carried over is
+  // the same: no tile clips or overlaps another at either width. The contract is
+  // now the 2-column grid: tiles in one row share a height (`items-stretch` +
+  // `h-full`), a spanning tile is the grid's full width, and rows stack top to
+  // bottom. Derived from the measured grid, never hardcoded.
+  test("inv1: the home's quick facts tiles fill the 2-column grid, rows share a height, none overlap (390px + 760px)", async ({
     page,
   }) => {
     for (const width of [390, 760]) {
       await page.setViewportSize({ width, height: 1000 });
       await gotoSection(page, "today");
 
-      const row = page.getByTestId("today-quick-cards");
-      await expect(row).toBeVisible();
-      // Guard against a tautological 0==0 pass: the stack must have settled to a
-      // non-zero height before we read its children.
-      await expect.poll(async () => (await rectOf(row)).height).toBeGreaterThan(1);
-      const rowRect = await rectOf(row);
-
-      // Collect whichever quick cards rendered (each is conditional on its data),
-      // in DOM (top-to-bottom) order.
-      const cardIds = ["today-card-tonight", "today-card-where", "today-card-need-something"];
-      const present: { id: string; rect: Rect }[] = [];
-      for (const id of cardIds) {
-        const loc = page.getByTestId(id);
-        if ((await loc.count()) > 0) present.push({ id, rect: await rectOf(loc) });
-      }
-      expect(
-        present.length,
-        `at least one Today quick card must render on the seed @${width}px`,
-      ).toBeGreaterThan(0);
-
-      // (1) Each card is full-width: its width ≈ the container (stack) width. A
-      // surviving multi-column row would make each card markedly narrower than the
-      // container — derived from the measured container, never hardcoded.
-      for (const { id, rect } of present) {
-        expect(
-          Math.abs(rect.width - rowRect.width),
-          `@${width}px ${id} must be full container width (stacked, not a column); card=${rect.width} container=${rowRect.width}`,
-        ).toBeLessThanOrEqual(TOL);
-      }
-
-      // (2) Cards stack top-to-bottom, non-overlapping: for every adjacent pair the
-      // later card's top is at/below the earlier card's bottom, and they share a
-      // left edge (single column). A horizontal row would put card 2 to the RIGHT
-      // (top ≈ card 1 top, left > card 1 left) and fail both.
-      if (present.length >= 2) {
-        const left0 = present[0]!.rect.left;
-        for (const { id, rect } of present) {
+      const grid = page.getByTestId("crew-quick-facts-grid");
+      await expect(grid).toBeVisible();
+      await expect.poll(async () => (await rectOf(grid)).height).toBeGreaterThan(1);
+      const gridRect = await rectOf(grid);
+      const tiles = await page.getByTestId("crew-quick-fact").evaluateAll((els) =>
+        els.map((el) => {
+          const b = el.getBoundingClientRect();
+          return {
+            fact: el.getAttribute("data-fact") ?? "",
+            spans: el.classList.contains("col-span-2"),
+            top: b.top,
+            bottom: b.bottom,
+            left: b.left,
+            right: b.right,
+            width: b.width,
+            height: b.height,
+          };
+        }),
+      );
+      expect(tiles.length, `the seed renders at least one quick fact @${width}px`).toBeGreaterThan(
+        0,
+      );
+      for (const t of tiles) {
+        expect(t.height, `@${width}px ${t.fact} has height`).toBeGreaterThan(1);
+        expect(t.left).toBeGreaterThanOrEqual(gridRect.left - TOL);
+        expect(t.right, `@${width}px ${t.fact} stays inside the grid`).toBeLessThanOrEqual(
+          gridRect.right + TOL,
+        );
+        if (t.spans) {
           expect(
-            Math.abs(rect.left - left0),
-            `@${width}px ${id} must share the stack's left edge (single column); ${rect.left} vs ${left0}`,
+            Math.abs(t.width - gridRect.width),
+            `@${width}px ${t.fact} spans`,
           ).toBeLessThanOrEqual(TOL);
         }
-        for (let i = 1; i < present.length; i++) {
+      }
+      // Rows: tiles sharing a top share a height; a later row starts at or below
+      // the earlier one's bottom.
+      const rows: (typeof tiles)[] = [];
+      for (const t of tiles) {
+        const row = rows.find((r) => Math.abs(r[0]!.top - t.top) <= TOL);
+        if (row) row.push(t);
+        else rows.push([t]);
+      }
+      for (const row of rows) {
+        for (const t of row) {
           expect(
-            present[i]!.rect.top,
-            `@${width}px ${present[i]!.id} must stack below ${present[i - 1]!.id} (no overlap); top=${present[i]!.rect.top} priorBottom=${present[i - 1]!.rect.bottom}`,
-          ).toBeGreaterThanOrEqual(present[i - 1]!.rect.bottom - TOL);
+            Math.abs(t.height - row[0]!.height),
+            `@${width}px ${t.fact} shares its row's height`,
+          ).toBeLessThanOrEqual(TOL);
         }
+        if (row.length === 2) {
+          expect(row[1]!.left, `@${width}px no overlap in a row`).toBeGreaterThanOrEqual(
+            row[0]!.right - TOL,
+          );
+        }
+      }
+      for (let i = 1; i < rows.length; i++) {
+        expect(rows[i]![0]!.top).toBeGreaterThanOrEqual(rows[i - 1]![0]!.bottom - TOL);
       }
     }
   });
@@ -637,8 +646,13 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // With ≥2 anchor rows, the label-column left edges align (equal .left) and the
   // value-column right edges align (equal .right). Each anchor row is a
   // justify-between flex with a label span (left) and a value span (right).
-  test("inv6: KeyTimesStrip label-lefts + value-rights align across anchors", async ({ page }) => {
-    await gotoSection(page, "today");
+  // Today's key-times strip retired with TodaySection (plan Task 11; the home's
+  // key times are the pass's), so the alignment contract is measured on the strip
+  // that remains, Schedule's "Crew Schedule" card, in its sheet.
+  test("inv6: KeyTimesStrip label-lefts + value-rights align across anchors (Schedule)", async ({
+    page,
+  }) => {
+    await gotoSection(page, "schedule");
 
     const strip = page.getByTestId("key-times-strip");
     if ((await strip.count()) === 0) {
@@ -753,15 +767,15 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       `@390px the page must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
     ).toBeLessThanOrEqual(clientWidth + TOL);
 
-    // (a) Per-card: no Today quick-card's right edge exceeds the viewport width.
-    const todayCardIds = ["today-card-tonight", "today-card-where", "today-card-need-something"];
-    for (const id of todayCardIds) {
-      const loc = page.getByTestId(id);
-      if ((await loc.count()) === 0) continue;
-      const r = await rectOf(loc);
+    // (a) Per-tile: no home quick fact's right edge exceeds the viewport width
+    // (the retired Today quick cards' successor, plan Task 11).
+    const tiles = page.getByTestId("crew-quick-fact");
+    expect(await tiles.count(), "the seed renders at least one quick fact").toBeGreaterThan(0);
+    for (let i = 0; i < (await tiles.count()); i++) {
+      const r = await rectOf(tiles.nth(i));
       expect(
         r.right,
-        `@390px ${id} right edge must not exceed viewport width; right=${r.right} vp=${viewport.width}`,
+        `@390px quick fact ${i} right edge must not exceed viewport width; right=${r.right} vp=${viewport.width}`,
       ).toBeLessThanOrEqual(viewport.width + TOL);
     }
 
@@ -1992,5 +2006,457 @@ test.describe("the pass (crew page redesign Task 9)", () => {
         floor - 0.5,
       );
     }
+  });
+});
+
+/**
+ * The composed home (crew page redesign plan Task 11, spec §3.2, §4.5, §7, AC-1,
+ * AC-6 to AC-8). Every case titles itself "home" (the task's filter word).
+ *
+ * One seeded show carries everything the home shows: a run of show on both show
+ * days, a venue with notes, dock and a map link, a split Wi-Fi value, a dress
+ * code, a transport row nobody is assigned to, and two hotel stays for the
+ * same crew members, so tonight's hotel is the second stay on show day 1 and a
+ * first-reservation fallback would name the wrong one. Expected values are read
+ * from the seed input below, never typed in an assertion.
+ *
+ * Viewers (plan harness rule "Viewer per case"): a plain admin on the share
+ * route; the personal cases through the preview route, as `HOME_FLYER` (an
+ * unrestricted crew member with a flight and no transport assignment, so the
+ * transport gate excludes them) and `HOME_UNCONFIRMED` (whose days are
+ * unconfirmed, so their dates are suppressed).
+ */
+test.describe("the composed home (crew page redesign Task 11)", () => {
+  test.setTimeout(180_000);
+
+  const TRAVEL_IN = "2026-04-19";
+  const SET_DAY = "2026-04-20";
+  const SHOW_DAY_1 = "2026-04-21";
+  const SHOW_DAY_2 = "2026-04-22";
+  const TRAVEL_OUT = "2026-04-23";
+  const SHOW_DAYS = [SHOW_DAY_1, SHOW_DAY_2];
+  const noonUtc = (iso: string) => `${iso}T12:00:00.000Z`;
+
+  const HOME_LEAD = { name: "Home Lead", role: "TD", roleFlags: ["LEAD"] };
+  const HOME_FLYER = {
+    name: "Home Flyer",
+    role: "A1",
+    flightInfo: "QF77 4/19 AA2201 LGA - ORD 9:05am - 10:50am",
+  };
+  const HOME_UNCONFIRMED = {
+    name: "Home Unconfirmed",
+    role: "V1",
+    dateRestriction: { kind: "unknown_asterisk", days: null } as const,
+  };
+  const PASSWORD = "HOMEPASS2026";
+  const VENUE = {
+    name: "Home Plaza Ballroom",
+    address: "200 Plaza Way",
+    loadingDock: "Dock 4 off Market St",
+    notes: "Freight elevator holds two carts at a time",
+    googleLink: "https://maps.example.com/home-plaza",
+  };
+  const EVENT_DETAILS = {
+    internet: `SSID: HomePlazaCrew code: ${PASSWORD}`,
+    dress_code: "Show blacks, closed-toe shoes",
+  };
+  const HOTELS = [
+    {
+      ordinal: 1,
+      hotelName: "Night One Inn",
+      checkIn: "2026-04-18",
+      checkOut: SHOW_DAY_1,
+      confirmationNo: "N1-4417",
+      names: [HOME_FLYER.name, HOME_UNCONFIRMED.name],
+    },
+    {
+      ordinal: 2,
+      hotelName: "Show Nights Hotel",
+      checkIn: SHOW_DAY_1,
+      checkOut: "2026-04-24",
+      confirmationNo: "SN-8823",
+      names: [HOME_FLYER.name, HOME_UNCONFIRMED.name],
+    },
+  ];
+  const TRANSPORT = {
+    driverName: "Carla Wheelwright",
+    driverPhone: "610-555-0142",
+    vehicle: "Grey Sprinter Van",
+    licensePlate: "HMX4471",
+    parking: "Garage under the plaza, level P2",
+    notes: "Driver waits at door 9 by the coat check",
+    loadoutName: "Lou Dockhand",
+    loadoutPhone: "610-555-0199",
+    schedule: [{ date: SHOW_DAY_2, time: "3:00 PM", stage: "Pick Up Venue", assigned_names: [] }],
+  };
+  const RUN_ROWS: Record<string, string[]> = {
+    [SHOW_DAY_1]: ["Home Day One Call", "Home Day One Doors"],
+    [SHOW_DAY_2]: ["Home Day Two Call", "Home Day Two Doors"],
+  };
+
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+  const crewId = (name: string) => seeded.crew.find((c) => c.name === name)!.id;
+  const homePath = () => `/show/${seeded.slug}/${seeded.shareToken}`;
+  const previewPath = (name: string) => `/admin/show/${seeded.slug}/preview/${crewId(name)}`;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Home Composition Show",
+      clientLabel: "Home Client",
+      dates: { travelIn: TRAVEL_IN, set: SET_DAY, showDays: SHOW_DAYS, travelOut: TRAVEL_OUT },
+      venue: VENUE as never,
+      eventDetails: EVENT_DETAILS as never,
+      crew: [HOME_LEAD, HOME_FLYER, HOME_UNCONFIRMED],
+      hotelReservations: HOTELS,
+      transportation: TRANSPORT,
+      internal: {
+        runOfShow: Object.fromEntries(
+          SHOW_DAYS.map((iso) => [
+            iso,
+            {
+              entries: RUN_ROWS[iso]!.map((title, i) => ({ start: `${7 + i}:00 AM`, title })),
+              showStart: "7:00 AM",
+              showEnd: null,
+              window: null,
+            },
+          ]),
+        ),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  async function pinBothClocks(page: import("@playwright/test").Page, iso: string): Promise<void> {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": noonUtc(iso),
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(noonUtc(iso)));
+  }
+
+  /** Load a crew page path and wait for the controller. */
+  async function gotoHome(page: import("@playwright/test").Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** The page's server response: the HTML document (with its inline RSC) and the RSC payload. */
+  async function payloadOf(page: import("@playwright/test").Page, path: string): Promise<string> {
+    const html = await page.request.get(path);
+    expect(html.status(), `${path} HTML`).toBe(200);
+    const rsc = await page.request.get(path, { headers: { RSC: "1" } });
+    expect(rsc.status(), `${path} RSC`).toBe(200);
+    const flight = await rsc.text();
+    // PREMISE: the RSC request returned the flight payload, not the document again.
+    expect(flight.startsWith("<!DOCTYPE"), `${path} RSC answered with HTML`).toBe(false);
+    return `${await html.text()}\n${flight}`;
+  }
+
+  /** Install a clipboard whose writeText resolves (recording) or rejects. */
+  async function stubClipboard(
+    page: import("@playwright/test").Page,
+    mode: "resolve" | "reject",
+  ): Promise<void> {
+    await page.evaluate((mode) => {
+      const written: string[] = [];
+      (window as unknown as { __copied: string[] }).__copied = written;
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: (text: string) =>
+            mode === "resolve"
+              ? (written.push(text), Promise.resolve())
+              : Promise.reject(new DOMException("denied", "NotAllowedError")),
+        },
+      });
+    }, mode);
+  }
+
+  test("home: compact order: header, day row, pass, run of show, quick facts, show notes, Dress code card, All sections", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoHome(page, homePath());
+    const ORDER = [
+      "page-header",
+      "crew-day-row",
+      "crew-pass",
+      "today-run-of-show",
+      "crew-quick-facts",
+      "today-notes",
+      "today-dress",
+      "crew-all-sections",
+    ];
+    const rects = await page.evaluate((ids) => {
+      return ids.map((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { id, top: r.top + window.scrollY, bottom: r.bottom + window.scrollY, h: r.height };
+      });
+    }, ORDER);
+    for (const [i, r] of rects.entries()) {
+      expect(r, `${ORDER[i]} renders`).not.toBeNull();
+      expect(r!.h, `${ORDER[i]} has height`).toBeGreaterThan(0);
+    }
+    for (let i = 1; i < rects.length; i += 1) {
+      expect(
+        rects[i]!.top,
+        `${ORDER[i]} sits below ${ORDER[i - 1]} (${JSON.stringify(rects)})`,
+      ).toBeGreaterThanOrEqual(rects[i - 1]!.bottom - 0.5);
+    }
+    // The run card and the notes carry the seeded rows; the dress card the seeded text.
+    await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[SHOW_DAY_1]![0]!);
+    await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
+    await expect(page.getByTestId("today-dress")).toContainText(EVENT_DETAILS.dress_code);
+    // Compact: no section sheet is open on the home, and the wide nav is not shown.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByTestId("crew-wide-nav")).toHaveCount(0);
+    // The report row reads the live term on the share route (spec §9.1).
+    await expect(
+      page.getByTestId("page-footer").getByTestId("report-button-trigger"),
+    ).toHaveAccessibleName("Something looks wrong?");
+  });
+
+  test("home: a copy that succeeds shows the Copied toast; a refused copy shows the failure toast and the value stays selectable", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoHome(page, homePath());
+    const toast = page.getByTestId("crew-quick-facts-toast");
+    const copy = page.getByRole("button", { name: "Copy Wi-Fi password" });
+
+    await stubClipboard(page, "resolve");
+    await copy.click();
+    await expect(toast).toHaveText("Copied");
+    await expect(toast).toBeVisible();
+    expect(
+      await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied),
+    ).toEqual([PASSWORD]);
+    await expect(page.getByTestId("crew-quick-facts-status")).toHaveAttribute(
+      "aria-live",
+      "polite",
+    );
+
+    await stubClipboard(page, "reject");
+    await copy.click();
+    await expect(toast).toHaveText("Couldn't copy. Press and hold the text to copy it.");
+    const userSelect = await page
+      .getByTestId("crew-quick-fact-value")
+      .filter({ hasText: PASSWORD })
+      .evaluate((el) => {
+        const s = getComputedStyle(el);
+        return s.userSelect || (s as unknown as { webkitUserSelect: string }).webkitUserSelect;
+      });
+    expect(userSelect).toBe("text");
+  });
+
+  test("home: the copy toast fades and rises in, holds 2 seconds and fades out", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoHome(page, homePath());
+    await stubClipboard(page, "resolve");
+    const samples = await page.evaluate(
+      () =>
+        new Promise<Array<{ t: number; state: string; opacity: number; y: number }>>((resolve) => {
+          const out: Array<{ t: number; state: string; opacity: number; y: number }> = [];
+          const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+            (b) => b.getAttribute("aria-label") === "Copy Wi-Fi password",
+          );
+          if (!button) throw new Error("no Wi-Fi copy button");
+          button.click();
+          const start = performance.now();
+          const tick = () => {
+            const el = document.querySelector('[data-testid="crew-quick-facts-toast"]');
+            if (el) {
+              const s = getComputedStyle(el);
+              const m = new DOMMatrixReadOnly(s.transform === "none" ? undefined : s.transform);
+              const translate = s.translate && s.translate !== "none" ? s.translate : "";
+              const y = translate ? Number.parseFloat(translate.split(" ")[1] ?? "0") : m.m42;
+              out.push({
+                t: performance.now() - start,
+                state: el.getAttribute("data-state") ?? "",
+                opacity: s.display === "none" ? 0 : Number(s.opacity),
+                y,
+              });
+            }
+            if (performance.now() - start < 2700) requestAnimationFrame(tick);
+            else resolve(out);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    const shown = samples.filter((s) => s.state === "shown");
+    expect(shown.length, JSON.stringify(samples.slice(0, 5))).toBeGreaterThan(0);
+    // Fade and rise in: some early frame is part-way, below its resting place.
+    const entering = shown.filter((s) => s.opacity > 0 && s.opacity < 1);
+    expect(
+      entering.length,
+      `no mid-fade entry frame: ${JSON.stringify(shown.slice(0, 8))}`,
+    ).toBeGreaterThan(0);
+    expect(entering.some((s) => s.y > 0 && s.y <= 4)).toBe(true);
+    // Holds: fully shown for most of the 2 s window.
+    const settled = shown.filter((s) => s.opacity === 1 && Math.abs(s.y) < 0.01);
+    expect(settled.at(-1)!.t - settled[0]!.t).toBeGreaterThan(1700);
+    // Fades out after the hold, without rising or sinking.
+    const leaving = samples.filter((s) => s.state === "leaving" && s.opacity > 0 && s.opacity < 1);
+    expect(
+      leaving.length,
+      `no mid-fade exit frame: ${JSON.stringify(samples.slice(-12))}`,
+    ).toBeGreaterThan(0);
+    expect(leaving[0]!.t).toBeGreaterThan(1900);
+    expect(leaving.every((s) => Math.abs(s.y) < 0.01)).toBe(true);
+  });
+
+  test("home: under reduced motion the copy toast shows and hides at once", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoHome(page, homePath());
+    await stubClipboard(page, "resolve");
+    const samples = await page.evaluate(
+      () =>
+        new Promise<Array<{ t: number; state: string; opacity: number }>>((resolve) => {
+          const out: Array<{ t: number; state: string; opacity: number }> = [];
+          const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+            (b) => b.getAttribute("aria-label") === "Copy Wi-Fi password",
+          );
+          if (!button) throw new Error("no Wi-Fi copy button");
+          button.click();
+          const start = performance.now();
+          const tick = () => {
+            const el = document.querySelector('[data-testid="crew-quick-facts-toast"]');
+            if (el) {
+              const s = getComputedStyle(el);
+              out.push({
+                t: performance.now() - start,
+                state: el.getAttribute("data-state") ?? "",
+                opacity: s.display === "none" ? 0 : Number(s.opacity),
+              });
+            }
+            if (performance.now() - start < 2400) requestAnimationFrame(tick);
+            else resolve(out);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    expect(samples.some((s) => s.state === "shown" && s.opacity === 1)).toBe(true);
+    expect(
+      samples.filter((s) => s.opacity > 0 && s.opacity < 1),
+      "no frame is mid-fade under reduced motion",
+    ).toEqual([]);
+    expect(samples.at(-1)!.state).toBe("idle");
+  });
+
+  test("home: tonight's hotel matches the server-pinned day (preview route)", async ({ page }) => {
+    for (const [iso, hotel] of [
+      [SHOW_DAY_1, HOTELS[1]!],
+      [TRAVEL_IN, HOTELS[0]!],
+    ] as const) {
+      // PREMISE: the stay covers that night, and the other one does not.
+      expect(hotel.checkIn <= iso && iso < hotel.checkOut).toBe(true);
+      const other = HOTELS.find((h) => h !== hotel)!;
+      expect(other.checkIn <= iso && iso < other.checkOut).toBe(false);
+      await pinBothClocks(page, iso);
+      await gotoHome(page, previewPath(HOME_FLYER.name));
+      const fact = page.locator('[data-testid="crew-quick-fact"][data-fact="hotel"]');
+      await expect(fact).toContainText(hotel.hotelName);
+      await expect(fact).toContainText(hotel.confirmationNo);
+      await expect(fact).not.toContainText(other.hotelName);
+      await expect(page.getByTestId("crew-pass").locator('[data-fact="hotel"] dd')).toHaveText(
+        hotel.hotelName,
+      );
+    }
+  });
+
+  test("home: a flight-only viewer's HTML and RSC payload carry no transport field (preview route)", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    const fields = [
+      TRANSPORT.driverName,
+      TRANSPORT.driverPhone,
+      TRANSPORT.vehicle,
+      TRANSPORT.licensePlate,
+      TRANSPORT.parking,
+      TRANSPORT.notes,
+      TRANSPORT.loadoutName,
+      TRANSPORT.loadoutPhone,
+    ];
+    const flyer = await payloadOf(page, previewPath(HOME_FLYER.name));
+    // PREMISE: the page rendered for this viewer, their own flight included, and
+    // the composed home's quick facts are among the carriers searched (their own
+    // hotel confirmation is a personal fact only this viewer gets).
+    expect(flyer).toContain("AA2201");
+    expect(flyer).toContain(VENUE.name);
+    expect(flyer).toContain('data-testid="crew-quick-facts"');
+    expect(flyer).toContain(HOTELS[1]!.confirmationNo);
+    expect(fields.filter((f) => flyer.includes(f))).toEqual([]);
+    // POSITIVE CONTROL: a plain admin, whom the gate admits, gets every field.
+    const adminPayload = await payloadOf(page, homePath());
+    expect(fields.filter((f) => !adminPayload.includes(f))).toEqual([]);
+  });
+
+  test("home: a date-suppressed viewer's HTML and RSC payload carry no show date but the header's, and no hotel date (preview route)", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    // The header's own date is shown to every viewer by a recorded ruling
+    // (lib/crew/dateSuppression.ts:51-56; Header picks set, then travel in), so it
+    // is excluded; the fixture's other show days all differ from it.
+    const headerDate = SET_DAY;
+    const showDates = [TRAVEL_IN, SET_DAY, ...SHOW_DAYS, TRAVEL_OUT].filter(
+      (d) => d !== headerDate,
+    );
+    const hotelDates = HOTELS.flatMap((h) => [h.checkIn, h.checkOut]).filter(
+      (d) => d !== headerDate,
+    );
+    expect(showDates).not.toContain(headerDate);
+    const withheld = [...new Set([...showDates, ...hotelDates])];
+
+    const suppressed = await payloadOf(page, previewPath(HOME_UNCONFIRMED.name));
+    // PREMISE: the page rendered for this viewer, the composed home's quick facts
+    // among the carriers searched.
+    expect(suppressed).toContain(VENUE.name);
+    expect(suppressed).toContain(HOME_UNCONFIRMED.name);
+    expect(suppressed).toContain('data-testid="crew-quick-facts"');
+    expect(suppressed).toContain(PASSWORD);
+    expect(withheld.filter((d) => suppressed.includes(d))).toEqual([]);
+    // POSITIVE CONTROL: the same search over an unrestricted viewer finds them all.
+    const open = await payloadOf(page, previewPath(HOME_FLYER.name));
+    expect(withheld.filter((d) => !open.includes(d))).toEqual([]);
+  });
+
+  test("home: the preview banner shows above the composed home on the preview route, and the report row reads Report this", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoHome(page, previewPath(HOME_FLYER.name));
+    const banner = page.getByTestId("admin-preview-banner");
+    await expect(banner).toBeVisible();
+    await expect(page.getByTestId("section-today")).toBeVisible();
+    await expect(page.getByTestId("crew-quick-facts")).toBeVisible();
+    const above = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="admin-preview-banner"]')!;
+      const h = document.querySelector('[data-testid="crew-today-block"]')!;
+      return b.getBoundingClientRect().bottom <= h.getBoundingClientRect().top + 0.5;
+    });
+    expect(above, "the banner sits above the Today block").toBe(true);
+    await expect(
+      page.getByTestId("page-footer").getByTestId("report-button-trigger"),
+    ).toHaveAccessibleName("Report this");
   });
 });

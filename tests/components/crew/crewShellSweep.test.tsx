@@ -65,7 +65,7 @@ const spy = (name: string) => {
 // real builder through the shell.
 vi.mock("@/lib/search/buildSearchIndex", () => ({ buildSearchIndex: () => ({ entries: [] }) }));
 
-vi.mock("@/components/crew/sections/TodaySection", () => ({ TodaySection: spy("today") }));
+vi.mock("@/components/crew/sections/HomeSection", () => ({ HomeSection: spy("today") }));
 vi.mock("@/components/crew/sections/ScheduleSection", () => ({
   ScheduleSection: spy("schedule"),
 }));

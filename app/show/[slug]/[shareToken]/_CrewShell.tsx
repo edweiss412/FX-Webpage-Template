@@ -48,8 +48,8 @@ import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider"
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { Footer } from "@/components/layout/Footer";
@@ -372,8 +372,11 @@ export async function CrewShell({
   const renderOne = (id: SectionId): JSX.Element => {
     switch (id) {
       case "today":
+        // The composed home's server body (quick facts, show notes, the Dress
+        // code card, the admin fetch-failure blocks), placed by the controller
+        // after the day row, the pass and the run card (plan Task 11).
         return (
-          <TodaySection
+          <HomeSection
             data={data}
             viewer={viewer}
             today={today}

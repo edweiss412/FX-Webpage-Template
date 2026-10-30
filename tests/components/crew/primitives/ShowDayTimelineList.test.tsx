@@ -116,11 +116,12 @@ describe("ShowDayTimelineList", () => {
   });
   test("Transition audit (spec §6.2) — timeline surfaces are static (no AnimatePresence/motion/exit)", () => {
     // 4 data-driven states (crew-only/agenda-only/merged/not-rendered), all instant — no
-    // client animation. The not-rendered + agenda-vs-crew branch live in TodaySection, so
-    // scan BOTH the component and the section (both currently motion-free).
+    // client animation. The not-rendered + agenda-vs-crew branch lives in the run card's
+    // builder (lib/crew/runOfShowCard.ts, plan Task 10; TodaySection retired in Task 11),
+    // so scan BOTH the component and the builder (both motion-free).
     for (const f of [
       "components/crew/primitives/ShowDayTimelineList.tsx",
-      "components/crew/sections/TodaySection.tsx",
+      "lib/crew/runOfShowCard.ts",
     ]) {
       const src = readFileSync(f, "utf8");
       expect(src, f).not.toMatch(

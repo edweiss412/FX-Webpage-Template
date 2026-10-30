@@ -681,6 +681,30 @@
   }
 }
 
+/* Crew home copy toast (crew page redesign spec §7, the copy-toast row): fades
+   and rises 4px in, then fades out in place. Callers apply both with
+   `motion-safe:`, so reduced motion gets the instant alternative (the toast
+   shows and hides at once) rather than a collapsed keyframe. Transform and
+   opacity only; the toast is fixed, so neither reflows the page. */
+@keyframes crew-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes crew-toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 /* Telemetry auto-refresh live-pulse ring (NOT a @theme token — a local
    keyframe for the AutoRefreshControl "actively refreshing" indicator, spec
    §7.1/§9). Expanding fade ring behind the accent dot; suppressed under

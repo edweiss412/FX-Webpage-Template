@@ -369,11 +369,22 @@ describe("staged adapter output through the REAL CrewShell", () => {
     expect(container.textContent!.length).toBeGreaterThan(200);
   });
 
-  test("AC-3: Right Now uses the viewer-FILTERED hotel", async () => {
+  test("AC-3: the home's hotel fact uses the viewer-FILTERED hotel", async () => {
+    // The fact names tonight's stay (`reservationForNight`, plan Task 11, which
+    // retired Today's first-reservation Tonight card), so the request clock is
+    // pinned to a night both staged stays cover; each viewer still sees only
+    // their own.
     const parse = makeStagedParseFixture();
     const hotelA = parse.hotelReservations[0]!.hotel_name!;
     const hotelB = parse.hotelReservations[1]!.hotel_name!;
     expect(hotelA).not.toBe(hotelB);
+    const night = "2026-06-24";
+    for (const h of parse.hotelReservations) {
+      expect(h.check_in! <= night && night < h.check_out!, `${h.hotel_name} covers ${night}`).toBe(
+        true,
+      );
+    }
+    nowDate.mockResolvedValue(new Date(`${night}T15:00:00Z`));
 
     const a = await renderShell({
       data: stagedProjection("staged-crew-0").data,
@@ -381,7 +392,7 @@ describe("staged adapter output through the REAL CrewShell", () => {
       showId: "staged-preview",
       staticPreview: true,
     });
-    const tonightA = a.querySelector('[data-testid="today-tonight"]')?.textContent ?? "";
+    const tonightA = a.querySelector('[data-fact="hotel"]')?.textContent ?? "";
     expect(tonightA).toContain(hotelA);
     expect(tonightA).not.toContain(hotelB);
     cleanup();
@@ -392,7 +403,7 @@ describe("staged adapter output through the REAL CrewShell", () => {
       showId: "staged-preview",
       staticPreview: true,
     });
-    const tonightB = b.querySelector('[data-testid="today-tonight"]')?.textContent ?? "";
+    const tonightB = b.querySelector('[data-fact="hotel"]')?.textContent ?? "";
     expect(tonightB).toContain(hotelB);
     expect(tonightB).not.toContain(hotelA);
   });

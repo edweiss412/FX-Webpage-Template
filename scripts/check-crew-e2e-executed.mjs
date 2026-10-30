@@ -70,11 +70,19 @@ export const REQUIRED = {
   // themes, the live body, a tapped day, the preview route's personal cells, the
   // crossfade overlap, reduced motion, and the height floor sampled every frame).
   // Counted from the observed mobile-safari run.
-  "crew-page.spec.ts": 27,
+  // 35 as of the crew page redesign's Task 11: eight "home" cases joined (the
+  // compact order, the copy toasts, the toast's motion and its reduced-motion
+  // form, tonight's hotel on the preview route, the flight-only and the
+  // date-suppressed payload searches, and the preview banner); inv1 and inv6
+  // were retargeted in place (the quick facts grid, Schedule's key-times strip).
+  // Counted from the observed mobile-safari run.
+  "crew-page.spec.ts": 35,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
-  "crew-wide-nav.spec.ts": 9,
+  // Eleven since Task 11 added the composed home's two wide cases (the Today
+  // block's columns, and the preview banner in wide).
+  "crew-wide-nav.spec.ts": 11,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
