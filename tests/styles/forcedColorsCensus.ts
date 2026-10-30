@@ -264,7 +264,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "crew-facing tabs; border-b-2 on BOTH paths so only its colour differs, same icon either way, aria-current toggles nothing rendered",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:844",
+    // 844 -> 865 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 865 -> 886 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:886",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -275,7 +278,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "nav pill; border width is in the shared base so both are 1px, icon tint unconditional, label unchanged",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:1025",
+    // 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 1046 -> 1067 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:1067",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -285,7 +291,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "same pair; the sr-only text and dot are status-derived, not active-derived",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:811",
+    // 811 -> 832 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 832 -> 853 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:853",
     disposition: "repaired",
     binding: {
       locator: '[data-testid$="-review-rail-item-"]',
@@ -296,7 +305,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "rail item; active fills at rest and inactive only on hover, and the rail indicator's own paint is a background that flattens with it",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:932",
+    // 932 -> 953 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 953 -> 974 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:974",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-rail-item-"]',
@@ -389,13 +401,19 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:36), the SAME condition that gives the ancestor border-l border-border pl-2 at :61 - a border WIDTH and an indent, both of which survive",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:829",
+    // 829 -> 850 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 850 -> 871 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:871",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:951",
+    // 951 -> 972 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 972 -> 993 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:993",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
@@ -424,23 +442,34 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "the states differ by filled, triangular and hollow MARKS (components/admin/review/attentionMark.ts:76), which is shape",
   },
   {
-    site: "components/admin/wizard/Step3ReviewModal.tsx:590",
+    // 590 -> 601 on feat/warning-card-fixes Task 18b (the unsaved-reading guard ref and
+    // helper above it); located by its own element.
+    site: "components/admin/wizard/Step3ReviewModal.tsx:601",
     disposition: "carrier-survives",
     reason: "same",
   },
+  // The three UseRawControl rows: 334 -> 329, 360 -> 355, 372 -> 367 (and the dot the first
+  // reason cites, 368 -> 363) on feat/warning-card-fixes Task 4; located by their own
+  // elements (the ChoiceRow <button>, its radio-dot <span>, its label <span>).
+  // 329 -> 332, 355 -> 358, 367 -> 370 (the dot 363 -> 366) on feat/warning-card-fixes
+  // Task 14 (the useUseRawDraft import and the per-row marker's doc lines above them);
+  // located by the same three elements. The 358 reason is restated: since spec §6.3 an
+  // unsaved draft's checked row carries no marker (the persisted row keeps it), so the
+  // surviving carrier is the filled inner dot, which renders on the checked row only.
   {
-    site: "components/admin/UseRawControl.tsx:334",
+    site: "components/admin/UseRawControl.tsx:332",
     disposition: "carrier-survives",
     reason:
-      "role=radio with aria-checked AND a rendered dot (components/admin/UseRawControl.tsx:368)",
+      "role=radio with aria-checked AND a rendered dot (components/admin/UseRawControl.tsx:366)",
   },
   {
-    site: "components/admin/UseRawControl.tsx:360",
+    site: "components/admin/UseRawControl.tsx:358",
     disposition: "carrier-survives",
-    reason: "the checked row renders In use or Selected beside the dot",
+    reason:
+      "the checked row renders a filled inner dot (components/admin/UseRawControl.tsx:366), a shape that survives forced colours",
   },
   {
-    site: "components/admin/UseRawControl.tsx:372",
+    site: "components/admin/UseRawControl.tsx:370",
     disposition: "carrier-survives",
     reason: "same",
   },
@@ -450,12 +479,18 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "aria-expanded AND when true a popup is on screen",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:825",
+    // 825 -> 846 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 846 -> 867 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:867",
     disposition: "carrier-survives",
     reason: "an icon inside a rail item this pass repairs, so it inherits a repaired state",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:945",
+    // 945 -> 966 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    // 966 -> 987 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:987",
     disposition: "carrier-survives",
     reason:
       "an icon inside the second rail item this pass repairs, so it inherits its repaired state",
@@ -467,7 +502,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "monitoringOnly also selects the attention mark's SHAPE at :1189 via attentionMarkClass (filled, triangular or hollow), which is what carries it; the chevron is aria-hidden decoration whose tone echoes that. Its rotation is driven by menuOpen, a different variable, so rotation distinguishes nothing within a colliding pair",
   },
   {
-    site: "components/admin/wizard/Step3ReviewModal.tsx:729",
+    // 729 -> 740 on feat/warning-card-fixes Task 18b; located by its own element.
+    site: "components/admin/wizard/Step3ReviewModal.tsx:740",
     disposition: "carrier-survives",
     reason:
       "same shape as PublishedReviewModal:1376: the mark's shape carries the state and the chevron's rotation is driven by a different variable",
@@ -514,12 +550,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     disposition: "deliberate-flatten",
     reason: "switch track; the auto-refresh toggle wears the same ruled recipe (DESIGN.md 1.2a)",
   },
-  {
-    site: "components/admin/PerShowActionableWarnings.tsx:458",
-    disposition: "deliberate-flatten",
-    reason:
-      "the pair differs only in focus-visible:ring-offset-*; the ring is not this repo's focus indicator and an offset colour is invisible either way",
-  },
+  // components/admin/PerShowActionableWarnings.tsx:458 (deliberate-flatten) DELETED on
+  // feat/warning-card-fixes Task 9: that "Open in Sheet" text link left the card when
+  // the sheet link became the compact shell's icon (warning-card-fixes spec §3.6, R11).
   {
     site: "components/admin/showpage/PublishedReviewModal.tsx:1327",
     disposition: "deliberate-flatten",
@@ -527,7 +560,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "text-warning-text/80 against a sibling tone; emphasis, which spec 8 limit 2 flattens deliberately",
   },
   {
-    site: "components/admin/wizard/Step3ReviewModal.tsx:662",
+    // 662 -> 673 on feat/warning-card-fixes Task 18b; located by its own element.
+    site: "components/admin/wizard/Step3ReviewModal.tsx:673",
     disposition: "deliberate-flatten",
     reason: "text-warning-text/80 against a sibling tone; emphasis, which spec 8 limit 2 flattens",
   },
@@ -539,10 +573,21 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   // ── Not a collapse. ──
   {
-    site: "components/admin/RescanSheetButton.tsx:209",
+    // 209 -> 213 on feat/warning-card-fixes Task 18b (the unsaved-reading guard hook
+    // and its import); located by its own trigger element.
+    site: "components/admin/RescanSheetButton.tsx:213",
     disposition: "not-a-state",
     reason:
-      "the two paths are one button on two surrounding plates (components/admin/RescanSheetButton.tsx:222), not two user-visible states",
+      "the two paths are one button on two surrounding plates (components/admin/RescanSheetButton.tsx:226), not two user-visible states",
+  },
+  {
+    // Added on feat/warning-card-fixes Task 13 (spec §7.3): the shared archived-tab include
+    // button. Its `plate` prop picks the outline per placement, so the pair differs only
+    // in border colour; located by its own element, ArchivedTabIncludeButton's <button>.
+    site: "components/admin/wizard/archivedTabOffer.tsx:158",
+    disposition: "not-a-state",
+    reason:
+      "the two paths are one button on two surrounding plates (the tinted Pack list and Resolve box offer, the neutral warning card), chosen per placement by the `plate` prop and fixed for that mount, not two user-visible states",
   },
   {
     site: "components/admin/NeedsAttentionSummaryCard.tsx:36",

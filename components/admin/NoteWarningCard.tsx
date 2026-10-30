@@ -9,7 +9,7 @@ import { correctionLoopCopy } from "@/components/admin/CorrectionLoopCallout";
 import { warningCardCopyFields } from "@/components/admin/PerShowActionableWarnings";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
-import { NewTabHint } from "@/components/shared/NewTabHint";
+import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 import type { ReactNode } from "react";
 
 /** First non-blank of the two values, returning the ORIGINAL (untrimmed) string;
@@ -49,7 +49,11 @@ export function notePopoverParts(w: ParseWarning): {
  * A single visible info row rendered as a neutral-tone "note" card for the
  * published Sheet warnings panel (spec §2.2.2, §2.4). Notes carry NO mutate
  * controls (no Report/Ignore, no severity tag) — only a `?` help popover and,
- * when the source cell resolves, an "Open in Sheet" link.
+ * when the source cell resolves, the shell's icon-only sheet link at the end of
+ * the message row. That icon supersedes the "Open in Sheet" text link the note
+ * card carried as its controls band (warning-trim-undefer spec §2.4), per
+ * warning-card-fixes spec §3.6 (Eric's R11), so a note card is its message row
+ * alone.
  *
  * The message line is `reviewWarningTitle(w)` (never a raw code) plus a
  * `helpfulContext`-derived guidance line (omitted when blank). The popover body
@@ -83,22 +87,15 @@ export function NoteWarningCard({
 
   const key = stableWarningKeys([warning])[0];
 
-  const sheetLink: ReactNode = href ? (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      data-testid="note-warning-sheet-link"
-      className="inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
-    >
-      Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
-    </a>
-  ) : null;
-
   return (
     <CompactAlertCard
       tone="neutral"
       stripe="none"
+      sheetLink={
+        href
+          ? { href, subjectLabel: stripEmphasis(title), testId: "note-warning-sheet-link" }
+          : null
+      }
       message={
         <span className="flex min-w-0 flex-col gap-1">
           <span data-testid="note-warning-title" className="text-text-strong">
@@ -126,7 +123,6 @@ export function NoteWarningCard({
           />
         ) : null
       }
-      controlsBand={sheetLink}
     />
   );
 }

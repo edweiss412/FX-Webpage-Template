@@ -1659,7 +1659,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → spot-check hotel guests",
     helpfulContext:
-      "A hotel line could be read more than one way, so we made a judgment call. Check who is on the reservation in case two people were merged, one was split, part of the hotel name was read as a person, or someone was left out.",
+      "If we split it wrong, fix the names in the sheet. Two people may have been merged, one split, part of the hotel name read as a person, or someone left out.",
     triggerContext: "Appears when a hotel line could be read more than one way.",
     title: "A hotel line may be read wrong",
     titlePlural: "{count} hotel lines may be read wrong",
@@ -1820,7 +1820,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → include or ignore",
     helpfulContext:
-      "We found a PULL SHEET on a tab that looks like an older copy, so we left it out to avoid mixing old gear in. If it really is this show's gear, the Gear section on this page offers to include it.",
+      "We found a PULL SHEET on a tab that looks like an older copy, so we left it out to avoid mixing old gear in. If it really is this show's gear, include it from the Pack list section.",
     triggerContext:
       "Appears when a PULL SHEET is found on a tab that looks like an older copy of the sheet, not its main tab.",
     title: "Pull sheet found on an archived tab",
@@ -1836,7 +1836,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → re-confirm",
     helpfulContext:
-      "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Gear section.",
+      "A pull sheet you'd included changed since you last saw it, so we left it out rather than publish gear you haven't seen. Recheck the tab, then re-include it from the Pack list section.",
     triggerContext: "Appears when the contents of an included archived-tab pull sheet change.",
     title: "Included archived-tab pull sheet changed",
     longExplanation:

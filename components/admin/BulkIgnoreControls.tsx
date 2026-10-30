@@ -6,6 +6,7 @@ import type { BulkIgnoreGroup } from "@/lib/dataQuality/bulkIgnoreGroups";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
 import { cn } from "@/lib/ui/cn";
+import { isAmbiguityCode } from "@/lib/parser/ambiguityCodes";
 
 export type BulkIgnoreGroupWithLabel = BulkIgnoreGroup & {
   /** Plain-language type label (catalog title / data-gap label), or null. Never the raw code. */
@@ -107,7 +108,13 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
     clearArmTimer();
     setArmedCode(null);
     setState({ kind: "running", code: group.code });
-    const failCopy = "Couldn't ignore those warnings. Refresh and try again.";
+    // warning-card-fixes §6.2: a bulk group is one active warn code, so a judgment group
+    // is one whose code is an ambiguity code. Same requests; only the words change.
+    const judgment = isAmbiguityCode(group.code);
+    const failCopy = judgment
+      ? "Couldn't accept those judgment calls. Refresh and try again."
+      : "Couldn't ignore those warnings. Refresh and try again.";
+    const done = judgment ? "accepted" : "ignored";
     try {
       const results = await Promise.all(
         group.items.map((it) =>
@@ -132,7 +139,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         // BEFORE the refresh (a refresh-first ordering can lose the message
         // to a surface replacement). Partial and total failures never
         // announce — they surface via the role="alert" notice below.
-        announce(results.length === 1 ? "1 ignored." : `${results.length} ignored.`);
+        announce(results.length === 1 ? `1 ${done}.` : `${results.length} ${done}.`);
         router.refresh();
         return;
       }
@@ -143,7 +150,10 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
       setState({
         kind: "error",
         code: group.code,
-        copy: ok > 0 ? `Ignored ${ok} of ${results.length}. Refresh to see the rest.` : failCopy,
+        copy:
+          ok > 0
+            ? `${judgment ? "Accepted" : "Ignored"} ${ok} of ${results.length}. Refresh to see the rest.`
+            : failCopy,
       });
     } catch {
       setArmedCode(null); // entering `error` clears armed (spec §4 G4 state model)
@@ -170,12 +180,16 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
         // drop the idle chip to its own line too, costing ~18px per group at rest.
         const rowClass = armed || running ? " flex-wrap" : "";
         const count = bulk?.items.length ?? 0;
-        const chipText = running ? "Ignoring…" : armed ? "Are you sure?" : "Ignore";
+        // warning-card-fixes §6.2: a judgment group's chip says Accept.
+        const verb = isAmbiguityCode(group.code)
+          ? { idle: "Accept", running: "Accepting…" }
+          : { idle: "Ignore", running: "Ignoring…" };
+        const chipText = running ? verb.running : armed ? "Are you sure?" : verb.idle;
         const chipName = running
-          ? "Ignoring…"
+          ? verb.running
           : armed
-            ? `Are you sure? Ignore ${count}`
-            : `Ignore ${count}`;
+            ? `Are you sure? ${verb.idle} ${count}`
+            : `${verb.idle} ${count}`;
         // spec 2026-07-24 §2.1: a lone chip-less card duplicates its own title in
         // the eyebrow — suppress the whole header row. Any group with a bulk chip
         // keeps the row (the chip rides it), as does any plural LABELED group.

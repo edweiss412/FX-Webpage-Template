@@ -12,10 +12,12 @@ import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableW
 import { correctionLoopCopy } from "@/components/admin/CorrectionLoopCallout";
 import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
+import { UseRawDraftProvider, offersReadingChoice } from "@/components/admin/useRawDraft";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
 import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
 import { crewRowKeyForWarning } from "@/lib/admin/crewRowKey";
+import { isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
 import type { SectionWarningItem } from "@/lib/admin/sectionWarningModel";
 
 /** Render crew-scoped active warnings for the RENDERED crew rows as under-row cards,
@@ -115,35 +117,58 @@ function SectionWarningItemControls(props: {
   useRawDecisions: PublishedSectionData["useRawDecisions"];
 }) {
   const { warning, reportSurfaceId, mode, slug, showId, driveFileId, useRawDecisions } = props;
+  const decision = findUseRawDecision(warning, useRawDecisions);
+  const controls = (
+    /* no-newtab-announcement: `target` here is the discriminated ignore BACKEND
+       (spec §2.3), not a browser window target. This element renders no anchor. */
+    <DataQualityWarningControls
+      // Published mounts are always the show arm (§2.3): a published surface has a slug
+      // and a show record by definition.
+      target={{ kind: "show", slug, showId }}
+      warning={warning}
+      driveFileId={driveFileId}
+      mode={mode}
+      reportSurfaceId={reportSurfaceId}
+    />
+  );
+  // spec §8: use-raw toggle for the 4 recoverable structural-transform warnings; self-hides
+  // (null) for every other code.
+  const choice = (
+    <UseRawControlBoundary
+      surface="show"
+      showId={showId}
+      warning={warning}
+      decision={decision}
+      site="showpage"
+    />
+  );
+  // spec §8.1: recognize-role control for UNKNOWN_ROLE_TOKEN warnings; self-hides otherwise.
+  const role = (
+    <RoleRecognizeControlBoundary
+      surface="show"
+      showId={showId}
+      warning={warning}
+      site="showpage"
+    />
+  );
+  // warning-card-fixes §6.3: a row offering the reading choice wraps its controls in the
+  // reading-draft provider, so a picked reading waits for the action bar's Save, and
+  // shows the choice BEFORE the action bar. Every other code keeps today's order (its
+  // choice control renders null).
+  if (offersReadingChoice(warning, decision)) {
+    return (
+      <UseRawDraftProvider surface="show" showId={showId} warning={warning} decision={decision}>
+        {choice}
+        {controls}
+        {role}
+      </UseRawDraftProvider>
+    );
+  }
   return (
     <>
-      {/* no-newtab-announcement: `target` here is the discriminated ignore BACKEND
-          (spec §2.3), not a browser window target. This element renders no anchor. */}
-      <DataQualityWarningControls
-        // Published mounts are always the show arm (§2.3): a published surface has a slug
-        // and a show record by definition.
-        target={{ kind: "show", slug, showId }}
-        warning={warning}
-        driveFileId={driveFileId}
-        mode={mode}
-        reportSurfaceId={reportSurfaceId}
-      />
-      {/* spec §8: use-raw toggle for the 4 recoverable structural-transform warnings; self-hides
-          (null) for every other code. */}
-      <UseRawControlBoundary
-        surface="show"
-        showId={showId}
-        warning={warning}
-        decision={findUseRawDecision(warning, useRawDecisions)}
-        site="showpage"
-      />
-      {/* spec §8.1: recognize-role control for UNKNOWN_ROLE_TOKEN warnings; self-hides otherwise. */}
-      <RoleRecognizeControlBoundary
-        surface="show"
-        showId={showId}
-        warning={warning}
-        site="showpage"
-      />
+      {controls}
+      {choice}
+      {role}
     </>
   );
 }
@@ -165,7 +190,12 @@ export function buildSectionWarningExtras(args: {
     if (!model || (model.active.length === 0 && model.ignored.length === 0)) return null;
 
     const { slug, showId, driveFileId, useRawDecisions } = d;
-    const ignoredWarnings = model.ignored.map((a) => a.warning);
+    // warning-card-fixes §6.4: split the RECORDS, never the warnings. Each row reads its
+    // report id from its OWN record array, so a judgment row between two needs-look rows
+    // cannot hand its neighbour the wrong id (a positional read after a warning-only
+    // filter would).
+    const ignoredRecords = model.ignored.filter((a) => !isJudgmentCall(a.warning));
+    const acceptedRecords = model.ignored.filter((a) => isJudgmentCall(a.warning));
 
     // DQIGNORE-6 — the section's ACTIVE list, grouped by code. Each group's cards are a
     // server-derived <PerShowActionableWarnings> passed through BulkIgnoreControls as the
@@ -254,7 +284,9 @@ export function buildSectionWarningExtras(args: {
     // wrapper would render with zero children and read as a stray seam inside
     // the panel card. Evaluated on the POST-FILTER groups, not the pre-filter
     // model (which is non-empty by hypothesis here).
-    if (activeGroups.length === 0 && ignoredWarnings.length === 0) return null;
+    // The union of both disclosures (§6.4): a section holding only an accepted row still
+    // renders.
+    if (activeGroups.length === 0 && model.ignored.length === 0) return null;
 
     return (
       <div
@@ -279,14 +311,15 @@ export function buildSectionWarningExtras(args: {
           <BulkIgnoreControls slug={slug} groups={activeGroups} />
         </div>
         {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive re-sync.
-            Native <details>: chevron transform only, body instant. */}
-        {ignoredWarnings.length > 0 ? (
+            Native <details>: chevron transform only, body instant. warning-card-fixes §6.4:
+            needs-look rows only; judgment calls sit in Accepted (N) below it. */}
+        {ignoredRecords.length > 0 ? (
           <details data-testid={`section-ignored-warnings-${id}`} className="group">
             <summary
               data-testid={`section-ignored-summary-${id}`}
               className="min-h-tap-min inline-flex items-center cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
             >
-              Ignored ({ignoredWarnings.length}){" "}
+              Ignored ({ignoredRecords.length}){" "}
               <ChevronRight
                 aria-hidden="true"
                 className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
@@ -294,7 +327,7 @@ export function buildSectionWarningExtras(args: {
             </summary>
             <div className="mt-3" data-testid={`section-ignored-list-${id}`}>
               <PerShowActionableWarnings
-                items={ignoredWarnings}
+                items={ignoredRecords.map((a) => a.warning)}
                 driveFileId={driveFileId}
                 // NO followUpCopy here (impeccable critique P1a): "we'll re-read
                 // the sheet and clear this" is a promise about work still to do,
@@ -303,7 +336,42 @@ export function buildSectionWarningExtras(args: {
                 renderItemControls={(w, i) => (
                   <SectionWarningItemControls
                     warning={w}
-                    reportSurfaceId={model.ignored[i]!.reportSurfaceId}
+                    reportSurfaceId={ignoredRecords[i]!.reportSurfaceId}
+                    mode="ignored"
+                    slug={slug}
+                    showId={showId}
+                    driveFileId={driveFileId}
+                    useRawDecisions={useRawDecisions}
+                  />
+                )}
+              />
+            </div>
+          </details>
+        ) : null}
+        {/* warning-card-fixes §6.4 Accepted (N): the judgment calls of the ignored
+            partition, after Ignored. Same classes; muted cards with no followUpCopy, for
+            the reason given above. Accepted rows keep the reading choice. */}
+        {acceptedRecords.length > 0 ? (
+          <details data-testid={`section-accepted-warnings-${id}`} className="group">
+            <summary
+              data-testid={`section-accepted-summary-${id}`}
+              className="min-h-tap-min inline-flex items-center cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+            >
+              Accepted ({acceptedRecords.length}){" "}
+              <ChevronRight
+                aria-hidden="true"
+                className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+              />
+            </summary>
+            <div className="mt-3" data-testid={`section-accepted-list-${id}`}>
+              <PerShowActionableWarnings
+                items={acceptedRecords.map((a) => a.warning)}
+                driveFileId={driveFileId}
+                tone="muted"
+                renderItemControls={(w, i) => (
+                  <SectionWarningItemControls
+                    warning={w}
+                    reportSurfaceId={acceptedRecords[i]!.reportSurfaceId}
                     mode="ignored"
                     slug={slug}
                     showId={showId}

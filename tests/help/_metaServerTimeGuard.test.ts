@@ -307,7 +307,26 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // is already a member through travelRows.ts, so nothing joins: 228 -> 228,
     // re-derived by running this guard.
     expect(rel).toContain("lib/search/normalize.ts");
-    expect(rel.length).toBe(228);
+    // Joined, from feat/warning-card-fixes Task 4: lib/admin/warningReadingDisplay.ts, a new
+    // module holding the reading-display caps and formats and the USE_RAW_CODES set, now
+    // imported directly by components/admin/UseRawControl.tsx. Pure string formatting and
+    // set membership, no clock read. 223 -> 224.
+    expect(rel).toContain("lib/admin/warningReadingDisplay.ts");
+    // Joined, from feat/warning-card-fixes Task 7: lib/messages/collapsedSummary.ts, now
+    // imported directly by components/admin/wizard/step3ReviewSections.tsx for
+    // `stripEmphasis` (the sheet icon's accessible-name subject). Before this only a
+    // comment in components/messages/renderEmphasis.tsx named it. Pure string
+    // formatting with no imports at all, no clock read. 224 -> 225.
+    expect(rel).toContain("lib/messages/collapsedSummary.ts");
+    // Joined, from feat/warning-card-fixes Task 11: lib/parser/ambiguityCodes.ts, now
+    // imported directly by components/admin/BulkIgnoreControls.tsx so a judgment group's
+    // bulk chip reads Accept (spec §6.2). A Set and a membership function with no imports
+    // at all, no clock read. 225 -> 226.
+    expect(rel).toContain("lib/parser/ambiguityCodes.ts");
+    // Merged with origin/main 2026-10-29: main's crew-search joins (228) plus this branch's
+    // three (warningReadingDisplay, collapsedSummary, ambiguityCodes), re-derived by running
+    // this guard on the merged tree.
+    expect(rel.length).toBe(231);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

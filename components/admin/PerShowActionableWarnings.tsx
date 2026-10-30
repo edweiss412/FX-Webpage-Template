@@ -10,7 +10,9 @@ import type { ParseWarning } from "@/lib/parser/types";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { CompactAlertHelp } from "@/components/admin/compactAlertHelp";
-import { NewTabHint } from "@/components/shared/NewTabHint";
+import { JudgmentCallTag } from "@/components/admin/JudgmentCallTag";
+import { isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
+import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 import type { ReactNode } from "react";
 
 /**
@@ -21,13 +23,15 @@ import type { ReactNode } from "react";
  *
  * Laid out as `CompactAlertCard` (spec 2026-07-20-show-alert-compact §4.2):
  * the offending row label collapses into the detail band, and the catalog's
- * helpful context moved into the `?` popover. The "Open in Sheet" deep link and
- * the item controls share ONE controls band — link inline at the left, the
- * controls cluster pushed to the right (ml-auto) — so the link never occupies
- * its own footer row. `renderItemControls` returns a full cluster (Report/Ignore,
- * the use-raw radio interface, the role editor), which is why this lives in the
- * expansive controls band rather than the footer's right cluster (spec §3.3,
- * amendment A1).
+ * helpful context moved into the `?` popover. The source-sheet deep link is the
+ * shell's icon-only `sheetLink`, rendered LAST in the card's message row
+ * (warning-card-fixes spec §3.6, Eric's R11). That supersedes the earlier ruling
+ * that put an "Open in Sheet" text link inline at the left of a shared controls
+ * band, so the controls band now holds the item controls alone. `renderItemControls`
+ * returns a full cluster (Report/Ignore, the use-raw radio interface, the role
+ * editor), which is why it lives in the expansive controls band rather than the
+ * footer's right cluster (spec 2026-07-20-show-alert-compact §3.3, amendment A1).
+ * A judgment-call code carries the `JudgmentCallTag` beside its title (spec §3.4).
  *
  * These cards carry no stripe: the live surface never had one, so the shell's
  * `review` default is overridden explicitly on the warning path as well as the
@@ -158,14 +162,6 @@ export function PerShowActionableWarnings({
   // Order-independent keys so an ignore-driven refresh does not remount surviving
   // cards (which would drop an open Report modal). See lib/dataQuality/warningIdentity.
   const keys = stableWarningKeys(items);
-  // The "Open in Sheet" link's focus ring-offset must match the card background it sits on,
-  // or the 2px gap renders Tailwind v4's default (white) on the tinted card (same class the
-  // DQIGNORE-5 button ringOffset work fixed; impeccable audit class-sweep). Full literal
-  // strings so the JIT resolves each.
-  const linkOffsetClass =
-    tone === "muted"
-      ? "focus-visible:ring-offset-surface-sunken"
-      : "focus-visible:ring-offset-warning-bg";
   return (
     <ul className="flex flex-col gap-2" data-testid="per-show-actionable-warnings">
       {items.map((w, i) => {
@@ -454,33 +450,17 @@ export function PerShowActionableWarnings({
             (detail ?? candidateBand)
           );
 
-        const sheetLink: ReactNode = href ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`inline-flex min-h-tap-min min-w-0 items-center truncate text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:outline-none ${linkOffsetClass}`}
-          >
-            Open in Sheet <span aria-hidden="true">↗</span> <NewTabHint />
-          </a>
-        ) : null;
-
         const controls = renderItemControls ? renderItemControls(w, i) : null;
         const anchor = anchorIds?.[i];
 
-        // Single controls band: the "Open in Sheet" link sits inline at the left,
-        // the item controls pushed to the right (ml-auto) — never its own footer row.
-        const controlsBand: ReactNode =
-          sheetLink || controls ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {sheetLink}
-              {controls ? (
-                <div className={`flex flex-wrap items-center gap-2 ${sheetLink ? "ml-auto" : ""}`}>
-                  {controls}
-                </div>
-              ) : null}
-            </div>
-          ) : null;
+        // The controls band holds the item controls alone, rendered as the no-link
+        // branch always rendered them; the sheet link is the message row's icon now
+        // (warning-card-fixes spec §3.6, R11).
+        const controlsBand: ReactNode = controls ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2">{controls}</div>
+          </div>
+        ) : null;
 
         return (
           <li
@@ -491,10 +471,29 @@ export function PerShowActionableWarnings({
             <CompactAlertCard
               tone={tone}
               stripe="none"
+              sheetLink={
+                href
+                  ? {
+                      href,
+                      subjectLabel: stripEmphasis(title),
+                      testId: "per-show-actionable-sheetlink",
+                    }
+                  : null
+              }
               message={
                 <span className="flex min-w-0 flex-col gap-1">
-                  <span data-testid="per-show-actionable-title" className="text-text-strong">
-                    {renderEmphasis(title)}
+                  {/* spec §3.4: the title and, on a judgment call, its tag, whose
+                    border follows the card's plate. */}
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                    <span data-testid="per-show-actionable-title" className="text-text-strong">
+                      {renderEmphasis(title)}
+                    </span>
+                    {isJudgmentCall(w) ? (
+                      <JudgmentCallTag
+                        plate={tone === "warning" ? "warning-bg" : "surface-sunken"}
+                        testId="per-show-actionable-judgment-tag"
+                      />
+                    ) : null}
                   </span>
                   {guidanceResult.kind === "instance" ? (
                     <span

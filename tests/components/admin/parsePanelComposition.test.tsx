@@ -99,10 +99,18 @@ describe("wizard WarningsBreakdown branch — gate off (spec §5)", () => {
     const li1 = scoped.getByTestId(rowId(1));
     const li2 = scoped.getByTestId(rowId(2));
     expect(scoped.queryByTestId(rowId(warnings.length))).toBeNull();
-    // Severity labels (scoped per row so a sibling can't satisfy it).
-    expect(li0.textContent).toContain("info");
-    expect(li1.textContent).toContain("warn");
-    expect(li2.textContent).toContain("warn");
+    // Row kinds (scoped per row so a sibling can't satisfy it). The visible
+    // severity word left the wizard card (warning-card-fixes R1): an info row
+    // carries the sr-only "Note: " prefix, a needs-look row "Needs a look: ",
+    // and a judgment row (ROOM_HEADER_SPLIT_AMBIGUOUS) no prefix but its tag.
+    const srPrefix = (li: HTMLElement) =>
+      Array.from(li.querySelectorAll(".sr-only")).map((el) => el.textContent);
+    expect(srPrefix(li0)).toContain("Note: ");
+    expect(srPrefix(li1)).toContain("Needs a look: ");
+    expect(srPrefix(li2)).not.toContain("Needs a look: ");
+    expect(srPrefix(li2)).not.toContain("Note: ");
+    expect(within(li2).getByTestId(`${rowId(2)}-judgment-tag`).textContent).toBe("Judgment call");
+    expect(within(li1).queryByTestId(`${rowId(1)}-judgment-tag`)).toBeNull();
 
     // Wizard renders the correction-loop callout + the non-blocking note.
     expect(scoped.getByTestId("correction-loop-callout")).toBeTruthy();

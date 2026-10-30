@@ -23,7 +23,12 @@ describe("PerShowActionableWarnings", () => {
     expect(container.textContent).not.toContain("UNKNOWN_ROLE_TOKEN");
   });
 
-  it("renders an Open-in-Sheet link to the resolved cell when sourceCell present", () => {
+  // warning-card-fixes §3.6 (R11): the sheet link is the message row's icon, whose
+  // accessible name names the card title (SheetIconLink), not "Open in Sheet" text.
+  // Apostrophe-agnostic, and the phrase itself is not quoted (it is counted repo-wide).
+  const SHEET_LINK_NAME = /Role we didn.t recognize/;
+
+  it("renders the sheet icon link to the resolved cell when sourceCell present", () => {
     const ws: ParseWarning[] = [
       {
         severity: "warn",
@@ -33,14 +38,16 @@ describe("PerShowActionableWarnings", () => {
       },
     ];
     render(<PerShowActionableWarnings items={ws} driveFileId={dfid} />);
-    const link = screen.getByRole("link", { name: /open in sheet/i });
+    const link = screen.getByRole("link", { name: SHEET_LINK_NAME });
+    expect(link).toBe(screen.getByTestId("per-show-actionable-sheetlink"));
     expect(link.getAttribute("href")).toContain("range=C3");
   });
 
   it("renders no link when sourceCell is absent", () => {
     const ws: ParseWarning[] = [{ severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x" }];
     render(<PerShowActionableWarnings items={ws} driveFileId={dfid} />);
-    expect(screen.queryByRole("link", { name: /open in sheet/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: SHEET_LINK_NAME })).toBeNull();
+    expect(screen.queryByTestId("per-show-actionable-sheetlink")).toBeNull();
   });
 
   it("renders nothing when there are no operator-actionable warnings", () => {

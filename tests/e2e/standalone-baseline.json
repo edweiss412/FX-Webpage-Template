@@ -100,10 +100,18 @@
     ],
     "tests/e2e/compact-alert-card-layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-090b4a4b74878525de8f\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"unbroken token keeps the help trigger inside the card\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-10a83a0a78999f5abeae\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-1d52fdee27c0e5222cf3\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"opened popover actually paints where it measures (hit test)\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-2156fd51b2ef8976e137\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 320px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-36acd68f50afed199b8f\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 430px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-41746a2825aa845fd4a7\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"long-label footer at 320px wraps to a second line without overflowing\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-4fc15120236b1cda6a20\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 375px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-5c7465c13eb98d0415d1\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-unbreakable-320: no footer descendant escapes the bar's content box\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-6314e2f8ca86d75a1c99\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C2: a card with no sheetLink keeps the pre-icon message row class\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-66e118df6a42d4ba375e\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 375px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-7005fd67cdcbc85329e1\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on every tone, help and message cell at 430px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-966b88a64d709c9b0db3\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"footer links meet the 44px tap-target floor\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-98504bcadbbf77922c4c\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-9b73fc241226c0c45b01\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-long-320: no footer descendant escapes the bar's content box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-a5311b528ffe39b5929d\",[\"compact-alert-card-layout.spec.ts\",\"compact trigger geometry (warning-card-copy-restore)\",\"compact trigger geometry - mount-warning-card (spec §3.4/§6/§7)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-b0a5c3a91ef5aec054de\",[\"compact-alert-card-layout.spec.ts\",\"compact trigger geometry (warning-card-copy-restore)\",\"trigger top-aligns with the title line WITH guidance rendered (spec §3.4)\"]]",
@@ -112,6 +120,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-cf91d3f99c04dd2af632\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"short-label footer stays on one line with clusters vertically centred\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-dd5defe2195c8066ec79\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-long-400: no footer descendant escapes the bar's content box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-ddf3c9313ff4c7914648\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-short-400: no footer descendant escapes the bar's content box\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-df07c7a1c2aa4a598311\",[\"compact-alert-card-layout.spec.ts\",\"compact card sheet icon (warning-card-fixes spec §13.2)\",\"DI-C1 and DI-C3 to DI-C9 on a condensed crew under-row card at 320px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-f19f255170c48bc71f08\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"an unbreakable label ellipsizes rather than widening the row\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-f1ab1abb1a9ea2a71d3f\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"card-short-320: no footer descendant escapes the bar's content box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"c0ac92b4084c2cc51ff1-fc333c34b753908d91f8\",[\"compact-alert-card-layout.spec.ts\",\"compact alert card layout (real browser, real CSS)\",\"help trigger meets the 44px tap-target floor (22px box + overlay extent)\"]]"
@@ -773,6 +782,26 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-ea626d3c5e3488a1e9c2\",[\"ui-polish-class-sweep.spec.ts\",\"the tinted-plate outline, measured against the plate it stands on\",\"clears 3:1 on bg-warning-bg\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-f6ca30fe834404d4a69f\",[\"ui-polish-class-sweep.spec.ts\",\"the tinted-plate outline, measured against the plate it stands on\",\"clears 3:1 on bg-danger-bg\"]]"
     ],
+    "tests/e2e/warning-card-flows.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-7cea55d708a473fe5296\",[\"warning-card-flows.spec.ts\",\"unsaved reading guard (spec §6.5)\",\"closing with an unsaved pick asks first; the prompt fits and its buttons meet the floor (1280px)\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-a359913ead9c11d823b2\",[\"warning-card-flows.spec.ts\",\"jumps (spec §5.4, §5.5)\",\"a warning card jumps to Pack list and to its reservation (spec §8.3, §5.5)\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-bb8afca9ad252d4d6ffc\",[\"warning-card-flows.spec.ts\",\"deferred reading choice (spec §6.3)\",\"pick, Save, the card leaves the active list and focus stays in the panel\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-de3a847a06bffd7e4f6e\",[\"warning-card-flows.spec.ts\",\"unsaved reading guard (spec §6.5)\",\"closing with an unsaved pick asks first; the prompt fits and its buttons meet the floor (320px)\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-e90c4ecb15e1224ac6dc\",[\"warning-card-flows.spec.ts\",\"jumps (spec §5.4, §5.5)\",\"the Hotels reservation marker jumps to its card in Sheet warnings\"]]"
+    ],
+    "tests/e2e/warning-card-layout.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-23173dc9c7af45588abb\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 640px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-2f015801a216e8640203\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 1280px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-53b5a9b612a657c60e0a\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 375px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-61f034eb568287d88af5\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-10: a 120-character title wraps inside the cluster at 430px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-68bbdf7e488f286d870d\",[\"warning-card-layout.spec.ts\",\"archived pull sheet card include (spec §7.3)\",\"the include button meets the 44px tap floor at 1280px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-73290c84fbeb97278f18\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-10: a 120-character title wraps inside the cluster at 375px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-934415a5f7b265ff6a00\",[\"warning-card-layout.spec.ts\",\"archived pull sheet card include (spec §7.3)\",\"the include button meets the 44px tap floor at 375px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-9440a3d29dc6de2717b9\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-10: a 120-character title wraps inside the cluster at 320px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-9595da00428eca603348\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 320px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-95f845a9966cc65183b4\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-11: the Judgment call tag keeps its single-line height at every width\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-ddc00c3459ea4699be4c\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 430px\"]]"
+    ],
     "tests/e2e/wifi-password-row.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-38e3232ceb40ee580d14\",[\"wifi-password-row.layout.spec.ts\",\"DI-3 (mid-list): the target sits inside the SectionCard border box\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-4bce7b176f1332585776\",[\"wifi-password-row.layout.spec.ts\",\"DI-4 (mid-list): the target is disjoint from every other row's box\"]]",
@@ -816,5 +845,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 711
+  "totalTests": 736
 }

@@ -130,8 +130,13 @@ describe("control-outline census (spec §4.2)", () => {
    * that DROPS is also worth knowing, because it usually means an indirection
    * was resolved and a control just entered the cover.
    */
-  it("leaves the scanner's unresolved pool at 13", () => {
-    expect(UNIVERSE.filter((e) => e.unresolved).length).toBe(13);
+  // 13 -> 14 on feat/warning-card-fixes Task 14, triaged: the fourteenth is the deferred
+  // reading choice's Cancel (components/admin/DataQualityWarningControls.tsx, its own
+  // `dq-cancel-${reportSurfaceId}` <button>). Its className is `cn(CANCEL_BTN,
+  // CANCEL_RING_OFFSET[plate])`; the record only picks a ring offset, and CANCEL_BTN is a
+  // ghost button with `border-transparent`, so there is no outline for this census to own.
+  it("leaves the scanner's unresolved pool at 14", () => {
+    expect(UNIVERSE.filter((e) => e.unresolved).length).toBe(14);
   });
 });
 

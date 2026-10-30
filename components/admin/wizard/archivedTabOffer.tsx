@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 
 import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 import { overrideSnapshotsEqual, type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
@@ -84,8 +84,183 @@ export async function postPullSheetOverride(
 // code to route through the message catalog; success + 409 both re-fetch the preview).
 // This is a plain inline literal, NOT catalog copy — no raw code (invariant 5).
 // not-subject:M5-D8 — friendly fallback copy, not a §12.4-coded message.
-const ARCHIVED_TAB_ERROR =
+export const ARCHIVED_TAB_ERROR =
   "That didn’t go through. Refresh and try again, or contact the developer if it keeps happening.";
+
+/** The include action's one label and pending word, on every placement (R13,
+ *  warning-card-fixes §7.3, §11). Exported so every surface and test reads one string. */
+export const ARCHIVED_TAB_INCLUDE_LABEL = "Use this pull sheet";
+export const ARCHIVED_TAB_INCLUDE_PENDING = "Including…";
+
+export type ArchivedTabIncludeButtonProps = {
+  dfid: string | null;
+  wizardSessionId: string;
+  tab: ArchivedPullSheetTab;
+  /** The ground it stands on: the tinted offer card, or a neutral `bg-surface` row
+   *  (outline per the per-call-site colour rule above). */
+  plate: "tinted" | "surface";
+  pending: boolean;
+  onPendingChange: (next: boolean) => void;
+  /** Another write on the same row is in flight: disabled, idle label kept. */
+  blocked?: boolean;
+  /** Called on a refreshing outcome, BEFORE `router.refresh()` (the success unmounts
+   *  the focused button on the warning card). */
+  onBeforeRefresh?: () => void;
+  testId?: string;
+};
+
+/** The include button shared by the warning card, Pack list and the Resolve box
+ *  (warning-card-fixes §7.3). It owns NO pending state: the placement's parent does,
+ *  so ArchivedTabOffer keeps its one flag across include and "Keep skipped". It owns
+ *  only its error text and the always-mounted status region. */
+export function ArchivedTabIncludeButton({
+  dfid,
+  wizardSessionId,
+  tab,
+  plate,
+  pending,
+  onPendingChange,
+  blocked,
+  onBeforeRefresh,
+  testId,
+}: ArchivedTabIncludeButtonProps): ReactElement | null {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const disabled = pending || blocked === true;
+
+  async function include() {
+    if (disabled) return;
+    setError(null);
+    onPendingChange(true);
+    try {
+      const { refresh } = await postPullSheetOverride({
+        driveFileId: dfid,
+        wizardSessionId,
+        tabName: tab.tabName,
+        expectedFingerprint: tab.fingerprint,
+        expectedOverrideSnapshot: null,
+      });
+      if (refresh) {
+        onBeforeRefresh?.();
+        router.refresh();
+        return;
+      }
+      setError(ARCHIVED_TAB_ERROR);
+    } catch {
+      setError(ARCHIVED_TAB_ERROR);
+    } finally {
+      onPendingChange(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        data-testid={testId}
+        onClick={include}
+        disabled={disabled}
+        aria-busy={pending}
+        className={cn(
+          ARCHIVED_TAB_BTN,
+          plate === "tinted" ? "border-control-outline-tinted" : "border-text-faint",
+        )}
+      >
+        {pending ? (
+          ARCHIVED_TAB_INCLUDE_PENDING
+        ) : (
+          <>
+            {ARCHIVED_TAB_INCLUDE_LABEL}
+            {/* R13: the accessible name names the tab while idle; a blank name has
+                nothing to name, so the visible label stands alone. */}
+            {tab.tabName.trim() ? (
+              <>
+                {" "}
+                <span className="sr-only">from tab {tab.tabName}</span>
+              </>
+            ) : null}
+          </>
+        )}
+      </button>
+      {/* Mounted unconditionally, text toggled: a live region inserted with its
+          text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). These are
+          post-action failures, which is exactly when a reader needs to hear
+          something.
+
+          `sr-only` WHEN IDLE, NOT `empty:hidden` — and the difference is the
+          whole announcement (whole-diff review R1). `empty:hidden` compiles to
+          `:empty { display: none }`, and a `display: none` region is not IN the
+          accessibility tree at all; giving it text then reveals it, which is an
+          insertion, not a mutation inside an exposed region — exactly the
+          silence this conversion set out to fix, reintroduced by the utility
+          chosen to tidy the idle state. `sr-only` CLIPS the box while leaving
+          the element exposed, so the text change is a real mutation.
+
+          `basis-full order-last`: the button sits in its placement's wrapping
+          button row, and the message takes its own line below that row. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className={cn("order-last basis-full", error ? "" : "sr-only")}
+      >
+        {error ?? ""}
+      </p>
+    </>
+  );
+}
+
+export type ArchivedTabWarningActionsProps = {
+  dfid: string;
+  wizardSessionId: string;
+  /** The warning's tab when it is in the offer set, else null (no include). */
+  offeredTab: ArchivedPullSheetTab | null;
+  includeTestId: string;
+  onBeforeRefresh: () => void;
+  /** The card's section jump, between include and Report + Ignore (§8.3). */
+  jump: ReactNode;
+  renderControls: (lock: {
+    blocked: boolean;
+    onRunningChange: (running: boolean) => void;
+  }) => ReactNode;
+};
+
+/** The archived-tab warning card's action cluster (warning-card-fixes §7.3, §14.1). The
+ *  row renders inline in a `.map`, so this per-row component owns its two flags: while
+ *  the include is pending the row's Ignore is disabled, and while the Ignore runs the
+ *  include is disabled with its idle label. Report is never locked. */
+export function ArchivedTabWarningActions({
+  dfid,
+  wizardSessionId,
+  offeredTab,
+  includeTestId,
+  onBeforeRefresh,
+  jump,
+  renderControls,
+}: ArchivedTabWarningActionsProps): ReactElement | null {
+  const [includePending, setIncludePending] = useState(false);
+  const [ignoreRunning, setIgnoreRunning] = useState(false);
+  return (
+    <>
+      {offeredTab ? (
+        <div className="mt-1 flex flex-wrap gap-2">
+          <ArchivedTabIncludeButton
+            dfid={dfid}
+            wizardSessionId={wizardSessionId}
+            tab={offeredTab}
+            plate="surface"
+            pending={includePending}
+            onPendingChange={setIncludePending}
+            blocked={ignoreRunning}
+            onBeforeRefresh={onBeforeRefresh}
+            testId={includeTestId}
+          />
+        </div>
+      ) : null}
+      {jump}
+      {renderControls({ blocked: includePending, onRunningChange: setIgnoreRunning })}
+    </>
+  );
+}
 
 type ArchivedTabOfferProps = {
   dfid: string | null;
@@ -107,36 +282,12 @@ type ArchivedTabOfferProps = {
 export function ArchivedTabOffer(props: ArchivedTabOfferProps) {
   const { dfid, wizardSessionId, tab, testId } = props;
   const showDismiss = props.showDismiss !== false;
-  const router = useRouter();
+  // ONE flag for the whole offer (§7.3 "Pending ownership"): the shared include button
+  // owns none, so "Keep skipped" stays disabled for the whole include, as before.
   const [pending, setPending] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (dismissed) return null;
-
-  async function accept() {
-    if (pending) return;
-    setError(null);
-    setPending(true);
-    try {
-      const { refresh } = await postPullSheetOverride({
-        driveFileId: dfid,
-        wizardSessionId,
-        tabName: tab.tabName,
-        expectedFingerprint: tab.fingerprint,
-        expectedOverrideSnapshot: null,
-      });
-      if (refresh) {
-        router.refresh();
-        return;
-      }
-      setError(ARCHIVED_TAB_ERROR);
-    } catch {
-      setError(ARCHIVED_TAB_ERROR);
-    } finally {
-      setPending(false);
-    }
-  }
 
   // S4 (content changed after acceptance) is a genuine "act before it publishes"
   // state → warm warning tone. S2 (first discovery) is neutral information, not a
@@ -173,15 +324,14 @@ export function ArchivedTabOffer(props: ArchivedTabOfferProps) {
         If this is this show’s gear, include it{showDismiss ? "; otherwise leave it skipped" : ""}.
       </p>
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={accept}
-          disabled={pending}
-          aria-busy={pending}
-          className={cn(ARCHIVED_TAB_BTN, "border-control-outline-tinted")}
-        >
-          {pending ? "Including…" : "Use this show’s gear"}
-        </button>
+        <ArchivedTabIncludeButton
+          dfid={dfid}
+          wizardSessionId={wizardSessionId}
+          tab={tab}
+          plate="tinted"
+          pending={pending}
+          onPendingChange={setPending}
+        />
         {showDismiss ? (
           <button
             type="button"
@@ -198,22 +348,8 @@ export function ArchivedTabOffer(props: ArchivedTabOfferProps) {
           </button>
         ) : null}
       </div>
-      {/* Mounted unconditionally, text toggled: a live region inserted with its
-          text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). These are
-          post-action failures, which is exactly when a reader needs to hear
-          something.
-
-          `sr-only` WHEN IDLE, NOT `empty:hidden` — and the difference is the
-          whole announcement (whole-diff review R1). `empty:hidden` compiles to
-          `:empty { display: none }`, and a `display: none` region is not IN the
-          accessibility tree at all; giving it text then reveals it, which is an
-          insertion, not a mutation inside an exposed region — exactly the
-          silence this conversion set out to fix, reintroduced by the utility
-          chosen to tidy the idle state. `sr-only` CLIPS the box while leaving
-          the element exposed, so the text change is a real mutation. */}
-      <p role="status" aria-live="polite" className={error ? "" : "sr-only"}>
-        {error ?? ""}
-      </p>
+      {/* The include's error region renders inside the button row (order-last,
+          basis-full), owned by ArchivedTabIncludeButton. */}
     </div>
   );
 }

@@ -1659,3 +1659,15 @@ describe("AC-18 — the header cap has exactly one definition", () => {
     }
   });
 });
+
+// warning-card-fixes spec §8.3 (plan Task 17): the published modal's cards already
+// render inside their sections, so none of them carries a section jump.
+describe("PublishedReviewModal — no warning card section jumps (warning-card-fixes §8.3)", () => {
+  it("renders the routed crew card with no -section-jump", () => {
+    renderModal({}, [crewWarning]);
+    // The card is on the page (so the absence below is not an empty render)...
+    expect(document.body.textContent ?? "").toMatch(/Role we didn.t recognize/);
+    // ...and neither it nor anything else carries a section jump.
+    expect(document.querySelectorAll('[data-testid$="-section-jump"]')).toHaveLength(0);
+  });
+});

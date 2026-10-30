@@ -49,6 +49,7 @@ import {
 } from "@/components/admin/review/warningAnnounceContext";
 import {
   findUseRawDecision,
+  HOTELS_CAP,
   ROOMS_CAP,
   step3Sections,
   STEP3_SECTION_GROUPS,
@@ -520,6 +521,24 @@ export function ShowReviewSurface({
     highlightedElsRef.current = [];
   }
 
+  /** warning-card-fixes §15 (WCAG 2.4.3): a jump that scrolls to its target also moves
+   *  focus there, so a keyboard or screen-reader user lands where the page went. A
+   *  target that is not focusable gets `tabindex="-1"` (programmatic focus only, never a
+   *  new tab stop); the scroll is already handled, so focusing must not scroll again. */
+  function focusJumpTarget(el: HTMLElement | null | undefined) {
+    if (!el) return;
+    if (el.tabIndex < 0 && !el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+    el.focus({ preventScroll: true });
+  }
+
+  /** warning-card-fixes §8.3: a wizard card's `Go to <section>`: plain nav-click semantics,
+   *  then focus on the section (§15). The rail and chip clicks keep `handleNavClick`
+   *  alone: their focus stays in the nav they belong to. */
+  function jumpToSectionFromCard(id: SectionId) {
+    handleNavClick(id);
+    focusJumpTarget(sectionElsRef.current.get(id));
+  }
+
   /** §E4 jump: `index` = FULL warnings-array position (the callout entry's
    *  key); `null` = the "+N more" section-top jump (plain nav-click
    *  semantics, no highlight). `group` = every index a grouped callout row
@@ -549,6 +568,8 @@ export function ShowReviewSurface({
       highlightedElsRef.current = flashed;
       highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
     }
+    // warning-card-fixes §15: focus follows the jump to the card it scrolled to.
+    focusJumpTarget(target);
   }
 
   /** Rooms sub-nav: scroll the content pane to the room card at `index`. Keeps
@@ -563,6 +584,27 @@ export function ShowReviewSurface({
       const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
       scroller.scrollTo({ top });
     }
+  }
+
+  /** warning-card-fixes §5.5: a hotel judgment card's jump to its reservation. Mirrors
+   *  `jumpToRoom` (container-scoped `[data-hotel-index]` query, §A2 suppression) and adds
+   *  `jumpToWarning`'s one-shot flash on the reservation card. A missing card degrades
+   *  to plain Hotels nav, the attention-jump precedent. */
+  function jumpToHotel(index: number) {
+    const scroller = scrollerRef.current;
+    const target = scroller?.querySelector<HTMLElement>(`[data-hotel-index="${index}"]`);
+    if (!scroller || !target || typeof scroller.scrollTo !== "function") {
+      jumpToSectionFromCard("hotels");
+      return;
+    }
+    setActive("hotels");
+    const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+    scroller.scrollTo({ top });
+    clearWarningHighlight(); // one highlight at a time
+    target.setAttribute("data-step3-warning-flash", "");
+    highlightedElsRef.current = [target];
+    highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
+    focusJumpTarget(target); // §15: focus follows the jump
   }
 
   // Unmount hygiene (§H compound: drag-dismiss or unmount during highlight →
@@ -1087,6 +1129,9 @@ export function ShowReviewSurface({
                   // happens to put them.
                   {...(s.id === "warnings" ? { id: "warnings" } : {})}
                   data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
+                  // warning-card-fixes §15 (UI gate P3): a jump's focus target, named by
+                  // its own §6.4 heading (the chrome below hands the heading this id).
+                  aria-labelledby={`wizard-step3-card-${dfid}-review-section-${s.id}-heading`}
                   ref={(el) => {
                     if (el) sectionElsRef.current.set(s.id, el);
                     else sectionElsRef.current.delete(s.id);
@@ -1110,6 +1155,9 @@ export function ShowReviewSurface({
                       getActiveSection,
                       dfid,
                       sectionId: s.id,
+                      // Deterministic, not useId: the section DOM is compared byte for byte across
+                      // renders (showReviewSurfaceAttention), and the dfid scopes it per card.
+                      headingId: `wizard-step3-card-${dfid}-review-section-${s.id}-heading`,
                       // Bug #316 item 3: the staged row's per-region source-sheet anchors,
                       // so each section's "In sheet" heading link opens at its cell range.
                       sourceAnchors: data.sourceAnchors ?? {},
@@ -1155,6 +1203,19 @@ export function ShowReviewSurface({
                         ? {
                             pointerTargets,
                             onJumpToSection: (id: SectionId) => handleNavClick(id),
+                          }
+                        : {}),
+                      // warning-card-fixes §8.2: the staged Warnings chrome's card jumps.
+                      // Mutually exclusive with the pointer spread above (that one is
+                      // published-only), so neither overwrites the other.
+                      ...(s.id === "warnings" && isStaged(data)
+                        ? {
+                            onJumpToSection: jumpToSectionFromCard,
+                            jumpSections: sections
+                              .filter((x) => x.id !== "warnings" && x.id !== "report")
+                              .map((x) => ({ id: x.id, label: x.label })),
+                            onJumpToHotel: jumpToHotel,
+                            hotelCount: Math.min(data.hotels.length, HOTELS_CAP),
                           }
                         : {}),
                       // attention-alert-routing §3.3: anchored cards thread into the

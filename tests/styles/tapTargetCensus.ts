@@ -20,10 +20,12 @@
  *
  * Seeded 2026-08-14 by running the shipped scanner (spec §1.1 R7: the branch
  * derives its own numbers), and re-derived 2026-08-15 after the whole-diff
- * review tightened the grammar. 53 rows out of 354 in-scope elements — 301
- * clear statically. Per category: 15 full-bleed, 13 unresolvable-dynamic, 9
+ * review tightened the grammar. 54 rows out of 354 in-scope elements — 301
+ * clear statically. Per category: 15 full-bleed, 14 unresolvable-dynamic, 9
  * padding-arithmetic, 7 inline-prose-link, 7 parent-label-target, 2
- * dev-only-unstyled.
+ * dev-only-unstyled. (53 rows at that seeding; 54 since feat/warning-card-fixes
+ * Task 14 added the deferred reading choice's Cancel, one more unresolvable-dynamic
+ * element. The in-scope and clear-statically figures are the seeding's.)
  *
  * Three rows moved from `under-floor-filed` to `parent-label-target` on
  * 2026-08-25, and the direction is the point: they are not reclassified, they
@@ -228,7 +230,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // ELEVENTH (:1098 -> :1099) for the one comment line that marked it, and a
     // TWELFTH (:1099 -> :1084) when the mark logic moved into its own module and
     // took fifteen lines of comment out of this file.
-    line: 1084,
+    // 1084 -> 1099 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's
+    // ref and helper above the footer); located by the radio's own `name`.
+    // 1099 -> 1095 on feat/warning-card-fixes (review R1 E1: the unsaved-reading pending lock); located by its own element (5-line context match).
+    line: 1095,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -377,7 +382,22 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 4278 -> 4283 on fix/sheet-warning-links (its header-link guard added five lines above; 073cb8eb3). Then 4283 -> 4345 when the hotel-card date-stub pass rewrote HotelCard and MiniAvatar above it. Located on the merged tree: same element, same text.
     // +30 on fix/section-callout-group-repeats (SectionFlagCallout grew above it); located
     // on the merged tree by its own element, never by composing the deltas: 4375.
-    line: 4375,
+    // 4375 -> 4394 on feat/warning-card-fixes Task 7 (the warning title row rebuilt above
+    // it); the scanner reports one unclassified site in this file, 4394, the same tile `<a>`.
+    // 4394 -> 4427 on feat/warning-card-fixes Task 8 (the row-kind maps above it); the same
+    // tile `<a>`, located by its `anchorNodeRef.current = node` ref.
+    // 4427 -> 4490 on feat/warning-card-fixes Task 12 (the Accepted disclosure and the shared
+    // DismissedWarningRow above it); the same tile `<a>`, located by that ref.
+    // 4490 -> 4576 on feat/warning-card-fixes Task 13 (the archived card body and its
+    // action cluster above it); the same tile `<a>`, located by that ref.
+    // 4576 -> 4620 on feat/warning-card-fixes Task 15 (the staged reading scope above it);
+    // the same tile `<a>`, located by that ref.
+    // 4620 -> 4707 on feat/warning-card-fixes Task 16 (the Hotels reservation marker and
+    // the callout's reading label above it); the same tile `<a>`, located by that ref.
+    // 4707 -> 4775 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+    // card section jump above it); the same tile `<a>`, located by that ref.
+    // 4775 -> 4795 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+    line: 4795,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -518,7 +538,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
       "Card report flag: same `h-fit` + `before:absolute` 44px pseudo recipe as SourceLink, and recorded for the same reason.",
   },
 
-  // ---- unresolvable-dynamic (13) -----------------------------------------
+  // ---- unresolvable-dynamic (14) -----------------------------------------
   // Spec §5.4's consequence bound in action: the resolver could not read the
   // className, so the element is named here instead of being passed silently.
   {
@@ -553,10 +573,30 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // file nobody ships.
     // 215 -> 239 on the R2 repair: the reportShowId prop and its doc comment landed
     // above this button. Same `data-testid={`dq-${action}-${reportSurfaceId}`}`.
-    line: 239,
+    // 239 -> 275 on feat/warning-card-fixes Task 11; located by its own element (the same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the per-kind WORDS
+    // table and the isJudgmentCall import landed above it.
+    // 275 -> 286 on feat/warning-card-fixes Task 13; located by its own element (the same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the DqLockProps type
+    // and the run path's lock report landed above it.
+    // 286 -> 384 on feat/warning-card-fixes Task 14; located by its own element (the same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the deferred reading
+    // choice's Save sequence and copy landed above it.
+    line: 384,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",
+  },
+  {
+    file: "components/admin/DataQualityWarningControls.tsx",
+    // Added on feat/warning-card-fixes Task 14 (spec §6.3): the deferred reading choice's
+    // Cancel, located by its own `data-testid={`dq-cancel-${reportSurfaceId}`}`. CANCEL_BTN
+    // carries `min-h-tap-min`; the ring offset is a per-ground record lookup.
+    line: 404,
+    tag: "button",
+    category: "unresolvable-dynamic",
+    reason:
+      "`cn(CANCEL_BTN, CANCEL_RING_OFFSET[plate])` — computed member access; the readable CANCEL_BTN part carries `min-h-tap-min`.",
   },
   {
     file: "components/admin/HoverHelp.tsx",
@@ -583,7 +623,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/SheetIconLink.tsx",
-    line: 91,
+    // 91 -> 94 on feat/warning-card-fixes Task 6; located by its own element
+    // (the one `<a` in the file), after the ringOffset union gained two keys.
+    line: 94,
     tag: "a",
     category: "unresolvable-dynamic",
     reason:
@@ -613,7 +655,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/review/ReviewModalShell.tsx",
-    line: 609,
+    // 609 -> 655 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's
+    // registry, guarded close and header close above the dialog root); located by
+    // the scrim's own `-backdrop` testid.
+    line: 655,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:

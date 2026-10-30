@@ -240,6 +240,12 @@ describe("NoteWarningCard rendered popover (all four truth-table rows)", () => {
       />,
     );
     expect(screen.getByTestId("note-warning-sheet-link")).not.toBeNull();
+    // warning-card-fixes §3.6 (R11): the link is the message row's icon, LAST in that
+    // row, and a note card has no controls band at all.
+    const row = screen.getByTestId("compact-alert-message");
+    expect(row.lastElementChild).toBe(screen.getByTestId("note-warning-sheet-link"));
+    expect(screen.getByTestId("note-warning-sheet-link").textContent).not.toMatch(/Open in Sheet/);
+    expect(screen.queryByTestId("compact-alert-controls-band")).toBeNull();
     unmount();
     // Null driveFileId → buildSheetDeepLink returns null → no link.
     render(
