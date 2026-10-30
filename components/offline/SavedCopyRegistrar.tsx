@@ -12,10 +12,14 @@
  *   With the kill switch on (`disabled`, read by the server per request) it
  *   unregisters every registration instead and does nothing else. Idle is
  *   `requestIdleCallback`, or on WebKit, which lacks it, a timer after `load`.
- * - On a live page (no `fxav-served` meta, spec 4.7.1) that a worker controls,
- *   it posts `ensure-saved` with the path and the render time: when the worker
- *   takes control, and again whenever an RSC refresh brings a new render time,
- *   at most once per 10 seconds. A render time that arrives inside the window
+ * - On a live page that a worker controls, it posts `ensure-saved` with the
+ *   path and the render time: when the worker takes control, and again
+ *   whenever an RSC refresh brings a new render time, at most once per 10
+ *   seconds. Live is read as the bar reads it (spec 4.7.2): no `fxav-served`
+ *   meta (spec 4.7.1), or a render time other than the one the page mounted
+ *   with, since a saved copy that an RSC refresh brought server content to is
+ *   live even though the meta stays in its document. An empty render time is
+ *   never sent; the worker's protocol rejects it. A render time that arrives inside the window
  *   is sent when the window ends, and a later one replaces it, because the
  *   worker saves the page as the server renders it now, not as it was. This is
  *   the client action of the `save` marker (plan section 1, item 5): the first
@@ -31,7 +35,7 @@
  *
  * With no usable `navigator.serviceWorker` it does nothing at all.
  */
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { readServedCopy } from "@/lib/offline/client/servedCopy";
@@ -226,8 +230,9 @@ function send(throttle: Throttle, renderedAt: string): void {
 
 function requestEnsureSaved(throttle: Throttle, renderedAt: string): void {
   // One render time is one message: a re-render, StrictMode's second effect
-  // run, or a new controller does not repeat it.
-  if (renderedAt === throttle.latest) return;
+  // run, or a new controller does not repeat it. An empty one is no render
+  // time at all: parsePageMessage (lib/offline/protocol.ts) refuses it.
+  if (renderedAt === "" || renderedAt === throttle.latest) return;
   throttle.latest = renderedAt;
   if (throttle.timer !== undefined) throttle.waiting = true;
   else send(throttle, renderedAt);
@@ -239,6 +244,9 @@ export function SavedCopyRegistrar({ renderedAt, disabled, hasAgenda }: SavedCop
     isControlled,
     isControlledOnServer,
   );
+  // The render time this registrar mounted with. A different one later means
+  // an RSC refresh brought server content, so the page is live (spec 4.7.2).
+  const [mountRenderedAt] = useState(renderedAt);
   const throttle = useRef<Throttle>({
     latest: null,
     waiting: false,
@@ -292,9 +300,10 @@ export function SavedCopyRegistrar({ renderedAt, disabled, hasAgenda }: SavedCop
 
   useEffect(() => {
     if (disabled || !controlled) return;
-    if (readServedCopy().mode !== "live") return;
+    const live = renderedAt !== mountRenderedAt || readServedCopy().mode === "live";
+    if (!live) return;
     requestEnsureSaved(throttle.current, renderedAt);
-  }, [disabled, controlled, renderedAt]);
+  }, [disabled, controlled, renderedAt, mountRenderedAt]);
 
   useEffect(() => {
     if (disabled || !hasAgenda || !controlled) return;

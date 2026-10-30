@@ -753,6 +753,10 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "REALTIME_UNKNOWN_SYSTEM_EVENT",
   "CLIENT_WINDOW_ERROR",
   "CLIENT_UNHANDLED_REJECTION",
+  // Crew offline saved copy (2026-10-27): clientLog warn codes from
+  // components/offline/SavedCopyRegistrar.tsx (spec 6; NOT cataloged).
+  "CREW_OFFLINE_SW_REGISTER_FAILED",
+  "CREW_OFFLINE_SAVE_FAILED",
   "OAUTH_CLAIM_RPC_FAILED",
   "OAUTH_CLAIM_STAMP_FAILED",
   "AGENDA_EXTRACT_REGION_FAILED",

@@ -371,24 +371,58 @@ describe("ensure-saved (spec 4.7.3)", () => {
     expect(posted()).toEqual([ensureSaved(FIRST)]);
   });
 
-  test("no ensure-saved on a saved copy, whatever its render times", async () => {
+  test("a saved copy posts nothing at the render time it was served with, and once per new render time after an RSC refresh, still throttled", async () => {
+    vi.useFakeTimers();
     const { register } = installServiceWorker({ controlled: true });
     installStorage();
     serveAsSavedCopy();
 
-    const { rerender } = render(<SavedCopyRegistrar {...BASE} />);
-    await settle();
-    rerender(<SavedCopyRegistrar {...BASE} renderedAt={SECOND} />);
-    await settle();
-
-    // The registrar ran (it registered); it just posted nothing.
+    const { rerender } = render(
+      <StrictMode>
+        <SavedCopyRegistrar {...BASE} />
+      </StrictMode>,
+    );
+    // Async, so the microtask that calls register runs too.
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    // The registrar ran (it registered); the saved copy itself posts nothing.
     expect(register).toHaveBeenCalledTimes(1);
     expect(post).not.toHaveBeenCalled();
 
-    // The same mount on a live page posts.
-    cleanup();
-    document.head.querySelector('meta[name="fxav-served"]')?.remove();
-    render(<SavedCopyRegistrar {...BASE} />);
+    // An RSC refresh brings server content with a new render time. The meta
+    // stays in the document, but the page is live now, as the bar reads it
+    // (spec 4.7.2), so the copy is saved again.
+    rerender(
+      <StrictMode>
+        <SavedCopyRegistrar {...BASE} renderedAt={SECOND} />
+      </StrictMode>,
+    );
+    expect(posted()).toEqual([ensureSaved(SECOND)]);
+
+    // Still throttled: a render time inside the window waits for it to end.
+    rerender(
+      <StrictMode>
+        <SavedCopyRegistrar {...BASE} renderedAt={THIRD} />
+      </StrictMode>,
+    );
+    act(() => vi.advanceTimersByTime(9_999));
+    expect(posted()).toEqual([ensureSaved(SECOND)]);
+    act(() => vi.advanceTimersByTime(1));
+    expect(posted()).toEqual([ensureSaved(SECOND), ensureSaved(THIRD)]);
+  });
+
+  test("an empty render time is not sent", () => {
+    vi.useFakeTimers();
+    installServiceWorker({ controlled: true });
+    installStorage();
+
+    const { rerender } = render(<SavedCopyRegistrar {...BASE} renderedAt="" />);
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(post).not.toHaveBeenCalled();
+
+    // The same page with a render time posts it at once: the empty one opened no window.
+    rerender(<SavedCopyRegistrar {...BASE} renderedAt={FIRST} />);
     expect(posted()).toEqual([ensureSaved(FIRST)]);
   });
 
