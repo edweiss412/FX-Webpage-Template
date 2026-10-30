@@ -37,7 +37,7 @@ function isServeMode(value: string | null): value is ServeMode {
  */
 export function readServedCopy(): ServedCopyReading {
   const meta = document.querySelector('meta[name="fxav-served"]');
-  const nowMs = Date.now(); // not-render-side: client effect read, called only from SavedCopyBar's mount effect and age tick after hydration
+  const nowMs = Date.now(); // not-render-side: client effect read, called only from effects after hydration: SavedCopyBar's mount effect and age tick, and SavedCopyRegistrar's ensure-saved effect
   if (meta === null) return { mode: "live", savedAt: null, nowMs };
   const content = meta.getAttribute("content");
   return {
