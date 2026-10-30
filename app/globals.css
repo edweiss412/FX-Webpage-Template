@@ -1855,3 +1855,15 @@ details[open] > summary [data-agenda-day-count] {
     outline-offset: 2px;
   }
 }
+
+/*
+ * Crew page header height (crew page redesign spec §8 item 6). One fixed
+ * value, read by the wide layout's sticky header (`lg:h-(--crew-header-h)`),
+ * the wide nav's sticky offset and height, and every stacked section's
+ * `scroll-margin-top`, so a nav jump lands each heading just under the header.
+ * It fits the header's three lines (eyebrow, the title row with its status
+ * pill, the date) and the 52px search field beside them.
+ */
+:root {
+  --crew-header-h: 6rem;
+}

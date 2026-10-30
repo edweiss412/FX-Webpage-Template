@@ -19,6 +19,34 @@
  * harness rule "Readiness gate"). The server's clock is pinned with the
  * frozen-time headers and the browser's with `setFixedTime`, which fixes `Date`
  * but keeps timers running, so smooth scrolls and the indicator transition run.
+ *
+ * Crew page redesign spec §8 "Dimensional invariants", verbatim (plan Task 13):
+ *
+ * Tailwind v4 here does not stretch flex children by default; each relationship
+ * below names the class that guarantees it, and the plan asserts each with
+ * `getBoundingClientRect()` in a real browser.
+ *
+ * 1. **Day row.** Up to 4 buttons (days plus "Now"): a grid with one equal track
+ *    per day (`grid` + `grid-cols-[repeat(N,minmax(0,1fr))]`), every button the
+ *    full row height (`items-stretch` on the row, `h-full` on the button). Five or
+ *    more: a flex row with `min-w-16` buttons and `snap-x`, buttons still
+ *    `self-stretch`.
+ * 2. **Pass.** The card keeps a fixed minimum height across day crossfades and
+ *    live-state swaps (the existing `--spacing-right-now-min-h`, carried from
+ *    `RightNowHero`). The fact grid is `grid-cols-3`, every cell `min-w-0` so
+ *    values truncate instead of widening the column.
+ * 3. **Quick facts.** `grid-cols-2` with `items-stretch`; every tile `h-full`,
+ *    so tiles in one row share a height. A spanning tile is `col-span-2`.
+ * 4. **Section sheet (compact).** Fixed to the viewport bottom, `max-h-[90dvh]`,
+ *    a flex column: the header row is `shrink-0`, the body is `flex-1 min-h-0
+ *    overflow-y-auto`. The sheet never grows past 90% of the dynamic viewport
+ *    height, and its body scrolls inside it.
+ * 5. **Wide layout.** The nav is `w-60 shrink-0`, sticky under the header, its
+ *    height the viewport minus the header (`h-[calc(100dvh-var(--crew-header-h))]`)
+ *    with its own scroll. The content column is `flex-1 min-w-0`.
+ * 6. **Header.** One fixed height token `--crew-header-h`, used by the header
+ *    itself, the wide nav offset and the scroll-margin of every section anchor (so
+ *    a nav jump never lands a heading under the header).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -98,13 +126,18 @@ test.describe("crew wide nav (spec §5.3)", () => {
     return page.getByTestId("crew-wide-nav").locator(`[data-section="${id}"]`);
   }
 
-  /** Viewport-relative top of a stacked section, read in one evaluate (detach safety). */
+  /**
+   * A stacked section's top, measured from the bottom of the sticky header (the
+   * top of the visible page in wide mode, spec §8 item 6), read in one evaluate
+   * (detach safety).
+   */
   async function sectionTop(page: Page, id: CrewSectionId): Promise<number> {
     return page.evaluate(
       (sid) =>
         document
           .querySelector(`[data-testid="crew-wide-section"][data-section="${sid}"]`)!
-          .getBoundingClientRect().top,
+          .getBoundingClientRect().top -
+        document.querySelector('[data-testid="page-header"]')!.getBoundingClientRect().bottom,
       id,
     );
   }
@@ -171,7 +204,12 @@ test.describe("crew wide nav (spec §5.3)", () => {
       const section = document.querySelector(
         '[data-testid="crew-wide-section"][data-section="gear"]',
       )!;
-      return { top: section.getBoundingClientRect().top, scrollY: window.scrollY };
+      // Measured from the sticky header's bottom edge, as `sectionTop` does.
+      const header = document.querySelector('[data-testid="page-header"]')!;
+      return {
+        top: section.getBoundingClientRect().top - header.getBoundingClientRect().bottom,
+        scrollY: window.scrollY,
+      };
     });
     expect(landed.scrollY).toBeGreaterThan(0);
     expect(landed.top).toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
@@ -285,6 +323,146 @@ test.describe("crew wide nav (spec §5.3)", () => {
     await expect(page).not.toHaveURL(/[?&]s=/);
     await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5000 }).toBe(0);
     expect(await page.evaluate(() => document.activeElement?.tagName ?? "")).toBe(focusBefore);
+  });
+
+  // ── Dimensional invariants (spec §8 rows 5 and 6, plan Task 13) ──────────────
+  // Quoted in the file header. Every read is one `page.evaluate` (detach safety).
+
+  /** The header, the nav, the content column and the header token, in one read. */
+  async function readWideLayout(page: Page) {
+    return page.evaluate(() => {
+      // The token as the page resolves it: an undefined variable gives the probe no height.
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--crew-header-h)";
+      document.body.append(probe);
+      const token = probe.getBoundingClientRect().height;
+      probe.remove();
+      const rect = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          bottom: r.bottom,
+          left: r.left,
+          right: r.right,
+          width: r.width,
+          height: r.height,
+        };
+      };
+      const header = document.querySelector<HTMLElement>('[data-testid="page-header"]')!;
+      const nav = document.querySelector('[data-testid="crew-wide-nav"]')!;
+      const main = document.querySelector('[data-testid="page-container"]')!;
+      const row = main.parentElement!;
+      const rs = getComputedStyle(row);
+      const rowRect = rect(row);
+      const ns = getComputedStyle(nav);
+      return {
+        token,
+        innerHeight: window.innerHeight,
+        scrollY: window.scrollY,
+        header: {
+          ...rect(header),
+          position: getComputedStyle(header).position,
+          clientHeight: header.clientHeight,
+          scrollHeight: header.scrollHeight,
+        },
+        nav: {
+          ...rect(nav),
+          position: ns.position,
+          stickyTop: Number.parseFloat(ns.top),
+          overflowY: ns.overflowY,
+        },
+        main: rect(main),
+        row: {
+          left: rowRect.left + Number.parseFloat(rs.paddingLeft),
+          right: rowRect.right - Number.parseFloat(rs.paddingRight),
+          gap: Number.parseFloat(rs.columnGap),
+        },
+        anchors: [...document.querySelectorAll('[data-testid="crew-wide-section"]')].map((el) => ({
+          id: el.getAttribute("data-section"),
+          margin: Number.parseFloat(getComputedStyle(el).scrollMarginTop),
+        })),
+      };
+    });
+  }
+
+  test("dimensional: wide layout: the nav is 240px wide and sticky under the header at the viewport's height less the header, and the content column fills the rest", async ({
+    page,
+  }) => {
+    const TOL = 0.5;
+    await load(page, "?s=today");
+    const top = await readWideLayout(page);
+    let at = JSON.stringify(top);
+    expect(top.token, `the header token resolves ${at}`).toBeGreaterThan(0);
+    expect(Math.abs(top.nav.width - 240), at).toBeLessThanOrEqual(TOL);
+    expect(top.nav.position, at).toBe("sticky");
+    expect(top.nav.overflowY, `the nav scrolls on its own ${at}`).toBe("auto");
+    expect(Math.abs(top.nav.top - top.header.bottom), at).toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs(top.nav.height - (top.innerHeight - top.header.height)),
+      at,
+    ).toBeLessThanOrEqual(TOL);
+    // The content column takes every pixel the nav and the gap leave.
+    expect(Math.abs(top.main.left - (top.nav.right + top.row.gap)), at).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(top.main.right - top.row.right), at).toBeLessThanOrEqual(TOL);
+    expect(
+      Math.abs(top.nav.width + top.row.gap + top.main.width - (top.row.right - top.row.left)),
+      at,
+    ).toBeLessThanOrEqual(TOL);
+
+    // Scrolled well past the header's height: the header stays at the top and
+    // the nav stays under it, filling the viewport to the bottom.
+    await page.evaluate(() => window.scrollTo({ top: 1500, behavior: "auto" }));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(top.header.height);
+    const scrolled = await readWideLayout(page);
+    at = JSON.stringify(scrolled);
+    expect(Math.abs(scrolled.header.top), at).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(scrolled.nav.top - scrolled.header.bottom), at).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(scrolled.nav.bottom - scrolled.innerHeight), at).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(scrolled.nav.width - 240), at).toBeLessThanOrEqual(TOL);
+  });
+
+  test("dimensional: header: one token, --crew-header-h, is the header's height, the nav's sticky offset and every section anchor's scroll margin, so a nav jump lands each heading just under the header", async ({
+    page,
+  }) => {
+    const TOL = 0.5;
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await load(page, "?s=today");
+    const m = await readWideLayout(page);
+    const at = JSON.stringify(m);
+    expect(m.token, `the header token resolves ${at}`).toBeGreaterThan(0);
+    expect(Math.abs(m.header.height - m.token), at).toBeLessThanOrEqual(TOL);
+    // Nothing in the header spills past its fixed height.
+    expect(m.header.scrollHeight, at).toBeLessThanOrEqual(m.header.clientHeight);
+    expect(Math.abs(m.nav.stickyTop - m.token), at).toBeLessThanOrEqual(TOL);
+    expect(
+      m.anchors.map((a) => a.id),
+      at,
+    ).toEqual(ADMIN_SECTIONS);
+    for (const a of m.anchors) {
+      expect(Math.abs(a.margin - m.token), `${at} ${a.id}`).toBeLessThanOrEqual(TOL);
+    }
+    // A jump (instant under reduced motion) lands the section's top on the
+    // header's bottom edge: the heading is never under the header.
+    const landed = await page.evaluate(async () => {
+      document
+        .querySelector<HTMLElement>('[data-testid="crew-wide-nav"] [data-section="gear"]')!
+        .click();
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const heading = document.querySelector(
+        '[data-testid="crew-wide-section"][data-section="gear"] h2',
+      )!;
+      return {
+        headingTop: heading.getBoundingClientRect().top,
+        headerBottom: document.querySelector('[data-testid="page-header"]')!.getBoundingClientRect()
+          .bottom,
+        scrollY: window.scrollY,
+      };
+    });
+    expect(landed.scrollY, JSON.stringify(landed)).toBeGreaterThan(0);
+    expect(
+      Math.abs(landed.headingTop - landed.headerBottom),
+      JSON.stringify(landed),
+    ).toBeLessThanOrEqual(TOL);
   });
 
   // ── Compound transitions across the breakpoint (spec §7, plan Task 12) ──────

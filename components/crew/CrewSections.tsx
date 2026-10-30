@@ -399,13 +399,17 @@ export function CrewSections({
     [releaseSuppression],
   );
 
+  // Each section is read where a nav jump lands it, its top less its scroll
+  // margin: the sticky header covers the margin, so the spy's line is measured
+  // from the header's bottom edge (spec §8 item 6), and a jumped-to section is
+  // the active one.
   const spyItems = useCallback((): Array<{ id: string; top: number }> => {
     const tops: Array<{ id: string; top: number }> = [];
     const today = todayRef.current;
-    if (today) tops.push({ id: "today", top: today.getBoundingClientRect().top + window.scrollY });
+    if (today) tops.push({ id: "today", top: scrollTargetFor(today) });
     for (const s of sections) {
       const el = stackRefs.current.get(s.id);
-      if (el) tops.push({ id: s.id, top: el.getBoundingClientRect().top + window.scrollY });
+      if (el) tops.push({ id: s.id, top: scrollTargetFor(el) });
     }
     return tops;
   }, [sections]);
@@ -890,7 +894,7 @@ export function CrewSections({
                         data-testid="crew-wide-section"
                         data-section={s.id}
                         aria-labelledby={`crew-section-heading-${s.id}`}
-                        className="@container flex scroll-mt-6 flex-col gap-4"
+                        className="@container flex scroll-mt-(--crew-header-h) flex-col gap-4"
                       >
                         <h2
                           id={`crew-section-heading-${s.id}`}

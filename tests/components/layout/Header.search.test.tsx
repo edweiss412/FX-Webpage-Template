@@ -46,18 +46,18 @@ describe("Header without the search slot (markup unchanged)", () => {
     );
     expect(container.firstChild).toMatchInlineSnapshot(`
       <header
-        class="border-b border-border bg-bg"
+        class="border-b border-border bg-bg lg:sticky lg:top-0 lg:z-nav lg:h-(--crew-header-h)"
         data-testid="page-header"
       >
         <div
-          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4"
+          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
             class="min-w-0 flex-1"
             data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate"
               data-testid="page-header-eyebrow"
             >
               Acme Corp
@@ -74,10 +74,10 @@ describe("Header without the search slot (markup unchanged)", () => {
               Hilton Chicago
             </p>
             <div
-              class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1"
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 lg:flex-nowrap mt-1"
             >
               <h1
-                class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg"
+                class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:min-w-0 lg:truncate"
               >
                 Spring Gala 2026
               </h1>
@@ -102,7 +102,7 @@ describe("Header without the search slot (markup unchanged)", () => {
             </p>
           </div>
           <div
-            class="flex shrink-0 items-center gap-3 self-start"
+            class="flex shrink-0 items-center gap-3 self-start lg:self-center"
             data-testid="page-header-right-slot"
           >
             <button
@@ -149,18 +149,18 @@ describe("Header without the search slot (markup unchanged)", () => {
     const { container } = render(<Header show={SHOW} />);
     expect(container.firstChild).toMatchInlineSnapshot(`
       <header
-        class="border-b border-border bg-bg"
+        class="border-b border-border bg-bg lg:sticky lg:top-0 lg:z-nav lg:h-(--crew-header-h)"
         data-testid="page-header"
       >
         <div
-          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4"
+          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
             class="min-w-0 flex-1"
             data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate"
               data-testid="page-header-eyebrow"
             >
               Acme Corp
@@ -177,7 +177,7 @@ describe("Header without the search slot (markup unchanged)", () => {
               Hilton Chicago
             </p>
             <h1
-              class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg mt-1"
+              class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:truncate mt-1"
             >
               Spring Gala 2026
             </h1>
@@ -193,7 +193,7 @@ describe("Header without the search slot (markup unchanged)", () => {
             </p>
           </div>
           <div
-            class="flex shrink-0 items-center gap-3 self-start"
+            class="flex shrink-0 items-center gap-3 self-start lg:self-center"
             data-identity="none"
             data-testid="page-header-right-slot"
           >

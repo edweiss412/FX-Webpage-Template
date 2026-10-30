@@ -566,7 +566,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // compound cases load the share and preview routes through loadPath's
     // `path`. Same disposition: a crew page. Re-derived from the failure's own
     // count (23 candidates).
-    expectedCount: 23,
+    // 24 since the crew page redesign's Task 13: the compact dimensional cases
+    // load the share and preview routes through gotoHome's `path` in
+    // crew-page.spec.ts. Same disposition: a crew page. Re-derived from the
+    // failure's own count (24 candidates).
+    expectedCount: 24,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -647,7 +651,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 17 since the crew page redesign's Task 12: crew-section-toggle.spec.ts's
     // lost-entitlement case loads the preview-as route for a seeded lead.
     // Re-derived from the failure's own count (17 candidates).
-    expectedCount: 17,
+    // 18 since the crew page redesign's Task 13: the compact dimensional cases
+    // build the preview-as path for the four-tile quick facts (previewPath in
+    // crew-page.spec.ts). Re-derived from the failure's own count (18 candidates).
+    expectedCount: 18,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

@@ -22,6 +22,10 @@
  * mounts without its transition and turns it on the next frame, so it never
  * slides in from the top on first paint.
  *
+ * Dimensions (spec §8 item 5): 240px wide (`w-60 shrink-0`), sticky under the
+ * header at the header token's offset, and exactly the viewport less the header
+ * tall (`h-[calc(100dvh-var(--crew-header-h))]`), scrolling on its own.
+ *
  * data-testid: crew-wide-nav (each item data-section), crew-wide-nav-indicator.
  */
 
@@ -85,7 +89,7 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
       data-testid="crew-wide-nav"
       aria-label="Show sections"
       hidden={hidden}
-      className="sticky top-0 hidden max-h-dvh w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
+      className="sticky top-(--crew-header-h) hidden h-[calc(100dvh-var(--crew-header-h))] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
     >
       {indicator !== null ? (
         <span

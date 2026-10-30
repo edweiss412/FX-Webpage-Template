@@ -29,6 +29,12 @@
  *     up (the crew page's mode boundary, spec §3.1) it returns to DOM order,
  *     between the title and the identity chip. DOM order is the wide order, so
  *     a screen reader hears title, search, chip in both modes.
+ *   - Wide (1024px and up): a fixed-height bar that sticks to the top of the
+ *     viewport, `--crew-header-h` tall (spec §8 item 6), the token the wide
+ *     nav's sticky offset and every stacked section's scroll margin read too.
+ *     Its content is centred in the bar on one row, and the eyebrow and the
+ *     title truncate to one line each so a long show title cannot grow it.
+ *     Below 1024px it is the in-flow header it always was.
  *   - Status slot: an empty element directly under the header bar, for the
  *     offline project to fill. Its parent (the crew shell's flex column) has
  *     no gap, so an empty slot costs nothing; in a gapped parent it would need
@@ -103,17 +109,20 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
 
   return (
     <>
-      <header data-testid="page-header" className="border-b border-border bg-bg">
+      <header
+        data-testid="page-header"
+        className="border-b border-border bg-bg lg:sticky lg:top-0 lg:z-nav lg:h-(--crew-header-h)"
+      >
         {/* `flex-wrap` only ever wraps the search slot: the title block is
             `flex-1` (a zero basis) beside a small right slot, so without a
             search node the row is the single line it always was. `gap-y`
             equals the padding the search row used to carry under the title. */}
-        <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4">
+        <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0">
           <div data-testid="page-header-title-block" className="min-w-0 flex-1">
             {hasEyebrow ? (
               <p
                 data-testid="page-header-eyebrow"
-                className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
+                className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate"
               >
                 {client}
                 {client !== null && venue !== null ? (
@@ -132,9 +141,9 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
               // Pill present (crew page): h1 + pill share a flex title row. The
               // mt-1 (when an eyebrow is above) lives on this wrapper.
               <div
-                className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${hasEyebrow ? "mt-1" : ""}`}
+                className={`flex flex-wrap items-center gap-x-2 gap-y-1 lg:flex-nowrap ${hasEyebrow ? "mt-1" : ""}`}
               >
-                <h1 className="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg">
+                <h1 className="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:min-w-0 lg:truncate">
                   {show.title}
                 </h1>
                 <span data-testid="header-status-pill" className="shrink-0">
@@ -146,7 +155,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
               // carrying its own mt-1 only under an eyebrow — preserving the
               // M4-D3 rebalance contract (no orphan eyebrow whitespace).
               <h1
-                className={`text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg${
+                className={`text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:truncate${
                   hasEyebrow ? " mt-1" : ""
                 }`}
               >
@@ -170,7 +179,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
             </div>
           ) : null}
           <div
-            className="flex shrink-0 items-center gap-3 self-start"
+            className="flex shrink-0 items-center gap-3 self-start lg:self-center"
             data-testid="page-header-right-slot"
             data-identity={hasIdentity ? undefined : "none"}
           >

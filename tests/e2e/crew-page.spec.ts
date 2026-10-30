@@ -26,6 +26,41 @@
  * via lib/parser/slug.ts. The Waldorf fixture
  * (`2026-04-asset-mgmt-cfo-coo-waldorf.md`) is looked up via service-role at test
  * start (slug + show_share_tokens.share_token) so a re-seed still resolves.
+ *
+ * Crew page redesign spec §8 "Dimensional invariants", verbatim (plan Task 13):
+ *
+ * Tailwind v4 here does not stretch flex children by default; each relationship
+ * below names the class that guarantees it, and the plan asserts each with
+ * `getBoundingClientRect()` in a real browser.
+ *
+ * 1. **Day row.** Up to 4 buttons (days plus "Now"): a grid with one equal track
+ *    per day (`grid` + `grid-cols-[repeat(N,minmax(0,1fr))]`), every button the
+ *    full row height (`items-stretch` on the row, `h-full` on the button). Five or
+ *    more: a flex row with `min-w-16` buttons and `snap-x`, buttons still
+ *    `self-stretch`.
+ * 2. **Pass.** The card keeps a fixed minimum height across day crossfades and
+ *    live-state swaps (the existing `--spacing-right-now-min-h`, carried from
+ *    `RightNowHero`). The fact grid is `grid-cols-3`, every cell `min-w-0` so
+ *    values truncate instead of widening the column.
+ * 3. **Quick facts.** `grid-cols-2` with `items-stretch`; every tile `h-full`,
+ *    so tiles in one row share a height. A spanning tile is `col-span-2`.
+ * 4. **Section sheet (compact).** Fixed to the viewport bottom, `max-h-[90dvh]`,
+ *    a flex column: the header row is `shrink-0`, the body is `flex-1 min-h-0
+ *    overflow-y-auto`. The sheet never grows past 90% of the dynamic viewport
+ *    height, and its body scrolls inside it.
+ * 5. **Wide layout.** The nav is `w-60 shrink-0`, sticky under the header, its
+ *    height the viewport minus the header (`h-[calc(100dvh-var(--crew-header-h))]`)
+ *    with its own scroll. The content column is `flex-1 min-w-0`.
+ * 6. **Header.** One fixed height token `--crew-header-h`, used by the header
+ *    itself, the wide nav offset and the scroll-margin of every section anchor (so
+ *    a nav jump never lands a heading under the header).
+ *
+ * And the two truncation rules, verbatim: spec §4.3 (the pass, L181), "Each value
+ * is one line with an ellipsis; the full value is one tap away in its section.";
+ * spec §4.5 (quick facts, L223):
+ *
+ * - **Truncation.** Values wrap to at most 3 lines, then ellipsis. The full text
+ *    is in the section the fact comes from.
  */
 import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
@@ -2458,5 +2493,492 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
     await expect(
       page.getByTestId("page-footer").getByTestId("report-button-trigger"),
     ).toHaveAccessibleName("Report this");
+  });
+});
+
+// ── Crew page redesign Task 13: the compact dimensional invariants ───────────
+// Spec §8 rows 1 to 4 and the two truncation rules (§4.3, §4.5), quoted in the
+// file header. Heights are read on the visible face inside each grid or flex
+// cell (the day button, the quick-fact card), never on a cell the grid would
+// stretch on its own. Every measurement is one `page.evaluate` (detach safety).
+test.describe("dimensional invariants, compact (crew page redesign Task 13)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+  /** Travel in and load in on one day: the row's two-line "Travel in, load in" button. */
+  const COMBINED_DAY = "2026-04-20";
+  const SHOW_DAY_1 = "2026-04-21";
+  const SHOW_DAYS = [SHOW_DAY_1, "2026-04-22"];
+  const TRAVEL_OUT = "2026-04-23";
+  /** Today outside the day set: a "Now" button leads the row, so 4 days make 5 buttons. */
+  const BEFORE_TRAVEL = "2026-04-10";
+  const noonUtc = (iso: string) => `${iso}T12:00:00.000Z`;
+  /** Longer than any column or tile at either width, so truncation must engage. */
+  const LONG_DRESS_CODE =
+    "Show blacks head to toe, long sleeves on the floor, closed-toe shoes with soft soles, " +
+    "no logos or bright patterns anywhere in view of the audience, black gaffer gloves on the " +
+    "deck during changeovers, and a dark layer for the overnight load out when the dock doors " +
+    "stay open to the street";
+  // A full roster: the Crew sheet's body outgrows 90% of a 600px-tall viewport.
+  const CREW = Array.from({ length: 12 }, (_, i) => ({
+    name: `Dimension Crew ${String(i + 1).padStart(2, "0")}`,
+    role: "A2",
+  }));
+
+  let seeded: Awaited<ReturnType<typeof seedShowWithCrew>>;
+  const homePath = () => `/show/${seeded.slug}/${seeded.shareToken}`;
+  /** The first crew member's page, through the admin preview route. */
+  const previewPath = () =>
+    `/admin/show/${seeded.slug}/preview/${seeded.crew.find((c) => c.name === CREW[0]!.name)!.id}`;
+
+  test.beforeAll(async () => {
+    seeded = await seedShowWithCrew({
+      title: "Dimension Show",
+      dates: {
+        travelIn: COMBINED_DAY,
+        set: COMBINED_DAY,
+        showDays: SHOW_DAYS,
+        travelOut: TRAVEL_OUT,
+      },
+      // Three quick facts: Wi-Fi and the dock share the first row, and the
+      // Dress code tile spans the second.
+      venue: { loadingDock: "Dock 2 off Elm St" } as never,
+      eventDetails: {
+        internet: "SSID: DimensionCrew code: DIMPASS26",
+        dress_code: LONG_DRESS_CODE,
+      } as never,
+      crew: CREW,
+      // Tonight's hotel for the first crew member only: the preview route's
+      // fourth quick fact.
+      hotelReservations: [
+        {
+          ordinal: 1,
+          hotelName: "Dimension Suites",
+          checkIn: COMBINED_DAY,
+          checkOut: TRAVEL_OUT,
+          confirmationNo: "DIM-2026",
+          names: [CREW[0]!.name],
+        },
+      ],
+    });
+  });
+
+  test.afterAll(async () => {
+    if (seeded) await deleteSeededShow(seeded.driveFileId);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  async function pinBothClocks(page: import("@playwright/test").Page, iso: string): Promise<void> {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": noonUtc(iso),
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(noonUtc(iso)));
+  }
+
+  async function gotoHome(
+    page: import("@playwright/test").Page,
+    search = "",
+    base = homePath(),
+  ): Promise<void> {
+    const path = `${base}${search}`;
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** The day row, its buttons and the page's content box, in one read. */
+  async function readDayRow(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const row = document.querySelector<HTMLElement>('[data-testid="crew-day-row"]')!;
+      const shell = document.querySelector('[data-testid="page-container"]')!.parentElement!;
+      const shellStyle = getComputedStyle(shell);
+      const cs = getComputedStyle(row);
+      const rb = row.getBoundingClientRect();
+      return {
+        layout: row.dataset.layout,
+        display: cs.display,
+        overflowX: cs.overflowX,
+        snap: cs.scrollSnapType,
+        gap: Number.parseFloat(cs.columnGap),
+        tracks: cs.gridTemplateColumns.split(" ").map(Number.parseFloat),
+        row: { left: rb.left, right: rb.right, width: rb.width },
+        innerHeight:
+          row.clientHeight - Number.parseFloat(cs.paddingTop) - Number.parseFloat(cs.paddingBottom),
+        clientWidth: row.clientWidth,
+        scrollWidth: row.scrollWidth,
+        contentWidth:
+          shell.clientWidth -
+          Number.parseFloat(shellStyle.paddingLeft) -
+          Number.parseFloat(shellStyle.paddingRight),
+        buttons: [...row.querySelectorAll("button")].map((b) => {
+          const r = b.getBoundingClientRect();
+          // Its natural height: the same face with the stretch taken away, read
+          // and restored inside this one task (no frame paints in between).
+          b.style.alignSelf = "start";
+          b.style.height = "auto";
+          const natural = b.getBoundingClientRect().height;
+          b.style.alignSelf = "";
+          b.style.height = "";
+          return {
+            day: b.getAttribute("data-day") ?? "now",
+            left: r.left,
+            right: r.right,
+            width: r.width,
+            height: r.height,
+            natural,
+          };
+        }),
+      };
+    });
+  }
+
+  /** PREMISE: the faces' natural heights differ, so only the stretch makes them equal. */
+  function expectUnequalFaces(m: Awaited<ReturnType<typeof readDayRow>>, at: string) {
+    const natural = m.buttons.map((b) => b.natural);
+    expect(
+      Math.max(...natural) - Math.min(...natural),
+      `${at}: the faces differ in natural height`,
+    ).toBeGreaterThan(1);
+  }
+
+  test("dimensional: day row with 4 buttons: equal tracks, every button the row's full height, and at 320px the four fit the 288px content box at 64px or wider", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await gotoHome(page);
+      await expect(page.getByTestId("crew-day-row")).toBeVisible();
+      const m = await readDayRow(page);
+      const at = `@${width}px ${JSON.stringify(m)}`;
+      expect(m.layout, at).toBe("grid");
+      expect(m.display, at).toBe("grid");
+      expect(m.buttons, at).toHaveLength(4);
+      expectUnequalFaces(m, at);
+      // One equal track per button, each button exactly its track.
+      expect(m.tracks, at).toHaveLength(4);
+      for (const track of m.tracks) {
+        expect(Math.abs(track - (m.row.width - 3 * m.gap) / 4), at).toBeLessThanOrEqual(TOL);
+      }
+      for (const b of m.buttons) {
+        expect(Math.abs(b.width - m.tracks[0]!), `${at} ${b.day} width`).toBeLessThanOrEqual(TOL);
+        expect(Math.abs(b.height - m.innerHeight), `${at} ${b.day} height`).toBeLessThanOrEqual(
+          TOL,
+        );
+        expect(b.width, `${at} ${b.day} is at least 64px wide`).toBeGreaterThanOrEqual(64 - TOL);
+      }
+      // The row is the page's content box, and the four fit it with no scroll.
+      expect(Math.abs(m.row.width - m.contentWidth), at).toBeLessThanOrEqual(TOL);
+      expect(m.buttons.at(-1)!.right, at).toBeLessThanOrEqual(m.row.right + TOL);
+      expect(m.scrollWidth, at).toBeLessThanOrEqual(m.clientWidth);
+      if (width === 320) expect(Math.abs(m.contentWidth - 288), at).toBeLessThanOrEqual(TOL);
+    }
+  });
+
+  test("dimensional: day row with 5 or more buttons: a snapping scroll row, every button at least 64px wide and the row's full height", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, BEFORE_TRAVEL);
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await gotoHome(page);
+      await expect(page.getByTestId("crew-day-now")).toBeVisible();
+      const m = await readDayRow(page);
+      const at = `@${width}px ${JSON.stringify(m)}`;
+      expect(m.layout, at).toBe("scroll");
+      expect(m.display, at).toBe("flex");
+      expect(m.overflowX, at).toBe("auto");
+      expect(m.snap, at).toContain("x");
+      expect(m.buttons, at).toHaveLength(5);
+      expectUnequalFaces(m, at);
+      for (const b of m.buttons) {
+        expect(b.width, `${at} ${b.day} is at least 64px wide`).toBeGreaterThanOrEqual(64 - TOL);
+        expect(Math.abs(b.height - m.innerHeight), `${at} ${b.day} height`).toBeLessThanOrEqual(
+          TOL,
+        );
+      }
+      // At the narrowest width five do not fit: the row really scrolls.
+      if (width === 320) expect(m.scrollWidth, at).toBeGreaterThan(m.clientWidth);
+    }
+  });
+
+  test("dimensional: pass fact grid: three equal columns whose cells never widen, and a long value stays on one line with an ellipsis", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoHome(page);
+    await expect(page.getByTestId("crew-pass-facts")).toBeVisible();
+    const m = await page.evaluate(() => {
+      const grid = document.querySelector<HTMLElement>('[data-testid="crew-pass-facts"]')!;
+      const cs = getComputedStyle(grid);
+      const gb = grid.getBoundingClientRect();
+      return {
+        display: cs.display,
+        gap: Number.parseFloat(cs.columnGap),
+        tracks: cs.gridTemplateColumns.split(" ").map(Number.parseFloat),
+        contentLeft: gb.left + Number.parseFloat(cs.paddingLeft),
+        contentRight: gb.right - Number.parseFloat(cs.paddingRight),
+        cells: [...grid.children].map((cell) => {
+          const r = cell.getBoundingClientRect();
+          const value = cell.querySelector("dd")!;
+          const vs = getComputedStyle(value);
+          return {
+            fact: cell.getAttribute("data-fact"),
+            left: r.left,
+            right: r.right,
+            width: r.width,
+            value: {
+              height: value.getBoundingClientRect().height,
+              lineHeight: Number.parseFloat(vs.lineHeight),
+              scrollWidth: value.scrollWidth,
+              clientWidth: value.clientWidth,
+              whiteSpace: vs.whiteSpace,
+              textOverflow: vs.textOverflow,
+              overflowX: vs.overflowX,
+            },
+          };
+        }),
+      };
+    });
+    const at = JSON.stringify(m);
+    expect(m.display, at).toBe("grid");
+    expect(m.tracks, at).toHaveLength(3);
+    const track = (m.contentRight - m.contentLeft - 2 * m.gap) / 3;
+    for (const t of m.tracks) expect(Math.abs(t - track), at).toBeLessThanOrEqual(TOL);
+    expect(m.cells.length, at).toBeGreaterThan(0);
+    for (const c of m.cells) {
+      expect(Math.abs(c.width - track), `${at} ${c.fact} keeps its track`).toBeLessThanOrEqual(TOL);
+      expect(c.right, `${at} ${c.fact} stays in the grid`).toBeLessThanOrEqual(
+        m.contentRight + TOL,
+      );
+    }
+    const dress = m.cells.find((c) => c.fact === "dressCode");
+    expect(dress, `the Dress code cell renders ${at}`).toBeDefined();
+    // PREMISE: the value is wider than its column, so the cell would widen or wrap
+    // without the invariant.
+    expect(dress!.value.scrollWidth, at).toBeGreaterThan(dress!.value.clientWidth);
+    expect(dress!.value.whiteSpace, at).toBe("nowrap");
+    expect(dress!.value.overflowX, at).toBe("hidden");
+    expect(dress!.value.textOverflow, at).toBe("ellipsis");
+    expect(
+      Math.abs(dress!.value.height - dress!.value.lineHeight),
+      `${at} one line`,
+    ).toBeLessThanOrEqual(TOL);
+  });
+
+  test("dimensional: quick facts: two equal columns whose tiles share their row's height, a spanning tile the grid's full width, and a long value stops at 3 lines with an ellipsis", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const readQuickFacts = () =>
+      page.evaluate(() => {
+        const grid = document.querySelector<HTMLElement>('[data-testid="crew-quick-facts-grid"]')!;
+        const gb = grid.getBoundingClientRect();
+        const tiles = [
+          ...grid.querySelectorAll<HTMLElement>('[data-testid="crew-quick-fact"]'),
+        ].map((cell) => {
+          // The card is the visible tile; the grid stretches the cell itself.
+          const card = cell.firstElementChild as HTMLElement;
+          const r = card.getBoundingClientRect();
+          // Its natural height: the same card with the stretch taken away, read
+          // and restored inside this one task (no frame paints in between).
+          card.style.height = "auto";
+          const natural = card.getBoundingClientRect().height;
+          card.style.height = "";
+          return {
+            fact: cell.getAttribute("data-fact"),
+            cellHeight: cell.getBoundingClientRect().height,
+            top: r.top,
+            left: r.left,
+            width: r.width,
+            height: r.height,
+            natural,
+          };
+        });
+        const dressValue = grid.querySelector<HTMLElement>(
+          '[data-fact="dressCode"] [data-testid="crew-quick-fact-value"]',
+        )!;
+        const vs = getComputedStyle(dressValue);
+        return {
+          grid: {
+            left: gb.left,
+            width: gb.width,
+            gap: Number.parseFloat(getComputedStyle(grid).columnGap),
+          },
+          tiles,
+          dress: {
+            height: dressValue.getBoundingClientRect().height,
+            lineHeight: Number.parseFloat(vs.lineHeight),
+            clientHeight: dressValue.clientHeight,
+            scrollHeight: dressValue.scrollHeight,
+            lineClamp: vs.getPropertyValue("-webkit-line-clamp"),
+            overflowY: vs.overflowY,
+          },
+        };
+      });
+    type Read = Awaited<ReturnType<typeof readQuickFacts>>;
+
+    /** Rows of two: equal columns, one shared height, every card filling its cell. */
+    const expectPairedRow = (m: Read, pair: Read["tiles"], at: string) => {
+      const column = (m.grid.width - m.grid.gap) / 2;
+      const [a, b] = pair as [Read["tiles"][number], Read["tiles"][number]];
+      expect(
+        Math.abs(a.top - b.top),
+        `${at} ${a.fact} and ${b.fact} share a row`,
+      ).toBeLessThanOrEqual(TOL);
+      for (const t of pair) {
+        expect(Math.abs(t.width - column), `${at} ${t.fact} is one column`).toBeLessThanOrEqual(
+          TOL,
+        );
+      }
+      expect(
+        Math.abs(a.height - b.height),
+        `${at} ${a.fact} and ${b.fact} share a height`,
+      ).toBeLessThanOrEqual(TOL);
+    };
+    /** The long value: exactly 3 lines, more text than fits them (PREMISE), clamped. */
+    const expectClamped = (m: Read, at: string) => {
+      expect(
+        Math.abs(m.dress.height - 3 * m.dress.lineHeight),
+        `${at} 3 lines`,
+      ).toBeLessThanOrEqual(TOL);
+      expect(m.dress.scrollHeight, at).toBeGreaterThan(m.dress.clientHeight + 1);
+      expect(m.dress.lineClamp, at).toBe("3");
+      expect(m.dress.overflowY, at).toBe("hidden");
+    };
+
+    // Three tiles (an admin has no hotel tonight): Wi-Fi and the dock share row
+    // one, and the Dress code tile spans row two.
+    await gotoHome(page);
+    await expect(page.getByTestId("crew-quick-facts-grid")).toBeVisible();
+    const three = await readQuickFacts();
+    let at = `three tiles ${JSON.stringify(three)}`;
+    expect(
+      three.tiles.map((t) => t.fact),
+      at,
+    ).toEqual(["wifi", "dock", "dressCode"]);
+    const [wifi, dock, dress] = three.tiles as [
+      Read["tiles"][number],
+      Read["tiles"][number],
+      Read["tiles"][number],
+    ];
+    // PREMISE: the pair's natural heights differ, so only the stretch evens them.
+    expect(Math.abs(wifi.natural - dock.natural), `${at} premise`).toBeGreaterThan(1);
+    expectPairedRow(three, [wifi, dock], at);
+    for (const t of three.tiles) {
+      expect(
+        Math.abs(t.height - t.cellHeight),
+        `${at} ${t.fact} fills its cell`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+    expect(dress.top, at).toBeGreaterThan(wifi.top + wifi.height - TOL);
+    expect(Math.abs(dress.left - three.grid.left), at).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(dress.width - three.grid.width), `${at} spans`).toBeLessThanOrEqual(TOL);
+    expectClamped(three, at);
+
+    // Four tiles (a crew member's hotel tonight joins, preview route): two full
+    // rows of two, no tile spanning, the long value still clamped in a half.
+    await gotoHome(page, "", previewPath());
+    await expect(page.getByTestId("crew-quick-facts-grid")).toBeVisible();
+    const four = await readQuickFacts();
+    at = `four tiles ${JSON.stringify(four)}`;
+    expect(
+      four.tiles.map((t) => t.fact),
+      at,
+    ).toEqual(["wifi", "hotel", "dock", "dressCode"]);
+    const [w, h, d, c] = four.tiles as [
+      Read["tiles"][number],
+      Read["tiles"][number],
+      Read["tiles"][number],
+      Read["tiles"][number],
+    ];
+    expectPairedRow(four, [w, h], at);
+    expectPairedRow(four, [d, c], at);
+    expect(d.top, at).toBeGreaterThan(w.top + w.height - TOL);
+    for (const t of four.tiles) {
+      expect(
+        Math.abs(t.height - t.cellHeight),
+        `${at} ${t.fact} fills its cell`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+    expectClamped(four, at);
+  });
+
+  test("dimensional: sheet: at most 90dvh tall with a header that never shrinks, and the body scrolls inside it", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    // Short enough that the Crew body outgrows 90% of it.
+    await page.setViewportSize({ width: 390, height: 600 });
+    await gotoHome(page, "?s=crew");
+    await expect(page.getByTestId("section-crew")).toBeVisible();
+    const panel = page.getByTestId("crew-section-sheet-panel");
+    // Settled: the panel has finished sliding up to the viewport's bottom edge.
+    await expect
+      .poll(() =>
+        panel.evaluate((el) => Math.abs(el.getBoundingClientRect().bottom - window.innerHeight)),
+      )
+      .toBeLessThanOrEqual(TOL);
+    const m = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;height:90dvh";
+      document.body.append(probe);
+      const ninetyDvh = probe.getBoundingClientRect().height;
+      probe.remove();
+      const panel = document.querySelector<HTMLElement>(
+        '[data-testid="crew-section-sheet-panel"]',
+      )!;
+      const header = panel.firstElementChild as HTMLElement;
+      const body = document.querySelector<HTMLElement>('[data-testid="crew-section-sheet-body"]')!;
+      const rect = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, height: r.height };
+      };
+      const scrollYBefore = window.scrollY;
+      body.scrollTop = 200;
+      const scrolled = body.scrollTop;
+      const scrollYAfter = window.scrollY;
+      body.scrollTop = 0;
+      return {
+        ninetyDvh,
+        panel: rect(panel),
+        header: { ...rect(header), scrollHeight: header.scrollHeight },
+        body: {
+          ...rect(body),
+          overflowY: getComputedStyle(body).overflowY,
+          clientHeight: body.clientHeight,
+          scrollHeight: body.scrollHeight,
+          scrolled,
+        },
+        scrollYBefore,
+        scrollYAfter,
+      };
+    });
+    const at = JSON.stringify(m);
+    // PREMISE: the Crew body is taller than the space, so the cap is what holds the sheet.
+    expect(m.body.scrollHeight, at).toBeGreaterThan(m.body.clientHeight + 1);
+    expect(m.panel.height, at).toBeLessThanOrEqual(m.ninetyDvh + TOL);
+    expect(Math.abs(m.panel.height - m.ninetyDvh), `${at} capped at 90dvh`).toBeLessThanOrEqual(
+      TOL,
+    );
+    // The header keeps its natural height; the body fills the rest of the panel.
+    expect(m.header.height, at).toBeGreaterThanOrEqual(m.header.scrollHeight - TOL);
+    expect(Math.abs(m.body.top - m.header.bottom), at).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(m.body.bottom - m.panel.bottom), at).toBeLessThanOrEqual(TOL);
+    // The body is its own scroller: it moves, the page behind does not.
+    expect(m.body.overflowY, at).toBe("auto");
+    expect(m.body.scrolled, at).toBeGreaterThan(0);
+    expect(m.scrollYAfter, at).toBe(m.scrollYBefore);
   });
 });

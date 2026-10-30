@@ -80,15 +80,23 @@ export const REQUIRED = {
   // date-suppressed payload searches, and the preview banner); inv1 and inv6
   // were retargeted in place (the quick facts grid, Schedule's key-times strip).
   // Counted from the observed mobile-safari run.
-  "crew-page.spec.ts": 35,
+  // 40 as of the crew page redesign's Task 13: five "dimensional" cases joined
+  // (the day row at 4 and at 5 or more buttons, the pass's fact grid, the quick
+  // facts at three and four tiles, the sheet). The observed local run executed
+  // 39: inv3 skipped itself at runtime because the local shared seed rendered no
+  // gear scope cards (the same seed state that fails crew-layout-dimensions'
+  // 5-card gear case locally and on origin/main), so the row is that run plus inv3.
+  "crew-page.spec.ts": 40,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
   // Eleven since Task 11 added the composed home's two wide cases (the Today
   // block's columns, and the preview banner in wide). Fifteen since Task 12 added
   // four "compound" cases across the 1024px breakpoint (into wide with the sheet
-  // open, mid-drag, with a nested dialog, and back into compact).
-  "crew-wide-nav.spec.ts": 15,
+  // open, mid-drag, with a nested dialog, and back into compact). Seventeen since
+  // Task 13 added two "dimensional" cases (the nav and content column, and the
+  // header token). Counted from the observed desktop-chromium run.
+  "crew-wide-nav.spec.ts": 17,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
