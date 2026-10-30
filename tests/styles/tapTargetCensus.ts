@@ -20,10 +20,12 @@
  *
  * Seeded 2026-08-14 by running the shipped scanner (spec §1.1 R7: the branch
  * derives its own numbers), and re-derived 2026-08-15 after the whole-diff
- * review tightened the grammar. 53 rows out of 354 in-scope elements — 301
- * clear statically. Per category: 15 full-bleed, 13 unresolvable-dynamic, 9
+ * review tightened the grammar. 54 rows out of 354 in-scope elements — 301
+ * clear statically. Per category: 15 full-bleed, 14 unresolvable-dynamic, 9
  * padding-arithmetic, 7 inline-prose-link, 7 parent-label-target, 2
- * dev-only-unstyled.
+ * dev-only-unstyled. (53 rows at that seeding; 54 since feat/warning-card-fixes
+ * Task 14 added the deferred reading choice's Cancel, one more unresolvable-dynamic
+ * element. The in-scope and clear-statically figures are the seeding's.)
  *
  * Three rows moved from `under-floor-filed` to `parent-label-target` on
  * 2026-08-25, and the direction is the point: they are not reclassified, they
@@ -526,7 +528,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
       "Card report flag: same `h-fit` + `before:absolute` 44px pseudo recipe as SourceLink, and recorded for the same reason.",
   },
 
-  // ---- unresolvable-dynamic (13) -----------------------------------------
+  // ---- unresolvable-dynamic (14) -----------------------------------------
   // Spec §5.4's consequence bound in action: the resolver could not read the
   // className, so the element is named here instead of being passed silently.
   {
@@ -567,10 +569,24 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 275 -> 286 on feat/warning-card-fixes Task 13; located by its own element (the same
     // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the DqLockProps type
     // and the run path's lock report landed above it.
-    line: 286,
+    // 286 -> 384 on feat/warning-card-fixes Task 14; located by its own element (the same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the deferred reading
+    // choice's Save sequence and copy landed above it.
+    line: 384,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",
+  },
+  {
+    file: "components/admin/DataQualityWarningControls.tsx",
+    // Added on feat/warning-card-fixes Task 14 (spec §6.3): the deferred reading choice's
+    // Cancel, located by its own `data-testid={`dq-cancel-${reportSurfaceId}`}`. CANCEL_BTN
+    // carries `min-h-tap-min`; the ring offset is a per-ground record lookup.
+    line: 404,
+    tag: "button",
+    category: "unresolvable-dynamic",
+    reason:
+      "`cn(CANCEL_BTN, CANCEL_RING_OFFSET[plate])` — computed member access; the readable CANCEL_BTN part carries `min-h-tap-min`.",
   },
   {
     file: "components/admin/HoverHelp.tsx",

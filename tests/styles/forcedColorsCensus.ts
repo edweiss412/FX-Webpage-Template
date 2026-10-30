@@ -431,19 +431,25 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   // The three UseRawControl rows: 334 -> 329, 360 -> 355, 372 -> 367 (and the dot the first
   // reason cites, 368 -> 363) on feat/warning-card-fixes Task 4; located by their own
   // elements (the ChoiceRow <button>, its radio-dot <span>, its label <span>).
+  // 329 -> 332, 355 -> 358, 367 -> 370 (the dot 363 -> 366) on feat/warning-card-fixes
+  // Task 14 (the useUseRawDraft import and the per-row marker's doc lines above them);
+  // located by the same three elements. The 358 reason is restated: since spec §6.3 an
+  // unsaved draft's checked row carries no marker (the persisted row keeps it), so the
+  // surviving carrier is the filled inner dot, which renders on the checked row only.
   {
-    site: "components/admin/UseRawControl.tsx:329",
+    site: "components/admin/UseRawControl.tsx:332",
     disposition: "carrier-survives",
     reason:
-      "role=radio with aria-checked AND a rendered dot (components/admin/UseRawControl.tsx:363)",
+      "role=radio with aria-checked AND a rendered dot (components/admin/UseRawControl.tsx:366)",
   },
   {
-    site: "components/admin/UseRawControl.tsx:355",
+    site: "components/admin/UseRawControl.tsx:358",
     disposition: "carrier-survives",
-    reason: "the checked row renders In use or Selected beside the dot",
+    reason:
+      "the checked row renders a filled inner dot (components/admin/UseRawControl.tsx:366), a shape that survives forced colours",
   },
   {
-    site: "components/admin/UseRawControl.tsx:367",
+    site: "components/admin/UseRawControl.tsx:370",
     disposition: "carrier-survives",
     reason: "same",
   },

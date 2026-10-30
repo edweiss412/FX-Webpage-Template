@@ -867,7 +867,13 @@ export function scanCandidates(): Candidate[] {
       // the published offer's sr-only suffix (one). None is a fault branch; 78 kept.
       // Re-derived by running the guard.
       //
-      // Probed: 768 such ternaries under the derived roots, 78 on a
+      // 768 -> 770 on feat/warning-card-fixes Task 14: the action bar's Cancel
+      // (`showCancel ? <button>… : null`) and its `Not saved yet` hint
+      // (`showHint ? <span>… : null`) in DataQualityWarningControls. ChoiceRow's marker
+      // ternary changed its condition, not its count. Neither new one is a fault branch;
+      // 78 kept. Re-derived by running the guard.
+      //
+      // Probed: 770 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

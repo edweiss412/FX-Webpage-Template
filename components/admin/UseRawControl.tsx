@@ -7,6 +7,7 @@ import type { WarningControlSite } from "@/components/admin/warningControlSite";
 // The four in-scope codes (the caller also filters; the control guards too). One set, shared
 // with the reading-display rules (warning-card-fixes spec §5.6).
 import { USE_RAW_CODES, sheetSaysText, weReadGuestsText } from "@/lib/admin/warningReadingDisplay";
+import { useUseRawDraft } from "@/components/admin/useRawDraft";
 
 // Kind → radiogroup accessible name (spec 2026-07-17 §6.2). Exhaustive over the
 // UseRawResolution parsed-kind union; a new kind is a compile error here.
@@ -311,9 +312,11 @@ function ChoiceRow({
   checked: boolean;
   disabled: boolean;
   label: string;
-  /** Visible state word on the checked row: "In use" when the entity rows
+  /** Visible state word on THIS row, or null: "In use" when the entity rows
    *  already reflect this choice, "Selected" while an apply/revert is pending
-   *  (critique P2 — "In use" must never claim a crew-visible truth it lacks). */
+   *  (critique P2 — "In use" must never claim a crew-visible truth it lacks).
+   *  Per row, not "the checked row's", since warning-card-fixes §6.3: with an
+   *  unsaved draft the persisted row keeps its marker while unchecked. */
   marker: string | null;
   buttonTestId: string;
   onSelect: () => void;
@@ -367,9 +370,7 @@ function ChoiceRow({
           <span className={`text-xs font-semibold ${checked ? "text-text-strong" : "text-text"}`}>
             {label}
           </span>
-          {checked && marker ? (
-            <span className="text-xs font-medium text-text-subtle">{marker}</span>
-          ) : null}
+          {marker ? <span className="text-xs font-medium text-text-subtle">{marker}</span> : null}
         </span>
         {children}
       </span>
@@ -393,6 +394,9 @@ export function UseRawControl({
   site?: WarningControlSite;
 }) {
   const [isPending, startTransition] = useTransition();
+  // warning-card-fixes §6.3: inside a UseRawDraftProvider a selection is a local draft that
+  // the row's action bar saves; outside one (null) the control saves on tap, as before.
+  const draftModel = useUseRawDraft();
   // Local error surface: a typed action failure re-reads state and shows plain copy.
   // NEVER renders a raw code (invariant 5) — the surface's action returns a typed
   // discriminant, never a code string, and this copy is static.
@@ -504,8 +508,17 @@ export function UseRawControl({
   // side is the one the admin JUST CHOSE (pendingChoice) — the persisted
   // `decision` lags the click, so reading it here would mark the stale side
   // (Codex R1 F1). Rows are soft-disabled while busy, so no double-submit.
-  const rawChecked =
-    state === "raw-active" || state === "apply-pending" || (busy && pendingChoice === "raw");
+  // Inside a provider the displayed reading is the model's `submitted ?? draft ??
+  // persisted` (spec §6.3), and the rows soft-disable while the action bar is busy OR
+  // a sent reading awaits reconciliation.
+  const rawChecked = draftModel
+    ? draftModel.displayedRaw
+    : state === "raw-active" || state === "apply-pending" || (busy && pendingChoice === "raw");
+  const rowsDisabled = draftModel ? draftModel.busy || draftModel.submitted !== null : busy;
+  const select = (useRaw: boolean) => {
+    if (draftModel) draftModel.select(useRaw);
+    else fire(useRaw);
+  };
   // The raw-side label is honest per kind (Codex R1 F3): rooms substitute the
   // literal raw header; hotels substitute the cell as ONE guest with
   // confirmation tokens STRIPPED (never "exactly" the sheet); dates are a
@@ -523,13 +536,40 @@ export function UseRawControl({
   // other value until the next successful sync (critique P2).
   const settled = state === "transform-active" || state === "raw-active";
   const marker = settled ? "In use" : "Selected";
+  // Per-row markers (spec §6.3 "Choice control inside a provider"). Without a provider,
+  // and in a provider's clean state, the checked row carries today's marker. With an
+  // unsaved draft the PERSISTED row keeps it while unchecked and the draft row has none;
+  // with a sent reading awaiting reconciliation that row reads "Selected", the other none.
+  const persistedRawSide = state === "raw-active" || state === "apply-pending";
+  const rawMarker = draftModel
+    ? draftModel.submitted !== null
+      ? draftModel.submitted
+        ? "Selected"
+        : null
+      : persistedRawSide
+        ? marker
+        : null
+    : rawChecked
+      ? marker
+      : null;
+  const parsedMarker = draftModel
+    ? draftModel.submitted !== null
+      ? draftModel.submitted
+        ? null
+        : "Selected"
+      : persistedRawSide
+        ? null
+        : marker
+    : rawChecked
+      ? null
+      : marker;
   // Any arrow key moves focus to the OTHER row and selects it when it isn't
   // already the checked side (WAI radio pattern: arrows move + select).
   const arrowFrom = (from: "parsed" | "raw") => {
     const targetRef = from === "parsed" ? rawRowRef : parsedRowRef;
     targetRef.current?.focus();
     const targetChecked = from === "parsed" ? rawChecked : !rawChecked;
-    if (!targetChecked && !busy) fire(from === "parsed");
+    if (!targetChecked && !rowsDisabled) select(from === "parsed");
   };
 
   return (
@@ -545,11 +585,11 @@ export function UseRawControl({
       >
         <ChoiceRow
           checked={!rawChecked}
-          disabled={busy}
+          disabled={rowsDisabled}
           label="Our reading"
-          marker={marker}
+          marker={parsedMarker}
           buttonTestId={tid("use-raw-toggle-off")}
-          onSelect={() => fire(false)}
+          onSelect={() => select(false)}
           onArrowKey={() => arrowFrom("parsed")}
           buttonRef={parsedRowRef}
         >
@@ -575,11 +615,11 @@ export function UseRawControl({
         </ChoiceRow>
         <ChoiceRow
           checked={rawChecked}
-          disabled={busy}
+          disabled={rowsDisabled}
           label={rawLabel}
-          marker={marker}
+          marker={rawMarker}
           buttonTestId={tid("use-raw-toggle-on")}
-          onSelect={() => fire(true)}
+          onSelect={() => select(true)}
           onArrowKey={() => arrowFrom("raw")}
           buttonRef={rawRowRef}
         >
@@ -623,7 +663,10 @@ export function UseRawControl({
 
       {/* Mounted unconditionally, text toggled (R3): an `aria-live` region is a
           live region whether or not it also carries `role="status"`, and one
-          inserted together with "Saving…" announces nothing. */}
+          inserted together with "Saving…" announces nothing. Inside a reading
+          provider (spec §6.3) the action bar owns progress and errors: `fire`
+          never runs there, so `busy` and `failed` stay false and neither the
+          "Saving…" text nor the error below ever shows. */}
       <p className={busy ? "text-xs text-text-subtle" : "sr-only"} aria-live="polite">
         {busy ? "Saving…" : ""}
       </p>

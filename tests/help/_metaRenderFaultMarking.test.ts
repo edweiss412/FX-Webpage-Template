@@ -46,7 +46,10 @@ const REPORTED_RESIDUE: Record<string, string> = {
   // to lib/admin/warningReadingDisplay.ts above it.
   // 428 -> 429 on feat/warning-card-fixes Task 10; located by its own element (still that
   // guard): a one-line doc comment on the widened `warning` prop lands above it.
-  "components/admin/UseRawControl.tsx:429":
+  // 429 -> 433 on feat/warning-card-fixes Task 14; located by its own element (still that
+  // guard): the useUseRawDraft import, ChoiceRow's per-row marker doc and the draft hook
+  // land above it.
+  "components/admin/UseRawControl.tsx:433":
     "a string-state comparison against legacy-unavailable. Not reachable from any manifest entry.",
   // 4085 -> 4101 (2026-08-29, wizard-warning-ignore-controls). Located by identity on
   // the live tree — still the bare `if (failed)` this reason describes — never by
@@ -540,7 +543,13 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // Recomputed on the merge of origin/main into feat/warning-card-fixes (2026-10-29): the
     // two histories above touch disjoint files (crew sections vs UseRawControl.tsx), so the
     // merged tree's digest is a fresh computation, not either side's value.
-    expect(digest).toBe("5fe71de36a745d4043004c627dcfd90449d50fc8051aa439b8f93a07000da56b");
+    // Regenerated for feat/warning-card-fixes Task 14, to the same bar. EXACTLY ONE input
+    // changed, a line number, in the one file of this set the task edits:
+    //   components/admin/UseRawControl.tsx 429 -> 433 (+4: the useUseRawDraft import,
+    //   ChoiceRow's per-row marker doc and the draft hook land above it)
+    // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
+    // reproduces 5fe71de3... byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("ddb7e342ac03336845e454af08c667bfe4d0e454e160a82ede219a0892884504");
   });
 });
 
