@@ -57,6 +57,8 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
     throw new Error("NEXT_REDIRECT");
   }),
+  // The saved-copy marker on the TerminalFailure reads the path.
+  usePathname: () => "/show/any-show/t",
 }));
 
 // Projection stub with crewMembers DELIBERATELY absent (malformed data).

@@ -52,6 +52,7 @@ import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { SavedCopySlot } from "@/components/offline/SavedCopySlot";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
@@ -72,6 +73,7 @@ import {
   resolveViewerContext,
   type ViewerContext,
 } from "@/lib/data/viewerContext";
+import { keepMarkerFor, purgeMarkerFor } from "@/lib/offline/serverMarkers";
 import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
 import { nowDate } from "@/lib/time/now";
 import { selectRightNowState, type RightNowState } from "@/lib/time/rightNow";
@@ -145,6 +147,12 @@ export type CrewShellProps = {
    * published admin preview are behaviourally unchanged (AC-8).
    */
   staticPreview?: boolean;
+  /**
+   * The picker epoch of the resolved crew selection, for the saved-copy `save`
+   * marker (spec 4.3). Only the crew route's `resolved` arm passes it; without
+   * it the slot writes `purge`.
+   */
+  savedCopyEpoch?: number;
 };
 
 // R3-HIGH-1: viewer-independent CONSTANT message — the per-domain detail lives
@@ -163,8 +171,10 @@ export async function CrewShell({
   showId,
   rawSection,
   slug = "",
+  shareToken,
   identityChip,
   staticPreview = false,
+  savedCopyEpoch,
 }: CrewShellProps) {
   // ── Producer contract 1: section-independent projection-fetch alert ──
   // Fires BEFORE the section model so the always-on observability write is
@@ -236,8 +246,26 @@ export async function CrewShell({
     // 8.2 Point C: an unmatched viewer in a well-formed array now fails CLOSED
     // (UnmatchedViewerError) too, alongside the malformed-projection arm. No
     // retryHref — route-agnostic for the shareToken-less admin-preview caller.
-    if (err instanceof MalformedProjectionError || err instanceof UnmatchedViewerError) {
-      return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
+    // Each arm carries its own saved-copy marker (spec 4.3): a crew member the
+    // server resolved keeps their copy when only the data is malformed; any
+    // other viewer, and a viewer the data does not match, purges the show's.
+    if (err instanceof MalformedProjectionError && viewer.kind === "crew") {
+      return (
+        <TerminalFailure
+          code="PICKER_RESOLVER_LOOKUP_FAILED"
+          savedCopy={keepMarkerFor(showId, viewer.crewMemberId)}
+        />
+      );
+    }
+    if (err instanceof MalformedProjectionError) {
+      return (
+        <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" savedCopy={purgeMarkerFor(showId)} />
+      );
+    }
+    if (err instanceof UnmatchedViewerError) {
+      return (
+        <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" savedCopy={purgeMarkerFor(showId)} />
+      );
     }
     throw err;
   }
@@ -541,6 +569,17 @@ export async function CrewShell({
               />
             ) : undefined
           }
+        />
+        {/* The saved-copy slot (spec 4.7.2): full width under the header, a flex
+            child of the shell, since the provider renders no element. */}
+        <SavedCopySlot
+          viewer={viewer}
+          showId={showId}
+          data={data}
+          slug={slug}
+          shareToken={shareToken}
+          renderedAt={today.toISOString()}
+          epoch={savedCopyEpoch}
         />
         {/* The CrewSections client controller owns the live section state: it
           renders the controlled CrewSubNav + the <main data-testid="page-container">

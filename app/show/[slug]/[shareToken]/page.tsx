@@ -47,6 +47,7 @@ import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { sanitizePickerRoster } from "@/lib/auth/picker/sanitizePickerRoster";
+import { keepMarkerFor, purgeMarkerFor } from "@/lib/offline/serverMarkers";
 
 import { CrewShell } from "./_CrewShell";
 import { PickerInterstitial, type PickerInterstitialBannerCode } from "./_PickerInterstitial";
@@ -111,6 +112,7 @@ async function renderPickerRepick(args: {
         <TerminalFailure
           code="PICKER_RESOLVER_LOOKUP_FAILED"
           retryHref={`/show/${args.slug}/${args.shareToken}`}
+          savedCopy={purgeMarkerFor(args.showId)}
         />
       );
     }
@@ -150,6 +152,7 @@ async function renderRacedCrewMiss(args: {
       <TerminalFailure
         code="PICKER_RESOLVER_LOOKUP_FAILED"
         retryHref={`/show/${args.slug}/${args.shareToken}`}
+        savedCopy={purgeMarkerFor(args.showId)}
       />
     );
   }
@@ -161,6 +164,7 @@ async function renderRacedCrewMiss(args: {
       <TerminalFailure
         code="PICKER_RESOLVER_LOOKUP_FAILED"
         retryHref={`/show/${args.slug}/${args.shareToken}`}
+        savedCopy={purgeMarkerFor(args.showId)}
       />
     );
   }
@@ -218,8 +222,14 @@ export default async function ShowPage({
     // falls through
 
     case "infra_error":
+      // Identity never resolved, so the server cannot say whose copy this is,
+      // nor which show: hold, naming none (spec 4.3).
       return (
-        <TerminalFailure code={result.code as never} retryHref={`/show/${slug}/${shareToken}`} />
+        <TerminalFailure
+          code={result.code as never}
+          retryHref={`/show/${slug}/${shareToken}`}
+          savedCopy={{ disposition: "hold", showId: null }}
+        />
       );
 
     case "needs_picker_bootstrap": {
@@ -244,6 +254,7 @@ export default async function ShowPage({
           <TerminalFailure
             code="PICKER_RESOLVER_LOOKUP_FAILED"
             retryHref={`/show/${slug}/${shareToken}`}
+            savedCopy={purgeMarkerFor(result.showId)}
           />
         );
       }
@@ -278,10 +289,13 @@ export default async function ShowPage({
         if (err instanceof CrewMemberNotInShowError) {
           return renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
         }
+        // Identity resolved before the data load failed: the crew member's
+        // saved copy stays (spec 4.3).
         return (
           <TerminalFailure
             code="PICKER_RESOLVER_LOOKUP_FAILED"
             retryHref={`/show/${slug}/${shareToken}`}
+            savedCopy={keepMarkerFor(result.showId, result.crewMemberId)}
           />
         );
       }
@@ -311,6 +325,7 @@ export default async function ShowPage({
           slug={slug}
           shareToken={shareToken}
           identityChip={crew ? { name: crew.name, role: crew.role, shareToken } : null}
+          savedCopyEpoch={result.pickerEpoch}
         />
       );
     }
@@ -341,6 +356,7 @@ export default async function ShowPage({
           <TerminalFailure
             code="PICKER_RESOLVER_LOOKUP_FAILED"
             retryHref={`/show/${slug}/${shareToken}`}
+            savedCopy={purgeMarkerFor(result.showId)}
           />
         );
       }

@@ -46,6 +46,8 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
+  // The saved-copy marker CrewShell renders after its header reads the path.
+  usePathname: () => "/admin/show/s/preview/c1",
 }));
 
 // lookupShow / lookupCrewMember both read through createSupabaseServerClient.

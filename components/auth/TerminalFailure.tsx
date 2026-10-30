@@ -20,12 +20,15 @@
 import { AlertCircle } from "lucide-react";
 import Link from "next/link";
 
+import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
+import type { Marker } from "@/lib/offline/marker";
 
 export function TerminalFailure({
   code,
   title,
   retryHref,
+  savedCopy,
 }: {
   code: MessageCode;
   /**
@@ -40,6 +43,14 @@ export function TerminalFailure({
    * that have a meaningful retry destination should pass it.
    */
   retryHref?: string;
+  /**
+   * The saved-copy marker for this failure (spec 4.3). The crew show route
+   * passes one at every site, each with the disposition its arm assigns: `keep`
+   * once the server had resolved the crew member, `hold` when resolution never
+   * finished, `purge` otherwise. Surfaces outside that route pass none and
+   * render no marker.
+   */
+  savedCopy?: Marker;
 }) {
   const entry = messageFor(code);
   const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment.";
@@ -49,6 +60,8 @@ export function TerminalFailure({
       data-testid="terminal-failure"
       className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
     >
+      {/* An inert <template>: it renders nothing and takes no place in the column. */}
+      {savedCopy && <SavedCopyMarker marker={savedCopy} />}
       {/* The shape signal this surface otherwise lacks. DESIGN.md §1 bans
           red/green as primary semantic colors, so the palette cannot carry
           "something went wrong" on its own and the block reads at a glance like

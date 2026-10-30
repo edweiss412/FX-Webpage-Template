@@ -18,6 +18,8 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
     throw new Error("NEXT_REDIRECT");
   }),
+  // The saved-copy marker every arm renders reads the path.
+  usePathname: () => "/show/s/t",
 }));
 
 import ShowPage from "@/app/show/[slug]/[shareToken]/page";
