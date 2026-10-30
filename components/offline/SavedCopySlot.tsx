@@ -9,8 +9,12 @@
  * copy. The staged preview passes an admin-preview viewer, so it purges too.
  * A crew viewer also gets the pinned bar (spec 4.7.2), which renders only its
  * empty live region on the server, no visible bar, and works out its state
- * after hydration; an admin or
- * admin-preview viewer gets no bar. The registrar joins them in a later task.
+ * after hydration, and the registrar (spec 4.7.7), which puts the worker on the
+ * phone and asks it to save this render. The registrar gets the kill switch
+ * (spec 4.10), read from the server's environment on every render, and whether
+ * the asset list names an agenda, so it loads the agenda viewer's code only
+ * when there is one to open offline (spec 4.8). An admin or admin-preview
+ * viewer gets neither: only crew show pages register the worker.
  *
  * Synchronous on purpose, with no hooks and no `await`: the CrewShell render
  * suites mount CrewShell's output with Testing Library, which cannot mount an
@@ -28,9 +32,11 @@
  */
 import { SavedCopyBar } from "@/components/offline/SavedCopyBar";
 import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
+import { SavedCopyRegistrar } from "@/components/offline/SavedCopyRegistrar";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { savedCopyAssetUrls } from "@/lib/offline/assetList";
+import { AGENDA_ASSET_PREFIX, savedCopyAssetUrls } from "@/lib/offline/assetList";
 import { isSheetUnavailable } from "@/lib/offline/barState";
+import { crewOfflineDisabled } from "@/lib/offline/killSwitch";
 import { purgeMarkerFor, saveMarkerFor } from "@/lib/offline/serverMarkers";
 
 export type SavedCopySlotProps = {
@@ -64,12 +70,13 @@ export function SavedCopySlot({
   epoch,
 }: SavedCopySlotProps) {
   if (viewer.kind !== "crew") return <SavedCopyMarker marker={purgeMarkerFor(showId)} />;
+  const assets = assetsFor(showId, data, viewer);
   const marker = saveMarkerFor({
     showId,
     crewMemberId: viewer.crewMemberId,
     epoch,
     renderedAt,
-    assets: assetsFor(showId, data, viewer),
+    assets,
   });
   return (
     <>
@@ -79,6 +86,11 @@ export function SavedCopySlot({
         sheetUnavailable={isSheetUnavailable(data.lastSyncStatus)}
         slug={slug}
         shareToken={shareToken}
+      />
+      <SavedCopyRegistrar
+        renderedAt={renderedAt}
+        disabled={crewOfflineDisabled(process.env)}
+        hasAgenda={assets.some((url) => url.startsWith(AGENDA_ASSET_PREFIX))}
       />
     </>
   );

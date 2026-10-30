@@ -8,6 +8,10 @@
  *
  * Each case reads the rendered HTML with the worker's own reader, so a marker
  * that renders but would not parse fails here.
+ *
+ * A crew viewer also gets the registrar (spec 4.7.7), with the kill switch read
+ * from the server's environment per render (spec 4.10) and whether the saved
+ * copy lists an agenda (spec 4.8); an admin or admin-preview viewer gets none.
  */
 import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,10 +25,14 @@ vi.mock("@/lib/offline/viewerKey", async (importOriginal) => {
 // Wrapped, so one case can make the build throw; every other case runs the real list.
 vi.mock("@/lib/offline/assetList", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/offline/assetList")>();
-  return { savedCopyAssetUrls: vi.fn(actual.savedCopyAssetUrls) };
+  return { ...actual, savedCopyAssetUrls: vi.fn(actual.savedCopyAssetUrls) };
 });
 
 import { SavedCopyBar, type SavedCopyBarProps } from "@/components/offline/SavedCopyBar";
+import {
+  SavedCopyRegistrar,
+  type SavedCopyRegistrarProps,
+} from "@/components/offline/SavedCopyRegistrar";
 import { SavedCopySlot, type SavedCopySlotProps } from "@/components/offline/SavedCopySlot";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { savedCopyAssetUrls } from "@/lib/offline/assetList";
@@ -95,6 +103,7 @@ const realModule =
 afterEach(() => {
   keyFor.mockClear();
   buildAssets.mockClear();
+  vi.unstubAllEnvs();
 });
 
 function renderSlot(overrides: Partial<SavedCopySlotProps> = {}): string {
@@ -115,10 +124,19 @@ function markerIn(html: string): Marker {
  * the markup cannot show the visible bar; the element tree shows what the slot hands the client.
  */
 function barsIn(node: ReactNode): ReactElement<SavedCopyBarProps>[] {
+  return elementsOf(node, SavedCopyBar) as ReactElement<SavedCopyBarProps>[];
+}
+
+/** Every <SavedCopyRegistrar> element in the slot's output tree; it renders nothing, so only the tree shows it. */
+function registrarsIn(node: ReactNode): ReactElement<SavedCopyRegistrarProps>[] {
+  return elementsOf(node, SavedCopyRegistrar) as ReactElement<SavedCopyRegistrarProps>[];
+}
+
+function elementsOf(node: ReactNode, type: unknown): ReactElement[] {
   return Children.toArray(node).flatMap((child) => {
     if (!isValidElement<{ children?: ReactNode }>(child)) return [];
-    if (child.type === SavedCopyBar) return [child as ReactElement<SavedCopyBarProps>];
-    return barsIn(child.props.children);
+    if (child.type === type) return [child];
+    return elementsOf(child.props.children, type);
   });
 }
 
@@ -230,6 +248,62 @@ describe("SavedCopySlot", () => {
     ["admin_preview", { kind: "admin_preview", crewMemberId: CREW }],
   ])("an %s viewer gets no bar", (_kind, viewer) => {
     expect(barsIn(SavedCopySlot(props({ viewer })))).toEqual([]);
+  });
+
+  test("a crew viewer gets the registrar, with the render time, the kill switch off and the agenda listed", () => {
+    vi.stubEnv("CREW_OFFLINE_DISABLED", "");
+    const registrars = registrarsIn(SavedCopySlot(props()));
+
+    expect(registrars).toHaveLength(1);
+    expect(registrars[0]!.props).toEqual({
+      renderedAt: RENDERED_AT,
+      disabled: false,
+      hasAgenda: true,
+    });
+  });
+
+  test("the registrar reads the kill switch from the server's environment on each render", () => {
+    vi.stubEnv("CREW_OFFLINE_DISABLED", "1");
+    const off = registrarsIn(SavedCopySlot(props()));
+    vi.stubEnv("CREW_OFFLINE_DISABLED", "0");
+    const on = registrarsIn(SavedCopySlot(props()));
+
+    expect(off.map((registrar) => registrar.props.disabled)).toEqual([true]);
+    expect(on.map((registrar) => registrar.props.disabled)).toEqual([false]);
+  });
+
+  test("the registrar is told there is no agenda when the saved copy lists none", () => {
+    const withheld: ShowForViewer = {
+      ...DATA,
+      crewMembers: DATA.crewMembers.map((member) => ({
+        ...member,
+        dateRestriction: { kind: "unknown_asterisk", days: null },
+      })),
+    };
+    const noLinks: ShowForViewer = { ...DATA, show: { ...DATA.show, agenda_links: [] } };
+    // Premise: the withheld case still lists the diagram, so "no agenda" is not "no assets".
+    premise(
+      "the withheld viewer still saves an asset",
+      savedCopyAssetUrls(SHOW, withheld, CREW_VIEWER).length,
+      0,
+    );
+
+    for (const data of [withheld, noLinks]) {
+      expect(registrarsIn(SavedCopySlot(props({ data }))).map((r) => r.props.hasAgenda)).toEqual([
+        false,
+      ]);
+    }
+  });
+
+  test("a crew viewer whose marker falls back to purge still gets the registrar", () => {
+    expect(registrarsIn(SavedCopySlot(props({ epoch: undefined })))).toHaveLength(1);
+  });
+
+  test.each<[string, Viewer]>([
+    ["admin", { kind: "admin" }],
+    ["admin_preview", { kind: "admin_preview", crewMemberId: CREW }],
+  ])("an %s viewer gets no registrar", (_kind, viewer) => {
+    expect(registrarsIn(SavedCopySlot(props({ viewer })))).toEqual([]);
   });
 
   test("is synchronous, so the CrewShell render suites can mount it", () => {

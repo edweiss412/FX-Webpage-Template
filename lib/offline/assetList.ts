@@ -28,6 +28,9 @@ import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
 type ImageSizes = Pick<ImageConfigComplete, "deviceSizes" | "imageSizes">;
 
+/** Every agenda URL the list carries starts with this: the shape `AgendaEmbed` opens. */
+export const AGENDA_ASSET_PREFIX = "/api/asset/agenda/";
+
 /**
  * Every width next/image can put in a srcset: the configured device and image
  * sizes. Read as next/image reads them: a Next build defines
@@ -73,7 +76,7 @@ export function savedCopyAssetUrls(showId: string, data: ShowForViewer, viewer: 
   if (!suppressesDates(dateRestriction)) {
     for (const link of data.show.agenda_links) {
       // AgendaEmbed offers only the entries with a fileId; an empty one is none.
-      if (link.fileId) urls.add(`/api/asset/agenda/${showId}/${link.fileId}`);
+      if (link.fileId) urls.add(`${AGENDA_ASSET_PREFIX}${showId}/${link.fileId}`);
     }
   }
 
