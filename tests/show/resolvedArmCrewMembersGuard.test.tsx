@@ -94,6 +94,7 @@ async function resolveShowPageElement(): Promise<React.ReactElement<ShowBodyProp
     showId: "show-1",
     crewMemberId: "crew-1",
     source: "cookie",
+    pickerEpoch: 1,
   });
   vi.mocked(getShowForViewer).mockResolvedValue(malformedData);
 

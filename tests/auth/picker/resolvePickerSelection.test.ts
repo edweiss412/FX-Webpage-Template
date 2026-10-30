@@ -327,4 +327,139 @@ describe("resolvePickerSelection", () => {
       });
     });
   });
+
+  describe("saved epoch check (spec §4.5, the saved-copy status route)", () => {
+    const SAVED_EPOCH = 5;
+
+    test("an entry at the saved epoch resolves while the row has moved one higher", async () => {
+      state.show = { picker_epoch: SAVED_EPOCH + 1, published: true, archived: false };
+
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH, t: 1_737_028_800_124 }),
+          epochCheck: { kind: "saved", epoch: SAVED_EPOCH },
+        }),
+      ).resolves.toEqual({ kind: "resolved", crewMemberId: CREW_ID });
+    });
+
+    test("an entry one below the saved epoch is epoch_stale", async () => {
+      // The row sits at the entry's own epoch, so only a comparison against the
+      // saved epoch can call this stale; the row's epoch would resolve it.
+      state.show = { picker_epoch: SAVED_EPOCH - 1, published: true, archived: false };
+
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH - 1, t: 1_737_028_800_124 }),
+          epochCheck: { kind: "saved", epoch: SAVED_EPOCH },
+        }),
+      ).resolves.toEqual({
+        kind: "epoch_stale",
+        expectedEpoch: SAVED_EPOCH - 1,
+        expectedCrewMemberId: CREW_ID,
+      });
+    });
+
+    test("an archived, unpublished row still resolves (lifecycle is the caller's job)", async () => {
+      state.show = { picker_epoch: SAVED_EPOCH + 1, published: false, archived: true };
+
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH, t: 1_737_028_800_124 }),
+          epochCheck: { kind: "saved", epoch: SAVED_EPOCH },
+        }),
+      ).resolves.toEqual({ kind: "resolved", crewMemberId: CREW_ID });
+    });
+
+    test("the default and an explicit current check on that archived row stay show_unavailable", async () => {
+      state.show = { picker_epoch: SAVED_EPOCH + 1, published: false, archived: true };
+      const archivedCookie = cookie({ e: SAVED_EPOCH + 1, t: 1_737_028_800_124 });
+
+      await expect(
+        resolvePickerSelection({ showId: SHOW_ID, cookie: archivedCookie }),
+      ).resolves.toEqual({ kind: "show_unavailable" });
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: archivedCookie,
+          epochCheck: { kind: "current" },
+        }),
+      ).resolves.toEqual({ kind: "show_unavailable" });
+    });
+
+    test("an explicit current check compares against the row's epoch, as the default does", async () => {
+      state.show = { picker_epoch: SAVED_EPOCH + 1, published: true, archived: false };
+
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH, t: 1_737_028_800_124 }),
+          epochCheck: { kind: "current" },
+        }),
+      ).resolves.toEqual({
+        kind: "epoch_stale",
+        expectedEpoch: SAVED_EPOCH,
+        expectedCrewMemberId: CREW_ID,
+      });
+    });
+
+    test("saved mode keeps every identity check that follows the epoch", async () => {
+      state.show = { picker_epoch: SAVED_EPOCH + 1, published: false, archived: true };
+      const saved = { kind: "saved", epoch: SAVED_EPOCH } as const;
+
+      state.crew = null;
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH }),
+          epochCheck: saved,
+        }),
+      ).resolves.toMatchObject({ kind: "removed_from_roster" });
+
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: null,
+        selections_reset_at: "2026-07-03T12:00:00.000Z",
+      };
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH, t: 1 }),
+          epochCheck: saved,
+        }),
+      ).resolves.toMatchObject({ kind: "selection_reset" });
+
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: "2026-01-16T12:00:00.123Z",
+        selections_reset_at: null,
+      };
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH, t: 1_737_028_800_123 }),
+          epochCheck: saved,
+        }),
+      ).resolves.toMatchObject({ kind: "identity_invalidated", reason: "claimed_after_pick" });
+
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: null,
+        selections_reset_at: null,
+      };
+      state.sessionEmail = "bob@example.com";
+      await expect(
+        resolvePickerSelection({
+          showId: SHOW_ID,
+          cookie: cookie({ e: SAVED_EPOCH, t: 1_737_028_800_124 }),
+          epochCheck: saved,
+        }),
+      ).resolves.toMatchObject({ kind: "identity_invalidated", reason: "session_mismatch" });
+    });
+  });
 });

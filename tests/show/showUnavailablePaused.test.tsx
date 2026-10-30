@@ -42,7 +42,10 @@ describe("unpublished crew URL → ShowUnavailable (HTTP 200, zero show data)", 
   test("unpublished arm renders the CREW_SHOW_PAUSED copy — no notFound(), no show title", async () => {
     const { resolveShowPageAccess } = await import("@/lib/auth/picker/resolveShowPageAccess");
     const { notFound } = await import("next/navigation");
-    vi.mocked(resolveShowPageAccess).mockResolvedValue({ kind: "unpublished" });
+    vi.mocked(resolveShowPageAccess).mockResolvedValue({
+      kind: "unpublished",
+      showId: "show-1",
+    });
     vi.mocked(notFound).mockClear();
 
     const { default: ShowPage } = await import("@/app/show/[slug]/[shareToken]/page");
