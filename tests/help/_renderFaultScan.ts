@@ -800,7 +800,33 @@ export function scanCandidates(): Candidate[] {
       // branch, so the 78 below is unchanged. Re-derived by running the guard on
       // the branch after merging origin/main (main itself still computes 745).
       //
-      // Probed: 747 such ternaries under the derived roots, 78 on a
+      // 747 -> 743 on the crew search Travel section task: TravelSection's
+      // driver, load-out and vehicle rows (three `hasX && xPrimary ? <TravelRow/>`
+      // ternaries) became one `.map` over derived rows with `if` branches, and the
+      // driver and load-out meta ternaries (`lines.length > 0 ? <span/>`) became
+      // one. Four fewer JSX-bearing ternaries, none a fault branch, so the 78
+      // below is unchanged. Re-derived by running the guard on the branch.
+      //
+      // 743 -> 746 on feat/crew-show-search (Task 15): three JSX-bearing
+      // ternaries, none a fault branch: Header's optional `search` row, and the
+      // search field's clear button and Cancel button, each rendered only in its
+      // state. Re-derived by running the meta-test on the tree merged with the
+      // section tasks, which computed 746 (the branch's own base read 747 -> 750);
+      // the 78 is unchanged.
+      //
+      // 746 -> 747 on feat/crew-show-search (Task 16): CrewSections renders the
+      // search panel in place of the hidden body only while search is active.
+      // Not a fault branch; re-derived the same way on the merged tree (750 -> 751
+      // on the branch's own base), 78 unchanged.
+      //
+      // 747 -> 760 on feat/crew-show-search (Task 17): thirteen in
+      // components/crew/search/CrewSearchResults.tsx, each a phase or a row's
+      // optional part (chips, groups, Show all, the cap note, No match, the
+      // report row and its modal, the alias note, the copy button or chevron, the
+      // toast and its check). None is a fault branch; re-derived on the merged
+      // tree (751 -> 764 on the branch's own base), 78 unchanged.
+      //
+      // Probed: 760 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

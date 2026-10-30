@@ -48,6 +48,13 @@ type DayCardProps = {
   /** Display text for the phase line. Falls back to `phase` when omitted
    *  (e.g. "Show Day 2" — bug #316 item 2). The tone dot still keys off `phase`. */
   label?: string;
+  /**
+   * Search target id (lib/search/entryId.ts). When set, the card is one search
+   * line, its label is that line's group heading (the day-card column has no
+   * card title, spec §4), and the clock-driven "Today" pill is skipped. Absent
+   * renders no search markers.
+   */
+  searchTarget?: string;
 };
 
 /** Phase → tone. Travel In/Out share the neutral `travel` tone. */
@@ -58,13 +65,15 @@ const TONE: Record<SchedulePhase, "travel" | "set" | "show"> = {
   Show: "show",
 };
 
-export function DayCard({ day, phase, today, meta, label }: DayCardProps) {
+export function DayCard({ day, phase, today, meta, label, searchTarget }: DayCardProps) {
   const { dow, dnum } = dayBadgeParts(day);
   const tone = TONE[phase];
+  const search = searchTarget !== undefined;
 
   return (
     <div
       data-testid="day-card"
+      data-search-target={searchTarget}
       // The pinned-today hook is present ONLY when `today` is true so the
       // attribute selector reads cleanly downstream.
       {...(today ? { "data-today": "true" } : {})}
@@ -91,7 +100,10 @@ export function DayCard({ day, phase, today, meta, label }: DayCardProps) {
       <span className="w-px self-stretch bg-border" aria-hidden="true" />
 
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="inline-flex items-center gap-2 text-sm font-bold text-text-strong">
+        <span
+          data-search-group={search ? "" : undefined}
+          className="inline-flex items-center gap-2 text-sm font-bold text-text-strong"
+        >
           <span
             data-testid="day-card-phase-dot"
             data-tone={tone}
@@ -113,7 +125,10 @@ export function DayCard({ day, phase, today, meta, label }: DayCardProps) {
       </div>
 
       {today ? (
-        <span className="shrink-0 rounded-pill bg-stale-tint px-2 py-0.5 text-[10px] font-bold uppercase tracking-eyebrow text-accent-on-bg">
+        <span
+          data-search-skip={search ? "" : undefined}
+          className="shrink-0 rounded-pill bg-stale-tint px-2 py-0.5 text-[10px] font-bold uppercase tracking-eyebrow text-accent-on-bg"
+        >
           Today
         </span>
       ) : null}

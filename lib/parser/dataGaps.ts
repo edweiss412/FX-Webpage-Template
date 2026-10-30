@@ -81,6 +81,11 @@ export const GAP_CLASSES = [
     plural: "venues with no address",
     gateExempt: true,
   },
+  // A sheet that yields no pack list (2026-10-26 pack-list-missing-warning §4.4). Exempt
+  // for the same reason as the venue notice above: most published shows have no pull
+  // sheet tab, so the first sync after deploy would otherwise alert on nearly all of them.
+  // A real loss still trips MI-8c, which auto-applies with a change-feed notification.
+  { code: "PULL_SHEET_MISSING", label: "missing pack list", gateExempt: true },
   { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", label: "unclear room split" },
   // `plural` (optional): clause-shaped labels cannot take the default bare "s"
   // — "2 hotel line may be read wrongs" reached staged-review chips and badge

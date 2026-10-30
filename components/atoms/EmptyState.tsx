@@ -76,6 +76,8 @@ export function EmptyState({ label, children }: EmptyStateProps) {
     <div
       data-testid="empty-state"
       data-variant="required-field"
+      // A placeholder, not sheet data: outside search coverage (spec §2.3).
+      data-search-skip=""
       // §1.1: surface-sunken backdrop visually distinguishes the plate
       // from real content. Italic supplies the "this is missing" cue.
       // text-text-subtle clears AA-body (Finding 3b) — the placeholder

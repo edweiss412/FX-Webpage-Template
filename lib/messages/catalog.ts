@@ -1603,6 +1603,22 @@ export const MESSAGE_CATALOG = {
       "Your sheet names the venue, but we found no address for it: the address cell is empty, or its row has a label we don't read. The crew page shows the venue without a street address until the address is in the venue address row, and it will show the next time this show checks its sheet.",
     helpHref: "/help/errors#VENUE_ADDRESS_MISSING",
   },
+  PULL_SHEET_MISSING: {
+    code: "PULL_SHEET_MISSING",
+    warningClass: "parse_warning",
+    dougFacing:
+      "We didn't find a pack list we could read in this sheet, so the crew page has no pack list and crew can't look up which case gear is packed in. If this show has one, put it on a tab named PULL SHEET with PULL SHEET at the top.",
+    crewFacing: null,
+    followUp: "Doug → add or fix the PULL SHEET tab (or Ignore)",
+    helpfulContext:
+      "We didn't find a pack list we could read in this sheet, so crew can't look up which case their gear is packed in. If this show has one, put it on a tab named PULL SHEET with PULL SHEET at the top.",
+    controlsNote: "Use Report to flag it to us, or Ignore to hide this notice.",
+    triggerContext: "Appears when no tab in the sheet has a pack list we can read.",
+    title: "No pack list found",
+    longExplanation:
+      "We look for a show's pack list under a PULL SHEET heading at the top of a tab, above the gear rows, and a tab named PULL SHEET is the layout we read best. This sheet has no such heading, or the rows under it aren't ones we could read, so the crew page shows no pack list. Once it's in place, the pack list shows the next time this show checks its sheet.",
+    helpHref: "/help/errors#PULL_SHEET_MISSING",
+  },
   ORPHANED_CREW_ROWS: {
     code: "ORPHANED_CREW_ROWS",
     warningClass: "parse_warning",

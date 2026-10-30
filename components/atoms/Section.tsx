@@ -138,6 +138,13 @@ type SectionProps = {
 
   /** Optional supplementary aria-label for screen readers. */
   ariaLabel?: string;
+
+  /**
+   * Crew search (spec §2.3): makes the heading a search target with this id
+   * AND a search group heading (`data-search-target` + `data-search-group`).
+   * Absent leaves the heading's markup exactly as it was.
+   */
+  headingSearchTarget?: string;
 };
 
 /**
@@ -161,6 +168,7 @@ export function Section({
   bodyAs,
   children,
   ariaLabel,
+  headingSearchTarget,
 }: SectionProps) {
   // Tailwind v4 stretch hygiene: the tile-grid in app/show/[slug]/page.tsx
   // declares `items-stretch`; this wrapper MUST declare `h-full` to
@@ -192,6 +200,11 @@ export function Section({
       ? "text-lg font-semibold leading-tight tracking-tight text-text-strong"
       : "text-xs font-medium uppercase tracking-eyebrow text-text-faint";
 
+  const headingSearch =
+    headingSearchTarget !== undefined
+      ? { "data-search-target": headingSearchTarget, "data-search-group": "" }
+      : {};
+
   // Resolve body element (caller override > variant default).
   const Body = bodyAs ?? VARIANT_BODY_DEFAULT[variant];
 
@@ -220,10 +233,14 @@ export function Section({
             <span aria-hidden="true" className="text-text-faint">
               {headingIcon}
             </span>
-            <h2 className={headingClass}>{heading}</h2>
+            <h2 {...headingSearch} className={headingClass}>
+              {heading}
+            </h2>
           </div>
         ) : (
-          <h2 className={headingClass}>{heading}</h2>
+          <h2 {...headingSearch} className={headingClass}>
+            {heading}
+          </h2>
         )}
         {subheading ? <div className="text-sm text-text-subtle">{subheading}</div> : null}
       </header>

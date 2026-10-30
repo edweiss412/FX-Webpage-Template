@@ -35,7 +35,7 @@ import { ChevronRight } from "lucide-react";
 import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
 import type { JSX } from "react";
 
-import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
+import { structuredAgenda, type AgendaBlockSearch } from "@/components/crew/agendaScheduleRows";
 import { driftNote } from "@/lib/agenda/agendaPaint";
 
 type AgendaScheduleBlockProps = {
@@ -56,6 +56,11 @@ type AgendaScheduleBlockProps = {
    * T2 declares the prop and threads the value; T3 is what makes the component USE it.
    */
   viewerDays?: ViewerAgendaDays;
+  /**
+   * Search target ids (components/crew/agendaScheduleRows.ts), from the crew
+   * Schedule section. Absent (the admin preview) renders no search markers.
+   */
+  search?: AgendaBlockSearch;
 };
 
 /** Turn the stored drift string ("start→12:25 PM (source: 12:25 AM)") into a
@@ -65,11 +70,14 @@ export function AgendaScheduleBlock({
   extraction,
   label = null,
   viewerDays: _viewerDays = { kind: "all" },
+  search,
 }: AgendaScheduleBlockProps): JSX.Element | null {
-  const data = normalizeAgendaExtraction(extraction);
   // §4.7 gate: render the structured schedule ONLY for a high-confidence
   // extraction that actually has days. Everything else → embed-only.
-  if (!data || data.confidence !== "high" || data.days.length === 0) return null;
+  const data = structuredAgenda(extraction);
+  if (!data) return null;
+  // The session count and the "Your day" marker are derived chrome, not sheet data.
+  const skip = search !== undefined ? "" : undefined;
 
   // An EMPTY subset is treated as "all": "fold iff my index is absent" would otherwise fold
   // every row including the viewer's own, which is the worst outcome this feature can produce.
@@ -87,6 +95,7 @@ export function AgendaScheduleBlock({
       {label ? (
         <p
           data-testid="agenda-schedule-label"
+          data-search-target={search?.docLabel}
           className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
         >
           {label}
@@ -106,6 +115,7 @@ export function AgendaScheduleBlock({
         >
           <summary
             data-testid={`agenda-day-summary-${di}`}
+            data-search-target={search?.days[di]?.summary}
             className="flex min-h-tap-min min-w-0 cursor-pointer list-none items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             {/* Still an <h3>, inside the <summary> (impeccable audit P1). Replacing the day
@@ -129,6 +139,7 @@ export function AgendaScheduleBlock({
             <span
               data-testid={`agenda-day-count-${di}`}
               data-agenda-day-count=""
+              data-search-skip={skip}
               className="shrink-0 font-normal normal-case tabular-nums text-text-subtle"
             >
               {day.sessions.length === 1 ? "1 session" : `${day.sessions.length} sessions`}
@@ -136,6 +147,7 @@ export function AgendaScheduleBlock({
             {markerOn(di) ? (
               <span
                 data-testid={`agenda-day-marker-${di}`}
+                data-search-skip={skip}
                 className="shrink-0 font-semibold normal-case text-text-strong"
               >
                 Your day
@@ -152,6 +164,7 @@ export function AgendaScheduleBlock({
               <li
                 key={`${di}-${si}-${session.time}`}
                 data-testid="agenda-session"
+                data-search-target={search?.days[di]?.sessions[si]}
                 className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3"
               >
                 <span className="shrink-0 text-sm tabular-nums text-text-subtle">

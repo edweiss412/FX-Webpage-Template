@@ -49,24 +49,25 @@ import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderAction
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { WrappedSection } from "@/components/crew/WrappedSection";
-import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
-import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
-import { NewTabHint } from "@/components/shared/NewTabHint";
+import { FactRows } from "@/components/crew/primitives/FactRows";
+import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import {
-  BuildingIcon,
-  CarIcon,
-  DockIcon,
-  InfoIcon,
-  MapPinIcon,
-  WifiIcon,
-} from "@/components/crew/icons/sectionIcons";
+  FACILITIES_CARD_ID,
+  FACILITIES_TITLE,
+  STATUS_CARD_ID,
+  STATUS_TITLE,
+  WHERE_CARD_ID,
+  WHERE_TITLE,
+  venueFactRows,
+  venueStatusLines,
+  venueTransportVisible,
+  venueWhereRows,
+} from "@/components/crew/sections/venueRows";
+import { NewTabHint } from "@/components/shared/NewTabHint";
+import { BuildingIcon, InfoIcon, MapPinIcon } from "@/components/crew/icons/sectionIcons";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { compareRooms } from "@/lib/crew/resolveKeyTimes";
-import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
-import { transportTileVisible } from "@/lib/visibility/scopeTiles";
-import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 
 type VenueSectionProps = {
@@ -78,18 +79,6 @@ type VenueSectionProps = {
   ledger: TileRenderLedger;
   cardReport?: CardReportContext | null;
 };
-
-/**
- * The name the parser synthesizes when a v1 / metadata-trimmed sheet heads its
- * general-session block with nothing nameable (`lib/parser/blocks/rooms.ts` —
- * "fall back to 'General Session' rather than mis-naming the GS room"). Five of
- * the ten raw fixtures parse to exactly this. A row reading "Room: General
- * Session" restates the block heading and tells a crew member nothing, so it is
- * suppressed. Held locally rather than imported because the parser is out of
- * scope for this change; the suppression test is fixture-derived (it runs the
- * real parser) so a renamed fallback fails loudly instead of passing vacuously.
- */
-const SYNTHESIZED_GS_ROOM_NAME = "General Session";
 
 /**
  * URL-validity guard for the Maps anchor. Byte-identical to VenueTile's
@@ -122,23 +111,11 @@ export function VenueSection({
 
   const venue = data.show.venue;
 
-  // --- Where: discrete Venue / City / Address rows ---------------------------
-  // venueDisplay resolves the city (geocoded → structured-address → trailing-known
-  // city in the NAME) and returns the venue name with a redundant trailing city
-  // stripped, so a blank-address FXAV venue ("Four Seasons Hotel Chicago") still
-  // shows a clean "Chicago" City row WITHOUT printing the city twice. This card was
-  // previously address-only and rendered NOTHING for such venues; it now always
-  // surfaces the venue name + city. streetFromAddress drops the city tail from the
-  // Address value; an empty street value reflows the Address row out (KeyValueRows
-  // sentinel-hides empty values).
-  const { name: venueDisplayName, city: venueCity } = venueDisplay(venue);
-  const whereRows: KeyValueRow[] = venue
-    ? [
-        { k: "Venue", v: venueDisplayName ?? venue.name ?? "" },
-        ...(venueCity ? [{ k: "City", v: venueCity } as KeyValueRow] : []),
-        { k: "Address", v: streetFromAddress(venue.address, venueCity) ?? "" },
-      ]
-    : [];
+  // --- Where / Facilities / Venue status rows --------------------------------
+  // Derived in the sibling venueRows.ts, which the search builder reads too, so
+  // the page and the index cannot disagree on a row (each carries its search
+  // target id). Every value routes through `shouldHideGenericOptional` there.
+  const whereRows = venueWhereRows(venue);
   // KeyValueRows omits empty/sentinel values, so "are there any present rows?" must
   // use the same predicate to decide whether the Where card has content.
   const hasWhereRows = whereRows.some((row) => !shouldHideGenericOptional(row.v));
@@ -148,151 +125,12 @@ export function VenueSection({
   // navigation control (ported from VenueTile).
   const mapHref = isParseableUrl(venue?.googleLink) ? venue!.googleLink! : null;
 
-  // --- Parking: transportTileVisible-gated -----------------------------------
-  const transportVisible = transportTileVisible({
-    transportation: data.transportation,
-    viewerId: data.viewerId,
-    transportationOwnerIds: data.transportationOwnerIds,
-    viewerName: data.viewerName,
-    viewerNameAliases: data.viewerNameAliases,
-    isAdmin: ctx.isAdmin,
-  });
-  const rawParking = data.transportation?.parking ?? null;
-  const parking =
-    transportVisible && !shouldHideGenericOptional(rawParking) ? rawParking!.trim() : null;
-
-  // --- Connectivity: Wi-Fi (internet) + power --------------------------------
-  const rawInternet = data.show.event_details["internet"] ?? null;
-  const internet = shouldHideGenericOptional(rawInternet) ? null : rawInternet!.trim();
-  // Display-time split into SSID / password / notes. `null` means the value is
-  // outside the observed label vocabulary, and the raw row below renders it
-  // verbatim — the value is never silently reshaped.
-  //
-  // The DERIVED ssid is re-checked against the sentinel predicate (diff review
-  // R2 F2). `SSID: TBD` is not a sentinel as a whole cell, so it reaches the
-  // split branch, but its ssid IS one — and FactRows drops sentinel rows, so the
-  // component committed to the split branch and then rendered nothing at all,
-  // losing the cell entirely. Rejecting the split here returns it to the raw row,
-  // which renders "SSID: TBD" verbatim.
-  const splitWifi = internet !== null ? parseWifiValue(internet) : null;
-  // EVERY derived field is re-checked, not just the ssid. FactRows drops a
-  // sentinel row, so a sentinel `password` or `notes` used to be suppressed
-  // AFTER the component had committed to the split — the raw row was gone too,
-  // and that text left the page entirely. One sentinel anywhere returns the
-  // whole cell to the raw row, where it renders verbatim.
-  const splitHasSentinel =
-    splitWifi !== null &&
-    [splitWifi.ssid, splitWifi.password, splitWifi.notes].some(
-      (value) => value !== null && shouldHideGenericOptional(value),
-    );
-  const wifi = splitWifi !== null && !splitHasSentinel ? splitWifi : null;
-  const rawPower = data.show.event_details["power"] ?? null;
-  const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
-
-  // --- Room: the general-session room's name ---------------------------------
-  // Already parsed (ROOMS header line 2, section prefix stripped) — surfaced
-  // here, never re-derived. Suppressed on a rooms fetch failure: `readRooms`
-  // fail-softs to `[]` with `tileErrors.rooms`, so the array alone cannot tell
-  // "no rooms" from "we could not read them", and the failure is already
-  // surfaced by the rooms-consuming tiles' SectionTileError. Suppressed for the
-  // parser's synthesized fallback name too: a v1 sheet that never named its room
-  // gets the literal "General Session" from the parser, and echoing that back is
-  // noise, not information.
-  const roomsFetchFailed = Boolean(data.tileErrors["rooms"]);
-  const gsRoom = roomsFetchFailed
-    ? null
-    : (data.rooms.filter((room) => room.kind === "gs").sort(compareRooms)[0] ?? null);
-  // Sentinel-gated at the READ SITE like every other value in this component: a
-  // room literally named "TBD" would otherwise be pushed as a row, counted by
-  // `hasFacts`, and then dropped by FactRows — rendering an empty Facilities
-  // card when Room is the only fact (diff review R2 F2).
-  const gsRoomName = shouldHideGenericOptional(gsRoom?.name ?? null) ? "" : gsRoom!.name.trim();
-  const roomName =
-    gsRoomName.length > 0 && gsRoomName.toLowerCase() !== SYNTHESIZED_GS_ROOM_NAME.toLowerCase()
-      ? gsRoomName
-      : null;
-
-  // --- COI status — sentinel-guarded; span omitted entirely when hidden ------
-  const rawCoi = data.show.coi_status ?? null;
-  const coi = shouldHideGenericOptional(rawCoi) ? null : rawCoi!.trim();
-
-  // --- Venue notes — sentinel-guarded ----------------------------------------
-  const rawNotes = venue?.notes ?? null;
-  const notes = shouldHideGenericOptional(rawNotes) ? null : rawNotes!.trim();
-
-  // --- Loading dock — §8.3 generic-optional; sentinels reflow out ------------
-  // Read at THIS site through `shouldHideGenericOptional` so the sentinel-hiding
-  // meta-test (which walks venue.loadingDock) stays green; FactRows then also
-  // sentinel-gates the row, but the read-site guard is the contract surface.
-  const loadingDock = shouldHideGenericOptional(venue?.loadingDock ?? null)
-    ? null
-    : venue!.loadingDock!.trim();
-
-  // The mock `.kvrow` fact list: each row gets a 28px sunken mini-icon. Dock →
-  // DockIcon, Parking → CarIcon, the first connectivity row → WifiIcon (whether
-  // that is the split "Wi-Fi network" row or the raw "Crew Wi-Fi" fallback).
-  // FactRows omits any row
-  // whose `v` is empty/sentinel, so we still gate each value above and only
-  // push rows we want; empty strings here would also reflow out inside FactRows.
-  const factRows: FactRow[] = [];
-  if (loadingDock) {
-    factRows.push({
-      k: "Loading dock",
-      v: loadingDock,
-      icon: <DockIcon />,
-    });
-  }
-  if (parking) {
-    factRows.push({ k: "Parking", v: parking, icon: <CarIcon /> });
-  }
-  if (roomName) {
-    factRows.push({ k: "Room", v: roomName, testId: "venue-room" });
-  }
-  if (internet && wifi) {
-    // Split: labeled network + password rows, with any surrounding prose kept as
-    // the value of an "Internet notes" row. The prose is operationally
-    // load-bearing (hardline vs Wi-Fi for streaming) and is never dropped.
-    factRows.push({
-      k: "Wi-Fi network",
-      v: wifi.ssid,
-      icon: <WifiIcon />,
-      testId: "venue-wifi-ssid",
-    });
-    if (wifi.password) {
-      // The one row on a crew page that gets transcribed character by character
-      // into a phone's Wi-Fi dialog, often in a dim ballroom mid-task. `code`
-      // buys the slashed zero and tabular figures; the copy control is the only
-      // complete answer for the ambiguities no font feature fixes (`rn`/`m`,
-      // and a trailing period that IS part of the password). The SSID row above
-      // deliberately takes neither: it is picked from a visible network list.
-      factRows.push({
-        k: "Wi-Fi password",
-        v: wifi.password,
-        testId: "venue-wifi-password",
-        code: true,
-        copyLabel: "Copy the Wi-Fi password",
-      });
-    }
-    if (wifi.notes) {
-      // Labeled "Internet notes", NOT "Crew Wi-Fi" (impeccable critique P1): four
-      // of the five corpus values that produce notes describe a HARDLINE, so
-      // "Crew Wi-Fi: Hardline from Encore" tells a crew member the opposite of
-      // what the sheet says. The raw-fallback row keeps "Crew Wi-Fi" because
-      // there the value IS the whole internet cell.
-      factRows.push({ k: "Internet notes", v: wifi.notes, testId: "venue-wifi-notes" });
-    }
-  } else if (internet) {
-    // Fail-soft: byte-identical to the pre-split row (no testId — adding one
-    // would change the markup this branch exists to preserve).
-    factRows.push({ k: "Crew Wi-Fi", v: internet, icon: <WifiIcon /> });
-  }
-  if (power) {
-    factRows.push({ k: "Power", v: power });
-  }
-
+  // Parking is transportTileVisible-gated (the parking half of §9 test 17).
+  const transportVisible = venueTransportVisible(data, ctx.isAdmin);
+  const factRows = venueFactRows(data, { transportVisible });
   // Venue notes stay as a free-text paragraph under the status card (a long
   // multi-line note doesn't belong in the right-aligned `.v` slot).
-  const venueNotes = notes;
+  const { coi, notes: venueNotes } = venueStatusLines(data);
 
   const hasWhere = hasWhereRows || mapHref !== null;
   const hasFacts = factRows.length > 0;
@@ -333,15 +171,15 @@ export function VenueSection({
   const leftTiles = (
     <>
       {hasWhere ? (
-        <div data-testid="venue-where" data-card-id="venue-where">
+        <div data-testid="venue-where" data-card-id={WHERE_CARD_ID}>
           <SectionCard
             icon={<MapPinIcon />}
-            title="Where"
+            title={WHERE_TITLE}
             action={
               <CardHeaderActions
-                cardId="venue-where"
+                cardId={WHERE_CARD_ID}
                 driveFileId={data.driveFileId}
-                anchor={data.sourceAnchors[CARD_REGION_MAP["venue-where"]]}
+                anchor={data.sourceAnchors[CARD_REGION_MAP[WHERE_CARD_ID]]}
                 showId={showId}
                 cardReport={cardReport}
               />
@@ -354,6 +192,8 @@ export function VenueSection({
             {mapHref ? (
               <a
                 href={mapHref}
+                // An action, not sheet text (spec §2.3 clause 5).
+                data-search-skip=""
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"
@@ -366,15 +206,15 @@ export function VenueSection({
       ) : null}
 
       {hasFacts ? (
-        <div data-testid="venue-facilities" data-card-id="venue-facilities">
+        <div data-testid="venue-facilities" data-card-id={FACILITIES_CARD_ID}>
           <SectionCard
             icon={<BuildingIcon />}
-            title="Facilities"
+            title={FACILITIES_TITLE}
             action={
               <CardHeaderActions
-                cardId="venue-facilities"
+                cardId={FACILITIES_CARD_ID}
                 driveFileId={data.driveFileId}
-                anchor={data.sourceAnchors[CARD_REGION_MAP["venue-facilities"]]}
+                anchor={data.sourceAnchors[CARD_REGION_MAP[FACILITIES_CARD_ID]]}
                 showId={showId}
                 cardReport={cardReport}
               />
@@ -386,43 +226,44 @@ export function VenueSection({
       ) : null}
 
       {hasStatus ? (
-        <div data-testid="venue-status" data-card-id="venue-status">
+        <div data-testid="venue-status" data-card-id={STATUS_CARD_ID}>
           <SectionCard
             icon={<InfoIcon />}
-            title="Venue status"
+            title={STATUS_TITLE}
             action={
               <CardHeaderActions
-                cardId="venue-status"
+                cardId={STATUS_CARD_ID}
                 driveFileId={data.driveFileId}
-                anchor={data.sourceAnchors[CARD_REGION_MAP["venue-status"]]}
+                anchor={data.sourceAnchors[CARD_REGION_MAP[STATUS_CARD_ID]]}
                 showId={showId}
                 cardReport={cardReport}
               />
             }
           >
             {coi !== null ? (
-              <div className="flex flex-col gap-1">
+              // One search line: the label and the value together (spec §2.3).
+              <div data-search-target={coi.searchTarget} className="flex flex-col gap-1">
                 {/* Eyebrow label is a plain <p>, not a <dt>: these COI / notes
                     blocks are not inside a <dl> (no paired <dd>), so a <dt> here
                     would be an orphan description-term (invalid semantics, WCAG
                     1.3.1). Same eyebrow styling, valid structure. */}
                 <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                  COI
+                  {coi.label}
                 </p>
                 <span
                   data-testid="coi-status"
                   className="text-sm font-semibold tabular-nums text-text-strong"
                 >
-                  {coi}
+                  {coi.value}
                 </span>
               </div>
             ) : null}
             {venueNotes !== null ? (
-              <div className="flex flex-col gap-1">
+              <div data-search-target={venueNotes.searchTarget} className="flex flex-col gap-1">
                 <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                  Venue notes
+                  {venueNotes.label}
                 </p>
-                <p className="text-sm text-text">{venueNotes}</p>
+                <p className="text-sm text-text">{venueNotes.value}</p>
               </div>
             ) : null}
           </SectionCard>

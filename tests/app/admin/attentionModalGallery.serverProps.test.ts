@@ -117,6 +117,8 @@ const EXPECTED_GLOBAL_IDS = [
 // And one more from fix/near-miss-gear-quote-header: warn-venue-address-missing (spec
 // parser/2026-10-25-nearmiss-read-blocks-and-venue-address §4, a named venue with no
 // address). Same +1, and once again it was unit-suite-nodb that said so.
+// And one more from feat/pack-list-missing-warning: warn-pull-sheet-missing (spec
+// parser/2026-10-26-pack-list-missing-warning §4.7 item 8). Added up front this time.
 const RENDERED_IDS_BEFORE: string[] = [
   "alert-ambiguous-email-binding",
   "alert-asset-recovery-bytes-exceeded",
@@ -243,6 +245,7 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-opening-reel-permission-denied",
   "warn-orphaned-crew-rows",
   "warn-pull-sheet-ambiguous-format",
+  "warn-pull-sheet-missing",
   "warn-pull-sheet-on-archived-tab",
   "warn-pull-sheet-override-content-changed",
   "warn-pull-sheet-parse-partial",

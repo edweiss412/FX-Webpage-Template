@@ -270,7 +270,44 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // warnings the same way the show pop-up does. A pure partition over a fingerprint
     // set, no clock read. 222 -> 223.
     expect(rel).toContain("lib/dataQuality/partitionByIgnored.ts");
-    expect(rel.length).toBe(223);
+    // Joined, from the crew search Travel section task: lib/search/entryId.ts and
+    // lib/search/normalize.ts, now imported by components/crew/sections/travelRows.ts,
+    // the Travel row derivations TravelSection renders from. A content hash and a
+    // tokenizer, no clock read. 223 -> 225.
+    expect(rel).toContain("lib/search/entryId.ts");
+    expect(rel).toContain("lib/search/normalize.ts");
+    // The crew search Budget section task (Task 6) reaches lib/search/entryId.ts
+    // too, depth-1 from components/crew/sections/budgetRows.ts, the Budget rows
+    // module BudgetSection renders from. Already a member through travelRows.ts,
+    // so nothing joins: 225 -> 225, re-derived on the merged tree.
+    // The crew search Schedule section task (Task 11) reaches lib/search/entryId.ts and
+    // lib/search/normalize.ts too, imported directly by
+    // components/crew/sections/scheduleRows.ts, the rows module ScheduleSection and its
+    // search builder share. Already members through travelRows.ts, so nothing joins:
+    // 225 -> 225, re-derived on the merged tree.
+    // Joined, from feat/crew-show-search (Task 15): lib/search/match.ts (the
+    // matcher, imported by components/crew/search/CrewSearchProvider.tsx) and
+    // lib/search/copy.ts (the search UI's strings, imported by
+    // components/crew/search/CrewSearchField.tsx). Pure: no clock read in
+    // either. 225 -> 227, re-derived on the merged tree by running this guard
+    // (the Task 15 branch read 223 -> 225 on its own base, before the section
+    // tasks' entryId.ts and normalize.ts joined).
+    expect(rel).toContain("lib/search/match.ts");
+    expect(rel).toContain("lib/search/copy.ts");
+    // Joined, from feat/crew-show-search (Task 17): lib/search/snippet.ts, the
+    // result-row snippet window, imported by
+    // components/crew/search/CrewSearchResults.tsx. Pure, no clock read.
+    // 227 -> 228, re-derived on the merged tree by running this guard (225 -> 226
+    // on the branch's own base).
+    expect(rel).toContain("lib/search/snippet.ts");
+    // The crew search miss-logging task (Task 18) imports lib/search/normalize.ts
+    // directly from components/crew/search/CrewSearchProvider.tsx, to key each
+    // missed query once per page load. Pure, no clock read. On its own base this
+    // joined the module (226 -> 227); on the tree merged with the section tasks it
+    // is already a member through travelRows.ts, so nothing joins: 228 -> 228,
+    // re-derived by running this guard.
+    expect(rel).toContain("lib/search/normalize.ts");
+    expect(rel.length).toBe(228);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

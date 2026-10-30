@@ -49,6 +49,8 @@ export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "VENUE_GEOCODE_UNRESOLVED",
   "VENUE_TIMEZONE_UNRESOLVED",
   "VENUE_ADDRESS_MISSING",
+  // 2026-10-26 pack-list-missing-warning §4.6.
+  "PULL_SHEET_MISSING",
   "ORPHANED_CREW_ROWS",
   // Appended, not inserted alphabetically: this list is deliberately not globally sorted —
   // the original sweep runs alphabetically and every later addition was appended, which is
@@ -133,6 +135,7 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   VENUE_GEOCODE_UNRESOLVED: "Appears when the venue address doesn't resolve to a city.",
   VENUE_TIMEZONE_UNRESOLVED: "Appears when the venue's location doesn't resolve to a time zone.",
   VENUE_ADDRESS_MISSING: "Appears when we read a venue name but no venue address.",
+  PULL_SHEET_MISSING: "Appears when no tab in the sheet has a pack list we can read.",
   ORPHANED_CREW_ROWS:
     "Appears when rows carrying crew role text (like 'Load In / Set / Strike / Load Out') sit in a block with no section header above them.",
 };
@@ -176,6 +179,10 @@ export const EXPECTED_LONG_EXPLANATION: Readonly<Record<string, string>> = {
   // explains "or check its row label" (a relabelled address row fires too) cannot drift.
   VENUE_ADDRESS_MISSING:
     "Your sheet names the venue, but we found no address for it: the address cell is empty, or its row has a label we don't read. The crew page shows the venue without a street address until the address is in the venue address row, and it will show the next time this show checks its sheet.",
+  // 2026-10-26 pack-list-missing-warning §4.6. Enrolled so the one place that says the
+  // heading is what we read (a PULL SHEET tab without one fires too) cannot drift.
+  PULL_SHEET_MISSING:
+    "We look for a show's pack list under a PULL SHEET heading at the top of a tab, above the gear rows, and a tab named PULL SHEET is the layout we read best. This sheet has no such heading, or the rows under it aren't ones we could read, so the crew page shows no pack list. Once it's in place, the pack list shows the next time this show checks its sheet.",
 };
 
 /**
@@ -196,6 +203,7 @@ export const EXPECTED_CONTROLS_NOTE: Record<string, string> = {
   PULL_SHEET_PARSE_PARTIAL: "Use Report if you'd like the format supported.",
   UNKNOWN_SECTION_HEADER: "Use Report if this section should be supported.",
   VENUE_ADDRESS_MISSING: "Use Report to flag it to us, or Ignore to hide this notice.",
+  PULL_SHEET_MISSING: "Use Report to flag it to us, or Ignore to hide this notice.",
 };
 
 export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
@@ -297,6 +305,8 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "We couldn't work out the venue's time zone, so times show in Eastern Time for now. It usually clears on the next sync; if not, check the venue address.",
   VENUE_ADDRESS_MISSING:
     "We read a venue name but no address for it, so crew see the venue with no street address. Fill in the venue address in your sheet, or check its row label.",
+  PULL_SHEET_MISSING:
+    "We didn't find a pack list we could read in this sheet, so crew can't look up which case their gear is packed in. If this show has one, put it on a tab named PULL SHEET with PULL SHEET at the top.",
 };
 
 export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([
@@ -311,7 +321,9 @@ export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([
   "STAGE_WORD_AUTOCORRECTED",
   "UNKNOWN_FIELD",
   "UNKNOWN_SECTION_HEADER",
-]); // measured 2026-07-20 (Task 1 Step 3); extended 2026-07-25
+  // 2026-10-26 pack-list-missing-warning: 8 of the 10 raw fixtures have no pull sheet.
+  "PULL_SHEET_MISSING",
+]); // measured 2026-07-20 (Task 1 Step 3); extended 2026-07-25, 2026-10-26
 export const EXPECTED_CORPUS_FIXTURES: ReadonlySet<string> = new Set([
   "2024-05-east-coast-family-office.md",
   "2025-03-dci-rpas-central.md",
