@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 236 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 237 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -323,7 +323,12 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(rel).toContain("lib/offline/client/servedCopy.ts");
     expect(rel).toContain("lib/offline/marker.ts");
     expect(rel).toContain("lib/offline/serverMarkers.ts");
-    expect(rel.length).toBe(236);
+    // Joined, from the same branch (Task 25, 346d2438b): lib/offline/killSwitch.ts,
+    // which SavedCopySlot.tsx now imports directly to read the kill switch for the
+    // registrar it mounts. Its other importer, app/sw.js/route.ts, is no scan root.
+    // No clock read. 236 -> 237, re-derived by running this guard.
+    expect(rel).toContain("lib/offline/killSwitch.ts");
+    expect(rel.length).toBe(237);
   });
 
   // The twelve waivers this arc added, plus the client effect read that
