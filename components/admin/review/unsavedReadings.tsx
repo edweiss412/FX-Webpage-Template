@@ -248,22 +248,27 @@ function UnsavedReadingsPrompt({
   // second one here would be overridden by it (UI gate P2).
   useEffect(() => {
     const openedFrom = document.activeElement as HTMLElement | null;
-    const changed: { el: Element; hadInert: boolean; priorAriaHidden: string | null }[] = [];
+    // Only the attributes THIS prompt adds are recorded and undone (review R1 E2). An
+    // element another owner already hid (the review shell's admin root) is left alone:
+    // snapshotting its temporary state and writing it back would re-hide the admin root
+    // when the shell and the prompt unmount together, after the shell already restored
+    // it. Each owner restores exactly what it set.
+    const changed: { el: Element; setInert: boolean; setHidden: string | null | false }[] = [];
     for (const el of Array.from(document.body.children)) {
       if (el === portalEl) continue;
-      changed.push({
-        el,
-        hadInert: el.hasAttribute("inert"),
-        priorAriaHidden: el.getAttribute("aria-hidden"),
-      });
-      el.setAttribute("inert", "");
-      el.setAttribute("aria-hidden", "true");
+      const setInert = !el.hasAttribute("inert");
+      const priorHidden = el.getAttribute("aria-hidden");
+      // `false` = untouched; otherwise the prior value to put back (null = absent).
+      const setHidden = priorHidden === "true" ? false : priorHidden;
+      if (setInert) el.setAttribute("inert", "");
+      if (setHidden !== false) el.setAttribute("aria-hidden", "true");
+      if (setInert || setHidden !== false) changed.push({ el, setInert, setHidden });
     }
     return () => {
-      for (const { el, hadInert, priorAriaHidden } of changed) {
-        if (!hadInert) el.removeAttribute("inert");
-        if (priorAriaHidden === null) el.removeAttribute("aria-hidden");
-        else el.setAttribute("aria-hidden", priorAriaHidden);
+      for (const { el, setInert, setHidden } of changed) {
+        if (setInert) el.removeAttribute("inert");
+        if (setHidden === null) el.removeAttribute("aria-hidden");
+        else if (setHidden !== false) el.setAttribute("aria-hidden", setHidden);
       }
       const trigger = triggerRef.current;
       restoreRef.current = trigger && trigger.isConnected ? trigger : openedFrom;

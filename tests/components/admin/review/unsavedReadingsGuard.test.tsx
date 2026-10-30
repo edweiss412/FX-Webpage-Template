@@ -751,3 +751,78 @@ describe("§6.5 a guarded action protects drafts through its pending period", ()
     });
   });
 });
+
+// ── E2: closing the review under the prompt restores the admin root ───────────
+// Whole-diff review R1 E2: the prompt snapshotted the admin root's TEMPORARY hidden
+// state (the review shell had already set aria-hidden="true") and wrote it back after
+// the shell restored the original, so the page stayed hidden from assistive tech.
+describe("§6.5 the review unmounting under the prompt restores the admin root", () => {
+  let adminRoot: HTMLElement;
+  beforeEach(() => {
+    adminRoot = document.createElement("div");
+    adminRoot.setAttribute("data-inert-root", "");
+    document.body.appendChild(adminRoot);
+  });
+  afterEach(() => {
+    adminRoot.remove();
+  });
+  const original = () => ({
+    hidden: adminRoot.getAttribute("aria-hidden"),
+    inert: adminRoot.hasAttribute("inert"),
+  });
+
+  it("wizard: the review unmounts while the prompt is open", () => {
+    const before = original();
+    premiseHolds("the admin root starts visible", before.hidden === null && !before.inert);
+    renderWizard();
+    premiseHolds(
+      "the review shell hid the admin root",
+      adminRoot.getAttribute("aria-hidden") === "true",
+    );
+    dirtyWizardRow(0);
+    fireEvent.click(screen.getByTestId(wtid("close")));
+    expect(prompt()).toBeInTheDocument();
+    cleanup(); // the parent unmounts the review, prompt and all
+    expect(original()).toEqual(before);
+  });
+
+  it("published: the review unmounts while the prompt is open", () => {
+    const before = original();
+    premiseHolds("the admin root starts visible", before.hidden === null && !before.inert);
+    renderPublished();
+    premiseHolds(
+      "the review shell hid the admin root",
+      adminRoot.getAttribute("aria-hidden") === "true",
+    );
+    dirtyPublishedCard();
+    fireEvent.click(screen.getByTestId(ptid("close")));
+    expect(prompt()).toBeInTheDocument();
+    cleanup();
+    expect(original()).toEqual(before);
+  });
+
+  it("an admin root the page had already hidden keeps its own value", () => {
+    adminRoot.setAttribute("aria-hidden", "false");
+    renderWizard();
+    dirtyWizardRow(0);
+    fireEvent.click(screen.getByTestId(wtid("close")));
+    cleanup();
+    expect(adminRoot.getAttribute("aria-hidden")).toBe("false");
+    expect(adminRoot.hasAttribute("inert")).toBe(false);
+  });
+
+  it("the prompt closing on its own still restores what it changed (Go back)", () => {
+    const before = original();
+    renderWizard();
+    dirtyWizardRow(0);
+    fireEvent.click(screen.getByTestId(wtid("close")));
+    fireEvent.click(screen.getByTestId(`${PROMPT}-go-back`));
+    // The shell still owns the admin root while the review is open.
+    expect(adminRoot.getAttribute("aria-hidden")).toBe("true");
+    const dialog = screen.getByTestId(wtid("modal"));
+    expect(dialog.hasAttribute("inert")).toBe(false);
+    expect(dialog.getAttribute("aria-hidden")).toBeNull();
+    cleanup();
+    expect(original()).toEqual(before);
+  });
+});
