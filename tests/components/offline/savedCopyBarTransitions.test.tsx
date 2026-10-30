@@ -85,6 +85,7 @@ import {
 import { postToWorker } from "@/lib/offline/client/messaging";
 import { reloadPage } from "@/lib/offline/client/reload";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { durationNormalMs } from "./_durationTokens";
 
 const post = vi.mocked(postToWorker);
 const reload = vi.mocked(reloadPage);
@@ -92,12 +93,7 @@ const reload = vi.mocked(reloadPage);
 const REPO_ROOT = process.cwd();
 
 /** DESIGN.md 5.1's duration-normal, the token the fade runs on, read from its definition. */
-const FADE_MS = (() => {
-  const css = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
-  const match = /--duration-normal:\s*(\d+)ms;/.exec(css);
-  if (match === null) throw new Error("app/globals.css defines no --duration-normal");
-  return Number(match[1]);
-})();
+const FADE_MS = durationNormalMs();
 
 /** Spec 4.7.2: how long `updated` shows after a recovery reload. */
 const UPDATED_FOR_MS = 4_000;

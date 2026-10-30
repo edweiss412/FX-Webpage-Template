@@ -27,10 +27,10 @@ import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 import { premise, premiseHolds } from "../../_shared/premise";
+import { durationNormalMs } from "./_durationTokens";
 
 const FILE = join("components", "offline", "SavedCopyBar.tsx");
 const SOURCE = readFileSync(join(process.cwd(), FILE), "utf8");
-const GLOBALS_CSS = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
 
 function parse(): ts.SourceFile {
   return ts.createSourceFile(FILE, SOURCE, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -504,8 +504,6 @@ describe("SavedCopyBar transition audit (spec 4.7.2)", () => {
     visit(src);
     expect(values, "one numeric-literal UPDATED_FADE_FALLBACK_MS").toHaveLength(1);
 
-    const token = /--duration-normal:\s*(\d+)ms;/.exec(GLOBALS_CSS);
-    premiseHolds("app/globals.css defines --duration-normal in ms", token !== null);
-    expect(Number(values[0]!.replace(/_/g, ""))).toBe(Number(token![1]));
+    expect(Number(values[0]!.replace(/_/g, ""))).toBe(durationNormalMs());
   });
 });

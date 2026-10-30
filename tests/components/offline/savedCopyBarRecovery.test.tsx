@@ -42,8 +42,6 @@
  * attribute, when its `s` already names the section, or with the other
  * parameters or the fragment dropped.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { StrictMode } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from "vitest";
@@ -60,6 +58,7 @@ import { reloadPage } from "@/lib/offline/client/reload";
 import { formatSavedTime } from "@/lib/offline/format";
 import { NAV_BUDGET_MS, STATUS_TIMEOUT_MS } from "@/lib/offline/navigation";
 import { premiseHolds } from "@/tests/_shared/premise";
+import { durationNormalMs } from "./_durationTokens";
 
 const post = vi.mocked(postToWorker);
 const reload = vi.mocked(reloadPage);
@@ -71,12 +70,7 @@ const PROBE_EVERY_MS = 30_000;
 /** Spec 4.7.2: how long `updated` shows after a recovery reload. */
 const UPDATED_FOR_MS = 4_000;
 /** The `updated` fade's length: the duration-normal token it runs on (app/globals.css). */
-const FADE_MS = (() => {
-  const css = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
-  const match = /--duration-normal:\s*(\d+)ms;/.exec(css);
-  if (match === null) throw new Error("app/globals.css defines no --duration-normal");
-  return Number(match[1]);
-})();
+const FADE_MS = durationNormalMs();
 
 const NOW_MS = Date.parse("2026-10-27T12:00:00.000Z");
 const RENDERED_AT = "2026-10-27T11:59:00.000Z";
