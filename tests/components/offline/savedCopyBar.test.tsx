@@ -127,9 +127,14 @@ function region(): HTMLElement {
   return regions[0]!;
 }
 
-/** The server render: the empty live region and nothing else. */
+/**
+ * The server render: the empty live region and nothing else. Its classes are
+ * layout only (the spec 4.7.2 Dimensional Invariants, measured in a real
+ * browser by tests/e2e/crew-offline-layout.spec.ts), so it still paints nothing.
+ */
 const EMPTY_REGION_MARKUP =
-  '<div data-testid="saved-copy-bar-region" role="status" aria-live="polite"></div>';
+  '<div data-testid="saved-copy-bar-region" role="status" aria-live="polite" ' +
+  'class="sticky top-0 z-raised flex-none self-stretch"></div>';
 
 function contentText(): string {
   return screen.getByTestId("saved-copy-bar-content").textContent ?? "";
@@ -326,11 +331,15 @@ describe("SavedCopyBar: inputs", () => {
     const live = region();
     expect(live.getAttribute("role")).toBe("status");
     expect(live.getAttribute("aria-live")).toBe("polite");
-    // Empty and unpainted: no child and no text, and no class or style to carry
-    // a tone, padding or border, so it has no height and shows nothing.
+    // Empty and unpainted: no child and no text, no style, and no class beyond
+    // the layout set (spec 4.7.2 Dimensional Invariants) that could carry a
+    // tone, padding or border, so it has no height and shows nothing. The real
+    // browser measures the height: tests/e2e/crew-offline-layout.spec.ts case 1.
     expect(live.childNodes).toHaveLength(0);
     expect(live.textContent).toBe("");
-    expect(live.hasAttribute("class")).toBe(false);
+    expect([...live.classList].sort()).toEqual(
+      ["flex-none", "self-stretch", "sticky", "top-0", "z-raised"].sort(),
+    );
     expect(live.hasAttribute("style")).toBe(false);
     expect(screen.queryByTestId("saved-copy-bar")).toBeNull();
     expect(document.documentElement.getAttribute(MOUNTED_ATTRIBUTE)).toBe("mounted");

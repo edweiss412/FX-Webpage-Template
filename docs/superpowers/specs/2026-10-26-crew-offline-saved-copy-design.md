@@ -281,7 +281,7 @@ Ratified by the spike (§11): the injected meta produced no hydration warning in
 
 `<SavedCopyBar>` is a client component in `components/offline/` (not `components/crew/**`, which the layout redesign owns). `_CrewShell.tsx` renders `<SavedCopySlot>` directly after `<Header>`, a one-line insertion; the slot renders the marker, the bar (crew viewers only) and the registrar. Bar props: `renderedAt` (ISO string), `sheetUnavailable` (`data.lastSyncStatus === 'sheet_unavailable'`), `slug`, `shareToken`.
 
-The bar is full width, `sticky top-0`, above section content and below the header. In the `hidden` state it renders no visible bar; its empty live region stays mounted so the first state change is announced.
+The bar is full width, `sticky top-0`, above section content and below the header, and an open avatar menu paints above it. It renders inside its always-mounted live region (`saved-copy-bar-region`), and the region is the element that carries this placement (Dimensional Invariants below). In the `hidden` state it renders no visible bar; its empty live region stays mounted so the first state change is announced, and adds no height.
 
 **Inputs.** `mode` (from the meta, §4.7.1; becomes `live` when `renderedAt` differs from its value at mount, which means an RSC refresh brought server content), `online` (`navigator.onLine` plus `online`/`offline` events), `age` (now minus `renderedAt`, re-evaluated every 60 seconds), `sheetUnavailable`, `updating` (a fresh copy is saved and the reload is under way, §4.7.3), `justUpdated` (first 4 seconds after a recovery reload).
 
@@ -316,16 +316,17 @@ The wording "isn't available in Google Drive anymore" replaces the mockup's "is 
 
 ##### Dimensional Invariants
 
-The shell is `flex min-h-0 flex-1 flex-col` (`_CrewShell.tsx`, `data-testid="crew-shell"`). The bar is one of its flex children, between `<Header>` and `<CrewSections>`.
+The shell is `flex min-h-0 flex-1 flex-col` (`_CrewShell.tsx`, `data-testid="crew-shell"`). The bar's live region, `saved-copy-bar-region`, is one of its flex children, between `<Header>` and `<CrewSections>`, and the bar is the region's only child while it shows. So the placement classes sit on the region, and the bar fills it.
 
 | Parent to child | Relationship | Guaranteed by |
 |---|---|---|
-| `crew-shell` to `saved-copy-bar` | bar width equals shell width | `self-stretch` on the bar (Tailwind v4 does not default `.flex` to stretch) |
-| `crew-shell` to `saved-copy-bar` | bar height is its content, never grows | `flex-none` on the bar |
-| viewport to `saved-copy-bar` | bar top stays at the viewport top after scrolling past the header | `sticky top-0` plus a `z-index` above section content |
+| `crew-shell` to `saved-copy-bar-region` | region width equals shell width; the bar's equals the region's | `self-stretch` on the region (Tailwind v4 does not default `.flex` to stretch); the bar is a block child |
+| `crew-shell` to `saved-copy-bar-region` | region height is the bar's, never grows, and is 0 while the bar is hidden | `flex-none` on the region, which carries no padding, border or min-height |
+| viewport to `saved-copy-bar-region` | region top stays at the viewport top after scrolling past the header, and the bar paints above section content scrolled under it | `sticky top-0` plus `z-raised` on the region (section content's positioned elements carry no z-index) |
+| avatar menu to `saved-copy-bar-region` | an open avatar menu paints above the bar | `z-raised` is below the menu's `z-dropdown`; a tie would lose, since the header comes first in tree order |
 | `saved-copy-bar` to icon | icon keeps its size when the copy wraps | `flex-none` on the icon |
 
-The plan asserts each row with `getBoundingClientRect()` in a real browser (within 0.5 px) at phone width.
+`tests/e2e/crew-offline-layout.spec.ts` asserts each row with `getBoundingClientRect()` in a real browser (within 0.5 px) at phone width, the icon row at 320 px, where the copy wraps.
 
 ##### Transition Inventory
 

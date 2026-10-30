@@ -28,8 +28,18 @@
  * The live region (role status, polite) is always mounted, server render
  * included, and the visible bar renders inside it. A region inserted together
  * with its text is not announced, so the region has to exist before the first
- * state change fills it. While the bar is hidden the region is empty and
- * carries no class, so it paints nothing and has no height.
+ * state change fills it. While the bar is hidden the region is empty: it
+ * carries only layout classes (no padding, border or background), so it paints
+ * nothing and has no height.
+ *
+ * The region, not the bar, is the crew shell's flex child, so it carries the
+ * spec's Dimensional Invariants (4.7.2): `self-stretch` and `flex-none` against
+ * the shell, and `sticky top-0` with `z-raised` against the viewport. The band
+ * is the lowest one that lifts the bar above section content, whose positioned
+ * elements carry no z-index. It cannot be higher: the header's avatar menu is
+ * `z-dropdown` and comes earlier in tree order, so a tie would paint the bar
+ * over the open menu. The icon is `flex-none` so a wrapping copy cannot shrink
+ * it. tests/e2e/crew-offline-layout.spec.ts measures each of these.
  *
  * On a copy served `offline`, `slow` or `server-error` the bar asks the worker
  * to probe the page (spec 4.7.3) on the `online` event, on a `fresh-ready`
@@ -46,10 +56,7 @@
  * in the DOM, so no file under components/crew changes. A URL whose `s`
  * already names that section is not rewritten.
  *
- * `slug` and `shareToken` are accepted for the bar's links (spec 4.7.2). The
- * layout classes behind the spec's Dimensional Invariants (sticky placement,
- * stretch, the icon's flex-none) are not here yet; they land with their
- * real-browser assertions.
+ * `slug` and `shareToken` are accepted for the bar's links (spec 4.7.2).
  */
 import { Check, Clock, RefreshCw, TriangleAlert, WifiOff, type LucideIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useState } from "react";
@@ -279,7 +286,12 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
   const Icon = view === null || view.icon === null ? null : ICONS[view.icon];
 
   return (
-    <div data-testid="saved-copy-bar-region" role="status" aria-live="polite">
+    <div
+      data-testid="saved-copy-bar-region"
+      role="status"
+      aria-live="polite"
+      className="sticky top-0 z-raised flex-none self-stretch"
+    >
       {view !== null && Icon !== null && (
         <div
           data-testid="saved-copy-bar"
@@ -290,7 +302,7 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
             aria-hidden="true"
             data-testid="saved-copy-bar-icon"
             className={cn(
-              "mt-0.5 size-4",
+              "mt-0.5 size-4 flex-none",
               view.icon === "sync" && "animate-spin motion-reduce:animate-none",
             )}
           />
