@@ -242,7 +242,7 @@ export type CollapseCensusRow = {
 export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   // ── Repair: colour is the sole visual carrier. ──
   {
-    site: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:249",
+    site: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:255",
     disposition: "repaired",
     binding: {
       locator: '[data-testid="picker-role-chip"]',

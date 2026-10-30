@@ -212,7 +212,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   // may sit on EITHER member, and the suite validates it against source.
   {
     file: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx",
-    line: 240,
+    line: 246,
     tag: "button",
     token: "text-text-subtle",
     family: "state-dim",

@@ -2,7 +2,7 @@
  * tests/auth/developerGatingContract.test.ts (developer-tier §6.1 structural defense)
  *
  * THE PROBLEM (Codex spec R5): auth-chain-audit's route classification skips
- * `non-route` files (lib/audit/authPrimitives.ts:813-823), so the developer-gated
+ * `non-route` files (lib/audit/authPrimitives.ts:823-830), so the developer-gated
  * *server actions* — the dev panel actions, the validation reset/reseed actions,
  * and the new setDeveloperAction toggle — get NO coverage from the x3 route audit.
  * A future edit could drop a `requireDeveloper()` gate on one of those actions,

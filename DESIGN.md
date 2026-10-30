@@ -802,6 +802,7 @@ realtime reconnect backoff.
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
 | `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
 | `AGE_TICK_MS` | 60000 | `components/offline/SavedCopyBar.tsx` |
+| `REPLY_TIMEOUT_MS` | 10000 | `components/offline/SavedCopyMarker.tsx` |
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |
 | `submitTimeoutMs` | 30000 | `components/shared/ReportModal.tsx` |
 | `PENDING_TIMEOUT_MS` | 8000 | `components/shared/pendingTimeout.ts` |

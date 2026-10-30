@@ -690,7 +690,7 @@ test("claimed-row focus offset color equals the page backdrop in dark mode", asy
 
     const control = page.locator('form[action*="/auth/sign-in"] button[type="submit"]').first();
     await expect(control).toBeVisible();
-    // loadRoster orders by name ascending (page.tsx:69), so the first claimed
+    // loadRoster orders by name ascending (page.tsx:71), so the first claimed
     // control is Alice's row. Pinned rather than assumed — the rows added for
     // Task 4 are all claimed too, and a future ordering change would silently
     // retarget every assertion below.

@@ -8,6 +8,10 @@
  * Browser-only, and never called during a render: the server never sees the
  * meta and cannot know the phone's clock, so a render that read either would
  * not match its server HTML. Callers read it in an effect.
+ *
+ * The clock read lives here in lib/ rather than in the bar because the
+ * interaction-timing scanner (scripts/scan-interaction-timings.ts) keys on the
+ * property name `nowMs` and would misread this timestamp as a duration.
  */
 import type { BarInputs } from "@/lib/offline/barState";
 import type { ServeMode } from "@/lib/offline/navigation";
@@ -33,7 +37,7 @@ function isServeMode(value: string | null): value is ServeMode {
  */
 export function readServedCopy(): ServedCopyReading {
   const meta = document.querySelector('meta[name="fxav-served"]');
-  const nowMs = Date.now();
+  const nowMs = Date.now(); // not-render-side: client effect read, called only from SavedCopyBar's mount effect and age tick after hydration
   if (meta === null) return { mode: "live", savedAt: null, nowMs };
   const content = meta.getAttribute("content");
   return {

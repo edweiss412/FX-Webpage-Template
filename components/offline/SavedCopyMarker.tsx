@@ -32,15 +32,18 @@ import { useEffect } from "react";
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { reloadPage } from "@/lib/offline/client/reload";
 import { markerAttributes, type Marker } from "@/lib/offline/marker";
-import { STATUS_TIMEOUT_MS } from "@/lib/offline/navigation";
 import type { MarkerMessage } from "@/lib/offline/protocol";
 
 /**
- * How long the page waits for the worker's answer. The worker's check waits up
- * to STATUS_TIMEOUT_MS for the status route and then writes to its store, so a
- * page that gave up sooner would miss an `ended` answer.
+ * How long the page waits for the worker's answer: twice the worker's
+ * STATUS_TIMEOUT_MS (lib/offline/navigation.ts). The worker's check waits up to
+ * that long for the status route and then writes to its store, so a page that
+ * gave up sooner would miss an `ended` answer. Written as a literal because
+ * DESIGN.md §5.5 lists it and the timing scanner resolves only numeric-literal
+ * constants; savedCopyMarker.test.tsx pins that it stays above
+ * STATUS_TIMEOUT_MS.
  */
-const REPLY_TIMEOUT_MS = 2 * STATUS_TIMEOUT_MS;
+const REPLY_TIMEOUT_MS = 10_000;
 
 function isPurgedFor(data: unknown, showId: string): boolean {
   if (typeof data !== "object" || data === null) return false;
