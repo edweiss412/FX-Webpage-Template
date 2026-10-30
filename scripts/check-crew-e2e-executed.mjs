@@ -38,7 +38,9 @@ export const REQUIRED = {
   // entitlement, the removed day, the removed dialog owner, Esc in each of the
   // three nested dialogs, Back to another route, the second day tap, the theme
   // switch behind the sheet). Counted from the observed mobile-safari run.
-  "crew-section-toggle.spec.ts": 26,
+  // 27 since the WebKit focus-trap fix added "sheet: Tab and Shift+Tab stay
+  // inside the sheet". Counted from the observed mobile-safari run.
+  "crew-section-toggle.spec.ts": 27,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.

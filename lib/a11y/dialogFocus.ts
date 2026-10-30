@@ -8,10 +8,15 @@
  *      regains focus when the dialog closes).
  *   2. Set initial focus on the dialog's close button (the first
  *      reachable control inside the dialog).
- *   3. Trap focus inside the dialog: `Tab` from the last focusable
- *      element cycles to the first; `Shift+Tab` from the first cycles
- *      to the last. Esc handling is the dialog's responsibility
- *      (typically already wired in the dialog component).
+ *   3. Trap focus inside the dialog: the trap moves focus itself on
+ *      every `Tab` and `Shift+Tab`, to the next or previous stop in
+ *      document order, wrapping from the last to the first and back. It
+ *      never hands a Tab to the browser: WebKit's default sequential
+ *      navigation skips buttons and links, so a Tab left to it inside a
+ *      dialog of buttons and links lands on `<body>` (crew section sheet,
+ *      measured under Playwright's mobile-safari). Esc handling is the
+ *      dialog's responsibility (typically already wired in the dialog
+ *      component).
  *   4. On unmount, restore focus to the saved element. If the element
  *      is no longer in the DOM (rare — the trigger was removed during
  *      the dialog's lifetime), focus falls through to `document.body`
@@ -26,21 +31,92 @@ import { useEffect, useRef, type RefObject } from "react";
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
-  "input:not([disabled])",
+  'input:not([disabled]):not([type="hidden"])',
   "select:not([disabled])",
   "textarea:not([disabled])",
+  // A disclosure's own summary is a native Tab stop (narrowed to a details
+  // element's first summary in `isTabStop`). The trap walks the stops itself,
+  // so one it does not list is one Tab never reaches.
+  "summary",
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-function focusableDescendants(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+/** Whether the browser's own sequential navigation would stop on `el`. */
+function isTabStop(el: HTMLElement): boolean {
+  if (el.tagName === "SUMMARY") {
+    const details = el.parentElement;
+    if (
+      !(details instanceof HTMLDetailsElement) ||
+      details.querySelector(":scope > summary") !== el
+    ) {
+      return false;
+    }
+  }
+  return (
+    el.offsetParent !== null &&
     // tabIndex >= 0 mirrors native sequential order: `a[href]` (etc.) with an
     // explicit tabindex="-1" is click/programmatically focusable but NOT
-    // Tab-reachable, so the trap must not treat it as a boundary element
-    // (e.g. HoverHelp's learn-more link while its popover is closed or
-    // collision-hidden - visibility:hidden keeps offsetParent non-null).
-    (el) => (el.offsetParent !== null && el.tabIndex >= 0) || el === document.activeElement,
+    // Tab-reachable (e.g. HoverHelp's learn-more link while its popover is
+    // closed or collision-hidden).
+    el.tabIndex >= 0 &&
+    // visibility:hidden keeps offsetParent non-null, and focus() on such an
+    // element is a no-op that would strand the walk on it.
+    getComputedStyle(el).visibility !== "hidden" &&
+    el.closest("[inert]") === null
   );
+}
+
+/** A named radio group, keyed within its form (or the document). */
+function radioGroup(el: HTMLElement): string | null {
+  return el instanceof HTMLInputElement && el.type === "radio" && el.name !== ""
+    ? `${el.form?.id ?? ""}\u0000${el.name}`
+    : null;
+}
+
+function focusableDescendants(container: HTMLElement): HTMLElement[] {
+  const active = document.activeElement;
+  const stops = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => el === active || isTabStop(el),
+  );
+  // A radio group is ONE stop, as it is natively: the radio holding focus,
+  // else the checked one, else the group's first. Arrow keys move within it.
+  const stopFor = new Map<string, HTMLElement>();
+  for (const el of stops) {
+    const group = radioGroup(el);
+    if (group === null) continue;
+    const held = stopFor.get(group);
+    const better =
+      held === undefined ||
+      el === active ||
+      (held !== active && (el as HTMLInputElement).checked && !(held as HTMLInputElement).checked);
+    if (better) stopFor.set(group, el);
+  }
+  return stops.filter((el) => {
+    const group = radioGroup(el);
+    return group === null || stopFor.get(group) === el;
+  });
+}
+
+/**
+ * The stop a Tab (or Shift+Tab) moves to from `active`: the next (previous)
+ * stop in document order, wrapping. From an element that is not a stop (a
+ * `tabindex="-1"` heading focused on open, or the container itself), the first
+ * stop after it (the last before it), as the browser would choose.
+ */
+function nextStop(
+  focusables: readonly HTMLElement[],
+  active: Element | null,
+  backward: boolean,
+): HTMLElement {
+  const count = focusables.length;
+  const index = active instanceof HTMLElement ? focusables.indexOf(active) : -1;
+  if (index !== -1) return focusables[(index + (backward ? count - 1 : 1)) % count]!;
+  const follows = (el: HTMLElement) =>
+    active !== null &&
+    (active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  return backward
+    ? (focusables.findLast((el) => !follows(el)) ?? focusables[count - 1]!)
+    : (focusables.find(follows) ?? focusables[0]!);
 }
 
 export function useDialogFocus(
@@ -131,22 +207,12 @@ export function useDialogFocus(
     }
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Tab") return;
+      // A dialog nested inside this one has already moved focus for this Tab.
+      if (event.key !== "Tab" || event.defaultPrevented) return;
+      event.preventDefault();
       const focusables = focusableDescendants(container as HTMLElement);
-      if (focusables.length === 0) {
-        event.preventDefault();
-        return;
-      }
-      const first = focusables[0] as HTMLElement;
-      const last = focusables[focusables.length - 1] as HTMLElement;
-      const active = document.activeElement as HTMLElement | null;
-      if (event.shiftKey && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
+      if (focusables.length === 0) return;
+      nextStop(focusables, document.activeElement, event.shiftKey).focus();
     }
 
     container.addEventListener("keydown", onKeyDown);

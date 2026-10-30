@@ -335,6 +335,63 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     }
   });
 
+  // Spec §5.2: focus is trapped inside the sheet. Opening focuses the title,
+  // which is `tabindex="-1"` and so is not itself one of the trap's stops: a
+  // Tab from it must still land inside, as must every Tab after it.
+  test("sheet: Tab and Shift+Tab stay inside the sheet", async ({ page }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await load(page, "?s=today");
+    await row(page, "venue").click();
+    await settleOpen(page);
+    /** Where focus is, and the sheet's own stops in order (the trap's rule). */
+    const where = () =>
+      page.evaluate(() => {
+        const dialog = document.querySelector('[data-testid="crew-section-sheet-dialog"]')!;
+        const stops = [
+          ...dialog.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        ].filter((el) => el.offsetParent !== null && el.tabIndex >= 0);
+        const active = document.activeElement as HTMLElement | null;
+        return {
+          inside: active !== null && dialog.contains(active),
+          tag: active?.tagName ?? null,
+          name: active?.getAttribute("aria-label") ?? null,
+          index: active ? stops.indexOf(active) : -1,
+          stops: stops.length,
+        };
+      });
+    await expect.poll(async () => (await where()).tag).toBe("H2");
+    const opened = await where();
+    expect(opened.inside, JSON.stringify(opened)).toBe(true);
+    // PREMISE: the sheet holds more than one stop, so a wrap is observable.
+    expect(opened.stops, JSON.stringify(opened)).toBeGreaterThan(1);
+
+    // Forward from the title: the sheet's first stop, its close button.
+    await page.keyboard.press("Tab");
+    const first = await where();
+    expect(first, JSON.stringify(first)).toMatchObject({
+      inside: true,
+      tag: "BUTTON",
+      name: closeName("venue"),
+      index: 0,
+    });
+    // Backward from the first stop: the sheet's last stop, never out of it.
+    await page.keyboard.press("Shift+Tab");
+    const last = await where();
+    expect(last, JSON.stringify(last)).toMatchObject({ inside: true, index: last.stops - 1 });
+    // Forward from the last stop: around to the first again, every stop on the
+    // way inside the sheet.
+    await page.keyboard.press("Tab");
+    const wrapped = await where();
+    expect(wrapped, JSON.stringify(wrapped)).toMatchObject({ inside: true, index: 0 });
+    for (let i = 1; i < wrapped.stops; i++) {
+      await page.keyboard.press("Tab");
+      const step = await where();
+      expect(step, `Tab ${i}: ${JSON.stringify(step)}`).toMatchObject({ inside: true, index: i });
+    }
+  });
+
   test("sheet: a drag released before the threshold springs back to open", async ({
     page,
   }, testInfo) => {
