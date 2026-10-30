@@ -64,6 +64,12 @@ function tab(overrides: Partial<ArchivedPullSheetTab> = {}): ArchivedPullSheetTa
   };
 }
 
+// The include button's accessible name (warning-card-fixes spec §7.3, R13): the label
+// "Use this pull sheet" plus its sr-only " from tab <name>" suffix. Anchored on the
+// label and the suffix lead so it matches every tab's button and nothing else; the
+// positive cases below prove the negatives that reuse it are not vacuous.
+const INCLUDE_NAME = /^Use this pull sheet from tab /;
+
 const FOH: PullSheetCase = {
   caseLabel: "FOH",
   items: [{ qty: 1, cat: null, subCat: null, item: "Current DI Box" }],
@@ -107,7 +113,10 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
     expect(sec.textContent).toContain("MIAMI");
     expect(sec.textContent).not.toContain("No pack list parsed."); // S1 suppressed by the offer
 
-    const accept = within(sec).getByRole("button", { name: /use this show.s gear/i });
+    // The exact name: the label plus this tab's own name in the sr-only suffix.
+    const accept = within(sec).getByRole("button", {
+      name: "Use this pull sheet from tab OLD PULL SHEET",
+    });
     fireEvent.click(accept);
     await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
 
@@ -194,7 +203,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
       />,
     );
     const sec = packSection(container);
-    expect(within(sec).getAllByRole("button", { name: /use this show.s gear/i })).toHaveLength(2);
+    expect(within(sec).getAllByRole("button", { name: INCLUDE_NAME })).toHaveLength(2);
     expect(sec.textContent).toContain("OLD PULL SHEET 2");
   });
 
@@ -211,7 +220,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
     const sec = packSection(container);
     fireEvent.click(within(sec).getByRole("button", { name: /keep skipped/i }));
     // Card gone…
-    expect(within(sec).queryByRole("button", { name: /use this show.s gear/i })).toBeNull();
+    expect(within(sec).queryByRole("button", { name: INCLUDE_NAME })).toBeNull();
     // …and focus did NOT fall to <body>.
     expect(document.activeElement).toBe(sec);
   });
@@ -228,7 +237,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
     );
     const sec = packSection(container);
     expect(sec.textContent).toContain("(no header text)");
-    expect(within(sec).getByRole("button", { name: /use this show.s gear/i })).toBeTruthy();
+    expect(within(sec).getByRole("button", { name: INCLUDE_NAME })).toBeTruthy();
   });
 
   test("S5 accept-stale: durable set + tab present-but-not-included => recovery block, NO S2 offer", () => {
@@ -243,7 +252,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
     );
     const sec = packSection(container);
     expect(within(sec).getByTestId(`pack-list-rescan-needed-${DFID}`)).toBeTruthy();
-    expect(within(sec).queryByRole("button", { name: /use this show.s gear/i })).toBeNull(); // S2 suppressed
+    expect(within(sec).queryByRole("button", { name: INCLUDE_NAME })).toBeNull(); // S2 suppressed
   });
 
   test("S5 revoke-stale: durable null + tab still included => recovery block, NO S3 revoke note", () => {
@@ -309,7 +318,7 @@ describe("PackListBreakdown archived-tab states (§5.6)", () => {
     );
     const sec = packSection(container);
     expect(within(sec).queryByTestId(`pack-list-rescan-needed-${DFID}`)).toBeNull();
-    expect(within(sec).queryByRole("button", { name: /use this show.s gear/i })).toBeNull();
+    expect(within(sec).queryByRole("button", { name: INCLUDE_NAME })).toBeNull();
   });
 
   test("S5 Re-scan freezes when the context flag is true (context consumption)", () => {
