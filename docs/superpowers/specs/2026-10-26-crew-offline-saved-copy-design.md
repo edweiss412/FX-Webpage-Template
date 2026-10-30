@@ -156,7 +156,7 @@ The crew-URL test is derived, not listed: a unit test walks `app/show/[slug]/` a
 
 ### 4.3 The marker
 
-Every page this route renders carries exactly one marker element in its body:
+Every page this route renders carries exactly one marker element in its body, except the not-found page when `notFound()` runs after the streamed shell is out: its marker then exists only in the payload, and the worker reads that body by Next's not-found digest instead (§4.4 step 3):
 
 ```html
 <template id="fxav-saved-copy" data-v="3" data-disposition="save|keep|hold|check|purge" ...></template>
@@ -174,7 +174,7 @@ A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UT
 | `<TerminalFailure>` in `_CrewShell.tsx` for `MalformedProjectionError` when `viewer.kind === "crew"` (identity resolved, data malformed) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
 | `<TerminalFailure>` anywhere else: `renderPickerRepick` and `renderRacedCrewMiss` roster failures (after an identity rejection), the `no_auth` roster failure, the admin data failure, `_CrewShell.tsx`'s `UnmatchedViewerError` (the viewer does not match the data), and its `MalformedProjectionError` for any viewer other than `crew` (`admin_preview` included) | `purge` | marker passed into `<TerminalFailure>` |
 | The route's `not-found.tsx` | `check` | marker added to it |
-| Anything else, including a streamed `redirect()` and a page with no marker | treated as `purge` | none (fail closed) |
+| Anything else, including a streamed `redirect()` and a page with no marker (except the streamed not-found page, read as `check`, §4.4 step 3) | treated as `purge` | none (fail closed) |
 
 The worker reads the first `id="fxav-saved-copy"` element in the complete body (§4.4). An unknown `data-v` or `data-disposition`, or a `save` marker missing any required attribute, is treated as `purge`.
 
@@ -398,7 +398,7 @@ It reloads on the `online` event. It is also what a phone sees with no signal af
 ### 4.8 Stored assets, static files, caps
 
 - **Asset list from the server.** `<SavedCopySlot>` builds `data-assets` from the same show data and URL shapes the crew components use: every stage diagram URL `Gallery` would request and every agenda URL `/api/asset/agenda/<showId>/<fileId>` for each `agenda_links` entry with a `fileId`. Nothing is scraped from HTML, so an unopened agenda is still listed (R2). The plan pins the slot's URL builders to the components' by a shared helper, or by a test that renders both and compares.
-- **Agenda viewer code.** When the list contains an agenda, the registrar, online and idle, imports the `AgendaPdfViewer` module and fetches the pdf.js worker URL that module configures (`pdfjs.GlobalWorkerOptions.workerSrc`), so both pass through the worker and land in its static cache. An unopened agenda then opens offline.
+- **Agenda viewer code.** When the list contains an agenda, the registrar, online and idle, imports the `AgendaPdfViewer` module and fetches the pdf.js worker URL that module assigns, the shared `PDF_WORKER_SRC` from `components/agenda/pdfWorkerSrc.ts` (never read back from react-pdf), so both pass through the worker and land in its static cache. An unopened agenda then opens offline.
 - **Static files.** `/_next/static/**` and `/fonts/**` are cache first. A static entry is deleted only when no saved copy references it and it was stored more than 14 days ago, so chunks loaded lazily while online stay available.
 - **Caps** (author's calls): one asset over 25 MB is skipped; asset prefetch for one show stops past 75 MB; at most 10 saved shows, and an 11th evicts the least recently opened show with its assets. A skipped asset fails offline the way it does today. Static files are not capped; the 14-day rule bounds them.
 
@@ -511,7 +511,7 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 - **Report clock.** `writtenAt` is phone time and is labelled as such.
 - **Offline realtime noise.** `ShowRealtimeBridge` keeps retrying its token mint while offline (about 12 failed requests in the spike's WebKit window). Harmless, unchanged.
 - **Section on reload.** An offline reload opens on the section that was showing at save time (§4.7.4).
-- **An unexpected error after the shell.** An uncaught throw once the streamed shell is out renders `error.tsx`, and its `hold` marker, on the client only, so the worker reads no marker and purges `S(U)` (§4.4 step 3). The known infrastructure failures render `<TerminalFailure>` with `hold` inline, so only an unexpected exception reaches this, and it costs a saved copy, never keeps one too long.
+- **An unexpected error after the shell.** An uncaught throw once the streamed shell is out renders `error.tsx`, and its `hold` marker, on the client only, so the worker reads no marker and purges `S(U)` (§4.4 step 3). The known failure arms render `<TerminalFailure>` with their marker inline (`hold`, `keep` or `purge`, §4.3), so only an unexpected exception reaches this, and it costs a saved copy, never keeps one too long.
 
 ## 10. Left to the builder
 

@@ -9,11 +9,14 @@
  *   console output.
  *
  *   Root cause: pnpm resolved TWO pdfjs-dist versions. `react-pdf`
- *   bundles its API against ITS OWN `pdfjs-dist` dependency, while
- *   `components/agenda/AgendaPdfViewer.tsx`'s
- *   `pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/
- *   pdf.worker.min.mjs", import.meta.url)` resolves the APP's direct
- *   `pdfjs-dist` dependency. When the two versions differ, the pdf.js
+ *   bundles its API against ITS OWN `pdfjs-dist` dependency, while the
+ *   worker pin, `PDF_WORKER_SRC = new URL("pdfjs-dist/build/
+ *   pdf.worker.min.mjs", import.meta.url)` in
+ *   `components/agenda/pdfWorkerSrc.ts` (AgendaPdfViewer assigns it to
+ *   `pdfjs.GlobalWorkerOptions.workerSrc`, and the saved-copy registrar
+ *   prefetches it), resolves the APP's direct `pdfjs-dist` dependency.
+ *   (The pin sat in AgendaPdfViewer.tsx itself until fix-task-25.)
+ *   When the two versions differ, the pdf.js
  *   API↔worker handshake fails its internal version check and every
  *   document load aborts before the first byte is requested.
  *
@@ -34,7 +37,7 @@ const appRequire = createRequire(new URL("../../../package.json", import.meta.ur
 
 describe("pdfjs-dist worker/API version parity (structural meta-test)", () => {
   it("app-root pdfjs-dist === react-pdf's pdfjs-dist (exact)", () => {
-    // The version AgendaPdfViewer's `new URL("pdfjs-dist/build/
+    // The version pdfWorkerSrc.ts's `new URL("pdfjs-dist/build/
     // pdf.worker.min.mjs", import.meta.url)` worker pin resolves:
     // the app root's own pdfjs-dist dependency.
     const appResolved = appRequire.resolve("pdfjs-dist/package.json");
@@ -64,7 +67,7 @@ describe("pdfjs-dist worker/API version parity (structural meta-test)", () => {
         `  app root resolves   pdfjs-dist@${appVersion} (${appResolved})`,
         `  react-pdf resolves  pdfjs-dist@${reactPdfVersion} (${reactPdfResolved})`,
         ``,
-        `AgendaPdfViewer.tsx pins workerSrc to the APP ROOT's pdfjs-dist`,
+        `components/agenda/pdfWorkerSrc.ts pins workerSrc to the APP ROOT's pdfjs-dist`,
         `worker file, but react-pdf's API handshakes the worker against`,
         `ITS OWN pdfjs-dist version. A mismatch makes pdf.js abort every`,
         `document load in a real browser ("This agenda could not be`,
