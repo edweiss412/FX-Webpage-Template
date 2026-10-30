@@ -452,6 +452,7 @@ No spec row lacked a feasible test. One row is only partly decidable: §14 seque
 | 16 | Hotels reservation marker and the two-way jump | 04 | `feat(onboarding)` |
 | 17 | Section jumps on staged wizard cards | 04 | `feat(onboarding)` |
 | 18 | Line-keyed census reconciliation | 04 | `test(admin)` |
+| 18b | Unsaved reading guard (spec §6.5, R15; added 2026-10-30) | 04 | `feat(admin)` |
 | 19 | Invariant-8 UI quality gate, before verification and review — orchestrator | 04 | fixes + `docs(onboarding)` gate record |
 | 20 | Full local verification | 04 | none unless a fix lands |
 | 21 | Adversarial review (cross-model), final — orchestrator | 04 | its review-round corpus row only |

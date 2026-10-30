@@ -37,6 +37,7 @@ Eric approved a mockup of the design below ("looks good") and settled two follow
 | R12 | Accepted judgment rows get their own collapsed "Accepted (N)" disclosure; every other ignored row stays in "Ignored (N)". Both surfaces. | Eric, answer to open question D3, 2026-10-26 | CLOSED |
 | R13 | One include label everywhere: `Use this pull sheet`, on the card, in Pack list, and in the Resolve box (today `Use this show’s gear`, `components/admin/wizard/archivedTabOffer.tsx:183`). | Eric, answer to open question E3, 2026-10-26 | CLOSED |
 | R14 | The venue empty-cell link must work on the layout Eric's shows use: the v2/v1 3-column scope block (`| VENUE | VENUE NAME | <value> |` then `|  | VENUE ADDRESS | <value> |`, `lib/parser/blocks/venue.ts:194-235`), the layout of every committed workbook that raises `VENUE_ADDRESS_MISSING`. A dedicated anchor computed from the venue grid block replaces the round-0 lookup through the UNKNOWN_FIELD scan, which cannot see that layout; the generic UNKNOWN_FIELD scan is unchanged (§4.2). | Orchestrator relaying Eric's request, 2026-10-26 (plan-time probe) | CLOSED |
+| R15 | Unsaved reading changes are not silently lost. Publish, Re-scan and closing the review stop and say "You have N unsaved reading changes" with Discard / Go back; with no unsaved change every action behaves exactly as today (§6.5). | Eric, answer to the UI gate's P1 (an unsaved pick is dropped by Publish, Re-scan or closing the review), 2026-10-30: "Warn before losing it" | CLOSED |
 
 ### 1.2 Goals
 
@@ -503,6 +504,77 @@ Same classes as today; both lists `PerShowActionableWarnings tone="muted"` with 
 
 **Bulk and undo.** Bulk exists only on ACTIVE groups (`BulkIgnoreControls`, mounted at `sectionWarningExtras.tsx:279`); a judgment group's chip reads `Accept <n>` and moves its cards into `Accepted (N)`. Neither disclosure has a bulk action (unchanged). Undo is per row: `Un-ignore` in Ignored, `Undo accept` in Accepted; either returns the row to the active list.
 
+### 6.5 Unsaved reading guard (R15)
+
+**Why.** Since §6.3 a picked reading is a local draft until Save. Publishing, re-scanning or closing the review unmounts the row (or replaces its warning), and the draft goes with it, silently. Eric's decision (R15, 2026-10-30): those actions stop and ask first.
+
+**The count.** `N` = the number of mounted `UseRawDraftProvider`s in ONE review surface whose `dirty` is true (`dirty = submitted === null && draft !== null`, `components/admin/useRawDraft.tsx:162`). A new client module components/admin/review/unsavedReadings.tsx (new file) holds a per-surface registry: a provider registers itself, with a discard callback that applies §6.3 rule 6's `draft = null` and clears the action bar's error (without rule 6's focus move), when it becomes dirty, and unregisters when it becomes clean or unmounts (one effect keyed on `dirty`). Clean includes pressing Save (rule 2 sets `draft = null`), so a row whose Save is in flight is not counted; a failed Save (rule 3) makes it dirty and counted again.
+
+**Where the registry lives.** One per `ReviewModalShell` instance, which is one per review surface: the wizard Step 3 modal (`components/admin/wizard/Step3ReviewModal.tsx:505`), the published review modal (`components/admin/showpage/PublishedReviewModal.tsx:1018`), and the streaming skeleton, which renders no rows, so its `N` is always 0. The shell provides it as a React context around the panel interior, next to `ReviewModalCloseContext` (`components/admin/review/ReviewModalShell.tsx:595`), so every row provider and every guarded control inside the panel (body, header, sub-header and footer slots) reaches it. A `UseRawDraftProvider` with no registry above it (standalone tests) registers nothing.
+
+**Guard.** `guard(action, trigger)`: when `N === 0` it calls `action()` synchronously in the same event and writes no state, so every guarded control behaves exactly as today. When `N > 0` it does not run `action`; it opens the prompt below and remembers `action` and `trigger`. A guarded control with no registry above it (it is not inside a review surface) runs its action unguarded.
+
+**Guard points.** Every control that unmounts the review or replaces its warnings, found by grepping each surface's close, publish, re-scan and re-sync paths:
+
+| # | Surface | Control | Hook point | Why it loses a draft |
+|---|---|---|---|---|
+| G1 | both modals | header close button (`ModalCloseButton`) | `useReviewModalClose()` then `onClick={requestClose}` (`components/admin/review/ModalCloseButton.tsx:13`, `components/admin/review/ModalCloseButton.tsx:19`), mounted at `Step3ReviewModal.tsx:807` and `PublishedReviewModal.tsx:1445` | the review unmounts |
+| G2 | both modals | Escape | the shell's document `keydown` listener, after `onEscapeCapture` declines (`ReviewModalShell.tsx:251-270`, `requestClose()` at `ReviewModalShell.tsx:262`) | the review unmounts |
+| G3 | both modals | backdrop (scrim) tap | `onClick={requestClose}` (`ReviewModalShell.tsx:609-619`) | the review unmounts |
+| G4 | both modals | grab strip tap (sheet mode) | `onClick` then `requestClose()` (`ReviewModalShell.tsx:663-671`) | the review unmounts |
+| G5 | both modals | grab strip drag past `DRAG_DISMISS_THRESHOLD_PX` (sheet mode) | `handleGrabPointerEnd`'s dismiss branch, `beginDismiss()` at `ReviewModalShell.tsx:501` | the review unmounts; while `N > 0` the drag springs back (the existing below-threshold branch, `ReviewModalShell.tsx:520-542`) and the prompt opens |
+| G6 | wizard | Publish this show | `onClick={handlePublish}` (`Step3ReviewModal.tsx:996`; `handlePublish` at `Step3ReviewModal.tsx:456` closes the modal on success) | the review unmounts |
+| G7 | wizard | Approve & apply (re-apply resolution footer) | `onClick={handleApproveResolve}` (`Step3ReviewModal.tsx:914`; closes on success, `Step3ReviewModal.tsx:244-277`) | the review unmounts (it finalizes the sheet) |
+| G8 | wizard | Ignore this sheet (re-apply resolution footer) | `onClick={handleIgnoreResolve}` (`Step3ReviewModal.tsx:897`; closes on success, `Step3ReviewModal.tsx:279-294`) | the review unmounts |
+| G9 | wizard | Re-scan, every placement inside the review: the three footer placements (`Step3ReviewModal.tsx:903`, `Step3ReviewModal.tsx:953`, `Step3ReviewModal.tsx:972`) and Pack list's rescan-needed note (`components/admin/wizard/step3ReviewSections.tsx:2829`) | inside `RescanSheetButton`, its trigger's `onClick` (`components/admin/RescanSheetButton.tsx:213`; `handleClick` at `components/admin/RescanSheetButton.tsx:149`) | the re-parse replaces the warnings; a row whose warning changed unmounts (§14 sequence 8) |
+| G10 | published | Re-sync, and the shrink confirm's `Apply reduced version` | inside `ReSyncButton`, both `post` call sites (`components/admin/ReSyncButton.tsx:414`, `components/admin/ReSyncButton.tsx:539`; `post` at `components/admin/ReSyncButton.tsx:361`), mounted in the modal's footer through `StatusStrip` (`components/admin/showpage/StatusStrip.tsx:422`) | the sync re-parses and refreshes; a changed warning's row unmounts |
+| G11 | both | the browser unloading the page (reload, tab close, external navigation) | a `beforeunload` listener, registered while `N > 0`, removed when `N` returns to 0 or the surface unmounts | the page goes |
+
+Not guarded, with the reason: `Unpublish` (`Step3ReviewModal.tsx:983`) keeps the modal open on success, so drafts survive it. `closeApiRef` (`ReviewModalShell.tsx:299-305`) stays the UNGUARDED close: G6 to G8 call it after their already-guarded action succeeds. Re-scan and Re-sync placements outside a review surface (`components/admin/wizard/Step3SheetCard.tsx:479`, `components/admin/wizard/Step3SheetCard.tsx:700`, `components/admin/FinalizeButton.tsx:968`, the dashboard row actions) have no registry above them and no drafts to lose. Accept, Undo accept, Ignore, include and the other row actions refresh without unmounting other rows, so drafts on other rows survive them (§6.3 rule 5 keys only on each row's own `persistedRaw`).
+
+**Consumer-owned handlers.** G6 to G8 are closures in `Step3ReviewModal`'s own body, ABOVE the shell's provider: the position that made the shell expose `closeApiRef` (`ReviewModalShell.tsx:72-80`). The shell therefore populates a second optional ref prop, `guardApiRef`, with its `guard` in the same layout effect, cleared on unmount; the handlers call `guardApiRef.current` and run the action directly when it is null. G1 to G5 are inside the shell; G9 and G10 read the context.
+
+**The prompt.** In-page, never `window.confirm`. It follows the one existing dialog that stacks over a review modal, `FinalizeBlockerDialog` (`components/admin/FinalizeButton.tsx:753`): its own portal node appended to `document.body` (`FinalizeButton.tsx:760-771`); every other body child set `inert` and `aria-hidden` while open and restored on close, the outer focus snapshot taken before inerting (`FinalizeButton.tsx:781-806`); `useDialogFocus(panelRef, goBackRef)` for the Tab trap and initial focus (`FinalizeButton.tsx:810`); a capture-phase document Escape listener with `stopImmediatePropagation`, so the review shell's own Escape (G2) never sees the key (`FinalizeButton.tsx:840-860`). Container and panel classes are that dialog's (`FinalizeButton.tsx:864-900`); the backdrop is the non-interactive `aria-hidden` scrim of its blocking states (a tap on it does nothing); the panel has no close button.
+
+Markup and copy (no em dash anywhere):
+
+- Root: `role="alertdialog"`, `aria-modal="true"`, `aria-labelledby` naming the title, `aria-describedby` naming the body; testid `unsaved-readings-prompt`.
+- Title (`h2`, testid `unsaved-readings-prompt-title`): `You have 1 unsaved reading change` when `N === 1`, else `You have ${N} unsaved reading changes`. It follows `N` live while open.
+- Body (`p`): `Your pick is not saved until you press Save.`
+- Buttons, in this DOM order, each `inline-flex min-h-tap-min` (44px tall):
+  - `Go back` (testid `unsaved-readings-prompt-go-back`, the accent fill, initial focus): closes the prompt, runs nothing, keeps every draft, returns focus to the trigger.
+  - `Discard and continue` (testid `unsaved-readings-prompt-discard`, the outlined quiet button): closes the prompt, calls every registered discard callback (all drafts on this surface clear), returns focus to the trigger, then runs the remembered action (the action itself, not the guard again).
+- Escape while open is `Go back`.
+
+**Focus return.** The trigger is the control the operator pressed, captured when the guard ran: the clicked button for G1, G4 and G6 to G10; the element focused when the key was pressed for G2; the grab strip for G5. The backdrop (G3) is out of the tab order (`tabIndex={-1}`, `ReviewModalShell.tsx:616`), so its trigger is the dialog's close button (the shell's `initialFocusRef`). A trigger no longer in the document falls back to the element focused when the prompt opened. On `Discard and continue` the prompt unmounts, and focus returns, BEFORE the action runs, so an action that closes the review starts from a live dialog that is no longer inert.
+
+**Transitions.** Two prompt states, **P0** closed and **P1** open. Nothing animates, so `prefers-reduced-motion` needs no branch.
+
+| Transition | Reachable as | Treatment |
+|---|---|---|
+| P0 → P1 | a guarded control (G1 to G10) pressed while `N > 0` | instant mount; focus to `Go back`; background inert; the action has not run |
+| P0 → P0 | a guarded control pressed while `N === 0` | no prompt; the action runs in the same event (passthrough) |
+| P1 → P0 by `Go back` or Escape | operator | instant unmount; focus to the trigger; drafts kept; the action does not run |
+| P1 → P0 by `Discard and continue` | operator | instant unmount; focus to the trigger; drafts cleared; then the action runs |
+| P1 → P0 by `N` reaching 0 | every counted row went clean or unmounted while open | as `Go back`: instant unmount, focus to the trigger, the action does NOT run (the operator never confirmed it); pressing the control again then passes through |
+
+Compound cases while P1 is open:
+
+1. **A Save already in flight resolves.** The row was not counted (rule 2 cleared its draft when Save was pressed). Success keeps it uncounted, so `N` is unchanged. Failure restores its draft (rule 3), so `N` rises by one and the title follows. No Save can START while P1 is open: the background is inert.
+2. **A row's warning disappears** (a refresh from an earlier Accept, include or sync lands, §14 sequence 8): its provider unmounts and unregisters, and `N` falls by one; at 0, the last row of the table applies.
+3. **Reconciliation** (§6.3 rule 5) on a counted row: when `draft === persistedRaw` the draft clears, the row unregisters, and `N` falls; at 0, the last row of the table applies.
+4. **A second guarded control:** unreachable, the background is inert.
+5. **The review unmounts underneath the prompt** (its parent closes it): the shell renders the prompt, so it unmounts too; the action does not run.
+6. **`beforeunload`:** independent of the prompt; the browser shows its own.
+
+**`beforeunload` (G11).** While `N > 0` the surface registers a `window` `beforeunload` listener that calls `event.preventDefault()` and sets `event.returnValue = ""`; the browser shows its own wording, and no custom copy is possible. It is removed when `N` returns to 0 and on unmount. At `N === 0` no listener exists.
+
+**Guard conditions.** `N === 0`: every guard point passes through and no listener exists. No registry above a control: passthrough. `guardApiRef.current` null: passthrough. Trigger null or detached: focus returns to the element focused when the prompt opened. `N` changes while open: the title re-renders; at 0, the last transition row applies.
+
+**Tests (§16.1, §16.2).** One jsdom test per guard point G1 to G10 that fails if that point is not guarded: with one dirty row, pressing it shows the prompt and the action has not run (`onClose`, the publish request, the resolution callback, the rescan or sync `fetch`). The count: one and two dirty rows give the singular and plural titles; a Save press lowers it; a failed Save raises it while open. Both buttons: `Go back` keeps the draft (`Save` still shown) and returns focus to the trigger; `Discard and continue` clears the draft and runs the action exactly once. Zero-dirty passthrough: each guard point with no dirty row runs its action in the same event with no prompt. `beforeunload`: no listener at `N = 0`; a listener that prevents default at `N > 0`; removed when the draft clears and on unmount. Real browser (`tests/e2e/warning-card-flows.spec.ts`): both buttons ≥ 44px tall by rect, the panel inside the viewport at 320 and 1280 widths, and focus on `Go back` when it opens.
+
+**Limits.** L15: a client-side navigation that unmounts the review without passing a guard point (the browser's Back button inside the app, a link inside the review) is not guarded, and `beforeunload` does not fire for it. L16: the prompt counts unsaved changes but does not name the rows holding them.
+
 ---
 
 ## 7. Fix E: the archived pull sheet card
@@ -674,6 +746,7 @@ Apostrophes follow the file the string lands in (Builder's call D7). No string c
 | Archived card lines | `Tab ` + name · `Cases ` + previews · reused `(no header text)` |
 | Disclosures | `Accepted (<n>)` (new) · `Ignored (<n>)` (unchanged) |
 | Catalog helpfulContext | the three strings in §5.7 and §7.5 |
+| Unsaved reading prompt (§6.5) | `You have 1 unsaved reading change` · `You have <n> unsaved reading changes` · `Your pick is not saved until you press Save.` · `Go back` · `Discard and continue` |
 
 The pre-code mechanical checklist (`_metaEmDashCopy`, tap floors, `text-xs/relaxed` and `text-subtle` usage) runs against this table before implementation starts.
 
@@ -851,6 +924,10 @@ Card chrome (§3), the shell link (§3.6), the disclosures (§6.4) and the jumps
 | `DataQualityWarningControls.blocked` | true | main button disabled; Report enabled |
 | `DataQualityWarningControls.onRunningChange` | absent | no report; every existing mount is unchanged |
 | venue block | no venue tab in the gid map, no `VENUE` header row, zero or several address rows, or a non-empty value cell | venue region link (link-less when the region is absent too), never a guessed cell |
+| unsaved reading count `N` (§6.5) | 0 | every guard point passes through; no prompt, no `beforeunload` listener |
+| | falls to 0 while the prompt is open | the prompt closes as `Go back` would; the guarded action does not run |
+| guard registry / `guardApiRef.current` (§6.5) | absent or null | the control runs its action unguarded (as today) |
+| prompt trigger (§6.5) | null or no longer in the document | focus returns to the element focused when the prompt opened |
 
 ---
 
@@ -889,6 +966,7 @@ Each test states the failure it catches. Real-browser tests run in the existing 
 | Section jump presence: per code, per rendered-section set; `VENUE_ADDRESS_MISSING` never; info rows never; published never | jump on the venue card; jump to an unrendered section |
 | Catalog guard: no `AMBIGUITY_CODES` member's `controlsNote` mentions `Ignore` | a future note contradicting the Accept button |
 | §9 lockstep: x1 parity (`tests/cross-cutting/codes.test.ts`), `_metaWarningCardCopy`, `hotelAmbiguityCatalogCopy` | one of the six places drifting |
+| Unsaved reading guard (§6.5): one test per guard point G1 to G10 (with one dirty row, pressing it opens the prompt and the action has not run); the singular and plural titles; a Save press lowering `N`; a failed Save raising it while open; `Go back` keeping the draft and returning focus; `Discard and continue` clearing the draft then running the action once; each guard point passing through at `N = 0`; `beforeunload` absent at 0, preventing default at `N > 0`, removed on clean and on unmount | an unguarded close, publish, re-scan or re-sync path; a guard that blocks with nothing to lose; a discard that runs the action twice or not at all; a listener left behind |
 
 ### 16.2 Real browser (Playwright)
 
@@ -900,6 +978,7 @@ Each test states the failure it catches. Real-browser tests run in the existing 
 | Card → section jump: click `Go to Pack list`, assert the Pack list section top is within 8px of the scroller top after settle and the rail's active item is Pack list | real scrolling |
 | Card → reservation and reservation → card: the target element carries `data-step3-warning-flash` and is in view | real scrolling plus flash attribute |
 | One full Save flow on the step-3 harness with the action module stubbed: pick, Save, card leaves the active list, focus lands on the panel focus anchor | focus after unmount needs a real document |
+| The unsaved-reading prompt (§6.5): both buttons ≥ 44px tall by rect, the panel inside the viewport at 320 and 1280 widths, focus on `Go back` when it opens | layout and focus |
 
 ### 16.3 Line-keyed censuses, pinned counts and snapshots to re-derive
 
@@ -938,6 +1017,8 @@ Re-run each guard after the LAST edit to its file.
 | L12 | other `disabled` use-raw reasons (`empty-raw`, `invalid-dmy`, `no-split-to-undo`) | keep their single sentence | out of the brief's subject; revisit if Eric asks |
 | L13 | a refresh after a successful Save that never delivers a changed `persistedRaw` (another tab reverted between this tab's Save and its refresh, or the refresh returned identical props) | the radio stays showing, and locked on, the reading this tab submitted, until `persistedRaw` next changes or the review remounts (§14 sequence 13) | conservative: the displayed reading is always one this tab actually sent and the server acknowledged, never one nobody sent; a locked row can save nothing, so nothing is written that the operator did not press; the `Selected` marker (not `In use`) already says crew pages may not match; the window needs two concurrent editors of one warning; a router refresh has no completion signal to key a release on (§6.3 rule 5) |
 | L14 | a `CompactAlertCard` message row with a sheet link but no help trigger | grows from about 42px to 44px | the 44px row is the link's tap floor (§3.6) |
+| L15 | a client-side navigation that unmounts the review without passing a §6.5 guard point (the browser's Back button inside the app, a link inside the review) | the draft is lost unprompted; `beforeunload` does not fire for an in-app navigation | every control the review itself offers to leave, publish, re-scan or re-sync is guarded (§6.5 G1 to G11); in-app history navigation has no interception point the router exposes |
+| L16 | the §6.5 prompt with several unsaved changes | it says how many, not which rows | the drafts stay visible and checked on their rows after `Go back` |
 
 ---
 
@@ -1023,4 +1104,4 @@ Named values and their single definitions:
 
 Counts stated in prose and their sources: seven judgment codes = `AMBIGUITY_CODES` (`lib/parser/ambiguityCodes.ts:19-27`); four radio codes = `USE_RAW_CODES` (today `IN_SCOPE`, `UseRawControl.tsx:55-60`); four hotel reservation codes (§5.1); three catalog rows (§9); six lockstep places (§9 table); three warning text-link sites (§2); four `CompactAlertCard` consumers (§3.6); two disclosures per surface (§6.4); five transition states (§14). Tests derive these from the named sets, never from the literals in this document.
 
-Out-of-scope claims to keep consistent: the AttentionBanner alert link (§2, B9); compact-card consumers without `sheetLink` (§1.3, DI-C2); published reservation marker (§5.4, L11); the ignored partition and its counts (§1.3, §6.4); published archived card control (§7.4, E1). Round-1 sweep: every place that derived the checked row or dirtiness now uses §6.3's model (§6.3, §12, §14, §15, §16.1); every mention of the include label reads `Use this pull sheet` (§1.1, §7.3, §11, §16.1, §19); every Ignored-list mention of judgment rows now points at the Accepted list (§6.2, §6.4, §12, §16.1). Round-2 sweep: every sibling that shares a pending or running state is stated with its owner (the use-raw provider's busy, §6.3; the archived row's two flags, §7.3, §14.1; `ArchivedTabOffer` and `PublishedArchivedTabOffer` keep one flag each); nothing in the spec keys on refresh completion (§6.3 rule 5, §14 sequence 13, L13). Plan round-5 oracle amendment: the E → D row claimed a select from E over D stays D; a reference model of §6.3 rules 1-6 shows the only selectable row there is the persisted one, which rule 1 returns to C, so E → D is reachable from E over C only and the E → C row gains that select (§14 table). R14 amendment sweep: every mention of the venue lookup now names the venue-block anchor and no longer the UNKNOWN_FIELD scan (§1.1 R14, §1.4, §4.1, §4.2, §15, §16.1, §17 L1, L4, L6, §19 E6); the venue code stays in `LINK_ONLY_ANCHORED` and nowhere else (§4.2 item 1).
+Out-of-scope claims to keep consistent: the AttentionBanner alert link (§2, B9); compact-card consumers without `sheetLink` (§1.3, DI-C2); published reservation marker (§5.4, L11); the ignored partition and its counts (§1.3, §6.4); published archived card control (§7.4, E1). Round-1 sweep: every place that derived the checked row or dirtiness now uses §6.3's model (§6.3, §12, §14, §15, §16.1); every mention of the include label reads `Use this pull sheet` (§1.1, §7.3, §11, §16.1, §19); every Ignored-list mention of judgment rows now points at the Accepted list (§6.2, §6.4, §12, §16.1). Round-2 sweep: every sibling that shares a pending or running state is stated with its owner (the use-raw provider's busy, §6.3; the archived row's two flags, §7.3, §14.1; `ArchivedTabOffer` and `PublishedArchivedTabOffer` keep one flag each); nothing in the spec keys on refresh completion (§6.3 rule 5, §14 sequence 13, L13). Plan round-5 oracle amendment: the E → D row claimed a select from E over D stays D; a reference model of §6.3 rules 1-6 shows the only selectable row there is the persisted one, which rule 1 returns to C, so E → D is reachable from E over C only and the E → C row gains that select (§14 table). R14 amendment sweep: every mention of the venue lookup now names the venue-block anchor and no longer the UNKNOWN_FIELD scan (§1.1 R14, §1.4, §4.1, §4.2, §15, §16.1, §17 L1, L4, L6, §19 E6); the venue code stays in `LINK_ONLY_ANCHORED` and nowhere else (§4.2 item 1). R15 amendment sweep (2026-10-30): the unsaved-reading guard is stated once, in §6.5, and every other section points at it (§1.1 R15, §11 copy row, §15 guard rows, §16.1 and §16.2 rows, §17 L15 and L16); no other section's behavior changes, and with `N === 0` every guarded control is byte-for-byte today's behavior.
