@@ -522,13 +522,18 @@ test("10. a show with no saved copy gets the not-saved page, which reloads when 
   await expect(page.getByRole("heading", { name: NOT_SAVED_HEADING })).toHaveCount(0);
 });
 
-test("11. an agenda nobody opened opens offline", async ({
-  crewPage: page,
-  origin,
-  crewProxy: proxy,
-}) => {
-  // no-store, so the browser's HTTP cache can never answer for the agenda:
-  // offline, only the worker's asset cache can.
+/**
+ * A show with an agenda, picked and saved, once the registrar's prefetch has run:
+ * the saved copy lists the agenda and the static cache holds the pdf.js worker.
+ * Nobody has opened the agenda yet. The agenda is stubbed no-store, so the
+ * browser's HTTP cache can never answer for it: offline, only the worker's asset
+ * cache can.
+ */
+async function agendaShowPrefetched(
+  page: Page,
+  origin: string,
+  proxy: CrewOfflineProxy,
+): Promise<void> {
   proxy.stub("/api/asset/agenda/", AGENDA_PDF, "application/pdf", {
     "cache-control": "no-store",
   });
@@ -551,10 +556,10 @@ test("11. an agenda nobody opened opens offline", async ({
     )
     .toEqual({ agendaListed: true, pdfWorkerStored: true });
   await expect(page.getByTestId("agenda-sheet"), "the agenda was never opened").toHaveCount(0);
+}
 
-  // Online, after the registrar's prefetch (the poll above), the agenda opens.
-  // A registrar that imported react-pdf itself reset pdf.js's worker URL for the
-  // whole page, and this failed online as well as offline.
+/** Schedule, then `View agenda`: the viewer shows the first page. */
+async function openAgenda(page: Page): Promise<void> {
   await sectionTab(page, "schedule").click();
   await expect(page.getByTestId("section-schedule")).toBeVisible();
   await page
@@ -562,18 +567,35 @@ test("11. an agenda nobody opened opens offline", async ({
     .getByRole("button", { name: /View agenda/ })
     .click();
   await expect(page.getByTestId("agenda-active-page")).toHaveText("1", { timeout: 30_000 });
+}
 
+test("11a. an agenda nobody opened opens offline", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+}) => {
+  await agendaShowPrefetched(page, origin, proxy);
+
+  // Offline before anyone opens it: everything the viewer needs came from the
+  // registrar's prefetch alone.
   proxy.setMode("refuse");
   await page.reload();
   await waitForCrewHydrated(page);
   await expect(savedCopyBar(page).bar).toHaveAttribute("data-state", "saved-fresh");
-  await sectionTab(page, "schedule").click();
-  await expect(page.getByTestId("section-schedule")).toBeVisible();
-  await page
-    .getByTestId("agenda-embed")
-    .getByRole("button", { name: /View agenda/ })
-    .click();
-  await expect(page.getByTestId("agenda-active-page")).toHaveText("1", { timeout: 30_000 });
+  await openAgenda(page);
+});
+
+test("11b. the agenda opens online after the registrar's prefetch", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+}) => {
+  await agendaShowPrefetched(page, origin, proxy);
+
+  // Online, on the page whose registrar just ran the prefetch. A registrar that
+  // imported react-pdf itself reset pdf.js's worker URL for the whole page, and
+  // the viewer then failed here as well as offline.
+  await openAgenda(page);
 });
 
 test("12. a saved copy whose JavaScript fails to load still shows the CSS notice", async ({
