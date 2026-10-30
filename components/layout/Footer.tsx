@@ -16,7 +16,7 @@
  *
  * WHAT LEFT, AND WHY. The theme toggle is gone from here at every width —
  * ratified: "theme toggle doesn't belong in this grouping". It now lives in the
- * crew page header behind the avatar menu (`components/layout/Header.tsx`). The
+ * crew page header, for every viewer (`components/layout/Header.tsx`). The
  * report control lost its visible copy and kept its accessible name, so a
  * screen-reader user still hears the full invitation; the discoverability cost
  * of a symbol was surfaced on the mockup and ratified anyway (UI spec §4 limit 2).

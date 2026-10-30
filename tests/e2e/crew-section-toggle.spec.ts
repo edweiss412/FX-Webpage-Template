@@ -465,6 +465,66 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     }
   });
 
+  // Crew page redesign Task 7 (spec §4.1, §1.2): below 1024px the header's search
+  // slot is a full-width row of its own under the title, and the status slot is
+  // an empty element directly after the header bar. The admin share route has no
+  // identity chip, so the right slot holds the theme switch; the search row must
+  // clear it too.
+  test("header: below 1024px the search field is a full-width row under the title, and the status slot sits directly under the header bar", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await load(page, "?s=today");
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-mode",
+      "compact",
+    );
+    await expect(page.getByTestId("crew-search-input")).toBeVisible();
+
+    // One evaluate (detach safety). The row's content box is the row's rect
+    // inside its padding; the title's box is the row item that holds the h1.
+    const r = await page.evaluate(() => {
+      const box = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        return { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
+      };
+      const head = document.querySelector('[data-testid="page-header"]')!;
+      const search = head.querySelector('[data-testid="page-header-search"]')!;
+      const row = search.parentElement!;
+      const rowBox = row.getBoundingClientRect();
+      const cs = getComputedStyle(row);
+      let title: Element = head.querySelector("h1")!;
+      while (title.parentElement && title.parentElement !== row) title = title.parentElement;
+      const next = head.nextElementSibling;
+      return {
+        contentLeft: rowBox.left + parseFloat(cs.paddingLeft),
+        contentRight: rowBox.right - parseFloat(cs.paddingRight),
+        search: box(search),
+        title: box(title),
+        rightSlot: box(head.querySelector('[data-testid="page-header-right-slot"]')!),
+        next: next?.getAttribute("data-testid") ?? next?.tagName ?? null,
+        nextChildNodes: next?.childNodes.length ?? -1,
+      };
+    });
+
+    // Full width: the row's whole content box, edge to edge.
+    expect(Math.abs(r.search.left - r.contentLeft), "search left edge").toBeLessThanOrEqual(TOL);
+    expect(Math.abs(r.search.right - r.contentRight), "search right edge").toBeLessThanOrEqual(TOL);
+    // Under the title, and under the right slot beside it: a row of its own.
+    expect(r.search.top, "search below the title").toBeGreaterThanOrEqual(r.title.bottom - TOL);
+    expect(r.search.top, "search below the right slot").toBeGreaterThanOrEqual(
+      r.rightSlot.bottom - TOL,
+    );
+    expect(
+      Math.abs(r.search.left - r.title.left),
+      "search aligns with the title",
+    ).toBeLessThanOrEqual(TOL);
+    // The status slot: the element right after the header bar, empty.
+    expect(r.next, "the element after the header bar").toBe("page-header-status-slot");
+    expect(r.nextChildNodes, "the status slot is empty").toBe(0);
+  });
+
   // ── Payload + FCP record (perf-tradeoff evidence) ──────────────────────────
   // The tradeoff: ship ALL section bodies on first load in exchange for
   // zero-network opens. This RECORDS that first-load cost (document + RSC

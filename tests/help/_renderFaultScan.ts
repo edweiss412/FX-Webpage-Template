@@ -840,7 +840,12 @@ export function scanCandidates(): Candidate[] {
       // taking a side or adding the two deltas. The eight are the redesign's
       // (the search panel's own ternary is in both trees). The 78 is unchanged.
       //
-      // Probed: 768 such ternaries under the derived roots, 78 on a
+      // 768 -> 770 with the crew page redesign's header (plan PR A, Task 7):
+      // `components/layout/Header.tsx` holds six JSX ternaries where it held four
+      // (the eyebrow's separator and the date line). Neither condition is on the
+      // fault vocabulary, so the 78 is unchanged. Re-derived by running the guard.
+      //
+      // Probed: 770 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

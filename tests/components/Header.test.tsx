@@ -48,7 +48,11 @@ describe("Header rebalance (M4-D3)", () => {
     expect(cls).not.toContain("font-bold");
   });
 
-  it("renders meta row (date · venue) at text-xs (was text-sm)", () => {
+  it("renders the date row at text-xs (was text-sm), the date alone now that the venue moved to the eyebrow", () => {
+    // MIGRATED 2026-10-30 (crew page redesign spec §4.1, Task 7). This row was
+    // "date · venue"; the venue joined the client in the eyebrow, so the row
+    // carries the date alone. The size contract is unchanged, and the venue
+    // must not render here as well as in the eyebrow.
     const { container } = render(<Header show={baseShow} />);
     const time = container.querySelector("time");
     expect(time).not.toBeNull();
@@ -57,6 +61,7 @@ describe("Header rebalance (M4-D3)", () => {
     const cls = metaRow?.className ?? "";
     expect(cls).toContain("text-xs");
     expect(cls).not.toContain("text-sm");
+    expect(metaRow?.textContent).toBe("April 17, 2026");
   });
 
   it("does NOT render the orange hairline (bg-accent h-px divider)", () => {
@@ -78,12 +83,16 @@ describe("Header rebalance (M4-D3)", () => {
     expect(cls).not.toContain("text-text-subtle");
   });
 
-  it("renders the client line at text-text-subtle, not text-text-faint (AA 4.5:1 at 12px)", () => {
+  it("renders the eyebrow (client · venue) at text-text-subtle, not text-text-faint (AA 4.5:1 at 12px)", () => {
     // text-faint measures 3.21:1 light / 4.00:1 dark on --color-bg, an AA-large
     // floor (DESIGN.md §1.1); the client name is 12px information, not
     // decoration, so it takes text-subtle (6.47:1 / 6.75:1). Impeccable gate B1.
-    const { getByText } = render(<Header show={baseShow} />);
-    const cls = getByText(baseShow.client_label).className;
+    // MIGRATED 2026-10-30 (spec §4.1, Task 7): the client shares ONE eyebrow
+    // line with the venue now, so the line is found by its test id rather than
+    // by the client's text alone. The venue, which used to read at text-subtle
+    // in the date row, keeps that ratio here.
+    const { getByTestId } = render(<Header show={baseShow} />);
+    const cls = getByTestId("page-header-eyebrow").className;
     expect(cls).toContain("text-text-subtle");
     expect(cls).not.toContain("text-text-faint");
   });
@@ -107,12 +116,17 @@ describe("Header rebalance (M4-D3)", () => {
     expect(header).not.toBeNull();
     const scoped = within(header as HTMLElement);
     expect(scoped.getByText("Spring Tour 2026")).not.toBeNull();
-    expect(scoped.getByText("FXAV Client")).not.toBeNull();
     expect(scoped.getByText("April 17, 2026")).not.toBeNull();
-    expect(scoped.getByText("Hilton Anatole")).not.toBeNull();
+    // MIGRATED 2026-10-30 (spec §4.1, Task 7): client and venue share ONE
+    // eyebrow line now, so neither is an element of its own to find by exact
+    // text. Both still render, in that line, once each.
+    const eyebrow = scoped.getByTestId("page-header-eyebrow");
+    expect(eyebrow.textContent).toContain("FXAV Client");
+    expect(eyebrow.textContent).toContain("Hilton Anatole");
+    expect((header?.textContent ?? "").split("Hilton Anatole")).toHaveLength(2);
   });
 
-  it("omits the meta row entirely when date and venue are both null", () => {
+  it("omits the date row entirely when the show has no date", () => {
     const showNoMeta = {
       ...baseShow,
       dates: { set: null, travelIn: null, showDays: [], travelOut: null } as never,
@@ -124,8 +138,26 @@ describe("Header rebalance (M4-D3)", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Spring Tour 2026");
   });
 
-  it("omits the client-label eyebrow entirely when client_label is null (R2 M2 — title carries alone)", () => {
-    const showNoLabel = { ...baseShow, client_label: null as never };
+  it("omits the date row when the show has no date, even with a venue (the venue no longer opens that row)", () => {
+    // MIGRATED 2026-10-30 (spec §4.1, Task 7). The old row opened for a date OR
+    // a venue; the venue left for the eyebrow, so a venue with no date must not
+    // leave an empty date row under the title.
+    const showVenueNoDate = {
+      ...baseShow,
+      dates: { set: null, travelIn: null, showDays: [], travelOut: null } as never,
+    };
+    const { container } = render(<Header show={showVenueNoDate} />);
+    expect(container.querySelector("time")).toBeNull();
+    const h1 = container.querySelector("h1");
+    expect(h1?.nextElementSibling).toBeNull();
+  });
+
+  it("omits the eyebrow entirely when client and venue are both absent (R2 M2 — title carries alone)", () => {
+    // MIGRATED 2026-10-30 (spec §4.1, Task 7): the eyebrow is "client · venue"
+    // now, so it is absent only when BOTH parts are. The failure mode is
+    // unchanged: no empty eyebrow above the title and no top margin reserved
+    // for one.
+    const showNoLabel = { ...baseShow, client_label: null as never, venue: null };
     const { container } = render(<Header show={showNoLabel} />);
     const h1 = container.querySelector("h1");
     expect(h1?.textContent).toBe("Spring Tour 2026");
@@ -139,8 +171,12 @@ describe("Header rebalance (M4-D3)", () => {
     expect(h1?.className ?? "").not.toContain("mt-1");
   });
 
-  it("omits the client-label eyebrow entirely when client_label is empty string", () => {
-    const showEmptyLabel = { ...baseShow, client_label: "" };
+  it("omits the eyebrow entirely when client_label and the venue name are empty strings", () => {
+    const showEmptyLabel = {
+      ...baseShow,
+      client_label: "",
+      venue: { name: "", timezone: "America/Chicago" } as never,
+    };
     const { container } = render(<Header show={showEmptyLabel} />);
     expect(container.querySelector("h1")?.textContent).toBe("Spring Tour 2026");
     const inner = container.querySelector("header > div > div");
@@ -172,36 +208,48 @@ describe("Header identityChip slot (M11.5 §B Task C4)", () => {
     expect(queryByTestId("header-test-fixture-chip")?.textContent).toBe("Alice · Audio A1");
   });
 
-  it("mounts the toggle as a DIRECT child of the right slot, with no wrapper around it", () => {
-    // The crew header is the third consumer of the standalone toggle and the
-    // only one whose branch is conditional (no resolved identity). Until
+  it("mounts the toggle as a DIRECT child of the right slot, with no wrapper around it, with and without an identity", () => {
+    // The crew header is the third consumer of the standalone toggle. Until
     // 2026-08-26 `ThemeToggle` returned a `relative inline-flex` span around
     // its button to anchor the persist-failure bubble; the note was removed and
     // the wrapper went with it, which makes the button a direct flex child of
     // this row rather than a wrapped one.
     //
+    // MIGRATED 2026-10-30 (crew page redesign spec §4.1, Task 7). The toggle
+    // used to mount for identity-less viewers only; it now mounts for EVERY
+    // crew-page viewer, just before the avatar menu when there is an identity
+    // (the avatar stays at the row's right edge, where its `right-0` popover was
+    // sized against the page gutter). So the structure is pinned in BOTH
+    // branches, each by its own premise, and the children list names which
+    // branch rendered.
+    //
     // jsdom does not lay out, so this pins the STRUCTURE, which is the thing
     // that would silently change if someone reintroduced a wrapper. The
     // real-browser geometry for the OTHER two consumers is in
-    // tests/e2e/theme-persistence-note.spec.ts; this branch has no e2e of its
-    // own, and that is a stated limit rather than an oversight — reaching it
-    // needs a seeded show, a share token, and no picked identity.
-    const { getByTestId } = render(<Header show={baseShow} />);
+    // tests/e2e/theme-persistence-note.spec.ts; the crew header's toggle is
+    // measured by tests/e2e/theme-toggle.spec.ts's tap-target case, and beside
+    // a real identity chip by tests/e2e/crew-wide-nav.spec.ts's header case.
+    const chip = <span data-testid="header-test-fixture-chip">Alice · Audio A1</span>;
+    for (const [identityChip, identity, children] of [
+      [undefined, "none", ["page-header-fxav-wordmark", "theme-toggle"]],
+      [chip, null, ["theme-toggle", "header-test-fixture-chip"]],
+    ] as const) {
+      const { getByTestId, unmount } = render(
+        <Header show={baseShow} identityChip={identityChip} />,
+      );
 
-    const slot = getByTestId("page-header-right-slot");
-    const toggle = getByTestId("theme-toggle");
+      const slot = getByTestId("page-header-right-slot");
+      const toggle = getByTestId("theme-toggle");
 
-    // PREMISE: this is the no-identity branch, the only one that renders the
-    // standalone toggle. Without it the assertions below would pass on the
-    // wrong slot.
-    expect(slot.getAttribute("data-identity")).toBe("none");
+      // PREMISE: the branch under test is the one named. Without it the
+      // assertions below could pass on the wrong slot.
+      expect(slot.getAttribute("data-identity")).toBe(identity);
 
-    expect(toggle.tagName).toBe("BUTTON");
-    expect(toggle.parentElement).toBe(slot);
-    expect([...slot.children].map((el) => el.getAttribute("data-testid"))).toEqual([
-      "page-header-fxav-wordmark",
-      "theme-toggle",
-    ]);
+      expect(toggle.tagName).toBe("BUTTON");
+      expect(toggle.parentElement).toBe(slot);
+      expect([...slot.children].map((el) => el.getAttribute("data-testid"))).toEqual(children);
+      unmount();
+    }
   });
 
   it("does NOT hide the identityChip slot on mobile (no `hidden sm:block` class regression)", () => {
