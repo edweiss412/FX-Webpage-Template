@@ -789,6 +789,7 @@ realtime reconnect backoff.
 | `WARNING_HIGHLIGHT_MS` | 1600 | `components/admin/wizard/Step3ReviewModal.tsx` |
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
+| `PURGE_ACK_WAIT_MS` | 500 | `components/auth/AvatarMenu.tsx` |
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
 | `REVEAL_WAIT_MS` | 1500 | `components/crew/CrewSections.tsx` |

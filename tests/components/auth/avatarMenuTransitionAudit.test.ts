@@ -364,6 +364,40 @@ const DECLARED = [
     marker: /^mounted && isDark\u0000/,
     treatment: "not a render branch itself; the mounted half is the hydration guard inside C25",
   },
+  // The connection axis (saved-copy spec 2026-10-26 §4.6 and §4.7.6): online or
+  // offline, read through useOnlineStatus, independent of the menu and the
+  // switch phase.
+  {
+    id: "C36",
+    what: "the click guard refuses the switch while offline",
+    marker: /^if \(!online\) \{/,
+    treatment:
+      "not a render branch; an offline tap is refused the way a busy one is, and changes no state",
+  },
+  {
+    id: "C37",
+    what: "the first purge is waited for only when a worker can answer it (ruling D5)",
+    marker: /^if \(firstPurge instanceof Promise\) await firstPurge;\u0000let failed/,
+    treatment: "not a render branch; with no worker the clear starts inside the tap, as before",
+  },
+  {
+    id: "C38",
+    what: "the switch row's accessible name says why it is disabled while offline",
+    marker: /^online \? "Switch crew member" : "Switch crew member, needs signal"\u0000/,
+    treatment: "instant: label swap, no animation",
+  },
+  {
+    id: "C39",
+    what: "the switch row is aria-disabled while busy OR offline",
+    marker: /^switchBusy \|\| !online\u0000/,
+    treatment: "instant: label swap, no animation",
+  },
+  {
+    id: "C40",
+    what: "the switch row's visible label reads Needs signal while offline",
+    marker: /^online \? "Not you\? Switch person" : "Needs signal"\u0000/,
+    treatment: "instant: label swap, no animation",
+  },
 ] as const;
 
 describe("AvatarMenu transition audit (spec §4.6)", () => {
@@ -419,7 +453,9 @@ describe("AvatarMenu transition audit (spec §4.6)", () => {
     // hung". This is the structural half: the flag is not read at all.
     expect(SOURCE).toMatch(/const \[, startSwitch\] = useTransition\(\)/);
     expect(SOURCE).not.toMatch(/\bswitchPending\b/);
-    expect(SOURCE).toMatch(/aria-disabled=\{switchBusy\}/);
+    // The row is also disabled offline (saved-copy spec §4.7.6); the busy half
+    // still reads the derived flag, never React's.
+    expect(SOURCE).toMatch(/aria-disabled=\{switchBusy \|\| !online\}/);
     expect(SOURCE).toMatch(/aria-busy=\{switchBusy \|\| undefined\}/);
   });
 
