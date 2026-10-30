@@ -7,7 +7,9 @@
  * file fetches, times, stores and asks them. Three rules hold everywhere:
  *
  * - A copy is only ever served through `serveCopy`, which injects the notice,
- *   and only at the URL it was saved under (S(U)) on a table's say-so.
+ *   and only at the URL it was saved under (S(U)) on a table's say-so. Its last
+ *   await re-reads S(U), and it serves nothing unless the copy a caller read
+ *   before any wait (a status check, a page fetch) is still stored there.
  * - Every save takes its generation and ordinal (`beginSave`) before its fetch
  *   is sent, so a purge that lands while the fetch is in flight voids it.
  * - A fault inside the handlers serves the network, or the not-saved page when
@@ -243,8 +245,9 @@ async function answerRange(stored: Response, range: string | null): Promise<Resp
   if (first === "" && last === "") return stored;
   if (first !== "" && last !== "" && Number(last) < Number(first)) return stored;
 
-  const bytes = new Uint8Array(await stored.arrayBuffer());
-  const size = bytes.byteLength;
+  // A blob, sliced: a cached body need not be copied whole for every range request.
+  const body = await stored.blob();
+  const size = body.size;
   const start = first === "" ? Math.max(0, size - Number(last)) : Number(first);
   const end = first === "" || last === "" ? size - 1 : Math.min(Number(last), size - 1);
   if (start >= size || (first === "" && Number(last) === 0)) {
@@ -253,7 +256,7 @@ async function answerRange(stored: Response, range: string | null): Promise<Resp
   const headers = new Headers(stored.headers);
   headers.set("content-range", `bytes ${start}-${end}/${size}`);
   headers.set("content-length", String(end - start + 1));
-  return new Response(bytes.slice(start, end + 1), { status: 206, headers });
+  return new Response(body.slice(start, end + 1), { status: 206, headers });
 }
 
 export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
@@ -325,15 +328,29 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   // --- Serving --------------------------------------------------------------------
 
-  /** The only way a copy reaches a page: with the meta and the CSS notice, and no stored headers. */
-  async function serveCopy(copy: StoredCopy, mode: ServeMode): Promise<Response> {
+  /**
+   * The only way a copy reaches a page: with the meta and the CSS notice, and no
+   * stored headers. `copy` was read before some wait, during which a purge or a
+   * newer save may have landed, so the last await re-reads S(U): the response is
+   * built only when the same copy (show and ordinal) is still stored at `url`.
+   * Null otherwise, and the caller takes its path's outcome for no copy.
+   */
+  async function serveCopy(
+    url: string,
+    copy: StoredCopy,
+    mode: ServeMode,
+  ): Promise<Response | null> {
     const now = deps.now();
     // The eviction order only: a full or failing store must not stop the serve.
     await store.touchOpened(refOf(copy), now).catch(() => undefined);
-    const time = formatSavedTime(copy.savedAt, now);
-    const html = injectSavedCopyHead(copy.html, {
+    const current = await store.copyAtUrl(url);
+    if (current === null || current.showId !== copy.showId || current.ordinal !== copy.ordinal) {
+      return null;
+    }
+    const time = formatSavedTime(current.savedAt, now);
+    const html = injectSavedCopyHead(current.html, {
       mode,
-      savedAt: copy.savedAt,
+      savedAt: current.savedAt,
       noticeText: time === null ? "Saved copy" : `Saved copy from ${time}`,
     });
     return new Response(html, { status: 200, headers: HTML_HEADERS });
@@ -609,19 +626,18 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     const view = await readView(url);
     const step = decideStep3(url, completeOf(fetched), view);
     switch (step.serve) {
-      case "saved":
-        return served(
-          view.atUrl !== null ? await serveCopy(view.atUrl, step.mode) : networkResponse(fetched),
-        );
+      case "saved": {
+        const saved = view.atUrl === null ? null : await serveCopy(url, view.atUrl, step.mode);
+        return served(saved ?? networkResponse(fetched));
+      }
       case "ask-status": {
         const copy = view.atUrl;
         if (copy === null) return served(networkResponse(fetched));
         const check = decideCheckOutcome(await askStatus(copy), copy);
         if (check.serve === "saved") {
           const ended = await markedEnded(url, copy);
-          return served(
-            ended !== null ? await serveCopy(ended, check.mode) : networkResponse(fetched),
-          );
+          const saved = ended === null ? null : await serveCopy(url, ended, check.mode);
+          return served(saved ?? networkResponse(fetched));
         }
         if (check.then === "purge") await purge(check.scope);
         return served(networkResponse(fetched));
@@ -698,10 +714,11 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   async function noResponse(url: string): Promise<Handled> {
     const view = await readView(url);
     const decision = decideNoResponse("network-error", view);
-    if (decision.serve === "saved" && view.atUrl !== null) {
-      return served(await serveCopy(view.atUrl, decision.mode));
-    }
-    return served(notSavedResponse());
+    const saved =
+      decision.serve === "saved" && view.atUrl !== null
+        ? await serveCopy(url, view.atUrl, decision.mode)
+        : null;
+    return served(saved ?? notSavedResponse());
   }
 
   /** Step 5's continuation: the step 3 table without serving, abandoned after `ms`. */
@@ -730,12 +747,16 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     const view = await readView(url);
     const decision = decideNoResponse("timeout", view);
     if (decision.serve === "saved" && decision.mode === "slow" && view.atUrl !== null) {
-      return {
-        response: await serveCopy(view.atUrl, decision.mode),
-        background: continueInBackground(attempt, url, token, decision.continueForMs),
-      };
+      const saved = await serveCopy(url, view.atUrl, decision.mode);
+      if (saved !== null) {
+        return {
+          response: saved,
+          background: continueInBackground(attempt, url, token, decision.continueForMs),
+        };
+      }
     }
-    // No S(U): nothing better to show, so the worker sets no timeout of its own.
+    // No S(U), or it left the store just now: nothing better to show, so the
+    // worker sets no timeout of its own.
     const fetched = await attempt.result;
     return fetched === null ? noResponse(url) : decideServed(url, token, fetched);
   }
@@ -743,12 +764,17 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   /**
    * Step 1's no-verdict branch: the page under the step 2 budget, S(U) kept. A
    * complete response is served as it came, its marker unread; no response at
-   * all serves S(U) ended.
+   * all serves S(U) ended. When S(U) left the store during the fetch there is no
+   * copy to fall back to: a network error gets the not-saved page, and a page
+   * still pending is waited for, as steps 2 to 5 do with no S(U).
    */
-  async function fetchKeepingEnded(request: Request, copy: StoredCopy): Promise<Response> {
+  async function fetchKeepingEnded(
+    request: Request,
+    url: string,
+    copy: StoredCopy,
+  ): Promise<Response> {
     const attempt = startFetch(request);
     const outcome = await within(attempt.result, NAV_BUDGET_MS);
-    if (outcome.kind === "timeout") attempt.abort();
     const fetched = outcome.kind === "done" ? outcome.value : null;
     const result: FetchResult =
       fetched !== null
@@ -756,7 +782,14 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
         : { kind: "no-response", reason: outcome.kind === "timeout" ? "timeout" : "network-error" };
     const decision = decideEndedFetch(result);
     if (decision.serve === "network" && fetched !== null) return networkResponse(fetched);
-    return serveCopy(copy, "ended");
+    const saved = await serveCopy(url, copy, "ended");
+    if (saved !== null) {
+      if (outcome.kind === "timeout") attempt.abort();
+      return saved;
+    }
+    if (outcome.kind === "done") return notSavedResponse();
+    const late = await attempt.result;
+    return late !== null ? networkResponse(late) : notSavedResponse();
   }
 
   async function navigate(request: Request): Promise<Handled> {
@@ -765,10 +798,20 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     const held = await store.copyAtUrl(url);
     if (held !== null && held.endedAt !== null) {
       const step1 = decideEndedStep1(await askStatus(held), held);
-      if (step1.next === "serve-saved") return served(await serveCopy(held, step1.mode));
-      if (step1.next === "fetch-keep") return served(await fetchKeepingEnded(request, held));
-      // "step-2": the purge, then steps 2 to 5, which read the store afresh.
-      await purge(step1.purge);
+      switch (step1.next) {
+        case "serve-saved": {
+          const saved = await serveCopy(url, held, step1.mode);
+          if (saved !== null) return served(saved);
+          // S(U) left the store during the status check: steps 2 to 5, as with no copy.
+          break;
+        }
+        case "fetch-keep":
+          return served(await fetchKeepingEnded(request, url, held));
+        case "step-2":
+          // The purge, then steps 2 to 5, which read the store afresh.
+          await purge(step1.purge);
+          break;
+      }
     }
     return fetchAndDecide(request, url);
   }
@@ -810,17 +853,20 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   /**
    * The stored asset, answering the request's Range, only when a saved copy lists
-   * it. A store or cache that fails reads as unlisted, so the network answers.
+   * it. The listing is read again as the last await, so an asset whose copy was
+   * purged while the cache was read is not served. A store or cache that fails
+   * reads as unlisted, so the network answers.
    */
   async function listedAsset(request: Request): Promise<Response | undefined> {
     try {
       const path = rootRelative(request.url);
-      const copies = await store.listCopies();
-      if (!copies.some((copy) => copy.assets.includes(path))) return undefined;
+      const listed = async () =>
+        (await store.listCopies()).some((copy) => copy.assets.includes(path));
+      if (!(await listed())) return undefined;
       const stored = await (await assetCache()).match(absolute(path));
-      return stored === undefined
-        ? undefined
-        : await answerRange(stored, request.headers.get("range"));
+      if (stored === undefined) return undefined;
+      const answer = await answerRange(stored, request.headers.get("range"));
+      return (await listed()) ? answer : undefined;
     } catch {
       return undefined;
     }

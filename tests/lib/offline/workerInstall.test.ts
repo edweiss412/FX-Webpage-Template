@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { requiredStaticUrls } from "@/lib/offline/completeness";
 import { formatSavedTime } from "@/lib/offline/format";
@@ -239,10 +239,13 @@ class FakeCache implements CacheLike {
   keysGate: Promise<void> | null = null;
   /** While set, `delete` removes the entry at once and settles only when the gate opens. */
   deleteGate: Promise<void> | null = null;
+  /** While set, `match` reads the entry at once and answers only when the gate opens. */
+  matchGate: Promise<void> | null = null;
 
   async match(url: string): Promise<Response | undefined> {
     if (this.failMatch) throw new DOMException("The cache could not be read.", "UnknownError");
     const entry = this.entries.get(url);
+    if (this.matchGate !== null) await this.matchGate;
     if (entry === undefined) return undefined;
     return new Response(entry.bytes.slice(), { status: entry.status, headers: entry.headers });
   }
@@ -637,6 +640,22 @@ function gatedStaticIndex() {
       const snapshot = await inner.staticIndex();
       await gate.promise;
       return snapshot;
+    },
+  };
+  return { store, gate, calls: () => calls };
+}
+
+/** A store whose touchOpened waits on a gate: the last wait inside serveCopy before it re-reads S(U). */
+function gatedTouch() {
+  const inner = createMemoryStore();
+  const gate = deferred<void>();
+  let calls = 0;
+  const store: SavedCopyStore = {
+    ...inner,
+    async touchOpened(ref, openedAt) {
+      calls += 1;
+      await gate.promise;
+      return inner.touchOpened(ref, openedAt);
     },
   };
   return { store, gate, calls: () => calls };
@@ -2634,5 +2653,219 @@ describe("the check row never serves a copy that changed during the status check
     const text = await (await open(worker, U)).text();
     expect(servedMode(text)).toBe("ended");
     expect(text).toContain(savedLabel(SHOW, U));
+  });
+});
+
+// --- Review round 2: a copy read before a wait is served only if it is still S(U) ---
+
+describe("a copy read before a wait is served only while it is still S(U)", () => {
+  const purgeShow = { type: "purge-show", showId: SHOW };
+  const livePage = () => htmlResponse(page({ disposition: "hold", showId: null }, "live page"));
+
+  async function endedCopy(worker: Worker) {
+    return worker.seed({ showId: SHOW, url: U, endedAt: START - DAY_MS });
+  }
+
+  test("step 1, status ended: purged during the status check, the page is fetched instead", async () => {
+    const worker = boot();
+    await endedCopy(worker);
+    const status = deferred<Response>();
+    worker.net.on(STATUS, later(status));
+    worker.net.on(U, reply(livePage));
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the status check is in flight", worker.net.callsTo(STATUS).length, 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    status.resolve(Response.json({ state: "ended" }));
+    const text = await (await responseOf(nav)).text();
+    await nav.settled();
+    expect(servedMode(text)).toBeNull();
+    expect(text).toContain("live page");
+  });
+
+  test("step 1, no answer: purged during the status wait, no signal gets the not-saved page", async () => {
+    const worker = boot();
+    await endedCopy(worker);
+    worker.net.on(STATUS, hang);
+    worker.net.on(U, refuse);
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the status check is in flight", worker.net.callsTo(STATUS).length, 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    await worker.clock.advance(5_000);
+    expect(await (await responseOf(nav)).text()).toBe(notSavedPageHtml());
+    await nav.settled();
+  });
+
+  test("step 1 no-verdict, network error: purged during the page fetch, the not-saved page", async () => {
+    const worker = boot();
+    await endedCopy(worker);
+    worker.net.on(
+      STATUS,
+      reply(() => Response.json({ error: "X" }, { status: 500 })),
+    );
+    const pageFetch = deferred<Response>();
+    worker.net.on(U, later(pageFetch));
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the page fetch is in flight", worker.net.callsTo(U).length, 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    pageFetch.reject(new TypeError("Failed to fetch"));
+    expect(await (await responseOf(nav)).text()).toBe(notSavedPageHtml());
+    await nav.settled();
+  });
+
+  test("step 1 no-verdict, 8 s pass: purged during the page fetch, the page is waited for", async () => {
+    const worker = boot();
+    await endedCopy(worker);
+    worker.net.on(
+      STATUS,
+      reply(() => Response.json({ error: "X" }, { status: 500 })),
+    );
+    const pageFetch = deferred<Response>();
+    worker.net.on(U, later(pageFetch));
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the page fetch is in flight", worker.net.callsTo(U).length, 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    const served = watch(responseOf(nav));
+    await worker.clock.advance(8_000);
+    expect(served.done()).toBe(false);
+    pageFetch.resolve(livePage());
+    const text = await (await responseOf(nav)).text();
+    await nav.settled();
+    expect(servedMode(text)).toBeNull();
+    expect(text).toContain("live page");
+  });
+
+  test("step 3 server-error row: purged before the copy is served, the network page instead", async () => {
+    const { store, gate, calls } = gatedTouch();
+    const worker = boot({ store });
+    await worker.seed({ showId: SHOW, url: U, viewer: VIEWER });
+    worker.net.on(
+      U,
+      reply(() =>
+        htmlResponse(
+          page({ disposition: "keep", showId: SHOW, viewer: VIEWER }, "terminal failure"),
+        ),
+      ),
+    );
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the serve is waiting inside serveCopy", calls(), 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    gate.resolve();
+    const text = await (await responseOf(nav)).text();
+    await nav.settled();
+    expect(servedMode(text)).toBeNull();
+    expect(text).toContain("terminal failure");
+  });
+
+  test("step 3 check row: purged during the status check, the network page instead", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page({ disposition: "check", showId: null }, "not found"), 404)),
+    );
+    const status = deferred<Response>();
+    worker.net.on(STATUS, later(status));
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the status check is in flight", worker.net.callsTo(STATUS).length, 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    status.resolve(Response.json({ state: "ended" }));
+    const text = await (await responseOf(nav)).text();
+    await nav.settled();
+    expect(servedMode(text)).toBeNull();
+    expect(text).toContain("not found");
+  });
+
+  test("step 4: purged before the offline copy is served, the not-saved page instead", async () => {
+    const { store, gate, calls } = gatedTouch();
+    const worker = boot({ store });
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(U, refuse);
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the serve is waiting inside serveCopy", calls(), 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    gate.resolve();
+    expect(await (await responseOf(nav)).text()).toBe(notSavedPageHtml());
+    await nav.settled();
+  });
+
+  test("step 4: replaced by a newer save before the old copy is served, that old copy is not served", async () => {
+    const { store, gate, calls } = gatedTouch();
+    const worker = boot({ store });
+    await worker.seed({ showId: SHOW, url: U, html: page(save(), "old copy") });
+    worker.net.on(U, refuse);
+    const nav = worker.navigate(U);
+    await settle();
+    premise("the serve is waiting inside serveCopy", calls(), 0);
+    await worker.seed({ showId: SHOW, url: U, html: page(save(), "newer copy") });
+    gate.resolve();
+    const text = await (await responseOf(nav)).text();
+    await nav.settled();
+    expect(text).not.toContain("old copy");
+    expect(text).toBe(notSavedPageHtml());
+  });
+
+  test("step 5: purged before the slow copy is served, the page is waited for", async () => {
+    const { store, gate, calls } = gatedTouch();
+    const worker = boot({ store });
+    await worker.seed({ showId: SHOW, url: U });
+    const pageFetch = deferred<Response>();
+    worker.net.on(U, later(pageFetch));
+    const nav = worker.navigate(U);
+    const served = watch(responseOf(nav));
+    await worker.clock.advance(8_000);
+    premise("the slow serve is waiting inside serveCopy", calls(), 0);
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    gate.resolve();
+    await worker.clock.advance(30_000);
+    expect(served.done()).toBe(false);
+    pageFetch.resolve(livePage());
+    const text = await (await responseOf(nav)).text();
+    await nav.settled();
+    expect(servedMode(text)).toBeNull();
+    expect(text).toContain("live page");
+  });
+
+  test("a stored asset whose copy is purged while the cache is read is not served", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+    worker.assetCache().seed(DIAGRAM, "stored diagram");
+    const gate = deferred<void>();
+    worker.assetCache().matchGate = gate.promise;
+    worker.net.on(DIAGRAM, refuse);
+    const dispatched = worker.dispatchFetch(new Request(ORIGIN + DIAGRAM));
+    await settle();
+    expect(await worker.ask(purgeShow)).toEqual({ outcome: "ack" });
+    gate.resolve();
+    await expect(responseOf(dispatched)).rejects.toThrow();
+  });
+});
+
+describe("a range answer slices the stored body instead of copying it whole", () => {
+  test("no arrayBuffer read of the stored agenda", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U, assets: [AGENDA] });
+    const bytes = Uint8Array.from({ length: 200 * 1024 }, (_, index) => index % 251);
+    worker.assetCache().seed(AGENDA, bytes, { "accept-ranges": "bytes" });
+    worker.net.on(AGENDA, refuse);
+    const arrayBuffer = vi.spyOn(Response.prototype, "arrayBuffer");
+    try {
+      const response = await responseOf(
+        worker.dispatchFetch(
+          new Request(ORIGIN + AGENDA, { headers: { range: "bytes=1024-2047" } }),
+        ),
+      );
+      expect(response.status).toBe(206);
+      expect(arrayBuffer).not.toHaveBeenCalled();
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes.slice(1024, 2048));
+    } finally {
+      arrayBuffer.mockRestore();
+    }
   });
 });
