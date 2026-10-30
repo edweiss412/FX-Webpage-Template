@@ -39,7 +39,10 @@ import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { deriveUseRawControlState } from "@/components/admin/UseRawControl";
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
-import { useRegisterUnsavedReading } from "@/components/admin/review/unsavedReadings";
+import {
+  useReadingChoiceLock,
+  useRegisterUnsavedReading,
+} from "@/components/admin/review/unsavedReadings";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 
 export type UseRawSurface =
@@ -96,6 +99,9 @@ export type UseRawDraftValue = {
   dirty: boolean;
   submitted: boolean | null;
   busy: boolean;
+  /** §6.5: a guarded action (Publish, Re-scan, …) is pending on this surface, so no
+   *  reading may be picked until it settles. */
+  locked: boolean;
   error: string | null;
   /** Rule 1. */
   select: (useRaw: boolean) => void;
@@ -165,12 +171,21 @@ export function UseRawDraftProvider(
     persistedRef.current = persistedRaw;
   }, [persistedRaw]);
 
-  // §6.5: while dirty this row counts as an unsaved reading on its review surface; the
-  // prompt's "Discard and continue" clears it with rule 6's `draft = null` (no focus move).
-  useRegisterUnsavedReading(submitted === null && draft !== null, () => {
+  // §6.5: this row counts as an unsaved reading on its review surface while it is dirty
+  // AND while its reading request is in flight: a Save that fails restores its draft
+  // (rule 3), so until the reading lands it is not safe to close or replace the review
+  // (review R1 E1). "Discard and continue" clears the draft with rule 6's `draft = null`
+  // (no focus move) and NEUTRALIZES an in-flight Save: its later failure restores
+  // nothing into a surface that is closing or being replaced.
+  const [readingInFlight, setReadingInFlight] = useState(false);
+  const discardEpochRef = useRef(0);
+  useRegisterUnsavedReading((submitted === null && draft !== null) || readingInFlight, () => {
+    discardEpochRef.current += 1;
+    setReadingInFlight(false);
     setDraft(null);
     setError(null);
   });
+  const lock = useReadingChoiceLock();
 
   const value: UseRawDraftValue = {
     persistedRaw,
@@ -178,10 +193,12 @@ export function UseRawDraftProvider(
     dirty: submitted === null && draft !== null,
     submitted,
     busy,
+    locked: lock.locked,
     error,
     select: (useRaw) => {
-      // Rows are soft-disabled while busy or awaiting reconciliation; guard here too.
-      if (busy || submitted !== null) return;
+      // Rows are soft-disabled while busy, awaiting reconciliation, or while a guarded
+      // action is pending (§6.5); guard here too, reading the lock synchronously.
+      if (busy || submitted !== null || lock.isLocked()) return;
       const next = useRaw === persistedRaw ? null : useRaw;
       setDraft(next);
       setError(null);
@@ -197,10 +214,19 @@ export function UseRawDraftProvider(
     save: async () => {
       if (submitted !== null || draft === null) return "failed";
       const sent = draft;
+      const epoch = discardEpochRef.current;
       setSubmitted(sent);
       setDraft(null);
       setError(null);
+      setReadingInFlight(true);
       const result = await callUseRawAction(surface, warning, sent);
+      if (discardEpochRef.current !== epoch) {
+        // §6.5: the operator pressed Discard while this was in flight. A failure must
+        // not resurrect the draft; the row goes clean either way.
+        if (result === "failed") setSubmitted(null);
+        return result;
+      }
+      setReadingInFlight(false);
       if (result === "failed") {
         // Rule 3; a non-null draft never equals the persisted reading.
         setDraft(sent === persistedRef.current ? null : sent);

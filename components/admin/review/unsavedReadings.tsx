@@ -34,9 +34,13 @@ import {
 import { createPortal, flushSync } from "react-dom";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 
+/** A guarded action. One that returns a promise is PENDING until it settles, and the
+ *  surface's reading choices stay locked for that whole period (§6.5, review R1 E1). */
+export type GuardedAction = () => void | Promise<unknown>;
+
 /** Runs `action` now, or holds it behind the prompt while a reading is unsaved.
  *  `trigger` is the control the operator pressed; focus returns to it. */
-export type UnsavedGuard = (action: () => void, trigger: HTMLElement | null) => void;
+export type UnsavedGuard = (action: GuardedAction, trigger: HTMLElement | null) => void;
 
 type Registry = {
   register: (key: object, discard: () => void) => void;
@@ -44,9 +48,13 @@ type Registry = {
   guard: UnsavedGuard;
   /** Synchronous read for paths that must decide inside one event (the drag release). */
   hasUnsaved: () => boolean;
+  /** Synchronous read: a guarded action is pending, so no reading may be picked. */
+  isLocked: () => boolean;
 };
 
 const UnsavedReadingsContext = createContext<Registry | null>(null);
+/** Reactive twin of `isLocked`, for rendering the choice rows soft-disabled. */
+const UnsavedReadingsLockContext = createContext(false);
 
 /** The body follows N like the title (UI gate P3): one pick, or several. */
 export function unsavedPromptBody(n: number): string {
@@ -59,14 +67,25 @@ export function unsavedPromptTitle(n: number): string {
   return n === 1 ? "You have 1 unsaved reading change" : `You have ${n} unsaved reading changes`;
 }
 
-const runNow: UnsavedGuard = (action) => action();
+const runNow: UnsavedGuard = (action) => {
+  void action();
+};
 
 /** The guard for a control inside a review surface; outside one, the action runs. */
 export function useUnsavedReadingsGuard(): UnsavedGuard {
   return useContext(UnsavedReadingsContext)?.guard ?? runNow;
 }
 
-/** A row provider counts itself while `dirty`; `discard` clears its draft. */
+/** A guarded action is pending on this surface: `locked` for rendering, `isLocked` for
+ *  a decision inside an event. Outside a review surface, never locked. */
+export function useReadingChoiceLock(): { locked: boolean; isLocked: () => boolean } {
+  const registry = useContext(UnsavedReadingsContext);
+  const locked = useContext(UnsavedReadingsLockContext);
+  return { locked, isLocked: registry?.isLocked ?? (() => false) };
+}
+
+/** A row provider counts itself while it holds an unsaved reading (a draft, or a Save
+ *  still in flight); `discard` clears it, neutralizing an in-flight Save. */
 export function useRegisterUnsavedReading(dirty: boolean, discard: () => void): void {
   const registry = useContext(UnsavedReadingsContext);
   const discardRef = useRef(discard);
@@ -81,16 +100,33 @@ export function useRegisterUnsavedReading(dirty: boolean, discard: () => void): 
   }, [dirty, registry]);
 }
 
-type Pending = { action: () => void; trigger: HTMLElement | null };
+type Pending = { action: GuardedAction; trigger: HTMLElement | null };
 
-/** The shell's half: the registry it provides, and the prompt it renders. */
+/** The shell's half: the registry it provides, its lock, and the prompt it renders. */
 export function useUnsavedReadingsRegistry(): {
   registry: Registry;
+  locked: boolean;
   prompt: ReactElement | null;
 } {
   const entriesRef = useRef(new Map<object, () => void>());
   const [count, setCount] = useState(0);
   const [pending, setPending] = useState<Pending | null>(null);
+  // Guarded actions still in flight. While any is, the reading choices are locked, so
+  // no draft can appear that the action's completion (a close, or a refresh that
+  // replaces the warnings) would then drop unseen (§6.5, review R1 E1).
+  const inFlightRef = useRef(0);
+  const [inFlight, setInFlight] = useState(0);
+  const runTracked = useRef((action: GuardedAction) => {
+    const result = action();
+    if (result === undefined || typeof result.then !== "function") return;
+    inFlightRef.current += 1;
+    setInFlight(inFlightRef.current);
+    const settle = () => {
+      inFlightRef.current -= 1;
+      setInFlight(inFlightRef.current);
+    };
+    result.then(settle, settle);
+  }).current;
 
   const registry = useMemo<Registry>(
     () => ({
@@ -104,14 +140,15 @@ export function useUnsavedReadingsRegistry(): {
       },
       guard: (action, trigger) => {
         if (entriesRef.current.size === 0) {
-          action();
+          runTracked(action);
           return;
         }
         setPending({ action, trigger });
       },
       hasUnsaved: () => entriesRef.current.size > 0,
+      isLocked: () => inFlightRef.current > 0,
     }),
-    [],
+    [runTracked],
   );
 
   // §6.5: `N` reaching 0 while the prompt is open closes it as Go back would; the held
@@ -142,23 +179,29 @@ export function useUnsavedReadingsRegistry(): {
           // inert before an action that may close it starts (§6.5 "Focus return").
           flushSync(() => setPending(null));
           for (const discard of [...entriesRef.current.values()]) discard();
-          held.action();
+          runTracked(held.action);
         }}
       />
     ) : null;
 
-  return { registry, prompt };
+  return { registry, locked: inFlight > 0, prompt };
 }
 
 export function UnsavedReadingsScope({
   registry,
+  locked,
   children,
 }: {
   registry: Registry;
+  locked: boolean;
   children: ReactNode;
 }): ReactElement {
   return (
-    <UnsavedReadingsContext.Provider value={registry}>{children}</UnsavedReadingsContext.Provider>
+    <UnsavedReadingsContext.Provider value={registry}>
+      <UnsavedReadingsLockContext.Provider value={locked}>
+        {children}
+      </UnsavedReadingsLockContext.Provider>
+    </UnsavedReadingsContext.Provider>
   );
 }
 

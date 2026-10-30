@@ -232,7 +232,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // took fifteen lines of comment out of this file.
     // 1084 -> 1099 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's
     // ref and helper above the footer); located by the radio's own `name`.
-    line: 1099,
+    // 1099 -> 1095 on feat/warning-card-fixes (review R1 E1: the unsaved-reading pending lock); located by its own element (5-line context match).
+    line: 1095,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",

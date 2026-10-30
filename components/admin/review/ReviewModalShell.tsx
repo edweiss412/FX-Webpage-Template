@@ -637,7 +637,7 @@ function OpenReviewModalShell({
   }
 
   const tree = (
-    <UnsavedReadingsScope registry={unsaved.registry}>
+    <UnsavedReadingsScope registry={unsaved.registry} locked={unsaved.locked}>
       <ReviewModalCloseContext.Provider value={closeFromHeader}>
         <div
           ref={dialogRef}

@@ -74,18 +74,24 @@ import {
 const PROMPT = "unsaved-readings-prompt";
 const fetchCalls: string[] = [];
 let fetchBody: unknown = { ok: true };
+/** When true, each fetch waits until the test calls the release it pushed here. */
+let holdFetch = false;
+const heldFetches: Array<() => void> = [];
 const originalMatchMedia = window.matchMedia;
 
 beforeEach(() => {
   stagedUseRaw.length = 0;
   fetchCalls.length = 0;
   fetchBody = { ok: true };
+  holdFetch = false;
+  heldFetches.length = 0;
   routerPush.mockClear();
   routerRefresh.mockClear();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: RequestInfo | URL) => {
       fetchCalls.push(String(url));
+      if (holdFetch) await new Promise<void>((release) => heldFetches.push(release));
       return new Response(JSON.stringify(fetchBody), { status: 200 });
     }),
   );
@@ -161,11 +167,20 @@ function wizardData(warnings: ParseWarning[]): StagedSectionData {
   };
 }
 
-function renderWizard(opts: { resolution?: boolean; warnings?: ParseWarning[] } = {}) {
+/** Releases for the wizard's held Publish / Approve / Ignore requests (`hold: true`). */
+const heldActions: Array<(ok: boolean) => void> = [];
+function renderWizard(
+  opts: { resolution?: boolean; warnings?: ParseWarning[]; hold?: boolean } = {},
+) {
+  heldActions.length = 0;
+  const answer = () =>
+    opts.hold === true
+      ? new Promise<boolean>((resolve) => heldActions.push(resolve))
+      : Promise.resolve(true);
   const onClose = vi.fn();
-  const onRequestSetChecked = vi.fn(async () => true);
-  const onApplyResolve = vi.fn(async () => true);
-  const onIgnore = vi.fn(async () => true);
+  const onRequestSetChecked = vi.fn(answer);
+  const onApplyResolve = vi.fn(answer);
+  const onIgnore = vi.fn(answer);
   const d = wizardData(opts.warnings ?? [ROOM_A, ROOM_B]);
   const element = (data: StagedSectionData) => (
     <Step3ReviewModal
@@ -452,7 +467,7 @@ describe("§6.5 guard points: each one stops while a reading is unsaved", () => 
 describe("§6.5 the prompt", () => {
   const title = () => screen.getByTestId(`${PROMPT}-title`).textContent;
 
-  it("titles one and two unsaved changes; a Save press lowers the count; a failed Save raises it while open", async () => {
+  it("titles one and two unsaved changes; a Save in flight stays counted; only a saved reading leaves the count", async () => {
     renderWizard();
     dirtyWizardRow(0);
     fireEvent.click(screen.getByTestId(wtid("close")));
@@ -462,16 +477,25 @@ describe("§6.5 the prompt", () => {
     fireEvent.click(screen.getByTestId(wtid("close")));
     expect(title()).toBe("You have 2 unsaved reading changes");
     fireEvent.click(screen.getByTestId(`${PROMPT}-go-back`));
-    // Save on row 1, held: rule 2 cleared its draft, so it is not counted.
+    // Save on row 1, held: the reading is in flight and could still fail and come back
+    // as a draft, so it stays counted (§6.5 E1).
     fireEvent.click(within(wizardRow(1)).getByTestId("dq-ignore-sid-1"));
     expect(stagedUseRaw).toHaveLength(1);
     fireEvent.click(screen.getByTestId(wtid("close")));
-    expect(title()).toBe("You have 1 unsaved reading change");
-    // The held Save fails while the prompt is open: rule 3 restores the draft.
+    expect(title()).toBe("You have 2 unsaved reading changes");
+    // The held Save fails while the prompt is open: rule 3 restores the draft, still 2.
     await act(async () => {
       stagedUseRaw[0]!.resolve({ ok: false, code: "STALE" });
     });
     expect(title()).toBe("You have 2 unsaved reading changes");
+    fireEvent.click(screen.getByTestId(`${PROMPT}-go-back`));
+    // Save again and let the reading land: that row leaves the count.
+    fireEvent.click(within(wizardRow(1)).getByTestId("dq-ignore-sid-1"));
+    await act(async () => {
+      stagedUseRaw[1]!.resolve({ ok: true });
+    });
+    fireEvent.click(screen.getByTestId(wtid("close")));
+    expect(title()).toBe("You have 1 unsaved reading change");
   });
 
   it("Go back has initial focus, keeps the draft, runs nothing and returns focus to the trigger", () => {
@@ -589,5 +613,141 @@ describe("§6.5 beforeunload", () => {
     expect(unloadPrevented()).toBe(true);
     cleanup();
     expect(unloadPrevented()).toBe(false);
+  });
+});
+
+// ── E1: a guarded action protects drafts through its whole pending period ─────
+// Whole-diff review R1 E1 (BLOCKING): the guard looked once, when the request
+// started. A pick made while the request was pending, or a Save that failed during
+// it and restored its draft, was then lost silently when the request completed.
+describe("§6.5 a guarded action protects drafts through its pending period", () => {
+  const mainButton = (i: number) =>
+    within(wizardRow(i)).getByTestId(`dq-ignore-sid-${i}`).textContent;
+  const wizardActions: Array<{
+    name: string;
+    resolution: boolean;
+    press: () => void;
+    spy: (r: ReturnType<typeof renderWizard>) => ReturnType<typeof vi.fn>;
+  }> = [
+    {
+      name: "Publish",
+      resolution: false,
+      press: () => fireEvent.click(screen.getByTestId(wtid("publish"))),
+      spy: (r) => r.onRequestSetChecked,
+    },
+    {
+      name: "Approve & apply",
+      resolution: true,
+      press: () =>
+        fireEvent.click(screen.getByTestId(`wizard-step3-card-${DFID}-review-resolution-approve`)),
+      spy: (r) => r.onApplyResolve,
+    },
+    {
+      name: "Ignore this sheet",
+      resolution: true,
+      press: () =>
+        fireEvent.click(screen.getByTestId(`wizard-step3-card-${DFID}-review-resolution-ignore`)),
+      spy: (r) => r.onIgnore,
+    },
+  ];
+
+  for (const a of wizardActions) {
+    it(`FAILED_SAVE ${a.name}: a Save in flight stops the action; Discard neutralizes its later failure`, async () => {
+      const r = renderWizard({ resolution: a.resolution, hold: true });
+      dirtyWizardRow(0);
+      fireEvent.click(within(wizardRow(0)).getByTestId("dq-ignore-sid-0")); // Save, held
+      expect(stagedUseRaw).toHaveLength(1);
+      a.press();
+      expect(prompt()).toBeInTheDocument();
+      expect(a.spy(r)).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId(`${PROMPT}-discard`));
+      expect(a.spy(r)).toHaveBeenCalledTimes(1);
+      // The Save fails after the operator discarded: its draft must not come back.
+      await act(async () => {
+        stagedUseRaw[0]!.resolve({ ok: false, code: "STALE" });
+      });
+      expect(mainButton(0)).toBe("Accept");
+      expect(screen.queryByText(/didn.t save/)).toBeNull();
+      expect(r.onClose).not.toHaveBeenCalled(); // the action is still pending
+    });
+
+    it(`NEW_PICK ${a.name}: no reading can be picked while the request is pending`, async () => {
+      const r = renderWizard({ resolution: a.resolution, hold: true });
+      a.press();
+      expect(a.spy(r)).toHaveBeenCalledTimes(1);
+      const toggle = within(wizardRow(0)).getByTestId("use-raw-toggle-on-list");
+      expect(toggle).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(toggle);
+      expect(mainButton(0)).toBe("Accept"); // no draft
+      await act(async () => {
+        heldActions[0]!(true);
+      });
+      expect(r.onClose).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it("RESCAN_AFTER_REFRESH: no pick lands while Re-scan is pending; the controls unlock after", async () => {
+    const r = renderWizard();
+    holdFetch = true;
+    fireEvent.click(screen.getByTestId(`rescan-sheet-button-${DFID}`));
+    expect(rescanPosts()).toHaveLength(1);
+    const toggle = within(wizardRow(0)).getByTestId("use-raw-toggle-on-list");
+    expect(toggle).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(toggle);
+    expect(mainButton(0)).toBe("Accept");
+    await act(async () => {
+      heldFetches[0]!();
+    });
+    expect(routerRefresh).toHaveBeenCalled();
+    // The refresh lands with an edited warning (a new content hash): no draft existed
+    // to lose, and the controls are live again.
+    r.rerenderWith([room("Ballroom A / B / C", "hash-a2"), ROOM_B]);
+    expect(within(wizardRow(0)).getByTestId("use-raw-toggle-on-list")).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("SYNC_AFTER_REFRESH sync: no pick lands while Re-sync is pending", async () => {
+    renderPublished();
+    holdFetch = true;
+    fireEvent.click(screen.getByTestId("admin-resync-button"));
+    expect(syncPosts()).toHaveLength(1);
+    const toggle = screen.getByTestId("use-raw-toggle-on-showpage");
+    expect(toggle).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    await act(async () => {
+      heldFetches[0]!();
+    });
+    expect(screen.getByTestId("use-raw-toggle-on-showpage")).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("SYNC_AFTER_REFRESH accept: no pick lands while Apply reduced version is pending", async () => {
+    renderPublished();
+    fetchBody = {
+      ok: true,
+      result: { outcome: "shrink_held", detail: "2 crew removed", heldModifiedTime: "t-1" },
+    };
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("admin-resync-button"));
+    });
+    premiseHolds(
+      "the shrink confirm is shown",
+      screen.queryByTestId("admin-resync-accept") !== null,
+    );
+    holdFetch = true;
+    fireEvent.click(screen.getByTestId("admin-resync-accept"));
+    expect(syncPosts()).toHaveLength(2);
+    const toggle = screen.getByTestId("use-raw-toggle-on-showpage");
+    expect(toggle).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    await act(async () => {
+      heldFetches[0]!();
+    });
   });
 });

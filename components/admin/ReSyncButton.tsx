@@ -415,7 +415,7 @@ export function ReSyncButton({ slug, anchorRef }: ReSyncButtonProps) {
       <button
         ref={triggerRef}
         type="button"
-        onClick={(event) => guard(() => void post(), event.currentTarget)}
+        onClick={(event) => guard(() => post(), event.currentTarget)}
         disabled={pending}
         data-testid="admin-resync-button"
         aria-busy={pending}
@@ -542,7 +542,7 @@ export function ReSyncButton({ slug, anchorRef }: ReSyncButtonProps) {
                   type="button"
                   onClick={(event) => {
                     const accept = { expectedModifiedTime: heldShrink.heldModifiedTime };
-                    guard(() => void post(accept), event.currentTarget);
+                    guard(() => post(accept), event.currentTarget);
                   }}
                   disabled={pending}
                   data-testid="admin-resync-accept"

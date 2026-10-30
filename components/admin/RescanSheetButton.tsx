@@ -214,7 +214,7 @@ export function RescanSheetButton({
         type="button"
         ref={triggerRef}
         data-testid={`rescan-sheet-button-${driveFileId}`}
-        onClick={(event) => guard(() => void handleClick(), event.currentTarget)}
+        onClick={(event) => guard(handleClick, event.currentTarget)}
         disabled={pending || disabled}
         aria-busy={pending}
         // The shared secondary-action treatment (lib/ui/actionClass.ts). This

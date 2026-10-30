@@ -514,7 +514,9 @@ export function UseRawControl({
   const rawChecked = draftModel
     ? draftModel.displayedRaw
     : state === "raw-active" || state === "apply-pending" || (busy && pendingChoice === "raw");
-  const rowsDisabled = draftModel ? draftModel.busy || draftModel.submitted !== null : busy;
+  const rowsDisabled = draftModel
+    ? draftModel.busy || draftModel.submitted !== null || draftModel.locked
+    : busy;
   const select = (useRaw: boolean) => {
     if (draftModel) draftModel.select(useRaw);
     else fire(useRaw);

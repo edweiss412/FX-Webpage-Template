@@ -128,7 +128,8 @@ export const CENSUS: readonly CensusRow[] = [
   // testid.
   // 980 -> 995 on feat/warning-card-fixes Task 18b; located by its own
   // `review-publish` testid (the checked-slot Unpublish button, the first of two).
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 995 },
+  // 995 -> 991 on feat/warning-card-fixes (review R1 E1: the unsaved-reading pending lock); located by its own element (5-line context match).
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 991 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are
