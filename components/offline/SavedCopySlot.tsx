@@ -17,6 +17,11 @@
  *
  * Server component: it builds the marker through lib/offline/serverMarkers.ts,
  * which reads the server-held viewer key.
+ *
+ * It sits directly in CrewShell, outside any WrappedSection, so a throw here
+ * would fail the whole page. The asset list reads show data that is cast rather
+ * than validated, so a throw while building it degrades to an empty list: the
+ * copy is still saved, without its assets.
  */
 import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -36,6 +41,14 @@ export type SavedCopySlotProps = {
   epoch: number | undefined;
 };
 
+function assetsFor(showId: string, data: ShowForViewer, viewer: Viewer): string[] {
+  try {
+    return savedCopyAssetUrls(showId, data, viewer);
+  } catch {
+    return [];
+  }
+}
+
 export function SavedCopySlot({ viewer, showId, data, renderedAt, epoch }: SavedCopySlotProps) {
   const marker =
     viewer.kind === "crew"
@@ -44,7 +57,7 @@ export function SavedCopySlot({ viewer, showId, data, renderedAt, epoch }: Saved
           crewMemberId: viewer.crewMemberId,
           epoch,
           renderedAt,
-          assets: savedCopyAssetUrls(showId, data),
+          assets: assetsFor(showId, data, viewer),
         })
       : purgeMarkerFor(showId);
   return <SavedCopyMarker marker={marker} />;

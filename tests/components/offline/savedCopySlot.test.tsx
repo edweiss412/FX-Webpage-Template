@@ -18,9 +18,14 @@ vi.mock("@/lib/offline/viewerKey", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/offline/viewerKey")>();
   return { viewerKey: vi.fn(actual.viewerKey) };
 });
+// Wrapped, so one case can make the build throw; every other case runs the real list.
+vi.mock("@/lib/offline/assetList", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/offline/assetList")>();
+  return { savedCopyAssetUrls: vi.fn(actual.savedCopyAssetUrls) };
+});
 
 import { SavedCopySlot, type SavedCopySlotProps } from "@/components/offline/SavedCopySlot";
-import type { Viewer } from "@/lib/data/getShowForViewer";
+import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { savedCopyAssetUrls } from "@/lib/offline/assetList";
 import { MARKER_ID, readMarker, type Marker } from "@/lib/offline/marker";
 import { viewerKey } from "@/lib/offline/viewerKey";
@@ -52,9 +57,17 @@ const DIAGRAMS: PersistedDiagrams = {
   linkedFolderItems: [],
 };
 
-const DATA = {
-  ...makeShowForViewer({ show: { agenda_links: [{ label: "AGENDA LINK", fileId: "1Agenda" }] } }),
+const AGENDA_URL = `/api/asset/agenda/${SHOW}/1Agenda`;
+
+const BASE = makeShowForViewer({
+  show: { agenda_links: [{ label: "AGENDA LINK", fileId: "1Agenda" }] },
+});
+
+/** The viewer's own crew row is CREW, unrestricted unless a case says otherwise. */
+const DATA: ShowForViewer = {
+  ...BASE,
   diagrams: DIAGRAMS,
+  crewMembers: BASE.crewMembers.map((member) => ({ ...member, id: CREW })),
 };
 
 const CREW_VIEWER: Viewer = { kind: "crew", crewMemberId: CREW };
@@ -73,12 +86,14 @@ function props(overrides: Partial<SavedCopySlotProps> = {}): SavedCopySlotProps 
 }
 
 const keyFor = vi.mocked(viewerKey);
+const buildAssets = vi.mocked(savedCopyAssetUrls);
 
 const realModule =
   await vi.importActual<typeof import("@/lib/offline/viewerKey")>("@/lib/offline/viewerKey");
 
 afterEach(() => {
   keyFor.mockClear();
+  buildAssets.mockClear();
 });
 
 function renderSlot(overrides: Partial<SavedCopySlotProps> = {}): string {
@@ -95,9 +110,10 @@ function markerIn(html: string): Marker {
 
 describe("SavedCopySlot", () => {
   test("a crew viewer gets a save marker with every attribute the worker needs", () => {
-    const assets = savedCopyAssetUrls(SHOW, DATA);
+    const assets = savedCopyAssetUrls(SHOW, DATA, CREW_VIEWER);
     // The list must reach both kinds of asset, or the equality below is weak.
     premise("the fixture lists more than one asset", assets.length, 1);
+    expect(assets).toContain(AGENDA_URL);
 
     expect(markerIn(renderSlot())).toEqual({
       disposition: "save",
@@ -133,6 +149,40 @@ describe("SavedCopySlot", () => {
     keyFor.mockReturnValueOnce(null);
 
     expect(markerIn(renderSlot())).toEqual({ disposition: "purge", showId: SHOW });
+  });
+
+  test("a crew viewer whose days are withheld saves no agenda", () => {
+    const data: ShowForViewer = {
+      ...DATA,
+      crewMembers: DATA.crewMembers.map((member) => ({
+        ...member,
+        dateRestriction: { kind: "unknown_asterisk", days: null },
+      })),
+    };
+
+    const marker = markerIn(renderSlot({ data }));
+    if (marker.disposition !== "save") throw new Error(`expected save, read ${marker.disposition}`);
+    premise("the diagram is still saved", marker.assets.length, 0);
+    expect(marker.assets).not.toContain(AGENDA_URL);
+  });
+
+  test("a throw while building the asset list saves with no assets instead of failing the page", () => {
+    buildAssets.mockImplementationOnce(() => {
+      throw new Error("asset list failed");
+    });
+
+    expect(markerIn(renderSlot())).toMatchObject({ disposition: "save", showId: SHOW, assets: [] });
+    expect(buildAssets).toHaveBeenCalledTimes(1);
+  });
+
+  test("malformed agenda data degrades to a save with no assets", () => {
+    // getShowForViewer casts the jsonb column, so a non-array can reach the page.
+    const data = {
+      ...DATA,
+      show: { ...DATA.show, agenda_links: {} as ShowForViewer["show"]["agenda_links"] },
+    };
+
+    expect(markerIn(renderSlot({ data }))).toMatchObject({ disposition: "save", assets: [] });
   });
 
   test("is synchronous, so the CrewShell render suites can mount it", () => {
