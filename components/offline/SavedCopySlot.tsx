@@ -7,8 +7,9 @@
  * server-built asset list (spec 4.8); `purge` naming the show for an admin or
  * admin-preview viewer, so a phone now showing an admin view drops the crew
  * copy. The staged preview passes an admin-preview viewer, so it purges too.
- * A crew viewer also gets the pinned bar (spec 4.7.2), which renders nothing
- * on the server and works out its state after hydration; an admin or
+ * A crew viewer also gets the pinned bar (spec 4.7.2), which renders only its
+ * empty live region on the server, no visible bar, and works out its state
+ * after hydration; an admin or
  * admin-preview viewer gets no bar. The registrar joins them in a later task.
  *
  * Synchronous on purpose, with no hooks and no `await`: the CrewShell render

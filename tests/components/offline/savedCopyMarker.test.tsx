@@ -182,8 +182,10 @@ describe("posting the disposition on mount", () => {
       expect.objectContaining({ worker: active }),
     );
     // The worker's check waits up to STATUS_TIMEOUT_MS for the status route;
-    // a page that gave up sooner would miss the ended answer.
-    expect(post.mock.calls[0]?.[1].timeoutMs).toBeGreaterThan(STATUS_TIMEOUT_MS);
+    // a page that gave up sooner would miss the ended answer. The reply
+    // timeout is a literal (the timing scanner reads literals only), so this
+    // pins the documented twice-the-status-budget relation to the constant.
+    expect(post.mock.calls[0]?.[1].timeoutMs).toBe(2 * STATUS_TIMEOUT_MS);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 

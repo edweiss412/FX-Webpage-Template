@@ -111,8 +111,8 @@ function markerIn(html: string): Marker {
 
 /**
  * Every <SavedCopyBar> element in the slot's output tree. The slot is a server
- * component and the bar renders nothing on the server, so the markup cannot
- * show the bar; the element tree shows what the slot hands the client.
+ * component and the bar renders only its empty live region on the server, so
+ * the markup cannot show the visible bar; the element tree shows what the slot hands the client.
  */
 function barsIn(node: ReactNode): ReactElement<SavedCopyBarProps>[] {
   return Children.toArray(node).flatMap((child) => {

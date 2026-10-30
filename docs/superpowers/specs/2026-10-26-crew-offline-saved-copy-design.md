@@ -312,7 +312,7 @@ The wording "isn't available in Google Drive anymore" replaces the mockup's "is 
 | `navigator.serviceWorker` absent | No registration and no saved copy; the bar still handles `online` false on an open live page |
 | Storage quota error on save | The worker abandons the save, keeps the show's previous copy, and posts `save-failed` to open pages, which log `CREW_OFFLINE_SAVE_FAILED` (§6) |
 
-**Accessibility.** `role="status"`, `aria-live="polite"`. Text contrast uses `DESIGN.md` §1.2 pairs (text on `info-bg`, `stale-tint`, `warning-bg`). The icon is `aria-hidden`; the bold lead carries the meaning, which satisfies the colour-blind floor in `DESIGN.md` §1.
+**Accessibility.** The bar's always-mounted live region carries `role="status"`, `aria-live="polite"`. Text contrast uses `DESIGN.md` §1.2 pairs (text on `info-bg`, `stale-tint`, `warning-bg`). The icon is `aria-hidden`; the bold lead carries the meaning, which satisfies the colour-blind floor in `DESIGN.md` §1.
 
 ##### Dimensional Invariants
 
