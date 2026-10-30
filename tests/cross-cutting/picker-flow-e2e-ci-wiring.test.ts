@@ -1041,7 +1041,9 @@ describe("picker-flow e2e CI wiring", () => {
       // this job with a testMatch that claims no theme-toggle case, so it has nothing there to
       // gate; demanding a subtraction under it fails a correct tree. The second assertion keeps
       // what that filter would otherwise drop: when the excluded project stops matching the file
-      // altogether, the row subtracts nowhere and still fails here.
+      // altogether, the row subtracts nowhere and still fails here. That holds for a row whose
+      // excluded projects include only one that collects its file (every row today); with two,
+      // the other one still subtracts and the row passes.
       const rows = Object.entries(PROJECT_GATED).flatMap(([spec, gs]) =>
         gs.flatMap((g) =>
           projects
@@ -1054,7 +1056,8 @@ describe("picker-flow e2e CI wiring", () => {
       expect(
         rows.filter((r) => !subtracted.has(r)).sort(),
         "these PROJECT_GATED rows subtracted nothing — the title no longer resolves under the " +
-          "project they exclude (renamed, deleted, or the project stopped matching the file). A " +
+          "project they exclude (renamed or deleted; a project that stopped matching the file " +
+          "fails the next assertion instead). A " +
           "stale row lowers a threshold for a case that is not really gated.",
       ).toEqual([]);
       expect(

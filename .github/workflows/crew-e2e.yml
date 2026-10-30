@@ -140,6 +140,9 @@ jobs:
       # the bridge opens no socket. A local run reads both from .env.local, so the
       # spec passes there and fails here without them. Mirrors published-modal-e2e.yml
       # and lifecycle-layout-e2e.yml; pinned by picker-flow-e2e-ci-wiring.test.ts.
+      # Side effect, for every spec in this job: crew pages now open the live realtime
+      # bridge, and admin pages open the alerts-bell subscription
+      # (app/api/admin/alerts/bell/token/route.ts), where both used to stop at a 500.
       SUPABASE_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
       SUPABASE_REALTIME_ISS: supabase-demo
       # Boot ONLY the :3000 baseline server (playwright.config.ts filter).

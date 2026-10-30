@@ -161,9 +161,10 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // Named in crew-e2e.yml's run command (crew show search, desktop-chromium only:
   // the spec drives the picker, whose `__Host-` cookie WebKit will not store over http).
   "tests/e2e/crew-search.spec.ts": PATH_GATED_BY_EXCLUSION,
-  // Crew page saved copy (plan Task 28): named in crew-e2e.yml's run command under
-  // the crew-offline-chromium and crew-offline-webkit projects, so paths-ignore-gated
-  // like the rest of that job.
+  // Crew page saved copy (plan Task 28): named in crew-e2e.yml's run command, the
+  // offline and layout specs under the crew-offline-chromium and crew-offline-webkit
+  // projects and the realtime spec under crew-offline-chromium alone, so
+  // paths-ignore-gated like the rest of that job.
   "tests/e2e/crew-offline.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-offline-layout.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-offline-realtime.spec.ts": PATH_GATED_BY_EXCLUSION,
