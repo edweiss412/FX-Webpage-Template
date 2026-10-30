@@ -552,6 +552,17 @@ test("11. an agenda nobody opened opens offline", async ({
     .toEqual({ agendaListed: true, pdfWorkerStored: true });
   await expect(page.getByTestId("agenda-sheet"), "the agenda was never opened").toHaveCount(0);
 
+  // Online, after the registrar's prefetch (the poll above), the agenda opens.
+  // A registrar that imported react-pdf itself reset pdf.js's worker URL for the
+  // whole page, and this failed online as well as offline.
+  await sectionTab(page, "schedule").click();
+  await expect(page.getByTestId("section-schedule")).toBeVisible();
+  await page
+    .getByTestId("agenda-embed")
+    .getByRole("button", { name: /View agenda/ })
+    .click();
+  await expect(page.getByTestId("agenda-active-page")).toHaveText("1", { timeout: 30_000 });
+
   proxy.setMode("refuse");
   await page.reload();
   await waitForCrewHydrated(page);

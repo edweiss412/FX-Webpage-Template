@@ -16,10 +16,14 @@
  * `load` and then a timer. The case that stubs requestIdleCallback covers the
  * other engines.
  *
- * The agenda viewer module is mocked so that importing it sets the pdf.js
- * worker URL on the mocked react-pdf, as the real module does at
- * components/agenda/AgendaPdfViewer.tsx:47. A registrar that read the URL
- * before importing the viewer finds it empty.
+ * The agenda viewer and its worker URL module (components/agenda/pdfWorkerSrc.ts)
+ * are mocked, and the mocked react-pdf holds the relative `pdf.worker.mjs` that
+ * react-pdf's own index assigns as it loads. In the production build the
+ * registrar's own `import("react-pdf")` loaded a second copy of that index,
+ * which reset pdf.js's worker URL to that relative path for the whole page, the
+ * agenda viewer included (fix-task-25 D2). A registrar that reads the URL from
+ * react-pdf therefore fetches `pdf.worker.mjs` here. The last two agenda cases
+ * run the real viewer and the real URL module.
  *
  * The telemetry codes are pinned through the real client-error route in
  * savedCopyRegistrarTelemetry.test.tsx.
@@ -36,27 +40,53 @@
  * once per 10 seconds; a throttled render time dropped instead of sent when
  * the window ends; the agenda code fetched for a show without an agenda,
  * without a controlling worker, offline, more than once, or from a worker URL
- * read before the viewer module set it; and anything at all, or a throw, where
- * the browser has no service worker container.
+ * other than the one AgendaPdfViewer assigns to pdf.js; react-pdf imported by
+ * the registrar itself; and anything at all, or a throw, where the browser has
+ * no service worker container.
  */
 import { StrictMode } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-const agenda = vi.hoisted(() => ({
-  WORKER_SRC: "/_next/static/media/pdf.worker.min.0f1e2d3c.mjs",
-}));
+const agenda = vi.hoisted(() => {
+  const WORKER_SRC = "/_next/static/media/pdf.worker.min.0f1e2d3c.mjs";
+  /** What react-pdf's index assigns to pdf.js's worker URL as it loads. */
+  const REACT_PDF_DEFAULT = "pdf.worker.mjs";
+  return {
+    WORKER_SRC,
+    REACT_PDF_DEFAULT,
+    reactPdf: () => ({
+      pdfjs: { GlobalWorkerOptions: { workerSrc: REACT_PDF_DEFAULT } },
+      Document: () => null,
+      Page: () => null,
+    }),
+    viewer: () => ({ AgendaPdfViewer: () => null }),
+    workerSrc: () => ({ PDF_WORKER_SRC: WORKER_SRC }),
+  };
+});
 
 vi.mock("@/lib/offline/client/messaging", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/offline/client/messaging")>()),
   postToWorker: vi.fn(),
 }));
-vi.mock("react-pdf", () => ({ pdfjs: { GlobalWorkerOptions: { workerSrc: "" } } }));
-vi.mock("@/components/agenda/AgendaPdfViewer", async () => {
-  const { pdfjs } = await import("react-pdf");
-  pdfjs.GlobalWorkerOptions.workerSrc = agenda.WORKER_SRC;
-  return { AgendaPdfViewer: () => null };
-});
+vi.mock("react-pdf", () => agenda.reactPdf());
+vi.mock("@/components/agenda/AgendaPdfViewer", () => agenda.viewer());
+vi.mock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
+
+/**
+ * A fresh module graph with the file's agenda mocks, for after a case that
+ * replaced them, loaded once here: a later case's dynamic import then resolves
+ * the mocks from a warm graph, as it would had no case replaced them, and its
+ * `settle()` is not spent loading them.
+ */
+async function restoreAgendaMocks(): Promise<void> {
+  vi.resetModules();
+  vi.doMock("react-pdf", () => agenda.reactPdf());
+  vi.doMock("@/components/agenda/AgendaPdfViewer", () => agenda.viewer());
+  vi.doMock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
+  await import("@/components/agenda/AgendaPdfViewer");
+  await import("@/components/agenda/pdfWorkerSrc");
+}
 
 import {
   SavedCopyRegistrar,
@@ -554,29 +584,6 @@ describe("agenda viewer code (spec 4.8)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  test("reads the pdf.js worker URL only after the viewer module has set it", async () => {
-    // A fresh module graph, in which nothing has imported the viewer yet: an
-    // earlier case's import would otherwise have set the URL already. The two
-    // mocks are registered again (same factories) so the fresh graph gets fresh
-    // instances of them; resetModules alone keeps the mocked react-pdf it has.
-    vi.resetModules();
-    vi.doMock("react-pdf", () => ({ pdfjs: { GlobalWorkerOptions: { workerSrc: "" } } }));
-    vi.doMock("@/components/agenda/AgendaPdfViewer", async () => {
-      const { pdfjs } = await import("react-pdf");
-      pdfjs.GlobalWorkerOptions.workerSrc = agenda.WORKER_SRC;
-      return { AgendaPdfViewer: () => null };
-    });
-    const fresh = await import("@/components/offline/SavedCopyRegistrar");
-    const freshPdf = await import("react-pdf");
-    expect(freshPdf.pdfjs.GlobalWorkerOptions.workerSrc, "premise: a fresh react-pdf").toBe("");
-    installServiceWorker({ controlled: true });
-    installStorage();
-
-    render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
-  });
-
   test("waits for a controlling worker, so the files pass through it", async () => {
     const { container } = installServiceWorker({ controlled: false });
     installStorage();
@@ -606,6 +613,67 @@ describe("agenda viewer code (spec 4.8)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     await settle();
     expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+  });
+
+  test("fetches exactly the worker URL the real AgendaPdfViewer assigns to pdf.js", async () => {
+    // The real viewer and the real URL module, in a fresh module graph. react-pdf
+    // stays mocked (jsdom cannot run pdf.js), holding the default its index assigns.
+    vi.resetModules();
+    vi.doMock("react-pdf", () => agenda.reactPdf());
+    vi.doUnmock("@/components/agenda/AgendaPdfViewer");
+    vi.doUnmock("@/components/agenda/pdfWorkerSrc");
+    try {
+      const fresh = await import("@/components/offline/SavedCopyRegistrar");
+      installServiceWorker({ controlled: true });
+      installStorage();
+
+      render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const { pdfjs } = await import("react-pdf");
+      const assigned = pdfjs.GlobalWorkerOptions.workerSrc;
+      // Premise: the real viewer module loaded and replaced react-pdf's default
+      // with the bundled worker file.
+      expect(assigned).not.toBe(agenda.REACT_PDF_DEFAULT);
+      expect(assigned).toMatch(/\/pdfjs-dist\/build\/pdf\.worker\.min\.mjs$/);
+      expect(fetchMock.mock.calls).toEqual([[assigned]]);
+    } finally {
+      await restoreAgendaMocks();
+    }
+  });
+
+  test("loads the viewer's code but never react-pdf itself, whose production chunk resets the worker URL", async () => {
+    // A fresh module graph whose react-pdf and viewer mocks count their loads,
+    // so no earlier case can have loaded either already.
+    vi.resetModules();
+    const loads = { reactPdf: 0, viewer: 0 };
+    vi.doMock("react-pdf", () => {
+      loads.reactPdf += 1;
+      return agenda.reactPdf();
+    });
+    vi.doMock("@/components/agenda/AgendaPdfViewer", () => {
+      loads.viewer += 1;
+      return agenda.viewer();
+    });
+    vi.doMock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
+    try {
+      const fresh = await import("@/components/offline/SavedCopyRegistrar");
+      installServiceWorker({ controlled: true });
+      installStorage();
+
+      render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      // The prefetch ran to its end, on the viewer's URL, with the viewer's code
+      // loaded (so its chunks pass through the worker too)...
+      expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+      expect(loads.viewer).toBe(1);
+      // ...and never loaded react-pdf.
+      expect(loads.reactPdf).toBe(0);
+      // Premise: in this graph the counter does see a load.
+      await import("react-pdf");
+      expect(loads.reactPdf).toBe(1);
+    } finally {
+      await restoreAgendaMocks();
+    }
   });
 });
 

@@ -153,16 +153,17 @@ function persistStorageOnce(): void {
 }
 
 /**
- * The viewer module sets the pdf.js worker URL as it loads
- * (components/agenda/AgendaPdfViewer.tsx), so it is imported first, through the
- * same specifier AgendaEmbed loads, and the URL is read after.
+ * Loads the viewer's code through the same specifier AgendaEmbed loads, then
+ * fetches the pdf.js worker from the URL the viewer assigns
+ * (components/agenda/pdfWorkerSrc.ts). Never `import("react-pdf")` here: in the
+ * production build that import loaded a second copy of react-pdf's index, whose
+ * side effect reset pdf.js's worker URL to the relative `pdf.worker.mjs` for the
+ * whole page, and the agenda viewer then failed online as well as offline.
  */
 async function prefetchAgendaViewer(): Promise<void> {
   await import("@/components/agenda/AgendaPdfViewer");
-  const { pdfjs } = await import("react-pdf");
-  const workerSrc = pdfjs.GlobalWorkerOptions.workerSrc;
-  if (workerSrc === "") return;
-  await fetch(workerSrc);
+  const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
+  await fetch(PDF_WORKER_SRC);
 }
 
 function prefetchAgendaViewerOnce(): void {
