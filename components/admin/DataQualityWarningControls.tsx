@@ -6,7 +6,7 @@ import { ReportButton } from "@/components/shared/ReportButton";
 import { setStagedWarningIgnore } from "@/app/admin/onboarding/_actions/stagedWarningIgnore";
 import { hasIgnorableSnippet } from "@/lib/dataQuality/ignorableSnippet";
 import { isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
-import { useUseRawDraft } from "@/components/admin/useRawDraft";
+import { NOT_SAVED_YET, useUseRawDraft } from "@/components/admin/useRawDraft";
 import type { ParseWarning } from "@/lib/parser/types";
 import { cn } from "@/lib/ui/cn";
 
@@ -80,7 +80,7 @@ const SAVE_WORDS = {
   idle: "Save",
   running: "Saving…",
   cancel: "Cancel",
-  hint: "Not saved yet",
+  hint: NOT_SAVED_YET,
   savedAndAccepted: "Reading saved. Judgment call accepted.",
   saved: "Reading saved.",
   partial:

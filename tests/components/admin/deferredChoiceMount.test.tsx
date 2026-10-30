@@ -149,7 +149,12 @@ function wizard(warnings: ParseWarning[]) {
   };
   const def = step3Sections(d).find((s) => s.id === "warnings");
   if (!def) throw new Error("no warnings section");
-  return render(<>{def.render(d)}</>);
+  // The surface's polite channel (ShowReviewSurface provides it in production).
+  return render(
+    <WarningAnnounceContext.Provider value={{ announce }}>
+      {def.render(d)}
+    </WarningAnnounceContext.Provider>,
+  );
 }
 const wizardRow = (i: number) => screen.getByTestId(`wizard-step3-card-${DFID}-warning-${i}`);
 
@@ -313,5 +318,50 @@ describe("published mount", () => {
     expect(posts.filter((p) => p.url.includes("/data-quality/"))).toHaveLength(0);
     expect(stagedIgnore).toHaveLength(0);
     expect(stagedUseRaw).toHaveLength(0);
+  });
+});
+
+// UI gate P2 (spec §6.3, §15): a pick that is not persisted is announced once, through
+// the surface's polite channel (WarningAnnounceContext, the one Accept and undo use), on
+// each clean -> dirty transition. Before this, "Not saved yet" was only the Save
+// button's description, so a screen-reader user who picked a reading heard nothing.
+describe("Not saved yet is announced on clean -> dirty", () => {
+  const notSaved = () => announce.mock.calls.filter(([m]) => m === "Not saved yet").length;
+
+  it("once per transition: a repeat pick, a return to the persisted reading and Cancel say nothing", () => {
+    renderPublished(handModel([item(ROOM_A, "rs-a")], []));
+    const card = cardFor(screen.getByTestId("section-warning-active-rooms"), ROOM_A.rawSnippet!);
+    fireEvent.click(within(card).getByTestId("use-raw-toggle-on-showpage")); // C -> D
+    expect(announce.mock.calls.map(([m]) => m)).toEqual(["Not saved yet"]);
+    fireEvent.click(within(card).getByTestId("use-raw-toggle-on-showpage")); // D -> D
+    expect(notSaved()).toBe(1);
+    fireEvent.click(within(card).getByTestId("use-raw-toggle-off-showpage")); // D -> C
+    expect(notSaved()).toBe(1);
+    fireEvent.click(within(card).getByTestId("use-raw-toggle-on-showpage")); // C -> D again
+    expect(notSaved()).toBe(2);
+    fireEvent.click(within(card).getByRole("button", { name: "Cancel" })); // D -> C
+    expect(notSaved()).toBe(2);
+  });
+
+  it("a failed Save that restores the draft is not a pick: nothing more is announced", async () => {
+    renderPublished(handModel([item(ROOM_A, "rs-a")], []));
+    const card = cardFor(screen.getByTestId("section-warning-active-rooms"), ROOM_A.rawSnippet!);
+    fireEvent.click(within(card).getByTestId("use-raw-toggle-on-showpage"));
+    fireEvent.click(within(card).getByTestId("dq-ignore-rs-a")); // Save
+    expect(showUseRaw).toHaveLength(1);
+    await act(async () => {
+      showUseRaw[0]!.resolve({ ok: false, code: "STALE" });
+    });
+    premiseHolds(
+      "the failed Save restored the draft",
+      within(card).getByTestId("dq-ignore-rs-a").textContent === "Save",
+    );
+    expect(notSaved()).toBe(1);
+  });
+
+  it("the wizard row announces through the same channel", () => {
+    wizard([ROOM_A, FIELD]);
+    fireEvent.click(within(wizardRow(0)).getByTestId("use-raw-toggle-on-list"));
+    expect(announce.mock.calls.map(([m]) => m)).toEqual(["Not saved yet"]);
   });
 });

@@ -40,6 +40,7 @@ import { deriveUseRawControlState } from "@/components/admin/UseRawControl";
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
 import { useRegisterUnsavedReading } from "@/components/admin/review/unsavedReadings";
+import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 
 export type UseRawSurface =
   | { surface: "show"; showId: string }
@@ -79,6 +80,10 @@ export async function callUseRawAction(
     return "failed";
   }
 }
+
+/** The dirty hint (spec §6.3 action bar) and its announcement (§15): one string, one
+ *  source, read by the action bar's hint and by `select` below. */
+export const NOT_SAVED_YET = "Not saved yet";
 
 /** Rule 3's copy: the control's existing sentence (spec §6.3 "Error copy"). */
 const SAVE_FAILED = "That didn’t save. The cell may have changed.";
@@ -140,6 +145,9 @@ export function UseRawDraftProvider(
   const [submitted, setSubmitted] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The surface's polite channel, the one Accept and undo announce through (no-op
+  // outside a review surface).
+  const { announce } = useContext(WarningAnnounceContext);
 
   // Rule 5, during render. A boolean `persistedRaw` that changed now differs from any
   // live draft's opposite, so the equality test below clears every live draft; it is
@@ -174,8 +182,13 @@ export function UseRawDraftProvider(
     select: (useRaw) => {
       // Rows are soft-disabled while busy or awaiting reconciliation; guard here too.
       if (busy || submitted !== null) return;
-      setDraft(useRaw === persistedRaw ? null : useRaw);
+      const next = useRaw === persistedRaw ? null : useRaw;
+      setDraft(next);
       setError(null);
+      // UI gate P2 (§15): the hint is only Save's description, so a pick that leaves the
+      // row clean -> dirty also says so once. Only here: a failed Save restoring the
+      // draft is not a pick, and a repeat pick of the draft is no transition.
+      if (draft === null && next !== null) announce(NOT_SAVED_YET);
     },
     cancel: () => {
       setDraft(null);
