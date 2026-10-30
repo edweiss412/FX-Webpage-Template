@@ -39,7 +39,7 @@ export type SavedCopyState = {
   caches: Record<string, string[]>;
 };
 
-/** The marker `SavedCopyBar` sets on `<html>` once it has its readings (components/offline/SavedCopyBar.tsx:94). */
+/** The marker `SavedCopyBar` sets on `<html>` once it has its readings (components/offline/SavedCopyBar.tsx:195). */
 const BAR_MOUNTED = 'html[data-fxav-bar="mounted"]';
 
 /** What a poisoned script runs: a flag the case can check, then a throw. */
@@ -93,9 +93,27 @@ export async function waitForWorkerControl(page: Page, options: Options = {}): P
 }
 
 /** The saved-copy database's copies and the worker's caches, as the page sees them. */
-export function readSavedCopies(page: Page): Promise<SavedCopyState> {
+export async function readSavedCopies(page: Page): Promise<SavedCopyState> {
+  const { copies, ...rest } = await readStore(page, false);
+  return { ...rest, copies: copies.map(({ html: _html, ...record }) => record) };
+}
+
+/**
+ * The HTML the worker stored for `showId`'s copy, exactly as it will serve it
+ * before the head injection, or null when there is no such copy.
+ */
+export async function readSavedCopyHtml(page: Page, showId: string): Promise<string | null> {
+  const { copies } = await readStore(page, true);
+  return copies.find((copy) => copy.showId === showId)?.html ?? null;
+}
+
+type StoreRead = Omit<SavedCopyState, "copies"> & {
+  copies: Array<SavedCopyRecord & { html?: string }>;
+};
+
+function readStore(page: Page, withHtml: boolean): Promise<StoreRead> {
   return page.evaluate(
-    async ({ dbName, copiesStore, cachePrefix }) => {
+    async ({ dbName, copiesStore, cachePrefix, withHtml }) => {
       const listed = (await indexedDB.databases()).some(
         (info) => info.name === dbName && (info.version ?? 0) > 0,
       );
@@ -142,12 +160,13 @@ export function readSavedCopies(page: Page): Promise<SavedCopyState> {
       }
       return {
         database: copies !== null,
-        copies: (copies ?? []).map(({ html: _html, ...rest }) => rest),
+        // The HTML is a page of text per copy; it crosses back only when asked for.
+        copies: (copies ?? []).map(({ html, ...rest }) => (withHtml ? { ...rest, html } : rest)),
         caches: byName,
       };
     },
-    { dbName: DB_NAME, copiesStore: COPIES_STORE, cachePrefix: CACHE_PREFIX },
-  ) as Promise<SavedCopyState>;
+    { dbName: DB_NAME, copiesStore: COPIES_STORE, cachePrefix: CACHE_PREFIX, withHtml },
+  ) as Promise<StoreRead>;
 }
 
 /**

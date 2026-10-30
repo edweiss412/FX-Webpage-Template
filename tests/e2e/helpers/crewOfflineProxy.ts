@@ -24,9 +24,11 @@
  * which is what lets a verifying client accept it given `caPem` as its CA.
  *
  * Mode, predicate and stubs are state on the proxy, not per case. A fixture
- * that shares one proxy across cases resets the mode and predicate between
- * cases. A stub cannot be removed, so a case whose stub would change what a
- * later case fetches (a stubbed /sw.js, for one) needs a proxy of its own.
+ * that shares one proxy across cases calls `reset()` before each case, so a
+ * case's stub (a stubbed /sw.js, for one) or refusal predicate never reaches
+ * the next case. A predicate that throws refuses its request: a fault in the
+ * test's own matcher must read as a refusal, never as a request that slipped
+ * through to the server.
  */
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -45,6 +47,9 @@ export type ProxiedRequest = {
   headers: Record<string, string | string[] | undefined>;
 };
 
+/** One request as the proxy received it, before the mode decided anything. */
+export type ReceivedRequest = { method: string; path: string };
+
 export type CrewOfflineProxy = {
   /** http://127.0.0.1:<port>; Chromium treats loopback http as a secure context. */
   httpOrigin: string;
@@ -62,6 +67,15 @@ export type CrewOfflineProxy = {
     contentType: string,
     headers?: Record<string, string>,
   ): void;
+  /**
+   * Every request received since the start or the last `reset()`, in arrival
+   * order, whether it was forwarded, stubbed, refused or held. The worker's own
+   * fetches arrive here too, which is what lets a case see a request no page
+   * listener can (WebKit reports none of a worker's requests to Playwright).
+   */
+  received(): readonly ReceivedRequest[];
+  /** Back to `pass` (releasing held requests, closing idle sockets), no predicate, no stubs, no log. */
+  reset(): void;
   close(): Promise<void>;
 };
 
@@ -135,6 +149,7 @@ export async function startCrewOfflineProxy(opts: {
   let refusePredicate: ((req: ProxiedRequest) => boolean) | null = null;
   const stubs = new Map<string, Stub>();
   const held = new Set<Pending>();
+  const log: ReceivedRequest[] = [];
 
   const refuse = (pending: Pending): void => {
     pending.req.socket.destroy();
@@ -194,6 +209,15 @@ export async function startCrewOfflineProxy(opts: {
     return found?.stub ?? null;
   };
 
+  const matchesRefusal = (request: ProxiedRequest): boolean => {
+    if (refusePredicate === null) return false;
+    try {
+      return refusePredicate(request) === true;
+    } catch {
+      return true;
+    }
+  };
+
   const dispatch = (pending: Pending): void => {
     const { req, res } = pending;
     if (mode === "refuse") return refuse(pending);
@@ -204,7 +228,7 @@ export async function startCrewOfflineProxy(opts: {
     }
     const method = req.method ?? "GET";
     const path = req.url ?? "/";
-    if (refusePredicate?.({ method, path, headers: req.headers }) === true) return refuse(pending);
+    if (matchesRefusal({ method, path, headers: req.headers })) return refuse(pending);
     const stub = stubFor(method, path);
     if (stub !== null) {
       // The body is never read on this path; drain it so the connection stays reusable.
@@ -219,6 +243,7 @@ export async function startCrewOfflineProxy(opts: {
     (req: http.IncomingMessage, res: http.ServerResponse): void => {
       req.on("error", () => undefined);
       res.on("error", () => undefined);
+      log.push({ method: req.method ?? "GET", path: req.url ?? "/" });
       dispatch({ req, res, viaHttps });
     };
 
@@ -237,27 +262,38 @@ export async function startCrewOfflineProxy(opts: {
 
   let closing: Promise<void> | null = null;
 
+  const setMode = (next: ProxyMode): void => {
+    mode = next;
+    // A kept-alive socket would otherwise carry the browser's next request
+    // over a connection opened under the old mode.
+    for (const server of servers) server.closeIdleConnections();
+    if (next === "hang") return;
+    const release = [...held];
+    held.clear();
+    for (const pending of release) {
+      if (!pending.res.destroyed) dispatch(pending);
+    }
+  };
+
   return {
     httpOrigin: `http://127.0.0.1:${httpPort}`,
     httpsOrigin: `https://127.0.0.1:${httpsPort}`,
     caPem: cert,
-    setMode(next) {
-      mode = next;
-      // A kept-alive socket would otherwise carry the browser's next request
-      // over a connection opened under the old mode.
-      for (const server of servers) server.closeIdleConnections();
-      if (next === "hang") return;
-      const release = [...held];
-      held.clear();
-      for (const pending of release) {
-        if (!pending.res.destroyed) dispatch(pending);
-      }
-    },
+    setMode,
     refuseMatching(match) {
       refusePredicate = match;
     },
     stub(pathPrefix, body, contentType, headers = {}) {
       stubs.set(pathPrefix, { body, contentType, headers });
+    },
+    received() {
+      return [...log];
+    },
+    reset() {
+      refusePredicate = null;
+      stubs.clear();
+      setMode("pass");
+      log.length = 0;
     },
     close() {
       closing ??= (async () => {

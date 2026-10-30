@@ -242,25 +242,48 @@ describe("crewOfflineProxy", () => {
     expect(seen.find((s) => s.path === "/held-post")?.body).toBe("held-body");
   });
 
-  test("every mode change closes idle keep-alive sockets", async () => {
+  test("every mode change closes idle keep-alive sockets on both listeners", async () => {
     const p = live();
-    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
-    try {
-      const first = send(p.httpOrigin, { path: "/one", agent });
-      const socket = await new Promise<Socket>((resolve) => first.request.on("socket", resolve));
-      await within(first.reply, 3_000, "first GET");
-      const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
-      // Premise: the socket is idle in the pool, not already gone.
-      expect(socket.destroyed).toBe(false);
+    for (const listener of ["http", "https"] as const) {
+      const origin = listener === "http" ? p.httpOrigin : p.httpsOrigin;
+      const agent =
+        listener === "http"
+          ? new http.Agent({ keepAlive: true, maxSockets: 1 })
+          : new https.Agent({ keepAlive: true, maxSockets: 1, ca: p.caPem });
+      try {
+        const first = send(origin, { path: "/one", agent });
+        const socket = await new Promise<Socket>((resolve) => first.request.on("socket", resolve));
+        await within(first.reply, 3_000, `first GET over ${listener}`);
+        const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+        // Premise: the socket is idle in the pool, not already gone.
+        expect(socket.destroyed, listener).toBe(false);
 
-      p.setMode("pass");
-      await within(closed, 1_000, "the idle keep-alive socket closing");
+        p.setMode("pass");
+        await within(closed, 1_000, `the idle ${listener} keep-alive socket closing`);
 
-      const second = await within(send(p.httpOrigin, { path: "/two", agent }).reply, 3_000, "GET");
-      expect(second.status).toBe(201);
-    } finally {
-      agent.destroy();
+        const second = await within(
+          send(origin, { path: "/two", agent }).reply,
+          3_000,
+          `second GET over ${listener}`,
+        );
+        expect(second.status, listener).toBe(201);
+      } finally {
+        agent.destroy();
+      }
     }
+  });
+
+  test("a change from hang to refuse refuses the held requests: a network error, nothing forwarded", async () => {
+    const p = live();
+    p.setMode("hang");
+    const held = send(p.httpOrigin, { path: "/held" });
+    // Premise: the request is held, not merely late.
+    expect(await settlesWithin(held.reply, 500)).toBe(false);
+
+    p.setMode("refuse");
+    const error = await networkError(held.reply, "the held request after refuse");
+    expect(isDroppedSocket(error), `${error.code} ${error.message}`).toBe(true);
+    expect(seen).toHaveLength(0);
   });
 
   test("refuseMatching refuses exactly the matching requests, other requests on the pool pass, null clears it", async () => {
@@ -306,6 +329,86 @@ describe("crewOfflineProxy", () => {
     } finally {
       agent.destroy();
     }
+  });
+
+  test("a refuseMatching predicate that throws refuses the request instead of failing the proxy", async () => {
+    const p = live();
+    p.refuseMatching((req) => {
+      if (req.path === "/throws") throw new Error("predicate fault");
+      return false;
+    });
+    const error = await networkError(
+      send(p.httpOrigin, { path: "/throws" }).reply,
+      "GET whose predicate throws",
+    );
+    expect(isDroppedSocket(error), `${error.code} ${error.message}`).toBe(true);
+    expect(seen).toHaveLength(0);
+
+    // The proxy is still serving: a request the predicate answers passes.
+    const other = await within(send(p.httpOrigin, { path: "/fine" }).reply, 3_000, "other GET");
+    expect(other.status).toBe(201);
+    expect(seen.map((s) => s.path)).toEqual(["/fine"]);
+  });
+
+  test("received() lists every request in arrival order, whatever the mode did with it, until reset()", async () => {
+    const p = live();
+    p.stub("/stubbed", Buffer.from("s"), "text/plain");
+    await within(send(p.httpOrigin, { path: "/passed?q=1" }).reply, 3_000, "passed GET");
+    await within(send(p.httpOrigin, { path: "/stubbed" }).reply, 3_000, "stubbed GET");
+    p.refuseMatching((req) => req.method === "POST");
+    await networkError(
+      send(p.httpsOrigin, { method: "POST", path: "/matched", ca: p.caPem }).reply,
+      "matched POST",
+    );
+    p.refuseMatching(null);
+    p.setMode("refuse");
+    // A fresh socket: the mode change closed the idle pooled one, and a request
+    // written onto it as it closes never reaches the proxy at all.
+    const fresh = new http.Agent({ keepAlive: false });
+    try {
+      await networkError(
+        send(p.httpOrigin, { path: "/refused", agent: fresh }).reply,
+        "refused GET",
+      );
+    } finally {
+      fresh.destroy();
+    }
+
+    expect(p.received()).toEqual([
+      { method: "GET", path: "/passed?q=1" },
+      { method: "GET", path: "/stubbed" },
+      { method: "POST", path: "/matched" },
+      { method: "GET", path: "/refused" },
+    ]);
+    // Premise: only one of the four reached the server.
+    expect(seen.map((s) => s.path)).toEqual(["/passed?q=1"]);
+
+    p.reset();
+    expect(p.received()).toEqual([]);
+  });
+
+  test("reset() returns the proxy to pass with no refusal predicate and no stubs", async () => {
+    const p = live();
+    p.stub("/sw.js", Buffer.from("self.kill = true;"), "application/javascript");
+    p.refuseMatching((req) => req.path === "/refused");
+    // Premise: each piece of state is in force before the reset.
+    const stubbed = await within(send(p.httpOrigin, { path: "/sw.js" }).reply, 3_000, "stub");
+    expect(stubbed.body).toBe("self.kill = true;");
+    await networkError(send(p.httpOrigin, { path: "/refused" }).reply, "refused before reset");
+    p.setMode("hang");
+    const held = send(p.httpOrigin, { path: "/held" });
+    expect(await settlesWithin(held.reply, 500)).toBe(false);
+    expect(seen).toHaveLength(0);
+
+    p.reset();
+
+    // Pass: the request held under hang goes upstream, as any mode change to pass does.
+    expect((await within(held.reply, 3_000, "held request after reset")).status).toBe(201);
+    const sw = await within(send(p.httpOrigin, { path: "/sw.js" }).reply, 3_000, "sw.js");
+    expect(sw.body).toBe("upstream GET /sw.js");
+    const refused = await within(send(p.httpOrigin, { path: "/refused" }).reply, 3_000, "GET");
+    expect(refused.status).toBe(201);
+    expect(seen.map((s) => s.path)).toEqual(["/held", "/sw.js", "/refused"]);
   });
 
   test("a stub answers matching GETs locally without contacting upstream", async () => {
