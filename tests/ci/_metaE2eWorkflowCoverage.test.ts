@@ -161,6 +161,12 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // Named in crew-e2e.yml's run command (crew show search, desktop-chromium only:
   // the spec drives the picker, whose `__Host-` cookie WebKit will not store over http).
   "tests/e2e/crew-search.spec.ts": PATH_GATED_BY_EXCLUSION,
+  // Crew page saved copy (plan Task 28): named in crew-e2e.yml's run command under
+  // the crew-offline-chromium and crew-offline-webkit projects, so paths-ignore-gated
+  // like the rest of that job.
+  "tests/e2e/crew-offline.spec.ts": PATH_GATED_BY_EXCLUSION,
+  "tests/e2e/crew-offline-layout.spec.ts": PATH_GATED_BY_EXCLUSION,
+  "tests/e2e/crew-offline-realtime.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/deep-link-walker.spec.ts":
     "runs in help-affordances.yml through the project-only invocation at .github/workflows/help-affordances.yml:97 (--project=help-docs-setup --project=help-docs --project=help-docs-desktop), which the scanner cannot see by its own contract. That workflow carries a PATH-FILTERED pull_request trigger over the surfaces it guards (:3 ff., including tests/e2e/**). Not PR-blocking-capable: the job is absent on non-matching PRs. It resolves 19 cases under each of help-docs and help-docs-desktop. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3).",
   "tests/e2e/help-auth.spec.ts":

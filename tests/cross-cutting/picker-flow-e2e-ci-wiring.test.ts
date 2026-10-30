@@ -196,6 +196,12 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
   // anchored place owns the figure; a prose copy beside it can only ever drift
   // out of date, which is exactly what it did.
   "tests/e2e/theme-persistence-note.spec.ts": [],
+  // Crew page saved copy (spec 2026-10-26-crew-offline-saved-copy-design §7). The
+  // three specs skip nothing: each project's testMatch decides which engine runs
+  // which file (the realtime spec is Chromium only), so no case needs a skip.
+  "tests/e2e/crew-offline.spec.ts": [],
+  "tests/e2e/crew-offline-realtime.spec.ts": [],
+  "tests/e2e/crew-offline-layout.spec.ts": [],
 };
 
 /**
@@ -290,6 +296,13 @@ const ENROLLED = [
   "tests/e2e/theme-persistence-note.spec.ts",
   "tests/e2e/right-now-transitions.spec.ts",
   "tests/e2e/crew-search.spec.ts",
+  // Enrolled, not EXEMPT, so the identifier ban in expectNoUndeclaredProjectGate
+  // reads them: the fixture hands every case its engine and origin, and a spec
+  // that consulted project/testInfo/browserName itself could pass assertion-free
+  // under one engine.
+  "tests/e2e/crew-offline.spec.ts",
+  "tests/e2e/crew-offline-realtime.spec.ts",
+  "tests/e2e/crew-offline-layout.spec.ts",
 ] as const;
 
 const EXEMPT: Record<string, string> = {
@@ -1024,10 +1037,17 @@ describe("picker-flow e2e CI wiring", () => {
             "a partially dark run; one above it can never be met.",
         ).toBe(executable);
       }
+      // A row excludes only the job projects that COLLECT its file. The crew-offline pair joined
+      // this job with a testMatch that claims no theme-toggle case, so it has nothing there to
+      // gate; demanding a subtraction under it fails a correct tree. The second assertion keeps
+      // what that filter would otherwise drop: when the excluded project stops matching the file
+      // altogether, the row subtracts nowhere and still fails here.
       const rows = Object.entries(PROJECT_GATED).flatMap(([spec, gs]) =>
         gs.flatMap((g) =>
           projects
-            .filter((p) => !g.runsUnder.includes(p))
+            .filter(
+              (p) => !g.runsUnder.includes(p) && perProject.get(p)!.has(spec.split("/").pop()!),
+            )
             .map((p) => `${spec} :: ${g.title} :: ${p}`),
         ),
       );
@@ -1036,6 +1056,15 @@ describe("picker-flow e2e CI wiring", () => {
         "these PROJECT_GATED rows subtracted nothing — the title no longer resolves under the " +
           "project they exclude (renamed, deleted, or the project stopped matching the file). A " +
           "stale row lowers a threshold for a case that is not really gated.",
+      ).toEqual([]);
+      expect(
+        Object.entries(PROJECT_GATED)
+          .flatMap(([spec, gs]) => gs.map((g) => `${spec} :: ${g.title} :: `))
+          .filter((prefix) => ![...subtracted].some((s) => s.startsWith(prefix)))
+          .sort(),
+        "these PROJECT_GATED rows subtracted under NO project: no job project outside runsUnder " +
+          "collects the case any more (the title changed, or the excluded project stopped " +
+          "matching the file). Delete the row, or restore what it gated.",
       ).toEqual([]);
     },
     PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,
@@ -1123,4 +1152,30 @@ describe("picker-flow e2e CI wiring", () => {
       ).toMatch(/^"?[0-9a-f]{64}"?$/);
     },
   );
+
+  it("crew-e2e.yml sets the subscriber-token mint env where the run sees it", () => {
+    // crew-offline-realtime.spec.ts waits for the bridge's join reply, and the
+    // bridge joins only with a token from app/api/realtime/subscriber-token,
+    // which answers 500 unless SUPABASE_JWT_SECRET (32 bytes or more) and
+    // SUPABASE_REALTIME_ISS are set. A local run reads both from .env.local, so
+    // the spec passes locally and times out on a runner that lacks them (the
+    // lifecycle-layout-e2e.yml precedent, PR #639). Job level, six spaces, so
+    // the Playwright workers and the `pnpm start` server they spawn both inherit
+    // them; read from the same line as the value, as the signing-key case does.
+    const yaml = read("crew-e2e.yml");
+    const value = (name: string): string | undefined =>
+      new RegExp(`\\n {6}${name}:[ \\t]*(\\S*)[ \\t]*$`, "m")
+        .exec(yaml)?.[1]
+        ?.replace(/^"|"$/g, "");
+    const secret = value("SUPABASE_JWT_SECRET");
+    expect(
+      secret?.length ?? 0,
+      "crew-e2e.yml sets no job-level SUPABASE_JWT_SECRET of 32 bytes or more, so the mint " +
+        "refuses and the realtime spec never sees a join reply.",
+    ).toBeGreaterThanOrEqual(32);
+    expect(
+      value("SUPABASE_REALTIME_ISS"),
+      "crew-e2e.yml's job-level SUPABASE_REALTIME_ISS must be the local stack's issuer.",
+    ).toBe("supabase-demo");
+  });
 });

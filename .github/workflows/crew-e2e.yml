@@ -1,11 +1,14 @@
 name: Crew e2e (mobile-safari + desktop-chromium)
-# Runs NINE e2e spec files against a real browser + a seeded local Supabase. Both
-# projects are passed to one invocation and each project's testMatch claims its own
+# Runs FOURTEEN e2e spec files against a real browser + a seeded local Supabase. All
+# four projects are passed to one invocation and each project's testMatch claims its own
 # specs, so the per-project split is a RESOLUTION, not a list maintained here —
 # verify it with `--list` rather than trusting this comment:
 #   mobile-safari     crew-section-toggle, crew-page, theme-toggle, font-rendering-census
 #   desktop-chromium  picker-flow, crew-search, alert-action-links, stage-restricted-crew-schedule,
-#                     font-binding, font-rendering-census, theme-toggle
+#                     font-binding, font-rendering-census, theme-toggle, theme-persistence-note,
+#                     right-now-transitions
+#   crew-offline-chromium  crew-offline, crew-offline-layout, crew-offline-realtime
+#   crew-offline-webkit    crew-offline, crew-offline-layout
 # (font-rendering-census and theme-toggle resolve under BOTH — they carry no project
 # gate and assert real behaviour under each.) Highlights: the client-side
 # section-toggle suite (tests/e2e/crew-section-toggle.spec.ts), the crew picker flow
@@ -96,7 +99,14 @@ concurrency:
 jobs:
   crew-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 35, raised from 25 when the three crew-offline specs joined (47 tests). Measured
+    # 2026-10-30 in the CI posture (CI=1, one production build, --retries=0) on a local
+    # Apple-silicon host: 47 passed, a 78.5 s test phase (first case start to last case
+    # end, from the JSON report) and 2.0 min wall with the build. Taking a runner as
+    # three times slower puts the offline cases at about 4 min; the other 6 min is
+    # margin for CI's `retries: 2`. The job before them ran 6 to 9 min on recent PRs,
+    # and 22.3 min on run 40267491773, where install-deps alone took 925 s.
+    timeout-minutes: 35
     env:
       # The crew app (lib/supabase/server.ts:35 / browser.ts:34 default to "" and
       # THROW if unset) + the test runner (signInAs → supabaseAdmin) + db:seed all
@@ -124,6 +134,14 @@ jobs:
       # at runtime, so this one job-level entry reaches the Playwright process AND
       # the `pnpm start` server it spawns.
       PICKER_COOKIE_SIGNING_KEY: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
+      # Subscriber-token mint (the local Supabase demo secret and issuer, which the
+      # CI stack's realtime container verifies against). crew-offline-realtime.spec.ts
+      # waits for the bridge's join reply, and without these the mint answers 500 and
+      # the bridge opens no socket. A local run reads both from .env.local, so the
+      # spec passes there and fails here without them. Mirrors published-modal-e2e.yml
+      # and lifecycle-layout-e2e.yml; pinned by picker-flow-e2e-ci-wiring.test.ts.
+      SUPABASE_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      SUPABASE_REALTIME_ISS: supabase-demo
       # Boot ONLY the :3000 baseline server (playwright.config.ts filter).
       CREW_E2E_ONLY: "1"
     steps:
@@ -163,7 +181,7 @@ jobs:
       # ONE invocation for ALL the specs above, not one per project. Each Playwright
       # process owns and tears down its own webServer, and in CI that server is a
       # cold `pnpm build && pnpm start` — so multiple steps would pay the heaviest
-      # phase repeatedly inside this job's timeout. Passing both projects and the
+      # phase repeatedly inside this job's timeout. Passing all four projects and the
       # file list lets each project's testMatch claim its own specs. The split is a
       # RESOLUTION — re-derive it with `--list` rather than trusting a hand-kept
       # figure here; measured 2026-08-16 it is 163 tests in 10 files (it was
@@ -177,15 +195,22 @@ jobs:
       # crew-page resolves under mobile-safari alone, and
       # theme-persistence-note under desktop-chromium alone.
       #
+      # Measured 2026-10-30 with the crew page saved copy specs added: 220 tests in
+      # 14 files (173 in 11 before). crew-offline and crew-offline-layout resolve
+      # under crew-offline-chromium and crew-offline-webkit, crew-offline-realtime
+      # under crew-offline-chromium alone, and the eleven earlier files kept their
+      # per-project counts exactly. The two offline projects' testMatch claims only
+      # the crew-offline files, and neither earlier project's claims any of them.
+      #
       # picker-flow is on desktop-chromium deliberately. Measured 2026-07-25: over
       # plain http WebKit refuses to STORE the server's Set-Cookie for the
       # `__Host-`-prefixed Secure picker envelope, so the first-contact bootstrap
       # and every real selection fail to persist there and a correct
       # implementation reads as broken; Chromium's localhost exemption stores it.
-      - name: Run the crew e2e spec set (both projects, :3000 only)
+      - name: Run the crew e2e spec set (four projects, :3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/crew-e2e-report.json
-        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/crew-search.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/theme-toggle.spec.ts tests/e2e/theme-persistence-note.spec.ts tests/e2e/right-now-transitions.spec.ts --reporter=list,json
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium --project=crew-offline-chromium --project=crew-offline-webkit tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/crew-search.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/theme-toggle.spec.ts tests/e2e/theme-persistence-note.spec.ts tests/e2e/right-now-transitions.spec.ts tests/e2e/crew-offline.spec.ts tests/e2e/crew-offline-realtime.spec.ts tests/e2e/crew-offline-layout.spec.ts --reporter=list,json
       # Collected is not executed. A `beforeEach` calling test.skip() skips every case at RUNTIME
       # while --list still counts them, so the wiring guard, its skip registry and this job's exit
       # code all stay green on a suite that ran nothing (whole-diff review R10). This step reads

@@ -116,6 +116,21 @@ export const REQUIRED = {
   // is gated on a build flag this job does not set. Re-derive with --list after
   // any change to the route census or the exclusions.
   "font-rendering-census.spec.ts": 88,
+  // ── wired by the crew page saved copy branch (plan Task 28) ─────────────────
+  // Spec docs/superpowers/specs/2026-10-26-crew-offline-saved-copy-design.md §7.
+  // Each count is the spec's full executable set under the two offline projects,
+  // read off the `Total:` line of
+  //   pnpm heavy pnpm exec playwright test --list --project=crew-offline-chromium --project=crew-offline-webkit <spec>
+  // on 2026-10-30, not from arithmetic. None of the three skips a case; each
+  // project's testMatch decides which engine runs which file. Re-derive with that
+  // command after adding or removing a case.
+  //
+  // 32 = 16 cases under each of Chromium and WebKit ("Total: 32 tests in 1 file").
+  "crew-offline.spec.ts": 32,
+  // 3 = three realtime cases, Chromium alone by testMatch ("Total: 3 tests in 1 file").
+  "crew-offline-realtime.spec.ts": 3,
+  // 12 = 6 layout cases under each engine ("Total: 12 tests in 1 file").
+  "crew-offline-layout.spec.ts": 12,
 };
 
 // Importable table, runnable script. The wiring guard imports REQUIRED to pin these thresholds
