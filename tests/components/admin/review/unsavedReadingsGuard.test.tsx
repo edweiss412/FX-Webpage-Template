@@ -523,6 +523,22 @@ describe("§6.5 the prompt", () => {
     expect(document.activeElement).toBe(screen.getByTestId(wtid("close")));
   });
 
+  // UI gate P3: the body follows N like the title does.
+  it("the body is singular for one unsaved change and plural for two", () => {
+    renderWizard();
+    dirtyWizardRow(0);
+    fireEvent.click(screen.getByTestId(wtid("close")));
+    expect(screen.getByRole("alertdialog")).toHaveAccessibleDescription(
+      "Your pick is not saved until you press Save.",
+    );
+    fireEvent.click(screen.getByTestId(`${PROMPT}-go-back`));
+    dirtyWizardRow(1);
+    fireEvent.click(screen.getByTestId(wtid("close")));
+    expect(screen.getByRole("alertdialog")).toHaveAccessibleDescription(
+      "Your picks are not saved until you press Save.",
+    );
+  });
+
   it("Escape is Go back: the review's own Escape never fires", () => {
     const { onClose } = renderWizard();
     dirtyWizardRow(0);

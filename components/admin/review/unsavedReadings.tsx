@@ -48,7 +48,12 @@ type Registry = {
 
 const UnsavedReadingsContext = createContext<Registry | null>(null);
 
-export const UNSAVED_PROMPT_BODY = "Your pick is not saved until you press Save.";
+/** The body follows N like the title (UI gate P3): one pick, or several. */
+export function unsavedPromptBody(n: number): string {
+  return n === 1
+    ? "Your pick is not saved until you press Save."
+    : "Your picks are not saved until you press Save.";
+}
 
 export function unsavedPromptTitle(n: number): string {
   return n === 1 ? "You have 1 unsaved reading change" : `You have ${n} unsaved reading changes`;
@@ -267,7 +272,7 @@ function UnsavedReadingsPrompt({
           {unsavedPromptTitle(count)}
         </h2>
         <p id={bodyId} className="text-sm text-text">
-          {UNSAVED_PROMPT_BODY}
+          {unsavedPromptBody(count)}
         </p>
         <div className="flex flex-wrap gap-2">
           <button
