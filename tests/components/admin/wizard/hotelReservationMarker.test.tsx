@@ -14,6 +14,7 @@
  * `blockRef.index`, and the cardinality boundary is the five-slot v4 block.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
   HOTELS_CAP,
@@ -156,7 +157,9 @@ describe("Hotels reservation marker (spec §5.4)", () => {
     );
 
     const jump = within(marker).getByTestId("wizard-step3-hotel-judgment-jump");
-    expect(jump.textContent?.endsWith(" for Hotel Two")).toBe(true);
+    // The COMPUTED name, not textContent: a space inside the sr-only span is lost from
+    // the name ("…read itfor Hotel Two") while textContent still reads correctly.
+    expect(jump).toHaveAccessibleName("See how we read it for Hotel Two");
     expect(jump.tagName).toBe("BUTTON");
     fireEvent.click(jump);
     expect(onJump).toHaveBeenCalledTimes(1);

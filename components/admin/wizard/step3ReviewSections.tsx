@@ -2983,7 +2983,7 @@ function HotelCard({
               onClick={marker.onJump}
               className="inline-flex min-h-tap-min items-center text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
-              See how we read it<span className="sr-only"> for {hotelLabel}</span>
+              See how we read it <span className="sr-only">for {hotelLabel}</span>
             </button>
           </div>
           {marker.sheetSays ? (
