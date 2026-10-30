@@ -450,8 +450,8 @@ const HOVER_DELETE = [
   "components/admin/NeedsAttentionInbox.tsx:198",
   "components/admin/NeedsAttentionInbox.tsx:224",
   "components/crew/SectionChipLink.tsx:48",
-  "components/crew/primitives/PersonRow.tsx:196",
-  "components/crew/primitives/PersonRow.tsx:213",
+  "components/crew/primitives/PersonRow.tsx:281",
+  "components/crew/primitives/PersonRow.tsx:298",
 ] as const;
 
 /**
@@ -471,7 +471,7 @@ const HOVER_SUBTLE = [
   "components/admin/UnarchiveShowButton.tsx:67",
   "components/admin/nav/UserMenu.tsx:51",
   "components/admin/showpage/PublishedReviewModal.tsx:1133",
-  "components/agenda/AgendaEmbed.tsx:84",
+  "components/agenda/AgendaEmbed.tsx:95",
   "components/agenda/AgendaPdfViewer.tsx:198",
   "components/layout/ThemeToggle.tsx:92",
   "components/shared/ReportButton.tsx:142",

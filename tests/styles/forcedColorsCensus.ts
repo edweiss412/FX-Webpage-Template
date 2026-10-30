@@ -42,7 +42,8 @@ export type CarrierCensusRow = {
 
 /**
  * Arm 2's twelve A2a rules and five A2b animations, as reported on the base of
- * this branch. The count is pinned by the suite: a census that silently grows
+ * this branch, plus the crew search reveal cue's rule and animation (one each,
+ * feat/crew-show-search). The count is pinned by the suite: a census that silently grows
  * passes a subset assertion, which is why the literal is asserted rather than the
  * membership alone.
  */
@@ -67,18 +68,25 @@ export const CARRIER_CENSUS: readonly CarrierCensusRow[] = [
     reason: "a jump-target highlight whose only carrier is a forced background (spec §5.2)",
   },
   {
-    subject: "[data-search-reveal]",
-    context: [],
-    disposition: "repaired",
-    reason:
-      "the crew section controller's reveal target (openSectionAndReveal, crew page redesign spec §5.3): a steady tint whose only carrier is a forced background, so the forced-colors block gives it an outline",
-  },
-  {
     subject: "[data-step3-warning-flash]",
     context: ["@media (prefers-reduced-motion: reduce)"],
     disposition: "repaired",
     reason:
       "the steady reduced-motion fallback for the same cue. Its carrier is FORCED rather than dropped, which is the case the first Arm 2 criterion could not see (spec §5.2)",
+  },
+  {
+    subject: "@keyframes search-reveal-flash",
+    context: [],
+    disposition: "repaired",
+    reason:
+      "the crew search reveal: a jump-target tint whose only carrier is a forced background, repaired by the same steady Highlight outline as the step-3 cue (crew show search spec §6.6)",
+  },
+  {
+    subject: "[data-search-reveal]",
+    context: ["@media (prefers-reduced-motion: reduce)"],
+    disposition: "repaired",
+    reason:
+      "the steady reduced-motion tint for the same cue, a FORCED carrier; the forced-colors outline rule is unconditional, so it holds in this mode too",
   },
   {
     subject:
@@ -362,10 +370,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   // ── Carrier survives: something non-chromatic changes too. ──
   {
-    site: "components/crew/primitives/RunOfShowList.tsx:93",
+    // :93 -> :76 (and :48 -> :36, :78 -> :61 in the reason) on feat/crew-show-search (Schedule search entries): the row's
+    // display fields moved to `runOfShowEntryLine` below the components. Same summary.
+    site: "components/crew/primitives/RunOfShowList.tsx:76",
     disposition: "carrier-survives",
     reason:
-      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:48), the SAME condition that gives the ancestor border-l border-border pl-2 at :78 - a border WIDTH and an indent, both of which survive",
+      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:36), the SAME condition that gives the ancestor border-l border-border pl-2 at :61 - a border WIDTH and an indent, both of which survive",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:805",
@@ -452,7 +462,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "same shape as PublishedReviewModal:1376: the mark's shape carries the state and the chevron's rotation is driven by a different variable",
   },
   {
-    site: "components/crew/CrewWideNav.tsx:116",
+    // :116 until the merge of origin/main (crew show search), which gave the nav a
+    // `hidden` prop (search hides it while results show) above this class list.
+    site: "components/crew/CrewWideNav.tsx:119",
     disposition: "carrier-survives",
     reason:
       "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",

@@ -118,14 +118,15 @@ describe("forced-colors carrier loss (Arm 2)", () => {
     ).toEqual([]);
   });
 
-  it("holds exactly 18 census rows", () => {
+  it("holds exactly 19 census rows", () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, so the count is pinned separately; the equivalent case in
     // tests/styles/_metaControlOutlineFill.test.ts:117 calls itself "the single
     // most important case in the file" for this reason.
-    // 17 -> 18 on feat/crew-page-redesign: the crew reveal target's tint.
-    expect(CARRIER_CENSUS).toHaveLength(18);
-    expect(new Set(CARRIER_CENSUS.map((r) => r.subject)).size).toBe(18);
+    // 17 -> 19 on feat/crew-show-search (Task 16): the crew search reveal cue's
+    // keyframe and its reduced-motion steady tint, both repaired in-pass.
+    expect(CARRIER_CENSUS).toHaveLength(19);
+    expect(new Set(CARRIER_CENSUS.map((r) => r.subject)).size).toBe(19);
   });
 
   it("records the two cues this pass deliberately leaves alone", () => {
@@ -659,7 +660,13 @@ describe("forced-colors state collapse (Arm 1)", () => {
       // "All sections" row's <Icon> and <ChevronRight>, the wide nav's <Icon>, the
       // section sheet's close <X>), each aria-hidden decoration inside a control
       // whose own state the census already disposes.
-    ).toBe(127);
+      // 127 -> 130 on the merge of origin/main (crew show search), re-derived by
+      // running findUndecidable on the merged tree: main had also gone 124 -> 127
+      // with three lucide glyphs, each aria-hidden decoration inside a control the
+      // census disposes (the search field's clear <XIcon>, a result row's
+      // <ChevronRightIcon> and its copy button's <CopyIcon>). Both sides' rows are
+      // present on the merged tree and nothing else moved.
+    ).toBe(130);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

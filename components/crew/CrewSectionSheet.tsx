@@ -74,6 +74,13 @@ const SHEET_INSTANT = { duration: 0 } as const;
 
 /** Elements the inert sweep leaves alone: they render nothing a user can reach. */
 const NOT_INERTED = new Set(["SCRIPT", "STYLE", "LINK", "META", "TEMPLATE", "NOSCRIPT"]);
+/**
+ * A status region marked with this attribute stays live under an open sheet: it
+ * holds no control, and an inert subtree is dropped from the accessibility tree,
+ * so inerting it would silence an announcement made while the sheet is up (the
+ * controller's "line is gone" status, search spec §6.6).
+ */
+const LIVE_REGION_ATTR = "data-sheet-live-region";
 
 /** True while a dialog other than `self` is open as a modal: it owns Esc and gestures. */
 function anotherModalOpen(self: Element | null): boolean {
@@ -153,6 +160,7 @@ function SheetModalEffects({
       for (const sibling of Array.from(node.parentElement.children)) {
         if (sibling === node || !(sibling instanceof HTMLElement)) continue;
         if (NOT_INERTED.has(sibling.tagName) || sibling.hasAttribute("inert")) continue;
+        if (sibling.hasAttribute(LIVE_REGION_ATTR)) continue;
         sibling.setAttribute("inert", "");
         inerted.push(sibling);
       }

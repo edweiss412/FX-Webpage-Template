@@ -498,7 +498,7 @@ const ALLOWED_UNSUPPORTED_VARIANTS = new Map<string, string>([
   [
     ".ordinal",
     "requests `ordn`, absent from this font. Tailwind emits it because the word " +
-      "`ordinal` appears as a JS PARAMETER NAME in components/crew/DiagramsBlock.tsx, " +
+      "`ordinal` appears as a JS PARAMETER NAME in components/crew/diagramItems.ts, " +
       "not because any element uses the class — verified by grep. If a real element " +
       "ever takes it, this entry must go and the utility must be removed.",
   ],

@@ -59,9 +59,15 @@ export type AgendaLink = {
 type AgendaEmbedProps = {
   showId: string;
   agendaLinks: AgendaLink[];
+  /**
+   * Search target ids keyed by `fileId`, for the buttons whose document label
+   * is sheet data (spec §2.3). A button without one is action chrome. Absent
+   * renders no search markers.
+   */
+  searchTargets?: Readonly<Record<string, string>>;
 };
 
-export function AgendaEmbed({ showId, agendaLinks }: AgendaEmbedProps) {
+export function AgendaEmbed({ showId, agendaLinks, searchTargets }: AgendaEmbedProps) {
   // Which doc's sheet is open (by fileId); null = all closed. A single
   // sheet is open at a time, so one fileId is sufficient state.
   const [openFileId, setOpenFileId] = useState<string | null>(null);
@@ -80,16 +86,28 @@ export function AgendaEmbed({ showId, agendaLinks }: AgendaEmbedProps) {
       {docs.map((link) => {
         const fileId = link.fileId as string;
         const badge = link.label ? agendaDisplayLabel(link.label) : null;
+        const search = searchTargets !== undefined;
+        const target = searchTargets?.[fileId];
+        // The button names its document only through the badge; "View agenda"
+        // and the separator are action chrome around it.
+        const chrome = (text: string) => (search ? <span data-search-skip="">{text}</span> : text);
         return (
           <button
             key={fileId}
             type="button"
+            data-search-target={target}
+            data-search-skip={search && target === undefined ? "" : undefined}
             onClick={() => setOpenFileId(fileId)}
             className="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-text-faint bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-tile hover:border-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             <FileText aria-hidden="true" className="size-4 text-accent-on-bg" />
-            View agenda
-            {badge ? <span className="text-text-subtle">· {badge}</span> : null}
+            {chrome("View agenda")}
+            {badge ? (
+              <span className="text-text-subtle">
+                {chrome("· ")}
+                {badge}
+              </span>
+            ) : null}
           </button>
         );
       })}

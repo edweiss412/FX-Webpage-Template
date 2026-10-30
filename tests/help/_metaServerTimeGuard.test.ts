@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 228 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 233 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -270,38 +270,80 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // warnings the same way the show pop-up does. A pure partition over a fingerprint
     // set, no clock read. 222 -> 223.
     expect(rel).toContain("lib/dataQuality/partitionByIgnored.ts");
-    // 223 -> 226 (2026-10-27, feat/crew-page-redesign): THREE modules joined and
-    // none left, re-derived against this tree and against its merge base with
-    // origin/main by the same deriveImportedLibFiles call, not added up from the
-    // diff. Each joined because a RENDERED file now imports it directly; none
-    // makes a clock read, and the waiver set and violation count below are
-    // unchanged.
+    // Joined, from the crew search Travel section task: lib/search/entryId.ts and
+    // lib/search/normalize.ts, now imported by components/crew/sections/travelRows.ts,
+    // the Travel row derivations TravelSection renders from. A content hash and a
+    // tokenizer, no clock read. 223 -> 225.
+    expect(rel).toContain("lib/search/entryId.ts");
+    expect(rel).toContain("lib/search/normalize.ts");
+    // The crew search Budget section task (Task 6) reaches lib/search/entryId.ts
+    // too, depth-1 from components/crew/sections/budgetRows.ts, the Budget rows
+    // module BudgetSection renders from. Already a member through travelRows.ts,
+    // so nothing joins: 225 -> 225, re-derived on the merged tree.
+    // The crew search Schedule section task (Task 11) reaches lib/search/entryId.ts and
+    // lib/search/normalize.ts too, imported directly by
+    // components/crew/sections/scheduleRows.ts, the rows module ScheduleSection and its
+    // search builder share. Already members through travelRows.ts, so nothing joins:
+    // 225 -> 225, re-derived on the merged tree.
+    // Joined, from feat/crew-show-search (Task 15): lib/search/match.ts (the
+    // matcher, imported by components/crew/search/CrewSearchProvider.tsx) and
+    // lib/search/copy.ts (the search UI's strings, imported by
+    // components/crew/search/CrewSearchField.tsx). Pure: no clock read in
+    // either. 225 -> 227, re-derived on the merged tree by running this guard
+    // (the Task 15 branch read 223 -> 225 on its own base, before the section
+    // tasks' entryId.ts and normalize.ts joined).
+    expect(rel).toContain("lib/search/match.ts");
+    expect(rel).toContain("lib/search/copy.ts");
+    // Joined, from feat/crew-show-search (Task 17): lib/search/snippet.ts, the
+    // result-row snippet window, imported by
+    // components/crew/search/CrewSearchResults.tsx. Pure, no clock read.
+    // 227 -> 228, re-derived on the merged tree by running this guard (225 -> 226
+    // on the branch's own base).
+    expect(rel).toContain("lib/search/snippet.ts");
+    // The crew search miss-logging task (Task 18) imports lib/search/normalize.ts
+    // directly from components/crew/search/CrewSearchProvider.tsx, to key each
+    // missed query once per page load. Pure, no clock read. On its own base this
+    // joined the module (226 -> 227); on the tree merged with the section tasks it
+    // is already a member through travelRows.ts, so nothing joins: 228 -> 228,
+    // re-derived by running this guard.
+    expect(rel).toContain("lib/search/normalize.ts");
+    // 228 -> 233 on the merge of origin/main (crew show search, above) into
+    // feat/crew-page-redesign. That arc grew this population from 223 on its own
+    // base (223 -> 226 -> 228); the merged tree was re-derived by running this
+    // guard, not by adding the two sides up. FIVE modules joined and none left,
+    // each because a RENDERED file imports it directly; none makes a clock read,
+    // and the waiver set and violation count below are unchanged.
     //   lib/crew/generalSessionRoom.ts, the general-session room rule lifted out
-    //   of components/crew/sections/VenueSection.tsx, which imports it.
+    //   of the Venue section; on the merged tree its importer is
+    //   components/crew/sections/venueRows.ts, the rows module VenueSection and
+    //   the search index share.
     //   lib/crew/transportLegs.ts, the visible transport-leg rule lifted out of
-    //   components/crew/sections/TravelSection.tsx, which imports it.
+    //   the Travel section; on the merged tree its importer is
+    //   components/crew/sections/travelRows.ts.
     //   lib/ui/scrollLock.ts, the shared body scroll lock, imported by
     //   components/agenda/AgendaEmbed.tsx, components/diagrams/GalleryLightbox.tsx,
     //   components/admin/FinalizeButton.tsx and
     //   components/admin/review/ReviewModalShell.tsx in place of each one's own
     //   save-and-restore of body overflow.
-    // The arc's other new lib modules (passModel, quickFacts, sectionPeek,
-    // crewSections) are ABSENT at this commit: only other lib modules import
-    // them, so they sit at depth 2. That is the depth-1 rule, not an omission.
+    // The arc's other new lib modules (passModel, quickFacts, sectionPeek) are
+    // ABSENT: only other lib modules import them, so they sit at depth 2. That is
+    // the depth-1 rule, not an omission.
     expect(rel).toContain("lib/crew/generalSessionRoom.ts");
     expect(rel).toContain("lib/crew/transportLegs.ts");
     expect(rel).toContain("lib/ui/scrollLock.ts");
-    // 226 -> 228 (2026-10-27, feat/crew-page-redesign Task 6): two more joined.
+    // And two from that arc's Task 6:
     //   lib/ui/scrollSpy.ts, the scroll-spy rule moved out of
     //   components/admin/review/ShowReviewSurface.tsx, imported by it and by
     //   components/crew/CrewSections.tsx.
     //   lib/crew/crewSections.ts, now imported directly by
     //   components/crew/CrewSections.tsx, app/show/[slug]/[shareToken]/_CrewShell.tsx
-    //   and both crew loading skeletons (the one section-label source).
+    //   and both crew loading skeletons (the one section-label source), and on
+    //   the merged tree by components/crew/search/CrewSearchResults.tsx too (its
+    //   chip and group labels, `crewSectionLabel`).
     // Neither makes a clock read.
     expect(rel).toContain("lib/ui/scrollSpy.ts");
     expect(rel).toContain("lib/crew/crewSections.ts");
-    expect(rel.length).toBe(228);
+    expect(rel.length).toBe(233);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

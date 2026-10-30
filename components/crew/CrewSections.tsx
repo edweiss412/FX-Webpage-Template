@@ -50,10 +50,19 @@
  * and routed through the rules above. Rows and nav items are real hrefs, so a
  * tap before hydration or "open in new tab" reaches the server-rendered sheet.
  *
- * `useSectionController()` exposes `openSectionAndReveal(sectionId, targetId)`,
- * the one entry point search calls (search spec §9.1): compact opens the
- * section's sheet and centres the `[data-search-target]` line inside its body;
- * wide scrolls the page to it; both then highlight it (`data-search-reveal`).
+ * SEARCH (crew show search spec §6.2, §6.6, §9.1; redesign spec §1.2). Under a
+ * `CrewSearchProvider`, an active search hides the wide nav and the page body
+ * with `hidden` (so open disclosures survive) and renders the search panel in
+ * their place. `useSectionController()` (components/crew/sectionController.ts,
+ * provided here) exposes `openSectionAndReveal(sectionId, targetId)`, the one
+ * entry point search calls: compact opens the section's sheet (Today closes
+ * it) and centres the `[data-search-target]` line inside the sheet body; wide
+ * scrolls the page to the line with the section's scroll margin. Both then
+ * wait for the line to mount (up to `REVEAL_WAIT_MS`), open every `<details>`
+ * around and inside it, focus it and mark it `data-search-reveal` for the
+ * highlight in app/globals.css, cleared after `REVEAL_HIGHLIGHT_MS`. A line that
+ * never mounts is announced in a polite status region, and focus that fell to
+ * the page moves to the opened section's body.
  *
  * Readiness: `data-crew-controller-ready="true"` appears with the first client
  * layout, after hydration (e2e harness readiness gate).
@@ -61,9 +70,7 @@
 
 import { usePathname, useSearchParams } from "next/navigation";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -75,6 +82,13 @@ import {
 import { CrewAllSections } from "@/components/crew/CrewAllSections";
 import { CrewSectionSheet } from "@/components/crew/CrewSectionSheet";
 import { CrewWideNav, type CrewWideNavItem } from "@/components/crew/CrewWideNav";
+import {
+  SectionControllerContext,
+  type SectionController,
+} from "@/components/crew/sectionController";
+import { CrewSearchHint } from "@/components/crew/search/CrewSearchField";
+import { CrewSearchResults } from "@/components/crew/search/CrewSearchResults";
+import { useOptionalCrewSearch } from "@/components/crew/search/CrewSearchProvider";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import {
   CREW_TODAY_LABEL,
@@ -91,6 +105,8 @@ import {
   NAV_SCROLL_SETTLE_TIMEOUT_MS,
 } from "@/lib/ui/scrollSpy";
 
+export { useSectionController, type SectionController } from "@/components/crew/sectionController";
+
 export interface CrewSectionsProps {
   /** The server-resolved `?s=` (`today` means home, no sheet). */
   initialSection: SectionId;
@@ -98,15 +114,23 @@ export interface CrewSectionsProps {
   sections: readonly CrewSectionEntry[];
   /** Every body the shell rendered: `today` plus one per listed section. */
   sectionNodes: Partial<Record<SectionId, ReactNode>>;
-  /** Rendered at the top of the column (search's results mount here). */
+  /** Rendered at the top of the page column, above the Today block. */
   children?: ReactNode;
 }
 
 type Mode = "ssr" | "compact" | "wide";
 
 const WIDE_QUERY = "(min-width: 1024px)";
-/** How many frames a reveal waits for its target to mount before giving up. */
-const REVEAL_FRAME_BUDGET = 90;
+/** How long a reveal waits for its target to mount before giving up (search spec §6.6). */
+const REVEAL_WAIT_MS = 1500;
+/** The highlight's fade; the `[data-search-reveal]` keyframe in app/globals.css runs 1600ms. */
+const REVEAL_HIGHLIGHT_MS = 1600;
+/** Under reduced motion the tint holds without fading for this long, then goes at once. */
+const REVEAL_HIGHLIGHT_REDUCED_MS = 2000;
+// not-subject:M5-D8: a polite status announcement for a search result whose line
+// changed under it, not an error path and carries no code; the copy is pinned in
+// the search spec §10 and asserted literally in CrewSections.search.test.tsx.
+const REVEAL_GONE_MESSAGE = "That line isn't on the page anymore.";
 
 function subscribeMode(onChange: () => void): () => void {
   if (typeof window.matchMedia !== "function") return () => {};
@@ -145,18 +169,37 @@ function scrollTargetFor(el: Element): number {
   return el.getBoundingClientRect().top + window.scrollY - margin;
 }
 
-type SectionController = {
-  openSectionAndReveal(sectionId: SectionId, targetId: string): void;
-};
-
-const SectionControllerContext = createContext<SectionController>({
-  openSectionAndReveal: () => {},
-});
-
-/** Search's entry point into the controller (search spec §9.1). */
-export function useSectionController(): SectionController {
-  return useContext(SectionControllerContext);
+/** The target with this exact id inside `root`; compared as a string, so no selector escaping. */
+function findTarget(root: HTMLElement | null, targetId: string): HTMLElement | null {
+  if (root === null) return null;
+  for (const el of root.querySelectorAll<HTMLElement>("[data-search-target]")) {
+    if (el.getAttribute("data-search-target") === targetId) return el;
+  }
+  return null;
 }
+
+/** Open every `<details>` that contains `el` (itself included) and every one inside it. */
+function openDisclosures(el: HTMLElement): void {
+  for (let d = el.closest("details"); d !== null; d = d.parentElement?.closest("details") ?? null) {
+    d.open = true;
+  }
+  for (const d of el.querySelectorAll("details")) d.open = true;
+}
+
+/**
+ * After a reveal finds nothing, give focus a place in the opened section when it
+ * fell to the page, which it does because the tapped row went with the search
+ * panel (search spec §6.8). Focus the viewer has moved somewhere else stays there.
+ */
+function focusBodyIfFocusFell(body: HTMLElement | null): void {
+  if (body === null || body.closest("[hidden]") !== null) return;
+  const current = document.activeElement;
+  if (current !== null && current !== document.body && current.isConnected) return;
+  if (!body.hasAttribute("tabindex")) body.setAttribute("tabindex", "-1");
+  body.focus({ preventScroll: true });
+}
+
+type RevealRun = { frame: number; deadline: number };
 
 export function CrewSections({
   initialSection,
@@ -416,15 +459,45 @@ export function CrewSections({
     [goHome, openSection, toOpen],
   );
 
-  // ── openSectionAndReveal (search's entry point) ────────────────────────────
-  const revealRef = useRef<HTMLElement | null>(null);
+  // ── openSectionAndReveal (search's entry point, search spec §6.6) ──────────
+  const revealRun = useRef<RevealRun | null>(null);
+  const highlight = useRef<{ el: HTMLElement; timer: number } | null>(null);
+  const [revealStatus, setRevealStatus] = useState("");
+
+  const stopWaiting = useCallback(() => {
+    const run = revealRun.current;
+    if (run === null) return;
+    window.cancelAnimationFrame(run.frame);
+    window.clearTimeout(run.deadline);
+    revealRun.current = null;
+  }, []);
+
+  const clearHighlight = useCallback(() => {
+    const current = highlight.current;
+    if (current === null) return;
+    window.clearTimeout(current.timer);
+    current.el.removeAttribute("data-search-reveal");
+    highlight.current = null;
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopWaiting();
+      clearHighlight();
+    },
+    [stopWaiting, clearHighlight],
+  );
+
   const openSectionAndReveal = useCallback(
     (sectionId: SectionId, targetId: string) => {
+      stopWaiting();
+      setRevealStatus("");
       const id = toOpen(sectionId);
       if (sectionId !== "today" && id === null) return;
-      const inSheet = mode !== "wide" && id !== null;
+      const wide = mode === "wide";
+      const inSheet = !wide && id !== null;
       if (id !== null) {
-        if (mode === "wide") {
+        if (wide) {
           window.history.replaceState(
             window.history.state,
             "",
@@ -433,65 +506,94 @@ export function CrewSections({
         } else {
           openSection(id);
         }
-      } else if (mode !== "wide") {
-        if (open !== null) requestClose();
+      } else if (!wide && open !== null) {
+        requestClose();
       }
-      const selector = `[data-search-target="${CSS.escape(targetId)}"]`;
-      let frames = 0;
-      const look = () => {
-        const scope = inSheet
+      // Where the line lives: the sheet body (compact), the stacked section
+      // (wide), or the Today block. Read each frame: the sheet body mounts with
+      // the open that was just requested.
+      const scopeOf = (): HTMLElement | null =>
+        inSheet
           ? sheetBodyRef.current
           : id !== null
             ? (stackRefs.current.get(id) ?? null)
             : todayRef.current;
-        const target = scope?.querySelector<HTMLElement>(selector) ?? null;
-        if (!target) {
-          frames += 1;
-          if (frames < REVEAL_FRAME_BUDGET) requestAnimationFrame(look);
-          return;
-        }
-        for (
-          let d = target.parentElement?.closest("details");
-          d;
-          d = d.parentElement?.closest("details")
-        ) {
-          d.open = true;
-        }
+
+      const reveal = (target: HTMLElement) => {
+        clearHighlight();
+        openDisclosures(target);
         const body = sheetBodyRef.current;
         if (inSheet && body) {
+          // Centred inside the sheet body; the page behind is locked (spec §5.2).
           const t = target.getBoundingClientRect();
           const b = body.getBoundingClientRect();
           body.scrollTop = body.scrollTop + (t.top - b.top) - (body.clientHeight - t.height) / 2;
         } else {
-          const section = id !== null ? stackRefs.current.get(id) : todayRef.current;
+          // The page, to the line, with its section's scroll margin (spec §5.3).
+          const section = scopeOf();
           const margin = section ? parseFloat(getComputedStyle(section).scrollMarginTop) || 0 : 0;
           const top = target.getBoundingClientRect().top + window.scrollY - margin;
           setSpyActive(id ?? "today");
           beginSuppressedScroll(top);
           window.scrollTo({ top, behavior: reduced ? "auto" : "smooth" });
         }
-        if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) target.tabIndex = -1;
+        // A line that is not focusable on its own takes focus without joining the
+        // tab order; a button or link keeps its own.
+        if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) {
+          target.setAttribute("tabindex", "-1");
+        }
         target.focus({ preventScroll: true });
-        revealRef.current?.removeAttribute("data-search-reveal");
         target.setAttribute("data-search-reveal", "");
-        revealRef.current = target;
+        // Two calls rather than one with a computed delay, so each delay is a named
+        // constant the DESIGN.md §5.5 timing scan resolves.
+        const timer = reduced
+          ? window.setTimeout(clearHighlight, REVEAL_HIGHLIGHT_REDUCED_MS)
+          : window.setTimeout(clearHighlight, REVEAL_HIGHLIGHT_MS);
+        highlight.current = { el: target, timer };
       };
-      requestAnimationFrame(look);
+
+      const run: RevealRun = { frame: 0, deadline: 0 };
+      const look = () => {
+        const target = findTarget(scopeOf(), targetId);
+        // A line still under the search panel's `hidden` is not laid out yet.
+        if (target === null || target.closest("[hidden]") !== null) {
+          run.frame = window.requestAnimationFrame(look);
+          return;
+        }
+        stopWaiting();
+        reveal(target);
+      };
+      run.deadline = window.setTimeout(() => {
+        stopWaiting();
+        setRevealStatus(REVEAL_GONE_MESSAGE);
+        // The section stays open at its top (search spec §6.6): the sheet opened
+        // there; the wide page goes to the section.
+        if (wide) scrollWide(id ?? "today", { focus: false });
+        focusBodyIfFocusFell(scopeOf());
+      }, REVEAL_WAIT_MS);
+      run.frame = window.requestAnimationFrame(look);
+      revealRun.current = run;
     },
     [
       beginSuppressedScroll,
+      clearHighlight,
       mode,
       open,
       openSection,
       pathname,
       reduced,
       requestClose,
+      scrollWide,
       searchParams,
+      stopWaiting,
       toOpen,
     ],
   );
 
-  const api = useMemo(() => ({ openSectionAndReveal }), [openSectionAndReveal]);
+  const api = useMemo<SectionController>(() => ({ openSectionAndReveal }), [openSectionAndReveal]);
+
+  const search = useOptionalCrewSearch();
+  const searchActive = search?.active ?? false;
 
   const navItems: CrewWideNavItem[] = useMemo(
     () => [
@@ -523,10 +625,17 @@ export function CrewSections({
       >
         <div className={cn(CREW_PAGE_CONTAINER, "flex flex-1 items-stretch lg:gap-8")}>
           {showWide && hasSections ? (
-            <CrewWideNav items={navItems} active={spyActive} hrefFor={hrefFor} />
+            <CrewWideNav
+              items={navItems}
+              active={spyActive}
+              hrefFor={hrefFor}
+              hidden={searchActive}
+            />
           ) : null}
+          {/* Hidden, never unmounted, while search is active: section state survives. */}
           <main
             data-testid="page-container"
+            hidden={searchActive}
             className="flex min-w-0 flex-1 flex-col gap-section-gap pt-6 pb-8 sm:pt-8"
           >
             {children}
@@ -578,6 +687,15 @@ export function CrewSections({
               </div>
             ) : null}
           </main>
+          {searchActive ? (
+            <main
+              data-testid="crew-search-panel"
+              className="flex min-w-0 flex-1 flex-col gap-6 pt-6 pb-8 sm:pt-8"
+            >
+              <CrewSearchHint />
+              <CrewSearchResults />
+            </main>
+          ) : null}
         </div>
         {/* Unmounted, not closed, in the wide layout: a closing sheet would hold
             its body through the exit slide while the stack shows the same body,
@@ -592,6 +710,15 @@ export function CrewSections({
             {open !== null ? sectionNodes[open] : null}
           </CrewSectionSheet>
         ) : null}
+        {/* Left live by the sheet's inert sweep, so a gone line is announced over an open sheet. */}
+        <p
+          data-testid="crew-reveal-status"
+          data-sheet-live-region=""
+          role="status"
+          className="sr-only"
+        >
+          {revealStatus}
+        </p>
       </div>
     </SectionControllerContext.Provider>
   );

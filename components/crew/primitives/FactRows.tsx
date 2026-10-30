@@ -58,6 +58,12 @@ export type FactRow = {
    * byte-identical.
    */
   copyLabel?: string;
+  /**
+   * Search target id (lib/search/entryId.ts), rendered as `data-search-target`
+   * on the row element. Absent leaves the row's markup exactly as it was. A
+   * sentinel/empty `v` still omits the row, target and all.
+   */
+  searchTarget?: string;
 };
 
 type FactRowsProps = {
@@ -95,6 +101,7 @@ export function FactRows({ rows }: FactRowsProps) {
           <div
             key={row.testId !== undefined ? row.testId : `${row.k}-${i}`}
             data-testid={row.testId}
+            data-search-target={row.searchTarget}
             className="flex items-center justify-between gap-3.5 border-b border-border py-3 first:pt-0 last:border-b-0 last:pb-0"
           >
             {/* `.k` — mini-icon square (optional) + subtle label, on the left.
@@ -134,6 +141,7 @@ export function FactRows({ rows }: FactRowsProps) {
                     // distinct between rows, so a vacancy one row offers on
                     // unmount cannot be claimed by another row's island.
                     identity={row.testId !== undefined ? row.testId : `${row.k}-${i}`}
+                    searchSkip={row.searchTarget !== undefined}
                   />
                 </div>
               ) : (

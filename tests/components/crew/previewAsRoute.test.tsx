@@ -169,6 +169,13 @@ const previewSectionMarker = (testid: string) => {
   MockSection.displayName = `MockSection(${testid})`;
   return MockSection;
 };
+// Search is not this suite's subject: its section mocks are component-only
+// factories and its fixtures are thin, so the real index builder would read
+// rows the mocks do not stand in for, or throw on the thin projection
+// (plan Task 19). tests/components/crew/crewShellSearch.test.tsx covers the
+// real builder through the shell.
+vi.mock("@/lib/search/buildSearchIndex", () => ({ buildSearchIndex: () => ({ entries: [] }) }));
+
 vi.mock("@/components/crew/sections/TodaySection", () => ({
   TodaySection: previewSectionMarker("section-today"),
 }));

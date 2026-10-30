@@ -44,7 +44,10 @@ function allCallArgs(src: string, fn: string): string[] {
 
 const CASES: Array<{ file: string; fn: string }> = [
   { file: "components/crew/sections/ScheduleSection.tsx", fn: "resolveKeyTimes" },
-  { file: "components/crew/sections/TodaySection.tsx", fn: "resolveKeyTimes" },
+  // Today's call moved to the rows module its section and search builder share.
+  { file: "components/crew/sections/todayRows.ts", fn: "resolveKeyTimes" },
+  // The Schedule search builder mirrors the section's call for the key-time entries.
+  { file: "lib/search/sections/schedule.ts", fn: "resolveKeyTimes" },
   { file: "components/right-now/buildRightNowContext.ts", fn: "resolveKeyTimes" },
   { file: "components/crew/sections/TodaySection.tsx", fn: "buildRightNowContext" },
   { file: "app/show/[slug]/[shareToken]/_CrewShell.tsx", fn: "buildRightNowContext" },

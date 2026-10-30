@@ -49,6 +49,14 @@ export const CREW_SECTION_LABELS: Readonly<Record<CrewSectionId, string>> = {
 /** The wide nav's first item, the Today block (spec §5.3). */
 export const CREW_TODAY_LABEL = "Today";
 
+/**
+ * Any crew section id's label, `today` included: search's result chips and
+ * group headings (search spec §6.3) read the same names the list and the nav do.
+ */
+export function crewSectionLabel(id: SectionId): string {
+  return id === "today" ? CREW_TODAY_LABEL : CREW_SECTION_LABELS[id];
+}
+
 /** A listed section plus its one-line peek, as the client receives it. */
 export type CrewSectionEntry = CrewSection & { peek: string | null };
 

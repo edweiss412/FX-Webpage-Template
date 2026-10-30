@@ -78,6 +78,16 @@ describe("Header rebalance (M4-D3)", () => {
     expect(cls).not.toContain("text-text-subtle");
   });
 
+  it("renders the client line at text-text-subtle, not text-text-faint (AA 4.5:1 at 12px)", () => {
+    // text-faint measures 3.21:1 light / 4.00:1 dark on --color-bg, an AA-large
+    // floor (DESIGN.md §1.1); the client name is 12px information, not
+    // decoration, so it takes text-subtle (6.47:1 / 6.75:1). Impeccable gate B1.
+    const { getByText } = render(<Header show={baseShow} />);
+    const cls = getByText(baseShow.client_label).className;
+    expect(cls).toContain("text-text-subtle");
+    expect(cls).not.toContain("text-text-faint");
+  });
+
   it("uses tight vertical padding (py-3 sm:py-4 — was pb-5 pt-7 sm:pb-6 sm:pt-9)", () => {
     const { container } = render(<Header show={baseShow} />);
     const inner = container.querySelector("header > div");

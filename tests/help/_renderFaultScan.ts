@@ -800,14 +800,47 @@ export function scanCandidates(): Candidate[] {
       // branch, so the 78 below is unchanged. Re-derived by running the guard on
       // the branch after merging origin/main (main itself still computes 745).
       //
-      // 747 -> 755 on feat/crew-page-redesign (Task 6): the crew section
-      // controller, sheet, wide nav and "All sections" card replaced the sub-nav,
-      // and their JSX-bearing ternaries (mode-gated layouts, the open sheet, the
-      // nav indicator, the optional peek line) outnumber the sub-nav's by eight.
-      // None is a fault branch, so the 78 below is unchanged. Re-derived by
-      // running the guard on the branch.
+      // 747 -> 743 on the crew search Travel section task: TravelSection's
+      // driver, load-out and vehicle rows (three `hasX && xPrimary ? <TravelRow/>`
+      // ternaries) became one `.map` over derived rows with `if` branches, and the
+      // driver and load-out meta ternaries (`lines.length > 0 ? <span/>`) became
+      // one. Four fewer JSX-bearing ternaries, none a fault branch, so the 78
+      // below is unchanged. Re-derived by running the guard on the branch.
       //
-      // Probed: 755 such ternaries under the derived roots, 78 on a
+      // 743 -> 746 on feat/crew-show-search (Task 15): three JSX-bearing
+      // ternaries, none a fault branch: Header's optional `search` row, and the
+      // search field's clear button and Cancel button, each rendered only in its
+      // state. Re-derived by running the meta-test on the tree merged with the
+      // section tasks, which computed 746 (the branch's own base read 747 -> 750);
+      // the 78 is unchanged.
+      //
+      // 746 -> 747 on feat/crew-show-search (Task 16): CrewSections renders the
+      // search panel in place of the hidden body only while search is active.
+      // Not a fault branch; re-derived the same way on the merged tree (750 -> 751
+      // on the branch's own base), 78 unchanged.
+      //
+      // 747 -> 760 on feat/crew-show-search (Task 17): thirteen in
+      // components/crew/search/CrewSearchResults.tsx, each a phase or a row's
+      // optional part (chips, groups, Show all, the cap note, No match, the
+      // report row and its modal, the alias note, the copy button or chevron, the
+      // toast and its check). None is a fault branch; re-derived on the merged
+      // tree (751 -> 764 on the branch's own base), 78 unchanged.
+      //
+      // 747 -> 755 on feat/crew-page-redesign (Task 6), against its own base: the
+      // crew section controller, sheet, wide nav and "All sections" card replaced
+      // the sub-nav, and their JSX-bearing ternaries (mode-gated layouts, the open
+      // sheet, the nav indicator, the optional peek line) outnumber the sub-nav's
+      // by eight. None is a fault branch.
+      //
+      // 760 -> 768 on the merge of origin/main (crew show search) into
+      // feat/crew-page-redesign. BOTH sides grew this population from 747, and the
+      // search side's CrewSections ternary was rewritten into the redesign's
+      // controller, so neither side's number describes the merged tree; the value
+      // below is re-derived from the merged tree by running the guard, never by
+      // taking a side or adding the two deltas. The eight are the redesign's
+      // (the search panel's own ternary is in both trees). The 78 is unchanged.
+      //
+      // Probed: 768 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

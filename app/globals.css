@@ -919,6 +919,15 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* Crew search field: the box around the input draws the field's focus ring
+   (focus-within), so the input's own ring would be a second one inside it. The
+   input's `focus:outline-none` utility is layered and loses to the unlayered rule
+   above, hence this unlayered override. Forced colors drop the box's box-shadow
+   ring; the forced-colors block below gives the box an outline instead. */
+[data-testid="crew-search-box"] input:focus-visible {
+  outline: none;
+}
+
 /* M12.2 RECON-1 — admin AlertBanner disclosure (spec §6 + §3.3). */
 
 /* CLOSED-PANEL HIDE (F-P21 — NOT progressive enhancement; load-bearing).
@@ -1136,14 +1145,41 @@ details[open] > summary [data-agenda-day-count] {
   }
 }
 
-/* The line the crew section controller's openSectionAndReveal lands on (crew
-   page redesign spec §5.3, search spec §6.6). A steady tint that stays until the
-   next reveal moves it: the line is a jump target the reader still has to find,
-   so it has no correct "faded" state. Forced colors erase a background, so the
-   carrier there is an outline, in the forced-colors block (DESIGN.md §17). */
+/* Crew search: highlight on the line a result opened (crew show search spec
+   §6.6). Same shape as the step-3 jump target above, for the same reason: the
+   reader must still find the line. Unlike the step-3 row, the tint alone is
+   not enough here: warning-bg sits at 1.10:1 on a light card, and a crew member
+   lands on this line from a different screen. So the cue is a 2px warning-text
+   ring (8.7:1 or better on every ground it touches, both themes; pinned in
+   tests/styles/searchRevealCue.test.ts) plus the tint, held at full strength
+   for the first half of the window before it fades. Motion-safe: the window is
+   REVEAL_HIGHLIGHT_MS (1600ms; keep in sync with components/crew/CrewSections.tsx,
+   which removes the attribute, and with it the ring, when the fade ends).
+   Reduced motion: tint and ring hold without fading for
+   REVEAL_HIGHLIGHT_REDUCED_MS (2000ms) and go with the attribute. The cue sets
+   no radius, so the ring follows the line's own corners; and the keyframe has
+   no end frame, so the tint fades to the line's own fill rather than to
+   transparent and a filled line does not pop back when the attribute goes. The
+   ring overrides the :focus-visible ring while the cue runs, since the line has
+   just been focused. */
+@keyframes search-reveal-flash {
+  0%,
+  50% {
+    background-color: var(--color-warning-bg);
+  }
+}
 [data-search-reveal] {
-  border-radius: var(--radius-sm);
-  background-color: var(--color-accent-tint);
+  animation: search-reveal-flash 1600ms var(--ease-out-quart);
+  outline: 2px solid var(--color-warning-text);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-search-reveal] {
+    animation: none;
+    background-color: var(--color-warning-bg);
+    outline: 2px solid var(--color-warning-text);
+    outline-offset: 2px;
+  }
 }
 
 /* ShareHub crew-link block: one-shot highlight after the share-token changes
@@ -1550,13 +1586,6 @@ details[open] > summary [data-agenda-day-count] {
    in two.
    ───────────────────────────────────────────────────────────────────────────── */
 @media (forced-colors: active) {
-  /* The crew controller's reveal target (openSectionAndReveal): its tint is a
-     background, which forces away, so the jump target keeps an outline. */
-  [data-search-reveal] {
-    outline: 2px solid Highlight;
-    outline-offset: 2px;
-  }
-
   /* ShareHub crew-link cue (spec §5.1). Its two legs both die here: the ring is a
      box-shadow, which a UA drops, and the background animates between two values
      that force to one. What replaces them is a steady outline for the flash
@@ -1729,6 +1758,24 @@ details[open] > summary [data-agenda-day-count] {
      whether or not the animation runs. */
   [data-step3-warning-flash] {
     animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* The crew search reveal is the same kind of cue: a jump target the reader
+     must still locate, whose tint forces away here. A steady outline for the
+     highlight window, ended by the attribute's removal, in both motion modes. */
+  [data-search-reveal] {
+    animation: none;
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* The crew search field's focus ring is a box-shadow on its box, which forces
+     away here, and the input's own outline is removed (see the unlayered rule
+     after the global :focus-visible). The box carries an outline instead, so the
+     focused field keeps exactly one ring in this mode too. */
+  [data-testid="crew-search-box"]:focus-within {
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }

@@ -286,7 +286,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/crew/CrewSectionSheet.tsx",
-    line: 296,
+    // 296 -> 304 on the merge of origin/main (crew show search): the inert sweep's
+    // live-region exemption (`LIVE_REGION_ATTR`) sits above it. Same scrim, confirmed
+    // by reading its className at the new key.
+    line: 304,
     tag: "motion.div",
     category: "full-bleed",
     reason:
@@ -405,7 +408,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // below the tag, which is why reading the tag line alone looks wrong.
     // 572 -> 633 on the R2 repairs; still the only button in its span.
     // 655 -> 793 on the retry check-in arc. Same element, same reason: the `block size-full cursor-zoom-in` thumbnail button, whose className now sits well below its tag because the check-in branch grew between them. Keyed by stepping to the tag.
-    line: 813,
+    // 813 -> 812 on feat/crew-show-search Task 5 (galleryLimits.ts import replaced the local INITIAL_VISIBLE, row not updated then), then 812 -> 834 in Task 8 (the `searchTargets` prop, its doc and the slot-marker helper above it). Same `block size-full cursor-zoom-in` thumbnail button, located by stepping to the tag.
+    line: 834,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",

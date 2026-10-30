@@ -788,6 +788,12 @@ realtime reconnect backoff.
 | `duration(0)` | 0 | `components/crew/CrewSectionSheet.tsx` |
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
+| `REVEAL_WAIT_MS` | 1500 | `components/crew/CrewSections.tsx` |
+| `REVEAL_HIGHLIGHT_MS` | 1600 | `components/crew/CrewSections.tsx` |
+| `REVEAL_HIGHLIGHT_REDUCED_MS` | 2000 | `components/crew/CrewSections.tsx` |
+| `RESULT_COUNT_ANNOUNCE_MS` | 300 | `components/crew/search/CrewSearchResults.tsx` |
+| `COPY_FAILED_TOAST_MS` | 6000 | `components/crew/search/CrewSearchResults.tsx` |
+| `MISS_DEBOUNCE_MS` | 2000 | `components/crew/search/CrewSearchProvider.tsx` |
 | `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
 | `RETRY_CHECK_IN_MS` | 30000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
@@ -820,6 +826,7 @@ hardcoding ban:
 
 - `WARNING_HIGHLIGHT_MS = 1600` (`components/admin/wizard/Step3ReviewModal.tsx`) — one-shot warning-row highlight after a callout jump-link; keyframe `step3-warning-flash`. Reduced motion: a steady tint, correct for a persistent jump-target the user must still locate.
 - `SHARE_LINK_FLASH_MS = 1600` (`components/admin/showpage/ShareHub.tsx`) — one-shot highlight on the crew-URL block when the share-token changes; keyframes `share-link-flash-bg` and `share-link-flash-ring`. Reduced motion: NO cue at all, deliberately unlike the row above — a one-shot "this just changed" signal has no correct steady state, and a permanent tint would assert something no longer true.
+- `REVEAL_HIGHLIGHT_MS = 1600` (`components/crew/CrewSections.tsx`) — the crew search reveal: the cue on the line a search result opened; keyframe `search-reveal-flash`. The cue is a 2px `warning-text` ring plus a `warning-bg` tint held at full strength for the first half of the window, then faded. The tint alone was not findable (1.10:1 on a light card, mostly gone by 600 ms), and the reader arrives from a different screen; the ring clears 8.74:1 or better on every ground it touches in light and 9.64:1 or better in dark, pinned in `tests/styles/searchRevealCue.test.ts`. Reduced motion: tint and ring held steady for `REVEAL_HIGHLIGHT_REDUCED_MS = 2000`, then removed at once, the same jump-target reasoning as the step-3 row above. `REVEAL_WAIT_MS = 1500` is how long the reveal waits for its line to mount behind the section transition before announcing that the line is gone; it paints nothing.
 - `SECTION_FRESHNESS_FLASH_MS = 1600` (`components/admin/review/sectionFreshness.ts`) — one-shot cue on the panel card of each published-review-modal section whose content changed across a realtime refresh, or on the sub-header band when the change count clears the cap; keyframes `section-freshness-flash-1` / `-2`. The pair exists because changing an attribute value does not restart a CSS animation and a key-based remount would destroy the card's scroll position and focus, so alternating the value changes `animation-name` instead. Reduced motion: NO cue, same reasoning as the row above; the sr-only announcement carries the information there and is motion-independent.
 
 **The share-link cue** draws a 2px `accent-edge` ring around the crew-URL block plus a brief `accent-tint` wash that holds to 45% then settles back to `surface-sunken`. Measured contrast at the cue's peak and at rest, both themes: `text-strong` on `accent-tint` 16.88:1 light / 14.66:1 dark (AA 4.5:1); ring against `accent-tint` 7.41:1 / 8.03:1, against `surface` 8.42:1 / 8.84:1, against `surface-sunken` 7.59:1 / 9.65:1 (non-text 3:1). Pinned in `tests/styles/status-token-contrast.test.ts` — and note the ring is NOT decorative in dark, where it is the change signal itself, so it carries its own floor rather than deferring to the accent track's.

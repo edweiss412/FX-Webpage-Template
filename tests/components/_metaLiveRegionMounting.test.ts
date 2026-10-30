@@ -486,7 +486,7 @@ function conditionalStatusRegions(
       // spellings of the same thing, and a conditional `aria-live` region — one
       // shipped at UseRawControl.tsx — was invisible while only the role was
       // scanned. `role="log"` joined them because the admin shell's own
-      // announce region is one (components/admin/announceLog.tsx:134), so the
+      // announce region is one (components/admin/announceLog.tsx:142), so the
       // guard's central subject was the one shape it could not see.
       // `role="alert"` stays excluded: alerts ARE announced on insertion, so
       // the conditional form is correct there.
@@ -546,7 +546,7 @@ function hidingStatusRegions(text: string, file: string): Array<{ line: number; 
         // `role="log"` is a live region exactly as `role="status"` is, and the
         // HIDDEN-region scanner was still status-only after the conditional-mount
         // scanner learned `log`. The consequence the review probed: changing the
-        // app's own region (announceLog.tsx:134) from `sr-only` to `hidden`,
+        // app's own region (announceLog.tsx:144) from `sr-only` to `hidden`,
         // `inert`, `aria-hidden`, `display:none` or an `empty:hidden` class would
         // silently escape this guard, which is the one that exists to catch a
         // region nobody can hear.
@@ -728,7 +728,7 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     // nav-badge-arrival-announce Task 4: `role="log"` is the third spelling of
     // a live region born populated, and the detector did not recognise it.
     // AdminAnnounceProvider's own region is a `role="log"`
-    // (components/admin/announceLog.tsx:134), so a conditionally-mounted copy
+    // (components/admin/announceLog.tsx:142), so a conditionally-mounted copy
     // of that shape was exactly as invisible as the `aria-live` one was.
     expect(gated('const C = () => <div>{a && <p role="log">{m}</p>}</div>;')).toBe(1);
     expect(gated('const C = () => <div>{a ? <p role="log">{m}</p> : null}</div>;')).toBe(1);

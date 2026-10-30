@@ -39,9 +39,11 @@ export interface CrewWideNavProps {
   items: readonly CrewWideNavItem[];
   active: SectionId;
   hrefFor: (id: SectionId) => string;
+  /** Hidden, never unmounted, while search shows its results (search spec §6.2). */
+  hidden?: boolean;
 }
 
-export function CrewWideNav({ items, active, hrefFor }: CrewWideNavProps) {
+export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWideNavProps) {
   const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef(new Map<SectionId, HTMLAnchorElement>());
   const [indicator, setIndicator] = useState<{ y: number; h: number } | null>(null);
@@ -77,6 +79,7 @@ export function CrewWideNav({ items, active, hrefFor }: CrewWideNavProps) {
       ref={navRef}
       data-testid="crew-wide-nav"
       aria-label="Show sections"
+      hidden={hidden}
       className="sticky top-0 hidden max-h-dvh w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto border-r border-border py-6 pr-3 lg:flex"
     >
       {indicator !== null ? (

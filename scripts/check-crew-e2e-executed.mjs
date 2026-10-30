@@ -102,6 +102,15 @@ export const REQUIRED = {
   // measured failure). Derived from the 2026-08-10 local run's report: 3 passing
   // unique spec ids under desktop-chromium.
   "right-now-transitions.spec.ts": 3,
+  // ── wired by the crew show search branch (plan Task 19) ─────────────────────
+  // 8 = four cases (wifi flow, miss POST, spec §6.9 dimensions, the field's single
+  // focus ring) at each of two viewports (390px, 1280px), desktop-chromium ALONE
+  // (the spec drives the picker, whose `__Host-` envelope WebKit will not store
+  // over plain http). Counted from
+  // `playwright test --project=desktop-chromium tests/e2e/crew-search.spec.ts --list`
+  // ("Total: 8 tests in 1 file"), not from arithmetic. Re-derive with --list after
+  // adding or removing a case.
+  "crew-search.spec.ts": 8,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

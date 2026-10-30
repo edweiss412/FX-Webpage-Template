@@ -54,27 +54,31 @@ import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderAction
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { BoxIcon, MonitorIcon, NoteIcon } from "@/components/crew/icons/sectionIcons";
-import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
-import { EVENT_DETAILS_LABELS, CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetailsSpecs";
-import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
+import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { OpeningReelVideo } from "@/components/tiles/OpeningReelVideo";
-import { resolveViewerContext } from "@/lib/data/viewerContext";
-import { compareRooms, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
-import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
-import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
-import { shouldHideOpeningReel } from "@/lib/visibility/emptyState";
-import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
-import { isPackListVisibleToday } from "@/lib/visibility/packList";
-import { roomLabel } from "@/lib/visibility/roomLabel";
 import {
-  audioScopeVisible,
-  lightingScopeVisible,
-  videoScopeVisible,
-} from "@/lib/visibility/scopeTiles";
-import type { RoleFlag } from "@/lib/parser/types";
+  gearScopeCards,
+  keynoteRequirements,
+  openingReel,
+  packList,
+  roomDetailBlocks,
+  techSpecs,
+  YOUR_SCOPE,
+  type Discipline,
+} from "@/components/crew/sections/gearRows";
+import { resolveViewerContext } from "@/lib/data/viewerContext";
+import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { cn } from "@/lib/ui/cn";
+
+/**
+ * The pack-list and room-details caps live with the row derivations
+ * (gearRows.ts), which the crew search builder shares; re-exported here for the
+ * callers that read them from the section (the cap-boundary test, the search
+ * viewer matrix).
+ */
+export { CASE_CAP, ROOM_DETAIL_CAP } from "@/components/crew/sections/gearRows";
 
 type GearSectionProps = {
   data: ShowForViewer;
@@ -86,69 +90,17 @@ type GearSectionProps = {
   cardReport?: CardReportContext | null;
 };
 
-type Discipline = "audio" | "video" | "lighting" | "scenic" | "other";
-
 /**
- * Per-discipline static metadata: canonical A→V→L order, lucide glyph, the
- * human heading, and the per-room scalar accessor. The accessor reads
- * `r.audio` / `r.video` / `r.lighting` so the meta-test's
- * `\br\.(audio|video|lighting)\b` pattern matches and is sentinel-guarded.
+ * The scope-card glyph per discipline. The discipline list, headings and the
+ * per-room accessors live in gearRows.ts (`gearScopeCards`).
  */
-const DISCIPLINES: ReadonlyArray<{
-  id: Discipline;
-  heading: string;
-  icon: ReactNode;
-  value: (r: ProjectedRoomRow) => string | null;
-}> = [
-  {
-    id: "audio",
-    heading: "Audio",
-    icon: <Volume2 size={14} strokeWidth={2} />,
-    value: (r) => r.audio,
-  },
-  {
-    id: "video",
-    heading: "Video",
-    icon: <Video size={14} strokeWidth={2} />,
-    value: (r) => r.video,
-  },
-  {
-    id: "lighting",
-    heading: "Lighting",
-    icon: <Lightbulb size={14} strokeWidth={2} />,
-    value: (r) => r.lighting,
-  },
-  // Scenic + Other extend the same per-discipline card model (spec §3.6). They are
-  // NEVER emphasized (viewerDisciplines below covers only A/V/L), so they render
-  // neutral, after the three disciplines, and auto-omit when zero non-sentinel rows.
-  {
-    id: "scenic",
-    heading: "Scenic",
-    icon: <Frame size={14} strokeWidth={2} />,
-    value: (r) => r.scenic,
-  },
-  {
-    id: "other",
-    heading: "Other gear",
-    icon: <Boxes size={14} strokeWidth={2} />,
-    value: (r) => r.other,
-  },
-];
-
-/**
- * Which disciplines does this viewer "own"? Routes the freshly-derived
- * roleFlags through the canonical SCOPE_TILE_VISIBILITY_RULE predicates — the
- * SAME predicates that used to GATE the M4 scope tiles now drive the redesign's
- * emphasis flip (all scope shown to everyone; the viewer's own discipline(s)
- * sort first + carry the accent). This is an EMPHASIS signal, NOT a gate.
- */
-function viewerDisciplines(flags: RoleFlag[]): Set<Discipline> {
-  const set = new Set<Discipline>();
-  if (audioScopeVisible(flags)) set.add("audio");
-  if (videoScopeVisible(flags)) set.add("video");
-  if (lightingScopeVisible(flags)) set.add("lighting");
-  return set;
-}
+const DISCIPLINE_ICONS: Record<Discipline, ReactNode> = {
+  audio: <Volume2 size={14} strokeWidth={2} />,
+  video: <Video size={14} strokeWidth={2} />,
+  lighting: <Lightbulb size={14} strokeWidth={2} />,
+  scenic: <Frame size={14} strokeWidth={2} />,
+  other: <Boxes size={14} strokeWidth={2} />,
+};
 
 export function GearSection({
   data,
@@ -172,89 +124,35 @@ export function GearSection({
         showId={showId}
         sheetName={data.show.title}
         render={() => {
-          const owned = viewerDisciplines(ctx.viewerFlags);
+          // Every card's rows come from gearRows.ts, which the search builder
+          // reads too, so the page and the index agree on every line. Every
+          // generic-optional read there routes through `shouldHideGenericOptional`,
+          // as it did here. Scope cards: one per discipline with a present room
+          // value, the viewer's own disciplines first (an EMPHASIS flip, not a gate).
+          const scopeCards = gearScopeCards(data.rooms, ctx.viewerFlags);
 
-          // Build each discipline's present (non-sentinel) room values. A discipline
-          // with zero present values is omitted — INCLUDING the viewer's own.
-          const built = DISCIPLINES.map((d) => {
-            const rows: KeyValueRow[] = data.rooms
-              .filter((r) => !shouldHideGenericOptional(d.value(r)))
-              .map((r) => ({ k: roomLabel(r), v: d.value(r)! }));
-            return { ...d, rows, emphasized: owned.has(d.id) };
-          }).filter((d) => d.rows.length > 0);
-
-          // Emphasis order: the viewer's owned discipline cards FIRST (in canonical
-          // A→V→L order, which is the DISCIPLINES array order — already preserved by
-          // the .map above), then the remaining disciplines in the same canonical
-          // order. A stable partition preserves canonical order within each group.
-          const scopeCards = [
-            ...built.filter((d) => d.emphasized),
-            ...built.filter((d) => !d.emphasized),
-          ];
-
-          // Pack list — gated by the canonical predicate; `today` threads straight
-          // through. The pullSheet/empty-array fall-through mirrors PackListTile.
-          const packVisible =
-            data.pullSheet !== null &&
-            data.pullSheet.length > 0 &&
-            isPackListVisibleToday({
-              show: data.show,
-              restriction: ctx.stageRestriction,
-              today,
-            });
-          const CASE_CAP = 12;
-          const visibleCases = packVisible ? data.pullSheet!.slice(0, CASE_CAP) : [];
-          const overflowCount = packVisible ? Math.max(0, data.pullSheet!.length - CASE_CAP) : 0;
+          // Pack list — gated by `isPackListVisibleToday`; `today` threads straight
+          // through. Cases past CASE_CAP collapse into the overflow stub.
+          const pack = packList(data, ctx.stageRestriction, today);
+          const packVisible = pack.visible;
+          const visibleCases = pack.cases;
+          const overflowCount = pack.overflowCount;
 
           // Keynote requirements — sentinel-guarded generic-optional text field.
-          const rawKeynote = data.show.event_details["keynote_requirements"] ?? null;
-          const keynote = shouldHideGenericOptional(rawKeynote) ? null : rawKeynote!.trim();
+          const keynote = keynoteRequirements(data.show.event_details);
 
-          // Opening reel — URL-stripped text + the proxied player. The text line is
-          // shown only when the cell isn't hidden (shouldHideOpeningReel); the player
-          // is shown when the projection says a playable video exists.
-          const rawReel = data.show.event_details["opening_reel"] ?? null;
-          const reelText = shouldHideOpeningReel(rawReel) ? null : stripOpeningReelText(rawReel);
-          const showReelPlayer = data.openingReelHasVideo;
-          // Defensive invariant: "has reel text" requires a NON-EMPTY string. Today
-          // `shouldHideOpeningReel` already returns true for any value that strips to
-          // "" (OPENING_REEL_HIDE contains "", emptyState.ts:49), so `reelText` is
-          // never "" — but making the non-empty requirement explicit keeps the
-          // whole-card-missing contract (no text + no video → render nothing, the
-          // ported OpeningReelTile behavior) robust if that hide-set ever changes.
-          const hasReelText = reelText !== null && reelText.length > 0;
-          const hasReel = showReelPlayer || hasReelText;
+          // Opening reel — URL-stripped text + the proxied player.
+          const reel = openingReel(data.show.event_details, data.openingReelHasVideo);
+          const hasReel = reel.visible;
 
-          // Tech specs — the show-level event_details specs not surfaced elsewhere
-          // (BL-EVENT-DETAILS-UNRENDERED). `?? {}` is null-safe parity with the
-          // modal; `String(...)` coerces non-string JSONB values without throwing.
-          // KeyValueRows omits any sentinel/empty row, so no per-row guard here.
-          const ed = data.show.event_details ?? {};
-          const techSpecRows: KeyValueRow[] = CREW_TECH_SPEC_KEYS.map((key) => ({
-            k: EVENT_DETAILS_LABELS[key],
-            v: String(ed[key] ?? "").trim(),
-          }));
-          const hasTechSpecs = techSpecRows.some((r) => !shouldHideGenericOptional(r.v));
-
-          // Per-room detail (BL-ROOM-DETAIL-UNRENDERED): physical + schedule fields
-          // the parser captures but no card rendered. Room-first (a block per
-          // room), distinct from the discipline-first scope cards. Sentinel-hidden
-          // via KeyValueRows; String() coerces non-string JSONB without throwing.
-          const ROOM_DETAIL_CAP = 12;
-          const roomDetailBlocks = [...data.rooms]
-            .sort(compareRooms)
-            .map((r) => ({
-              id: r.id,
-              label: roomLabel(r),
-              rows: ROOM_DETAIL_FIELDS.map((f) => ({
-                k: f.label,
-                v: String(r[f.key] ?? "").trim(),
-              })) satisfies KeyValueRow[],
-            }))
-            .filter((b) => b.rows.some((row) => !shouldHideGenericOptional(row.v)));
-          const hasRoomDetails = roomDetailBlocks.length > 0;
-          const shownRoomBlocks = roomDetailBlocks.slice(0, ROOM_DETAIL_CAP);
-          const hiddenRoomCount = roomDetailBlocks.length - shownRoomBlocks.length;
+          // Tech specs (BL-EVENT-DETAILS-UNRENDERED) and per-room detail
+          // (BL-ROOM-DETAIL-UNRENDERED, capped at ROOM_DETAIL_CAP).
+          const specs = techSpecs(data.show.event_details);
+          const hasTechSpecs = specs.visible;
+          const roomDetails = roomDetailBlocks(data.rooms);
+          const hasRoomDetails = roomDetails.visible;
+          const shownRoomBlocks = roomDetails.shown;
+          const hiddenRoomCount = roomDetails.hiddenCount;
 
           // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
           // A/V/L scope cards read data.rooms; per _ShowBody §4.13 scope is shown
@@ -318,15 +216,19 @@ export function GearSection({
                       )}
                     >
                       <SectionCard
-                        icon={d.icon}
+                        icon={DISCIPLINE_ICONS[d.id]}
                         title={d.heading}
                         action={
                           // The viewer's-own-scope eyebrow (when emphasized) and the
                           // recessive source link share the header action slot.
                           <div className="flex items-center gap-2">
                             {d.emphasized ? (
-                              <span className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg">
-                                Your scope
+                              // Chrome, not sheet data; the card's search lines carry it as context.
+                              <span
+                                data-search-skip=""
+                                className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg"
+                              >
+                                {YOUR_SCOPE}
                               </span>
                             ) : null}
                             <CardHeaderActions
@@ -373,12 +275,16 @@ export function GearSection({
                     <ol className="flex flex-col gap-2">
                       {visibleCases.map((c, idx) => (
                         <li
-                          key={`${c.caseLabel}-${idx}`}
+                          key={c.key}
                           data-testid="gear-pack-list-case"
                           className="rounded-sm border border-border bg-surface"
                         >
                           <details className="group">
+                            {/* The summary is the case's search line when the label is
+                                the sheet's; an invented "Case N" is chrome, not data. */}
                             <summary
+                              data-search-target={c.entry?.id}
+                              data-search-skip={c.entry === null ? "" : undefined}
                               className={cn(
                                 "flex min-h-tap-min cursor-pointer list-none",
                                 "items-center justify-between gap-3",
@@ -390,11 +296,12 @@ export function GearSection({
                               <span className="flex flex-1 items-baseline gap-2 truncate">
                                 <span
                                   aria-hidden="true"
+                                  data-search-skip=""
                                   className="shrink-0 text-xs font-medium tabular-nums text-text-subtle"
                                 >
                                   {idx + 1}.
                                 </span>
-                                <span className="truncate">{c.caseLabel || `Case ${idx + 1}`}</span>
+                                <span className="truncate">{c.label}</span>
                               </span>
                               {/* The item count is a fact, not an affordance:
                                   this summary suppresses the native marker and
@@ -413,31 +320,23 @@ export function GearSection({
                               </span>
                             </summary>
                             <ul className="flex flex-col gap-1.5 border-t border-border p-3  text-sm text-text">
-                              {c.items.map((item, itemIdx) => {
-                                const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
-                                const subCat = shouldHideGenericOptional(item.subCat)
-                                  ? null
-                                  : item.subCat;
-                                const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
-                                const qtyPart = item.qty !== null ? `${item.qty} × ` : "";
-                                const label = `${qtyPart}${item.item}${taxonomy ? ` (${taxonomy})` : ""}`;
-                                return (
-                                  <li
-                                    key={`${item.item}-${itemIdx}`}
-                                    className="flex flex-wrap items-baseline gap-x-2"
-                                  >
-                                    <span>{label}</span>
-                                    {item.rawSnippet ? (
-                                      <span
-                                        data-testid="gear-pack-list-item-raw-snippet"
-                                        className="text-xs italic text-text-subtle"
-                                      >
-                                        {item.rawSnippet}
-                                      </span>
-                                    ) : null}
-                                  </li>
-                                );
-                              })}
+                              {c.items.map((item) => (
+                                <li
+                                  key={item.key}
+                                  data-search-target={item.entry?.id}
+                                  className="flex flex-wrap items-baseline gap-x-2"
+                                >
+                                  <span>{item.label}</span>
+                                  {item.rawSnippet !== null ? (
+                                    <span
+                                      data-testid="gear-pack-list-item-raw-snippet"
+                                      className="text-xs italic text-text-subtle"
+                                    >
+                                      {item.rawSnippet}
+                                    </span>
+                                  ) : null}
+                                </li>
+                              ))}
                             </ul>
                           </details>
                         </li>
@@ -447,6 +346,7 @@ export function GearSection({
                       <div
                         data-testid="gear-pack-list-overflow-stub"
                         data-tile-show-more="true"
+                        data-search-skip=""
                         className="rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
                       >
                         <span className="tabular-nums">+{overflowCount}</span>{" "}
@@ -474,7 +374,7 @@ export function GearSection({
                   >
                     {/* columns={2} packs ~15 reference specs efficiently on desktop;
                         KeyValueRows collapses to a single column in a narrow container. */}
-                    <KeyValueRows rows={techSpecRows} columns={2} />
+                    <KeyValueRows rows={specs.rows} columns={2} />
                   </SectionCard>
                 </div>
               ) : null}
@@ -505,7 +405,12 @@ export function GearSection({
                               per-room block a heading so the room↔detail relationship
                               is exposed to SR + reads as a distinct block, not another
                               field label (impeccable critique + audit MED). */}
-                          <h3 className="text-sm font-semibold text-text-strong">{b.label}</h3>
+                          <h3
+                            data-search-target={b.heading?.id}
+                            className="text-sm font-semibold text-text-strong"
+                          >
+                            {b.label}
+                          </h3>
                           {/* columns={1}: detail reads label:value per line, keeping the
                               physical (dimensions/floor/setup) → schedule (set/show/strike)
                               order intact at every width (no 2-col interleave). */}
@@ -513,7 +418,7 @@ export function GearSection({
                         </div>
                       ))}
                       {hiddenRoomCount > 0 ? (
-                        <p className="text-sm text-text-subtle">
+                        <p data-search-skip="" className="text-sm text-text-subtle">
                           …and {hiddenRoomCount} more room{hiddenRoomCount === 1 ? "" : "s"}
                         </p>
                       ) : null}
@@ -537,7 +442,9 @@ export function GearSection({
                       />
                     }
                   >
-                    <p className="text-sm text-text">{keynote}</p>
+                    <p data-search-target={keynote.entry?.id} className="text-sm text-text">
+                      {keynote.text}
+                    </p>
                   </SectionCard>
                 </div>
               ) : null}
@@ -558,12 +465,8 @@ export function GearSection({
                     }
                   >
                     <div className="flex flex-col gap-3">
-                      {hasReelText ? (
-                        <KeyValueRows
-                          rows={[{ k: "Status", v: reelText! }] satisfies KeyValueRow[]}
-                        />
-                      ) : null}
-                      {showReelPlayer ? <OpeningReelVideo showId={showId} /> : null}
+                      {reel.rows.length > 0 ? <KeyValueRows rows={reel.rows} /> : null}
+                      {reel.showPlayer ? <OpeningReelVideo showId={showId} /> : null}
                     </div>
                   </SectionCard>
                 </div>
