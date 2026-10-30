@@ -1279,15 +1279,32 @@ test.describe("wifi password transcription affordance (production route)", () =>
     });
     expect(res?.status(), `crew venue route must render`).toBe(200);
     await expect(page.getByTestId("crew-shell")).toBeVisible();
+    // Readiness gate (plan harness rule), and it must come BEFORE the centring
+    // below. This describe freezes only the browser clock, so hydration fails
+    // on `RightNowHero` (server wall clock vs frozen instant, see rectOf above)
+    // and React regenerates the whole tree on the client. The Venue body sits in
+    // the section sheet, whose body is the scroller the row is centred in: a
+    // centring done before that regeneration scrolled a node React then
+    // replaced, the new scroller came up at scrollTop 0, and the copy target sat
+    // below the viewport, where the hit test returns null. The controller marks
+    // its root only on the committed client tree, so after this the scroller is
+    // the one the measurement reads. The copy button below is enabled in the
+    // server HTML too, so it cannot stand in for this gate.
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
     await expect(page.getByTestId("section-venue")).toBeVisible();
     // Settle the section-enter crossfade before any layout read — under a frozen
     // clock framer's enter animation does not auto-advance, and a read taken at
     // the pre-commit frame reports height 0 for the whole subtree.
     await page.clock.runFor(400);
     await expect(page.getByTestId("venue-wifi-password")).toBeVisible();
-    // The island must be HYDRATED before geometry: an un-hydrated button is
+    // The island must be MOUNTED before geometry: an un-hydrated button is
     // still laid out, but a measurement that passes before hydration would pass
-    // just as well if the island never mounted.
+    // just as well if the island never mounted. Hydration itself is proven by
+    // the readiness gate above; this pins the island's own control.
     await expect(
       page.getByTestId("venue-wifi-password").getByRole("button", {
         name: "Copy the Wi-Fi password",
@@ -1324,6 +1341,15 @@ test.describe("wifi password transcription affordance (production route)", () =>
           height: r.height,
         };
       };
+      /** Nearest fixed/sticky or scrolling ancestor; `null` is the page itself. */
+      const layerOf = (el: Element): Element | null => {
+        for (let n = el.parentElement; n !== null; n = n.parentElement) {
+          const cs = getComputedStyle(n);
+          if (cs.position === "fixed" || cs.position === "sticky") return n;
+          if (cs.overflowY === "auto" || cs.overflowY === "scroll") return n;
+        }
+        return null;
+      };
       const row = document.querySelector('[data-testid="venue-wifi-password"]');
       if (row === null) return null;
       const card = row.closest('[data-testid="section-card"]');
@@ -1351,28 +1377,26 @@ test.describe("wifi password transcription affordance (production route)", () =>
             rect: box(el),
           }),
         ),
+        // The LAYER the target's rect lives in: its nearest ancestor that is
+        // fixed/sticky chrome or a scroll container. Two rects are in one
+        // coordinate frame only when they share it; anything else moves
+        // independently of the target (a fixed bar, the page behind an open
+        // sheet), so comparing it measures where the two happened to be at one
+        // scroll offset, not whether they can ever collide. The old bottom
+        // tab-bar produced exactly that false overlap, and so does the page
+        // behind the section sheet: the Venue body now sits in the sheet's
+        // scroller, and the page under the scrim is inert, so its links cannot
+        // take a tap whatever their rects say. Everything outside the target's
+        // layer is covered by the hit test below instead, which asks the real
+        // question: does a tap at the target land on the target?
+        //
+        // The ANCESTOR chain, not the element's own `position`: a fixed
+        // container's children compute to `static` and inherit its
+        // viewport-space coordinates.
+        targetLayer: button === null ? null : (layerOf(button)?.getAttribute("data-testid") ?? ""),
         interactives: Array.from(document.querySelectorAll("a, button")).map((el) => ({
           isTarget: el === button,
-          // A fixed-position element's rect is in VIEWPORT space and moves with
-          // the scroll, so comparing it to an in-flow rect measures where the
-          // two happened to be at one scroll offset, not whether they can ever
-          // collide. The bottom tab-bar is exactly that, and it produced a false
-          // overlap here. Fixed/sticky chrome is covered by the hit test below
-          // instead, which asks the real question: does a tap at the target land
-          // on the target?
-          //
-          // The ANCESTOR chain, not the element's own `position`: the tab-bar's
-          // container is what is fixed, while each tab button inside it computes
-          // to `static` and inherits the container's viewport-space coordinates.
-          // Reading the element alone let every one of those buttons back into
-          // the comparison.
-          inFixedChrome: (() => {
-            for (let n: Element | null = el; n !== null; n = n.parentElement) {
-              const p = getComputedStyle(n).position;
-              if (p === "fixed" || p === "sticky") return true;
-            }
-            return false;
-          })(),
+          sameLayer: button !== null && layerOf(el) === layerOf(button),
           name:
             el.getAttribute("aria-label") ??
             (el.textContent ?? "").trim().slice(0, 40) ??
@@ -1484,13 +1508,19 @@ test.describe("wifi password transcription affordance (production route)", () =>
     }
 
     // Not merely other fact rows: anything the finger can hit. A target that
-    // overlaps the section nav or the report button steals taps from it.
-    // Fixed/sticky chrome is excluded from the RECT comparison and covered by
-    // the hit test instead — see the `position` note in readVenueGeometry.
-    const others = g!.interactives.filter((el) => !el.isTarget && !el.inFixedChrome);
+    // overlaps the section nav or the report button steals taps from it. The
+    // RECT comparison runs over the target's own layer, the sheet body's
+    // scroller (its card actions, the map link, the other cards' controls);
+    // everything outside it is covered by the hit test instead — see the
+    // layer note in readVenueGeometry.
+    expect(
+      g!.targetLayer,
+      "the copy target must scroll with the section sheet's body, or the layer below is the wrong one",
+    ).toBe("crew-section-sheet-body");
+    const others = g!.interactives.filter((el) => !el.isTarget && el.sameLayer);
     expect(
       others.length,
-      "the crew page must render other in-flow interactive elements, or this proves nothing",
+      "the sheet body must render other interactive elements, or this proves nothing",
     ).toBeGreaterThan(0);
     for (const el of others) {
       expect(overlaps(button, el.rect), `copy target overlaps "${el.name}"`).toBe(false);
