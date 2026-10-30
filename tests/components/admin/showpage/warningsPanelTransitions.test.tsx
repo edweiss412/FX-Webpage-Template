@@ -125,6 +125,11 @@ describe("transition audit: nothing in the four-state path animates", () => {
       // surfaced it on its first run; the previous substring version of this
       // test could not have.
       "parseNotes.length > 0",
+      // warning-card-fixes Task 17 (spec §8.3): the staged card's section jump, named
+      // by its three load-bearing branches (enumerated in full at the count below).
+      'w.code === "VENUE_ADDRESS_MISSING"', // R4: the venue card never jumps
+      "index < hotelCount", // the reservation jump's upper bound (§15)
+      'reservation ? "reservation" : target', // reservation vs section jump
     ];
     const src = stripCommentsForFile(
       readFileSync(resolve(process.cwd(), FILES[0]!), "utf8"),
@@ -176,13 +181,30 @@ describe("transition audit: nothing in the four-state path animates", () => {
     //   +1  `dq ? <focus anchor> : null` — the sr-only `tabIndex={-1}` target the
     //       controls hand focus to before a refresh unmounts them (impeccable critique
     //       P0). It renders nothing and has no state of its own.
+    //
+    // 10 -> 13 ternaries, 0 -> 3 ifs and 1 -> 8 guards, added by warning-card-fixes
+    // Task 17 (spec §8.3): the staged card's section jump is rendered by a local
+    // closure inside this region. Enumerated, each one a content fact of one render:
+    //   +1 if   `!onJumpToSection || w.code === "VENUE_ADDRESS_MISSING"` — no jump
+    //           without the staged chrome callback, and never on the venue card (R4)
+    //   +1 ?:   `target === null ? undefined : chrome?.jumpSections?.find(…)` — the
+    //           routed section's rendered entry, absent when the warning routes nowhere
+    //   +1 if   `target === null || section === undefined` — no jump to a section the
+    //           surface did not render (§15)
+    //   +7 &&   the reservation predicate, one per §8.3 clause: target is Hotels, the
+    //           code is a hotel reservation judgment code, the index is a number, a
+    //           safe integer, >= 0, the chrome carries a hotel count, and index < it
+    //   +1 ?:   `data-jump={reservation ? "reservation" : target}`
+    //   +1 if   the click: `onJumpToHotel(index)` for the reservation, else
+    //           `onJumpToSection(target)`
+    //   +1 ?:   the visible label, `Go to this reservation in Hotels` vs `Go to <label>`
     // Every one is a content fact of a single render, decided from props the server
     // already computed. None introduces a state that persists across renders, so none
     // can animate — which is what this audit is actually asserting.
     expect({ ternaries, ifs, guards }, "the region's branch positions").toEqual({
-      ternaries: 10,
-      ifs: 0,
-      guards: 1,
+      ternaries: 13,
+      ifs: 3,
+      guards: 8,
     });
 
     // WD2 P2: the extracted `ElsewherePointerSentence` carries the relocated
