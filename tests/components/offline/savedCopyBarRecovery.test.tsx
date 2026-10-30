@@ -11,7 +11,8 @@
  * true, never two at once. A `saved` reply shows `updating`, sets a session
  * flag and reloads; `purged` reloads at once; `ended` shows `ended`; anything
  * else changes nothing. The next page consumes the flag once and shows
- * `updated` for 4 seconds.
+ * `updated` for 4 seconds, then fades it out (savedCopyBarTransitions.test.tsx
+ * pins the fade).
  *
  * The transport is mocked (postToWorker, pinned in
  * tests/lib/offline/clientMessaging.test.ts) so each reply is under the test's
@@ -41,6 +42,8 @@
  * attribute, when its `s` already names the section, or with the other
  * parameters or the fragment dropped.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { StrictMode } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from "vitest";
@@ -67,6 +70,13 @@ const HOUR_MS = 60 * MINUTE_MS;
 const PROBE_EVERY_MS = 30_000;
 /** Spec 4.7.2: how long `updated` shows after a recovery reload. */
 const UPDATED_FOR_MS = 4_000;
+/** The `updated` fade's length: the duration-normal token it runs on (app/globals.css). */
+const FADE_MS = (() => {
+  const css = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
+  const match = /--duration-normal:\s*(\d+)ms;/.exec(css);
+  if (match === null) throw new Error("app/globals.css defines no --duration-normal");
+  return Number(match[1]);
+})();
 
 const NOW_MS = Date.parse("2026-10-27T12:00:00.000Z");
 const RENDERED_AT = "2026-10-27T11:59:00.000Z";
@@ -191,6 +201,11 @@ function barState(): string {
 
 function barText(): string {
   return screen.queryByTestId("saved-copy-bar-content")?.textContent ?? "";
+}
+
+/** Whether the visible bar is in the `updated` fade (its classes: savedCopyBarTransitions.test.tsx). */
+function fading(): boolean {
+  return screen.queryByTestId("saved-copy-bar")?.classList.contains("opacity-0") ?? false;
 }
 
 /** Every probe posted so far, as the messages the bar sent. */
@@ -506,7 +521,7 @@ describe("SavedCopyBar recovery: the session flag", () => {
     return left;
   }
 
-  test("the next page consumes the flag once: updated for 4 seconds, then hidden, and never again", async () => {
+  test("the next page consumes the flag once: updated for 4 seconds, then it fades out, and never again", async () => {
     await recoverAndReload();
 
     const { unmount } = renderBar();
@@ -516,7 +531,11 @@ describe("SavedCopyBar recovery: the session flag", () => {
 
     await advance(UPDATED_FOR_MS - 1);
     expect(barState()).toBe("updated");
+    expect(fading()).toBe(false);
     await advance(1);
+    // The window is over: the bar fades, and leaves when the fade does.
+    expect(fading()).toBe(true);
+    await advance(FADE_MS);
     expect(barState()).toBe("hidden");
     unmount();
 
@@ -538,7 +557,10 @@ describe("SavedCopyBar recovery: the session flag", () => {
 
     await advance(UPDATED_FOR_MS - 1);
     expect(barState()).toBe("updated");
+    expect(fading()).toBe(false);
     await advance(1);
+    expect(fading()).toBe(true);
+    await advance(FADE_MS);
     expect(barState()).toBe("hidden");
   });
 

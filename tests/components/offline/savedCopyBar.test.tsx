@@ -128,13 +128,36 @@ function region(): HTMLElement {
 }
 
 /**
- * The server render: the empty live region and nothing else. Its classes are
- * layout only (the spec 4.7.2 Dimensional Invariants, measured in a real
- * browser by tests/e2e/crew-offline-layout.spec.ts), so it still paints nothing.
+ * The region's classes, sorted: layout only (the spec 4.7.2 Dimensional
+ * Invariants, measured in a real browser by tests/e2e/crew-offline-layout.spec.ts),
+ * so an empty region paints nothing. Compared as a sorted set wherever they are
+ * checked, because nothing enforces class order.
  */
-const EMPTY_REGION_MARKUP =
-  '<div data-testid="saved-copy-bar-region" role="status" aria-live="polite" ' +
-  'class="sticky top-0 z-raised flex-none self-stretch"></div>';
+const REGION_LAYOUT_CLASSES = ["flex-none", "self-stretch", "sticky", "top-0", "z-raised"].sort();
+
+/**
+ * The server render is the empty live region and nothing else: one `div` with
+ * the region's test id, role, politeness and layout classes, and no children.
+ * Compared as a tag, attributes and a sorted class list, never as a string, so
+ * the class order (which no tool enforces) is not pinned.
+ */
+function expectEmptyRegionMarkup(markup: string): void {
+  const template = document.createElement("template");
+  template.innerHTML = markup;
+  const nodes = [...template.content.childNodes];
+  expect(nodes).toHaveLength(1);
+  const element = nodes[0] as Element;
+  expect(element.tagName).toBe("DIV");
+  expect(
+    Object.fromEntries(
+      [...element.attributes]
+        .filter((attribute) => attribute.name !== "class")
+        .map((attribute) => [attribute.name, attribute.value]),
+    ),
+  ).toEqual({ "data-testid": "saved-copy-bar-region", role: "status", "aria-live": "polite" });
+  expect([...element.classList].sort()).toEqual(REGION_LAYOUT_CLASSES);
+  expect(element.childNodes).toHaveLength(0);
+}
 
 function contentText(): string {
   return screen.getByTestId("saved-copy-bar-content").textContent ?? "";
@@ -337,9 +360,7 @@ describe("SavedCopyBar: inputs", () => {
     // browser measures the height: tests/e2e/crew-offline-layout.spec.ts case 1.
     expect(live.childNodes).toHaveLength(0);
     expect(live.textContent).toBe("");
-    expect([...live.classList].sort()).toEqual(
-      ["flex-none", "self-stretch", "sticky", "top-0", "z-raised"].sort(),
-    );
+    expect([...live.classList].sort()).toEqual(REGION_LAYOUT_CLASSES);
     expect(live.hasAttribute("style")).toBe(false);
     expect(screen.queryByTestId("saved-copy-bar")).toBeNull();
     expect(document.documentElement.getAttribute(MOUNTED_ATTRIBUTE)).toBe("mounted");
@@ -525,7 +546,7 @@ describe("SavedCopyBar: hydration", () => {
       (markup, filled) => {
         // The server renders the empty live region, so the first client render
         // must produce exactly that.
-        expect(markup).toBe(EMPTY_REGION_MARKUP);
+        expectEmptyRegionMarkup(markup);
         serverRegion = filled.querySelector('[data-testid="saved-copy-bar-region"]');
         premiseHolds(
           "html is not marked before hydration",
@@ -563,7 +584,7 @@ describe("SavedCopyBar: hydration", () => {
           document.head.querySelector('meta[name="fxav-served"]') === null,
         );
         // Rendered while online: the empty region the server always sends.
-        expect(markup).toBe(EMPTY_REGION_MARKUP);
+        expectEmptyRegionMarkup(markup);
         // The phone is offline by the time the page hydrates.
         onLine.mockReturnValue(false);
       },

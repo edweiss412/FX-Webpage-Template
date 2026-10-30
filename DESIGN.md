@@ -806,6 +806,7 @@ realtime reconnect backoff.
 | `PROBE_INTERVAL_MS` | 30000 | `components/offline/SavedCopyBar.tsx` |
 | `PROBE_TIMEOUT_MS` | 20000 | `components/offline/SavedCopyBar.tsx` |
 | `JUST_UPDATED_MS` | 4000 | `components/offline/SavedCopyBar.tsx` |
+| `UPDATED_FADE_FALLBACK_MS` | 220 | `components/offline/SavedCopyBar.tsx` |
 | `REPLY_TIMEOUT_MS` | 10000 | `components/offline/SavedCopyMarker.tsx` |
 | `ENSURE_SAVED_THROTTLE_MS` | 10000 | `components/offline/SavedCopyRegistrar.tsx` |
 | `ENSURE_SAVED_REPLY_TIMEOUT_MS` | 20000 | `components/offline/SavedCopyRegistrar.tsx` |

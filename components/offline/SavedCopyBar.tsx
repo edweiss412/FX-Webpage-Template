@@ -56,12 +56,29 @@
  * in the DOM, so no file under components/crew changes. A URL whose `s`
  * already names that section is not rewritten.
  *
+ * When `updated`'s 4-second window ends, the bar fades out (spec 4.7.2
+ * Transition Inventory): the same bar takes `opacity-0` with
+ * `transition-opacity duration-normal`, and leaves on its own `transitionend`,
+ * or after UPDATED_FADE_FALLBACK_MS if none comes. Under reduced motion it
+ * leaves at once. The fade runs under the inputs the window ended with, kept
+ * as a key, so any input change gives a different key, which cancels the fade
+ * and renders the new state at once. Every other change of state is instant,
+ * and no other element carries a transition or duration class. The region
+ * never fades: only the visible bar leaves it.
+ *
+ * `SavedCopyBarView` paints one derived view: the region, the bar and the
+ * fade's classes, with no state of its own. The inventory's pairs are pairs of
+ * views, so its tests drive the view directly (preflight ruling D15), and
+ * savedCopyBarTransitionAudit.test.ts declares a treatment for every
+ * conditional in this file.
+ *
  * `slug` and `shareToken` are accepted for the bar's links (spec 4.7.2).
  */
 import { Check, Clock, RefreshCw, TriangleAlert, WifiOff, type LucideIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { deriveBarView, type BarMode, type BarView } from "@/lib/offline/barState";
+import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
+import { deriveBarView, type BarInputs, type BarMode, type BarView } from "@/lib/offline/barState";
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { useOnlineStatus } from "@/lib/offline/client/online";
 import { reloadPage } from "@/lib/offline/client/reload";
@@ -97,6 +114,18 @@ const PROBE_TIMEOUT_MS = 20_000;
 
 /** How long `updated` shows after a recovery reload (spec 4.7.2). */
 const JUST_UPDATED_MS = 4_000;
+
+/**
+ * How long the `updated` fade may run before the bar leaves without its
+ * `transitionend`, which a transition that does not run (under a
+ * `display: none` ancestor, say) never sends. The fade is on `duration-normal`,
+ * 220 ms (app/globals.css), the token nearest the spec's 200 ms: a token
+ * rather than a literal class, so the reduced-motion collapse that zeroes every
+ * duration token reaches it. A literal here because DESIGN.md §5.5 lists it and
+ * the timing scanner resolves only numeric-literal constants;
+ * savedCopyBarTransitionAudit.test.ts pins it to the token.
+ */
+const UPDATED_FADE_FALLBACK_MS = 220;
 
 const MOUNTED_ATTRIBUTE = "data-fxav-bar";
 
@@ -170,12 +199,17 @@ function showRenderedSectionInUrl(): void {
 
 export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps) {
   const online = useOnlineStatus();
+  const reducedMotion = usePrefersReducedMotion();
   // The render time this bar mounted with. A different one later means an RSC
   // refresh brought server content, so the page is live (spec 4.7.2).
   const [mountRenderedAt] = useState(renderedAt);
   const [reading, setReading] = useState<ServedCopyReading | null>(null);
   const [recovery, setRecovery] = useState<Recovery>("idle");
   const [justUpdated, setJustUpdated] = useState(false);
+  // The inputs the `updated` fade runs under, as a key; null when none runs.
+  const [fadeUnder, setFadeUnder] = useState<string | null>(null);
+  // The last committed inputs' key, which the 4-second timer hands the fade.
+  const committedInputs = useRef<string | null>(null);
 
   useEffect(() => {
     const first = readServedCopy();
@@ -193,9 +227,18 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
 
   useEffect(() => {
     if (!justUpdated) return;
-    const timer = window.setTimeout(() => setJustUpdated(false), JUST_UPDATED_MS);
+    const timer = window.setTimeout(() => {
+      setJustUpdated(false);
+      setFadeUnder(committedInputs.current);
+    }, JUST_UPDATED_MS);
     return () => window.clearTimeout(timer);
   }, [justUpdated]);
+
+  useEffect(() => {
+    if (fadeUnder === null) return;
+    const timer = window.setTimeout(() => setFadeUnder(null), UPDATED_FADE_FALLBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [fadeUnder]);
 
   const hasReading = reading !== null;
   useLayoutEffect(() => {
@@ -268,9 +311,9 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
     };
   }, [probing]);
 
-  let view: BarView | null = null;
+  let inputs: Omit<BarInputs, "justUpdated"> | null = null;
   if (reading !== null && mode !== null) {
-    view = deriveBarView({
+    inputs = {
       ...reading,
       mode,
       online,
@@ -279,9 +322,47 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
       // An RSC refresh during a reload makes the page live, and live content
       // is the latest there is: the bar stops saying it is loading.
       updating: recovery === "updating" && mode !== "live",
-      justUpdated,
-    });
+    };
   }
+  const inputsKey = inputs === null ? null : JSON.stringify(inputs);
+  useLayoutEffect(() => {
+    committedInputs.current = inputsKey;
+  }, [inputsKey]);
+
+  let view: BarView | null = null;
+  let fading = false;
+  if (inputs !== null) {
+    view = deriveBarView({ ...inputs, justUpdated });
+    // The window ended under these very inputs. If it ended on `updated`, the
+    // bar is going from `updated` to `hidden`, and it fades; under reduced
+    // motion, or before the preference is known, it goes at once.
+    if (fadeUnder === inputsKey && reducedMotion === false) {
+      const leaving = deriveBarView({ ...inputs, justUpdated: true });
+      if (leaving.state === "updated") {
+        view = leaving;
+        fading = true;
+      }
+    }
+  }
+
+  return <SavedCopyBarView view={view} fading={fading} onFadeEnd={() => setFadeUnder(null)} />;
+}
+
+export type SavedCopyBarViewProps = {
+  /** The derived view; `null` (no readings yet) and `hidden` show no bar. */
+  view: BarView | null;
+  /** The `updated` view is fading out: the bar takes the fade's classes. */
+  fading: boolean;
+  /** The bar's own `transitionend`, which ends the fade. */
+  onFadeEnd: () => void;
+};
+
+/**
+ * One derived view, painted: the always-mounted live region and, unless the
+ * view is `hidden`, the bar inside it. No state and no effects, so a pair of
+ * views is a pair of renders.
+ */
+export function SavedCopyBarView({ view, fading, onFadeEnd }: SavedCopyBarViewProps) {
   // `hidden` is the one state with no icon, and it shows nothing.
   const Icon = view === null || view.icon === null ? null : ICONS[view.icon];
 
@@ -296,7 +377,15 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
         <div
           data-testid="saved-copy-bar"
           data-state={view.state}
-          className={cn("flex items-start gap-2 px-4 py-2 text-sm", view.tone)}
+          className={cn(
+            "flex items-start gap-2 px-4 py-2 text-sm",
+            view.tone,
+            fading && "opacity-0 transition-opacity duration-normal",
+          )}
+          onTransitionEnd={(event) => {
+            // A transition inside the bar is not the fade.
+            if (event.target === event.currentTarget) onFadeEnd();
+          }}
         >
           <Icon
             aria-hidden="true"
