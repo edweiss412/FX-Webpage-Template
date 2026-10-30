@@ -106,7 +106,9 @@ export const CENSUS: readonly CensusRow[] = [
   // itself is untouched across all three. Relocated by finding its OWN
   // `data-testid` and taking the `<button` it opens, never by applying the
   // delta — `LIM-LINE-KEYED-SITEID`, which this arc has now hit eight times.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 894 },
+  // 894 -> 905 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's ref
+  // and helper); located by its own `review-resolution-ignore` testid.
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 905 },
   // spec §4.2 row 17 — the `review-publish` button. 883, then 946, same two
   // arcs and the same cause; located from its own testid the same way.
   // NINTH re-key, same session: the impeccable gate reverted this file's ring
@@ -124,7 +126,9 @@ export const CENSUS: readonly CensusRow[] = [
   // Twelve re-keys, deltas +15, +2, +31, +1, -15: a line number is not an
   // identity, and every one of these was relocated from the element's own
   // testid.
-  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 980 },
+  // 980 -> 995 on feat/warning-card-fixes Task 18b; located by its own
+  // `review-publish` testid (the checked-slot Unpublish button, the first of two).
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 995 },
   // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
   // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
   // 11c4fb6ca), which added one net line above both rows. Line numbers are

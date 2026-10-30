@@ -82,6 +82,7 @@ test.beforeAll(async () => {
       `@source "${join(REPO_ROOT, "components", "admin", "review", "attentionMark.ts")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "wizard", "Step3ReviewModal.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "review", "ReviewModalShell.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "review", "unsavedReadings.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "review", "ShowReviewSurface.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "shared", "ReportButton.tsx")}";`,
       globals,
@@ -181,6 +182,91 @@ test.describe("deferred reading choice (spec §6.3)", () => {
     const calls = await page.evaluate(() => (window.__warningCardCalls ?? []).map((c) => c.name));
     expect(calls).toEqual(["setStagedUseRawDecisionAction", "setStagedWarningIgnore"]);
   });
+});
+
+test.describe("unsaved reading guard (spec §6.5)", () => {
+  for (const width of [1280, 320]) {
+    test(`closing with an unsaved pick asks first; the prompt fits and its buttons meet the floor (${width}px)`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto(`${baseUrl}?scenario=save`);
+      await page.evaluate(() => document.fonts.ready);
+      const raw = await page.locator("html").getAttribute("data-warning-card-save");
+      if (!raw) throw new Error("live entry did not publish data-warning-card-save");
+      const meta = JSON.parse(raw) as { dfid: string; row: number; sid: string };
+      const row = page.getByTestId(`wizard-step3-card-${meta.dfid}-warning-${meta.row}`);
+      await expect(row).toBeVisible();
+      await page.evaluate(
+        () =>
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+      );
+      const chip = page.getByTestId(`wizard-step3-card-${meta.dfid}-review-chip`);
+      if ((await chip.count()) > 0 && (await chip.getAttribute("aria-expanded")) === "true") {
+        await chip.click();
+        await expect(chip).toHaveAttribute("aria-expanded", "false");
+      }
+
+      // A draft: the pick waits for Save.
+      await row.getByTestId("use-raw-toggle-on-list").click();
+      await expect(page.getByTestId(`dq-ignore-${meta.sid}`)).toHaveText("Save");
+
+      const closeId = `wizard-step3-card-${meta.dfid}-review-close`;
+      await page.getByTestId(closeId).click();
+      const prompt = page.getByRole("alertdialog");
+      await expect(prompt).toBeVisible();
+      await expect(prompt).toHaveAccessibleName("You have 1 unsaved reading change");
+
+      // CSS premise: real Tailwind emitted for the prompt (its panel resolves p-tile-pad).
+      const geom = await page.evaluate(() => {
+        const read = (id: string) => {
+          const el = document.querySelector(`[data-testid="${id}"]`);
+          if (!el) throw new Error(`missing ${id}`);
+          return el;
+        };
+        const panel = read("unsaved-readings-prompt-panel");
+        const box = (el: Element) => {
+          const r = el.getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height };
+        };
+        return {
+          padding: getComputedStyle(panel).paddingLeft,
+          panel: box(panel),
+          goBack: box(read("unsaved-readings-prompt-go-back")),
+          discard: box(read("unsaved-readings-prompt-discard")),
+          focused: document.activeElement?.getAttribute("data-testid") ?? null,
+          vw: window.innerWidth,
+          vh: window.innerHeight,
+        };
+      });
+      expect(geom.padding, "CSS premise: the prompt's p-tile-pad compiled to 20px").toBe(
+        TILE_PAD_PX,
+      );
+      expect(geom.focused, "Go back holds focus when the prompt opens").toBe(
+        "unsaved-readings-prompt-go-back",
+      );
+      expect(geom.goBack.height, "Go back tap floor").toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+      expect(geom.discard.height, "Discard tap floor").toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+      expect(geom.panel.left, "panel inside the viewport (left)").toBeGreaterThanOrEqual(-TOL);
+      expect(geom.panel.top, "panel inside the viewport (top)").toBeGreaterThanOrEqual(-TOL);
+      expect(geom.panel.right, "panel inside the viewport (right)").toBeLessThanOrEqual(
+        geom.vw + TOL,
+      );
+      expect(geom.panel.bottom, "panel inside the viewport (bottom)").toBeLessThanOrEqual(
+        geom.vh + TOL,
+      );
+
+      // Go back: the prompt leaves, the draft stays, focus returns to the close button.
+      await page.getByTestId("unsaved-readings-prompt-go-back").click();
+      await expect(prompt).toHaveCount(0);
+      await expect(page.getByTestId(`dq-ignore-${meta.sid}`)).toHaveText("Save");
+      const back = await page.evaluate(
+        () => document.activeElement?.getAttribute("data-testid") ?? null,
+      );
+      expect(back).toBe(closeId);
+    });
+  }
 });
 
 /** Opens `?scenario=<name>`, settles the auto-opened attention menu and proves real

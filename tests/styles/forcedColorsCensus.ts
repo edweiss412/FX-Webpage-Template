@@ -436,7 +436,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "the states differ by filled, triangular and hollow MARKS (components/admin/review/attentionMark.ts:76), which is shape",
   },
   {
-    site: "components/admin/wizard/Step3ReviewModal.tsx:590",
+    // 590 -> 601 on feat/warning-card-fixes Task 18b (the unsaved-reading guard ref and
+    // helper above it); located by its own element.
+    site: "components/admin/wizard/Step3ReviewModal.tsx:601",
     disposition: "carrier-survives",
     reason: "same",
   },
@@ -492,7 +494,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "monitoringOnly also selects the attention mark's SHAPE at :1189 via attentionMarkClass (filled, triangular or hollow), which is what carries it; the chevron is aria-hidden decoration whose tone echoes that. Its rotation is driven by menuOpen, a different variable, so rotation distinguishes nothing within a colliding pair",
   },
   {
-    site: "components/admin/wizard/Step3ReviewModal.tsx:729",
+    // 729 -> 740 on feat/warning-card-fixes Task 18b; located by its own element.
+    site: "components/admin/wizard/Step3ReviewModal.tsx:740",
     disposition: "carrier-survives",
     reason:
       "same shape as PublishedReviewModal:1376: the mark's shape carries the state and the chevron's rotation is driven by a different variable",
@@ -549,7 +552,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "text-warning-text/80 against a sibling tone; emphasis, which spec 8 limit 2 flattens deliberately",
   },
   {
-    site: "components/admin/wizard/Step3ReviewModal.tsx:662",
+    // 662 -> 673 on feat/warning-card-fixes Task 18b; located by its own element.
+    site: "components/admin/wizard/Step3ReviewModal.tsx:673",
     disposition: "deliberate-flatten",
     reason: "text-warning-text/80 against a sibling tone; emphasis, which spec 8 limit 2 flattens",
   },
@@ -561,10 +565,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   },
   // ── Not a collapse. ──
   {
-    site: "components/admin/RescanSheetButton.tsx:209",
+    // 209 -> 213 on feat/warning-card-fixes Task 18b (the unsaved-reading guard hook
+    // and its import); located by its own trigger element.
+    site: "components/admin/RescanSheetButton.tsx:213",
     disposition: "not-a-state",
     reason:
-      "the two paths are one button on two surrounding plates (components/admin/RescanSheetButton.tsx:222), not two user-visible states",
+      "the two paths are one button on two surrounding plates (components/admin/RescanSheetButton.tsx:226), not two user-visible states",
   },
   {
     // Added on feat/warning-card-fixes Task 13 (spec §7.3): the shared archived-tab include

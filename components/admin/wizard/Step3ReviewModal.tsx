@@ -40,6 +40,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Camera, Check, ChevronDown, Loader2 } from "lucide-react";
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
+import type { UnsavedGuard } from "@/components/admin/review/unsavedReadings";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { useViewerIsDeveloper } from "@/components/admin/dev/DeveloperFlagContext";
 import { useDevCapture } from "@/components/admin/dev/DevCaptureControl";
@@ -186,6 +187,15 @@ export function Step3ReviewModal({
    *  are consumer-owned closures ABOVE the shell's close provider, so a
    *  `useReviewModalClose()` call in this body would read the default no-op. */
   const closeApiRef = useRef<(() => void) | null>(null);
+  /** warning-card-fixes §6.5 (G6 to G8): the shell's unsaved-reading guard, reached
+   *  through a ref for the same reason as `closeApiRef`. Null means no shell and no
+   *  drafts, so the action runs. */
+  const guardApiRef = useRef<UnsavedGuard | null>(null);
+  function runGuarded(action: () => void, trigger: HTMLElement) {
+    const guard = guardApiRef.current;
+    if (guard) guard(action, trigger);
+    else action();
+  }
   const h2Id = useId();
   const [publishState, setPublishState] = useState<PublishState>("idle");
 
@@ -510,6 +520,7 @@ export function Step3ReviewModal({
       dataAttrPrefix="step3-review"
       testIdBase={`wizard-step3-card-${dfid}-review`}
       closeApiRef={closeApiRef}
+      guardApiRef={guardApiRef}
       initialFocusRef={closeRef}
       header={
         <>
@@ -894,7 +905,9 @@ export function Step3ReviewModal({
               <button
                 type="button"
                 data-testid={`wizard-step3-card-${dfid}-review-resolution-ignore`}
-                onClick={handleIgnoreResolve}
+                onClick={(event) =>
+                  runGuarded(() => void handleIgnoreResolve(), event.currentTarget)
+                }
                 disabled={resolutionPending || isPublishRunActive}
                 className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
@@ -911,7 +924,9 @@ export function Step3ReviewModal({
                 <button
                   type="button"
                   data-testid={`wizard-step3-card-${dfid}-review-resolution-approve`}
-                  onClick={handleApproveResolve}
+                  onClick={(event) =>
+                    runGuarded(() => void handleApproveResolve(), event.currentTarget)
+                  }
                   disabled={!canApprove}
                   aria-busy={resolutionPending || undefined}
                   className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
@@ -993,7 +1008,7 @@ export function Step3ReviewModal({
                 <button
                   type="button"
                   data-testid={`wizard-step3-card-${dfid}-review-publish`}
-                  onClick={handlePublish}
+                  onClick={(event) => runGuarded(() => void handlePublish(), event.currentTarget)}
                   disabled={isPending || isPublishRunActive}
                   aria-busy={isPending || undefined}
                   className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"

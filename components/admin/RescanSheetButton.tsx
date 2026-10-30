@@ -35,6 +35,7 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { cn } from "@/lib/ui/cn";
 import { SECONDARY_ACTION_CLASS, SECONDARY_ACTION_ON_TINTED_CLASS } from "@/lib/ui/actionClass";
+import { useUnsavedReadingsGuard } from "@/components/admin/review/unsavedReadings";
 
 export type RescanSheetButtonProps = {
   driveFileId: string;
@@ -145,6 +146,9 @@ export function RescanSheetButton({
   // mutation is what it receives.
   const { announce } = useContext(UndoAnnounceContext);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // warning-card-fixes §6.5 G9: inside a review surface a re-scan waits behind the
+  // unsaved-reading prompt; outside one (or with nothing unsaved) it runs at once.
+  const guard = useUnsavedReadingsGuard();
 
   async function handleClick() {
     if (pending) return;
@@ -210,7 +214,7 @@ export function RescanSheetButton({
         type="button"
         ref={triggerRef}
         data-testid={`rescan-sheet-button-${driveFileId}`}
-        onClick={() => void handleClick()}
+        onClick={(event) => guard(() => void handleClick(), event.currentTarget)}
         disabled={pending || disabled}
         aria-busy={pending}
         // The shared secondary-action treatment (lib/ui/actionClass.ts). This

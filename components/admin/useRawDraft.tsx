@@ -39,6 +39,7 @@ import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { deriveUseRawControlState } from "@/components/admin/UseRawControl";
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
+import { useRegisterUnsavedReading } from "@/components/admin/review/unsavedReadings";
 
 export type UseRawSurface =
   | { surface: "show"; showId: string }
@@ -155,6 +156,13 @@ export function UseRawDraftProvider(
   useEffect(() => {
     persistedRef.current = persistedRaw;
   }, [persistedRaw]);
+
+  // §6.5: while dirty this row counts as an unsaved reading on its review surface; the
+  // prompt's "Discard and continue" clears it with rule 6's `draft = null` (no focus move).
+  useRegisterUnsavedReading(submitted === null && draft !== null, () => {
+    setDraft(null);
+    setError(null);
+  });
 
   const value: UseRawDraftValue = {
     persistedRaw,

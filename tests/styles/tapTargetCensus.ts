@@ -230,7 +230,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // ELEVENTH (:1098 -> :1099) for the one comment line that marked it, and a
     // TWELFTH (:1099 -> :1084) when the mark logic moved into its own module and
     // took fifteen lines of comment out of this file.
-    line: 1084,
+    // 1084 -> 1099 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's
+    // ref and helper above the footer); located by the radio's own `name`.
+    line: 1099,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -651,7 +653,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/review/ReviewModalShell.tsx",
-    line: 609,
+    // 609 -> 655 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's
+    // registry, guarded close and header close above the dialog root); located by
+    // the scrim's own `-backdrop` testid.
+    line: 655,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:

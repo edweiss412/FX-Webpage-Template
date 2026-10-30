@@ -877,7 +877,12 @@ export function scanCandidates(): Candidate[] {
       // (`marker ? <div>… : null`) and its Sheet says line (`marker.sheetSays ? <p>… : null`)
       // in HotelCard. Neither is a fault branch; 78 kept. Re-derived by running the guard.
       //
-      // Probed: 772 such ternaries under the derived roots, 78 on a
+      // 772 -> 773 on feat/warning-card-fixes Task 18b: the unsaved-reading prompt
+      // (`pending !== null && count > 0 ? <UnsavedReadingsPrompt … /> : null`) in
+      // components/admin/review/unsavedReadings.tsx. Not a fault branch; 78 kept.
+      // Re-derived by running the guard.
+      //
+      // Probed: 773 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render
