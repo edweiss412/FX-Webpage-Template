@@ -81,6 +81,7 @@ vi.mock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
  */
 async function restoreAgendaMocks(): Promise<void> {
   vi.resetModules();
+  vi.doUnmock("@/components/agenda/loadAgendaPdfViewer");
   vi.doMock("react-pdf", () => agenda.reactPdf());
   vi.doMock("@/components/agenda/AgendaPdfViewer", () => agenda.viewer());
   vi.doMock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
@@ -636,6 +637,36 @@ describe("agenda viewer code (spec 4.8)", () => {
       expect(assigned).not.toBe(agenda.REACT_PDF_DEFAULT);
       expect(assigned).toMatch(/\/pdfjs-dist\/build\/pdf\.worker\.min\.mjs$/);
       expect(fetchMock.mock.calls).toEqual([[assigned]]);
+    } finally {
+      await restoreAgendaMocks();
+    }
+  });
+
+  test("loads the viewer through the agenda sheet's own loader, so it warms the chunks the sheet asks for", async () => {
+    // Turbopack gives every import() site its own small loader chunk. Only the
+    // loader AgendaEmbed uses (components/agenda/loadAgendaPdfViewer.ts) names the
+    // chunk the sheet loads, so a registrar with an import() of its own leaves
+    // that chunk out of the worker's cache and the sheet fails offline.
+    vi.resetModules();
+    const loads = { loader: 0 };
+    vi.doMock("@/components/agenda/loadAgendaPdfViewer", () => ({
+      loadAgendaPdfViewer: () => {
+        loads.loader += 1;
+        return import("@/components/agenda/AgendaPdfViewer");
+      },
+    }));
+    vi.doMock("react-pdf", () => agenda.reactPdf());
+    vi.doMock("@/components/agenda/AgendaPdfViewer", () => agenda.viewer());
+    vi.doMock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
+    try {
+      const fresh = await import("@/components/offline/SavedCopyRegistrar");
+      installServiceWorker({ controlled: true });
+      installStorage();
+
+      render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(fetchMock.mock.calls).toEqual([[agenda.WORKER_SRC]]);
+      expect(loads.loader).toBe(1);
     } finally {
       await restoreAgendaMocks();
     }

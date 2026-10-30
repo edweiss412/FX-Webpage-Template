@@ -37,6 +37,7 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { loadAgendaPdfViewer } from "@/components/agenda/loadAgendaPdfViewer";
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { readServedCopy } from "@/lib/offline/client/servedCopy";
 import type { EnsureSavedMessage } from "@/lib/offline/protocol";
@@ -153,15 +154,17 @@ function persistStorageOnce(): void {
 }
 
 /**
- * Loads the viewer's code through the same specifier AgendaEmbed loads, then
- * fetches the pdf.js worker from the URL the viewer assigns
- * (components/agenda/pdfWorkerSrc.ts). Never `import("react-pdf")` here: in the
- * production build that import loaded a second copy of react-pdf's index, whose
- * side effect reset pdf.js's worker URL to the relative `pdf.worker.mjs` for the
- * whole page, and the agenda viewer then failed online as well as offline.
+ * Loads the viewer's code through the loader AgendaEmbed's sheet uses
+ * (components/agenda/loadAgendaPdfViewer.ts), so the worker stores the very
+ * chunks the sheet asks for, then fetches the pdf.js worker from the URL the
+ * viewer assigns (components/agenda/pdfWorkerSrc.ts). No `import()` of the
+ * viewer of its own: Turbopack gives each import() site its own loader chunk.
+ * And never `import("react-pdf")`: in the production build that loaded a second
+ * copy of react-pdf's index, which reset pdf.js's worker URL to the relative
+ * `pdf.worker.mjs` for the whole page.
  */
 async function prefetchAgendaViewer(): Promise<void> {
-  await import("@/components/agenda/AgendaPdfViewer");
+  await loadAgendaPdfViewer();
   const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
   await fetch(PDF_WORKER_SRC);
 }

@@ -32,6 +32,17 @@ vi.mock("@/components/agenda/AgendaPdfViewer", () => ({
   ),
 }));
 
+// The viewer's one loader, counted and passed through: the saved-copy
+// registrar prefetches through it too, so the sheet must load through it
+// (components/agenda/loadAgendaPdfViewer.ts says why).
+const viewerLoader = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("@/components/agenda/loadAgendaPdfViewer", () => ({
+  loadAgendaPdfViewer: () => {
+    viewerLoader.calls += 1;
+    return import("@/components/agenda/AgendaPdfViewer");
+  },
+}));
+
 import { AgendaEmbed } from "@/components/agenda/AgendaEmbed";
 
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
@@ -64,6 +75,19 @@ describe("AgendaEmbed", () => {
   test("returns null when agendaLinks is empty", () => {
     const { container } = render(<AgendaEmbed showId={SHOW_ID} agendaLinks={[]} />);
     expect(container.firstChild).toBeNull();
+  });
+
+  test("the sheet loads the viewer through the shared loader the registrar prefetches with", async () => {
+    render(
+      <AgendaEmbed
+        showId={SHOW_ID}
+        agendaLinks={[{ label: "Run-of-show", fileId: AGENDA_FILE_ID }]}
+      />,
+    );
+    const before = viewerLoader.calls;
+    fireEvent.click(screen.getByRole("button", { name: /view agenda/i }));
+    expect(await screen.findByTestId("agenda-pdf-viewer-stub")).toBeTruthy();
+    expect(viewerLoader.calls).toBeGreaterThan(before);
   });
 
   test("clicking 'View agenda' opens the sheet (data-testid present)", () => {
