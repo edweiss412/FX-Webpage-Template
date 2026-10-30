@@ -62,9 +62,11 @@
  * or after UPDATED_FADE_FALLBACK_MS if none comes. Under reduced motion it
  * leaves at once. The fade runs under the inputs the window ended with, kept
  * as a key, so any input change gives a different key, which cancels the fade
- * and renders the new state at once. Every other change of state is instant,
- * and no other element carries a transition or duration class. The region
- * never fades: only the visible bar leaves it.
+ * for good and renders the new state at once: inputs that flip back to the
+ * same key do not resume it, and a window that ends under reduced motion
+ * leaves no fade for the preference turning off to resume. Every other change
+ * of state is instant, and no other element carries a transition or duration
+ * class. The region never fades: only the visible bar leaves it.
  *
  * `SavedCopyBarView` paints one derived view: the region, the bar and the
  * fade's classes, with no state of its own. The inventory's pairs are pairs of
@@ -329,14 +331,23 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
     committedInputs.current = inputsKey;
   }, [inputsKey]);
 
+  // A fade runs only under the inputs its window ended with, and only with no
+  // reduced-motion preference (so not before the preference is known either).
+  // Once that stops holding, the fade is over for good: it is cleared in the
+  // render that sees it fail, so neither inputs flipping back to the same key
+  // nor the preference turning off brings the faded frame back. Setting state
+  // during render is React's "adjust state when a value changes" form: React
+  // renders again before it commits, so the stale frame is never painted.
+  const fadeRuns = fadeUnder !== null && fadeUnder === inputsKey && reducedMotion === false;
+  if (fadeUnder !== null && !fadeRuns) setFadeUnder(null);
+
   let view: BarView | null = null;
   let fading = false;
   if (inputs !== null) {
     view = deriveBarView({ ...inputs, justUpdated });
     // The window ended under these very inputs. If it ended on `updated`, the
-    // bar is going from `updated` to `hidden`, and it fades; under reduced
-    // motion, or before the preference is known, it goes at once.
-    if (fadeUnder === inputsKey && reducedMotion === false) {
+    // bar is going from `updated` to `hidden`, and it fades.
+    if (fadeRuns) {
       const leaving = deriveBarView({ ...inputs, justUpdated: true });
       if (leaving.state === "updated") {
         view = leaving;

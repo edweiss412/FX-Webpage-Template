@@ -341,22 +341,41 @@ const DECLARED = [
   },
   {
     id: "C24",
-    what: "the fade runs only under the inputs the window ended with, and never under reduced motion",
-    marker: /^if \(fadeUnder === inputsKey && reducedMotion === false\) \{/,
+    what: "the faded frame renders only while the fade runs",
+    marker: /^if \(fadeRuns\) \{/,
     treatment:
       "F, or instant under reduced motion; an input change during the fade renders the new state at once",
   },
   {
     id: "C25",
-    what: "the same inputs AND no reduced-motion preference",
-    marker: /^fadeUnder === inputsKey && reducedMotion === false\u0000/,
-    treatment: "not a render branch itself; the conjunction inside C24",
+    what: "a fade runs while one is armed, under the inputs its window ended with, with no reduced-motion preference",
+    marker: /^fadeUnder !== null && fadeUnder === inputsKey && reducedMotion === false\u0000/,
+    treatment: "not a render branch itself; the rule C24 paints and C27 enforces",
+  },
+  {
+    id: "C25a",
+    what: "the left-associative half of that conjunction, which the AST reports separately",
+    marker: /^fadeUnder !== null && fadeUnder === inputsKey\u0000/,
+    treatment: "not a branch of its own; declared so the census stays exact",
   },
   {
     id: "C26",
     what: "only a window that ended on updated fades",
     marker: /^if \(leaving\.state === "updated"\) \{/,
     treatment: "F; a window that ends under a higher state fades nothing",
+  },
+  {
+    id: "C27",
+    what: "an armed fade that no longer runs is cleared in the render that sees it fail",
+    marker: /^if \(fadeUnder !== null && !fadeRuns\) setFadeUnder\(null\);/,
+    treatment:
+      "instant, for good: inputs flipping back to the same key, or the preference turning off, never resume the fade",
+  },
+  {
+    id: "C27a",
+    what: "a fade is armed AND does not run",
+    marker: /^fadeUnder !== null && !fadeRuns\u0000/,
+    treatment: "not a render branch itself; the conjunction inside C27",
   },
 ] as const;
 

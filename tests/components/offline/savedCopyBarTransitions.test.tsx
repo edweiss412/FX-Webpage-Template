@@ -41,11 +41,13 @@
  * duration or the wrong token, fading early, or never leaving; a bar replaced
  * by a new node at the fade, which would have nothing to fade from; a fade
  * that ignores the bar's own `transitionend`, or ends on one bubbling from
- * inside it; a fade under reduced motion; an input change during the fade
- * that leaves the faded frame on screen, or renders the new state with the
- * fade's classes; `updated` coming back after its window ended; a window that
- * ends under another state fading that state; and a compound case the D18
- * reference names no longer existing.
+ * inside it; a fade under reduced motion, or one left armed by a window that
+ * ended under reduced motion; an input change during the fade that leaves the
+ * faded frame on screen, or renders the new state with the fade's classes; a
+ * cancelled fade that a flip back to its own inputs brings back; `updated`
+ * coming back after its window ended; a window that ends under another state
+ * fading that state; and a compound case the D18 reference names no longer
+ * existing.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -214,7 +216,17 @@ function viewElement(view: BarView, fading = false, onFadeEnd: () => void = noop
 
 let onLine: MockInstance<() => boolean>;
 let reduceMotion = false;
+/** What the bar's reduced-motion hook subscribed to, so a test can change the preference. */
+const motionListeners = new Set<() => void>();
 let originalMatchMedia: typeof window.matchMedia;
+
+/** Changes the reduced-motion preference and tells the subscribers, as the browser would. */
+async function setReduceMotion(value: boolean): Promise<void> {
+  reduceMotion = value;
+  await act(async () => {
+    for (const listener of motionListeners) listener();
+  });
+}
 
 function setServedMeta(content: string | null, savedAt?: string): void {
   for (const meta of document.head.querySelectorAll('meta[name="fxav-served"]')) meta.remove();
@@ -285,8 +297,9 @@ beforeAll(() => {
       matches: query === REDUCE_QUERY && reduceMotion,
       media: query,
       onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      addEventListener: (_type: string, listener: () => void) => motionListeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) =>
+        motionListeners.delete(listener),
       addListener: () => {},
       removeListener: () => {},
       dispatchEvent: () => false,
@@ -304,6 +317,7 @@ beforeEach(() => {
   });
   onLine = vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(true);
   reduceMotion = false;
+  motionListeners.clear();
   post.mockReset();
   post.mockResolvedValue({ outcome: "failed" });
   reload.mockReset();
@@ -539,6 +553,59 @@ describe("SavedCopyBar transitions: compound transitions (spec 4.7.2)", () => {
       expect(shownState()).toBe(then);
     },
   );
+
+  test("a cancelled fade stays cancelled when the inputs flip back inside its window", async () => {
+    // Back online inside the fade's own length, the inputs are byte-for-byte
+    // the ones the fade began under; only a cancellation that was recorded,
+    // rather than inferred from the inputs differing, keeps the frame away.
+    const flipAfter = Math.floor(FADE_MS / 4);
+    premise("the flip lands inside the fade's window", flipAfter, 0);
+    await arriveUpdated();
+    const live = region();
+    await advance(UPDATED_FOR_MS);
+    // The faded frame the flip cancels.
+    expect(shownState()).toBe("updated");
+    expect(motionClasses(live)).toEqual(FADE_CLASSES);
+
+    await fire("offline");
+    expect(shownState()).toBe("saved-fresh");
+    expect(motionClasses(live)).toEqual([]);
+
+    await advance(flipAfter);
+    await fire("online");
+    expect(visibleBar()).toBeNull();
+    expect(motionClasses(live)).toEqual([]);
+    expect(region()).toBe(live);
+
+    await advance(FADE_MS);
+    expect(visibleBar()).toBeNull();
+  });
+
+  test("a window that ends under reduced motion leaves no fade for a later change to resume", async () => {
+    // Positive control: with no preference the same arrival has a faded frame.
+    const control = await arriveUpdated();
+    await advance(UPDATED_FOR_MS);
+    expect(motionClasses(region())).toEqual(FADE_CLASSES);
+    control.unmount();
+
+    reduceMotion = true;
+    await arriveUpdated();
+    const live = region();
+    await advance(UPDATED_FOR_MS);
+    premiseHolds("under reduced motion the window's end removes the bar", visibleBar() === null);
+
+    // The preference turns off inside what would have been the fade's window.
+    await setReduceMotion(false);
+    expect(visibleBar()).toBeNull();
+    expect(motionClasses(live)).toEqual([]);
+
+    // Nor does a flip of the inputs away and back find a fade to resume.
+    await fire("offline");
+    premiseHolds("offline paints a saved state", shownState() === "saved-fresh");
+    await fire("online");
+    expect(visibleBar()).toBeNull();
+    expect(motionClasses(live)).toEqual([]);
+  });
 
   test("the other three compound transitions are savedCopyBarRecovery.test.tsx's (ruling D18)", () => {
     const source = readFileSync(
