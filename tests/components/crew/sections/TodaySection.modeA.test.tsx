@@ -24,9 +24,10 @@
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
+import type { JSX } from "react";
 import { cleanup, render, within } from "@testing-library/react";
 
-import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import { agendaSessionsForToday } from "@/lib/crew/agendaDayForToday";
 import { aggregateDays } from "@/lib/crew/agendaDisplay";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
@@ -63,7 +64,18 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+/**
+ * The home's Today block (crew page redesign plan Task 10): the run-of-show
+ * card, which left TodaySection for the home, above the Today body. The card
+ * reads the crew clock to find today, so `Date` is pinned at the case's `today`.
+ */
+function renderBlock(el: JSX.Element) {
+  pinCrewClock((el.props as { today: Date }).today);
+  return render(el);
+}
 
 // ---------------------------------------------------------------------------
 // TEST 1 — unknown_asterisk TIMELINE-leak (scoped to THIS change).
@@ -110,8 +122,8 @@ test("unknown_asterisk on a populated show-day → Mode B, NO run-of-show timeli
     runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
@@ -134,7 +146,7 @@ test("unknown_asterisk on a populated show-day → Mode B, NO run-of-show timeli
 // A `none` viewer (admin) on today's show day with displayable entries → the
 // split-wide grid mounts: run-of-show LEFT, quick-cards RIGHT.
 // ---------------------------------------------------------------------------
-test("eligible none-viewer on today's show day with entries → Mode A split-wide grid", () => {
+test("eligible none-viewer on today's show day with entries → Mode A: the run card above the body, the quick cards below", () => {
   const data = makeShowForViewer({
     show: {
       venue: { name: "Center", address: "5 Ave" },
@@ -156,8 +168,8 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
     runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -166,19 +178,21 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
     />,
   );
 
-  // The run-of-show container for today's show-tz ISO renders (LEFT column).
-  const ros = container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`);
-  expect(ros).toBeTruthy();
+  // The run-of-show container for today's show-tz ISO renders, in the run card
+  // the home mounts above the Today body (plan Task 10), no longer a column of it.
+  const card = container.querySelector('[data-testid="today-run-of-show"]') as HTMLElement;
+  expect(card.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
   // The displayable entries render.
-  expect(container.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(AGENDA.length);
-  // The split-wide grid class is present (the 1.6/1 two-track fork).
-  const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
-  expect(grid).toBeTruthy();
-  expect(grid!.className).toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
-  // items-start (2026-06-21 owner amendment): the short quick-cards column takes
-  // its natural height rather than stretching to the tall run-of-show timeline.
-  expect(grid!.className).toContain("@min-crew-split:items-start");
-  // The quick-cards (RIGHT column) still render.
+  expect(card.querySelectorAll('[data-testid="agenda-entry"]').length).toBe(AGENDA.length);
+  const body = container.querySelector('[data-testid="section-today"]')!;
+  expect(body.querySelector('[data-testid="today-run-of-show"]')).toBeNull();
+  expect(
+    card.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+    "the card precedes the Today body",
+  ).toBeTruthy();
+  // The retired Mode A grid has no successor in the body: the run of show left it.
+  expect(container.querySelector('[data-testid="today-mode-a-grid"]')).toBeNull();
+  // The quick cards still render.
   expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-where"]')).toBeTruthy();
@@ -193,7 +207,7 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
 // logic + DOM structure (the fix's logic); the pixel result (single full-width
 // column, no dead track) follows from the standard Tailwind grid classes.
 // ---------------------------------------------------------------------------
-test("Mode A with run-of-show but NO quick cards → no split class, no empty right track", () => {
+test("Mode A with run-of-show but NO quick cards → no split grid in the body, the run card stands alone", () => {
   const data = makeShowForViewer({
     show: {
       venue: null, // no Where card
@@ -203,8 +217,8 @@ test("Mode A with run-of-show but NO quick cards → no split class, no empty ri
     runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -213,22 +227,22 @@ test("Mode A with run-of-show but NO quick cards → no split class, no empty ri
     />,
   );
 
-  // Mode A still mounts (run-of-show present) and the timeline renders.
-  const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
-  expect(grid).toBeTruthy();
-  expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
-  // quickCardsStack is null → the 2-track split class is ABSENT (single column).
-  expect(grid!.className).not.toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
-  // ...and there is NO empty right-track div: the quick-cards stack never mounts,
-  // so the run-of-show is the grid's ONLY child (the dead ~38% column is gone).
+  // Mode A still mounts (run-of-show present) and the list renders, in the card.
+  expect(
+    container.querySelector(
+      `[data-testid="today-run-of-show"] [data-testid="run-of-show-${TODAY_ISO}"]`,
+    ),
+  ).toBeTruthy();
+  // No quick cards → no split grid, and no empty right track anywhere.
   expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeNull();
-  expect(grid!.children.length).toBe(1);
+  expect(container.querySelector('[data-testid="today-mode-b-grid"]')).toBeNull();
+  expect(container.querySelector('[class*="grid-cols-[1.6fr_1fr]"]')).toBeNull();
 });
 
 // TEST 2c — Control for 2b: Mode A WITH a quick card → the split class IS
 // present and the right track div DOES render (the run-of-show + quick-cards
 // two-column fork). Complements TEST 2's split-grid assertions.
-test("Mode A WITH a quick card → split class present + right track div renders (control)", () => {
+test("Mode A WITH a quick card and no day-context card → the lone quick-cards stack, card-width (control)", () => {
   const data = makeShowForViewer({
     show: {
       venue: { name: "Center", address: "5 Ave" }, // one quick card → quickCardsStack non-null
@@ -237,8 +251,8 @@ test("Mode A WITH a quick card → split class present + right track div renders
     runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -247,12 +261,13 @@ test("Mode A WITH a quick card → split class present + right track div renders
     />,
   );
 
-  const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
-  expect(grid).toBeTruthy();
-  expect(grid!.className).toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
-  // The right track renders the quick-cards stack (grid has BOTH children).
-  expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeTruthy();
-  expect(grid!.children.length).toBe(2);
+  // PREMISE: Mode A (the run card renders today's list).
+  expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
+  // No dress or notes card, so no split grid: the lone stack, capped card-width.
+  expect(container.querySelector('[data-testid="today-mode-b-grid"]')).toBeNull();
+  const stack = container.querySelector('[data-testid="today-quick-cards"]');
+  expect(stack).toBeTruthy();
+  expect(stack!.parentElement!.className).toContain("@min-crew-split:max-w-md");
 });
 
 // ---------------------------------------------------------------------------
@@ -287,8 +302,8 @@ test("final full-width else (anchors, no quick cards) → Key times uses the STA
     runOfShow: null, // → not Mode A
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -331,8 +346,8 @@ test("Mode B grid → Key times keeps the ROW layout in its bounded 1.6fr column
     runOfShow: null, // Mode B (persistent split-wide)
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -386,8 +401,8 @@ test("Mode A keys off the SHOW-tz ISO across the UTC midnight boundary, not UTC"
     },
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -416,8 +431,8 @@ test("no runOfShow → Mode B (no run-of-show container, no split grid)", () => 
     runOfShow: null,
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -452,8 +467,8 @@ test("runOfShow populated for today but todayIso NOT in show's days → Mode B (
   // Sanity: the fixture really has TODAY_ISO OFF the aggregate.
   expect(aggregateDays(data.show.dates).some((d) => d.date === TODAY_ISO)).toBe(false);
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -509,8 +524,8 @@ test("non-show-day with key-times + cards → Mode B persistent split-wide grid 
     runOfShow: null,
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -540,7 +555,7 @@ test("non-show-day with key-times + cards → Mode B persistent split-wide grid 
 // Tonight "Booked" status pill, and the run-of-show "Full agenda" chip → the
 // Schedule section.
 // ---------------------------------------------------------------------------
-test("Today card chrome: section-card icons + a Booked pill on Tonight + a Full-agenda chip to Schedule", () => {
+test("Today card chrome: section-card icons + a Booked pill on Tonight; the run card's link reads Full schedule, only past its cap", () => {
   const data = makeShowForViewer({
     show: {
       venue: { name: "Center", address: "5 Ave" },
@@ -562,8 +577,8 @@ test("Today card chrome: section-card icons + a Booked pill on Tonight + a Full-
     runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
   });
 
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -578,12 +593,16 @@ test("Today card chrome: section-card icons + a Booked pill on Tonight + a Full-
   // Tonight "Booked" status pill — the status-positive hue paired with a text
   // label (DESIGN.md §1 color-blind floor).
   expect(tonight.textContent).toContain("Booked");
-  // Run-of-show "Full agenda" chip = a SectionChipLink to the schedule section.
-  const chip = container.querySelector(
-    '[data-testid="section-chip-link"][data-section="schedule"]',
-  );
-  expect(chip).toBeTruthy();
-  expect(chip!.textContent).toContain("Full agenda");
+  // The run card keeps the run-of-show card's leading icon.
+  const card = container.querySelector('[data-testid="today-run-of-show"]')!;
+  expect(card.querySelector('[data-slot="section-card-icon"]')).toBeTruthy();
+  // "Full agenda" is gone (spec §9.1: "Full schedule"), and the run card's
+  // Schedule link shows only past its cap: two entries carry none.
+  // runOfShowCard.test.tsx pins the link past the cap.
+  expect(container.textContent).not.toContain("Full agenda");
+  expect(
+    container.querySelector('[data-testid="section-chip-link"][data-section="schedule"]'),
+  ).toBeNull();
 });
 
 // ---------------------------------------------------------------------------
@@ -638,8 +657,8 @@ test("agenda-only show day (no crew entries) → Mode A renders the timeline, no
     data.show.dates.showDays,
     TODAY_ISO,
   ).length;
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -668,8 +687,8 @@ test("merged day → both crew agenda-entry and timeline-agenda-session present"
   data.show.agenda_links = [
     agendaLinkForToday(TODAY_ISO, [{ time: "9:00 AM – 9:40 AM", title: "Keynote" }]),
   ];
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -695,8 +714,8 @@ test("crew-only day (no agenda_links) → plain RunOfShowList, no timeline (acti
     },
   });
   // agenda_links stays [] → agendaToday = [] → activation rule keeps the plain list.
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "admin" }}
@@ -740,8 +759,8 @@ test("unknown_asterisk viewer + high-conf agenda for today → NO card, NO timel
   data.show.agenda_links = [
     agendaLinkForToday(TODAY_ISO, [{ time: "9:00 AM – 9:40 AM", title: "Keynote" }]),
   ];
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={{ kind: "crew", crewMemberId: "c1" }}

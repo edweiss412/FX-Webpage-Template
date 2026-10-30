@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 234 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 233 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -352,7 +352,18 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // stay members through their other rendered importers. Re-derived by running
     // this guard.
     expect(rel).toContain("lib/crew/passModel.ts");
-    expect(rel.length).toBe(234);
+    // 234 -> 233 (crew page redesign plan Task 10): the run-of-show card left
+    // TodaySection for the home. lib/crew/runOfShowCard.ts joins: the card
+    // (components/crew/CrewRunOfShowCard.tsx), todayRows.ts, CrewSections.tsx and
+    // the shell import it, pure and clockless (the builder takes `today`). Two
+    // leave, because their only depth-1 runtime importer was todayRows.ts and the
+    // run-of-show derivation moved into that lib module: lib/crew/agendaDayForToday.ts
+    // and lib/crew/showDayTimeline.ts (ShowDayTimelineList.tsx imports a type from
+    // it, which the walk does not count). Neither is retired; both sit at depth 2.
+    expect(rel).toContain("lib/crew/runOfShowCard.ts");
+    expect(rel).not.toContain("lib/crew/agendaDayForToday.ts");
+    expect(rel).not.toContain("lib/crew/showDayTimeline.ts");
+    expect(rel.length).toBe(233);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON

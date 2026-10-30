@@ -42,7 +42,7 @@ import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import {
   buildSheetDeepLink,
   CARD_REGION_MAP,
@@ -67,7 +67,9 @@ const DRIVE_FILE_ID = "drive-file-walker-1";
 // A populated fixture that makes EVERY source-backed card render. Today renders
 // Mode A (run-of-show present) so the `today-run-of-show` card mounts: the show
 // day equals the frozen `today` ISO and runOfShow[todayIso] has a displayable
-// entry. Every region id gets a distinct, non-empty INFO anchor so a wrong
+// entry. That card moved from TodaySection to the crew home (crew page redesign
+// plan Task 10), so Today renders as the home's Today block (the run card above
+// the body), on the crew clock pinned at the frozen `today`. Every region id gets a distinct, non-empty INFO anchor so a wrong
 // region lookup would yield a different (failing) href.
 const TODAY_ISO = "2026-05-14";
 const FROZEN_TODAY = new Date("2026-05-14T15:00:00Z");
@@ -187,6 +189,7 @@ function renderSection(node: React.ReactNode) {
 
 /** Render all seven sections into ONE container so the walker sees every card. */
 function renderAllSections(data: ShowForViewer) {
+  pinCrewClock(FROZEN_TODAY);
   return renderSection(
     <>
       <CrewSection
@@ -231,7 +234,7 @@ function renderAllSections(data: ShowForViewer) {
         today={FROZEN_TODAY}
         showId="show-1"
       />
-      <TodaySection
+      <TodayBlock
         {...ledgerProp()}
         data={data}
         viewer={adminViewer}
@@ -257,6 +260,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("source-link field-aware coverage walker (§8 / §12)", () => {
@@ -301,6 +305,8 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     // Sanity: the populated fixture must exercise a broad set of cards (not a
     // near-empty render that trivially passes). Both classes must appear.
     expect(cards.length, "no data-card-id cards were discovered").toBeGreaterThan(8);
+    // The home's run-of-show card is among them, with Today's card id (spec §6.4).
+    expect(cards.map((c) => c.getAttribute("data-card-id"))).toContain("today-run-of-show");
 
     const outOfScope = new Set<string>(OUT_OF_SCOPE_CARDS);
     let sourceBackedSeen = 0;

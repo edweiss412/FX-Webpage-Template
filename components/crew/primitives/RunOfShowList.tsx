@@ -27,10 +27,13 @@ import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 export function RunOfShowEntry({
   entry,
   searchTarget,
+  next = false,
 }: {
   entry: AgendaEntry;
   /** Search target id (lib/search/entryId.ts) for this row; absent renders no search markers. */
   searchTarget?: string;
+  /** The crew home's run card marks the next row (crew page redesign spec §4.4). */
+  next?: boolean;
 }): JSX.Element {
   const { title, isLong, room, av, isSynthetic, timeLabel } = runOfShowEntryLine(entry);
   const titleTone = isSynthetic ? "text-text-subtle" : "text-text-strong";
@@ -90,6 +93,7 @@ export function RunOfShowEntry({
           ) : (
             <span className={`min-w-0 text-sm font-medium ${titleTone}`}>{title}</span>
           )}
+          {next ? <NextMarker /> : null}
         </div>
       </div>
       {room || av ? (
@@ -110,6 +114,24 @@ export function RunOfShowEntry({
 }
 
 /**
+ * The crew home run card's "Next" marker (crew page redesign spec §4.4, §9.2):
+ * typed in sentence case and uppercased by CSS. Card state, not sheet data, so
+ * it sits outside the row's search text. The accent-on-bg text on accent-tint is
+ * a pinned contrast pair in both themes (DESIGN.md §1.2).
+ */
+export function NextMarker(): JSX.Element {
+  return (
+    <span
+      data-testid="crew-run-next"
+      data-search-skip=""
+      className="inline-flex shrink-0 items-center rounded-pill bg-accent-tint px-2 py-0.5 text-xs font-bold uppercase tracking-eyebrow text-accent-on-bg"
+    >
+      Next
+    </span>
+  );
+}
+
+/**
  * Per-day run-of-show list. Renders the DISPLAYABLE entries (stripped-title-real)
  * in sheet order, capped at RUN_OF_SHOW_DISPLAY_CAP. The caller already gates on
  * displayableEntries(...).length > 0, so `display` here is non-empty.
@@ -124,6 +146,7 @@ export function RunOfShowList({
   entries,
   isoDate,
   searchTargets,
+  nextIndex,
 }: {
   entries: AgendaEntry[];
   isoDate: string;
@@ -132,18 +155,26 @@ export function RunOfShowList({
    * Absent renders no search markers.
    */
   searchTargets?: readonly (string | undefined)[];
+  /** The row, in render order, that carries the run card's "Next" marker; absent marks none. */
+  nextIndex?: number;
 }): JSX.Element {
   const { shownAgenda, synthetic, overflow } = runOfShowRows(entries);
   return (
     <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
       <ul className="flex flex-col divide-y divide-border">
         {shownAgenda.map((entry, i) => (
-          <RunOfShowEntry key={`a${i}`} entry={entry} {...withTarget(searchTargets?.[i])} />
+          <RunOfShowEntry
+            key={`a${i}`}
+            entry={entry}
+            next={nextIndex === i}
+            {...withTarget(searchTargets?.[i])}
+          />
         ))}
         {synthetic.map((entry, i) => (
           <RunOfShowEntry
             key={`s${i}`}
             entry={entry}
+            next={nextIndex === shownAgenda.length + i}
             {...withTarget(searchTargets?.[shownAgenda.length + i])}
           />
         ))}

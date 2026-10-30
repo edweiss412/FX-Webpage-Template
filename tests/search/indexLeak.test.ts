@@ -36,7 +36,6 @@ import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/crewRows";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
@@ -48,6 +47,7 @@ import type { ContactRow, HotelReservationRow, ScheduleDay } from "@/lib/parser/
 import { buildSearchIndex } from "@/lib/search/buildSearchIndex";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
 import { premiseHolds } from "@/tests/_shared/premise";
+import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import {
   MATRIX_TODAY_ISO,
   adminViewer,
@@ -101,7 +101,8 @@ function sectionElement(id: SectionId, c: ViewerCase): JSX.Element {
   };
   switch (id) {
     case "today":
-      return createElement(TodaySection, props);
+      // The home's Today block: the run-of-show card above the body.
+      return createElement(TodayBlock, props);
     case "schedule":
       return createElement(ScheduleSection, props);
     case "venue":
@@ -126,6 +127,8 @@ const NAME_ATTRIBUTES = ["aria-label", "aria-description", "alt", "title", "plac
  * accessible name.
  */
 function pageShows(c: ViewerCase, text: string): boolean {
+  // The run-of-show card reads the crew clock to find today.
+  pinCrewClock(c.today);
   try {
     for (const id of openSections(c)) render(sectionElement(id, c));
     const body = document.body;
@@ -135,6 +138,7 @@ function pageShows(c: ViewerCase, text: string): boolean {
     );
   } finally {
     cleanup();
+    vi.useRealTimers();
   }
 }
 

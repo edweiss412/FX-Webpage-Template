@@ -500,157 +500,84 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     });
   }
 
-  // ── Today Mode A — the gated run-of-show split-wide. The fixture (beforeAll)
-  // seeds show-day-1's agenda + the frozen server clock pins today=2026-04-21, so
-  // the [data-testid="today-mode-a-grid"] mounts. Its two children are the
-  // `today-run-of-show` card (LEFT, 1.6fr) and the quick-cards stack (RIGHT, 1fr).
-  // The grid's direct children carry no shared testid, so we measure the two
-  // `:scope > *` children of the grid directly.
-  test("today Mode A: split-wide 1.6 ratio + natural height (1000px) / stacked (390px)", async ({
+  // ── Today Mode A — the run of show on the home (crew page redesign plan
+  // Task 10). The fixture (beforeAll) seeds show-day-1's run of show + agenda and
+  // the frozen server clock pins today=2026-04-21. The run-of-show card left the
+  // Today body's split grid for the home, under the pass: it reads the shared
+  // crew clock to find today, so the BROWSER clock is pinned to the same instant
+  // too, or hydration would move the card to the real date (no rows). The card
+  // spans the Today block, and its merged timeline keeps the list invariant.
+  test("today Mode A: the run card spans the Today block and its timeline list height equals its rows (1000px / 390px)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
+    await page.clock.setFixedTime(new Date(SHOW_DAY_1_INSTANT));
+    const seededRows = SEED_RUN_OF_SHOW[SHOW_DAY_1_ISO].entries.length;
 
-    // First prove Mode A actually mounted (not faked / not silently skipped).
-    await page.setViewportSize({ width: 1000, height: 1000 });
-    await gotoSection(page, "today");
-    const grid = page.getByTestId("today-mode-a-grid");
-    await expect(
-      grid,
-      "Today Mode A grid must mount (eligible admin viewer + seeded runOfShow[2026-04-21] + frozen server clock at show-day-1)",
-    ).toBeVisible();
-    // The run-of-show card is the LEFT column — its presence confirms Mode A, not
-    // the full-width Mode B stack.
-    await expect(page.getByTestId("today-run-of-show")).toBeVisible();
-
-    // Unified show-day timeline (spec §6.1 Dimensional Invariants): the seeded agenda
-    // (April 21, 2026 → SHOW_DAY_1_ISO) merges with the 9 crew run-of-show entries → the
-    // `show-day-timeline-*` list mounts in the LEFT column. The fixture has 11 non-synthetic
-    // rows (≤ RUN_OF_SHOW_DISPLAY_CAP=20) → NO overflow stub → the list height equals exactly
-    // the <ul> row stack (each row's border-box height already includes the divide-y divider).
-    const timeline = page.locator('[data-testid^="show-day-timeline-"]');
-    await expect(timeline).toBeVisible();
-    await expect(timeline.locator('[data-testid="timeline-agenda-overflow"]')).toHaveCount(0);
-    // At least one agenda row mounted (proves the merge actually ran, not crew-only).
-    await expect(timeline.locator('[data-testid="timeline-agenda-session"]').first()).toBeVisible();
-    const timelineBox = await rectOf(timeline);
-    const timelineRows = timeline.locator(
-      '[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]',
-    );
-    const rowCount = await timelineRows.count();
-    expect(rowCount, "unified timeline must render ≥4 interleaved rows").toBeGreaterThanOrEqual(4);
-    let rowHeightSum = 0;
-    for (let i = 0; i < rowCount; i++) {
-      const rb = await rectOf(timelineRows.nth(i));
-      expect(
-        Math.abs(rb.width - timelineBox.width),
-        `timeline row ${i} must fill the list width; row=${rb.width} list=${timelineBox.width}`,
-      ).toBeLessThanOrEqual(TOL_TIGHT);
-      rowHeightSum += rb.height;
-    }
-    // Spec §6.1: list height EQUALS the sum of row heights (±0.5px) — two-sided.
-    expect(
-      Math.abs(timelineBox.height - rowHeightSum),
-      `timeline list height must equal Σ row heights; list=${timelineBox.height} sum=${rowHeightSum}`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
-
-    // 1000px (compact home, Today block past the split threshold): the two grid
-    // children are side-by-side, 1.6 ratio, natural height
-    // (items-start per the 2026-06-21 owner amendment — NOT equal-height).
-    const childRects: Rect[] = await grid.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(childRects.length, "Today Mode A grid must have exactly two columns").toBe(2);
-    // The split reads the Today block's container, not the window (DESIGN.md §6).
-    const wideSplit = await splitContainerOf(grid);
-    expect(wideSplit.testid, "Today Mode A grid's size container").toBe("crew-today-block");
-    expect(
-      wideSplit.split,
-      `@1000px the Today block is ${wideSplit.width}px against the ${CREW_SPLIT_PX}px split threshold`,
-    ).toBe(true);
-    const [left, right] = childRects as [Rect, Rect];
-    expect(right.left, "@1000px Today Mode A columns must be side-by-side").toBeGreaterThan(
-      left.left + 1,
-    );
-    const expectedLeft = 1.6 * right.width;
-    expect(
-      Math.abs(left.width - expectedLeft),
-      `@1000px Today Mode A left (run-of-show) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
-    ).toBeLessThanOrEqual(TOL_PX);
-    // Natural height: assert items-start POSITIVELY (Tailwind compiles items-start
-    // → align-items: flex-start, so browsers report `flex-start`; `stretch`/`normal`
-    // for the regression) so dropping `@min-crew-split:items-start` can't pass on ratio
-    // + side-by-side alone.
-    const alignA = await grid.evaluate((el) => getComputedStyle(el as HTMLElement).alignItems);
-    expect(
-      alignA,
-      `@1000px Today Mode A grid must be items-start (natural height), not stretched; got align-items=${alignA}`,
-    ).toBe("flex-start");
-
-    // 390px: stacked, single full-width column, no horizontal overflow.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoSection(page, "today");
-    const gridNarrow = page.getByTestId("today-mode-a-grid");
-    await expect(gridNarrow).toBeVisible();
-    const narrowRects: Rect[] = await gridNarrow.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(narrowRects.length, "Today Mode A grid must still have two columns at 390px").toBe(2);
-    const narrowSplit = await splitContainerOf(gridNarrow);
-    expect(narrowSplit.testid, "Today Mode A grid's size container @390px").toBe(
-      "crew-today-block",
-    );
-    expect(
-      narrowSplit.split,
-      `@390px the Today block is ${narrowSplit.width}px against the ${CREW_SPLIT_PX}px split threshold`,
-    ).toBe(false);
-    const [na, nb] = narrowRects as [Rect, Rect];
-    expect(
-      nb.top,
-      `@390px Today Mode A columns must stack (col2.top ≥ col1.bottom); col2.top=${nb.top} col1.bottom=${na.bottom}`,
-    ).toBeGreaterThanOrEqual(na.bottom - TOL_TIGHT);
-    expect(
-      Math.abs(na.left - nb.left),
-      `@390px stacked Today Mode A columns must share a left edge; ${na.left} vs ${nb.left}`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
-    const vp = page.viewportSize()!;
-    for (const [name, r] of [
-      ["col1", na],
-      ["col2", nb],
+    for (const [width, height] of [
+      [1000, 1000],
+      [390, 844],
     ] as const) {
+      await page.setViewportSize({ width, height });
+      await gotoSection(page, "today");
+      // First prove Mode A's run card actually mounted (not faked / not silently skipped).
+      const card = page.getByTestId("today-run-of-show");
+      await expect(
+        card,
+        `@${width}px the run card must mount (eligible admin + seeded runOfShow[${SHOW_DAY_1_ISO}] + both clocks at show-day-1)`,
+      ).toBeVisible();
+      await expect(card).toHaveAttribute("data-selection", "live");
+
+      // Unified show-day timeline (spec §6.1 Dimensional Invariants): the seeded
+      // agenda merges with the crew rows; the card keeps the first rows and links
+      // the rest ("Full schedule"), so fewer rows render than were seeded.
+      const timeline = card.locator('[data-testid^="show-day-timeline-"]');
+      await expect(timeline).toBeVisible();
+      await expect(timeline.locator('[data-testid="timeline-agenda-overflow"]')).toHaveCount(0);
+      await expect(
+        timeline.locator('[data-testid="timeline-agenda-session"]').first(),
+      ).toBeVisible();
+      await expect(card.getByRole("link", { name: "Full schedule" })).toBeVisible();
+      const timelineBox = await rectOf(timeline);
+      const timelineRows = timeline.locator(
+        '[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]',
+      );
+      const rowCount = await timelineRows.count();
+      expect(rowCount, "the run card must render ≥4 interleaved rows").toBeGreaterThanOrEqual(4);
+      expect(rowCount, "the run card caps the rows below the seeded count").toBeLessThan(
+        seededRows,
+      );
+      let rowHeightSum = 0;
+      for (let i = 0; i < rowCount; i++) {
+        const rb = await rectOf(timelineRows.nth(i));
+        expect(
+          Math.abs(rb.width - timelineBox.width),
+          `@${width}px timeline row ${i} must fill the list width; row=${rb.width} list=${timelineBox.width}`,
+        ).toBeLessThanOrEqual(TOL_TIGHT);
+        rowHeightSum += rb.height;
+      }
+      // Spec §6.1: list height EQUALS the sum of row heights (±0.5px) — two-sided.
       expect(
-        r.right,
-        `@390px Today Mode A ${name} right edge must not exceed viewport; right=${r.right} vp=${vp.width}`,
-      ).toBeLessThanOrEqual(vp.width + TOL_TIGHT);
+        Math.abs(timelineBox.height - rowHeightSum),
+        `@${width}px timeline list height must equal Σ row heights; list=${timelineBox.height} sum=${rowHeightSum}`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+
+      // The card spans the Today block's content box, at every width.
+      const block = await rectOf(page.getByTestId("crew-today-block"));
+      const cardBox = await rectOf(card);
+      expect(
+        Math.abs(cardBox.width - block.width),
+        `@${width}px the run card must span the Today block; card=${cardBox.width} block=${block.width}`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        scrollWidth,
+        `@${width}px Today (Mode A) must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
+      ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
     }
-    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
-    expect(
-      scrollWidth,
-      `@390px Today (Mode A) must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
-    ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
   });
 
   // ── Today Mode B — the PERSISTENT split-wide (the non-show-day desktop
@@ -678,7 +605,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     await page.setViewportSize({ width: 1000, height: 1000 });
     await gotoSection(page, "today");
     await expect(
-      page.getByTestId("today-mode-a-grid"),
+      page.getByTestId("today-run-of-show"),
       "post-show Today must be Mode B (no run-of-show), not Mode A",
     ).toHaveCount(0);
     const grid = page.getByTestId("today-mode-b-grid");
@@ -787,20 +714,27 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
+    // The Today body's split grid: Mode B's (the run of show moved to its own
+    // card on the home, plan Task 10), entered with a POST-show server clock as
+    // the Mode B case above enters it.
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": "2026-04-25T12:00:00Z",
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
     /** The window width the old viewport rule split Today at. */
     const OLD_VIEWPORT_SPLIT_PX = 720;
     for (const width of [OLD_VIEWPORT_SPLIT_PX - 1, OLD_VIEWPORT_SPLIT_PX]) {
       await page.setViewportSize({ width, height: 1000 });
       await gotoSection(page, "today");
-      const grid = page.getByTestId("today-mode-a-grid");
-      await expect(grid, `@${width}px Today Mode A grid must mount`).toBeVisible();
+      const grid = page.getByTestId("today-mode-b-grid");
+      await expect(grid, `@${width}px Today's split grid must mount`).toBeVisible();
       await expectColumnsFollowSplit(
         grid.locator(":scope > *").nth(0),
         grid.locator(":scope > *").nth(1),
         {
           split: width >= OLD_VIEWPORT_SPLIT_PX,
           container: "crew-today-block",
-          label: `@${width}px Today Mode A`,
+          label: `@${width}px Today split grid`,
           tolPx: TOL_TIGHT,
         },
       );

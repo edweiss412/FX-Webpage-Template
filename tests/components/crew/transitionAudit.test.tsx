@@ -54,12 +54,17 @@ const CROSSFADE_COMPONENTS = ["components/crew/CrewSectionTransition.tsx"] as co
 // The pass (crew page redesign plan Task 9): an overlapping crossfade, not mode="wait".
 const PASS = "components/crew/CrewPass.tsx";
 
+// The run-of-show card (plan Task 10): its rows crossfade with the pass on a day
+// switch (spec §7 "Day A selected → day B"), the same overlapping shape.
+const RUN_CARD = "components/crew/CrewRunOfShowCard.tsx";
+
 // The ONLY crew components that carry a client motion library: the crossfades
 // plus the section sheet's slide. Everything else under components/crew/** must
 // be motion-free (instant by design).
 const MOTION_COMPONENTS = [
   ...CROSSFADE_COMPONENTS,
   PASS,
+  RUN_CARD,
   "components/crew/CrewSectionSheet.tsx",
 ] as const;
 
@@ -176,6 +181,31 @@ describe("§4.10 transition audit — static enumeration", () => {
     expect(s, "and the presence key never changes, so one body swaps in place").toMatch(
       /key=\{reduced \? "pass" : bodyKey\}/,
     );
+    expect(s.match(/<AnimatePresence\b/g) ?? [], "no reduced-motion fork of the tree").toHaveLength(
+      1,
+    );
+  });
+
+  it('inventory: the run card — one AnimatePresence initial={false}, NOT mode="wait", keyed by the day, with an exit', () => {
+    const s = src(RUN_CARD);
+    const opens = s.match(/<AnimatePresence\b[^>]*>/g) ?? [];
+    expect(opens, "exactly one AnimatePresence owns the run card's rows").toHaveLength(1);
+    expect(opens[0], "a server-rendered card never fades in on hydration").toMatch(
+      /initial=\{false\}/,
+    );
+    expect(opens[0], 'mode="wait" would never mount both days mid-fade').not.toMatch(/mode=/);
+    expect(s, "the presence child is keyed by the shown day").toMatch(
+      /key=\{reduced \? "run" : day\.iso\}/,
+    );
+    expect(s, "the body variants carry an exit to opacity 0").toMatch(
+      /gone: \(fade: boolean\) => \(\{\s*opacity: 0/,
+    );
+  });
+
+  it("inventory: the run card × reduced-motion — the presence key holds still and no swap fades", () => {
+    const s = src(RUN_CARD);
+    expect(s).toMatch(/usePrefersReducedMotion/);
+    expect(s, "reduced motion: no swap fades").toMatch(/reduced \? false : fade/);
     expect(s.match(/<AnimatePresence\b/g) ?? [], "no reduced-motion fork of the tree").toHaveLength(
       1,
     );

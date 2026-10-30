@@ -82,6 +82,7 @@ import {
 import { CrewAllSections } from "@/components/crew/CrewAllSections";
 import { CrewDayRow } from "@/components/crew/CrewDayRow";
 import { CrewPass } from "@/components/crew/CrewPass";
+import { CrewRunOfShowCard } from "@/components/crew/CrewRunOfShowCard";
 import { DaySelectionProvider } from "@/components/crew/daySelection";
 import { CrewClockProvider } from "@/components/crew/useCrewClock";
 import { CrewSectionSheet } from "@/components/crew/CrewSectionSheet";
@@ -102,6 +103,7 @@ import {
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import type { DayRowProps, PassProps } from "@/lib/crew/passModel";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
+import type { RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildHomeHref, buildSectionHref } from "@/lib/crew/sectionHref";
 import { cn } from "@/lib/ui/cn";
 import {
@@ -133,6 +135,13 @@ export interface CrewSectionsProps {
    * the day row, above the Today body, in both modes (spec §3.2, §4.3).
    */
   pass?: PassProps | null;
+  /**
+   * The run-of-show card's server-built props (`buildRunCardProps`), or null
+   * when no day of the viewer's has rows. It mounts under the pass, above the
+   * Today body, in both modes (spec §3.1, §4.4); the card itself renders nothing
+   * on a selected day without rows.
+   */
+  runCard?: RunCardProps | null;
   /**
    * The server's request time (epoch ms, the shell's `await nowDate()`). It
    * seeds the shared crew clock so the server render and hydration agree on
@@ -231,6 +240,7 @@ export function CrewSections({
   children,
   dayRow = null,
   pass = null,
+  runCard = null,
   initialNow = null,
 }: CrewSectionsProps) {
   const pathname = usePathname();
@@ -684,7 +694,8 @@ export function CrewSections({
                     {CREW_TODAY_LABEL}
                   </h2>
                   {/* The day row atop the Today block in both modes, then the pass
-                  under it, above the Today body (spec §3.2, §4.2, §4.3). */}
+                  and the run-of-show card under it, above the Today body (spec
+                  §3.2, §4.2 to §4.4). */}
                   {dayRow ? (
                     <div className="mb-4">
                       <CrewDayRow {...dayRow} />
@@ -695,6 +706,7 @@ export function CrewSections({
                       <CrewPass {...pass} />
                     </div>
                   ) : null}
+                  {runCard ? <CrewRunOfShowCard {...runCard} /> : null}
                   {sectionNodes.today}
                 </section>
                 {showCompact && hasSections ? (

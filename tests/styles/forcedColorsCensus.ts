@@ -405,10 +405,12 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // :93 -> :76 (and :48 -> :36, :78 -> :61 in the reason) on feat/crew-show-search (Schedule search entries): the row's
     // display fields moved to `runOfShowEntryLine` below the components. Same summary.
-    site: "components/crew/primitives/RunOfShowList.tsx:76",
+    // :76 -> :79 (and :36 -> :39, :61 -> :64 in the reason) on feat/crew-page-redesign
+    // (plan Task 10): the row's `next` prop for the run card's "Next" marker sits above it.
+    site: "components/crew/primitives/RunOfShowList.tsx:79",
     disposition: "carrier-survives",
     reason:
-      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:36), the SAME condition that gives the ancestor border-l border-border pl-2 at :61 - a border WIDTH and an indent, both of which survive",
+      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:39), the SAME condition that gives the ancestor border-l border-border pl-2 at :64 - a border WIDTH and an indent, both of which survive",
   },
   {
     site: "components/admin/review/ShowReviewSurface.tsx:805",

@@ -20,25 +20,31 @@ describe("agenda-display single source (Today/Schedule privacy-contract drift gu
     expect(s).toContain(SHARED);
     expect(s).not.toMatch(/function isDisplayableEntry/); // moved out, not redefined
   });
-  it("TodaySection imports the predicate + renderer from the shared module (no local copy)", () => {
-    // Task 9: the Today run-of-show timeline keys off the SAME displayable-entry
-    // trust boundary + day aggregate + renderer as Schedule, so the Today/Schedule
-    // privacy contracts cannot drift. Assert the imports come from the shared
-    // module (+ the shared RunOfShowList primitive) and that Today defines NO
-    // local copy of the predicate.
-    //
-    // The Mode-A derivation moved to the sibling rows module the Today search builder
-    // shares (todayRows.ts `todayRows`): the section renders through it, and the
-    // module carries the shared-module imports this guard pins.
+  it("the run-of-show card and Today's Mode A gate import the predicate + renderer from the shared module (no local copy)", () => {
+    // The Today run-of-show keys off the SAME displayable-entry trust boundary +
+    // load-out gate + day set + renderer as Schedule, so the Today/Schedule
+    // privacy contracts cannot drift. Crew page redesign plan Task 10 moved the
+    // card out of TodaySection to the home: its rows are built in
+    // lib/crew/runOfShowCard.ts (the shared predicates and the day row's own day
+    // set) and rendered by components/crew/CrewRunOfShowCard.tsx through the
+    // shared RunOfShowList / ShowDayTimelineList primitives. Today's Mode A gate
+    // (todayRows.ts) reads that same module rather than restating it.
+    const card = src("lib/crew/runOfShowCard.ts");
+    expect(card).toContain(SHARED);
+    expect(card).toMatch(/scheduleEntriesForViewer/); // displayable minus the gated load-out
+    expect(card).toMatch(/showStartDisplayEntry/); // the synthetic row, fed the RAW entries
+    expect(card).toMatch(/passDaySet/); // the show-day membership source (the day row's set)
+    expect(card).not.toMatch(/function isDisplayableEntry/); // never re-implemented locally
+    const view = src("components/crew/CrewRunOfShowCard.tsx");
+    expect(view).toContain("@/components/crew/primitives/RunOfShowList");
+    expect(view).toContain("@/components/crew/primitives/ShowDayTimelineList");
+    const rows = src("components/crew/sections/todayRows.ts");
+    expect(rows).toContain("@/lib/crew/runOfShowCard");
+    expect(rows).toMatch(/runCardDays\(data, ctx\)/); // the gate is the card's own answer
+    expect(rows).not.toMatch(/function isDisplayableEntry/); // never re-implemented locally
     const t = src("components/crew/sections/TodaySection.tsx");
     expect(t).toContain("@/components/crew/sections/todayRows");
-    expect(t).toContain("@/components/crew/primitives/RunOfShowList");
-    expect(t).not.toMatch(/function isDisplayableEntry/); // never re-implemented locally
-    const rows = src("components/crew/sections/todayRows.ts");
-    expect(rows).toContain(SHARED);
-    expect(rows).toMatch(/displayableEntries/); // consumed from the shared module
-    expect(rows).toMatch(/aggregateDays/); // the show-day membership source
-    expect(rows).not.toMatch(/function isDisplayableEntry/); // never re-implemented locally
+    expect(t).not.toMatch(/function isDisplayableEntry/);
   });
   it("the shared module exports the new per-day helpers (single source)", () => {
     const m = src("lib/crew/agendaDisplay.ts");

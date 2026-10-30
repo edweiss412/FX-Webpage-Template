@@ -166,7 +166,8 @@ export function passStatusLine(day: PassDay, now: Date, timezone: string): strin
   return `Show starts in ${formatDuration(until)}`;
 }
 
-function minuteOfDay(now: Date, timeZone: string): number {
+/** Minutes past midnight of `now` on `timeZone`'s wall clock (the pass's countdown, the run card's "Next"). */
+export function minuteOfDay(now: Date, timeZone: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hour: "2-digit",

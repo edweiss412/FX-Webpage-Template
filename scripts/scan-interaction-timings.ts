@@ -228,6 +228,15 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
       "of the same swap.",
   },
   {
+    file: "components/crew/CrewRunOfShowCard.tsx",
+    name: "fade ? CROSSFADE_SECONDS : 0",
+    reason:
+      "The run-of-show card's rows on a day switch (crew page redesign spec §7, plan Task 10), " +
+      "the same swap as the pass's beside it: CROSSFADE_SECONDS, a §5.5 row, when the day " +
+      "changes, 0 when reduced motion is on (the `fade` it receives is already false then). The " +
+      "two sites are the enter and exit variants of the same swap.",
+  },
+  {
     file: "components/crew/CrewSectionTransition.tsx",
     name: "duration",
     reason:

@@ -35,7 +35,6 @@ import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import * as travelRows from "@/components/crew/sections/travelRows";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
@@ -59,6 +58,7 @@ import { SECTION_BUILDERS } from "@/lib/search/sections";
 import type { SearchEntry } from "@/lib/search/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { assertParity } from "@/tests/search/_parity";
+import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import {
   ALL_CASES,
   adminViewer,
@@ -94,6 +94,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 /** The props `CrewShell` hands every section (_CrewShell.tsx `renderOne`). */
@@ -118,11 +119,16 @@ function renderRoot(node: JSX.Element): HTMLElement {
   return root;
 }
 
-/** Renders one section by id with `shellProps`; returns the render container. */
+/**
+ * Renders one section by id with `shellProps`; returns the render container.
+ * Today renders as the home's Today block: the run-of-show card above the body
+ * (tests/search/_todayBlock.tsx), on the crew clock pinned at the case's `today`.
+ */
 function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
   const props = shellProps(c);
+  if (id === "today") pinCrewClock(c.today);
   const byId: Record<SectionId, () => JSX.Element> = {
-    today: () => <TodaySection {...props} />,
+    today: () => <TodayBlock {...props} />,
     schedule: () => <ScheduleSection {...props} />,
     venue: () => <VenueSection {...props} />,
     travel: () => <TravelSection {...props} />,
@@ -1706,9 +1712,13 @@ describe("today", () => {
     },
     modeAToday: (root) => {
       premiseHolds(
-        "modeAToday renders the bare strip and the merged timeline",
-        root.querySelector('[data-testid="today-mode-a-grid"]') !== null &&
-          root.querySelector('[data-testid="timeline-agenda-session"]') !== null,
+        "modeAToday renders the bare strip and the run card's merged timeline",
+        [...root.querySelectorAll('[data-testid="key-times-strip"]')].some(
+          (strip) => strip.closest("[data-card-id]") === null,
+        ) &&
+          root.querySelector(
+            '[data-testid="today-run-of-show"] [data-testid="timeline-agenda-session"]',
+          ) !== null,
       );
     },
     fullContent: (root) => {
@@ -1853,9 +1863,11 @@ describe("today", () => {
     expect(k.present(build("today", c), c)).toBe(true);
   });
 
-  test("error guard: a throwing Today derivation renders the fallback and builds nothing", () => {
+  test("error guard: a throwing Today derivation renders the fallback and builds nothing for the body", () => {
     // Today's whole body is one WrappedSection, so a fault anywhere in its
-    // derivation replaces every card: no target renders and no entry is built.
+    // derivation replaces every card of the body: no target renders and no
+    // entry is built for it. The run-of-show card above the body is built by
+    // the shell, outside that boundary, so it and its entries stay.
     // Green against a stub builder by construction; the builder-without-guard
     // mutant (recorded in the commit) is what proves this case can fail.
     vi.spyOn(todayRows, "todayRows").mockImplementation(() => {
@@ -1863,12 +1875,13 @@ describe("today", () => {
     });
     const root = renderSection("today", fullContent);
     premiseHolds(
-      "the section renders its fallback and no card",
+      "the section renders its fallback and no card but the run card",
       root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
-        root.querySelector("[data-card-id]") === null,
+        root.querySelector('[data-card-id]:not([data-card-id="today-run-of-show"])') === null,
     );
     const entries = build("today", fullContent);
-    expect(entries).toEqual([]);
+    expect(entries.length, "PREMISE: fullContent has a run card today").toBeGreaterThan(0);
+    expect(entries.filter((e) => regionOf(e) !== "today-run-of-show")).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
   });
 });

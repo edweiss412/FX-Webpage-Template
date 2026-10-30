@@ -65,6 +65,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { crewSectionEntries } from "@/lib/crew/crewSections";
 import { buildDayRowProps, buildPassProps } from "@/lib/crew/passModel";
+import { buildRunCardProps } from "@/lib/crew/runOfShowCard";
 import {
   MalformedProjectionError,
   UnmatchedViewerError,
@@ -347,6 +348,16 @@ export async function CrewShell({
     ? null
     : buildCardReportContext(viewer, ctx.viewerName, ctx.viewerCrew?.role ?? null);
 
+  // The run-of-show card's props (crew page redesign spec §4.4): each of the
+  // viewer's own days with its rows, already filtered (transport gate, date
+  // restriction) and capped here, so no other day's rows and no gated entry
+  // cross to the client. It replaces Today's run-of-show card on the home, with
+  // the same card id and header actions. Null when no day has rows, and for a
+  // projection too thin to carry dates (the pass's guard above).
+  const runCard = canBuildRightNow
+    ? buildRunCardProps({ data, viewer, today, showId, cardReport })
+    : null;
+
   // Per-request tile ledger. Created ONCE here, in the component body, never
   // inside the after() callback: that runs after the render lifecycle and would
   // observe a different object, silently sweeping an empty ledger.
@@ -545,6 +556,7 @@ export async function CrewShell({
           sectionNodes={sectionNodes}
           dayRow={dayRow}
           pass={pass}
+          runCard={runCard}
           initialNow={today.getTime()}
         />
       </CrewSearchProvider>

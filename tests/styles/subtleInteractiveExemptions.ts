@@ -177,8 +177,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   {
     file: "components/crew/primitives/RunOfShowList.tsx",
     // 93 -> 76 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
-    // lines around it. Same `<summary>`, same token.
-    line: 76,
+    // lines around it. Same `<summary>`, same token. 76 -> 79 on feat/crew-page-redesign
+    // (plan Task 10): the row's `next` prop for the run card's "Next" marker sits above it.
+    line: 79,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

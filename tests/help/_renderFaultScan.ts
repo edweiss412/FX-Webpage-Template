@@ -854,7 +854,12 @@ export function scanCandidates(): Candidate[] {
       // on a fault-vocabulary guard, so the 78 is unchanged. Re-derived by
       // running the guard.
       //
-      // Probed: 778 such ternaries under the derived roots, 78 on a
+      // 778 -> 781 with the crew page redesign's run-of-show card (plan PR A,
+      // Task 10): the card's JSX ternaries arrive and Today's run-of-show and
+      // Mode A grid ternaries leave, three more in all. Re-derived by running the
+      // guard.
+      //
+      // Probed: 781 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

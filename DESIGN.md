@@ -785,6 +785,7 @@ realtime reconnect backoff.
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `CROSSFADE_SECONDS` | 0.22 | `components/crew/CrewPass.tsx` |
+| `CROSSFADE_SECONDS` | 0.22 | `components/crew/CrewRunOfShowCard.tsx` |
 | `duration(0.22)` | 0.22 | `components/crew/CrewSectionSheet.tsx` |
 | `duration(0)` | 0 | `components/crew/CrewSectionSheet.tsx` |
 | `REVEAL_WAIT_MS` | 1500 | `components/crew/CrewSections.tsx` |

@@ -7,7 +7,9 @@
  *
  *   - (The live right-now card left this section: the pass replaced it and
  *     mounts under the day row, from the shell's server-built pass props,
- *     crew page redesign plan Task 9.)
+ *     crew page redesign plan Task 9. The run-of-show card left it too: the
+ *     home mounts it under the pass, from the shell's `buildRunCardProps`,
+ *     plan Task 10.)
  *   - KeyTimesStrip — Set / Show / Strike anchors via the shared
  *     `resolveKeyTimes(show, rooms)` resolver (§4.4).
  *   - Tonight card — the first hotel reservation (name + check-in / check-out).
@@ -37,17 +39,13 @@ import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
-import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
-import { ShowDayTimelineList } from "@/components/crew/primitives/ShowDayTimelineList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DressCodeLines } from "@/components/crew/DressCodeLines";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
-import { SectionChipLink } from "@/components/crew/SectionChipLink";
 import {
   BedIcon,
-  CalendarIcon,
   ClockIcon,
   MapPinIcon,
   NoteIcon,
@@ -120,11 +118,11 @@ export function TodaySection({
           // block is admin-only (crew omission); no second upsertAdminAlert.
           const contactsFetchFailed = Boolean(data.tileErrors["contacts"]) && ctx.isAdmin;
 
-          // §4.9 quick-cards STACK (Tonight / Where / Need-something). In Mode B
-          // these three cards stack in a single full-width vertical column at ALL
-          // widths (the Phase-1 owner decision: stacking avoids the 390px clip).
-          // In Mode A this SAME stack becomes the RIGHT (narrow) column of the
-          // split-wide grid, run-of-show on the LEFT. The container is a plain
+          // §4.9 quick-cards STACK (Tonight / Where / Need-something). These
+          // three cards stack in a single vertical column at ALL widths (the
+          // Phase-1 owner decision: stacking avoids the 390px clip), the RIGHT
+          // (narrow) column of the split-wide grid when the day-context column
+          // has content. The container is a plain
           // `flex flex-col gap-3` (no `items-stretch`, no row, no per-card
           // `flex-1`, no equal-height invariant). Each card keeps `min-w-0` so a
           // long hotel/venue string wraps instead of overflowing 390px. The stack
@@ -231,9 +229,8 @@ export function TodaySection({
             ) : null;
 
           // ── Day-context cards ────────────────────────────────────────────
-          // In Mode A these are full-width siblings BELOW the run-of-show grid
-          // (key times stays the bare strip ABOVE it — unchanged). In Mode B they
-          // become the wide-LEFT column of the persistent split-wide grid. Each
+          // The wide-LEFT column of the persistent split-wide grid (in Mode A
+          // without the Key times card: the bare strip sits above). Each
           // is null when its source is empty so a column never holds an empty
           // card. `anchorsPresent` mirrors KeyTimesStrip's own all-absent → null
           // rule, so the "Key times" card never wraps an empty strip.
@@ -356,26 +353,23 @@ export function TodaySection({
 
           // §5 Today mode fork — data + privacy-driven, INSTANT (no animation).
           //
-          //  • Mode A (run-of-show present): the bare KeyTimesStrip ABOVE, then
-          //    the split-wide grid — run-of-show timeline LEFT (1.6fr) + the
-          //    quick-cards stack RIGHT (1fr), `items-start` (the short quick-cards
-          //    stack takes its natural height rather than stretching to the tall
-          //    run-of-show timeline; 2026-06-21 owner amendment) — then the
-          //    day-context cards (dress + notes) full-width below.
-          //  • Mode B (NO run-of-show: wrapped / off-day / travel / countdown /
-          //    date-restricted): the PERSISTENT split-wide grid — day-context
-          //    cards (Key times + dress + notes) LEFT (1.6fr) + the quick-cards
-          //    stack RIGHT (1fr), `items-start` (the two stacks differ in height).
-          //    This REPLACES the prior full-width Mode B stack so non-show-day
-          //    Today keeps the mock's two-column proportions on desktop instead of
-          //    stretching the cards full-bleed.
+          // The run-of-show card is no longer part of this body: the home
+          // mounts it above, under the pass (crew page redesign plan Task 10).
+          // What the fork still decides is the key times' form:
           //
-          // Both grids use the IDENTICAL `@min-crew-split:grid-cols-[1.6fr_1fr]`
-          // mechanism (the Today block's container, not the window); narrower, both collapse
-          // to a single column (the safe stack the full-width Mode B preserved).
-          // When only ONE column has content the grid is skipped: a lone
-          // quick-cards stack is capped (max-w-md) so it stays card-width.
-          const hasLeft = Boolean(anchorsPresent || dressCard || notesCard);
+          //  • Mode A (today has a run of show): the bare KeyTimesStrip ABOVE,
+          //    then the columns below with no Key times card.
+          //  • Mode B (NO run of show: wrapped / off-day / travel / countdown /
+          //    date-restricted): the Key times card heads the day-context column.
+          //
+          // Then, in both modes, the PERSISTENT split-wide grid when both columns
+          // have content — day-context cards (Key times in Mode B, dress, notes)
+          // LEFT (1.6fr) + the quick-cards stack RIGHT (1fr), `items-start` (the
+          // two stacks differ in height), on the Today block's container
+          // (`@min-crew-split:grid-cols-[1.6fr_1fr]`); narrower, a single column.
+          // A lone quick-cards stack is capped (max-w-md) so it stays card-width.
+          const keyTimesCard = (layout?: "row") => (modeA ? null : makeKeyTimesCard(layout));
+          const hasLeft = Boolean((!modeA && anchorsPresent) || dressCard || notesCard);
           const hasRight = quickCardsStack !== null;
 
           return (
@@ -384,78 +378,19 @@ export function TodaySection({
               {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
               {contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}
 
-              {modeA ? (
-                <>
-                  {/* Bare, full-page-width banner: keep the vertical stack. The
-                      "row" posture is reserved for the CARDED Key times in the
-                      bounded 1.6fr column; a full-width row strip would spread 2
-                      anchors 50/50 across the page with a mid-page divider. */}
-                  <KeyTimesStrip anchors={anchors} searchTargets={keyTimeTargets} />
-                  <div
-                    data-testid="today-mode-a-grid"
-                    className={cn(
-                      "grid grid-cols-1 gap-4 @min-crew-split:items-start",
-                      // Only split into the 1.6/1 two-track grid when there IS a
-                      // right side (quick-cards). With no quick cards, keep the
-                      // run-of-show full-width single column so the split never
-                      // strands a dead ~38% empty right track. Mirrors how Mode B
-                      // keys its identical split on `hasRight` (audit idx68/#48).
-                      quickCardsStack != null ? "@min-crew-split:grid-cols-[1.6fr_1fr]" : "",
-                    )}
-                  >
-                    <div
-                      data-testid="today-run-of-show"
-                      data-card-id="today-run-of-show"
-                      className="min-w-0"
-                    >
-                      <SectionCard
-                        icon={<ClockIcon />}
-                        title={TODAY_TITLES.runOfShow}
-                        action={
-                          // "Full agenda" is a link to another section, not sheet data.
-                          <div data-search-skip="" className="flex items-center gap-2">
-                            <SectionChipLink section="schedule" icon={<CalendarIcon />}>
-                              Full agenda
-                            </SectionChipLink>
-                            <CardHeaderActions
-                              cardId="today-run-of-show"
-                              driveFileId={data.driveFileId}
-                              anchor={data.sourceAnchors[CARD_REGION_MAP["today-run-of-show"]]}
-                              showId={showId}
-                              cardReport={cardReport}
-                            />
-                          </div>
-                        }
-                      >
-                        {model.runOfShow?.kind === "timeline" ? (
-                          <ShowDayTimelineList
-                            items={model.runOfShow.items}
-                            isoDate={model.todayIso}
-                            searchTargets={model.runOfShow.targets}
-                          />
-                        ) : (
-                          <RunOfShowList
-                            entries={model.runOfShow?.entries ?? []}
-                            isoDate={model.todayIso}
-                            searchTargets={model.runOfShow?.targets ?? []}
-                          />
-                        )}
-                      </SectionCard>
-                    </div>
-                    {quickCardsStack != null ? (
-                      <div className="min-w-0">{quickCardsStack}</div>
-                    ) : null}
-                  </div>
-                  {dressCard}
-                  {notesCard}
-                </>
-              ) : hasLeft && hasRight ? (
+              {/* Bare, full-page-width banner: keep the vertical stack. The "row"
+                  posture is reserved for the CARDED Key times in the bounded 1.6fr
+                  column; a full-width row strip would spread 2 anchors 50/50 across
+                  the page with a mid-page divider. */}
+              {modeA ? <KeyTimesStrip anchors={anchors} searchTargets={keyTimeTargets} /> : null}
+
+              {hasLeft && hasRight ? (
                 <div
                   data-testid="today-mode-b-grid"
                   className="grid grid-cols-1 gap-4 @min-crew-split:grid-cols-[1.6fr_1fr] @min-crew-split:items-start"
                 >
                   <div data-testid="today-day-context" className="flex min-w-0 flex-col gap-4">
-                    {makeKeyTimesCard("row")}
+                    {keyTimesCard("row")}
                     {dressCard}
                     {notesCard}
                   </div>
@@ -468,7 +403,7 @@ export function TodaySection({
                   {/* Full-width: the carded Key times uses the DEFAULT (stack)
                       KeyTimesStrip posture — a `row` strip here would spread the
                       2 anchors 50/50 across the whole page (audit idx70/#51). */}
-                  {makeKeyTimesCard()}
+                  {keyTimesCard()}
                   {dressCard}
                   {notesCard}
                 </>

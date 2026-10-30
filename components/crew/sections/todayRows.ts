@@ -3,12 +3,17 @@
  * shared by `TodaySection` and the Today search builder (lib/search/sections/today.ts),
  * so the page and the search index describe the same lines (spec §2.4, INV-1).
  *
- * `todayRows` returns everything the section renders below the pass (the
- * mode, each card's rows, the notes) together with each line's search target id
- * and the search entries in render order. The section renders the model; the
- * builder keeps the entries. Every card is its own search region (its
- * `data-card-id`); Mode A's bare key-times strip sits outside every card
- * (region `none`, no group heading, so its group is "").
+ * `todayRows` returns everything the section renders below the pass and the
+ * run-of-show card (the mode, each card's rows, the notes) together with each
+ * line's search target id and the search entries in render order. The section
+ * renders the model; the builder keeps the entries. Every card is its own search
+ * region (its `data-card-id`); Mode A's bare key-times strip sits outside every
+ * card (region `none`, no group heading, so its group is "").
+ *
+ * The run-of-show card moved to the crew home, above this body (crew page
+ * redesign plan Task 10, lib/crew/runOfShowCard.ts), and its lines with it: the
+ * Today builder adds them from that module. Mode A still means "today has a run
+ * of show", read from the same module, so the strip and the card agree.
  *
  * The whole Today body sits inside one `WrappedSection`: a throw here renders
  * the fallback and the builder contributes nothing.
@@ -17,29 +22,20 @@
  */
 import type { KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { personRowDisplay } from "@/components/crew/primitives/PersonRow";
-import { runOfShowEntryLine } from "@/components/crew/primitives/RunOfShowList";
-import {
-  agendaSessionRowLine,
-  capTimelineItems,
-} from "@/components/crew/primitives/ShowDayTimelineList";
 import {
   addEntry,
-  addRunOfShowEntries,
   entrySink,
   keyTimeEntries,
   type EntrySink,
 } from "@/components/crew/sections/scheduleRows";
-import type { AgendaSession } from "@/lib/agenda/types";
-import { agendaSessionsForToday } from "@/lib/crew/agendaDayForToday";
-import { aggregateDays, scheduleEntriesForViewer } from "@/lib/crew/agendaDisplay";
+import { scheduleEntriesForViewer } from "@/lib/crew/agendaDisplay";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { parseDressCodeLines } from "@/lib/crew/dressCodeLines";
 import { resolveKeyTimes, type KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
+import { RUN_CARD_TITLE, runCardDays } from "@/lib/crew/runOfShowCard";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
-import { buildShowDayTimeline, type TimelineItem } from "@/lib/crew/showDayTimeline";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { ViewerContext } from "@/lib/data/viewerContext";
-import type { AgendaEntry } from "@/lib/parser/types";
 import type { SearchEntry } from "@/lib/search/types";
 import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -58,7 +54,7 @@ export const TODAY_TITLES = {
   keyTimes: "Key times",
   dress: "Dress code",
   showNotes: "Show notes",
-  runOfShow: "Run of show",
+  runOfShow: RUN_CARD_TITLE,
 } as const;
 
 export type NotesEntry = {
@@ -155,7 +151,10 @@ type Person = Parameters<typeof personRowDisplay>[0];
 
 export type TodayModel = {
   todayIso: string;
-  /** Mode A (§5): the bare key-times strip plus the run-of-show card. */
+  /**
+   * Mode A (§5): today has a run of show, which the home's run-of-show card
+   * shows above this body, so the key times are the bare strip, not a card.
+   */
   modeA: boolean;
   transportVisible: boolean;
   anchors: KeyTimeAnchors;
@@ -169,12 +168,7 @@ export type TodayModel = {
   dress: { value: string; targets: (string | undefined)[] } | null;
   noteRows: (NotesEntry & { display: string; truncated: boolean; target: string | undefined })[];
   notesOverflow: number;
-  /** Mode A's run of show: the merged timeline when today has agenda sessions, else the list. */
-  runOfShow:
-    | { kind: "timeline"; items: TimelineItem[]; targets: (string | undefined)[] }
-    | { kind: "list"; entries: AgendaEntry[]; targets: (string | undefined)[] }
-    | null;
-  /** Every Today search entry, in render order. */
+  /** Every search entry of this body, in render order (the run-of-show card's are its own). */
   entries: SearchEntry[];
 };
 
@@ -185,41 +179,19 @@ export type TodayModel = {
  */
 export function todayRows(data: ShowForViewer, ctx: ViewerContext, today: Date): TodayModel {
   // ── Mode A gate (the today-only run-of-show fork; §5). ────────────
-  // The Today run-of-show timeline is a NEW data surface that MUST
-  // enforce the IDENTICAL date-restriction trust boundary as
-  // ScheduleSection — via the SAME shared code path, never a
-  // re-implemented predicate.
-  //
-  //   - unknown_asterisk → ZERO leak: the *** marker is the operator's
-  //     "haven't told us yet" signal. NO timeline, NO show-day text →
-  //     Mode B (identical to ScheduleSection.tsx unknown_asterisk arm).
-  //   - todayIso is the SHOW-tz date (todayIsoInShowTimezone) — NEVER
-  //     new Date()/UTC. Around tz midnight the wrong run-of-show day
-  //     must not show, and a date-restricted viewer must not see the
-  //     NEXT day's agenda before it is actually that day in the show tz.
-  //   - isShowDay: todayIso ∈ aggregateDays(dates) (Codex plan R1 HIGH)
-  //     — guards a stale/off-aggregate runOfShow key whose date is not
-  //     one of THIS show's days.
-  //   - eligible: kind==='none' OR (kind==='explicit' AND days has
-  //     todayIso) — the SAME rule Schedule uses to intersect.
-  //   - todays: displayableEntries(...) — the SAME leak-critical filter
-  //     (URL-only/sentinel titles never occupy a row).
-  //
-  // Mode A iff isShowDay && eligible && (todays.length > 0 ||
-  // agendaToday.length > 0) — the unified timeline also activates on an
-  // agenda-only show day. Fail-closed: any ambiguity (unknown_asterisk,
-  // not a show day, ineligible, no crew AND no agenda) → Mode B
-  // (the full-width stack, unchanged).
+  // Mode A iff today's run-of-show card (lib/crew/runOfShowCard.ts
+  // `runCardDays`, which carries the trust boundaries this gate used to
+  // restate) shows rows from the sheet or the agenda. Today must be one of the
+  // viewer's own days (`passDaySet`: no restriction, or an explicit restriction
+  // listing it; never an `unknown_asterisk` viewer), a show-tz date
+  // (todayIsoInShowTimezone, NEVER new Date()/UTC), with displayable entries
+  // after the load-out gate or agenda sessions. A card holding only the
+  // synthetic "Show Start" row keeps Mode B, as before the card had that row:
+  // it says what the Key times card says. Fail-closed: anything else is Mode B.
   const dateRestriction = ctx.dateRestriction;
   const todayIso = todayIsoInShowTimezone(data.show, today);
-  const isShowDay = aggregateDays(data.show.dates).some((d) => d.date === todayIso);
-  const eligible =
-    dateRestriction.kind === "none" ||
-    (dateRestriction.kind === "explicit" && new Set(dateRestriction.days).has(todayIso));
-  // §9.6 load-out trust boundary — computed BEFORE `todays` so the Mode-A
-  // gate and the rendered list are the SAME post-gate set: a viewer whose
-  // only today entry is a gated-out load-out falls to Mode B (no empty
-  // run-of-show). Also reused below for the 5-source notes transport gate.
+  // The transport gate: the run card's load-out gate and the 5-source notes'
+  // transport source.
   const transportVisible = transportTileVisible({
     transportation: data.transportation,
     viewerId: data.viewerId,
@@ -228,17 +200,12 @@ export function todayRows(data: ShowForViewer, ctx: ViewerContext, today: Date):
     viewerNameAliases: data.viewerNameAliases,
     isAdmin: ctx.isAdmin,
   });
-  const todays = suppressesDates(dateRestriction)
-    ? []
-    : scheduleEntriesForViewer(data.runOfShow?.[todayIso]?.entries, { transportVisible });
-  // Unified show-day timeline: today's PLACEABLE agenda sessions (high-conf,
-  // day-matched, aggregated across links). agendaToday.length>0 activates the merge.
-  const agendaToday: AgendaSession[] = agendaSessionsForToday(
-    data.show.agenda_links ?? [],
-    data.show.dates.showDays ?? [],
-    todayIso,
-  );
-  const modeA = isShowDay && eligible && (todays.length > 0 || agendaToday.length > 0);
+  const card = runCardDays(data, ctx).find((d) => d.iso === todayIso);
+  const showStartOnly =
+    card?.rows.kind === "list" &&
+    scheduleEntriesForViewer(data.runOfShow?.[todayIso]?.entries, { transportVisible }).length ===
+      0;
+  const modeA = card !== undefined && !showStartOnly;
 
   // Today shows ONLY today's Show anchor — the full per-day breakdown
   // belongs in Schedule (§5.4 / D6). set/strike are SHOW-WIDE milestones
@@ -384,44 +351,11 @@ export function todayRows(data: ShowForViewer, ctx: ViewerContext, today: Date):
     }),
   }));
 
-  const rosSink = entrySink("today", "today-run-of-show");
-  let runOfShow: TodayModel["runOfShow"] = null;
-  if (modeA) {
-    if (agendaToday.length > 0) {
-      const items = buildShowDayTimeline(todays, agendaToday);
-      const targets = capTimelineItems(items).kept.map((it) => {
-        if (it.source === "crew") {
-          const line = runOfShowEntryLine(it.entry);
-          return addEntry(rosSink, {
-            group: TODAY_TITLES.runOfShow,
-            label: line.timeLabel,
-            value: line.title,
-            context: [line.room, line.av],
-          });
-        }
-        const { time, title, room } = agendaSessionRowLine(it.session);
-        return addEntry(rosSink, {
-          group: TODAY_TITLES.runOfShow,
-          label: title !== "" ? time : null,
-          value: title !== "" ? title : time,
-          context: [room],
-        });
-      });
-      runOfShow = { kind: "timeline", items, targets };
-    } else {
-      const targets = addRunOfShowEntries(rosSink, TODAY_TITLES.runOfShow, todays);
-      runOfShow = { kind: "list", entries: todays, targets };
-    }
-  }
-
-  // Render order: Mode A puts the strip, then the run of show beside the quick
-  // cards, then dress and notes; every other mode puts the day-context column
-  // (key times, dress, notes) before the quick cards.
+  // Render order: the key times (Mode A's bare strip, else the card), then the
+  // day-context column (dress, notes) before the quick cards.
   const quick = [...tonightSink.entries, ...whereSink.entries, ...contactSink.entries];
   const dayContext = [...dressSink.entries, ...notesSink.entries];
-  const entries = modeA
-    ? [...keyTimes.entries, ...rosSink.entries, ...quick, ...dayContext]
-    : [...keyTimes.entries, ...dayContext, ...quick];
+  const entries = [...keyTimes.entries, ...dayContext, ...quick];
 
   return {
     todayIso,
@@ -436,7 +370,6 @@ export function todayRows(data: ShowForViewer, ctx: ViewerContext, today: Date):
     dress,
     noteRows,
     notesOverflow,
-    runOfShow,
     entries,
   };
 }

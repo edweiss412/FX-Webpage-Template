@@ -30,6 +30,7 @@
 import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 import {
@@ -1656,8 +1657,12 @@ test.describe("the pass (crew page redesign Task 9)", () => {
 
   const homePath = () => `/show/${slug}/${shareToken}`;
 
-  /** Every frame of `ms` after `trigger` runs, the pass's height and its bodies. */
-  type Frame = { height: number; bodies: number[] };
+  /**
+   * Every frame of `ms` after `trigger` runs: the pass's height and its bodies'
+   * opacities, and the run-of-show card's row bodies' opacities (spec §7: a day
+   * switch crossfades both).
+   */
+  type Frame = { height: number; bodies: number[]; runBodies: number[] };
   async function sampleFrames(
     page: import("@playwright/test").Page,
     trigger: { tapDay: string } | { visibility: true },
@@ -1670,9 +1675,11 @@ test.describe("the pass (crew page redesign Task 9)", () => {
           const read = () => {
             const pass = document.querySelector('[data-testid="crew-pass"]');
             const bodies = [...document.querySelectorAll('[data-testid="crew-pass-body"]')];
+            const runBodies = [...document.querySelectorAll('[data-testid="crew-run-body"]')];
             frames.push({
               height: pass ? pass.getBoundingClientRect().height : 0,
               bodies: bodies.map((b) => Number(getComputedStyle(b).opacity)),
+              runBodies: runBodies.map((b) => Number(getComputedStyle(b).opacity)),
             });
           };
           read();
@@ -1853,25 +1860,76 @@ test.describe("the pass (crew page redesign Task 9)", () => {
     await expect(pass.locator("[data-fact]").first()).toBeVisible();
   });
 
-  test("pass: a day switch is a crossfade: mid-transition both bodies are mounted at opacity strictly between 0 and 1", async ({
+  test("pass: a day switch is a crossfade: mid-transition both bodies are mounted at opacity strictly between 0 and 1, and the run card crossfades its rows with it", async ({
     page,
   }) => {
-    await pinBothClocks(page, SHOW_DAY_1);
-    await gotoPass(page, homePath());
-    const frames = await sampleFrames(page, { tapDay: SHOW_DAY_2 });
-    const overlap = frames.filter(
-      (f) => f.bodies.length === 2 && f.bodies.every((o) => o > 0 && o < 1),
-    );
-    expect(
-      overlap.length,
-      `no frame had both bodies mid-fade: ${JSON.stringify(frames.map((f) => f.bodies))}`,
-    ).toBeGreaterThan(0);
-    await expect(page.getByTestId("crew-pass")).toHaveAttribute(
-      "data-selection",
-      `day:${SHOW_DAY_2}`,
-    );
-    // The fade ends on one opaque body.
-    expect(frames.at(-1)!.bodies).toEqual([1]);
+    // The Waldorf seed stores no run of show, so the run card (plan Task 10) would
+    // not mount on it. This case seeds its own show, with a run of show on both
+    // show days, written in the seed's locked transaction before the first
+    // navigation, so the first render caches the seeded rows (the cache note in
+    // right-now-transitions.spec.ts). Same dates as the Waldorf seed.
+    const DAY_ROWS: Record<string, string[]> = {
+      [SHOW_DAY_1]: ["Crossfade Day One Call", "Crossfade Day One Doors"],
+      [SHOW_DAY_2]: ["Crossfade Day Two Call", "Crossfade Day Two Doors"],
+    };
+    const seeded = await seedShowWithCrew({
+      title: "Run Card Crossfade Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: SHOW_DAYS,
+        travelOut: TRAVEL_OUT,
+      },
+      crew: [{ name: "Crossfade Crew", role: "A1" }],
+      internal: {
+        runOfShow: Object.fromEntries(
+          SHOW_DAYS.map((iso) => [
+            iso,
+            {
+              entries: DAY_ROWS[iso]!.map((title, i) => ({ start: `${7 + i}:00 AM`, title })),
+              showStart: "7:00 AM",
+              showEnd: null,
+              window: null,
+            },
+          ]),
+        ),
+      },
+    });
+    try {
+      await pinBothClocks(page, SHOW_DAY_1);
+      await gotoPass(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const runCard = page.getByTestId("today-run-of-show");
+      await expect(runCard).toContainText(DAY_ROWS[SHOW_DAY_1]![0]!);
+      const frames = await sampleFrames(page, { tapDay: SHOW_DAY_2 });
+      const overlap = frames.filter(
+        (f) => f.bodies.length === 2 && f.bodies.every((o) => o > 0 && o < 1),
+      );
+      expect(
+        overlap.length,
+        `no frame had both bodies mid-fade: ${JSON.stringify(frames.map((f) => f.bodies))}`,
+      ).toBeGreaterThan(0);
+      await expect(page.getByTestId("crew-pass")).toHaveAttribute(
+        "data-selection",
+        `day:${SHOW_DAY_2}`,
+      );
+      // The fade ends on one opaque body.
+      expect(frames.at(-1)!.bodies).toEqual([1]);
+
+      // The run card's rows crossfade with it: the outgoing and incoming day's rows
+      // both mounted mid-fade, ending on the incoming day alone.
+      const runOverlap = frames.filter(
+        (f) => f.runBodies.length === 2 && f.runBodies.every((o) => o > 0 && o < 1),
+      );
+      expect(
+        runOverlap.length,
+        `no frame had both run-card bodies mid-fade: ${JSON.stringify(frames.map((f) => f.runBodies))}`,
+      ).toBeGreaterThan(0);
+      expect(frames.at(-1)!.runBodies).toEqual([1]);
+      await expect(runCard).toContainText(DAY_ROWS[SHOW_DAY_2]![0]!);
+      await expect(runCard).not.toContainText(DAY_ROWS[SHOW_DAY_1]![0]!);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
   });
 
   test("pass: under reduced motion a day switch is instant: every sampled frame finds one body", async ({
