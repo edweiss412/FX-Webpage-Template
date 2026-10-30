@@ -39,6 +39,12 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EPOCH_RE = /^\d+$/;
+/**
+ * `saved` is the copy's savedAt, which is the marker's `data-rendered-at`: ISO 8601 UTC, the shape
+ * lib/offline/marker.ts accepts. Checked before Date.parse, which also accepts
+ * implementation-defined forms ("1", "2026", "Oct 21") that no saved copy carries.
+ */
+const SAVED_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 
 type StatusQuery = { showId: string; epoch: number; viewer: string; savedAtMs: number };
 
@@ -52,7 +58,7 @@ function parseQuery(url: URL): StatusQuery | null {
   const epoch = Number(epochText);
   if (!Number.isSafeInteger(epoch)) return null;
   if (viewer === null || viewer === "") return null;
-  if (saved === null) return null;
+  if (saved === null || !SAVED_AT_RE.test(saved)) return null;
   const savedAtMs = Date.parse(saved);
   if (Number.isNaN(savedAtMs)) return null;
   return { showId, epoch, viewer, savedAtMs };

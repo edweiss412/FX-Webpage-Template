@@ -256,6 +256,14 @@ describe("malformed or missing parameters answer gone without touching the datab
     ["an empty viewer", (u) => u.searchParams.set("viewer", "")],
     ["no saved", (u) => u.searchParams.delete("saved")],
     ["an unparseable saved", (u) => u.searchParams.set("saved", "yesterday-ish")],
+    // Forms Date.parse accepts but a saved copy never carries (its savedAt is the marker's
+    // ISO-8601 UTC data-rendered-at, lib/offline/marker.ts).
+    ["a bare-number saved (saved=1)", (u) => u.searchParams.set("saved", "1")],
+    ["a year-only saved", (u) => u.searchParams.set("saved", "2026")],
+    [
+      "a saved with an offset instead of Z",
+      (u) => u.searchParams.set("saved", `${SAVED_AT.slice(0, -1)}+00:00`),
+    ],
   ])("%s", async (_label, edit) => {
     const world = endedWorld();
     const { status, body } = await call(world, statusRequest(world, savedCopy(), edit));

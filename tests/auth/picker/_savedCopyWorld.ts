@@ -118,10 +118,15 @@ export function baseWorld(): World {
   };
 }
 
-/** The same show after an archive: archived, and the archive's own epoch bump. */
+/**
+ * The same show after an archive, in the state production holds: archived, unpublished (the
+ * archive sets `published = false` in the same update), and the archive's own epoch bump.
+ * Leaving `published` true would hide a saved-mode regression that checked `!published`.
+ */
 export function archive(world: World): World {
   if (world.show) {
     world.show.archived = true;
+    world.show.published = false;
     world.show.picker_epoch += 1;
   }
   return world;
