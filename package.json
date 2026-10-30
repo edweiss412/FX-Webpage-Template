@@ -22,6 +22,7 @@
     "gen:email-boundaries": "tsx scripts/extract-email-boundaries.ts",
     "gen:traceability": "tsx scripts/generate-traceability.ts",
     "gen:spec-codes": "tsx scripts/extract-spec-codes.ts",
+    "gen:sw": "tsx scripts/generate-sw-source.ts",
     "gen:schema-manifest": "tsx scripts/generate-schema-manifest.ts",
     "gen:execution-methods": "tsx scripts/generate-execution-methods.ts",
     "observe": "tsx scripts/observe.ts",
