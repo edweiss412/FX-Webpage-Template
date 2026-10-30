@@ -2,8 +2,10 @@
 /**
  * Published-toggle spec §3.5 (user decision D5): a crew share-token URL opened while the
  * show is UNPUBLISHED (valid slug+token, published=false, not archived) renders a minimal
- * "not available right now" page under HTTP 200 — with ZERO show data (no title, no dates:
- * the component takes no show props at all; that IS the leak-minimization mechanism).
+ * "not available right now" page under HTTP 200 — with ZERO show data (no title, no dates).
+ * The component's only prop is the show id, which reaches the page solely as the saved-copy
+ * marker's data-show-id (crew offline spec 4.3); rendering no show data is the
+ * leak-minimization mechanism.
  * Archived and never-resolved links keep the 404 notFound() boundary (existence oracle
  * unchanged for revoked links).
  *

@@ -22,6 +22,14 @@
  * Mutation families (plan section 9, the closed set): the attribute removed from
  * one site; the marker removed from one sibling; a new `TerminalFailure` added
  * without the attribute; the walk root renamed.
+ *
+ * Documented limits (outside that closed set, recorded here rather than guarded):
+ *   - The guard checks that `savedCopy` is present, not what it holds, so
+ *     `savedCopy={undefined}` passes. The per-arm render cases in
+ *     tests/show/savedCopyMarkerArms.test.tsx pin each arm's value.
+ *   - SIBLINGS is a hand-listed set. A new page-level surface that renders
+ *     neither a `TerminalFailure` nor a listed sibling is not caught; adding
+ *     one means adding it here.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
