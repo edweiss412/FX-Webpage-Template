@@ -32,6 +32,8 @@ import { buildSectionWarningExtras } from "@/components/admin/showpage/sectionWa
 import type { SectionWarningItem, SectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { buildPublishedSurfaceProps } from "@/tests/helpers/publishedSurfaceProps";
 import { premiseHolds } from "@/tests/_shared/premise";
+import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
+import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 import {
   buildParseResult,
   stagedRow,
@@ -142,6 +144,10 @@ describe("wizard Accepted (N) disclosure (spec §6.4)", () => {
     expect(ignoredRows[0]?.textContent).toContain("Hotel notes");
     expect(acceptedRows[0]?.textContent).toContain(JUDGMENT_IGNORED.rawSnippet);
     expect(ignoredList.textContent).not.toContain(JUDGMENT_IGNORED.rawSnippet);
+    // Review R1 C2 sweep: each row carries its OWN record's report id (index 1 and 2 of
+    // the fixture), on the row itself, not just somewhere in its list.
+    expect(within(ignoredRows[0] as HTMLElement).getByTestId("dq-unignore-sid-1")).toBeTruthy();
+    expect(within(acceptedRows[0] as HTMLElement).getByTestId("dq-unignore-sid-2")).toBeTruthy();
 
     expect(q.getByTestId(`wizard-step3-card-${DFID}-ignored-summary`).textContent).toContain(
       "Ignored (1)",
@@ -210,6 +216,26 @@ describe("published Accepted (N) disclosure (spec §6.4)", () => {
     warning: { ...NEEDS_LOOK_IGNORED, rawSnippet: "Loading dock | rear" },
     reportSurfaceId: "rs-b",
   };
+  // A second judgment row with a different code, so its card's visible title differs
+  // from judgmentJ's (two legacy hotel cards render identical text).
+  const judgmentK: SectionWarningItem = {
+    warning: {
+      severity: "warn",
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      message: "Room header could be read two ways",
+      rawSnippet: "Ballroom A / B",
+    },
+    reportSurfaceId: "rs-k",
+  };
+  const titleText = (it: SectionWarningItem) => stripEmphasis(reviewWarningTitle(it.warning));
+  /** The one card in `list` whose visible text carries `marker` (its warning content). */
+  function cardIn(list: HTMLElement, marker: string): HTMLElement {
+    const cards = within(list)
+      .getAllByTestId("per-show-actionable-item")
+      .filter((c) => (c.textContent ?? "").includes(marker));
+    premiseHolds(`exactly one card shows "${marker}"`, cards.length === 1);
+    return cards[0]!;
+  }
 
   function publishedData() {
     const data = buildPublishedSurfaceProps({}).data;
@@ -229,22 +255,34 @@ describe("published Accepted (N) disclosure (spec §6.4)", () => {
   it("each row carries its OWN record's report id across the split", () => {
     // Judgment between two needs-look rows: a positional read after filtering hands
     // B the judgment row's id.
-    const q = renderExtras([needsLookA, judgmentJ, needsLookB]);
+    // Review R1 C1/C2: each CARD, found by its own warning content, carries its own
+    // record's report id. Two rows per list, so a positional swap inside either list
+    // (reversed, or shifted by the split) moves an id onto the wrong card.
+    const q = renderExtras([needsLookA, judgmentJ, needsLookB, judgmentK]);
     const ignoredList = q.getByTestId("section-ignored-list-warnings");
     const acceptedList = q.getByTestId("section-accepted-list-warnings");
+    const expectOwnId = (list: HTMLElement, marker: string, own: SectionWarningItem) => {
+      const card = cardIn(list, marker);
+      expect(within(card).getByTestId(`dq-unignore-${own.reportSurfaceId}`)).toBeTruthy();
+      expect(card.querySelectorAll('[data-testid^="dq-unignore-"]')).toHaveLength(1);
+    };
+    expectOwnId(ignoredList, "Hotel notes", needsLookA);
+    expectOwnId(ignoredList, "Loading dock", needsLookB);
+    premiseHolds(
+      "the two judgment rows have distinct visible titles",
+      titleText(judgmentJ) !== titleText(judgmentK) && isJudgmentCall(judgmentK.warning),
+    );
+    expectOwnId(acceptedList, titleText(judgmentJ), judgmentJ);
+    expectOwnId(acceptedList, titleText(judgmentK), judgmentK);
     for (const it of [needsLookA, needsLookB]) {
-      expect(within(ignoredList).getByTestId(`dq-unignore-${it.reportSurfaceId}`)).toBeTruthy();
       expect(within(acceptedList).queryByTestId(`dq-unignore-${it.reportSurfaceId}`)).toBeNull();
     }
-    expect(
-      within(acceptedList).getByTestId(`dq-unignore-${judgmentJ.reportSurfaceId}`),
-    ).toBeTruthy();
-    expect(
-      within(ignoredList).queryByTestId(`dq-unignore-${judgmentJ.reportSurfaceId}`),
-    ).toBeNull();
+    for (const it of [judgmentJ, judgmentK]) {
+      expect(within(ignoredList).queryByTestId(`dq-unignore-${it.reportSurfaceId}`)).toBeNull();
+    }
     expect(q.getByTestId("section-ignored-summary-warnings").textContent).toContain("Ignored (2)");
     expect(q.getByTestId("section-accepted-summary-warnings").textContent).toContain(
-      "Accepted (1)",
+      "Accepted (2)",
     );
     const ignored = q.getByTestId("section-ignored-warnings-warnings");
     const accepted = q.getByTestId("section-accepted-warnings-warnings");
