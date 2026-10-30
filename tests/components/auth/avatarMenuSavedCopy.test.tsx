@@ -58,6 +58,11 @@ const PURGE = { type: "purge-show", showId: ROUTE.showId };
  * component's constant could not tell it from any other number. */
 const ACK_WAIT_MS = 500;
 
+/** The switch watchdog's window (PENDING_TIMEOUT_MS), as a literal for the same reason. */
+const PENDING_WINDOW_MS = 8_000;
+
+const FAILED: ClearIdentityResult = { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
+
 /** What happened, in order: each post to the worker and each clear. */
 let events: string[] = [];
 
@@ -289,6 +294,90 @@ describe("the purge bracket around Not you? (spec 4.6)", () => {
     );
     expect(events).toEqual(["post:purge-show", "clear", "post:purge-show"]);
     expect(worker.posted[1]!.message).toStrictEqual(PURGE);
+  });
+
+  test("the second purge is not waited for: with no ack, a failure shows as soon as the clear settles", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // A worker that never answers, so a menu that waited on the second purge
+    // would sit in the pending phase until that post's own timeout.
+    const worker = installWorker({ autoAck: false });
+    const clear = heldAction();
+    renderMenu(clear.action);
+    openMenu();
+
+    tapSwitch();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACK_WAIT_MS);
+    });
+    expect(clear.action, "the first purge's wait ran out").toHaveBeenCalledTimes(1);
+
+    // Settle with no timer advance after it: only microtasks run from here.
+    await act(async () => {
+      clear.resolve(FAILED);
+      await clear.promise;
+    });
+    expect(worker.posted, "the second purge went out, and is still unanswered").toHaveLength(2);
+    expect(worker.posted[1]!.message).toStrictEqual(PURGE);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(switchRow()).toHaveAttribute("aria-disabled", "false");
+    expect(switchRow()).not.toHaveAttribute("aria-busy");
+    expect(screen.getByTestId("avatar-menu-switch-announcer").textContent).toBe("");
+  });
+
+  test("a superseded attempt still sends its second purge when its clear settles", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const worker = installWorker({ autoAck: false });
+    const first = heldAction();
+    const second = heldAction();
+    const action = vi
+      .fn<(formData: FormData) => Promise<ClearIdentityResult>>()
+      .mockImplementationOnce(first.action)
+      .mockImplementationOnce(second.action);
+    renderMenu(action);
+    openMenu();
+
+    tapSwitch();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACK_WAIT_MS);
+    });
+    expect(action, "attempt 1 reached its clear").toHaveBeenCalledTimes(1);
+
+    // Attempt 1's clear hangs past the watchdog, which re-enables the row.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PENDING_WINDOW_MS);
+    });
+    expect(switchRow(), "the watchdog admits a retry").toHaveAttribute("aria-disabled", "false");
+
+    tapSwitch();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACK_WAIT_MS);
+    });
+    expect(action, "attempt 2 reached its clear").toHaveBeenCalledTimes(2);
+    expect(events).toEqual(["post:purge-show", "clear", "post:purge-show", "clear"]);
+
+    // The superseded clear settles. Its cookie change can land after attempt
+    // 2's first purge, so it needs its own second purge.
+    await act(async () => {
+      first.resolve(FAILED);
+      await first.promise;
+    });
+    // Premise: attempt 1 really was superseded, so its failure paints nothing.
+    expect(screen.queryByRole("alert"), "a superseded failure reports nothing").toBeNull();
+    expect(events).toEqual([
+      "post:purge-show",
+      "clear",
+      "post:purge-show",
+      "clear",
+      "post:purge-show",
+    ]);
+    expect(worker.posted[2]!.message).toStrictEqual(PURGE);
+
+    await act(async () => {
+      second.resolve({ ok: true });
+      await second.promise;
+    });
+    expect(events.at(-1), "and the live attempt sends its own").toBe("post:purge-show");
+    expect(worker.posted).toHaveLength(4);
   });
 
   test("with no worker controlling the page, the clear is called inside the tap (ruling D5)", () => {
