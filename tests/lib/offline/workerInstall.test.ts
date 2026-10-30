@@ -234,8 +234,14 @@ type Entry = { bytes: Uint8Array; status: number; headers: [string, string][] };
 class FakeCache implements CacheLike {
   readonly entries = new Map<string, Entry>();
   failPut: ((url: string) => boolean) | null = null;
+  failMatch = false;
+  /** While set, `keys` waits on it and then lists the entries as they are by then. */
+  keysGate: Promise<void> | null = null;
+  /** While set, `delete` removes the entry at once and settles only when the gate opens. */
+  deleteGate: Promise<void> | null = null;
 
   async match(url: string): Promise<Response | undefined> {
+    if (this.failMatch) throw new DOMException("The cache could not be read.", "UnknownError");
     const entry = this.entries.get(url);
     if (entry === undefined) return undefined;
     return new Response(entry.bytes.slice(), { status: entry.status, headers: entry.headers });
@@ -250,10 +256,13 @@ class FakeCache implements CacheLike {
   }
 
   async delete(url: string): Promise<boolean> {
-    return this.entries.delete(url);
+    const had = this.entries.delete(url);
+    if (this.deleteGate !== null) await this.deleteGate;
+    return had;
   }
 
   async keys(): Promise<readonly Request[]> {
+    if (this.keysGate !== null) await this.keysGate;
     return [...this.entries.keys()].map((url) => new Request(url));
   }
 
@@ -267,9 +276,9 @@ class FakeCache implements CacheLike {
       .sort();
   }
 
-  seed(path: string, body: string, headers: Record<string, string> = {}): void {
+  seed(path: string, body: string | Uint8Array, headers: Record<string, string> = {}): void {
     this.entries.set(ORIGIN + path, {
-      bytes: new TextEncoder().encode(body),
+      bytes: typeof body === "string" ? new TextEncoder().encode(body) : body,
       status: 200,
       headers: Object.entries(headers),
     });
@@ -278,6 +287,7 @@ class FakeCache implements CacheLike {
 
 class FakeCacheStorage implements CacheStorageLike {
   readonly caches = new Map<string, FakeCache>();
+  failOpen = false;
 
   cache(name: string): FakeCache {
     let cache = this.caches.get(name);
@@ -289,6 +299,7 @@ class FakeCacheStorage implements CacheStorageLike {
   }
 
   async open(name: string): Promise<CacheLike> {
+    if (this.failOpen) throw new DOMException("Cache Storage is unavailable.", "UnknownError");
     return this.cache(name);
   }
 
@@ -374,12 +385,16 @@ class FakeClients implements Clients {
 
 type Dispatched = {
   responded: Promise<Response> | null;
+  /** The event's waitUntil promises, settled, then every queued continuation. */
   settled: () => Promise<void>;
+  /** The event's waitUntil promises alone: when the browser may stop the worker. */
+  extended: () => Promise<void>;
 };
 
 type Sent = {
   replies: unknown[];
   settled: () => Promise<void>;
+  extended: () => Promise<void>;
   close: () => void;
 };
 
@@ -444,7 +459,11 @@ function boot(options: { store?: SavedCopyStore } = {}) {
   });
 
   function dispatchFetch(request: Request): Dispatched {
-    const out: Dispatched = { responded: null, settled: async () => undefined };
+    const out: Dispatched = {
+      responded: null,
+      settled: async () => undefined,
+      extended: async () => undefined,
+    };
     const waits: Promise<unknown>[] = [];
     listeners.get("fetch")?.({
       request,
@@ -455,6 +474,9 @@ function boot(options: { store?: SavedCopyStore } = {}) {
         waits.push(promise);
       },
     });
+    out.extended = async () => {
+      await Promise.all(waits);
+    };
     out.settled = async () => {
       await Promise.all(waits);
       await settle();
@@ -481,6 +503,9 @@ function boot(options: { store?: SavedCopyStore } = {}) {
       settled: async () => {
         await Promise.all(waits);
         await settle();
+      },
+      extended: async () => {
+        await Promise.all(waits);
       },
       close: () => channel.port1.close(),
     };
@@ -582,6 +607,39 @@ function watch<T>(promise: Promise<T>): { done: () => boolean } {
 
 function statusAnswer(state: "ended" | "gone"): Route {
   return reply(() => Response.json({ state }, { headers: { "cache-control": "no-store" } }));
+}
+
+/** The memory store, with the named methods rejecting as a full phone's store does once `broken`. */
+function faultyStore(methods: readonly (keyof SavedCopyStore)[]) {
+  const inner = createMemoryStore();
+  const state = { broken: false };
+  const store: SavedCopyStore = { ...inner };
+  const writable = store as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+  for (const name of methods) {
+    const original = inner[name] as (...args: unknown[]) => Promise<unknown>;
+    writable[name] = (...args: unknown[]) =>
+      state.broken
+        ? Promise.reject(new DOMException("The quota has been exceeded.", "QuotaExceededError"))
+        : original(...args);
+  }
+  return { store, state };
+}
+
+/** A store whose staticIndex reads the index, then waits, then answers with that read. */
+function gatedStaticIndex() {
+  const inner = createMemoryStore();
+  const gate = deferred<void>();
+  let calls = 0;
+  const store: SavedCopyStore = {
+    ...inner,
+    async staticIndex() {
+      calls += 1;
+      const snapshot = await inner.staticIndex();
+      await gate.promise;
+      return snapshot;
+    },
+  };
+  return { store, gate, calls: () => calls };
 }
 
 // --- The wire contract -----------------------------------------------------------
@@ -1782,7 +1840,7 @@ describe("completeness", () => {
     },
   );
 
-  test("a quota error on put abandons the save and posts save-failed to pages of U", async () => {
+  test("a quota error on put abandons the save and posts save-failed to every open page", async () => {
     const worker = boot();
     await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
     const onU = worker.clients.open(U);
@@ -1795,7 +1853,7 @@ describe("completeness", () => {
     await open(worker, U);
     expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
     expect(onU.received).toEqual([{ type: "save-failed", url: U, reason: "quota" }]);
-    expect(elsewhere.received).toEqual([]);
+    expect(elsewhere.received).toEqual([{ type: "save-failed", url: U, reason: "quota" }]);
   });
 
   test("listed assets are stored with the copy; one already cached is not fetched again", async () => {
@@ -2146,5 +2204,435 @@ describe("install and activate", () => {
       [ASSET_CACHE, STATIC_CACHE, "someone-else"].sort(),
     );
     expect(worker.clients.claims).toBe(1);
+  });
+});
+
+// --- Review round 1 -----------------------------------------------------------------
+
+describe("faults never cost a served page", () => {
+  test("a touchOpened that fails still serves the copy with its notice", async () => {
+    const { store, state } = faultyStore(["touchOpened"]);
+    const worker = boot({ store });
+    await worker.seed({ showId: SHOW, url: U });
+    state.broken = true;
+    worker.net.on(U, refuse);
+    const text = await (await open(worker, U)).text();
+    expect(servedMode(text)).toBe("offline");
+    expect(text).toContain(savedLabel(SHOW, U));
+    expect(text).toContain('html:not([data-fxav-bar="mounted"]) body::before');
+  });
+
+  test("a store that fails: an online navigation gets the network page", async () => {
+    const { store, state } = faultyStore(["copyAtUrl", "listCopies", "beginSave"]);
+    const worker = boot({ store });
+    state.broken = true;
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page({ disposition: "hold", showId: null }, "live page"))),
+    );
+    const response = await open(worker, U);
+    expect(await response.text()).toContain("live page");
+  });
+
+  test("a store that fails with no network: the not-saved page, never an error page", async () => {
+    const { store, state } = faultyStore(["copyAtUrl", "listCopies", "beginSave"]);
+    const worker = boot({ store });
+    await worker.seed({ showId: SHOW, url: U });
+    state.broken = true;
+    worker.net.on(U, refuse);
+    expect(await (await open(worker, U)).text()).toBe(notSavedPageHtml());
+  });
+
+  test("a static cache that cannot be opened: the file comes from the network", async () => {
+    const worker = boot();
+    worker.caches.failOpen = true;
+    const response = await responseOf(worker.dispatchFetch(new Request(ORIGIN + CHUNK)));
+    expect(await response.text()).toBe("console.log(1)");
+  });
+
+  test("a static cache that cannot be read: the file comes from the network", async () => {
+    const worker = boot();
+    worker.staticCache().seed(CHUNK, "stale");
+    worker.staticCache().failMatch = true;
+    const response = await responseOf(worker.dispatchFetch(new Request(ORIGIN + CHUNK)));
+    expect(await response.text()).toBe("console.log(1)");
+  });
+
+  test("a listing that fails reads as unlisted: an asset gets the network's own answer", async () => {
+    const { store, state } = faultyStore(["listCopies"]);
+    const worker = boot({ store });
+    state.broken = true;
+    worker.net.on(
+      DIAGRAM,
+      reply(() => new Response("refused", { status: 404 })),
+    );
+    const response = await responseOf(worker.dispatchFetch(new Request(ORIGIN + DIAGRAM)));
+    expect(response.status).toBe(404);
+  });
+
+  test("a listing that fails reads as unlisted: a slow asset keeps waiting on the network", async () => {
+    const { store, state } = faultyStore(["listCopies"]);
+    const worker = boot({ store });
+    state.broken = true;
+    const gate = deferred<Response>();
+    worker.net.on(DIAGRAM, later(gate));
+    const dispatched = worker.dispatchFetch(new Request(ORIGIN + DIAGRAM));
+    const served = watch(responseOf(dispatched));
+    await worker.clock.advance(6_000);
+    expect(served.done()).toBe(false);
+    gate.resolve(new Response("slow diagram"));
+    expect(await (await responseOf(dispatched)).text()).toBe("slow diagram");
+  });
+
+  test("an asset cache that cannot be opened: a listed asset gets the network's own answer", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+    worker.caches.failOpen = true;
+    worker.net.on(
+      DIAGRAM,
+      reply(() => new Response("refused", { status: 404 })),
+    );
+    const response = await responseOf(worker.dispatchFetch(new Request(ORIGIN + DIAGRAM)));
+    expect(response.status).toBe(404);
+  });
+});
+
+describe("a listed asset falls back to storage on a non-2xx answer (controller ruling)", () => {
+  test("a 401 from the asset route (an archived show) serves the stored asset", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+    worker.assetCache().seed(DIAGRAM, "stored diagram");
+    worker.net.on(
+      DIAGRAM,
+      reply(() => Response.json({ error: "epoch_stale" }, { status: 401 })),
+    );
+    const response = await responseOf(worker.dispatchFetch(new Request(ORIGIN + DIAGRAM)));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("stored diagram");
+  });
+
+  test("an unlisted asset gets the network's non-2xx answer as is", async () => {
+    const worker = boot();
+    worker.assetCache().seed(DIAGRAM, "orphan");
+    worker.net.on(
+      DIAGRAM,
+      reply(() => Response.json({ error: "epoch_stale" }, { status: 401 })),
+    );
+    const response = await responseOf(worker.dispatchFetch(new Request(ORIGIN + DIAGRAM)));
+    expect(response.status).toBe(401);
+  });
+});
+
+describe("a stored agenda answers Range requests (pdf.js range loading)", () => {
+  const SIZE = 200 * 1024;
+  const bytes = Uint8Array.from({ length: SIZE }, (_, index) => index % 251);
+
+  async function offlineAgenda() {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U, assets: [AGENDA] });
+    worker.assetCache().seed(AGENDA, bytes, {
+      "content-type": "application/pdf",
+      "accept-ranges": "bytes",
+      "content-length": String(SIZE),
+    });
+    worker.net.on(AGENDA, refuse);
+    return worker;
+  }
+
+  async function get(worker: Worker, range?: string): Promise<Response> {
+    const headers: Record<string, string> = range === undefined ? {} : { range };
+    return responseOf(worker.dispatchFetch(new Request(ORIGIN + AGENDA, { headers })));
+  }
+
+  test("premise: the agenda is past pdf.js's 128 KiB range threshold", () => {
+    premise("the stored agenda is over 128 KiB", bytes.byteLength, 128 * 1024);
+  });
+
+  test("no Range: the whole stored body, still offering ranges", async () => {
+    const response = await get(await offlineAgenda());
+    expect(response.status).toBe(200);
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  });
+
+  test.each([
+    ["bytes=131072-196607", 131072, 196607],
+    ["bytes=200000-", 200000, SIZE - 1],
+    ["bytes=-1024", SIZE - 1024, SIZE - 1],
+    ["bytes=204000-300000", 204000, SIZE - 1],
+    ["bytes=0-0", 0, 0],
+  ])("%s answers 206 with the slice", async (range, start, end) => {
+    const response = await get(await offlineAgenda(), range);
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(`bytes ${start}-${end}/${SIZE}`);
+    expect(response.headers.get("content-length")).toBe(String(end - start + 1));
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes.slice(start, end + 1));
+  });
+
+  test.each(["bytes=999999-", "bytes=-0"])("%s is unsatisfiable: 416", async (range) => {
+    const response = await get(await offlineAgenda(), range);
+    expect(response.status).toBe(416);
+    expect(response.headers.get("content-range")).toBe(`bytes */${SIZE}`);
+  });
+});
+
+describe("a sweep never takes a file a save holds, even when the save starts mid-sweep", () => {
+  test("a static cache hit pinned after the sweep read the index is kept", async () => {
+    const { store, gate, calls } = gatedStaticIndex();
+    const worker = boot({ store });
+    worker.staticCache().seed(CSS, CSS_BODY, { "content-type": "text/css" });
+    await store.recordStatics([CSS], START - 30 * DAY_MS);
+    const font = deferred<Response>();
+    worker.net.on(FONT, later(font));
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save()))),
+    );
+    const activated = worker.lifecycle("activate");
+    await settle();
+    premise("the sweep is waiting with an index that calls the stylesheet old", calls(), 0);
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    premise(
+      "the save holds the stylesheet and waits on its font",
+      worker.net.callsTo(FONT).length,
+      0,
+    );
+    gate.resolve();
+    await settle();
+    expect(worker.staticCache().paths()).toContain(CSS);
+    font.resolve(new Response(new Uint8Array([1])));
+    await nav.settled();
+    await activated;
+    expect(await worker.store.copyAtUrl(U)).not.toBeNull();
+    expect(worker.staticCache().paths()).toContain(CSS);
+    expect((await worker.store.staticIndex()).has(CSS)).toBe(true);
+  });
+
+  test("a save that commits while an older sweep waits keeps its static files", async () => {
+    const { store, gate, calls } = gatedStaticIndex();
+    const worker = boot({ store });
+    worker.staticCache().seed(CSS, CSS_BODY, { "content-type": "text/css" });
+    await store.recordStatics([CSS], START - 30 * DAY_MS);
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save()))),
+    );
+    const activated = worker.lifecycle("activate");
+    await settle();
+    premise("the sweep is waiting with an index that calls the stylesheet old", calls(), 0);
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    premiseHolds(
+      "the save committed while the sweep waited",
+      (await worker.store.copyAtUrl(U)) !== null,
+    );
+    gate.resolve();
+    await nav.settled();
+    await activated;
+    expect(worker.staticCache().paths()).toContain(CSS);
+    expect((await worker.store.staticIndex()).has(CSS)).toBe(true);
+  });
+
+  test("an asset stored after the sweep read the copies is kept", async () => {
+    const worker = boot();
+    const gate = deferred<void>();
+    worker.assetCache().keysGate = gate.promise;
+    const agenda = deferred<Response>();
+    worker.net.on(
+      DIAGRAM,
+      reply(() => new Response("diagram")),
+    );
+    worker.net.on(AGENDA, later(agenda));
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ assets: [DIAGRAM, AGENDA] })))),
+    );
+    const activated = worker.lifecycle("activate");
+    await settle();
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    premiseHolds(
+      "the diagram is stored and the save waits on the agenda",
+      worker.assetCache().paths().includes(DIAGRAM) && worker.net.callsTo(AGENDA).length === 1,
+    );
+    gate.resolve();
+    await settle();
+    expect(worker.assetCache().paths()).toContain(DIAGRAM);
+    agenda.resolve(new Response("%PDF"));
+    await nav.settled();
+    await activated;
+    expect((await worker.store.copyAtUrl(U))?.assets).toEqual([DIAGRAM, AGENDA]);
+    expect(worker.assetCache().paths()).toEqual([AGENDA, DIAGRAM].sort());
+  });
+
+  test("a save that commits while an older sweep waits keeps its assets", async () => {
+    const worker = boot();
+    const gate = deferred<void>();
+    worker.assetCache().keysGate = gate.promise;
+    worker.net.on(
+      DIAGRAM,
+      reply(() => new Response("diagram")),
+    );
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save({ assets: [DIAGRAM] })))),
+    );
+    const activated = worker.lifecycle("activate");
+    await settle();
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    premiseHolds(
+      "the save committed while the sweep waited",
+      (await worker.store.copyAtUrl(U)) !== null,
+    );
+    gate.resolve();
+    await nav.settled();
+    await activated;
+    expect(worker.assetCache().paths()).toEqual([DIAGRAM]);
+  });
+});
+
+describe("a sweep that is mid-delete when a save stores the same file again", () => {
+  test("keeps the index row the save wrote", async () => {
+    const worker = boot();
+    worker.staticCache().seed(CSS, CSS_BODY, { "content-type": "text/css" });
+    await worker.store.recordStatics([CSS], START - 30 * DAY_MS);
+    const gate = deferred<void>();
+    worker.staticCache().deleteGate = gate.promise;
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page(save()))),
+    );
+    const activated = worker.lifecycle("activate");
+    await settle();
+    premiseHolds(
+      "the sweep has deleted the old stylesheet and waits",
+      !worker.staticCache().paths().includes(CSS),
+    );
+    const nav = worker.navigate(U);
+    await responseOf(nav);
+    await settle();
+    premiseHolds(
+      "the save stored the stylesheet again and committed",
+      worker.staticCache().paths().includes(CSS) && (await worker.store.copyAtUrl(U)) !== null,
+    );
+    gate.resolve();
+    await nav.settled();
+    await activated;
+    expect(worker.staticCache().paths()).toContain(CSS);
+    expect((await worker.store.staticIndex()).get(CSS)).toBe(START);
+  });
+});
+
+describe("a navigation's sweep runs under the navigation's waitUntil", () => {
+  test.each([
+    [
+      "a purge marker",
+      U,
+      "GET",
+      () => htmlResponse(page({ disposition: "purge", showId: SHOW }, "picker")),
+    ],
+    [
+      "the sign-out bracket",
+      "/auth/sign-out",
+      "POST",
+      () => new Response(null, { status: 303, headers: { location: "/" } }),
+    ],
+  ])("%s", async (_label, path, method, make) => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+    worker.assetCache().seed(DIAGRAM, "png");
+    const gate = deferred<void>();
+    worker.assetCache().keysGate = gate.promise;
+    worker.net.on(path, reply(make));
+    const nav = worker.navigate(path, { method });
+    await responseOf(nav);
+    const finished = watch(nav.extended());
+    await settle();
+    expect(await worker.store.copyByShow(SHOW)).toBeNull();
+    expect(finished.done()).toBe(false);
+    gate.resolve();
+    await nav.settled();
+    expect(worker.assetCache().paths()).toEqual([]);
+  });
+});
+
+describe("purges reply once the store has purged; the sweep runs after, under waitUntil", () => {
+  test.each([
+    ["purge-show", { type: "purge-show", showId: SHOW }],
+    ["a marker purge", { type: "marker", disposition: "purge", showId: SHOW, url: U }],
+  ])("%s acks before its sweep has run", async (_label, message) => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U, assets: [DIAGRAM] });
+    worker.assetCache().seed(DIAGRAM, "png");
+    const gate = deferred<void>();
+    worker.assetCache().keysGate = gate.promise;
+    const sent = worker.post(message);
+    const finished = watch(sent.extended());
+    await settle();
+    expect(sent.replies).toEqual([{ outcome: "ack" }]);
+    expect(await worker.store.copyByShow(SHOW)).toBeNull();
+    expect(worker.assetCache().paths()).toEqual([DIAGRAM]);
+    expect(finished.done()).toBe(false);
+    gate.resolve();
+    await sent.settled();
+    sent.close();
+    expect(worker.assetCache().paths()).toEqual([]);
+  });
+});
+
+describe("the check row never serves a copy that changed during the status check", () => {
+  function checkPage() {
+    return reply(() =>
+      htmlResponse(page({ disposition: "check", showId: null }, "not found"), 404),
+    );
+  }
+
+  test("purged during the check: the network page is served", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(U, checkPage());
+    worker.net.on(STATUS, async () => {
+      await worker.store.purge({ by: "show", showId: SHOW });
+      return Response.json({ state: "ended" });
+    });
+    const text = await (await open(worker, U)).text();
+    expect(servedMode(text)).toBeNull();
+    expect(text).toContain("not found");
+  });
+
+  test("replaced during the check: the network page is served, not the old copy", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(U, checkPage());
+    worker.net.on(STATUS, async () => {
+      await worker.seed({
+        showId: SHOW,
+        url: U,
+        html: "<html><head></head><body>newer</body></html>",
+      });
+      return Response.json({ state: "ended" });
+    });
+    const text = await (await open(worker, U)).text();
+    expect(servedMode(text)).toBeNull();
+    expect(text).toContain("not found");
+  });
+
+  test("marked ended by another check meanwhile: the same copy is served ended", async () => {
+    const worker = boot();
+    const copy = await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(U, checkPage());
+    worker.net.on(STATUS, async () => {
+      await worker.store.markEnded({ showId: SHOW, ordinal: copy.ordinal }, START - 1);
+      return Response.json({ state: "ended" });
+    });
+    const text = await (await open(worker, U)).text();
+    expect(servedMode(text)).toBe("ended");
+    expect(text).toContain(savedLabel(SHOW, U));
   });
 });

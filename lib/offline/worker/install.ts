@@ -10,8 +10,10 @@
  *   and only at the URL it was saved under (S(U)) on a table's say-so.
  * - Every save takes its generation and ordinal (`beginSave`) before its fetch
  *   is sent, so a purge that lands while the fetch is in flight voids it.
- * - Anything that fails inside the handlers falls back to the network, never
- *   to a copy.
+ * - A fault inside the handlers serves the network, or the not-saved page when
+ *   the network fails too; never a copy. Bookkeeping writes (`touchOpened`, the
+ *   sweep, broadcasts) are best effort, so a full or failing store cannot stop
+ *   a copy from being served with its notice.
  */
 import {
   ASSET_MAX_BYTES,
@@ -224,6 +226,36 @@ async function readCapped(
   return { kind: "read", bytes };
 }
 
+const SINGLE_RANGE = /^bytes=(\d*)-(\d*)$/;
+
+/**
+ * A stored asset answering the request's Range header, as the network would:
+ * pdf.js reads a large agenda in ranges once the first response says
+ * `Accept-Ranges: bytes`, and a full body at a non-zero offset breaks it. One
+ * satisfiable range is a 206 with its slice; one that starts past the end is a
+ * 416; no Range header, or one that is not a single byte range, is the whole
+ * body as stored (a server may ignore a Range it does not support).
+ */
+async function answerRange(stored: Response, range: string | null): Promise<Response> {
+  const match = range === null ? null : SINGLE_RANGE.exec(range.trim());
+  if (match === null) return stored;
+  const [, first = "", last = ""] = match;
+  if (first === "" && last === "") return stored;
+  if (first !== "" && last !== "" && Number(last) < Number(first)) return stored;
+
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  const size = bytes.byteLength;
+  const start = first === "" ? Math.max(0, size - Number(last)) : Number(first);
+  const end = first === "" || last === "" ? size - 1 : Math.min(Number(last), size - 1);
+  if (start >= size || (first === "" && Number(last) === 0)) {
+    return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+  }
+  const headers = new Headers(stored.headers);
+  headers.set("content-range", `bytes ${start}-${end}/${size}`);
+  headers.set("content-length", String(end - start + 1));
+  return new Response(bytes.slice(start, end + 1), { status: 206, headers });
+}
+
 export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   const origin = scope.location.origin;
   const { store } = deps;
@@ -296,7 +328,8 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   /** The only way a copy reaches a page: with the meta and the CSS notice, and no stored headers. */
   async function serveCopy(copy: StoredCopy, mode: ServeMode): Promise<Response> {
     const now = deps.now();
-    await store.touchOpened(refOf(copy), now);
+    // The eviction order only: a full or failing store must not stop the serve.
+    await store.touchOpened(refOf(copy), now).catch(() => undefined);
     const time = formatSavedTime(copy.savedAt, now);
     const html = injectSavedCopyHead(copy.html, {
       mode,
@@ -311,19 +344,28 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     return new Response(notSavedPageHtml(), { status: 200, headers: HTML_HEADERS });
   }
 
+  /** Best effort: a page that misses a message reloads or probes on its own schedule. */
   async function broadcast(message: WorkerBroadcast, onlyAtPath?: string): Promise<void> {
-    const pages = await deps.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const page of pages) {
-      if (onlyAtPath === undefined || pathOf(page.url) === onlyAtPath) page.postMessage(message);
+    try {
+      const pages = await deps.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const page of pages) {
+        if (onlyAtPath === undefined || pathOf(page.url) === onlyAtPath) page.postMessage(message);
+      }
+    } catch {
+      // Nothing to recover: the store is already in its final state.
     }
   }
 
   // --- Purging and cleanup ----------------------------------------------------------
 
-  /** Advances G, removes what the scope names, and drops the files only those copies used. */
+  /**
+   * Advances G and removes what the scope names; returns once the store has
+   * done so. The files only those copies used go in a sweep queued behind it,
+   * which every event handler waits for under waitUntil (`sweepsDone`).
+   */
   async function purge(scope: PurgeScope): Promise<readonly StoredCopy[]> {
     const removed = await store.purge(scope);
-    await sweep();
+    void sweep();
     return removed;
   }
 
@@ -333,26 +375,52 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     }
   }
 
+  /** The tail of the sweep queue: sweeps run one at a time, in the order asked for. */
+  let sweeping: Promise<void> = Promise.resolve();
+
+  /** Queues a sweep; settles once it has run. Never rejects. */
+  function sweep(): Promise<void> {
+    sweeping = sweeping.then(sweepOnce);
+    return sweeping;
+  }
+
+  /** Settles once every sweep queued so far has run. */
+  function sweepsDone(): Promise<void> {
+    return sweeping;
+  }
+
   /**
    * Removes every stored asset no copy lists, and every static file the 14-day
-   * rule releases (spec 4.8). Files an in-progress save depends on are treated
-   * as referenced. Best effort: a failed sweep leaves files for the next one.
+   * rule releases (spec 4.8). The copies are read once, at the start, so a file
+   * an in-progress save holds is protected by its pin, and the pin set is read
+   * at the moment of each delete, never from a snapshot: a save can pin a file
+   * while this runs. A committing save keeps its pins until every sweep that
+   * started before its commit has run (`commitSave`). Best effort: a failed
+   * sweep leaves files for the next one.
    */
-  async function sweep(): Promise<void> {
+  async function sweepOnce(): Promise<void> {
     try {
       const copies = await store.listCopies();
-      const assetRefs = new Set([...copies.flatMap((copy) => copy.assets), ...pinned.keys()]);
+      const listedAssets = new Set(copies.flatMap((copy) => copy.assets));
       const assets = await assetCache();
       for (const request of await assets.keys()) {
-        if (!assetRefs.has(rootRelative(request.url))) await assets.delete(request.url);
+        const path = rootRelative(request.url);
+        if (!listedAssets.has(path) && !pinned.has(path)) await assets.delete(request.url);
       }
-      const staticRefs = new Set([...copies.flatMap((copy) => copy.statics), ...pinned.keys()]);
-      const expired = staticEvictions(await store.staticIndex(), staticRefs, deps.now());
-      if (expired.length > 0) {
-        const statics = await staticCache();
-        for (const path of expired) await statics.delete(absolute(path));
-        await store.deleteStatics(expired);
+      const referencedStatics = copies.flatMap((copy) => copy.statics);
+      const expired = staticEvictions(await store.staticIndex(), referencedStatics, deps.now());
+      if (expired.length === 0) return;
+      const statics = await staticCache();
+      const deleted: string[] = [];
+      for (const path of expired) {
+        if (pinned.has(path)) continue;
+        await statics.delete(absolute(path));
+        deleted.push(path);
       }
+      // A save may have pinned one of these, and stored it again, while the deletes
+      // ran; its index row is then the save's, not this sweep's to remove.
+      const forgotten = deleted.filter((path) => !pinned.has(path));
+      if (forgotten.length > 0) await store.deleteStatics(forgotten);
     } catch {
       // Cleanup only; nothing served depends on it.
     }
@@ -486,7 +554,8 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   /**
    * Stores every file the copy needs, then commits it if its token is still
    * current, then evicts past ten shows (never the incoming one). A quota error
-   * anywhere abandons the save and tells the pages of U. True when committed.
+   * anywhere abandons the save and tells every open page (spec 4.7.2). True when
+   * committed.
    */
   async function commitSave(
     url: string,
@@ -521,11 +590,14 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       await evictBeyondCap(marker.showId);
       return true;
     } catch (error) {
-      if (isQuotaError(error)) await broadcast({ type: "save-failed", url, reason: "quota" }, url);
+      if (isQuotaError(error)) await broadcast({ type: "save-failed", url, reason: "quota" });
       return false;
     } finally {
-      for (const path of held) release(pinned, path);
       release(saving, key);
+      // A sweep that started before the commit read the copies without this one,
+      // so the pins stay until every sweep queued so far has run.
+      await sweepsDone();
+      for (const path of held) release(pinned, path);
       await sweep();
     }
   }
@@ -546,8 +618,10 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
         if (copy === null) return served(networkResponse(fetched));
         const check = decideCheckOutcome(await askStatus(copy), copy);
         if (check.serve === "saved") {
-          await store.markEnded(refOf(copy), deps.now());
-          return served(await serveCopy(copy, check.mode));
+          const ended = await markedEnded(url, copy);
+          return served(
+            ended !== null ? await serveCopy(ended, check.mode) : networkResponse(fetched),
+          );
         }
         if (check.then === "purge") await purge(check.scope);
         return served(networkResponse(fetched));
@@ -562,6 +636,20 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
         };
       }
     }
+  }
+
+  /**
+   * Marks S(U), `copy`, ended and returns the copy to serve in ended mode, or null
+   * when the copy read before the status check is no longer S(U): a purge or a
+   * newer save landed in between, and that snapshot must not be served.
+   */
+  async function markedEnded(url: string, copy: StoredCopy): Promise<StoredCopy | null> {
+    if (await store.markEnded(refOf(copy), deps.now())) return copy;
+    const current = await store.copyAtUrl(url);
+    // Unchanged but already ended: another check marked it first.
+    return current !== null && current.ordinal === copy.ordinal && current.endedAt !== null
+      ? current
+      : null;
   }
 
   /** Step 3 without serving (a probe, an ensure-saved, a step 5 continuation). */
@@ -703,12 +791,15 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   // --- Static files and assets (spec 4.2, 4.8) ----------------------------------------
 
+  /** Cache first; a cache that cannot be opened or read is a miss, so the network answers. */
   async function serveStatic(request: Request): Promise<Handled> {
-    const cache = await staticCache();
-    const hit = await cache.match(request.url);
+    const cache = await staticCache().catch(() => null);
+    const hit = cache === null ? undefined : await cache.match(request.url).catch(() => undefined);
     if (hit !== undefined) return served(hit);
     const response = await deps.fetch(request);
-    if (response.status !== 200 || response.type === "opaque") return served(response);
+    if (cache === null || response.status !== 200 || response.type === "opaque") {
+      return served(response);
+    }
     const copy = response.clone();
     const background = (async () => {
       await cache.put(request.url, copy);
@@ -717,25 +808,45 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     return { response, background };
   }
 
-  /** A stored asset, only when a saved copy lists it. */
-  async function listedAsset(url: string): Promise<Response | undefined> {
-    const path = rootRelative(url);
-    const copies = await store.listCopies();
-    if (!copies.some((copy) => copy.assets.includes(path))) return undefined;
-    return (await assetCache()).match(absolute(path));
+  /**
+   * The stored asset, answering the request's Range, only when a saved copy lists
+   * it. A store or cache that fails reads as unlisted, so the network answers.
+   */
+  async function listedAsset(request: Request): Promise<Response | undefined> {
+    try {
+      const path = rootRelative(request.url);
+      const copies = await store.listCopies();
+      if (!copies.some((copy) => copy.assets.includes(path))) return undefined;
+      const stored = await (await assetCache()).match(absolute(path));
+      return stored === undefined
+        ? undefined
+        : await answerRange(stored, request.headers.get("range"));
+    } catch {
+      return undefined;
+    }
   }
 
-  /** Network first; after a network error or 5 s, the stored asset when a copy lists it. */
+  /**
+   * Network first. A 2xx within 5 s is served. Otherwise (a non-2xx answer, a
+   * network error, 5 s with no answer) the stored asset is served when a saved
+   * copy lists it: after an archive the asset routes refuse an ended copy's
+   * assets, which are still the right ones to show (controller ruling, Task 10).
+   * An unlisted asset gets the network's own answer, or its error, or a longer wait.
+   */
   async function serveAsset(request: Request): Promise<Response> {
     const network = deps.fetch(request);
     const first = await within(
       network.catch(() => null),
       ASSET_TIMEOUT_MS,
     );
-    if (first.kind === "done" && first.value !== null) return first.value;
-    const stored = await listedAsset(request.url);
-    // Otherwise keep waiting on the network, or pass its error on.
-    return stored ?? network;
+    const answered = first.kind === "done" ? first.value : null;
+    if (answered !== null && answered.ok) return answered;
+    const stored = await listedAsset(request);
+    if (stored !== undefined) {
+      void answered?.body?.cancel().catch(() => undefined);
+      return stored;
+    }
+    return answered ?? network;
   }
 
   // --- Messages (spec 4.3, 4.4, 4.6, 4.7.3) --------------------------------------------
@@ -803,9 +914,24 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
 
   // --- Listeners ------------------------------------------------------------------------
 
+  /** Serves the response, and keeps the worker alive for the background work and queued sweeps. */
   function answerWith(event: FetchEvent, handled: Promise<Handled>): void {
     event.respondWith(handled.then((result) => result.response));
-    event.waitUntil(handled.then((result) => result.background).catch(() => undefined));
+    event.waitUntil(
+      handled
+        .then((result) => result.background)
+        .catch(() => undefined)
+        .then(sweepsDone),
+    );
+  }
+
+  /** A fault inside the worker: the network as it is, or the not-saved page when it fails too. */
+  async function afterFault(request: Request): Promise<Handled> {
+    try {
+      return served(await deps.fetch(request));
+    } catch {
+      return served(notSavedResponse());
+    }
   }
 
   scope.addEventListener("install", (event) => {
@@ -844,14 +970,13 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
       case "ignore":
         return;
       case "crew-nav":
-        // A fault inside the worker serves the network, which is never a copy.
         answerWith(
           event,
-          navigate(request).catch(async () => served(await deps.fetch(request))),
+          navigate(request).catch(() => afterFault(request)),
         );
         return;
       case "bracket-nav":
-        event.respondWith(passThroughBracketed(request));
+        answerWith(event, passThroughBracketed(request).then(served));
         return;
       case "static":
         answerWith(event, serveStatic(request));
@@ -867,7 +992,9 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     event.waitUntil(
       answer(parsePageMessage(event.data))
         .catch((): WorkerReply => ({ outcome: "failed" }))
-        .then((reply) => port?.postMessage(reply)),
+        .then((reply) => port?.postMessage(reply))
+        // A purge replies once the store has removed the copy; its sweep runs after.
+        .then(sweepsDone),
     );
   });
 }
