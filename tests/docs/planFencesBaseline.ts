@@ -26,7 +26,6 @@
 
 /** Row format: `path|fenceLine|RULE|instance|count`. */
 export const PLAN_FENCE_BASELINE: readonly string[] = [
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md|809a8f63|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md|04952332|UNIMPORTED_IDENTIFIER|expect|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md|04952332|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md|33b1602e|FENCE_EM_DASH|1|1",

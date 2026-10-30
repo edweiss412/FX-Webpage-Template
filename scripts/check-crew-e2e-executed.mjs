@@ -65,7 +65,12 @@ export const REQUIRED = {
   // 2026-08-10-wifi-password-legibility §6(b) splits production-route topology
   // here from the standalone geometry harness). Counted from the observed
   // mobile-safari run (21 passed / 4 skipped), not from arithmetic.
-  "crew-page.spec.ts": 21,
+  // 27 as of the crew page redesign's Task 9: the hero's rest-state crossfade
+  // case (inv4) left, and seven "the pass" cases joined (the dark surface in both
+  // themes, the live body, a tapped day, the preview route's personal cells, the
+  // crossfade overlap, reduced motion, and the height floor sampled every frame).
+  // Counted from the observed mobile-safari run.
+  "crew-page.spec.ts": 27,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).

@@ -423,7 +423,7 @@ describe("<KeyTimesStrip>", () => {
     const anchors: KeyTimeAnchors = { set: "9:00 AM", shows, strike: "11:00 PM" };
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
     const strip = getByTestId("key-times-strip");
-    // D1: the strip is a description list (matches KeyValueRows / RightNowHero),
+    // D1: the strip is a description list (matches KeyValueRows / the pass's fact grid),
     // closing the "three primitives, three structures" drift.
     expect(strip.tagName).toBe("DL");
     // Each present anchor row is a group with one <dt> (label) + one <dd> (value),

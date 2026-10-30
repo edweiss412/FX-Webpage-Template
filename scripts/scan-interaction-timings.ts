@@ -219,11 +219,13 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
       "a regression, and naming a constant for `0` would not make either branch more visible.",
   },
   {
-    file: "components/crew/RightNowHero.tsx",
-    name: "prefersReducedMotion === true ? 0 : 0.22",
+    file: "components/crew/CrewPass.tsx",
+    name: "fade ? CROSSFADE_SECONDS : 0",
     reason:
-      "The same reduced-motion ternary as EventRow.tsx, spelled with an explicit === comparison. " +
-      "0 reduced, 0.22 otherwise — the standard motion duration.",
+      "The pass's body swap (crew page redesign spec §7): CROSSFADE_SECONDS, a §5.5 row, when the " +
+      "swap crossfades, 0 when the transition table makes it instant or reduced motion is on (the " +
+      "`fade` it receives is already false then). The two sites are the enter and exit variants " +
+      "of the same swap.",
   },
   {
     file: "components/crew/CrewSectionTransition.tsx",

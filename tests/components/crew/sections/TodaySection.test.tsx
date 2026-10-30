@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
  * tests/components/crew/sections/TodaySection.test.tsx (crew-redesign Task 1)
  *
  * TodaySection ports the deleted today-band tiles into ONE synchronous Server
- * Component: the live RightNowHero, the KeyTimesStrip (Set/Show/Strike anchors),
+ * Component: the KeyTimesStrip (Set/Show/Strike anchors),
  * curated Tonight / Where / Need-something cards, the dress-code line, and the
  * 5-source "Show notes" aggregation (venue → hotel → room → transport → contact)
  * with the transport note gated by `transportTileVisible`. `client_contact` is
@@ -12,11 +12,10 @@ import "@testing-library/jest-dom/vitest";
  *
  * Covers §9 tests 2, 11, 25, 30.
  *
- * RightNowHero is a `'use client'` island that owns a live `new Date()` clock and
- * the matchMedia-on-mount reduced-motion hook. jsdom has neither a real clock
- * freeze nor matchMedia, so we stub matchMedia (the hero's REAL animation-param
- * wiring runs unbypassed) — mirroring tests/components/crew/rightNowHero.test.tsx.
- * No next/navigation mock is needed: the hero imports none.
+ * The live right-now card left this section: the pass replaced it and mounts
+ * from the section controller (crew page redesign plan Task 9), so the section
+ * renders no pass. matchMedia stays stubbed for the section's other client
+ * islands.
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, within } from "@testing-library/react";
@@ -88,7 +87,8 @@ test("Today renders hero + key-times + Tonight/Where/Need-something + dress + no
       showId={SHOW_ID}
     />,
   );
-  expect(container.querySelector('[data-testid="right-now-hero"]')).toBeTruthy();
+  // The pass mounts from the section controller, never inside the Today body.
+  expect(container.querySelector('[data-testid="crew-pass"]')).toBeNull();
   expect(container.querySelector('[data-testid="key-times-strip"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-tonight"]')).toBeTruthy();
   expect(container.querySelector('[data-testid="today-where"]')).toBeTruthy();
@@ -399,19 +399,16 @@ test("unknown_asterisk viewer → resolveKeyTimes {} → NO set/show/strike rows
   );
   expect(queryByTestId("key-times-strip")).toBeNull(); // strip fully suppressed
   expect(queryByTestId("today-key-times")).toBeNull(); // no card shell either
-  // Anti-tautology: clone the section and strip RightNowHero (it independently
-  // renders copy) before scanning for leaked date strings, so a hero label can't
-  // mask the leak.
-  const section = container
-    .querySelector('[data-testid="section-today"]')!
-    .cloneNode(true) as HTMLElement;
-  section.querySelector('[data-testid="right-now-hero"]')?.remove();
+  // The section renders no pass (it mounts from the controller), so its own text
+  // is the whole scan.
+  const section = container.querySelector('[data-testid="section-today"]')!;
+  expect(section.querySelector('[data-testid="crew-pass"]')).toBeNull();
   expect(section.textContent).not.toContain("8:45am"); // room Show date must NOT leak
   expect(section.textContent).not.toContain("4:30pm"); // room Strike date must NOT leak
 });
 
-// Stage-filtered schedule (#248): TodaySection is a direct resolveKeyTimes caller (:249)
-// AND a buildRightNowContext caller (:237). A Load Out/Strike viewer must not see the
+// Stage-filtered schedule (#248): TodaySection reaches resolveKeyTimes through
+// todayRows.ts. A Load Out/Strike viewer must not see the
 // Set time in the today key-times strip. RED before TodaySection threads
 // ctx.stageRestriction (default none → set shown). The strike anchor stays (Load
 // Out/Strike works back-end) so the strip renders in both states — proving non-tautology.

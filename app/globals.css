@@ -206,7 +206,7 @@
    * (0.12 / 0.14 / 0.18 / 0.22) used as small differences across
    * eyebrow surfaces; consolidated to two values per DESIGN.md §2.
    *   --tracking-eyebrow         standard eyebrow tracking
-   *   --tracking-eyebrow-strong  emphasis eyebrow (RightNowHero,
+   *   --tracking-eyebrow-strong  emphasis eyebrow (the crew pass,
    *                              Footer wordmark, Header crew tag)
    */
   --tracking-eyebrow: 0.12em;
@@ -552,6 +552,57 @@
 }
 
 /*
+ * A NESTED dark scope: `data-theme="dark"` on an element below the root, the
+ * crew pass (crew page redesign spec §4.3 "Color", R7). The `@theme` tokens are
+ * declared on `:root`, so each resolves THERE, against the root's runtime
+ * values, and descendants inherit the resolved colour. The block above only
+ * re-declares the runtime values, which on an inner element reaches no utility:
+ * `bg-surface` under it would still paint the page's surface. Re-binding every
+ * runtime-backed token on the scope makes it resolve against the scope's own
+ * values. `:root ` keeps this off the root itself, where `@theme` already makes
+ * the same declarations. tests/styles/nestedThemeScope.test.ts derives the list
+ * from `@theme`, so a token added there without a row here fails.
+ */
+:root [data-theme="dark"] {
+  --color-bg: var(--color-bg-runtime);
+  --color-surface: var(--color-surface-runtime);
+  --color-surface-raised: var(--color-surface-raised-runtime);
+  --color-surface-sunken: var(--color-surface-sunken-runtime);
+  --color-text: var(--color-text-runtime);
+  --color-text-strong: var(--color-text-strong-runtime);
+  --color-text-subtle: var(--color-text-subtle-runtime);
+  --color-text-faint: var(--color-text-faint-runtime);
+  --color-control-outline-tinted: var(--color-control-outline-tinted-runtime);
+  --color-border: var(--color-border-runtime);
+  --color-border-strong: var(--color-border-strong-runtime);
+  --color-accent: var(--color-accent-runtime);
+  --color-accent-hover: var(--color-accent-hover-runtime);
+  --color-accent-text: var(--color-accent-text-runtime);
+  --color-accent-on-bg: var(--color-accent-on-bg-runtime);
+  --color-accent-edge: var(--color-accent-edge-runtime);
+  --color-badge-count: var(--color-badge-count-runtime);
+  --color-badge-count-text: var(--color-badge-count-text-runtime);
+  --color-stale-tint: var(--color-stale-tint-runtime);
+  --color-warning-bg: var(--color-warning-bg-runtime);
+  --color-warning-text: var(--color-warning-text-runtime);
+  --color-info-bg: var(--color-info-bg-runtime);
+  --color-accent-tint: var(--color-accent-tint-runtime);
+  --color-danger-bg: var(--color-danger-bg-runtime);
+  --color-focus-ring: var(--color-focus-ring-runtime);
+  --color-overlay-scrim: var(--color-overlay-scrim-runtime);
+  --color-status-positive: var(--color-status-positive-runtime);
+  --color-status-positive-text: var(--color-status-positive-text-runtime);
+  --color-status-review: var(--color-status-review-runtime);
+  --color-status-review-text: var(--color-status-review-text-runtime);
+  --color-status-warn: var(--color-status-warn-runtime);
+  --color-status-warn-text: var(--color-status-warn-text-runtime);
+  --color-status-degraded: var(--color-status-degraded-runtime);
+  --color-status-degraded-text: var(--color-status-degraded-text-runtime);
+  --shadow-tile: var(--shadow-tile-runtime);
+  --shadow-popover: var(--shadow-popover-runtime);
+}
+
+/*
  * prefers-reduced-motion — collapse all motion-token durations to 0ms.
  * Components that consume var(--duration-*) get reduction for free; no
  * per-component opt-in needed. Spec §8.2 contracts (Right Now card
@@ -854,8 +905,8 @@ time,
  *
  * Deliberately NARROWER than `.tabular-nums`, and the distinction is the whole
  * point. `.tabular-nums` marks "digits that should not shift width", which in
- * this codebase includes whole prose sentences -- the Right Now hero's lead is
- * a 30px bold <h2> carrying it (components/crew/RightNowHero.tsx), and the
+ * this codebase includes whole prose sentences -- the crew pass's status line
+ * carries it (components/crew/CrewPass.tsx), and the
  * footer's copyright year carries it too. Slashing zeros there reads as a
  * terminal readout and works against the "not techie" anti-reference in
  * PRODUCT.md. Impeccable critique P1, 2026-08-03: `zero` shipped on the

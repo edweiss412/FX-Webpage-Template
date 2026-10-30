@@ -11,10 +11,10 @@
     "width": 60,
     "height": 1
   },
-  "right-now-hero-card": {
+  "crew-pass-card": {
     "x": 16,
-    "y": 159.859375,
+    "y": 332.984375,
     "width": 358,
-    "height": 176
+    "height": 233.6875
   }
 }

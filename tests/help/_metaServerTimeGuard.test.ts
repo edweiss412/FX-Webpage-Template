@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 233 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 234 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -325,9 +325,9 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     //   components/admin/FinalizeButton.tsx and
     //   components/admin/review/ReviewModalShell.tsx in place of each one's own
     //   save-and-restore of body overflow.
-    // The arc's other new lib modules (passModel, quickFacts, sectionPeek) are
-    // ABSENT: only other lib modules import them, so they sit at depth 2. That is
-    // the depth-1 rule, not an omission.
+    // The arc's other new lib modules (quickFacts, sectionPeek) are ABSENT: only
+    // other lib modules import them, so they sit at depth 2. That is the depth-1
+    // rule, not an omission. (passModel joined in Task 9, below.)
     expect(rel).toContain("lib/crew/generalSessionRoom.ts");
     expect(rel).toContain("lib/crew/transportLegs.ts");
     expect(rel).toContain("lib/ui/scrollLock.ts");
@@ -343,7 +343,16 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // Neither makes a clock read.
     expect(rel).toContain("lib/ui/scrollSpy.ts");
     expect(rel).toContain("lib/crew/crewSections.ts");
-    expect(rel.length).toBe(233);
+    // 233 -> 234 (crew page redesign plan Task 9): lib/crew/passModel.ts joins.
+    // The pass (components/crew/CrewPass.tsx), a rendered file, calls its
+    // `passStatusLine` and `spokenDate` at runtime; until now only type imports
+    // and the shell reached it. Pure, no clock read: the builder takes `today` and
+    // the status line takes `now` as arguments. The two modules only the retired
+    // hero imported directly, lib/crew/agendaDisplay.ts and lib/format/date.ts,
+    // stay members through their other rendered importers. Re-derived by running
+    // this guard.
+    expect(rel).toContain("lib/crew/passModel.ts");
+    expect(rel.length).toBe(234);
   });
 
   // The twelve waivers this arc added, bound to their SITE and their REASON
@@ -427,14 +436,14 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libViolations, libViolations.join("\n")).toEqual([]);
   });
 
-  it("client-vs-server classification: includes Footer/StaleFooter (server), excludes RightNowHero/ReportModal (use client)", () => {
+  it("client-vs-server classification: includes Footer/StaleFooter (server), excludes CrewPass/ReportModal (use client)", () => {
     const footerSrc = readFileSync(join(process.cwd(), "components/layout/Footer.tsx"), "utf8");
     const staleSrc = readFileSync(join(process.cwd(), "components/shared/StaleFooter.tsx"), "utf8");
-    // The island exemplar is RightNowHero (the live Today hero). It carried the
-    // 'use client' directive over from the retired RightNowCard verbatim, so the
-    // classifier's contract — it separates a directive-carrying island from a
-    // server component — is unchanged by the swap.
-    const rightSrc = readFileSync(join(process.cwd(), "components/crew/RightNowHero.tsx"), "utf8");
+    // The island exemplar is the crew pass, the live card on the crew home. It
+    // replaced the right-now hero (crew page redesign plan Task 9) and carries the
+    // same 'use client' directive, so the classifier's contract — it separates a
+    // directive-carrying island from a server component — is unchanged.
+    const rightSrc = readFileSync(join(process.cwd(), "components/crew/CrewPass.tsx"), "utf8");
     const reportSrc = readFileSync(
       join(process.cwd(), "components/shared/ReportModal.tsx"),
       "utf8",

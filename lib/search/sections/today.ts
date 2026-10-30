@@ -6,7 +6,7 @@ import type { SearchEntry } from "@/lib/search/types";
 /**
  * Today search entries (spec §2.5, §4), in render order, through the same rows
  * module `TodaySection` renders from (components/crew/sections/todayRows.ts):
- * every card except `RightNowHero` (skipped), Mode A's bare key-times strip in
+ * every card (the pass is not a Today card and is skipped), Mode A's bare key-times strip in
  * region `none`, each note's full text. Repeats of other sections' lines stay
  * here and are removed at result time (§5.5).
  *

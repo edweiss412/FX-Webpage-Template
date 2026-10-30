@@ -13,7 +13,7 @@
  * Semantics (D1): the strip is a description list — a `<dl>` container whose
  * rows are `<div data-anchor>` groups of `<dt>` (label) + `<dd>` (value), the
  * SAME structure the two sibling primitives use (`KeyValueRows.tsx`,
- * `RightNowHero.tsx`). This gives SRs an explicit label↔value association
+ * the pass's fact grid in `CrewPass.tsx`). This gives SRs an explicit label↔value association
  * (WCAG 1.3.1). The label/value spans are kept as the first/last span inside
  * `<dt>`/`<dd>` so the crew-page inv6 alignment contract (`span.first()` /
  * `span.last()`) is unchanged. Per-day date labels are wrapped in

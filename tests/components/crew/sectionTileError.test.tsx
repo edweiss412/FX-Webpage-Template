@@ -65,8 +65,9 @@ function withBench(over: Parameters<typeof makeShowForViewer>[0]) {
   };
 }
 
-// TodaySection renders RightNowHero, whose usePrefersReducedMotion hook calls
-// window.matchMedia on mount (jsdom has none). Stub it so the hero mounts.
+// The crew client islands' usePrefersReducedMotion hook calls window.matchMedia
+// on mount (jsdom has none); stub it. (TodaySection mounted the right-now hero
+// until the pass replaced it, crew page redesign plan Task 9.)
 beforeEach(() => {
   vi.stubGlobal(
     "matchMedia",

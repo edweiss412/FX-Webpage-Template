@@ -52,8 +52,8 @@ const ADMIN = { kind: "admin" } as const;
 // array becomes a false-positive — keep them aligned.
 const SENTINELS = ["TBD", "N/A", "TBA", "  ", ""] as const;
 
-// TodaySection mounts the RightNowHero client island (matchMedia-on-mount).
-// jsdom lacks matchMedia; stub it so the hero's real wiring runs.
+// jsdom lacks matchMedia, which the crew client islands read on mount (the
+// pass, which replaced the hero TodaySection used to mount); stub it.
 beforeEach(() => {
   vi.stubGlobal(
     "matchMedia",

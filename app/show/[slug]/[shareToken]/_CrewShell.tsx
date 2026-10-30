@@ -55,7 +55,6 @@ import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
-import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
@@ -65,7 +64,7 @@ import { resolveActiveSection, type SectionId } from "@/lib/crew/resolveActiveSe
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { crewSectionEntries } from "@/lib/crew/crewSections";
-import { buildDayRowProps } from "@/lib/crew/passModel";
+import { buildDayRowProps, buildPassProps } from "@/lib/crew/passModel";
 import {
   MalformedProjectionError,
   UnmatchedViewerError,
@@ -82,7 +81,7 @@ import { financialsVisible } from "@/lib/visibility/scopeTiles";
  * Compact show-lifecycle label for the Header status pill (Task 14 / D-2 /
  * wp-18). Ports the show-status surface out of the deleted `ShowStatusTile`
  * into a single short badge visible on EVERY section (complements the
- * Today-only hero). The vocabulary mirrors the §4.3 hero-state map's eyebrow
+ * home-only pass). The vocabulary mirrors the §4.3 hero-state map's eyebrow
  * column — no new lifecycle words are invented. The degraded set
  * (`unknown`/`dateless`/`viewer_unconfirmed`) collapses to the neutral
  * "Show details" pill (never blank), consistent with ShowStatusTile's
@@ -250,46 +249,33 @@ export async function CrewShell({
 
   // Render-time "today" reads through the request-scoped clock so screenshot
   // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3. The
-  // client components that tick (the hero, the day row) read the shared crew
+  // client components that tick (the pass, the day row) read the shared crew
   // clock, which this `today` seeds through the controller (`initialNow`), so
   // their server render and hydration agree. The Header status pill (Task 14)
   // also derives from this request-scoped `today`, a coarse, server-rendered
   // badge (the crew clock owns the live tick).
   const today = await nowDate();
 
-  // Today leads with the live RightNowHero, built from the projection exactly as
-  // _ShowBody.tsx:122-127 does. Every other section is a Phase-3 placeholder.
+  // The pass's props (crew page redesign spec §4.3), built ONCE on the server
+  // and handed to two client carriers: the pass itself, under the day row, and
+  // the Footer's bug-report autocapture, which files them as `rightNowState`
+  // for every viewer kind (crew or admin-preview), as the Right-Now context was
+  // before the pass replaced the hero. One object, so the report carries exactly
+  // what the viewer may see: a suppressed viewer's props hold no date
+  // (passModel.ts closes the §2.2 leak), and nothing transport-gated is in them.
   //
   // Guard-condition discipline (partial data must render): a well-formed
-  // ShowForViewer always carries `show.dates` and array `hotelReservations` /
-  // `rooms` (getShowForViewer guarantees them), but the hero's context builder
-  // dereferences all three, so a degraded/partial projection would otherwise
-  // crash the whole Today page. When the projection is too thin to derive a
-  // Right Now state, the Today section falls back to the bare placeholder rather
+  // ShowForViewer always carries `show.dates`, but a degraded or partial
+  // projection may not, and the builder dereferences them. When the projection
+  // is too thin to derive a live state, the home renders without a pass rather
   // than throwing.
   const canBuildRightNow = Boolean(data.show?.dates);
-
-  // Build the Right-Now context ONCE (when the projection is well-formed enough):
-  // the Today section leads with it (RightNowHero) AND the Footer's bug-report
-  // autocapture carries it as `rightNowState` for BOTH viewer kinds — verbatim
-  // parity with _ShowBody.tsx:520-531, where every report (crew or admin-preview)
-  // captures the server-built Right-Now context for triage. Null only in the
-  // degraded case the guard above protects.
-  const rightNowCtx = canBuildRightNow
-    ? buildRightNowContext({
-        show: data.show,
-        dateRestriction: ctx.dateRestriction,
-        hotelReservations: data.hotelReservations ?? [],
-        rooms: data.rooms ?? [],
-        runOfShow: data.runOfShow ?? null, // NEW — keeps rightNowState in sync, no stale context
-        stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
-      })
-    : null;
+  const pass = canBuildRightNow ? buildPassProps({ data, viewer, today }) : null;
 
   // The day row's props (crew page redesign spec §4.2): the viewer's day set and
   // its labels, built here so nothing else crosses to the client. Null hides the
   // row: suppressed dates, a degraded show, an empty set, or a projection too
-  // thin to carry dates at all (the same guard as the Right-Now context above).
+  // thin to carry dates at all (the same guard as the pass above).
   const dayRow = canBuildRightNow ? buildDayRowProps(data.show, ctx.dateRestriction) : null;
 
   // Guard-condition discipline: Header dereferences `show.dates` (`.set` /
@@ -312,13 +298,13 @@ export async function CrewShell({
 
   // Header status pill (Task 14 / D-2 / wp-18): the compact show-lifecycle
   // state, derived from the show's date-state via the SAME selectRightNowState
-  // machine the hero uses — but server-rendered from the request-scoped `today`
-  // (coarser than the hero's live tick) and collapsed to a SHORT label. Visible
-  // on EVERY section (the hero is Today-only). Degraded/dateless collapses to
+  // machine the pass uses — but server-rendered from the request-scoped `today`
+  // (coarser than the pass's live tick) and collapsed to a SHORT label. Visible
+  // on EVERY section (the pass is on the home only). Degraded/dateless collapses to
   // the neutral "Show details" pill (pillLabelForState), never blank. Uses the
   // normalized `headerShow.dates` so a degraded/partial projection can't throw.
   // §4.16 day-boundary contract: the pill is a today-comparison, so it MUST share
-  // the single timezone authority the hero (via buildRightNowContext) and the
+  // the single timezone authority the pass (via buildPassProps) and the
   // Schedule today-pin (via todayIsoInShowTimezone) use — otherwise a venue in a
   // non-default timezone could classify the lifecycle one day off the other two
   // surfaces near a day boundary. resolveShowTimezone returns the venue tz
@@ -341,10 +327,8 @@ export async function CrewShell({
   // is the CrewShell prop, threaded uniformly so GearSection can mount
   // `<OpeningReelVideo showId={showId}>`). `today` is the request-scoped
   // `await nowDate()` Date, threaded so the section's timezone today-pin matches
-  // the frozen screenshot clock (R8-HIGH-1). The Today section owns its OWN
-  // RightNowHero internally (built from its own buildRightNowContext) — the
-  // shell no longer renders a separate hero; `rightNowCtx` survives ONLY for the
-  // Footer's report autocapture.
+  // the frozen screenshot clock (R8-HIGH-1). The pass is not a section body: the
+  // controller mounts it under the day row from the `pass` props built above.
   //
   // FRESHNESS INVARIANT (NON-NEGOTIABLE): the bodies are SERVER-RENDERED here
   // and handed to the <CrewSections> client controller, which toggles VISIBILITY
@@ -560,6 +544,7 @@ export async function CrewShell({
           sections={sections}
           sectionNodes={sectionNodes}
           dayRow={dayRow}
+          pass={pass}
           initialNow={today.getTime()}
         />
       </CrewSearchProvider>
@@ -582,15 +567,15 @@ export async function CrewShell({
         reportAutocapture={
           viewer.kind === "admin_preview"
             ? {
-                ...(rightNowCtx ? { rightNowState: rightNowCtx } : {}),
+                ...(pass ? { rightNowState: pass } : {}),
                 crewPreview: {
                   crewMemberId: viewer.crewMemberId,
                   name: ctx.viewerName,
                   role: ctx.viewerCrew?.role ?? null,
                 },
               }
-            : rightNowCtx
-              ? { rightNowState: rightNowCtx }
+            : pass
+              ? { rightNowState: pass }
               : {}
         }
         reportSurfaceOverride={viewer.kind === "admin_preview" ? "admin" : "crew"}

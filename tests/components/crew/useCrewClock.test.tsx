@@ -13,8 +13,9 @@
  * apart disagree after a tick); a remount starting a second interval; a store
  * that leaks its interval or listener after the last subscriber leaves; a
  * visibility bump that refreshes one subscriber but not another; a server
- * render that serves a reading cached by an earlier render; and `RightNowHero`
- * keeping its own private interval beside the shared one.
+ * render that serves a reading cached by an earlier render; and the pass
+ * keeping its own private interval beside the shared one (the pass replaced
+ * `RightNowHero` and reads this clock, crew page redesign plan Task 9).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, renderHook } from "@testing-library/react";
@@ -27,8 +28,8 @@ import {
   CrewClockProvider,
   useCrewClock,
 } from "@/components/crew/useCrewClock";
-import { RightNowHero } from "@/components/crew/RightNowHero";
-import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
+import { CrewPass } from "@/components/crew/CrewPass";
+import { passPropsFor, showData } from "./_passFixture";
 
 const START = new Date("2026-11-03T12:00:30Z");
 
@@ -144,31 +145,21 @@ describe("useCrewClock: one shared crew clock", () => {
     expect(html).toContain(later.toISOString());
   });
 
-  it("crew clock: RightNowHero reads the shared clock, so the hero and a day row register one interval", () => {
+  it("crew clock: the pass reads the shared clock, so the pass and a day row register one interval", () => {
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
-    const context: RightNowContext = {
-      dates: {
-        travelIn: "2026-11-02",
-        set: null,
-        showDays: ["2026-11-03", "2026-11-04"],
-        travelOut: "2026-11-05",
-      },
-      dateRestriction: { kind: "none" },
-      showTitle: "Test Show",
-      hotelName: null,
-      hotelCheckInTime: null,
-      hotelCheckOutTime: null,
-      venueName: null,
-      loadInTime: null,
-      callTime: null,
-      roomName: null,
-      strikeTime: null,
-      showAnchors: [],
-      timezone: "America/New_York",
-    };
-    const hero = render(<RightNowHero context={context} />);
-    // PREMISE: the hero mounted and runs its live machinery.
-    expect(hero.container.querySelector('[data-testid="right-now-hero"]')).not.toBeNull();
+    const props = passPropsFor(
+      showData({
+        dates: {
+          travelIn: "2026-11-02",
+          set: null,
+          showDays: ["2026-11-03", "2026-11-04"],
+          travelOut: "2026-11-05",
+        },
+      }),
+    );
+    const pass = render(<CrewPass {...props} />);
+    // PREMISE: the pass mounted and runs its live machinery.
+    expect(pass.container.querySelector('[data-testid="crew-pass"]')).not.toBeNull();
     const dayRow = renderHook(() => useCrewClock());
     expect(clockIntervals(setIntervalSpy)).toBe(1);
     // And they agree on `now` after the shared tick.
@@ -266,45 +257,35 @@ describe("useCrewClock: the server's request time seeds hydration", () => {
     hydrated.unmount();
   });
 
-  it("crew clock: RightNowHero renders the seeded time on the server and hydrates without a mismatch", async () => {
-    const context: RightNowContext = {
-      dates: {
-        travelIn: "2026-11-02",
-        set: null,
-        showDays: ["2026-11-03", "2026-11-04"],
-        travelOut: "2026-11-05",
-      },
-      dateRestriction: { kind: "none" },
-      showTitle: "Test Show",
-      hotelName: null,
-      hotelCheckInTime: null,
-      hotelCheckOutTime: null,
-      venueName: null,
-      loadInTime: null,
-      callTime: null,
-      roomName: null,
-      strikeTime: null,
-      showAnchors: [],
-      timezone: "America/New_York",
-    };
+  it("crew clock: the pass renders the seeded time on the server and hydrates without a mismatch", async () => {
+    const props = passPropsFor(
+      showData({
+        dates: {
+          travelIn: "2026-11-02",
+          set: null,
+          showDays: ["2026-11-03", "2026-11-04"],
+          travelOut: "2026-11-05",
+        },
+      }),
+    );
     // The request falls on show day 1; the server's wall clock and the client's
-    // clock both sit after the show, where the hero reads a different state.
+    // clock both sit after the show, where the pass reads a different state.
     const requestTime = Date.UTC(2026, 10, 3, 17, 0, 0);
     const after = new Date(Date.UTC(2026, 10, 8, 17, 0, 0));
     vi.setSystemTime(after);
     const tree = (
       <CrewClockProvider initialNow={requestTime}>
-        <RightNowHero context={context} />
+        <CrewPass {...props} />
       </CrewClockProvider>
     );
     const html = serverHtml(tree);
     expect(html).toContain('data-state="show_day_n"');
     const hydrated = await hydrate(html, tree);
     expect(hydrationErrors(hydrated.recoverable)).toEqual([]);
-    // Mounted: the hero follows the live clock.
+    // Mounted: the pass follows the live clock.
     expect(
       hydrated.container
-        .querySelector('[data-testid="right-now-state"]')
+        .querySelector('[data-testid="crew-pass-state"]')
         ?.getAttribute("data-state"),
     ).toBe("post_show");
     hydrated.unmount();

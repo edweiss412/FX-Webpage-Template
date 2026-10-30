@@ -35,6 +35,10 @@ const SECTION_COMPONENTS = [
  * misattribute every alert those tiles raise.
  */
 const EXPECTED_TILE_BY_FILE: Record<string, string> = {
+  // Today's wrapper no longer covers the live right-now card: the pass replaced
+  // it and mounts from the section controller with the shell's server-built
+  // props (crew page redesign plan Task 9). It renders outside every
+  // WrappedSection and owns no tileId; the wrapper still covers Today's cards.
   "TodaySection.tsx": "crew:today:notes",
   "ScheduleSection.tsx": "crew:schedule:days",
   "VenueSection.tsx": "crew:venue:diagrams",

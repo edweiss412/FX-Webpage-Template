@@ -553,7 +553,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // and the /admin?show= snapshot loader is not on its path. Both arcs landed
     // the same day and each bumped this to 18 independently; the merged count is
     // the union, not either side's number.
-    expectedCount: 19,
+    // 20 since the crew page redesign's Task 9: crew-page.spec.ts's pass cases
+    // load the share route and the preview route through gotoPass's `path`.
+    // Same disposition: a crew page, with the snapshot loader off its path.
+    // Re-derived from the failure's own count (20 candidates).
+    expectedCount: 20,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -624,7 +628,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "/admin/show/staged/* and /admin/show/*/preview/* are different routes with their own loaders; the ?show= snapshot RPC is not on their path",
     },
-    expectedCount: 13,
+    // 14 since the crew page redesign's Task 9: crew-page.spec.ts's pass case
+    // for the personal cells loads /admin/show/<slug>/preview/<crewId>, the
+    // preview-as route. Re-derived from the failure's own count (14 candidates).
+    expectedCount: 14,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&

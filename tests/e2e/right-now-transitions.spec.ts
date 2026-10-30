@@ -1,15 +1,21 @@
 /**
- * Playwright suite for the §5.7 RightNowHero day-anchor re-selection contract,
- * driven through the hero's REAL anchor source under a REAL crew viewer.
+ * Playwright suite for the §5.7 day-anchor re-selection contract, driven through
+ * the pass's REAL anchor source under a REAL crew viewer.
+ *
+ * RETARGET (crew page redesign plan Task 9): this suite pinned `RightNowHero`,
+ * which the pass replaced with its machinery carried over (crew page redesign
+ * spec §4.3). The anchor now reaches the client through the server-built pass
+ * props (`buildPassProps`, lib/crew/passModel.ts), one `PassDay` per date, and
+ * the live body reads today's entry; every failure mode below is unchanged.
  *
  * ── DISCOVERY (M-wave 2 W-E2E Task E1, spec 2026-08-09-m-wave-2-design §2.4) ──
  * BL-RIGHTNOW-SECTION57-FIXTURE-INERT's probe showed a mid-run edit to the
- * SHARED seed's `shows_internal.run_of_show` never reached the rendered hero.
+ * SHARED seed's `shows_internal.run_of_show` never reached the rendered hero (now the pass).
  * The anchor source itself was never the problem: `resolveKeyTimes` reads
  * `runOfShow[day].showStart` as the FIRST candidate for each per-day Show
  * anchor (lib/crew/resolveKeyTimes.ts:165-176), threaded from
- * `getShowForViewer`'s `runOfShow` projection through `TodaySection` →
- * `buildRightNowContext` → the hero. What made the fixture inert is the CACHE:
+ * `getShowForViewer`'s `runOfShow` projection through `_CrewShell` →
+ * `buildPassProps` → the pass. What made the fixture inert is the CACHE:
  * `getShowForViewer` is wrapped in `unstable_cache` keyed by one tag per show
  * with a 300s TTL backstop (lib/data/getShowForViewer.ts:924-935), and the tag
  * is busted by SYNC applies (`revalidateShowFromResult`), never by a direct
@@ -22,7 +28,7 @@
  * driveFileId → fresh slug → fresh cache tag) with `run_of_show` written in
  * the SAME locked transaction as the show row, BEFORE the first navigation —
  * the first render caches the seeded value, so the fixture provably drives
- * the hero. Discriminating values (anti-tautology): showStart times carry odd
+ * the pass. Discriminating values (anti-tautology): showStart times carry odd
  * minutes (7:13am / 8:47am) so they can equal neither the seed's show-level
  * anchors nor any top-of-hour rendering of the pinned noon-UTC clock in any
  * timezone; the seed writes NO rooms rows, so no room show_time exists to
@@ -54,7 +60,7 @@
  * any server round-trip (so the cache is irrelevant to the rollover leg).
  *
  * STATE ENTRY IS ASSERTED, NEVER ASSUMED: every navigation and every tick is
- * followed by an assertion on the hero's rendered `data-state` via
+ * followed by an assertion on the pass's rendered `data-state` via
  * assertRenderedState (helpers/rightNow.ts).
  */
 import { test, expect } from "@playwright/test";
@@ -64,6 +70,7 @@ import {
   setSystemTime,
   advanceClock,
   assertRenderedState,
+  passBody,
 } from "./helpers/rightNow";
 import { NON_ADMIN_CREW_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -81,7 +88,7 @@ const DAY1_TIME = "7:13am";
 const DAY2_TIME = "8:47am";
 
 /**
- * Match the fixture's anchor time as the hero RENDERS it ("7:13am" → "7:13 AM";
+ * Match the fixture's anchor time as the pass RENDERS it ("7:13am" → "7:13 AM";
  * normalizeMeridiem inserts the space and uppercases). Derived FROM the fixture
  * constant so a fixture change cannot leave the expectation silently stale.
  */
@@ -134,7 +141,7 @@ async function seedAnchorShow(overrides: { dateRestriction?: unknown } = {}): Pr
   });
 }
 
-test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
+test.describe("pass: per-day Show anchor selection (§5.7)", () => {
   let seeded: SeededShow | null = null;
 
   test.beforeEach(async ({ page }) => {
@@ -158,19 +165,19 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     }
   }
 
-  test("Day 1: the hero renders Day 1's OWN run_of_show anchor", async ({ page }) => {
+  test("pass: on Day 1 the live body renders Day 1's OWN run_of_show anchor", async ({ page }) => {
     seeded = await seedAnchorShow();
     await pinClock(page, DAY1_ISO);
     await pinServerClock(page, DAY1_ISO);
     await gotoSeeded(page);
     await assertRenderedState(page, "show_day_n");
-    const body = page.getByTestId("right-now-body");
+    const body = passBody(page);
     await expect(body).toContainText(anchorText(DAY1_TIME));
     // The discriminating negative: Day 2's anchor must NOT render on Day 1.
     await expect(body).not.toContainText(anchorText(DAY2_TIME));
   });
 
-  test("midnight rollover Day1→Day2: the tick re-selects the NEW day's anchor (no stale freeze)", async ({
+  test("pass: midnight rollover Day1→Day2: the tick re-selects the NEW day's anchor (no stale freeze)", async ({
     page,
   }) => {
     seeded = await seedAnchorShow();
@@ -178,20 +185,20 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     await pinServerClock(page, DAY1_ISO);
     await gotoSeeded(page);
     await assertRenderedState(page, "show_day_n");
-    await expect(page.getByTestId("right-now-body")).toContainText(anchorText(DAY1_TIME));
+    await expect(passBody(page)).toContainText(anchorText(DAY1_TIME));
 
-    // Roll the CLIENT clock to Day 2 and fire the 60s tick in-session: the hero
+    // Roll the CLIENT clock to Day 2 and fire the 60s tick in-session: the pass
     // re-derives todayIso and re-selects — Day 1's time persisting would fail
     // the not.toContainText below.
     await setSystemTime(page, DAY2_ISO);
     await advanceClock(page);
     await assertRenderedState(page, "show_day_n");
-    const body = page.getByTestId("right-now-body");
+    const body = passBody(page);
     await expect(body).toContainText(anchorText(DAY2_TIME));
     await expect(body).not.toContainText(anchorText(DAY1_TIME));
   });
 
-  test("recovery: a date-restricted crew viewer enters viewer_off_day via REAL resolution", async ({
+  test("pass: recovery: a date-restricted crew viewer enters viewer_off_day via REAL resolution", async ({
     page,
   }) => {
     // The restriction lives on the seeded crew row (not injected state): the
@@ -204,7 +211,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     await pinServerClock(page, DAY1_ISO);
     await gotoSeeded(page);
     await assertRenderedState(page, "viewer_off_day");
-    await expect(page.getByTestId("right-now-body")).not.toContainText(anchorText(DAY1_TIME));
+    await expect(passBody(page)).not.toContainText(anchorText(DAY1_TIME));
 
     // Recovery leg (review r1 F3 — the §5.7 recovery contract is "last-good
     // does not pin a prior day's call time", not merely off-day entry): roll
@@ -214,7 +221,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     await setSystemTime(page, DAY2_ISO);
     await advanceClock(page);
     await assertRenderedState(page, "show_day_n");
-    const body = page.getByTestId("right-now-body");
+    const body = passBody(page);
     await expect(body).toContainText(anchorText(DAY2_TIME));
     await expect(body).not.toContainText(anchorText(DAY1_TIME));
   });

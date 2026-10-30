@@ -31,6 +31,7 @@ import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
+import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 import {
   CREW_SPLIT_PX,
   expectColumnsFollowSplit,
@@ -155,10 +156,10 @@ async function lookupSeededShow(): Promise<{
  * (/show/[slug]/[shareToken]). The route's shareToken is a REQUIRED path
  * segment (R35), so we resolve it from `show_share_tokens` at test start.
  *
- * Determinism: the hero (RightNowHero) derives its state from `new Date()` at
- * hydration. We freeze the browser clock to a `show_day_n` instant
- * (2026-04-21T12:00:00Z — the seed's first show day, noon UTC = a stable
- * morning ET) via page.clock.install BEFORE goto, so the hero renders the
+ * Determinism: the pass (which replaced the right-now hero) derives its state
+ * from `new Date()` once mounted. We freeze the browser clock to a `show_day_n`
+ * instant (2026-04-21T12:00:00Z — the seed's first show day, noon UTC = a stable
+ * morning ET) via page.clock.install BEFORE goto, so the pass renders the
  * progress-bar `show_day_n` body deterministically. Mirrors
  * tests/e2e/helpers/rightNow.ts:pinClock.
  *
@@ -195,10 +196,11 @@ async function readRect(locator: import("@playwright/test").Locator): Promise<Re
 /**
  * Read a laid-out rect, gated against the TORN read.
  *
- * Mechanism (measured 2026-08-09, this branch). The layout describe freezes the
- * browser clock to a show-day instant so the hero state is deterministic. The
- * SERVER has no such clock: `RightNowHero` seeds its state from
- * `useState(() => new Date())` (components/crew/RightNowHero.tsx:338), so SSR
+ * Mechanism (measured 2026-08-09, on the branch that wrote this). The layout
+ * describe freezes the browser clock to a show-day instant so the right-now state
+ * is deterministic. The SERVER has no such clock: the right-now hero then seeded
+ * its state from `useState(() => new Date())` (since replaced by the pass, which
+ * reads the shell-seeded crew clock, components/crew/useCrewClock.ts), so SSR
  * renders at the real wall clock (months past the seeded April show → "Show
  * complete") while the client hydrates at the frozen instant (show day → live
  * dot). React reports "Hydration failed … this tree will be regenerated on the
@@ -585,72 +587,11 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  // ── Invariant 4 — RightNowHero min-height stable through crossfade ──
-  // The hero holds ≥176px (--spacing-right-now-min-h) and does NOT resize across
-  // a state crossfade (§4.16). Force a state change by advancing the frozen clock
-  // past a day boundary + a visibilitychange, then re-read.
-  test("inv4: RightNowHero min-h ≥176px, stable through a state crossfade", async ({ page }) => {
-    await gotoSection(page, "today");
-
-    const hero = page.getByTestId("right-now-hero");
-    await expect(hero).toBeVisible();
-    // Settle the section-enter crossfade (CrewSectionTransition motion.div is
-    // driven by rAF; with the clock frozen at install time it sits at its
-    // `initial` keyframe until time advances). Tick the frozen clock so framer
-    // commits the entered frame, then wait for the hero to reach its 176px
-    // min-height before measuring.
-    await page.clock.runFor(300);
-    await expect
-      .poll(async () => (await rectOf(hero)).height, { timeout: 5000 })
-      .toBeGreaterThanOrEqual(176 - TOL);
-    const before = await rectOf(hero);
-    expect(
-      before.height,
-      `RightNowHero must hold the 176px min-height; got ${before.height}`,
-    ).toBeGreaterThanOrEqual(176 - TOL);
-
-    // Drive a REAL state change. This block previously advanced the clock by
-    // 2min + 70s — 190 seconds total, which never leaves `show_day_n` despite the
-    // comment claiming it passed a day boundary. The hero's animated body is keyed
-    // by state KIND, so no remount and no crossfade occurred: the test measured the
-    // same steady state twice while being counted as crossfade coverage
-    // (whole-diff review round 4, P1).
-    //
-    // Jump the wall clock past the whole show (travelOut is 2026-04-23) into
-    // post_show, then fire one 60s tick. setSystemTime + a single runFor is used
-    // rather than runFor(4 days), which would fire ~5760 intervals.
-    const stateOf = () => page.getByTestId("right-now-state").getAttribute("data-state");
-    const stateBefore = await stateOf();
-    await page.clock.setSystemTime(new Date("2026-04-25T12:00:00Z"));
-    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await page.clock.runFor(70 * 1000);
-
-    // Premise: the crossfade this test is named for actually happened. Without
-    // this, a future change that pins the state makes every assertion below a
-    // measurement of one unchanging box — which is exactly the defect above.
-    await expect.poll(stateOf, { timeout: 10_000 }).not.toBe(stateBefore);
-
-    const after = await rectOf(page.getByTestId("right-now-hero"));
-    expect(
-      after.height,
-      `RightNowHero min-height must hold after the crossfade; got ${after.height}`,
-    ).toBeGreaterThanOrEqual(176 - TOL);
-    // The FLOOR is the contract, not exact equality. This assertion used to demand
-    // `|after - before| <= 0.5`, which only ever held because the "crossfade" above
-    // never actually changed state. With a REAL state change it is false, and
-    // measured: show_day_n renders 183.890625 and post_show renders exactly 176.
-    // The hero is a min-height box whose content drives its height, so two states
-    // with different copy lengths legitimately differ — an equality assertion was
-    // over-strong, and it had never run to find that out. What §4.16 actually
-    // guarantees, and what a layout regression would break, is that the hero never
-    // COLLAPSES below its floor while the body remounts mid-transition. That is
-    // asserted on both sides of the crossfade, above and here.
-    expect(
-      Math.min(before.height, after.height),
-      `RightNowHero must hold the 176px floor on BOTH sides of the crossfade; ` +
-        `before=${before.height} after=${after.height}`,
-    ).toBeGreaterThanOrEqual(176 - TOL);
-  });
+  // ── Invariant 4 moved: the pass's minimum height through a crossfade ──
+  // The hero's rest-state before/after check lived here. The pass replaced the hero
+  // (crew page redesign plan Task 9), and its case samples EVERY frame of a day
+  // crossfade and a live-state swap instead ("pass: the height never drops below
+  // the minimum-height token ..." in the pass describe below), which subsumes it.
 
   // ── Invariant 5 — "All sections" rows (compact) ──
   // The tab bar became the home's "All sections" card (crew page redesign spec
@@ -1281,7 +1222,7 @@ test.describe("wifi password transcription affordance (production route)", () =>
     await expect(page.getByTestId("crew-shell")).toBeVisible();
     // Readiness gate (plan harness rule), and it must come BEFORE the centring
     // below. This describe freezes only the browser clock, so hydration fails
-    // on `RightNowHero` (server wall clock vs frozen instant, see rectOf above)
+    // on the live clock (server wall clock vs frozen instant, see rectOf above)
     // and React regenerates the whole tree on the client. The Venue body sits in
     // the section sheet, whose body is the scroller the row is centred in: a
     // centring done before that regeneration scrolled a node React then
@@ -1626,4 +1567,372 @@ test.describe("wifi password transcription affordance (production route)", () =>
   // tests/e2e/wifi-password-row.layout.spec.ts DI-6 renders a real 40-char
   // value at 390px and proves the wrap with a >1-line client-rects count before
   // asserting containment. That is the same division spec §6 (b) already draws.
+});
+
+/**
+ * The pass (crew page redesign spec §4.3, §7, §8 item 2, R7; plan
+ * docs/superpowers/plans/2026-10-26-crew-page-redesign-pr-a.md, Task 9).
+ *
+ * The dark card under the day row. It replaced `RightNowHero` and keeps its state
+ * machine; what these cases prove needs a real browser: the computed colours of the
+ * dark subtree in both page themes, the crossfade's overlap (both bodies mounted
+ * mid-fade), the height floor on every frame of a fade, and the personal cells of a
+ * real crew identity.
+ *
+ * Clock, both sides (plan harness rule): the server's `today` through the frozen-now
+ * header and the browser's `Date` through `page.clock.setFixedTime`, to one instant,
+ * so the server render and hydration agree. `setFixedTime`, never `install`: these
+ * cases drive framer animations, which an installed page clock stalls on WebKit
+ * (`tests/e2e/crew-page.spec.ts` sheet cases, plan harness rule "WebKit animations").
+ *
+ * Viewer per case: a plain admin on the share route; the personal cells through the
+ * preview route as a non-lead crew member (WebKit cannot store a picker identity
+ * over plain http). Expected values are read from the seeded rows, never typed.
+ *
+ * Geometry and opacity are sampled inside ONE `page.evaluate` per leg, once per
+ * animation frame, so a sample can never straddle an unmount (plan harness rule
+ * "Detach safety").
+ */
+test.describe("the pass (crew page redesign Task 9)", () => {
+  test.setTimeout(180_000);
+
+  /** Seed dates (supabase seed, the Waldorf show): two show days, then travel out. */
+  const SHOW_DAY_1 = "2026-04-21";
+  const SHOW_DAY_2 = "2026-04-22";
+  const TRAVEL_OUT = "2026-04-23";
+  const SHOW_DAYS = [SHOW_DAY_1, SHOW_DAY_2];
+  const noonUtc = (iso: string) => `${iso}T12:00:00.000Z`;
+  /** "Tue Apr 21", as the pass's region label spells a date (spec §9.1). */
+  const spoken = (iso: string) => {
+    const d = new Date(`${iso}T12:00:00Z`);
+    const part = (opts: Intl.DateTimeFormatOptions) =>
+      d.toLocaleDateString("en-US", { ...opts, timeZone: "UTC" });
+    return `${part({ weekday: "short" })} ${part({ month: "short" })} ${part({ day: "numeric" })}`;
+  };
+
+  let slug = "";
+  let shareToken = "";
+  let showId = "";
+
+  test.beforeEach(async ({ page }) => {
+    const seeded = await lookupSeededShow();
+    slug = seeded.slug;
+    showId = seeded.showId;
+    shareToken = await lookupShareToken(seeded.showId);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  async function pinBothClocks(page: import("@playwright/test").Page, iso: string): Promise<void> {
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": noonUtc(iso),
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+    await page.clock.setFixedTime(new Date(noonUtc(iso)));
+  }
+
+  /** Load a crew page path and wait for the controller and a settled pass. */
+  async function gotoPass(page: import("@playwright/test").Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("crew-pass")).toBeVisible();
+    // A settled pass: exactly one body, fully opaque (the hydration settle is over).
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const bodies = [...document.querySelectorAll('[data-testid="crew-pass-body"]')];
+            return bodies.length === 1 && getComputedStyle(bodies[0]!).opacity === "1";
+          }),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+  }
+
+  const homePath = () => `/show/${slug}/${shareToken}`;
+
+  /** Every frame of `ms` after `trigger` runs, the pass's height and its bodies. */
+  type Frame = { height: number; bodies: number[] };
+  async function sampleFrames(
+    page: import("@playwright/test").Page,
+    trigger: { tapDay: string } | { visibility: true },
+    ms = 700,
+  ): Promise<Frame[]> {
+    return page.evaluate(
+      ({ trigger, ms }) =>
+        new Promise<Frame[]>((resolve) => {
+          const frames: Frame[] = [];
+          const read = () => {
+            const pass = document.querySelector('[data-testid="crew-pass"]');
+            const bodies = [...document.querySelectorAll('[data-testid="crew-pass-body"]')];
+            frames.push({
+              height: pass ? pass.getBoundingClientRect().height : 0,
+              bodies: bodies.map((b) => Number(getComputedStyle(b).opacity)),
+            });
+          };
+          read();
+          if ("tapDay" in trigger) {
+            const button = document.querySelector<HTMLButtonElement>(
+              `[data-testid="crew-day-button"][data-day="${trigger.tapDay}"]`,
+            );
+            if (!button) throw new Error(`no day button for ${trigger.tapDay}`);
+            button.click();
+          } else {
+            document.dispatchEvent(new Event("visibilitychange"));
+          }
+          const start = performance.now();
+          const tick = () => {
+            read();
+            if (performance.now() - start < ms) requestAnimationFrame(tick);
+            else resolve(frames);
+          };
+          requestAnimationFrame(tick);
+        }),
+      { trigger, ms },
+    );
+  }
+
+  /** The resolved pixel value of the pass's minimum-height token. */
+  async function minHeightToken(page: import("@playwright/test").Page): Promise<number> {
+    const raw = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--spacing-right-now-min-h"),
+    );
+    const px = Number.parseFloat(raw);
+    expect(Number.isFinite(px) && px > 0, `--spacing-right-now-min-h resolves (${raw})`).toBe(true);
+    return px;
+  }
+
+  test("pass: the surface is dark in both themes, and a theme swap leaves it unchanged", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await page.addInitScript(() => localStorage.setItem("fxav-theme", "light"));
+    await gotoPass(page, homePath());
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+    // The oracle is the existing dark runtime block, read on a probe that carries
+    // data-theme="dark" itself, independent of how the pass consumes the tokens.
+    const read = () =>
+      page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.setAttribute("data-theme", "dark");
+        probe.style.backgroundColor = "var(--color-surface-raised-runtime)";
+        probe.style.color = "var(--color-text-strong-runtime)";
+        document.body.appendChild(probe);
+        const darkSurface = getComputedStyle(probe).backgroundColor;
+        const darkText = getComputedStyle(probe).color;
+        probe.remove();
+        // The page's own background token, painted outside any dark scope.
+        const page = document.createElement("div");
+        page.style.backgroundColor = "var(--color-bg)";
+        document.body.appendChild(page);
+        const pageBackground = getComputedStyle(page).backgroundColor;
+        page.remove();
+        const pass = document.querySelector<HTMLElement>('[data-testid="crew-pass"]')!;
+        const value = pass.querySelector<HTMLElement>("[data-fact] dd");
+        return {
+          darkSurface,
+          darkText,
+          passBackground: getComputedStyle(pass).backgroundColor,
+          valueColor: value ? getComputedStyle(value).color : null,
+          pageBackground,
+        };
+      });
+
+    const light = await read();
+    expect(light.passBackground, "the pass is dark on the light page").toBe(light.darkSurface);
+    expect(light.valueColor, "the pass's values use the dark theme's text").toBe(light.darkText);
+    expect(light.pageBackground, "PREMISE: the page itself is light").not.toBe(light.darkSurface);
+
+    // Swap the theme with the header's own control. The pass does not change, and
+    // does not transition: the very next read already equals the light-page read.
+    await page.getByRole("button", { name: "Dark mode" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    const dark = await read();
+    expect(dark.pageBackground, "PREMISE: the swap changed the page").not.toBe(
+      light.pageBackground,
+    );
+    expect(dark.passBackground).toBe(light.passBackground);
+    expect(dark.valueColor).toBe(light.valueColor);
+    expect(dark.passBackground).toBe(dark.darkSurface);
+  });
+
+  test("pass: the live body on show day 1 carries the day label, live dot, Show time and progress", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoPass(page, homePath());
+    const pass = page.getByTestId("crew-pass");
+    await expect(pass).toHaveAttribute("data-selection", "live");
+    await expect(page.getByTestId("crew-pass-state")).toHaveAttribute("data-state", "show_day_n");
+    await expect(pass).toHaveAttribute("aria-label", `Your day, ${spoken(SHOW_DAY_1)}`);
+    await expect(pass.getByTestId("crew-pass-eyebrow")).toHaveText(
+      `Show day 1 of ${SHOW_DAYS.length}`,
+    );
+    await expect(pass.getByTestId("crew-pass-live-dot")).toHaveCount(1);
+    await expect(pass.getByTestId("crew-pass-big-time")).toHaveAttribute("data-label", "Show");
+    await expect(pass.locator('[data-testid="crew-pass-progress"] [data-segment]')).toHaveCount(
+      SHOW_DAYS.length,
+    );
+  });
+
+  test("pass: tapping a day in the day row shows its day(iso) body, and today returns to live", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoPass(page, homePath());
+    const pass = page.getByTestId("crew-pass");
+    await page.locator(`[data-testid="crew-day-button"][data-day="${SHOW_DAY_2}"]`).click();
+    await expect(pass).toHaveAttribute("data-selection", `day:${SHOW_DAY_2}`);
+    await expect(pass).toHaveAttribute("aria-label", `Your day, ${spoken(SHOW_DAY_2)}`);
+    const body = pass.locator('[data-testid="crew-pass-body"]:not([data-exiting])');
+    await expect(body.getByTestId("crew-pass-eyebrow")).toHaveText(
+      `Show day 2 of ${SHOW_DAYS.length}`,
+    );
+    await expect(body.getByTestId("crew-pass-live-dot")).toHaveCount(0);
+    await expect(body.getByTestId("crew-pass-status")).toHaveCount(0);
+    await page.locator(`[data-testid="crew-day-button"][data-day="${SHOW_DAY_1}"]`).click();
+    await expect(pass).toHaveAttribute("data-selection", "live");
+    await expect(body.getByTestId("crew-pass-live-dot")).toHaveCount(1);
+  });
+
+  test("pass: personal cells through the preview route: You, role; Your lead; Hotel tonight", async ({
+    page,
+  }) => {
+    // not-subject-to-meta: test-local fixture lookups (see lookupSeededShow).
+    const { data: crew, error: crewError } = await admin
+      .from("crew_members")
+      .select("id, name, role, role_flags")
+      .eq("show_id", showId);
+    if (crewError) throw new Error(`pass preview: crew lookup FAILED: ${crewError.message}`);
+    const { data: hotels, error: hotelError } = await admin
+      .from("hotel_reservations")
+      .select("hotel_name, check_in, check_out, names, ordinal")
+      .eq("show_id", showId);
+    if (hotelError) throw new Error(`pass preview: hotel lookup FAILED: ${hotelError.message}`);
+    const isLead = (c: { role_flags: unknown }) =>
+      Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD");
+    const lead = (crew ?? []).find(isLead);
+    // A non-lead crew member with a role, named on a reservation that covers show day 1.
+    const covering = (hotels ?? []).filter(
+      (h) => (h.check_in as string) <= SHOW_DAY_1 && SHOW_DAY_1 < (h.check_out as string),
+    );
+    const viewer = (crew ?? []).find(
+      (c) =>
+        !isLead(c) &&
+        typeof c.role === "string" &&
+        c.role.trim().length > 0 &&
+        covering.some((h) => (h.names as string[]).some((n) => n.includes(c.name as string))),
+    );
+    if (!lead || !viewer) {
+      throw new Error("pass preview: the seed needs a LEAD and a non-lead crew member on a hotel");
+    }
+    const hotel = covering
+      .filter((h) => (h.names as string[]).some((n) => n.includes(viewer.name as string)))
+      .sort((a, b) => (a.ordinal as number) - (b.ordinal as number))[0]!;
+
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoPass(page, `/admin/show/${slug}/preview/${viewer.id}`);
+    const pass = page.getByTestId("crew-pass");
+    await expect(pass.getByTestId("crew-pass-eyebrow-right")).toHaveText(
+      `You, ${(viewer.role as string).trim()}`,
+    );
+    await expect(pass.locator('[data-fact="lead"] dd')).toHaveText(lead.name as string);
+    await expect(pass.locator('[data-fact="hotel"] dd')).toHaveText(hotel.hotel_name as string);
+
+    // POSITIVE CONTROL in reverse: a plain admin on the share route gets none of them.
+    await gotoPass(page, homePath());
+    await expect(pass.getByTestId("crew-pass-eyebrow-right")).toHaveCount(0);
+    await expect(pass.locator('[data-fact="lead"]')).toHaveCount(0);
+    await expect(pass.locator('[data-fact="hotel"]')).toHaveCount(0);
+    await expect(pass.locator("[data-fact]").first()).toBeVisible();
+  });
+
+  test("pass: a day switch is a crossfade: mid-transition both bodies are mounted at opacity strictly between 0 and 1", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoPass(page, homePath());
+    const frames = await sampleFrames(page, { tapDay: SHOW_DAY_2 });
+    const overlap = frames.filter(
+      (f) => f.bodies.length === 2 && f.bodies.every((o) => o > 0 && o < 1),
+    );
+    expect(
+      overlap.length,
+      `no frame had both bodies mid-fade: ${JSON.stringify(frames.map((f) => f.bodies))}`,
+    ).toBeGreaterThan(0);
+    await expect(page.getByTestId("crew-pass")).toHaveAttribute(
+      "data-selection",
+      `day:${SHOW_DAY_2}`,
+    );
+    // The fade ends on one opaque body.
+    expect(frames.at(-1)!.bodies).toEqual([1]);
+  });
+
+  test("pass: under reduced motion a day switch is instant: every sampled frame finds one body", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await pinBothClocks(page, SHOW_DAY_1);
+    await gotoPass(page, homePath());
+    await expect(page.getByTestId("crew-pass")).toHaveAttribute(
+      "data-prefers-reduced-motion",
+      "true",
+    );
+    const frames = await sampleFrames(page, { tapDay: SHOW_DAY_2 });
+    // PREMISE: the switch happened.
+    await expect(page.getByTestId("crew-pass")).toHaveAttribute(
+      "data-selection",
+      `day:${SHOW_DAY_2}`,
+    );
+    expect(frames.length).toBeGreaterThan(5);
+    expect(
+      frames.filter((f) => f.bodies.length !== 1),
+      "a frame with other than one body under reduced motion",
+    ).toEqual([]);
+    expect(frames.every((f) => f.bodies[0] === 1)).toBe(true);
+  });
+
+  test("pass: the height never drops below the minimum-height token across a day crossfade and a live-state swap", async ({
+    page,
+  }) => {
+    // Leg 1: a day crossfade, live (show day 2) to the travel-out day.
+    await pinBothClocks(page, SHOW_DAY_2);
+    await gotoPass(page, homePath());
+    const floor = await minHeightToken(page);
+    const dayLeg = await sampleFrames(page, { tapDay: TRAVEL_OUT });
+
+    // Leg 2: a live-state swap, show_day_n to travel_out_day, which the transition
+    // table crossfades: move the browser's clock, then wake the crew clock.
+    await pinBothClocks(page, SHOW_DAY_2);
+    await gotoPass(page, homePath());
+    await expect(page.getByTestId("crew-pass-state")).toHaveAttribute("data-state", "show_day_n");
+    await page.clock.setFixedTime(new Date(noonUtc(TRAVEL_OUT)));
+    const liveLeg = await sampleFrames(page, { visibility: true });
+    await expect(page.getByTestId("crew-pass-state")).toHaveAttribute(
+      "data-state",
+      "travel_out_day",
+    );
+
+    for (const [name, frames] of [
+      ["day crossfade", dayLeg],
+      ["live-state swap", liveLeg],
+    ] as const) {
+      // PREMISE: the leg sampled a frame with both bodies mounted, so the floor
+      // below was measured during a fade, not only at rest.
+      expect(
+        frames.some((f) => f.bodies.length === 2),
+        `${name}: no frame had both bodies mounted`,
+      ).toBe(true);
+      const lowest = Math.min(...frames.map((f) => f.height));
+      expect(lowest, `${name}: the pass fell below its ${floor}px floor`).toBeGreaterThanOrEqual(
+        floor - 0.5,
+      );
+    }
+  });
 });

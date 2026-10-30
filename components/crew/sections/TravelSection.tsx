@@ -618,8 +618,8 @@ export function TravelSection({
                   <EmptyState
                     label={
                       suppressionEmptiedSection
-                        ? // Harmonized with its two ratified siblings — RightNowHero's "Your
-                          // days aren't confirmed yet" and ScheduleSection's "Your days
+                        ? // Harmonized with its two ratified siblings — the pass's "Your
+                          // days aren't confirmed yet." and ScheduleSection's "Your days
                           // haven't been confirmed yet. Check back after the schedule is
                           // finalized." A suppressed viewer meets all three in one scroll,
                           // and the first draft was the outlier: passive, led with the

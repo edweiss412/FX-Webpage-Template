@@ -5,9 +5,9 @@
  * ports the full field set of the deleted today-band tiles into one curated
  * surface:
  *
- *   - RightNowHero (the live `'use client'` island; built from the projection
- *     via `buildRightNowContext`). The hero owns its own `new Date()` clock —
- *     this section is synchronous and passes it NO `today`.
+ *   - (The live right-now card left this section: the pass replaced it and
+ *     mounts under the day row, from the shell's server-built pass props,
+ *     crew page redesign plan Task 9.)
  *   - KeyTimesStrip — Set / Show / Strike anchors via the shared
  *     `resolveKeyTimes(show, rooms)` resolver (§4.4).
  *   - Tonight card — the first hotel reservation (name + check-in / check-out).
@@ -33,7 +33,6 @@
 import { ChevronRight } from "lucide-react";
 import type { JSX } from "react";
 
-import { RightNowHero } from "@/components/crew/RightNowHero";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
@@ -55,7 +54,6 @@ import {
   PhoneIcon,
 } from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
-import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { TODAY_TITLES, todayRows } from "@/components/crew/sections/todayRows";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -104,15 +102,6 @@ export function TodaySection({
           // Mode A gate and the date/transport trust boundaries live there.
           const model = todayRows(data, ctx, today);
           const { modeA, anchors, anchorsPresent, keyTimeTargets } = model;
-
-          const rightNowContext = buildRightNowContext({
-            show: data.show,
-            dateRestriction: ctx.dateRestriction,
-            hotelReservations: data.hotelReservations,
-            rooms: data.rooms,
-            runOfShow: data.runOfShow ?? null, // NEW — carry per-day ShowAnchors
-            stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
-          });
 
           // §4.13 mechanism #3 — active-section FETCH-error visual fallback.
           // rooms feeds the KeyTimesStrip anchors (scope shown to all →
@@ -391,8 +380,6 @@ export function TodaySection({
 
           return (
             <>
-              <RightNowHero context={rightNowContext} />
-
               {roomsFetchFailed ? <SectionTileError domain="rooms" /> : null}
               {hotelFetchFailed ? <SectionTileError domain="hotel" /> : null}
               {contactsFetchFailed ? <SectionTileError domain="contacts" /> : null}

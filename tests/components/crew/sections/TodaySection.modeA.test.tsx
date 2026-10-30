@@ -17,10 +17,10 @@
  * Mode B (the current full-width stack, UNCHANGED) otherwise. Fail-closed: any
  * ambiguity → Mode B.
  *
- * RightNowHero is a `'use client'` island that owns a live `new Date()` clock and
- * a matchMedia-on-mount reduced-motion hook. jsdom has neither, so we stub
- * matchMedia (the hero's REAL animation-param wiring runs unbypassed) — mirroring
- * TodaySection.test.tsx.
+ * The section once mounted the right-now hero, a `'use client'` island with a
+ * matchMedia-on-mount hook, and this suite stubbed matchMedia for it. The pass
+ * replaced the hero and mounts from the section controller instead (crew page
+ * redesign plan Task 9); the stub stays for the section's other client islands.
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
@@ -124,8 +124,9 @@ test("unknown_asterisk on a populated show-day → Mode B, NO run-of-show timeli
   expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeNull();
   // No agenda-entry row anywhere — the timeline never mounted.
   expect(container.querySelector('[data-testid="agenda-entry"]')).toBeNull();
-  // Mode B still renders the existing stack (hero present).
-  expect(container.querySelector('[data-testid="right-now-hero"]')).toBeTruthy();
+  // Mode B still renders the section's stack (the pass now mounts from the
+  // section controller, not from this section).
+  expect(container.querySelector('[data-testid="section-today"]')?.textContent).not.toBe("");
 });
 
 // ---------------------------------------------------------------------------
@@ -428,8 +429,8 @@ test("no runOfShow → Mode B (no run-of-show container, no split grid)", () => 
   expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeNull();
   expect(container.querySelector('[data-testid="today-mode-a-grid"]')).toBeNull();
   expect(container.querySelector('[data-testid="agenda-entry"]')).toBeNull();
-  // Mode B hero still renders.
-  expect(container.querySelector('[data-testid="right-now-hero"]')).toBeTruthy();
+  // Mode B still renders the section's stack.
+  expect(container.querySelector('[data-testid="section-today"]')?.textContent).not.toBe("");
 });
 
 // ---------------------------------------------------------------------------

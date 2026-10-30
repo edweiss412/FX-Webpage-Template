@@ -12,7 +12,8 @@
  * through `useSyncExternalStore` (the shared theme store's pattern,
  * components/layout/useAppliedTheme.ts).
  *
- * Carried from `RightNowHero`'s private clock: the tick re-reads `new Date()`,
+ * Carried from the right-now hero's private clock (the pass replaced the hero):
+ * the tick re-reads `new Date()`,
  * so a day rollover needs no special case, and the visibility bump recovers
  * from background-tab interval throttling.
  *

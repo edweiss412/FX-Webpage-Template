@@ -529,7 +529,15 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // modules, so neither section file changes on top of search's version. Running
     // the guard on the merged tree reproduces ddb7e342... byte-for-byte: nothing
     // joined or left, membership is still 34, and no row moved.
-    expect(digest).toBe("ddb7e342ac03336845e454af08c667bfe4d0e454e160a82ede219a0892884504");
+    // Regenerated for the crew page redesign's Task 9 (the pass replaces the
+    // right-now hero), to the same bar. EXACTLY THREE inputs changed, all line
+    // numbers, in the one file of this set the task edits:
+    //   components/crew/sections/TodaySection.tsx 396/397/398 -> 383/384/385 (-13: the
+    //   hero's two imports, its context build and its mount leave the section)
+    // The same rooms / hotel / contacts `SectionTileError` rows in the same order, still
+    // marked. Nothing joined or left: membership is still 34, and reverting those three
+    // rows in the scan output reproduces ddb7e342... byte-for-byte.
+    expect(digest).toBe("071e2796f80505224eb27831714a50f86d3e300f8cad5d39562290ca34fa3712");
   });
 });
 

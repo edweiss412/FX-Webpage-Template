@@ -33,12 +33,14 @@ describe("§5.7 SSR surfaces stay instant (no client motion)", () => {
   }
 });
 
-describe("§5.7 RightNowHero IS the single client component (inverse guard)", () => {
-  test("RightNowHero carries 'use client' + framer-motion (the ONE animated surface)", () => {
-    const src = readFileSync(join(ROOT, "components/crew/RightNowHero.tsx"), "utf8");
-    expect(/['"]use client['"]/.test(src)).toBe(true);
+describe("§5.7 the pass IS the single client component (inverse guard)", () => {
+  // The pass replaced RightNowHero and carries its machinery (crew page redesign
+  // spec §4.3; plan Task 9).
+  test("pass: CrewPass carries 'use client' + framer-motion (the ONE animated Today surface)", () => {
+    const src = readFileSync(join(ROOT, "components/crew/CrewPass.tsx"), "utf8");
+    expect(/^['"]use client['"];?\s*$/m.test(src)).toBe(true);
     expect(/framer-motion/.test(src)).toBe(true);
-    // It must select the dated anchor by the client-computed show-tz todayIso.
-    expect(/formatIsoForTimezone\(now,\s*ctx\.timezone\)/.test(src)).toBe(true);
+    // It must select today's day by the client-computed show-tz todayIso.
+    expect(/formatIsoForTimezone\(now,\s*props\.timezone\)/.test(src)).toBe(true);
   });
 });

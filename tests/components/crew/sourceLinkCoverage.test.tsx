@@ -29,9 +29,9 @@
  * an OUT_OF_SCOPE_CARDS id (→ must carry no link).
  *
  * The seven sections are rendered REAL (synchronous Server Components resolved by
- * a synchronous render — WrappedSection invokes its `render()` inline). Only the
- * RightNowHero client island needs matchMedia, which jsdom lacks — stub it
- * (mirrors crewShellSections.test.tsx).
+ * a synchronous render — WrappedSection invokes its `render()` inline). The
+ * crew client islands read matchMedia, which jsdom lacks — stub it (mirrors
+ * crewShellSections.test.tsx).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";

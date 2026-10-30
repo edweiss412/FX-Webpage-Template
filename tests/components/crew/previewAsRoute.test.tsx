@@ -152,12 +152,6 @@ vi.mock("@/components/crew/CrewSections", () => ({
   ),
 }));
 
-vi.mock("@/components/crew/RightNowHero", () => ({
-  RightNowHero: ({ context }: { context: { showTitle?: string } }) => (
-    <div data-testid="mock-right-now-hero" data-show-title={context.showTitle ?? ""} />
-  ),
-}));
-
 // Task 11 wires the REAL section components into CrewShell's dispatcher. This
 // suite pins the preview route's shell wiring (activeSection authority, showId
 // threading, banner placement) against a thin fixture whose `show` omits fields

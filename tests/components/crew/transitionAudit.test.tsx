@@ -12,8 +12,11 @@
  *   |                            | 4px translateY, --duration-normal(220ms) /      |
  *   |                            | --ease-out-quart; initial={false} first paint;  |
  *   |                            | reduced-motion → 0ms (duration token only).     |
- *   | RightNow hero 12-state swap| AnimatePresence mode="wait" initial={false};    |
- *   |                            | reuses transitionTreatment + the 66-pair table. |
+ *   | the pass: live-state swap  | AnimatePresence initial={false}, NOT            |
+ *   | and day crossfade          | mode="wait": both bodies overlap mid-fade (crew |
+ *   |                            | page redesign spec §7); reuses                  |
+ *   |                            | transitionTreatment + the 66-pair table; under  |
+ *   |                            | reduced motion the presence key holds still.    |
  *   | sheet closed ↔ open        | CrewSectionSheet: one AnimatePresence           |
  *   |                            | initial={false}; panel slides, scrim fades, the |
  *   |                            | same --duration-normal transition both ways;    |
@@ -45,17 +48,18 @@ function src(rel: string): string {
   return readFileSync(join(process.cwd(), rel), "utf8");
 }
 
-// The crossfade surfaces: an AnimatePresence mode="wait" swapping one keyed body.
-const CROSSFADE_COMPONENTS = [
-  "components/crew/CrewSectionTransition.tsx",
-  "components/crew/RightNowHero.tsx",
-] as const;
+// The out-then-in crossfade: an AnimatePresence mode="wait" swapping one keyed body.
+const CROSSFADE_COMPONENTS = ["components/crew/CrewSectionTransition.tsx"] as const;
+
+// The pass (crew page redesign plan Task 9): an overlapping crossfade, not mode="wait".
+const PASS = "components/crew/CrewPass.tsx";
 
 // The ONLY crew components that carry a client motion library: the crossfades
 // plus the section sheet's slide. Everything else under components/crew/** must
 // be motion-free (instant by design).
 const MOTION_COMPONENTS = [
   ...CROSSFADE_COMPONENTS,
+  PASS,
   "components/crew/CrewSectionSheet.tsx",
 ] as const;
 
@@ -71,7 +75,7 @@ const INSTANT_BY_DESIGN = [
 afterEach(cleanup);
 
 describe("§4.10 transition audit — static enumeration", () => {
-  it('inventory: section↔section + hero swap — every AnimatePresence carries mode="wait" AND initial={false}', () => {
+  it('inventory: section↔section — every AnimatePresence carries mode="wait" AND initial={false}', () => {
     for (const rel of CROSSFADE_COMPONENTS) {
       const s = src(rel);
       // Match each AnimatePresence opening tag (up to its first `>`), tolerant of
@@ -135,22 +139,49 @@ describe("§4.10 transition audit — static enumeration", () => {
     expect(s, "section crossfade rises 4px (translateY y:4)").toMatch(/y:\s*4/);
   });
 
-  it("inventory: RightNow hero swap — the body motion.div has animate AND exit, keyed by renderState.kind, and reuses transitionTreatment", () => {
-    const s = src("components/crew/RightNowHero.tsx");
-    expect(s, "hero body is keyed by renderState.kind (12-state swap)").toMatch(
-      /key=\{renderState\.kind\}/,
+  it('inventory: the pass — AnimatePresence initial={false} and NOT mode="wait", so a crossfade overlaps the two bodies', () => {
+    const s = src(PASS);
+    const opens = s.match(/<AnimatePresence\b[^>]*>/g) ?? [];
+    expect(opens, "exactly one AnimatePresence owns the pass body").toHaveLength(1);
+    expect(opens[0], "a server-rendered pass never fades in on hydration").toMatch(
+      /initial=\{false\}/,
     );
-    expect(s, "hero reuses the §8.2 transitionTreatment 66-pair table").toMatch(
-      /transitionTreatment/,
-    );
-    // The crossfade branch (treatment === "crossfade-body") supplies animate + exit.
-    expect(s, "hero crossfade branch supplies animate").toMatch(
-      /animate:\s*\{\s*opacity:\s*1\s*\}/,
-    );
-    expect(s, "hero crossfade branch supplies exit").toMatch(/exit:\s*\{\s*opacity:\s*0\s*\}/);
+    expect(opens[0], 'mode="wait" would never mount both bodies mid-fade').not.toMatch(/mode=/);
   });
 
-  it("inventory: any × reduced-motion — both crossfade surfaces collapse the duration to 0 via prefersReducedMotion (token, not a tree-shape branch)", () => {
+  it("inventory: the pass swap — keyed by the selection (live state kind or the day), reusing transitionTreatment, with an exit", () => {
+    const s = src(PASS);
+    expect(s, "the live body is keyed by the rendered state kind").toMatch(
+      /`live:\$\{renderState\.kind\}`/,
+    );
+    expect(s, "a selected day has its own key").toMatch(/`day:\$\{selectedDay\.iso\}`/);
+    expect(s, "the presence child is keyed by that body key").toMatch(
+      /key=\{reduced \? "pass" : bodyKey\}/,
+    );
+    expect(s, "the pass reuses the §8.2 transitionTreatment 66-pair table").toMatch(
+      /transitionTreatment/,
+    );
+    expect(s, "a live-state swap fades only when the table says crossfade").toMatch(
+      /treatment === "crossfade-body"/,
+    );
+    expect(s, "the body variants carry an exit to opacity 0").toMatch(
+      /gone: \(fade: boolean\) => \(\{\s*opacity: 0/,
+    );
+  });
+
+  it("inventory: the pass × reduced-motion — the presence key holds still and no swap fades, in one tree shape", () => {
+    const s = src(PASS);
+    expect(s).toMatch(/usePrefersReducedMotion/);
+    expect(s, "reduced motion: no swap fades").toMatch(/reduced \? false : fade/);
+    expect(s, "and the presence key never changes, so one body swaps in place").toMatch(
+      /key=\{reduced \? "pass" : bodyKey\}/,
+    );
+    expect(s.match(/<AnimatePresence\b/g) ?? [], "no reduced-motion fork of the tree").toHaveLength(
+      1,
+    );
+  });
+
+  it("inventory: any × reduced-motion — the section crossfade collapses the duration to 0 via prefersReducedMotion (token, not a tree-shape branch)", () => {
     for (const rel of CROSSFADE_COMPONENTS) {
       const s = src(rel);
       expect(s, `${rel} must consume the shared usePrefersReducedMotion hook`).toMatch(

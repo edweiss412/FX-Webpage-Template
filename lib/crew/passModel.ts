@@ -122,6 +122,18 @@ function weekday(iso: string): string {
 }
 
 /**
+ * A date as the crew home speaks it, "Sun Jun 14" (spec §9.1, §9.4): the day
+ * row's accessible names and the pass's region label ("Your day, Sun Jun 14")
+ * and next-day line. Pure; a calendar date, so no timezone conversion.
+ */
+export function spokenDate(iso: string): string {
+  const at = new Date(`${iso}T12:00:00Z`);
+  const part = (opts: Intl.DateTimeFormatOptions) =>
+    at.toLocaleDateString("en-US", { ...opts, timeZone: "UTC" });
+  return `${part({ weekday: "short" })} ${part({ month: "short" })} ${part({ day: "numeric" })}`;
+}
+
+/**
  * The day set: `aggregateDays` filtered through the date restriction exactly as
  * the Schedule section filters its day list (an explicit viewer sees only their
  * own days; a suppressed viewer sees none). The day row and the pass read this
@@ -237,17 +249,12 @@ export function buildDayRowProps(
       const kind = dayKind(day, dates);
       const label =
         kind === "show" ? `Show day ${showDays.indexOf(day.date) + 1}` : KIND_LABEL[kind];
-      const at = new Date(`${day.date}T12:00:00Z`);
-      const part = (opts: Intl.DateTimeFormatOptions) =>
-        at.toLocaleDateString("en-US", { ...opts, timeZone: "UTC" });
-      const weekdayShort = weekday(day.date);
-      const dayOfMonth = part({ day: "numeric" });
       return {
         iso: day.date,
-        weekday: weekdayShort,
-        day: dayOfMonth,
+        weekday: weekday(day.date),
+        day: String(Number(day.date.slice(8, 10))),
         label,
-        name: `${weekdayShort} ${part({ month: "short" })} ${dayOfMonth}, ${label.toLowerCase()}`,
+        name: `${spokenDate(day.date)}, ${label.toLowerCase()}`,
       };
     }),
   };

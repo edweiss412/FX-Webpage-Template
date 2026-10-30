@@ -57,9 +57,9 @@ type HeaderProps = {
    * Optional compact show-lifecycle pill (crew redesign Task 14 / D-2 /
    * wp-18). Ports the show-status surface out of the deleted
    * `ShowStatusTile` so the lifecycle state is visible on EVERY section
-   * (it complements the Today-only RightNowHero). The pill node is
+   * (it complements the home-only crew pass). The pill node is
    * server-rendered by `_CrewShell` from the request-scoped `today` —
-   * a small badge only, NOT the hero's full live-ticking treatment.
+   * a small badge only, NOT the pass's full live-ticking treatment.
    * Rendered next to the title. Omitted entirely when null/undefined so
    * Header stays backward-compatible for consumers that never pass it.
    */

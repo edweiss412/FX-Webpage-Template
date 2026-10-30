@@ -43,7 +43,7 @@ import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
 // Same show_day_n instant the crew-page §4.9 suite freezes to: the seed's first
-// show day, noon UTC (a stable morning ET) → deterministic RightNowHero state.
+// show day, noon UTC (a stable morning ET) → a deterministic pass state.
 const SHOW_DAY_N_INSTANT = "2026-04-21T12:00:00Z";
 
 const TOL = 0.5;

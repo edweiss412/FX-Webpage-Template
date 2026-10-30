@@ -81,6 +81,7 @@ import {
 } from "react";
 import { CrewAllSections } from "@/components/crew/CrewAllSections";
 import { CrewDayRow } from "@/components/crew/CrewDayRow";
+import { CrewPass } from "@/components/crew/CrewPass";
 import { DaySelectionProvider } from "@/components/crew/daySelection";
 import { CrewClockProvider } from "@/components/crew/useCrewClock";
 import { CrewSectionSheet } from "@/components/crew/CrewSectionSheet";
@@ -99,7 +100,7 @@ import {
   type CrewSectionId,
 } from "@/lib/crew/crewSections";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
-import type { DayRowProps } from "@/lib/crew/passModel";
+import type { DayRowProps, PassProps } from "@/lib/crew/passModel";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { buildHomeHref, buildSectionHref } from "@/lib/crew/sectionHref";
 import { cn } from "@/lib/ui/cn";
@@ -126,6 +127,12 @@ export interface CrewSectionsProps {
    * the selected day it writes is provided to the whole page (`daySelection`).
    */
   dayRow?: DayRowProps | null;
+  /**
+   * The pass's server-built props (`buildPassProps`), or null when the shell
+   * could not build them (a projection with no dates at all). It mounts under
+   * the day row, above the Today body, in both modes (spec §3.2, §4.3).
+   */
+  pass?: PassProps | null;
   /**
    * The server's request time (epoch ms, the shell's `await nowDate()`). It
    * seeds the shared crew clock so the server render and hydration agree on
@@ -223,6 +230,7 @@ export function CrewSections({
   sectionNodes,
   children,
   dayRow = null,
+  pass = null,
   initialNow = null,
 }: CrewSectionsProps) {
   const pathname = usePathname();
@@ -675,11 +683,16 @@ export function CrewSections({
                   >
                     {CREW_TODAY_LABEL}
                   </h2>
-                  {/* The day row: atop the Today block in both modes, above its body
-                  (spec §3.2, §4.2). */}
+                  {/* The day row atop the Today block in both modes, then the pass
+                  under it, above the Today body (spec §3.2, §4.2, §4.3). */}
                   {dayRow ? (
                     <div className="mb-4">
                       <CrewDayRow {...dayRow} />
+                    </div>
+                  ) : null}
+                  {pass ? (
+                    <div className="mb-4">
+                      <CrewPass {...pass} />
                     </div>
                   ) : null}
                   {sectionNodes.today}

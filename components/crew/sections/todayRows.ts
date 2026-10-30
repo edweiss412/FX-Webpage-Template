@@ -3,7 +3,7 @@
  * shared by `TodaySection` and the Today search builder (lib/search/sections/today.ts),
  * so the page and the search index describe the same lines (spec §2.4, INV-1).
  *
- * `todayRows` returns everything the section renders below `RightNowHero` (the
+ * `todayRows` returns everything the section renders below the pass (the
  * mode, each card's rows, the notes) together with each line's search target id
  * and the search entries in render order. The section renders the model; the
  * builder keeps the entries. Every card is its own search region (its
@@ -179,7 +179,7 @@ export type TodayModel = {
 };
 
 /**
- * Everything the Today section renders below `RightNowHero`, with its search
+ * Everything the Today section renders below the pass, with its search
  * entries. `ctx` is the section's `resolveViewerContext` result (resolved
  * outside the section's error boundary, where a malformed projection throws).
  */

@@ -65,10 +65,10 @@ const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
 const VIEWER = { kind: "admin" } as const;
 
-// The Notes block renders TodaySection, which mounts the RightNowHero client
-// island; the hero's usePrefersReducedMotion hook calls window.matchMedia in a
-// mount effect that jsdom lacks. Stub it (matches:false = no reduced-motion)
-// so the hero's REAL wiring runs — mirrors TodaySection.test.tsx.
+// The Notes block renders TodaySection. jsdom lacks window.matchMedia, which
+// the crew client islands' usePrefersReducedMotion reads in a mount effect (the
+// pass, which replaced the hero TodaySection used to mount, is one). Stub it
+// (matches:false = no reduced-motion) — mirrors TodaySection.test.tsx.
 beforeEach(() => {
   vi.stubGlobal(
     "matchMedia",

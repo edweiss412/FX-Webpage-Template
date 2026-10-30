@@ -62,7 +62,7 @@ import {
 const SHOW_ID = "44444444-4444-4444-8444-444444444444";
 
 beforeEach(() => {
-  // RightNowHero (inside Today) reads matchMedia on mount; jsdom has none.
+  // The crew pass (the section controller mounts it) reads matchMedia on mount; jsdom has none.
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockReturnValue({

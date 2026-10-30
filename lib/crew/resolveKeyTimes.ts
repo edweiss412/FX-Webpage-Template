@@ -79,7 +79,7 @@ function labelFor(iso: string, rawShowDayCount: number, showDays: string[]): str
 
 /**
  * Resolve the Set/Shows/Strike anchors for the Today KeyTimesStrip, Schedule
- * "Daily times", and buildRightNowContext. Deterministic regardless of DB
+ * "Daily times", and the pass (buildPassProps). Deterministic regardless of DB
  * return order (the rooms query has no ORDER BY).
  *
  * unknown_asterisk → {} (whole strip suppressed, zero date leak).

@@ -9,9 +9,9 @@
  * is denied it (while the room-sourced strike still shows); admin + assigned
  * crew get it.
  *
- * RightNowHero is a 'use client' island that owns a live clock + matchMedia
- * reduced-motion hook; jsdom has neither, so we stub matchMedia (mirrors the
- * sibling TodaySection tests).
+ * matchMedia is stubbed for the section's client islands (mirrors the sibling
+ * TodaySection tests; the right-now hero that first needed it was replaced by
+ * the pass, which mounts from the section controller).
  *
  * Anti-tautology: SET entry time asserted against data.show.dates.loadIn (source);
  * synthetic presence/absence scoped to the row's data-entry-kind marker (not titles).
