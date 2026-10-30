@@ -1582,7 +1582,10 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2507 -> 2521 on feat/warning-card-fixes Task 16 (the reading-display imports and the
       // callout's reading label above it); located by its own element, the same
       // PackCountPill <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2521",
+      // 2521 -> 2539 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+      // sectionForWarning import above it); located by its own element, the same
+      // PackCountPill <span>.
+      "components/admin/wizard/step3ReviewSections.tsx:2539",
       // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
       "components/crew/primitives/KeyTimesStrip.tsx:196",
     ]);

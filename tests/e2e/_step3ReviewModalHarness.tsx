@@ -33,6 +33,7 @@ import type {
   HotelReservationRow,
   ParseResult,
   ParseWarning,
+  PullSheetCase,
 } from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import {
@@ -290,11 +291,24 @@ export function saveHarnessWarnings(): ParseWarning[] {
 /** Jumps fixture (warning-card-fixes spec §5.4, §5.5; plan Task 16): two hotels and the
  *  inline guest split `parseHotels` emits for `Hyatt Regency Eric Weiss - 110525` (Task
  *  10's fixture, its shape copied from that parse), moved to reservation 1 by its
- *  `blockRef.index`, so the Hotels section marks the SECOND card. Reached only through
- *  `_warningCardLiveEntry.tsx?scenario=jumps`. */
+ *  `blockRef.index`, so the Hotels section marks the SECOND card. Plan Task 17 adds the
+ *  archived pull sheet warning (the archived scenario's tab and warning) and a staged
+ *  pull sheet, so the Warnings cards carry a Pack list jump and a reservation jump.
+ *  Reached only through `_warningCardLiveEntry.tsx?scenario=jumps`. */
 export const JUMPS_HARNESS_HOTEL_INDEX = 1;
 /** The guest split's index in `jumpsHarnessWarnings()`. */
 export const JUMPS_HARNESS_GUEST_ROW = 0;
+/** The archived pull sheet warning's index in `jumpsHarnessWarnings()`. */
+export const JUMPS_HARNESS_ARCHIVED_ROW = 1;
+
+export function jumpsHarnessPullSheet(): PullSheetCase[] {
+  return [
+    {
+      caseLabel: "FOH",
+      items: [{ qty: 1, cat: "Audio", subCat: null, item: "DI box" }],
+    },
+  ];
+}
 
 function harnessHotel(ordinal: number, name: string): HotelReservationRow {
   return {
@@ -333,6 +347,7 @@ export function jumpsHarnessWarnings(): ParseWarning[] {
         readAs: { kind: "hotels", names: ["Hyatt Regency Eric Weiss"] },
       },
     },
+    ...archivedTabHarnessWarnings(),
   ];
 }
 

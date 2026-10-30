@@ -11,7 +11,7 @@
  * The scenario is chosen by `?scenario=`: `layout` (the title-row fixture),
  * `archived` (the archived pull sheet card, plan Task 13), `save` (the deferred
  * reading choice's Save flow, plan Task 15) or `jumps` (the Hotels reservation
- * marker, plan Task 16). Each publishes its fixture's row indices on <html>
+ * marker and the card jumps, plan Tasks 16 and 17). Each publishes its fixture's row indices on <html>
  * (`data-warning-card-rows` / `data-warning-card-archived` / `data-warning-card-save`
  * / `data-warning-card-jumps`) so the spec derives every testid from the fixture
  * rather than retyping indices.
@@ -34,6 +34,7 @@ import {
   ARCHIVED_HARNESS_TAB,
   HARNESS_DFID,
   HARNESS_WSID,
+  JUMPS_HARNESS_ARCHIVED_ROW,
   JUMPS_HARNESS_GUEST_ROW,
   JUMPS_HARNESS_HOTEL_INDEX,
   SAVE_HARNESS_CONTENT_HASH,
@@ -43,6 +44,7 @@ import {
   saveHarnessWarnings,
   buildSectionData,
   jumpsHarnessHotels,
+  jumpsHarnessPullSheet,
   jumpsHarnessWarnings,
   modalElement,
   warningCardHarnessWarnings,
@@ -139,23 +141,39 @@ if (scenario === "layout") {
   );
   createRoot(rootEl).render(<SaveHarness />);
 } else if (scenario === "jumps") {
-  // The Hotels reservation marker (plan Task 16): two hotels and an inline guest split
-  // on the second, so the hotel section's callout entries mark that card.
+  // The jumps (plan Tasks 16, 17): two hotels with an inline guest split on the second,
+  // so the Hotels section marks that card and its warning card jumps to it; plus the
+  // archived pull sheet warning over a staged pull sheet, whose card jumps to Pack list.
+  // Both warnings are ACTIVE in the staged `dq` model, as on the real wizard.
   document.documentElement.setAttribute(
     "data-warning-card-jumps",
     JSON.stringify({
       dfid: HARNESS_DFID,
       guestRow: JUMPS_HARNESS_GUEST_ROW,
+      archivedRow: JUMPS_HARNESS_ARCHIVED_ROW,
       hotelIndex: JUMPS_HARNESS_HOTEL_INDEX,
     }),
   );
+  const data = buildSectionData({
+    warnings: jumpsHarnessWarnings(),
+    hotelReservations: jumpsHarnessHotels(),
+    pullSheet: jumpsHarnessPullSheet(),
+    archivedPullSheetTabs: [ARCHIVED_HARNESS_TAB],
+  });
   createRoot(rootEl).render(
-    modalElement(
-      buildSectionData({
-        warnings: jumpsHarnessWarnings(),
-        hotelReservations: jumpsHarnessHotels(),
-      }),
-    ),
+    modalElement({
+      ...data,
+      dq: {
+        target: { kind: "staged", wizardSessionId: HARNESS_WSID, driveFileId: HARNESS_DFID },
+        model: {
+          active: [JUMPS_HARNESS_GUEST_ROW, JUMPS_HARNESS_ARCHIVED_ROW].map((index) => ({
+            index,
+            reportSurfaceId: `harness-jumps-sid-${index}`,
+          })),
+          ignored: [],
+        },
+      },
+    }),
   );
 } else {
   throw new Error(`unknown warning-card scenario: ${scenario}`);

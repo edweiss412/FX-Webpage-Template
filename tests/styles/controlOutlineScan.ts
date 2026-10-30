@@ -209,7 +209,9 @@ export const CENSUS: readonly CensusRow[] = [
   // located by its own report-toggle testid.
   // 5220 -> 5307 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
   // it); located by its own report-toggle testid.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5307 },
+  // 5307 -> 5375 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+  // card section jump above it); located by its own report-toggle testid.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5375 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -270,7 +272,9 @@ export const CENSUS: readonly CensusRow[] = [
   // report-submit testid.
   // 5302 -> 5389 on feat/warning-card-fixes Task 16, same cause; located by its own
   // report-submit testid.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5389 },
+  // 5389 -> 5457 on feat/warning-card-fixes Task 17, same cause; located by its own
+  // report-submit testid.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5457 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then
@@ -347,8 +351,10 @@ export const CENSUS: readonly CensusRow[] = [
   // :814 / :993 until 2026-08-27 — the isWarnSeverity import line (spec §2.1).
   // :815 / :994 until 2026-08-27 — the attentionJump effect gained the
   // details-opening loop (spec §4.4), 11 lines above both.
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 844 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1025 },
+  // 844 -> 865 and 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added
+  // above both); each located by its own element, the rail item and chip <button>.
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 865 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1046 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
   // :1083 until fix/attention-autoopen-suppress-phone, whose suppression

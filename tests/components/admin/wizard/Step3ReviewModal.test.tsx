@@ -38,7 +38,7 @@ import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import type { ParseResult, ParseWarning } from "@/lib/parser/types";
+import type { HotelReservationRow, ParseResult, ParseWarning } from "@/lib/parser/types";
 
 // RescanSheetButton (mounted in the modal footer) calls useRouter().refresh().
 const refresh = vi.fn();
@@ -60,6 +60,7 @@ import {
 import {
   __resetAgendaThrottleForTests,
   CALLOUT_MAX_ENTRIES,
+  HOTELS_CAP,
   contactBlocks,
   dateSummarySegments,
   step3Sections,
@@ -3426,5 +3427,53 @@ describe("attention pill reads the active warning partition (§2.4)", () => {
     // so an implementation that renumbered every survivor would pass it.
     expect(q.getByTestId(`wizard-step3-card-${DFID}-attention-row-1`)).toBeTruthy();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-attention-row-0`)).toBeNull();
+  });
+});
+
+// warning-card-fixes spec §8.2 (plan Task 17): the staged surface hands the Warnings
+// chrome its jump callback, its rendered sections and the shown hotel count, so a card
+// jump reaches the real nav and the reservation bound is the spread's own value.
+describe("Step3ReviewModal — warning card section jumps (warning-card-fixes §8.2)", () => {
+  const jumpTid = (i: number) => `wizard-step3-card-${DFID}-warning-${i}-section-jump`;
+
+  test("a crew card's jump makes crew the active rail item", () => {
+    const { q } = renderModal({ d: sectionData({ warnings: [warning("crew")] }) });
+    const rail = q.getByTestId(tid("rail"));
+    premiseHolds(
+      "crew is not the active rail item before the jump",
+      rail.querySelector('[aria-current="true"]') !== q.getByTestId(tid("rail-item-crew")),
+    );
+    const jump = q.getByTestId(jumpTid(0));
+    expect(jump.getAttribute("data-jump")).toBe("crew");
+    fireEvent.click(jump);
+    expect(rail.querySelector('[aria-current="true"]')).toBe(q.getByTestId(tid("rail-item-crew")));
+  });
+
+  test("the reservation bound is the spread's shown-card count (B-JUMP-INDEX, 13 hotels)", () => {
+    expect(HOTELS_CAP).toBe(12);
+    const hotel = (k: number): HotelReservationRow => ({
+      ordinal: k + 1,
+      hotel_name: `Hotel ${k + 1}`,
+      hotel_address: null,
+      names: [],
+      confirmation_no: null,
+      check_in: null,
+      check_out: null,
+      notes: null,
+    });
+    const split = (index: number): ParseWarning => ({
+      severity: "warn",
+      code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      message: "",
+      blockRef: { kind: "hotels", field: "guests", index },
+    });
+    const thirteen = Array.from({ length: 13 }, (_, k) => hotel(k));
+    const { q } = renderModal({
+      d: sectionData({ hotelReservations: thirteen, warnings: [split(11), split(12)] }),
+    });
+    expect(q.getByTestId(jumpTid(0)).textContent).toMatch(/^Go to this reservation in Hotels /);
+    expect(q.getByTestId(jumpTid(0)).getAttribute("data-jump")).toBe("reservation");
+    expect(q.getByTestId(jumpTid(1)).textContent).toMatch(/^Go to Hotels /);
+    expect(q.getByTestId(jumpTid(1)).getAttribute("data-jump")).toBe("hotels");
   });
 });

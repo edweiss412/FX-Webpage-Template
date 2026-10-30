@@ -391,7 +391,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the same tile `<a>`, located by that ref.
     // 4620 -> 4707 on feat/warning-card-fixes Task 16 (the Hotels reservation marker and
     // the callout's reading label above it); the same tile `<a>`, located by that ref.
-    line: 4707,
+    // 4707 -> 4775 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+    // card section jump above it); the same tile `<a>`, located by that ref.
+    line: 4775,
     tag: "a",
     category: "full-bleed",
     reason:

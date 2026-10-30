@@ -274,4 +274,80 @@ test.describe("jumps (spec §5.4, §5.5)", () => {
       })
       .toBe(true);
   });
+
+  test("a warning card jumps to Pack list and to its reservation (spec §8.3, §5.5)", async ({
+    page,
+  }) => {
+    await openScenario(page, "jumps", "wizard-step3-hotel-judgment-marker");
+    const raw = await page.locator("html").getAttribute("data-warning-card-jumps");
+    if (!raw) throw new Error("live entry did not publish data-warning-card-jumps");
+    const meta = JSON.parse(raw) as {
+      dfid: string;
+      guestRow: number;
+      archivedRow: number;
+      hotelIndex: number;
+    };
+    const jumpId = (row: number) => `wizard-step3-card-${meta.dfid}-warning-${row}-section-jump`;
+    const scrollerId = `wizard-step3-card-${meta.dfid}-review-content`;
+    const railItem = (id: string) => `wizard-step3-card-${meta.dfid}-review-rail-item-${id}`;
+
+    // Go to Pack list, from the archived pull sheet card.
+    const packJump = page.getByTestId(jumpId(meta.archivedRow));
+    await expect(packJump).toHaveAttribute("data-jump", "packlist");
+    await expect(packJump).toHaveAccessibleName(/^Go to Pack list for /);
+    await packJump.scrollIntoViewIfNeeded();
+    expect(
+      await rectHeight(page, jumpId(meta.archivedRow)),
+      "Pack list jump tap floor",
+    ).toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+    await packJump.click();
+    // Settled: two consecutive scrollTop reads agree.
+    let last = Number.NaN;
+    await expect
+      .poll(
+        async () => {
+          const top = await page.evaluate((id) => {
+            const el = document.querySelector(`[data-testid="${id}"]`);
+            if (!el) throw new Error(`missing ${id}`);
+            return el.scrollTop;
+          }, scrollerId);
+          const settled = top === last;
+          last = top;
+          return settled;
+        },
+        { message: "the scroller settles after the Pack list jump" },
+      )
+      .toBe(true);
+    const landing = await page.evaluate(
+      ([sid, sectionId]) => {
+        const scroller = document.querySelector(`[data-testid="${sid}"]`);
+        const section = document.querySelector(`[data-testid="${sectionId}"]`);
+        if (!scroller) throw new Error(`missing scroller ${sid}`);
+        if (!section) throw new Error(`missing section ${sectionId}`);
+        return section.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      },
+      [scrollerId, `wizard-step3-card-${meta.dfid}-review-section-packlist`],
+    );
+    expect(
+      Math.abs(landing),
+      "Pack list's top sits within 8px of the scroller's top",
+    ).toBeLessThanOrEqual(8);
+    await expect(page.getByTestId(railItem("packlist"))).toHaveAttribute("aria-current", "true");
+
+    // Go to this reservation in Hotels, from the guest split card.
+    const hotelJump = page.getByTestId(jumpId(meta.guestRow));
+    await expect(hotelJump).toHaveAttribute("data-jump", "reservation");
+    await expect(hotelJump).toHaveAccessibleName(/^Go to this reservation in Hotels for /);
+    await hotelJump.scrollIntoViewIfNeeded();
+    expect(
+      await rectHeight(page, jumpId(meta.guestRow)),
+      "reservation jump tap floor",
+    ).toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+    await hotelJump.click();
+    await expect
+      .poll(() => flashedInView(page, scrollerId, `[data-hotel-index="${meta.hotelIndex}"]`), {
+        message: "the judged reservation flashes inside the scroller",
+      })
+      .toBe(true);
+  });
 });

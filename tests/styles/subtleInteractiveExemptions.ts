@@ -142,7 +142,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // same `{hidden.length} more` <summary>.
     // 1699 -> 1713 on feat/warning-card-fixes Task 16 (the reading-display imports and the
     // callout's reading label above it); the same `{hidden.length} more` <summary>.
-    line: 1713,
+    // 1713 -> 1731 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
+    // sectionForWarning import above it); the same `{hidden.length} more` <summary>.
+    line: 1731,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -184,7 +186,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // located by its own ignored-summary testid.
     // 3700 -> 3787 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
     // it); located by its own ignored-summary testid.
-    line: 3787,
+    // 3787 -> 3855 on feat/warning-card-fixes Task 17 (the card section jump above it);
+    // located by its own ignored-summary testid.
+    line: 3855,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -202,7 +206,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // accepted-summary testid.
     // 3732 -> 3819 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
     // it); located by its own accepted-summary testid.
-    line: 3819,
+    // 3819 -> 3887 on feat/warning-card-fixes Task 17 (the card section jump above it);
+    // located by its own accepted-summary testid.
+    line: 3887,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

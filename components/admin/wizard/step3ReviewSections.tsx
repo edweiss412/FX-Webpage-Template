@@ -128,7 +128,11 @@ import { reconcileWizardWarningItems } from "@/lib/admin/wizardWarningModel";
 import type { WizardWarningItem, WizardWarningModel } from "@/lib/admin/wizardWarningModel";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
-import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
+import {
+  SECTION_REGION_MAP,
+  sectionForWarning,
+  type SectionId,
+} from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
 import { visibleWarningRows } from "@/lib/admin/visibleWarningRows";
 import { groupWarningsByTitle, reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
@@ -509,6 +513,20 @@ export type Step3SectionChrome = {
   };
   /** §3.5: scroll-to-section, supplied from ShowReviewSurface.handleNavClick. */
   onJumpToSection?: (id: SectionId) => void;
+  /** warning-card-fixes §8.2: the staged surface's rendered jump targets (every
+   *  rendered section but Warnings and Report), in rail order with their registry
+   *  labels. A warning card's "Go to <label>" jump renders only for a target in this
+   *  list. Warnings section, staged surface only; ABSENT elsewhere
+   *  (exactOptionalPropertyTypes), so the published pointer spread's onJumpToSection
+   *  alone never puts a jump on a card. */
+  jumpSections?: ReadonlyArray<{ id: SectionId; label: string }>;
+  /** warning-card-fixes §5.5: scroll to the Hotels reservation card at `index` and
+   *  flash it. Staged Warnings chrome only; ABSENT elsewhere. */
+  onJumpToHotel?: (index: number) => void;
+  /** warning-card-fixes §8.3: how many hotel cards the Hotels section renders
+   *  (`Math.min(hotels.length, HOTELS_CAP)`), the reservation jump's upper bound.
+   *  Staged Warnings chrome only; ABSENT elsewhere. */
+  hotelCount?: number;
   /** Crew-warning-attachment spec §2B: the section's warning extras node,
    *  rendered as the LAST child inside the §5.2 panel card (its own border-t
    *  reads as an in-card seam) so warning groups sit within the card they
@@ -3274,6 +3292,47 @@ export function WarningsBreakdown({
   const holdFocusInPanel = useCallback(() => {
     focusAnchorRef.current?.focus({ preventScroll: true });
   }, []);
+  // warning-card-fixes §8.3: one section jump per ACTIVE warn card whose warning routes
+  // to a section the staged surface renders. Venue with no address never gets one (R4:
+  // the sheet icon is its fix). The four hotel judgment codes with an index inside the
+  // rendered Hotels cards jump to that reservation (§5.5); everything else to the
+  // section top. Callers gate on isWarn; Ignored and Accepted rows render elsewhere and
+  // never reach this.
+  const warningSectionJump = (w: ParseWarning, i: number, title: string): ReactNode => {
+    const onJumpToSection = chrome?.onJumpToSection;
+    if (!onJumpToSection || w.code === "VENUE_ADDRESS_MISSING") return null;
+    const target = sectionForWarning(w);
+    const section =
+      target === null ? undefined : chrome?.jumpSections?.find((x) => x.id === target);
+    if (target === null || section === undefined) return null;
+    const index = w.blockRef?.index;
+    const hotelCount = chrome?.hotelCount;
+    const onJumpToHotel = chrome?.onJumpToHotel;
+    const reservation =
+      target === "hotels" &&
+      HOTEL_RESERVATION_JUDGMENT_CODES.has(w.code) &&
+      typeof index === "number" &&
+      Number.isSafeInteger(index) &&
+      index >= 0 &&
+      hotelCount !== undefined &&
+      index < hotelCount &&
+      onJumpToHotel !== undefined;
+    return (
+      <button
+        type="button"
+        data-testid={`wizard-step3-card-${dfid}-warning-${i}-section-jump`}
+        data-jump={reservation ? "reservation" : target}
+        onClick={() => {
+          if (reservation) onJumpToHotel(index);
+          else onJumpToSection(target);
+        }}
+        className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      >
+        {reservation ? "Go to this reservation in Hotels" : `Go to ${section.label}`}{" "}
+        <span className="sr-only">for {stripEmphasis(title)}</span>
+      </button>
+    );
+  };
   // §3.4: ACTIVE warn rows split into those rendering directly BELOW this panel
   // and those in other sections. Present exactly when the gate is on.
   const here = chrome?.routedWarnings?.here ?? 0;
@@ -3461,6 +3520,12 @@ export function WarningsBreakdown({
                 // to the base sheet URL for a non-allowlisted tab (still useful);
                 // omitted when no anchor or no driveFileId.
                 const href = w.sourceCell ? buildSheetDeepLink(dfid, w.sourceCell) : null;
+                const sectionJump = isWarn ? warningSectionJump(w, i, title) : null;
+                // The archived card's jump sits in its action cluster, between the
+                // include and Report + Ignore (§7.3, §8.3); every other card's follows
+                // the help text. One placement or the other, never both.
+                const jumpInArchivedActions =
+                  Boolean(dq) && Boolean(dfid) && isWarn && w.code === "PULL_SHEET_ON_ARCHIVED_TAB";
                 return (
                   <li
                     key={keys[pos]}
@@ -3672,6 +3737,9 @@ export function WarningsBreakdown({
                       {context ? (
                         <p className="text-xs text-text-subtle">{renderEmphasis(context)}</p>
                       ) : null}
+                      {/* warning-card-fixes §8.3: the section jump, in the slot the deleted
+                        "Open in Sheet" text link occupied. */}
+                      {jumpInArchivedActions ? null : sectionJump}
                       {/* warning-card-fixes §6.3: the controls block below sits inside the
                         reading-draft provider when this row offers the reading choice. */}
                       <StagedReadingScope
@@ -3760,7 +3828,7 @@ export function WarningsBreakdown({
                                   offeredTab={offeredTab}
                                   includeTestId={`wizard-step3-card-${dfid}-warning-${i}-archived-include`}
                                   onBeforeRefresh={holdFocusInPanel}
-                                  jump={null}
+                                  jump={sectionJump}
                                   renderControls={controls}
                                 />
                               );

@@ -264,7 +264,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "crew-facing tabs; border-b-2 on BOTH paths so only its colour differs, same icon either way, aria-current toggles nothing rendered",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:844",
+    // 844 -> 865 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:865",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -275,7 +277,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "nav pill; border width is in the shared base so both are 1px, icon tint unconditional, label unchanged",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:1025",
+    // 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:1046",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -285,7 +289,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "same pair; the sr-only text and dot are status-derived, not active-derived",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:811",
+    // 811 -> 832 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:832",
     disposition: "repaired",
     binding: {
       locator: '[data-testid$="-review-rail-item-"]',
@@ -296,7 +302,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "rail item; active fills at rest and inactive only on hover, and the rail indicator's own paint is a background that flattens with it",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:932",
+    // 932 -> 953 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:953",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-rail-item-"]',
@@ -389,13 +397,17 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:36), the SAME condition that gives the ancestor border-l border-border pl-2 at :61 - a border WIDTH and an indent, both of which survive",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:829",
+    // 829 -> 850 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:850",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:951",
+    // 951 -> 972 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:972",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
@@ -459,12 +471,16 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason: "aria-expanded AND when true a popup is on screen",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:825",
+    // 825 -> 846 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:846",
     disposition: "carrier-survives",
     reason: "an icon inside a rail item this pass repairs, so it inherits a repaired state",
   },
   {
-    site: "components/admin/review/ShowReviewSurface.tsx:945",
+    // 945 -> 966 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
+    // by its own element on the edited tree (same tag, same class string).
+    site: "components/admin/review/ShowReviewSurface.tsx:966",
     disposition: "carrier-survives",
     reason:
       "an icon inside the second rail item this pass repairs, so it inherits its repaired state",

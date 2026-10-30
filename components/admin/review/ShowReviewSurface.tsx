@@ -49,6 +49,7 @@ import {
 } from "@/components/admin/review/warningAnnounceContext";
 import {
   findUseRawDecision,
+  HOTELS_CAP,
   ROOMS_CAP,
   step3Sections,
   STEP3_SECTION_GROUPS,
@@ -563,6 +564,26 @@ export function ShowReviewSurface({
       const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
       scroller.scrollTo({ top });
     }
+  }
+
+  /** warning-card-fixes §5.5: a hotel judgment card's jump to its reservation. Mirrors
+   *  `jumpToRoom` (container-scoped `[data-hotel-index]` query, §A2 suppression) and adds
+   *  `jumpToWarning`'s one-shot flash on the reservation card. A missing card degrades
+   *  to plain Hotels nav, the attention-jump precedent. */
+  function jumpToHotel(index: number) {
+    const scroller = scrollerRef.current;
+    const target = scroller?.querySelector<HTMLElement>(`[data-hotel-index="${index}"]`);
+    if (!scroller || !target || typeof scroller.scrollTo !== "function") {
+      handleNavClick("hotels");
+      return;
+    }
+    setActive("hotels");
+    const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+    scroller.scrollTo({ top });
+    clearWarningHighlight(); // one highlight at a time
+    target.setAttribute("data-step3-warning-flash", "");
+    highlightedElsRef.current = [target];
+    highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
   }
 
   // Unmount hygiene (§H compound: drag-dismiss or unmount during highlight →
@@ -1155,6 +1176,19 @@ export function ShowReviewSurface({
                         ? {
                             pointerTargets,
                             onJumpToSection: (id: SectionId) => handleNavClick(id),
+                          }
+                        : {}),
+                      // warning-card-fixes §8.2: the staged Warnings chrome's card jumps.
+                      // Mutually exclusive with the pointer spread above (that one is
+                      // published-only), so neither overwrites the other.
+                      ...(s.id === "warnings" && isStaged(data)
+                        ? {
+                            onJumpToSection: (id: SectionId) => handleNavClick(id),
+                            jumpSections: sections
+                              .filter((x) => x.id !== "warnings" && x.id !== "report")
+                              .map((x) => ({ id: x.id, label: x.label })),
+                            onJumpToHotel: jumpToHotel,
+                            hotelCount: Math.min(data.hotels.length, HOTELS_CAP),
                           }
                         : {}),
                       // attention-alert-routing §3.3: anchored cards thread into the
