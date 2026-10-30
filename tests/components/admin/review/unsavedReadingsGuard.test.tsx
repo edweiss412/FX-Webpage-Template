@@ -495,6 +495,34 @@ describe("§6.5 the prompt", () => {
     expect(within(wizardRow(0)).getByTestId("dq-ignore-sid-0").textContent).toBe("Save");
   });
 
+  // UI gate P2 (WCAG 2.4.3): a click that does not move focus (Safari never focuses a
+  // clicked button) leaves focus where it was, here on the reading toggle. Go back must
+  // still land on the trigger, not on whatever held focus when the prompt opened.
+  it("Go back returns focus to Publish when the click did not move focus there", () => {
+    renderWizard();
+    dirtyWizardRow(0);
+    const toggle = within(wizardRow(0)).getByTestId("use-raw-toggle-on-list");
+    toggle.focus();
+    premiseHolds("focus sits on the reading toggle", document.activeElement === toggle);
+    const publish = screen.getByTestId(wtid("publish"));
+    fireEvent.click(publish); // fireEvent moves no focus, as a Safari click
+    fireEvent.click(screen.getByTestId(`${PROMPT}-go-back`));
+    expect(prompt()).toBeNull();
+    expect(document.activeElement).toBe(publish);
+  });
+
+  it("Go back from a backdrop tap returns focus to the close button (§6.5 G3)", () => {
+    renderWizard();
+    dirtyWizardRow(0);
+    const toggle = within(wizardRow(0)).getByTestId("use-raw-toggle-on-list");
+    toggle.focus();
+    premiseHolds("focus sits on the reading toggle", document.activeElement === toggle);
+    fireEvent.click(screen.getByTestId(wtid("backdrop")));
+    fireEvent.click(screen.getByTestId(`${PROMPT}-go-back`));
+    expect(prompt()).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId(wtid("close")));
+  });
+
   it("Escape is Go back: the review's own Escape never fires", () => {
     const { onClose } = renderWizard();
     dirtyWizardRow(0);

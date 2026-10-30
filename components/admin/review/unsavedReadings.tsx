@@ -189,9 +189,15 @@ function UnsavedReadingsPrompt({
   useEffect(() => {
     triggerRef.current = trigger;
   }, [trigger]);
+  /** Where focus returns on close (§6.5 "Focus return"), handed to useDialogFocus as its
+   *  `restoreTargetRef`: the trigger, or, when the trigger has left the document, the
+   *  element focused when the prompt opened. Set by the inert cleanup below. */
+  const restoreRef = useRef<HTMLElement | null>(null);
 
-  // Background inert + focus return. Declared BEFORE useDialogFocus: cleanups run in
-  // declaration order, so this restore (un-inert, then focus the trigger) runs first.
+  // Background inert. Declared BEFORE useDialogFocus: cleanups run in declaration order,
+  // so the background is focusable again (and `restoreRef` points at the right target)
+  // before the helper's own restore focuses it. The helper owns the one focus call; a
+  // second one here would be overridden by it (UI gate P2).
   useEffect(() => {
     const openedFrom = document.activeElement as HTMLElement | null;
     const changed: { el: Element; hadInert: boolean; priorAriaHidden: string | null }[] = [];
@@ -211,16 +217,12 @@ function UnsavedReadingsPrompt({
         if (priorAriaHidden === null) el.removeAttribute("aria-hidden");
         else el.setAttribute("aria-hidden", priorAriaHidden);
       }
-      for (const target of [triggerRef.current, openedFrom]) {
-        if (target && target.isConnected && typeof target.focus === "function") {
-          target.focus();
-          return;
-        }
-      }
+      const trigger = triggerRef.current;
+      restoreRef.current = trigger && trigger.isConnected ? trigger : openedFrom;
     };
   }, [portalEl]);
 
-  useDialogFocus(panelRef, goBackRef);
+  useDialogFocus(panelRef, goBackRef, undefined, { restoreTargetRef: restoreRef });
 
   // Escape is Go back. Capture phase + stopImmediatePropagation: the review shell's own
   // document Escape listener (bubble phase) must never close the review underneath.
