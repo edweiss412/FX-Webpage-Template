@@ -173,7 +173,7 @@ async function renderRacedCrewMiss(args: {
   //   unpublished (paused link)             → <ShowUnavailable /> (HTTP 200, republish restores)
   //   available                             → guided re-pick
   if (availability === "missing" || availability === "archived") notFound();
-  if (availability === "unpublished") return <ShowUnavailable />;
+  if (availability === "unpublished") return <ShowUnavailable showId={args.showId} />;
   return renderPickerRepick({
     ...args,
     banner: "PICKER_REMOVED_FROM_ROSTER_BANNER",
@@ -212,7 +212,7 @@ export default async function ShowPage({
       // Published-toggle D5/§3.5: a valid share-token URL whose show is toggled
       // off renders the zero-data paused page under HTTP 200 (the same link
       // works again on republish). Archived/unresolved arms keep notFound().
-      return <ShowUnavailable />;
+      return <ShowUnavailable showId={result.showId} />;
 
     case "show_unavailable":
       // Show was archived/unpublished after the cookie was minted, OR

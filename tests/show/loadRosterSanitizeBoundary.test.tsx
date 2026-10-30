@@ -15,6 +15,7 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
     throw new Error("NEXT_REDIRECT");
   }),
+  usePathname: () => "/show/s/t",
 }));
 
 import ShowPage from "@/app/show/[slug]/[shareToken]/page";

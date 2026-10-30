@@ -34,6 +34,7 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
     throw new Error("NEXT_REDIRECT");
   }),
+  usePathname: () => "/show/any-show/t",
 }));
 
 afterEach(cleanup);
