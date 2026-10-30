@@ -287,6 +287,189 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(await page.evaluate(() => document.activeElement?.tagName ?? "")).toBe(focusBefore);
   });
 
+  // ── Compound transitions across the breakpoint (spec §7, plan Task 12) ──────
+  // Each starts compact (390px), opens Venue from the "All sections" list (a
+  // pushed entry carrying the sheet marker), then resizes across 1024px.
+
+  const COMPACT = { width: 390, height: 844 };
+
+  /** Compact home, then Venue opened from its row with the open slide finished. */
+  async function openVenueCompact(page: Page): Promise<void> {
+    await page.setViewportSize(COMPACT);
+    await load(page, "", "compact");
+    await page.getByTestId("crew-all-sections").locator('[data-section="venue"]').click();
+    await expect(page.getByRole("dialog")).toHaveAttribute("data-section", "venue");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document
+              .querySelector('[data-testid="crew-section-sheet-panel"]')!
+              .getBoundingClientRect().bottom,
+        ),
+      )
+      .toBeCloseTo(COMPACT.height, 0);
+  }
+
+  /** Records, on every DOM change, the controller's mode and whether a sheet is mounted. */
+  async function watchModeAndSheet(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      const log: Array<{ mode: string | null; sheet: boolean }> = [];
+      (window as unknown as { __modeLog: typeof log }).__modeLog = log;
+      new MutationObserver(() => {
+        log.push({
+          mode:
+            document
+              .querySelector('[data-testid="crew-shell-sections"]')
+              ?.getAttribute("data-crew-mode") ?? null,
+          sheet: document.querySelector('[data-testid="crew-section-sheet"]') !== null,
+        });
+      }).observe(document.body, { childList: true, subtree: true, attributes: true });
+    });
+  }
+
+  async function modeLog(page: Page): Promise<Array<{ mode: string | null; sheet: boolean }>> {
+    return page.evaluate(
+      () =>
+        (window as unknown as { __modeLog: Array<{ mode: string | null; sheet: boolean }> })
+          .__modeLog,
+    );
+  }
+
+  /** The wide page shows Venue at the top, under the scroll margin. */
+  async function expectVenueInView(page: Page): Promise<void> {
+    await expect
+      .poll(() => sectionTop(page, "venue"), { timeout: 5000 })
+      .toBeLessThanOrEqual(SCROLL_SPY_OFFSET_PX);
+    expect(await sectionTop(page, "venue")).toBeGreaterThanOrEqual(-1);
+    await expect(navItem(page, "venue")).toHaveAttribute("aria-current", "true");
+  }
+
+  const marker = (page: Page) =>
+    page.evaluate(() => (history.state as { crewSheet?: boolean } | null)?.crewSheet);
+
+  test("compound: crossing into wide with the sheet open dismisses it without animation and shows that section, keeping s and the marker", async ({
+    page,
+  }) => {
+    await openVenueCompact(page);
+    const length = await page.evaluate(() => history.length);
+    await watchModeAndSheet(page);
+
+    await page.setViewportSize(WIDE);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+
+    await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+    const log = await modeLog(page);
+    expect(
+      log.some((e) => e.mode === "wide"),
+      "PREMISE: the observer saw the mode flip",
+    ).toBe(true);
+    expect(
+      log.filter((e) => e.mode === "wide" && e.sheet),
+      "the sheet left in the commit that flipped the mode: no exit slide",
+    ).toEqual([]);
+    await expectVenueInView(page);
+    expect(new URL(page.url()).searchParams.get("s")).toBe("venue");
+    expect(await marker(page), "the entry keeps its marker").toBe(true);
+    expect(await page.evaluate(() => history.length)).toBe(length);
+  });
+
+  test("compound: crossing into wide mid-drag cancels the drag, then dismisses the sheet as above", async ({
+    page,
+  }) => {
+    await openVenueCompact(page);
+    const length = await page.evaluate(() => history.length);
+    const grab = await page.getByTestId("crew-section-sheet-grab").boundingBox();
+    const x = grab!.x + grab!.width / 2;
+    const y = grab!.y + grab!.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + 60, { steps: 6 });
+    expect(
+      await page
+        .getByTestId("crew-section-sheet-panel")
+        .evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).m42),
+      "PREMISE: the drag is under way",
+    ).toBeCloseTo(60, 0);
+
+    await page.setViewportSize(WIDE);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+    // The release lands on the wide page: no close runs, so no history.back().
+    await page.mouse.move(x, y + 300, { steps: 4 });
+    await page.mouse.up();
+
+    await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+    await expectVenueInView(page);
+    expect(new URL(page.url()).searchParams.get("s")).toBe("venue");
+    expect(new URL(page.url()).pathname).toBe(route);
+    expect(await marker(page)).toBe(true);
+    expect(await page.evaluate(() => history.length)).toBe(length);
+  });
+
+  test("compound: crossing into wide with a nested dialog open unmounts the dialog with the sheet and leaves the page scrollable", async ({
+    page,
+  }) => {
+    await openVenueCompact(page);
+    await page
+      .getByRole("dialog")
+      .filter({ has: page.getByTestId("crew-section-sheet-body") })
+      .getByTestId("card-report-trigger")
+      .first()
+      .click();
+    await expect(page.getByTestId("report-modal-root")).toBeVisible();
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+
+    await page.setViewportSize(WIDE);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+
+    await expect(page.getByTestId("report-modal-root")).toHaveCount(0);
+    await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+    await expectVenueInView(page);
+    expect(await page.evaluate(() => document.body.style.overflow)).not.toBe("hidden");
+    const moved = await page.evaluate(async () => {
+      const from = window.scrollY;
+      window.scrollTo({ top: from + 200, behavior: "auto" });
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      return window.scrollY - from;
+    });
+    expect(moved, "the page scrolls").toBeGreaterThan(0);
+  });
+
+  test("compound: crossing back into compact from a scrolled wide page shows the home at the top with no sheet, replacing s and the marker away", async ({
+    page,
+  }) => {
+    await openVenueCompact(page);
+    await page.setViewportSize(WIDE);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+    // PREMISE: a wide page scrolled to a section, on an entry carrying s and the marker.
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="crew-wide-section"][data-section="venue"]')!;
+      window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: "auto" });
+    });
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    expect(new URL(page.url()).searchParams.get("s")).toBe("venue");
+    expect(await marker(page)).toBe(true);
+    const length = await page.evaluate(() => history.length);
+    await watchModeAndSheet(page);
+
+    await page.setViewportSize(COMPACT);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-mode",
+      "compact",
+    );
+
+    await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+    await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+    expect(
+      (await modeLog(page)).filter((e) => e.mode === "compact" && e.sheet),
+      "no sheet opens on the way into compact, not even for one commit",
+    ).toEqual([]);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+    expect(await marker(page), "the marker is replaced away").toBeUndefined();
+    expect(await page.evaluate(() => history.length), "replaced, not pushed").toBe(length);
+  });
+
   // Crew page redesign Task 7 (spec §4.1): in wide mode the header's search slot
   // sits between the title and the identity chip, on the title's row. The chip
   // exists only for a crew member the picker resolved, so this case leaves the

@@ -224,7 +224,12 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
 
     expect(pushSpy).toHaveBeenCalledTimes(1);
     const [state, , url] = pushSpy.mock.calls[0]!;
-    expect(state).toEqual({ __NA: true, crewSheet: true });
+    // Next's own key is left out: Next's patched pushState skips any state that
+    // carries it, and would then never move the router's URL, so the next
+    // router.refresh() would replace this entry with the URL without `s`
+    // (plan Task 12, measured in the compound refresh case). Next copies its
+    // keys back itself.
+    expect(state).toEqual({ crewSheet: true });
     expect(url).toBe(buildSectionHref(PATH, nav.searchParams, "venue"));
     expect(sheet()).toHaveAttribute("data-section", "venue");
     expect(within(sheet()!).getByTestId("body-venue")).toBeInTheDocument();
@@ -289,7 +294,8 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
     expect(backSpy).not.toHaveBeenCalled();
     const [state, , url] = replaceSpy.mock.calls.at(-1)!;
     expect(url).toBe(`${PATH}?gate=skip`);
-    expect(state).toEqual({ __NA: true });
+    // No marker, and no Next key either (see the push case above).
+    expect(state).toEqual({});
     await waitFor(() => expect(sheet()).toBeNull());
   });
 
@@ -526,6 +532,140 @@ describe("CrewSections, wide: nav and stacked sections (spec §5.3)", () => {
     expect(scrollToSpy).toHaveBeenCalledWith({ top: 1500, behavior: "smooth" });
     expect(pushSpy).not.toHaveBeenCalled();
     expect(sheet()).toBeNull();
+  });
+});
+
+/**
+ * Compound transitions the controller decides (crew page redesign spec §7,
+ * plan Task 12). The browser half, with real breakpoints, real refreshes and
+ * real nested dialogs, is in tests/e2e/crew-section-toggle.spec.ts and
+ * tests/e2e/crew-wide-nav.spec.ts (titles carry "compound").
+ */
+describe("CrewSections compound transitions (spec §7)", () => {
+  /** A refresh: the shell re-renders with fresh props while the controller stays mounted. */
+  function refreshed(budget: boolean, over: Partial<Record<SectionId, ReactNode>> = {}) {
+    return (
+      <CrewSections
+        initialSection="today"
+        sections={entries(budget)}
+        sectionNodes={nodes(budget, over)}
+      />
+    );
+  }
+
+  it("compound: a refresh that takes the open section's body away closes the sheet in that commit, with no exit slide, and goes back over the marker", () => {
+    // Full motion, so an exit slide would hold the departing sheet (and its
+    // Budget body) for 220ms.
+    stubMatchMedia({ wide: false, reduced: false });
+    const { rerender } = render(refreshed(true));
+    fireEvent.click(row("budget"));
+    expect(sheet()).toHaveAttribute("data-section", "budget");
+    expect(window.history.state).toMatchObject({ crewSheet: true });
+
+    rerender(refreshed(false));
+
+    expect(sheet(), "no departing sheet left in the DOM").toBeNull();
+    expect(screen.queryByTestId("body-budget")).toBeNull();
+    expect(screen.queryByTestId("crew-section-sheet")).toBeNull();
+    expect(backSpy, "the close row: back over the marker").toHaveBeenCalledTimes(1);
+  });
+
+  it("compound: a lost entitlement on a deep-linked sheet replaces s away instead", () => {
+    nav.searchParams = new URLSearchParams("s=budget");
+    // A deep link: Next's keys on the entry, no marker.
+    setLocation("?s=budget", { __NA: true });
+    stubMatchMedia({ wide: false, reduced: false });
+    const { rerender } = render(
+      <CrewSections initialSection="budget" sections={entries(true)} sectionNodes={nodes(true)} />,
+    );
+    expect(sheet()).toHaveAttribute("data-section", "budget");
+
+    rerender(
+      <CrewSections initialSection="today" sections={entries(false)} sectionNodes={nodes(false)} />,
+    );
+
+    expect(sheet()).toBeNull();
+    expect(backSpy).not.toHaveBeenCalled();
+    const [state, , url] = replaceSpy.mock.calls.at(-1)!;
+    expect(url).toBe(PATH);
+    expect(state).toEqual({});
+  });
+
+  it("compound: a section that leaves the list while its body stays keeps the sheet open on its fresh body", () => {
+    const { rerender } = render(refreshed(false));
+    fireEvent.click(row("venue"));
+    const pushes = pushSpy.mock.calls.length;
+    const replaces = replaceSpy.mock.calls.length;
+
+    // Venue is no longer listed, but the server still built its (fresh) body.
+    rerender(
+      <CrewSections
+        initialSection="today"
+        sections={entries(false).filter((e) => e.id !== "venue")}
+        sectionNodes={nodes(false, {
+          venue: <div data-testid="body-venue">FRESH empty venue</div>,
+        })}
+      />,
+    );
+
+    expect(sheet()).toHaveAttribute("data-section", "venue");
+    expect(sheet()).toHaveAccessibleName(CREW_SECTION_LABELS.venue);
+    expect(within(sheet()!).getByText("FRESH empty venue")).toBeInTheDocument();
+    expect(backSpy).not.toHaveBeenCalled();
+    expect(pushSpy.mock.calls.length).toBe(pushes);
+    expect(replaceSpy.mock.calls.length).toBe(replaces);
+  });
+
+  it("compound: a refresh that replaced the pushed entry's state with Next's alone gets the marker back", () => {
+    const { rerender } = render(refreshed(false));
+    fireEvent.click(row("crew"));
+    expect(window.history.state).toMatchObject({ crewSheet: true });
+    // What Next's HistoryUpdater does after a refresh: the entry's state becomes
+    // Next's own, custom keys gone (preserveCustomHistoryState is false for it).
+    setLocation(`?s=crew`, { __NA: true });
+
+    rerender(refreshed(false, { crew: <div data-testid="body-crew">FRESH crew</div> }));
+
+    expect(window.history.state).toMatchObject({ crewSheet: true });
+    expect(sheet()).toHaveAttribute("data-section", "crew");
+    // So the close still goes back to the home entry beneath.
+    fireEvent.click(closeButton("crew"));
+    expect(backSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("compound: crossing from wide into compact opens no sheet and replaces s and the marker away", () => {
+    let wide = true;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        get matches() {
+          return query.includes("prefers-reduced-motion") ? false : wide;
+        },
+        media: query,
+        addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+        removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+      })),
+    );
+    nav.searchParams = new URLSearchParams("s=venue");
+    setLocation("?s=venue", { crewSheet: true });
+    render(
+      <CrewSections initialSection="venue" sections={entries(false)} sectionNodes={nodes(false)} />,
+    );
+    expect(screen.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+    expect(sheet()).toBeNull();
+
+    wide = false;
+    act(() => {
+      for (const cb of listeners) cb();
+    });
+
+    expect(screen.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "compact");
+    expect(sheet(), "no sheet opens on the way into compact").toBeNull();
+    const [state, , url] = replaceSpy.mock.calls.at(-1)!;
+    expect(url).toBe(PATH);
+    expect(state).toEqual({});
+    expect(scrollToSpy).toHaveBeenLastCalledWith({ top: 0, behavior: "auto" });
   });
 });
 

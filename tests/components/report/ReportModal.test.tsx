@@ -712,6 +712,50 @@ describe("E. State machine transitions", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   });
 
+  test("Escape closes the modal through the close path and keeps the draft (crew page redesign spec §5.2)", () => {
+    const onOpenChange = vi.fn();
+    const { getByTestId } = render(<ReportModal {...defaultProps({ onOpenChange })} />);
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "half a report" } });
+    // From wherever focus sits: the textarea, then nowhere in particular.
+    fireEvent.keyDown(getByTestId("report-modal-textarea"), { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
+    // The same close as the X: nothing submitted, the draft and its key kept.
+    expect(fetchMock).not.toHaveBeenCalled();
+    const persisted = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
+    expect(persisted.draft).toBe("half a report");
+    expect(persisted.idempotencyKey).toBe(uuids[0]);
+  });
+
+  test("closing returns focus to the control that opened the modal, past the textarea's autofocus", () => {
+    function Host({ open }: { open: boolean }) {
+      return (
+        <>
+          <button type="button" data-testid="opener">
+            Report
+          </button>
+          {open ? <ReportModal {...defaultProps()} /> : null}
+        </>
+      );
+    }
+    const { getByTestId, rerender } = render(<Host open={false} />);
+    getByTestId("opener").focus();
+    rerender(<Host open />);
+    // PREMISE: the modal took focus (its textarea autofocuses).
+    expect(document.activeElement).toBe(getByTestId("report-modal-textarea"));
+    rerender(<Host open={false} />);
+    expect(document.activeElement).toBe(getByTestId("opener"));
+  });
+
+  test("Escape does nothing while the modal is closed", () => {
+    const onOpenChange = vi.fn();
+    render(<ReportModal {...defaultProps({ open: false, onOpenChange })} />);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   test("plain Enter does NOT submit (newline default behavior preserved)", () => {
     const { getByTestId } = render(<ReportModal {...defaultProps()} />);
     fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });

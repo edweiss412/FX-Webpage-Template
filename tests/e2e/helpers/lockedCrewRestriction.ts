@@ -162,3 +162,20 @@ export async function setCrewRoleLocked(
 ): Promise<void> {
   runLockedCrewUpdate(driveFileId, crewId, `role = ${sqlString(role)}`);
 }
+
+/**
+ * Locked `crew_members.role_flags` UPDATE (crew page redesign plan Task 12):
+ * takes a flag such as LEAD away from a crew member, so a previewed lead loses
+ * the Budget section on the next render. Same transaction shape as the two
+ * helpers above; `role_flags` is `text[]`, so the value is an array literal of
+ * escaped strings.
+ */
+export async function setRoleFlagsLocked(
+  driveFileId: string,
+  crewId: string,
+  flags: readonly string[],
+): Promise<void> {
+  const literal =
+    flags.length === 0 ? "'{}'::text[]" : `array[${flags.map(sqlString).join(", ")}]::text[]`;
+  runLockedCrewUpdate(driveFileId, crewId, `role_flags = ${literal}`);
+}

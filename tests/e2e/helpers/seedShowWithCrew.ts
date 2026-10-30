@@ -145,9 +145,12 @@ export type SeedShowWithCrewOptions = {
    * `parseWarnings` lands in shows_internal.parse_warnings, the array the review
    * modal routes into section warnings and, since
    * 2026-08-27-wizard-review-attention-menu, counts on the header pill.
+   * `financials` lands in shows_internal.financials, the Budget section's
+   * source (`{ po, proposal, invoice, invoice_notes }`), read only for an
+   * entitled viewer.
    * Omit → no shows_internal row (getShowForViewer projects runOfShow: null).
    */
-  internal?: { runOfShow?: unknown; parseWarnings?: unknown };
+  internal?: { runOfShow?: unknown; parseWarnings?: unknown; financials?: unknown };
   /**
    * shows.venue jsonb. Omit → column left NULL. Written by the same show insert,
    * named only when supplied so every existing caller's SQL is unchanged.
@@ -358,15 +361,22 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     );
   }
   if (options.internal !== undefined) {
+    // parse_warnings and financials are named ONLY when a caller supplies them:
+    // parse_warnings defaults to '[]'::jsonb, and naming either unconditionally
+    // would write NULL over its default for every existing caller.
+    const columns = ["run_of_show"];
+    const values = [sqlJsonbOrNull(options.internal.runOfShow ?? null)];
+    if (options.internal.parseWarnings !== undefined) {
+      columns.push("parse_warnings");
+      values.push(sqlJsonbOrNull(options.internal.parseWarnings));
+    }
+    if (options.internal.financials !== undefined) {
+      columns.push("financials");
+      values.push(sqlJsonbOrNull(options.internal.financials));
+    }
     statements.push(
-      // The parse_warnings column is emitted ONLY when a caller supplies it:
-      // the column defaults to '[]'::jsonb, and naming it unconditionally would
-      // write NULL over that default for every existing caller.
-      options.internal.parseWarnings === undefined
-        ? `insert into public.shows_internal (show_id, run_of_show)
-       values (${sqlString(showId)}::uuid, ${sqlJsonbOrNull(options.internal.runOfShow ?? null)});`
-        : `insert into public.shows_internal (show_id, run_of_show, parse_warnings)
-       values (${sqlString(showId)}::uuid, ${sqlJsonbOrNull(options.internal.runOfShow ?? null)}, ${sqlJsonbOrNull(options.internal.parseWarnings)});`,
+      `insert into public.shows_internal (show_id, ${columns.join(", ")})
+       values (${sqlString(showId)}::uuid, ${values.join(", ")});`,
     );
   }
   runLockedSeedTx(driveFileId, statements, `seed (${driveFileId})`);

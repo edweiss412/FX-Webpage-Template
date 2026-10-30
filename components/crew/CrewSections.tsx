@@ -48,6 +48,30 @@
  * Forward only scroll; the scroll-spy (the shared `activeSectionFor` rule,
  * held still during a nav-click glide) never writes the URL.
  *
+ * Every history write leaves Next's own keys out of the state it passes, so
+ * Next's patched `pushState`/`replaceState` copy them back AND move the
+ * router's URL with it (node_modules/next/dist/client/components/app-router.js,
+ * the `__NA` bypass). Passing them through would hide the write from the
+ * router, and the next `router.refresh()` would replace the entry with the URL
+ * the router last knew, dropping `s`. A refresh also replaces the entry's state
+ * with Next's alone, so the controller puts the sheet marker back on the entry
+ * it pushed.
+ *
+ * Compound transitions (spec §7):
+ *   - into wide (rotation, resize): the sheet unmounts in the same commit, with
+ *     no exit slide and any dialog open inside it, which ends a drag in
+ *     progress (its listeners and pointer capture go with the panel); the page
+ *     lands on the open section; the URL keeps `s` and the entry its marker;
+ *   - back into compact: the home at the top, no sheet, and
+ *     `replaceState(url without s, state without the marker)`;
+ *   - a refresh never closes the sheet while the open section still has a body
+ *     (its fresh, empty or degraded state); when the viewer lost the
+ *     entitlement to it, the server built no body, so the sheet closes to home
+ *     through the close rows above, without its exit slide (§5.2 amendment
+ *     2026-10-27), and nothing of the old body stays on the page;
+ *   - a refresh that removes the selected day returns the day row to `live`
+ *     (`daySelection.tsx`).
+ *
  * Links: a click on any same-page link carrying an entitled `s` (an "All
  * sections" row, a nav item, a section link inside a body) is intercepted here
  * and routed through the rules above. Rows and nav items are real hrefs, so a
@@ -99,6 +123,7 @@ import { CrewSearchResults } from "@/components/crew/search/CrewSearchResults";
 import { useOptionalCrewSearch } from "@/components/crew/search/CrewSearchProvider";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import {
+  CREW_SECTION_LABELS,
   CREW_TODAY_LABEL,
   type CrewSectionEntry,
   type CrewSectionId,
@@ -191,11 +216,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** The history state without the sheet marker; `null` stays `null`. */
-function withoutMarker(state: unknown): unknown {
-  if (!isRecord(state)) return state;
-  const { crewSheet: _marker, ...rest } = state;
+/** Next's own history keys: its patched history methods skip any state that carries one. */
+const NEXT_HISTORY_KEYS = ["__NA", "_N", "__PRIVATE_NEXTJS_INTERNALS_TREE"] as const;
+
+/**
+ * The state to hand `pushState` / `replaceState`: the entry's own keys without
+ * Next's, so Next copies its keys back and moves the router's URL with the
+ * write (see the header). `null` stays `null`.
+ */
+function forHistory(state: unknown): Record<string, unknown> | null {
+  if (!isRecord(state)) return null;
+  const rest: Record<string, unknown> = { ...state };
+  for (const key of NEXT_HISTORY_KEYS) delete rest[key];
   return rest;
+}
+
+/** The history state without the sheet marker. */
+function withoutMarker(state: unknown): Record<string, unknown> | null {
+  const rest = forHistory(state);
+  if (rest === null) return null;
+  delete rest["crewSheet"];
+  return rest;
+}
+
+/** True when the current history entry carries the sheet marker. */
+function entryHasMarker(): boolean {
+  const state: unknown = window.history.state;
+  return isRecord(state) && state.crewSheet === true;
 }
 
 /** Document-relative scroll target for a stacked section: its top less its scroll margin. */
@@ -236,6 +283,9 @@ function focusBodyIfFocusFell(body: HTMLElement | null): void {
 
 type RevealRun = { frame: number; deadline: number };
 
+/** A viewport crossing the controller still has to act on (spec §7 compound rows). */
+type Crossing = { to: "wide"; section: CrewSectionId | null } | { to: "compact" };
+
 export function CrewSections({
   initialSection,
   sections,
@@ -268,8 +318,47 @@ export function CrewSections({
     setOpenId(toOpen(initialSection));
   }
 
-  const open = openId !== null && entitled.has(openId) ? openId : null;
-  const openEntry = open === null ? null : (sections.find((s) => s.id === open) ?? null);
+  // A refresh never closes the sheet while the open section still has a body:
+  // a section that left the list stays open on its fresh state (spec §5.2). The
+  // server builds no body for a section the viewer lost the entitlement to see
+  // (PR A: Budget once `financialsVisible` turns false), so that sheet closes
+  // to home, in the commit that brought the refresh: `dismissals` remounts the
+  // sheet's presence so no exit slide holds the old body on the page, and
+  // `lostCloses` runs the close's history call after the commit.
+  const [dismissals, setDismissals] = useState(0);
+  const [lostCloses, setLostCloses] = useState(0);
+  if (openId !== null && !Object.hasOwn(sectionNodes, openId)) {
+    setOpenId(null);
+    setDismissals((n) => n + 1);
+    setLostCloses((n) => n + 1);
+  }
+
+  // Viewport crossings (spec §7): leaving wide closes nothing that is open and
+  // opens nothing (the home, at the top); the sheet itself leaves wide by
+  // unmounting (`showCompact` below). Adjusted during render, so no commit ever
+  // mounts a sheet on the way into compact; the history and scroll half runs in
+  // the effect that reads `crossing`.
+  // Starts at "ssr" even when this mounts without hydrating (a client
+  // navigation into the page reads the live mode on its first render), so the
+  // first client layout always counts as arriving in its mode.
+  const [seenMode, setSeenMode] = useState<Mode>("ssr");
+  const [crossing, setCrossing] = useState<Crossing | null>(null);
+  if (mode !== seenMode) {
+    setSeenMode(mode);
+    if (mode === "wide") {
+      // Hydrating into wide (a deep link) or crossing into it with a sheet up.
+      setCrossing({ to: "wide", section: openId });
+    } else if (mode === "compact" && seenMode === "wide") {
+      setOpenId(null);
+      setCrossing({ to: "compact" });
+    }
+  }
+
+  const open = openId !== null && Object.hasOwn(sectionNodes, openId) ? openId : null;
+  const openEntry =
+    open === null
+      ? null
+      : (sections.find((s) => s.id === open) ?? { id: open, label: CREW_SECTION_LABELS[open] });
 
   const sheetBodyRef = useRef<HTMLDivElement | null>(null);
   const todayRef = useRef<HTMLElement | null>(null);
@@ -390,38 +479,62 @@ export function CrewSections({
     [beginSuppressedScroll, reduced],
   );
 
-  // Wide deep link: after hydration, land on the `?s=` section.
-  const landedRef = useRef(false);
+  // Whether the current history entry is the one this controller pushed the
+  // sheet onto (its marker set). A refresh replaces the entry's state with
+  // Next's alone; the effect after every commit below puts the marker back.
+  const markedRef = useRef(false);
+  // A reload keeps an entry's state (browsers preserve it), so a sheet rendered
+  // open on a reloaded pushed entry starts out marked.
   useEffect(() => {
-    if (mode !== "wide" || landedRef.current) return;
-    landedRef.current = true;
-    const id = toOpen(initialSection);
-    const el = id ? stackRefs.current.get(id) : undefined;
-    if (!id || !el) return;
-    const top = scrollTargetFor(el);
-    setSpyActive(id);
-    beginSuppressedScroll(top);
-    window.scrollTo({ top, behavior: "auto" });
-    // Runs once per mount, on the first wide layout; later `?s=` changes are
-    // history entries handled by the popstate listener below.
+    markedRef.current = entryHasMarker();
+  }, []);
+
+  // The history and scroll half of a viewport crossing (spec §7):
+  //   - into wide, from a deep link's hydration or from compact with a sheet
+  //     up: land on that section at once (the sheet already left without its
+  //     exit slide), the URL and the entry's marker untouched;
+  //   - into compact: the home at the top, `s` and the marker replaced away.
+  useEffect(() => {
+    if (crossing === null) return;
+    if (crossing.to === "wide") {
+      const el = crossing.section ? stackRefs.current.get(crossing.section) : undefined;
+      if (!crossing.section || !el) return;
+      const top = scrollTargetFor(el);
+      setSpyActive(crossing.section);
+      beginSuppressedScroll(top);
+      window.scrollTo({ top, behavior: "auto" });
+      return;
+    }
+    markedRef.current = false;
+    window.history.replaceState(
+      withoutMarker(window.history.state),
+      "",
+      buildHomeHref(pathname, new URLSearchParams(window.location.search)),
+    );
+    window.scrollTo({ top: 0, behavior: "auto" });
+    // Runs once per crossing: the other inputs are read as they stand then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [crossing]);
 
   // ── Opening and closing ────────────────────────────────────────────────────
   const openSection = useCallback(
     (id: CrewSectionId) => {
       const href = buildSectionHref(pathname, searchParams, id);
       if (mode === "wide") {
-        window.history.replaceState(window.history.state, "", href);
+        window.history.replaceState(forHistory(window.history.state), "", href);
         scrollWide(id, { focus: true });
         return;
       }
       if (open === id) return;
       if (open === null) {
-        const state: unknown = window.history.state;
-        window.history.pushState({ ...(isRecord(state) ? state : {}), crewSheet: true }, "", href);
+        window.history.pushState(
+          { ...forHistory(window.history.state), crewSheet: true },
+          "",
+          href,
+        );
+        markedRef.current = true;
       } else {
-        window.history.replaceState(window.history.state, "", href);
+        window.history.replaceState(forHistory(window.history.state), "", href);
         if (sheetBodyRef.current) sheetBodyRef.current.scrollTop = 0;
       }
       setOpenId(id);
@@ -429,23 +542,54 @@ export function CrewSections({
     [mode, open, pathname, searchParams, scrollWide],
   );
 
-  const requestClose = useCallback(() => {
-    const state: unknown = window.history.state;
-    if (isRecord(state) && state.crewSheet === true) {
+  /**
+   * The close rows' history call (spec §5.2): back over the marker, else replace
+   * `s` away. The marker is the entry's, or this controller's record of having
+   * pushed it: a refresh's own history write drops the entry's copy before the
+   * effects of its commit run, which is when a lost entitlement closes.
+   */
+  const closeEntry = useCallback((): "back" | "replaced" => {
+    if (markedRef.current || entryHasMarker()) {
       window.history.back(); // the popstate that follows closes the sheet
-      return;
+      return "back";
     }
+    markedRef.current = false;
     window.history.replaceState(
-      withoutMarker(state),
+      withoutMarker(window.history.state),
       "",
       buildHomeHref(pathname, new URLSearchParams(window.location.search)),
     );
-    setOpenId(null);
+    return "replaced";
   }, [pathname]);
+
+  const requestClose = useCallback(() => {
+    if (closeEntry() === "replaced") setOpenId(null);
+  }, [closeEntry]);
+
+  // A lost entitlement already closed the sheet, during render; its history
+  // call follows here, in compact only (wide shows no sheet to close).
+  useEffect(() => {
+    if (lostCloses === 0 || mode !== "compact") return;
+    closeEntry();
+    // Once per lost entitlement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lostCloses]);
+
+  // After every commit: a refresh replaced the entry the sheet was pushed onto
+  // with Next's own state, dropping the marker. Put it back, so the sheet's
+  // close still goes back to the entry beneath (spec §5.2, §10).
+  useEffect(() => {
+    if (!markedRef.current || open === null || entryHasMarker()) return;
+    window.history.replaceState({ ...forHistory(window.history.state), crewSheet: true }, "");
+  });
 
   const goHome = useCallback(() => {
     if (mode === "wide") {
-      window.history.replaceState(window.history.state, "", buildHomeHref(pathname, searchParams));
+      window.history.replaceState(
+        forHistory(window.history.state),
+        "",
+        buildHomeHref(pathname, searchParams),
+      );
       scrollWide("today", { focus: true });
       return;
     }
@@ -456,10 +600,11 @@ export function CrewSections({
     function onPopState() {
       const raw = new URLSearchParams(window.location.search).get("s");
       const id = toOpen(raw);
+      markedRef.current = entryHasMarker();
       if (raw !== null && raw !== "today" && id === null) {
         // Unknown or not entitled: drop it, as the server resolves it to home.
         window.history.replaceState(
-          window.history.state,
+          forHistory(window.history.state),
           "",
           buildHomeHref(pathname, new URLSearchParams(window.location.search)),
         );
@@ -538,7 +683,7 @@ export function CrewSections({
       if (id !== null) {
         if (wide) {
           window.history.replaceState(
-            window.history.state,
+            forHistory(window.history.state),
             "",
             buildSectionHref(pathname, searchParams, id),
           );
@@ -780,6 +925,7 @@ export function CrewSections({
                 modal={mode === "compact"}
                 onRequestClose={requestClose}
                 bodyRef={sheetBodyRef}
+                presence={dismissals}
               >
                 {open !== null ? sectionNodes[open] : null}
               </CrewSectionSheet>

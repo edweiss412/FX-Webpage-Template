@@ -562,7 +562,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // crew-page.spec.ts (gotoHome) and once in crew-wide-nav.spec.ts (loadWide).
     // Same disposition: a crew page. Re-derived from the failure's own count
     // (22 candidates).
-    expectedCount: 22,
+    // 23 since the crew page redesign's Task 12: crew-section-toggle.spec.ts's
+    // compound cases load the share and preview routes through loadPath's
+    // `path`. Same disposition: a crew page. Re-derived from the failure's own
+    // count (23 candidates).
+    expectedCount: 23,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -640,7 +644,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // the preview-as path in crew-page.spec.ts (previewPath) and in
     // crew-wide-nav.spec.ts (the wide banner case). Re-derived from the
     // failure's own count (16 candidates).
-    expectedCount: 16,
+    // 17 since the crew page redesign's Task 12: crew-section-toggle.spec.ts's
+    // lost-entitlement case loads the preview-as route for a seeded lead.
+    // Re-derived from the failure's own count (17 candidates).
+    expectedCount: 17,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
@@ -806,7 +813,9 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 23 since 2026-10-27 (feat/crew-page-redesign Task 6): crew-wide-nav's Back
     // and Forward over compact-created crew-route entries (2), and the sheet's
     // history cases in crew-page and crew-section-toggle (net 2 more).
-    expectedCount: 23,
+    // 24 since Task 12: crew-section-toggle's "Back to another route" case steps
+    // back off a crew route to /help, the destination whose scroll it checks.
+    expectedCount: 24,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

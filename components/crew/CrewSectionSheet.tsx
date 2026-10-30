@@ -19,7 +19,9 @@
  * sheet and own their own Esc).
  *
  * Motion (spec §7): the sheet slides up and the scrim fades in at
- * `--duration-normal` / `--ease-out-quart`, and every close runs the same exit.
+ * `--duration-normal` / `--ease-out-quart`, and every close runs the same exit,
+ * except a close the controller makes instant by bumping `presence` (a refresh
+ * that took the open section's body away).
  * A drag on the header follows the pointer; released past the shared threshold
  * it closes (the exit continues from where the drag left it), released before
  * it springs back at `--duration-fast`. Reduced motion makes every step
@@ -62,6 +64,13 @@ export interface CrewSectionSheetProps {
   onRequestClose: () => void;
   /** The body scroller, so the controller can reset it on an in-sheet switch. */
   bodyRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * The presence generation. A new value drops a departing sheet at once, with
+   * no exit slide: the controller bumps it when a refresh took the open
+   * section's body away (a lost entitlement, spec §7), so nothing of the old
+   * body stays on the page while it slides out.
+   */
+  presence?: number;
   children?: ReactNode;
 }
 
@@ -92,6 +101,7 @@ export function CrewSectionSheet({
   modal,
   onRequestClose,
   bodyRef,
+  presence = 0,
   children,
 }: CrewSectionSheetProps) {
   const reduced = usePrefersReducedMotion() === true;
@@ -110,7 +120,9 @@ export function CrewSectionSheet({
           onRequestClose={onRequestClose}
         />
       ) : null}
-      <AnimatePresence initial={false}>
+      {/* Keyed by the presence generation: a new key remounts the presence and
+      drops a departing frame without its exit. */}
+      <AnimatePresence key={presence} initial={false}>
         {section !== null ? (
           <SheetFrame
             key="crew-section-sheet"

@@ -34,7 +34,11 @@ export const REQUIRED = {
   // duration-token records, all mobile-safari (its only project). Derived from
   // the 2026-10-27 local run's report: 15 passing unique spec ids. 16 since Task 7
   // added the compact header case (search row under the title, status slot).
-  "crew-section-toggle.spec.ts": 16,
+  // 26 since Task 12 added ten "compound" cases (the realtime refresh, the lost
+  // entitlement, the removed day, the removed dialog owner, Esc in each of the
+  // three nested dialogs, Back to another route, the second day tap, the theme
+  // switch behind the sheet). Counted from the observed mobile-safari run.
+  "crew-section-toggle.spec.ts": 26,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -81,8 +85,10 @@ export const REQUIRED = {
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
   // Eleven since Task 11 added the composed home's two wide cases (the Today
-  // block's columns, and the preview banner in wide).
-  "crew-wide-nav.spec.ts": 11,
+  // block's columns, and the preview banner in wide). Fifteen since Task 12 added
+  // four "compound" cases across the 1024px breakpoint (into wide with the sheet
+  // open, mid-drag, with a nested dialog, and back into compact).
+  "crew-wide-nav.spec.ts": 15,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

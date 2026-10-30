@@ -35,7 +35,11 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { DRAG_DISMISS_THRESHOLD_PX } from "@/components/shared/sheetConstants";
 import { CREW_SECTION_LABELS, type CrewSectionId } from "@/lib/crew/crewSections";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
+import { refreshFromServer, renderFresh } from "./helpers/crewRefresh";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
+import { updateShowLocked } from "./helpers/lockedShowCopy";
+import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
@@ -609,6 +613,580 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     await expect(row(page, "venue")).toBeVisible();
     expect(await row(page, "venue").evaluate((el) => getComputedStyle(el).transitionDuration)).toBe(
       "0s",
+    );
+  });
+});
+
+/**
+ * Compound transitions, compact (crew page redesign spec §7 "Compound
+ * transitions", §5.2 nested dialogs and scroll lock; plan Task 12). Titles carry
+ * "compound". The wide-layout rows (crossing into wide, mid-drag, with a nested
+ * dialog, and back into compact) live in crew-wide-nav.spec.ts, the project that
+ * resizes across 1024px.
+ *
+ * A realtime refresh is driven by helpers/crewRefresh.ts: `renderFresh` makes
+ * every later render revalidate (the app's write paths call `revalidateShow`),
+ * then a locked fixture write, then `refreshFromServer`, the bridge's own
+ * `router.refresh()`. Every case that writes data seeds
+ * its own show, so no write reaches the shared Waldorf seed; the cases that only
+ * read (the lightbox and the report modal, the theme switch) use Waldorf.
+ */
+test.describe("crew compact compound transitions (spec §7, plan Task 12)", () => {
+  test.setTimeout(180_000);
+
+  const BASE_HEADERS = {
+    "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  };
+  const DATES = {
+    travelIn: "2026-04-19",
+    set: "2026-04-20",
+    showDays: ["2026-04-21", "2026-04-22"],
+    travelOut: "2026-04-23",
+  };
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setExtraHTTPHeaders(BASE_HEADERS);
+  });
+
+  /** Loads a crew path and waits for the controller to hydrate. */
+  async function loadPath(page: Page, path: string): Promise<void> {
+    const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+    expect(res?.status(), `${path} must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+  }
+
+  /** Opens a section from its "All sections" row and waits for the slide to finish. */
+  async function openFromRow(page: Page, id: CrewSectionId): Promise<void> {
+    await row(page, id).click();
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", id);
+    await settleOpen(page);
+  }
+
+  async function waldorfRoute(): Promise<string> {
+    const { slug, shareToken } = await lookupSlugAndToken();
+    return `/show/${slug}/${shareToken}`;
+  }
+
+  /**
+   * Opens a nested dialog from the keyboard: focus its trigger, press Enter. A
+   * tap does not focus a button in WebKit, so focus restoration is the keyboard
+   * path's contract (WCAG 2.4.3), and the one these cases pin.
+   */
+  async function activate(page: Page, trigger: Locator): Promise<void> {
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press("Enter");
+  }
+
+  /** True when focus sits inside the open sheet's dialog. */
+  function focusInsideSheet(page: Page): Promise<boolean> {
+    return page.evaluate(() => {
+      const dialog = document.querySelector('[data-testid="crew-section-sheet-dialog"]');
+      const active = document.activeElement;
+      return dialog !== null && active !== null && active !== dialog && dialog.contains(active);
+    });
+  }
+
+  /** The page's text and attributes, without the inline scripts that carry the first render's payload. */
+  function renderedPage(page: Page): Promise<string> {
+    return page.evaluate(() => {
+      const clone = document.body.cloneNode(true) as HTMLElement;
+      for (const el of clone.querySelectorAll("script, template")) el.remove();
+      return clone.outerHTML;
+    });
+  }
+
+  test("compound: a realtime refresh with the sheet open keeps it open on the same section and updates its body in place", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const VENUE = { name: "Compound Hall Before", address: "41 Refresh Way" };
+    const RENAMED = "Compound Hall After";
+    const seeded = await seedShowWithCrew({
+      title: "Compound Refresh Show",
+      dates: DATES,
+      venue: VENUE as never,
+      crew: [{ name: "Compound Crew", role: "A1" }],
+    });
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      await openFromRow(page, "venue");
+      const body = page.getByTestId("crew-section-sheet-body");
+      await expect(body).toContainText(VENUE.name);
+      // Mark the dialog and the body's crossfade wrapper: a remount or a re-keyed
+      // crossfade would replace them, and the marks would be gone.
+      await page.evaluate(() => {
+        for (const sel of [
+          '[data-testid="crew-section-sheet-dialog"]',
+          '[data-testid="crew-section-transition"]',
+        ]) {
+          (document.querySelector(sel) as unknown as { __compound?: true }).__compound = true;
+        }
+      });
+
+      await renderFresh(page, BASE_HEADERS);
+      updateShowLocked(seeded.driveFileId, { venue: { ...VENUE, name: RENAMED } });
+      await refreshFromServer(page);
+
+      await expect(body).toContainText(RENAMED);
+      await expect(body).not.toContainText(VENUE.name);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+      const kept = await page.evaluate(() =>
+        [
+          '[data-testid="crew-section-sheet-dialog"]',
+          '[data-testid="crew-section-transition"]',
+        ].map(
+          (sel) =>
+            (document.querySelector(sel) as unknown as { __compound?: true } | null)?.__compound ===
+            true,
+        ),
+      );
+      expect(kept, "the same dialog and the same crossfade wrapper: updated in place").toEqual([
+        true,
+        true,
+      ]);
+      expect(new URL(page.url()).searchParams.get("s")).toBe("venue");
+      expect(
+        await page.evaluate(() => (history.state as { crewSheet?: boolean } | null)?.crewSheet),
+      ).toBe(true);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("compound: a refresh that takes Budget from a previewed lead closes the Budget sheet to home without animation and leaves no Budget value on the page", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const FINANCIALS = {
+      po: "PO-COMPOUND-7731",
+      proposal: "Proposal compound 4410",
+      invoice: "Invoice compound 9902",
+      invoice_notes: "Compound invoice note 5515",
+    };
+    const seeded = await seedShowWithCrew({
+      title: "Compound Budget Show",
+      dates: DATES,
+      crew: [{ name: "Compound Lead", role: "TD", roleFlags: ["LEAD"] }],
+      internal: { financials: FINANCIALS },
+    });
+    const lead = seeded.crew[0]!;
+    try {
+      // One refresh in flight, this case's own. A `crew_members` write broadcasts
+      // (its statement trigger), so the bridge would refresh too; under WebKit two
+      // overlapping refreshes cancel each other's RSC fetch and Next falls back to
+      // a full document load (measured 2026-10-30: three fetches "cancelled", then
+      // "Failed to fetch RSC payload ... Falling back to browser navigation"), which
+      // tests Next, not the controller. Without a token the bridge never
+      // subscribes (it fails open, components/realtime/ShowRealtimeBridge.tsx).
+      await page.route("**/api/realtime/subscriber-token", (route) =>
+        route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+      );
+      await loadPath(page, `/admin/show/${seeded.slug}/preview/${lead.id}`);
+      await openFromRow(page, "budget");
+      // Positive control: the values this case searches for are on the page now.
+      const before = await renderedPage(page);
+      for (const v of Object.values(FINANCIALS)) expect(before, v).toContain(v);
+      expect(
+        await page.evaluate(() => (history.state as { crewSheet?: boolean } | null)?.crewSheet),
+      ).toBe(true);
+
+      // The close row this entry takes: back over the marker (spec §5.2).
+      await page.evaluate(() => {
+        const w = window as unknown as { __backs: number };
+        w.__backs = 0;
+        const back = history.back.bind(history);
+        history.back = () => {
+          w.__backs += 1;
+          back();
+        };
+      });
+      // Every DOM change from here on: is the Budget row still listed, is the sheet still mounted.
+      await page.evaluate(() => {
+        const log: Array<{ row: boolean; sheet: boolean }> = [];
+        (window as unknown as { __compoundLog: typeof log }).__compoundLog = log;
+        new MutationObserver(() => {
+          log.push({
+            row:
+              document.querySelector(
+                '[data-testid="crew-all-sections"] [data-section="budget"]',
+              ) !== null,
+            sheet: document.querySelector('[data-testid="crew-section-sheet"]') !== null,
+          });
+        }).observe(document.body, { childList: true, subtree: true, attributes: true });
+      });
+
+      await renderFresh(page, BASE_HEADERS);
+      await setRoleFlagsLocked(seeded.driveFileId, lead.id, []);
+      await refreshFromServer(page);
+
+      await expect(row(page, "budget")).toHaveCount(0);
+      await expect(page.getByTestId("crew-section-sheet")).toHaveCount(0);
+      await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBeNull();
+      await expect(page.getByTestId("crew-all-sections")).toBeVisible();
+      expect(
+        await page.evaluate(() => (window as unknown as { __backs: number }).__backs),
+        "closed through history.back(), the pushed entry's close row",
+      ).toBe(1);
+      const log = await page.evaluate(
+        () =>
+          (window as unknown as { __compoundLog: Array<{ row: boolean; sheet: boolean }> })
+            .__compoundLog,
+      );
+      expect(
+        log.some((e) => !e.row),
+        "PREMISE: the observer saw the Budget row leave",
+      ).toBe(true);
+      expect(
+        log.filter((e) => !e.row && e.sheet),
+        "the sheet left in the same commit as the Budget row: no exit slide holding the old body",
+      ).toEqual([]);
+      const after = await renderedPage(page);
+      for (const v of Object.values(FINANCIALS)) expect(after, v).not.toContain(v);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("compound: a refresh that removes the selected day from the day set returns the selection to live", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const SELECTED = "2026-04-22";
+    const seeded = await seedShowWithCrew({
+      title: "Compound Day Show",
+      dates: DATES,
+      crew: [{ name: "Compound Crew", role: "A1" }],
+    });
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      const button = page.locator(`[data-testid="crew-day-button"][data-day="${SELECTED}"]`);
+      await button.click();
+      await expect(button).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByTestId("crew-pass")).toHaveAttribute(
+        "data-selection",
+        `day:${SELECTED}`,
+      );
+
+      await renderFresh(page, BASE_HEADERS);
+      updateShowLocked(seeded.driveFileId, {
+        dates: { ...DATES, showDays: DATES.showDays.filter((d) => d !== SELECTED) },
+      });
+      await refreshFromServer(page);
+
+      await expect(button).toHaveCount(0);
+      await expect(page.getByTestId("crew-pass")).toHaveAttribute("data-selection", "live");
+      // Today (show day 1) is still in the set, so its button carries `live`.
+      const today = SHOW_DAY_N_INSTANT.slice(0, 10);
+      await expect(
+        page.locator(`[data-testid="crew-day-button"][data-day="${today}"]`),
+      ).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("compound: a refresh that removes a nested dialog's owner unmounts the dialog alone, and the sheet keeps the page locked", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const seeded = await seedShowWithCrew({
+      title: "Compound Agenda Owner Show",
+      dates: DATES,
+      agendaLinks: [{ label: "AGENDA", fileId: "compoundOwnerAgenda01" }] as never,
+      crew: [{ name: "Compound Crew", role: "A1" }],
+    });
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      await openFromRow(page, "schedule");
+      await sheetDialog(page)
+        .getByRole("button", { name: /View agenda/ })
+        .click();
+      await expect(page.getByTestId("agenda-sheet")).toBeVisible();
+      expect(await page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+
+      await renderFresh(page, BASE_HEADERS);
+      updateShowLocked(seeded.driveFileId, { agenda_links: [] });
+      await refreshFromServer(page);
+
+      await expect(page.getByTestId("agenda-embed")).toHaveCount(0);
+      await expect(page.getByTestId("agenda-sheet")).toHaveCount(0);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
+      expect(
+        await page.evaluate(() => document.body.style.overflow),
+        "the sheet still holds the scroll lock",
+      ).toBe("hidden");
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("compound: Esc with the agenda viewer open closes only the viewer, and focus returns inside the sheet", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const seeded = await seedShowWithCrew({
+      title: "Compound Agenda Esc Show",
+      dates: DATES,
+      agendaLinks: [{ label: "AGENDA", fileId: "compoundEscAgenda01" }] as never,
+      crew: [{ name: "Compound Crew", role: "A1" }],
+    });
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      await openFromRow(page, "schedule");
+      const trigger = sheetDialog(page).getByRole("button", { name: /View agenda/ });
+      await activate(page, trigger);
+      await expect(page.getByTestId("agenda-sheet")).toBeVisible();
+
+      await page.keyboard.press("Escape");
+
+      await expect(page.getByTestId("agenda-sheet")).toHaveCount(0);
+      await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
+      await expect.poll(() => focusInsideSheet(page)).toBe(true);
+      await expect(trigger).toBeFocused();
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("compound: Esc with the diagram lightbox open closes only the lightbox, and focus returns inside the sheet", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await loadPath(page, await waldorfRoute());
+    await openFromRow(page, "venue");
+    // The first AVAILABLE slot: the seed's first embedded diagram has no snapshot
+    // and renders as a placeholder with no button.
+    const thumb = sheetDialog(page)
+      .locator('[data-testid^="diagram-slot-"]:not([data-unavailable])')
+      .first()
+      .getByRole("button");
+    await activate(page, thumb);
+    await expect(page.getByTestId("diagrams-lightbox")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByTestId("diagrams-lightbox")).toHaveCount(0);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+    await expect.poll(() => focusInsideSheet(page)).toBe(true);
+    await expect(thumb).toBeFocused();
+  });
+
+  test("compound: Esc with the report modal open closes only the report modal, and focus returns inside the sheet", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await loadPath(page, await waldorfRoute());
+    await openFromRow(page, "venue");
+    const trigger = sheetDialog(page).getByTestId("card-report-trigger").first();
+    await activate(page, trigger);
+    await expect(page.getByTestId("report-modal-root")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByTestId("report-modal-root")).toHaveCount(0);
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+    await expect.poll(() => focusInsideSheet(page)).toBe(true);
+    await expect(trigger).toBeFocused();
+  });
+
+  test("compound: Back to another route with the sheet and a nested dialog open leaves the destination page scrollable", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const route = await waldorfRoute();
+    const res = await page.goto("/help/getting-started", { waitUntil: "domcontentloaded" });
+    expect(res?.status()).toBe(200);
+    await page.waitForLoadState("networkidle");
+    // A client navigation into the crew page, so Back is the app router's own
+    // route change (both trees swap in one commit), not a document load.
+    await page.evaluate((href) => {
+      (window as unknown as { next: { router: { push: (h: string) => void } } }).next.router.push(
+        href,
+      );
+    }, `${route}?s=venue`);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+    await sheetDialog(page).getByTestId("card-report-trigger").first().click();
+    await expect(page.getByTestId("report-modal-root")).toBeVisible();
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+
+    await page.goBack();
+
+    await expect(page).toHaveURL(/\/help\/getting-started$/);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveCount(0);
+    expect(await page.evaluate(() => document.body.style.overflow)).not.toBe("hidden");
+    const scrolled = await page.evaluate(async () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      window.scrollTo({ top: Math.min(200, max), behavior: "auto" });
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      return { max, y: window.scrollY };
+    });
+    expect(scrolled.max, "PREMISE: the destination is taller than the viewport").toBeGreaterThan(0);
+    expect(scrolled.y, "the destination page scrolls").toBeGreaterThan(0);
+  });
+
+  test("compound: a second day tap mid-crossfade wins: the running fade is replaced at once, never queued", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const SHOW_DAYS = ["2026-04-21", "2026-04-22", "2026-04-23"];
+    const [, FIRST, SECOND] = SHOW_DAYS as [string, string, string];
+    const seeded = await seedShowWithCrew({
+      title: "Compound Crossfade Show",
+      dates: {
+        travelIn: "2026-04-19",
+        set: "2026-04-20",
+        showDays: SHOW_DAYS,
+        travelOut: "2026-04-24",
+      },
+      crew: [{ name: "Compound Crew", role: "A1" }],
+      internal: {
+        runOfShow: Object.fromEntries(
+          SHOW_DAYS.map((iso) => [
+            iso,
+            {
+              entries: [{ start: "7:00 AM", title: `Compound call ${iso}` }],
+              showStart: "7:00 AM",
+              showEnd: null,
+              window: null,
+            },
+          ]),
+        ),
+      },
+    });
+    try {
+      await loadPath(page, `/show/${seeded.slug}/${seeded.shareToken}`);
+      await expect(page.getByTestId("today-run-of-show")).toBeVisible();
+      const frames = await page.evaluate(
+        ({ first, second }) =>
+          new Promise<
+            Array<{
+              afterSecond: boolean;
+              pass: Array<{ key: string; exiting: boolean; opacity: number }>;
+              run: Array<{ exiting: boolean; opacity: number; text: string }>;
+            }>
+          >((resolve) => {
+            const tap = (iso: string) =>
+              document
+                .querySelector<HTMLButtonElement>(
+                  `[data-testid="crew-day-button"][data-day="${iso}"]`,
+                )!
+                .click();
+            const out: Array<{
+              afterSecond: boolean;
+              pass: Array<{ key: string; exiting: boolean; opacity: number }>;
+              run: Array<{ exiting: boolean; opacity: number; text: string }>;
+            }> = [];
+            let afterSecond = false;
+            const read = () =>
+              out.push({
+                afterSecond,
+                pass: [...document.querySelectorAll('[data-testid="crew-pass-body"]')].map((b) => ({
+                  key: b.getAttribute("data-body") ?? "",
+                  exiting: b.hasAttribute("data-exiting"),
+                  opacity: Number(getComputedStyle(b).opacity),
+                })),
+                run: [...document.querySelectorAll('[data-testid="crew-run-body"]')].map((b) => ({
+                  exiting: b.hasAttribute("data-exiting"),
+                  opacity: Number(getComputedStyle(b).opacity),
+                  text: b.textContent ?? "",
+                })),
+              });
+            tap(first);
+            const start = performance.now();
+            const loop = () => {
+              read();
+              const t = performance.now() - start;
+              // The second tap lands mid-fade: well inside --duration-normal (220ms).
+              if (!afterSecond && t >= 60) {
+                tap(second);
+                afterSecond = true;
+              }
+              if (t < 900) requestAnimationFrame(loop);
+              else resolve(out);
+            };
+            requestAnimationFrame(loop);
+          }),
+        { first: FIRST, second: SECOND },
+      );
+      const firstKey = `day:${FIRST}`;
+      const secondKey = `day:${SECOND}`;
+      const before = frames.filter((f) => !f.afterSecond);
+      expect(
+        before.some((f) => f.pass.some((b) => b.key === firstKey && !b.exiting && b.opacity < 1)),
+        "PREMISE: the second tap landed while the first day was still fading in",
+      ).toBe(true);
+      const after = frames.filter((f) => f.afterSecond);
+      // Never queued: from the first frame after the second tap, the second day's
+      // body is mounted and present, and the first day's is leaving.
+      expect(after[0]!.pass.some((b) => b.key === secondKey && !b.exiting)).toBe(true);
+      for (const f of after) {
+        expect(f.pass.filter((b) => !b.exiting).map((b) => b.key)).toEqual([secondKey]);
+      }
+      expect(
+        after.filter((f) => f.pass.some((b) => b.key === firstKey && !b.exiting)),
+        "the first day never comes back present",
+      ).toEqual([]);
+      // The second selection wins, on one opaque body in the pass and the run card.
+      expect(frames.at(-1)!.pass).toEqual([{ key: secondKey, exiting: false, opacity: 1 }]);
+      expect(frames.at(-1)!.run.map((b) => [b.exiting, b.opacity])).toEqual([[false, 1]]);
+      expect(frames.at(-1)!.run[0]!.text).toContain(`Compound call ${SECOND}`);
+      await expect(page.getByTestId("crew-pass")).toHaveAttribute("data-selection", secondKey);
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
+    }
+  });
+
+  test("compound: the theme switch is unreachable while the sheet is open: the header is inert behind the scrim", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    await loadPath(page, await waldorfRoute());
+    const toggle = page.getByTestId("page-header").getByTestId("theme-toggle");
+    await expect(toggle, "PREMISE: the header carries the theme switch").toBeVisible();
+    expect(await toggle.evaluate((el) => el.closest("[inert]") !== null)).toBe(false);
+    const theme = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+
+    // Opened without scrolling the page (a pointer click first scrolls the row
+    // into view, which would take the header off screen and prove nothing).
+    await row(page, "venue").dispatchEvent("click");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
+    await settleOpen(page);
+    const box = await rectOf(toggle);
+    expect(box.top, "PREMISE: the header is on screen behind the sheet").toBeGreaterThanOrEqual(0);
+
+    expect(await toggle.evaluate((el) => el.closest("[inert]") !== null), "inert").toBe(true);
+    const hit = await toggle.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return top !== null && top.closest('[data-testid="crew-section-sheet"]') !== null;
+    });
+    expect(hit, "the sheet (its scrim or its panel) covers the theme switch").toBe(true);
+    // Inert: focus cannot land on it, from a script or from anywhere else.
+    expect(
+      await toggle.evaluate((el) => {
+        (el as HTMLElement).focus();
+        return document.activeElement === el;
+      }),
+      "the inert switch refuses focus",
+    ).toBe(false);
+    expect(await focusInsideSheet(page), "focus stays in the sheet").toBe(true);
+    expect(await page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe(
+      theme,
     );
   });
 });

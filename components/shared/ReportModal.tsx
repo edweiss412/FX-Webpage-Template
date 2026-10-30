@@ -24,7 +24,12 @@
  *   { idempotencyKey, draft, status, surfaceId }. Cleared ONLY by
  *   terminal success (2xx + body.ok===true) OR explicit Start-fresh.
  *
- * Focus management via `lib/a11y/dialogFocus.ts` (M7-shipped).
+ * Focus management via `lib/a11y/dialogFocus.ts` (M7-shipped). Escape closes
+ * through the same `handleClose` as the close button and the backdrop, so a
+ * draft and its key survive it exactly as they survive those. Focus goes back
+ * to the control that opened the modal: inside a crew section sheet that is
+ * the card's report trigger, so focus stays in the sheet (crew page redesign
+ * spec §5.2, nested dialogs; the sheet ignores an Esc meant for this modal).
  *
  * Pin-stop caveat #2: REPORT_LOOKUP_INCONCLUSIVE copy stays neutral —
  *   the catalog string already reads as "outcome unknown — retry
@@ -276,6 +281,49 @@ export function ReportModal(props: ReportModalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   useDialogFocus(containerRef);
 
+  // Focus back to the control that opened the modal. The focus hook restores
+  // to what it saw focused on mount, which is the autofocused textarea (React
+  // focuses it in the commit, before any effect runs); on close the textarea is
+  // gone and focus falls to <body>. So the opener is read in the first render,
+  // before that commit, and focused when the close left focus nowhere. Only
+  // then: a development double-mount's cleanup runs with the textarea still
+  // focused and leaves it be. Callers mount the modal on open.
+  const [opener] = useState<HTMLElement | null>(() => {
+    if (typeof document === "undefined") return null;
+    const active = document.activeElement;
+    return active instanceof HTMLElement && active !== document.body ? active : null;
+  });
+  useEffect(
+    () => () => {
+      const active = document.activeElement;
+      if (opener?.isConnected && (active === null || active === document.body)) opener.focus();
+    },
+    [opener],
+  );
+
+  // The one close path: the close button, the backdrop and Escape. A close
+  // keeps the draft and its key (the persisted attempt is untouched).
+  function handleClose() {
+    onOpenChange(false);
+  }
+
+  // Escape closes, wherever focus sits, through `handleClose`. Mirrored into a
+  // ref so the listener, bound once per open, always runs the current one.
+  const closeRef = useRef(handleClose);
+  useEffect(() => {
+    closeRef.current = handleClose;
+  });
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeRef.current();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   // Persist on every state change. The `surfaceId !== persisted.surfaceId`
   // mismatch is impossible by construction (we key by surfaceId); the
   // guard is defense-in-depth against future refactor.
@@ -435,10 +483,6 @@ export function ReportModal(props: ReportModalProps) {
 
   function handleRetry() {
     void submitOnce();
-  }
-
-  function handleClose() {
-    onOpenChange(false);
   }
 
   function handleStartFresh() {
