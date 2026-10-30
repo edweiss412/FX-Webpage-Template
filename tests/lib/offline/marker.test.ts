@@ -548,6 +548,19 @@ describe("readNavigationMarker", () => {
     expect(readNavigationMarker(both)).toMatchObject({ marker: { disposition: "save" } });
   });
 
+  test("an invalid marker element wins over a not-found digest too: it stays invalid, never check", () => {
+    // The crew page's marker with an unknown data-v, plus the not-found page's
+    // $RX instruction: a marker element is there, so the fallback must not read.
+    const showId = /data-show-id="([^"]+)"/.exec(STREAMED_CREW_PAGE)?.[1];
+    premiseHolds("the fixture names its show", showId !== undefined && UUID_SHAPE.test(showId));
+    const body = STREAMED_CREW_PAGE.replace(CREW_PAGE_MARKER, (element) =>
+      element.replace('data-v="3"', 'data-v="9"'),
+    ).replace("</body>", `<script>$RX("B:0","${NOT_FOUND_DIGEST_TEXT}")</script></body>`);
+    premiseHolds("the marker element now has an unknown version", body.includes('data-v="9"'));
+    premise("the digest is in the body", occurrences(body, NOT_FOUND_DIGEST_TEXT), 0);
+    expect(readNavigationMarker(body)).toStrictEqual(invalid(showId ?? null));
+  });
+
   test("a crew page with its marker element removed is absent: the payload's not-found tree does not count", () => {
     const bare = STREAMED_CREW_PAGE.replace(CREW_PAGE_MARKER, "");
     premiseHolds("the marker element was removed", !CREW_PAGE_MARKER.test(bare));
