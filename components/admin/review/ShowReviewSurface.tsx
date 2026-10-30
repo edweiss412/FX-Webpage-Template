@@ -1129,6 +1129,9 @@ export function ShowReviewSurface({
                   // happens to put them.
                   {...(s.id === "warnings" ? { id: "warnings" } : {})}
                   data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
+                  // warning-card-fixes §15 (UI gate P3): a jump's focus target, named by
+                  // its own §6.4 heading (the chrome below hands the heading this id).
+                  aria-labelledby={`wizard-step3-card-${dfid}-review-section-${s.id}-heading`}
                   ref={(el) => {
                     if (el) sectionElsRef.current.set(s.id, el);
                     else sectionElsRef.current.delete(s.id);
@@ -1152,6 +1155,9 @@ export function ShowReviewSurface({
                       getActiveSection,
                       dfid,
                       sectionId: s.id,
+                      // Deterministic, not useId: the section DOM is compared byte for byte across
+                      // renders (showReviewSurfaceAttention), and the dfid scopes it per card.
+                      headingId: `wizard-step3-card-${dfid}-review-section-${s.id}-heading`,
                       // Bug #316 item 3: the staged row's per-region source-sheet anchors,
                       // so each section's "In sheet" heading link opens at its cell range.
                       sourceAnchors: data.sourceAnchors ?? {},

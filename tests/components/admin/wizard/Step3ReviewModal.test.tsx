@@ -3555,6 +3555,26 @@ describe("Step3ReviewModal — jumps move focus to their target (WCAG 2.4.3)", (
     expectFocusedOffTabOrder(q.getByTestId(tid("section-hotels")));
   });
 
+  // UI gate P3: a focused target is announced by its name, so each one is labelled by
+  // its own visible heading or title (aria-labelledby), never by a duplicated string.
+  test("every jump target is named by its own heading or title", () => {
+    const d = sectionData({ hotelReservations: [hotel(0), hotel(1)], warnings: [split(1)] });
+    const { q } = renderModal({ d });
+    const sections = step3Sections(d);
+    for (const id of ["crew", "hotels"] as const) {
+      const label = sections.find((s) => s.id === id)?.label;
+      premiseHolds(`the ${id} section is rendered with a label`, typeof label === "string");
+      expect(q.getByTestId(tid(`section-${id}`))).toHaveAccessibleName(label!);
+    }
+    expect(document.querySelector('[data-hotel-index="1"]')).toHaveAccessibleName("Hotel 2");
+    const card = document.querySelector('[data-warning-index="0"]');
+    const title = q
+      .getByTestId(`wizard-step3-card-${DFID}-warning-0-title-row`)
+      .querySelector(".font-medium");
+    premiseHolds("the card title renders", (title?.textContent ?? "").trim().length > 0);
+    expect(card).toHaveAccessibleName(title!.textContent!.trim());
+  });
+
   test("the reservation marker's See how we read it focuses the warning card", () => {
     const { q } = renderModal({
       d: sectionData({ hotelReservations: [hotel(0), hotel(1)], warnings: [split(1)] }),

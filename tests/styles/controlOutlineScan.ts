@@ -215,7 +215,8 @@ export const CENSUS: readonly CensusRow[] = [
   // it); located by its own report-toggle testid.
   // 5307 -> 5375 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
   // card section jump above it); located by its own report-toggle testid.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5375 },
+  // 5375 -> 5395 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5395 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -278,7 +279,8 @@ export const CENSUS: readonly CensusRow[] = [
   // report-submit testid.
   // 5389 -> 5457 on feat/warning-card-fixes Task 17, same cause; located by its own
   // report-submit testid.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5457 },
+  // 5457 -> 5477 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5477 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then

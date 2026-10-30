@@ -1585,7 +1585,8 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // 2521 -> 2539 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
       // sectionForWarning import above it); located by its own element, the same
       // PackCountPill <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2539",
+      // 2539 -> 2546 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+      "components/admin/wizard/step3ReviewSections.tsx:2546",
       // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
       "components/crew/primitives/KeyTimesStrip.tsx:196",
     ]);

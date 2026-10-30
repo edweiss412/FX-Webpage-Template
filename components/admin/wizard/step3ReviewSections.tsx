@@ -562,6 +562,12 @@ export type Step3SectionChrome = {
    */
   headingLevel?: 3 | 4;
   /**
+   * warning-card-fixes §15 (UI gate P3): the id the §6.4 heading carries, so the
+   * surface's `<section>` (a jump's focus target) is named by its own visible heading
+   * through `aria-labelledby`. ABSENT on nested sub-blocks (exactOptionalPropertyTypes).
+   */
+  headingId?: string;
+  /**
    * Follow-ups spec §D3a: stable-identity reader for the modal's shared
    * `active` nav section, consumed by `ReportIssueSection` AT SUBMIT TIME for
    * a stale-free `viewerVisibleSection`. Optional — existing provider mounts
@@ -1092,6 +1098,7 @@ export function ModalSectionChrome({
             }`}
           >
             <Heading
+              {...(chrome.headingId !== undefined ? { id: chrome.headingId } : {})}
               className={`min-w-0 wrap-break-word font-semibold text-text-strong ${
                 sub ? "text-sm" : "text-base"
               }`}
@@ -2977,12 +2984,17 @@ function HotelCard({
   const names = arr(h.names).filter((n) => hasContent(n));
   const nights = nightsBetween(h.check_in, h.check_out);
   const guestsLabelId = useId();
+  // warning-card-fixes §15 (UI gate P3): the card is a jump's focus target, so it is a
+  // group named by its own hotel name.
+  const nameId = useId();
   const hotelLabel = h.hotel_name || "Hotel";
   return (
     <div
       data-testid="wizard-step3-hotel-card"
       // warning-card-fixes §5.5: the card jump's target (same idiom as data-room-nav).
       data-hotel-index={index}
+      role="group"
+      aria-labelledby={nameId}
       className={
         flat
           ? "@container flex flex-col gap-3"
@@ -3015,7 +3027,9 @@ function HotelCard({
         </div>
       ) : null}
       <div className="min-w-0">
-        <p className="wrap-break-word text-base font-semibold text-text-strong">{hotelLabel}</p>
+        <p id={nameId} className="wrap-break-word text-base font-semibold text-text-strong">
+          {hotelLabel}
+        </p>
         {address ? (
           <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
             <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -3540,6 +3554,9 @@ export function WarningsBreakdown({
                     // testid and data-warning-index, so a menu row can never
                     // point at a different row than the one it names.
                     data-attention-anchor={`warning:${i}`}
+                    // warning-card-fixes §15 (UI gate P3): a jump's focus target, named by
+                    // its own title.
+                    aria-labelledby={`wizard-step3-card-${dfid}-warning-${i}-title`}
                     className="flex gap-3"
                   >
                     {/* §8 severity icon chip, one per row kind (warning-card-fixes
@@ -3573,7 +3590,10 @@ export function WarningsBreakdown({
                           {isJudgment ? null : (
                             <span className="sr-only">{isWarn ? "Needs a look: " : "Note: "}</span>
                           )}
-                          <span className="wrap-break-word font-medium text-text-strong">
+                          <span
+                            id={`wizard-step3-card-${dfid}-warning-${i}-title`}
+                            className="wrap-break-word font-medium text-text-strong"
+                          >
                             {renderEmphasis(title)}
                           </span>
                           {isJudgment ? (

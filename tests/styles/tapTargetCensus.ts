@@ -395,7 +395,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // the callout's reading label above it); the same tile `<a>`, located by that ref.
     // 4707 -> 4775 on feat/warning-card-fixes Task 17 (the chrome's jump fields and the
     // card section jump above it); the same tile `<a>`, located by that ref.
-    line: 4775,
+    // 4775 -> 4795 on feat/warning-card-fixes (UI gate P3: jump targets named by their own heading or title); located by its own element (5-line context match).
+    line: 4795,
     tag: "a",
     category: "full-bleed",
     reason:
