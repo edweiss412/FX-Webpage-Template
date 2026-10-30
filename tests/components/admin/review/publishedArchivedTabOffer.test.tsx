@@ -37,13 +37,17 @@ describe("PublishedArchivedTabOffer (P2)", () => {
   it("renders the tab name and Include/Skip when canMutate", () => {
     render(<PublishedArchivedTabOffer {...base} tabName="OLD PULL SHEET" />);
     expect(screen.getByText("OLD PULL SHEET")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Include gear from/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^Use this pull sheet from tab / }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Skip gear from/ })).toBeInTheDocument();
   });
 
   it("hides actions when not mutable (read-only, archived/unpublished/null-drive)", () => {
     render(<PublishedArchivedTabOffer {...base} canMutate={false} tabName="OLD" />);
-    expect(screen.queryByRole("button", { name: /Include gear from/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Use this pull sheet from tab / }),
+    ).not.toBeInTheDocument();
   });
 
   it("Include POSTs the RAW tab name + wire snapshot and refreshes on success", async () => {
@@ -58,7 +62,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
         tabName="  OLD  "
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     const init = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0]![1] as { body: string };
@@ -81,7 +85,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
   it("stale_review 409 shows the stale line AND auto-refreshes", async () => {
     vi.stubGlobal("fetch", mockFetch(409, { ok: false, status: "stale_review" }));
     render(<PublishedArchivedTabOffer {...base} tabName="OLD" />);
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "This changed elsewhere. Refreshing to the latest state.",
@@ -93,7 +97,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
   it("lifecycle_conflict 409 shows its own line and does NOT auto-refresh", async () => {
     vi.stubGlobal("fetch", mockFetch(409, { ok: false, status: "lifecycle_conflict" }));
     render(<PublishedArchivedTabOffer {...base} tabName="OLD" />);
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "This show is no longer editable here. Refresh to see its current state.",
@@ -105,7 +109,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
   it("no_pull_sheet_region 422 shows its own line, no refresh", async () => {
     vi.stubGlobal("fetch", mockFetch(422, { ok: false, status: "no_pull_sheet_region" }));
     render(<PublishedArchivedTabOffer {...base} tabName="OLD" />);
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "That tab is no longer in the sheet. Re-check the sheet, then try again.",
@@ -126,7 +130,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
       })) as never,
     );
     render(<PublishedArchivedTabOffer {...base} tabName="OLD" />);
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "Something went wrong on our side. Try again in a moment.",
@@ -137,7 +141,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
   it("prototype-key status (e.g. __proto__) resolves the generic line, never an inherited value", async () => {
     vi.stubGlobal("fetch", mockFetch(500, { ok: false, status: "__proto__" }));
     render(<PublishedArchivedTabOffer {...base} tabName="OLD" />);
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         "Something went wrong on our side. Try again in a moment.",
@@ -151,7 +155,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
       mockFetch(200, { ok: true, status: "override_set", sync: { ok: false, kind: "hard_fail" } }),
     );
     render(<PublishedArchivedTabOffer {...base} tabName="OLD" />);
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -190,7 +194,7 @@ describe("PublishedArchivedTabOffer (P2)", () => {
       mockFetch(200, { ok: true, status: "override_set", sync: { ok: false, kind: "stage" } }),
     );
     render(<PublishedArchivedTabOffer {...base} tabName="OLD" />);
-    fireEvent.click(screen.getByRole("button", { name: /Include gear from/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Use this pull sheet from tab / }));
     await waitFor(() =>
       expect(
         screen.getByText(

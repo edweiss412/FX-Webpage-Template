@@ -452,8 +452,10 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // silently, and the family sum is what stops a new site landing in no family.
     // 42 -> 41 on feat/warning-card-fixes Task 9: the PerShowActionableWarnings
     // "Open in Sheet" text link (a deliberate-flatten row) left with its element.
-    expect(COLLAPSE_CENSUS).toHaveLength(41);
-    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(41);
+    // 41 -> 42 on feat/warning-card-fixes Task 13: the shared archived-tab include button
+    // (a not-a-state row: one button, two placement plates).
+    expect(COLLAPSE_CENSUS).toHaveLength(42);
+    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
     expect(repaired, "the repair set the pass owes AC-4").toHaveLength(12);
   });

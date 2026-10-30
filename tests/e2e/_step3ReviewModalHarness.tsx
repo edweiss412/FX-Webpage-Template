@@ -230,6 +230,34 @@ export function warningCardHarnessWarnings(): ParseWarning[] {
   return WARNING_CARD_KINDS.map((kind) => byKind[kind]);
 }
 
+/** Archived pull sheet card fixture (warning-card-fixes spec §7.3, plan Task 13): one
+ *  un-included archived tab and the PULL_SHEET_ON_ARCHIVED_TAB warning the scan emits for
+ *  it (`lib/sync/pullSheetOverride.ts` `emitArchivedTabWarnings` shape: the previews
+ *  joined by " | ", the tab name on `blockRef.name`). Reached only through
+ *  `_warningCardLiveEntry.tsx?scenario=archived`, which adds the staged `dq` model the
+ *  card's controls need. */
+export const ARCHIVED_HARNESS_TAB = {
+  tabName: "OLD GEAR",
+  headerPreviews: ["AUDIO 1", "VIDEO RACK", "", "LX 4"],
+  fingerprint: "harness-archived-fp",
+  included: false,
+  contentChangedSinceAccept: false,
+};
+/** The archived warning's index in `archivedTabHarnessWarnings()`. */
+export const ARCHIVED_HARNESS_ROW = 0;
+
+export function archivedTabHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "PULL_SHEET_ON_ARCHIVED_TAB",
+      message: `Pull sheet found on archived tab "${ARCHIVED_HARNESS_TAB.tabName}"; left out of the parse.`,
+      blockRef: { kind: "pull_sheet_archived_tab", name: ARCHIVED_HARNESS_TAB.tabName },
+      rawSnippet: ARCHIVED_HARNESS_TAB.headerPreviews.join(" | "),
+    },
+  ];
+}
+
 export function nearMissHarnessWarnings(): ParseWarning[] {
   return [
     {

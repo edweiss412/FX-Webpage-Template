@@ -91,6 +91,7 @@ test.beforeAll(async () => {
       `@source "${join(REPO_ROOT, "components", "admin", "review", "attentionMark.ts")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "wizard", "Step3ReviewModal.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "DataQualityWarningControls.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "wizard", "archivedTabOffer.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "review", "ReviewModalShell.tsx")}";`,
       `@source "${join(REPO_ROOT, "components", "admin", "review", "ShowReviewSurface.tsx")}";`,
       `@source "${join(REPO_ROOT, "tests", "e2e", "_warningCardLiveEntry.tsx")}";`,
@@ -326,4 +327,41 @@ test.describe("wizard warning title row (spec §13.1)", () => {
       ).toBe(true);
     }
   });
+});
+
+/**
+ * The archived pull sheet card's include button (warning-card-fixes spec §7.3, §13 tap
+ * floors; plan Task 13): the shared `ArchivedTabIncludeButton` on the card is at least
+ * 44px tall by rect at 375 and 1280. Readiness: the entry's archived fixture published,
+ * the include visible, and real Tailwind emitted (the rows' panel resolves `p-tile-pad`).
+ */
+test.describe("archived pull sheet card include (spec §7.3)", () => {
+  for (const width of [375, 1280] as const) {
+    test(`the include button meets the 44px tap floor at ${width}px`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.setViewportSize({ width, height: HEIGHT });
+      await page.goto(`${baseUrl}?scenario=archived`);
+      await page.evaluate(() => document.fonts.ready);
+      const raw = await page.locator("html").getAttribute("data-warning-card-archived");
+      if (!raw) throw new Error("live entry did not publish data-warning-card-archived");
+      const meta = JSON.parse(raw) as { dfid: string; row: number };
+      const include = `wizard-step3-card-${meta.dfid}-warning-${meta.row}-archived-include`;
+      await expect(page.getByTestId(include)).toBeVisible();
+      const geometry = await page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        if (!el) throw new Error(`missing ${id}`);
+        el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+        const panel = el.closest('[data-testid$="-panel-card"]');
+        if (!panel) throw new Error(`no panel card around ${id}`);
+        return {
+          height: el.getBoundingClientRect().height,
+          padding: getComputedStyle(panel).paddingLeft,
+        };
+      }, include);
+      expect(geometry.padding, "CSS premise: the panel's p-tile-pad compiled to 20px").toBe(
+        TILE_PAD_PX,
+      );
+      expect(geometry.height, `include @${width}`).toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+    });
+  }
 });

@@ -61,7 +61,12 @@ type Props = {
    *  background behind the dialog (WCAG 2.4.3 / 2.1.2). The mount that can be
    *  unmounted by its own success is the one that has to hand focus somewhere first. */
   onBeforeRefresh?: () => void;
-};
+} & DqLockProps;
+/** The archived-tab row lock (warning-card-fixes §7.3, §14.1). Both optional: absent,
+ *  every existing mount is unchanged. `blocked` disables the main button only (Report is
+ *  exempt: it writes nothing the lock protects); `onRunningChange` reports this control's
+ *  own request, `true` at its start and `false` at its end, success or failure. */
+export type DqLockProps = { blocked?: boolean; onRunningChange?: (running: boolean) => void };
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
 /** Every string this control says, by row kind and action (warning-card-fixes §6.2). */
@@ -141,6 +146,8 @@ export function DataQualityWarningControls({
   reportSurfaceId,
   ground,
   onBeforeRefresh,
+  blocked,
+  onRunningChange,
 }: Props) {
   const plate: DqControlGround = ground ?? (mode === "active" ? "warning-bg" : "surface-sunken");
   const router = useRouter();
@@ -182,7 +189,9 @@ export function DataQualityWarningControls({
   }
 
   async function run() {
+    if (blocked === true) return;
     setState({ kind: "running" });
+    onRunningChange?.(true);
     try {
       const status =
         target.kind === "show" ? await runShowArm(target.slug) : await runStagedArm(target);
@@ -229,6 +238,8 @@ export function DataQualityWarningControls({
       setState({ kind: "error", copy: failCopy });
     } catch {
       setState({ kind: "error", copy: failCopy });
+    } finally {
+      onRunningChange?.(false);
     }
   }
 
@@ -276,7 +287,7 @@ export function DataQualityWarningControls({
             type="button"
             data-testid={`dq-${action}-${reportSurfaceId}`}
             onClick={run}
-            disabled={state.kind === "running"}
+            disabled={state.kind === "running" || blocked === true}
             aria-busy={state.kind === "running"}
             className={`${NEUTRAL_BTN} ${PLATE[plate]}`}
           >

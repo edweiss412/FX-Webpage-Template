@@ -787,7 +787,9 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-2f015801a216e8640203\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-53b5a9b612a657c60e0a\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 375px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-61f034eb568287d88af5\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-10: a 120-character title wraps inside the cluster at 430px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-68bbdf7e488f286d870d\",[\"warning-card-layout.spec.ts\",\"archived pull sheet card include (spec §7.3)\",\"the include button meets the 44px tap floor at 1280px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-73290c84fbeb97278f18\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-10: a 120-character title wraps inside the cluster at 375px\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-934415a5f7b265ff6a00\",[\"warning-card-layout.spec.ts\",\"archived pull sheet card include (spec §7.3)\",\"the include button meets the 44px tap floor at 375px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-9440a3d29dc6de2717b9\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-10: a 120-character title wraps inside the cluster at 320px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-9595da00428eca603348\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 320px\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-95f845a9966cc65183b4\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-11: the Judgment call tag keeps its single-line height at every width\"]]",
@@ -836,5 +838,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 729
+  "totalTests": 731
 }

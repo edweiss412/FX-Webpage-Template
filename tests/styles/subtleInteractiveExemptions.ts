@@ -133,7 +133,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // by its own element, the `{hidden.length} more` accordion <summary>.
     // 1695 -> 1696 on feat/warning-card-fixes Task 8 (the `Circle` import line); the same
     // `{hidden.length} more` <summary>.
-    line: 1696,
+    // 1696 -> 1698 on feat/warning-card-fixes Task 13 (two import lines above it); the same
+    // `{hidden.length} more` <summary>, located by its own element.
+    line: 1698,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -169,7 +171,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // by its own ignored-summary testid.
     // 3563 -> 3570 on feat/warning-card-fixes Task 12 (the Ignored / Accepted split above
     // it); located by its own ignored-summary testid.
-    line: 3570,
+    // 3570 -> 3656 on feat/warning-card-fixes Task 13 (the archived card body above it);
+    // located by its own ignored-summary testid.
+    line: 3656,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -181,7 +185,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // Added on feat/warning-card-fixes Task 12 (spec §6.4, §16.3): the wizard Accepted (N)
     // disclosure header, the Ignored twin's classes verbatim; located by its own unique
     // `wizard-step3-card-${dfid}-accepted-summary` testid. Reason copied from that twin.
-    line: 3602,
+    // 3602 -> 3688 on feat/warning-card-fixes Task 13 (the archived card body above it);
+    // located by its own accepted-summary testid.
+    line: 3688,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

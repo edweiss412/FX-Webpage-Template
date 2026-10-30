@@ -383,7 +383,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // tile `<a>`, located by its `anchorNodeRef.current = node` ref.
     // 4427 -> 4490 on feat/warning-card-fixes Task 12 (the Accepted disclosure and the shared
     // DismissedWarningRow above it); the same tile `<a>`, located by that ref.
-    line: 4490,
+    // 4490 -> 4576 on feat/warning-card-fixes Task 13 (the archived card body and its
+    // action cluster above it); the same tile `<a>`, located by that ref.
+    line: 4576,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -562,7 +564,10 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 239 -> 275 on feat/warning-card-fixes Task 11; located by its own element (the same
     // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the per-kind WORDS
     // table and the isJudgmentCall import landed above it.
-    line: 275,
+    // 275 -> 286 on feat/warning-card-fixes Task 13; located by its own element (the same
+    // `data-testid={`dq-${action}-${reportSurfaceId}`}` <button>): the DqLockProps type
+    // and the run path's lock report landed above it.
+    line: 286,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "`${NEUTRAL_BTN} ${PLATE[mode]}` — computed member access in the template.",

@@ -100,7 +100,7 @@ import {
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { JudgmentCallTag } from "@/components/admin/JudgmentCallTag";
-import { isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
+import { casePreviewsText, isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
 import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
@@ -114,6 +114,7 @@ import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import {
   DataQualityWarningControls,
+  type DqLockProps,
   type WizardDqTarget,
 } from "@/components/admin/DataQualityWarningControls";
 import { reconcileWizardWarningItems } from "@/lib/admin/wizardWarningModel";
@@ -166,6 +167,7 @@ import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import {
   ArchivedTabOffer,
   ArchivedTabIncludedNote,
+  ArchivedTabWarningActions,
   deriveArchivedOffers,
 } from "@/components/admin/wizard/archivedTabOffer";
 import {
@@ -3048,6 +3050,13 @@ const WARNING_ROW_DOT = {
   info: "bg-text-faint",
 } satisfies Record<WarningRowKind, string>;
 
+/** The archived pull sheet warning's tab name: its `blockRef.name` when that is a
+ *  non-blank string, else null (no Tab line, no include; spec §15). */
+function archivedTabNameOf(w: ParseWarning): string | null {
+  const name = w.blockRef?.name;
+  return typeof name === "string" && /\S/.test(name) ? name : null;
+}
+
 export function WarningsBreakdown({
   dfid,
   warnings,
@@ -3055,6 +3064,8 @@ export function WarningsBreakdown({
   useRawDecisions,
   wizardSessionId,
   dq,
+  archivedPullSheetTabs,
+  pullSheetOverride,
 }: {
   // dfid stays nullable (this branch's SectionCore refactor: published/missing-show
   // sources carry a null driveFileId). Per-warning controls below additionally gate
@@ -3075,6 +3086,12 @@ export function WarningsBreakdown({
    *  backend that owns its ignore state. ABSENT on every published mount and every
    *  standalone fixture, where this panel renders exactly as it always has. */
   dq?: { target: WizardDqTarget; model: WizardWarningModel };
+  /** warning-card-fixes §7.3: the staged archived tabs and the durable override, so the
+   *  archived pull sheet card can show its tab and cases and offer its include. Staged
+   *  only (the registry's isStaged spread); ABSENT on every published mount, where the
+   *  card shows neither. */
+  archivedPullSheetTabs?: ArchivedPullSheetTab[];
+  pullSheetOverride?: OverrideSnapshot;
 }) {
   // attention-alert-routing §3.2: the two parse notices render as banner LINES
   // above the list. Domain items composed HERE because the copy variant depends
@@ -3472,6 +3489,45 @@ export function WarningsBreakdown({
                         ) : null;
                       })()}
                       {(() => {
+                        // warning-card-fixes §7.3: the archived pull sheet card names its tab
+                        // and previews its cases, in the row-label slot and type ramp. Tab
+                        // needs a non-blank blockRef name; Cases needs at least one preview,
+                        // from the matched staged tab, else split from rawSnippet (L7).
+                        if (w.code !== "PULL_SHEET_ON_ARCHIVED_TAB") return null;
+                        const tabName = archivedTabNameOf(w);
+                        const matched =
+                          tabName === null
+                            ? undefined
+                            : archivedPullSheetTabs?.find((t) => t.tabName === tabName);
+                        const cases = casePreviewsText(
+                          matched
+                            ? matched.headerPreviews
+                            : typeof w.rawSnippet === "string" && w.rawSnippet.length > 0
+                              ? w.rawSnippet.split(" | ")
+                              : [],
+                        );
+                        return (
+                          <>
+                            {tabName !== null ? (
+                              <span
+                                data-testid={`wizard-step3-card-${dfid}-warning-${i}-archived-tab`}
+                                className="wrap-break-word text-xs text-text-subtle"
+                              >
+                                Tab <span className="text-text">{tabName}</span>
+                              </span>
+                            ) : null}
+                            {cases !== null ? (
+                              <span
+                                data-testid={`wizard-step3-card-${dfid}-warning-${i}-archived-cases`}
+                                className="wrap-break-word text-xs text-text-subtle"
+                              >
+                                Cases <span className="text-text">{cases}</span>
+                              </span>
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                      {(() => {
                         // The vocabulary label the near-miss detector matched (spec §4.2).
                         // Deliberately NOT a band: this surface's row label above is a plain
                         // text-xs line with no eyebrow, so an eyebrow on the candidate alone
@@ -3535,21 +3591,51 @@ export function WarningsBreakdown({
                       {/* §2.3: Report + Ignore, on ACTIVE warn rows only. Info rows stay
                           control-free (§1.1.4), and the whole cluster follows this
                           panel's existing non-null-dfid gate. */}
-                      {dq && dfid && isWarn ? (
-                        /* no-newtab-announcement: `target` is the discriminated ignore
-                           BACKEND (spec §2.3), not a browser window target. No anchor. */
-                        <DataQualityWarningControls
-                          target={dq.target}
-                          warning={w}
-                          driveFileId={dfid}
-                          mode="active"
-                          reportSurfaceId={reportSurfaceId}
-                          // The panel card is `bg-surface` (BreakdownSection), not either
-                          // published card ground — impeccable critique P1.
-                          ground="surface"
-                          onBeforeRefresh={holdFocusInPanel}
-                        />
-                      ) : null}
+                      {dq && dfid && isWarn
+                        ? (() => {
+                            const controls = (lock: DqLockProps) => (
+                              /* no-newtab-announcement: `target` is the discriminated ignore
+                                 BACKEND (spec §2.3), not a browser window target. No anchor. */
+                              <DataQualityWarningControls
+                                target={dq.target}
+                                warning={w}
+                                driveFileId={dfid}
+                                mode="active"
+                                reportSurfaceId={reportSurfaceId}
+                                // The panel card is `bg-surface` (BreakdownSection), not either
+                                // published card ground — impeccable critique P1.
+                                ground="surface"
+                                onBeforeRefresh={holdFocusInPanel}
+                                {...lock}
+                              />
+                            );
+                            if (w.code !== "PULL_SHEET_ON_ARCHIVED_TAB") return controls({});
+                            // warning-card-fixes §7.3: the archived card's include, then the
+                            // section jump (Task 17), then Report + Ignore, with include and
+                            // Ignore locking each other (§14.1). The include renders only for a
+                            // tab still in the offer set, and only inside a wizard session.
+                            const tabName = archivedTabNameOf(w);
+                            const offeredTab =
+                              tabName !== null && wizardSessionId
+                                ? (deriveArchivedOffers(
+                                    archivedPullSheetTabs ?? [],
+                                    true,
+                                    pullSheetOverride ?? null,
+                                  ).offers.find((t) => t.tabName === tabName) ?? null)
+                                : null;
+                            return (
+                              <ArchivedTabWarningActions
+                                dfid={dfid}
+                                wizardSessionId={wizardSessionId ?? ""}
+                                offeredTab={offeredTab}
+                                includeTestId={`wizard-step3-card-${dfid}-warning-${i}-archived-include`}
+                                onBeforeRefresh={holdFocusInPanel}
+                                jump={null}
+                                renderControls={controls}
+                              />
+                            );
+                          })()
+                        : null}
                     </div>
                   </li>
                 );
@@ -5452,7 +5538,15 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
           // Re-sync. Same discriminator the session threading uses.
           mode={isStaged(s) ? "rescan" : "resync"}
           useRawDecisions={s.useRawDecisions}
-          {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
+          // warning-card-fixes §7.3: the archived card's tab, cases and include read the
+          // staged tabs and override, threaded inside the same staged-only spread.
+          {...(isStaged(s)
+            ? {
+                wizardSessionId: s.wizardSessionId,
+                archivedPullSheetTabs: s.archivedPullSheetTabs,
+                pullSheetOverride: s.pullSheetOverride,
+              }
+            : {})}
           // §2.2 dq: staged-gated with the same isStaged spread the session uses. A
           // published source has no `dq` and renders exactly as it always has.
           {...(isStaged(s) && s.dq ? { dq: s.dq } : {})}

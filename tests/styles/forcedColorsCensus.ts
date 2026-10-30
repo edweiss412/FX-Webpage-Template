@@ -545,6 +545,15 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "the two paths are one button on two surrounding plates (components/admin/RescanSheetButton.tsx:222), not two user-visible states",
   },
   {
+    // Added on feat/warning-card-fixes Task 13 (spec §7.3): the shared archived-tab include
+    // button. Its `plate` prop picks the outline per placement, so the pair differs only
+    // in border colour; located by its own element, ArchivedTabIncludeButton's <button>.
+    site: "components/admin/wizard/archivedTabOffer.tsx:158",
+    disposition: "not-a-state",
+    reason:
+      "the two paths are one button on two surrounding plates (the tinted Pack list and Resolve box offer, the neutral warning card), chosen per placement by the `plate` prop and fixed for that mount, not two user-visible states",
+  },
+  {
     site: "components/admin/NeedsAttentionSummaryCard.tsx:36",
     disposition: "not-a-state",
     reason:

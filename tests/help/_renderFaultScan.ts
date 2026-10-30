@@ -861,7 +861,13 @@ export function scanCandidates(): Candidate[] {
       // `acceptedRecords.length > 0 ? <details>… : null` on the published extras. Neither is
       // a fault branch; 78 kept. Re-derived by running the guard.
       //
-      // Probed: 763 such ternaries under the derived roots, 78 on a
+      // 763 -> 768 on feat/warning-card-fixes Task 13: the archived card's `Tab` and `Cases`
+      // lines in step3ReviewSections (two), the shared include button's sr-only suffix
+      // and the card actions' `offeredTab ? <div>… : null` in archivedTabOffer (two), and
+      // the published offer's sr-only suffix (one). None is a fault branch; 78 kept.
+      // Re-derived by running the guard.
+      //
+      // Probed: 768 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

@@ -163,7 +163,11 @@ describe("Step3ReviewModal archived-tab offer in the Resolve box (spec §4.3/§4
   test("renders the Resolve box with the accept offer on a clean row with a pending archived tab", () => {
     renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
     const box = screen.getByLabelText("Resolve before publishing");
-    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+    expect(
+      within(box).getByRole("button", {
+        name: `Use this pull sheet from tab ${archivedTab.tabName}`,
+      }),
+    ).toBeInTheDocument();
   });
 
   // 2. Box offer has NO "Keep skipped" (showDismiss=false → no empty-box path).
@@ -215,7 +219,11 @@ describe("Step3ReviewModal archived-tab offer in the Resolve box (spec §4.3/§4
       );
     renderModalWith({ resolution: undefined, archivedPullSheetTabs: [archivedTab] });
     const box = screen.getByLabelText("Resolve before publishing");
-    fireEvent.click(within(box).getByRole("button", { name: "Use this show’s gear" }));
+    fireEvent.click(
+      within(box).getByRole("button", {
+        name: `Use this pull sheet from tab ${archivedTab.tabName}`,
+      }),
+    );
     await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/admin/onboarding/pull-sheet-override",
@@ -239,7 +247,11 @@ describe("Step3ReviewModal archived-tab offer in the Resolve box (spec §4.3/§4
       isPublishRunActive: true,
     });
     const box = screen.getByLabelText("Resolve before publishing");
-    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeEnabled();
+    expect(
+      within(box).getByRole("button", {
+        name: `Use this pull sheet from tab ${archivedTab.tabName}`,
+      }),
+    ).toBeEnabled();
   });
 
   // 7. Combined mode (§5 row 2): re-apply items AND the archived offer both render.
@@ -256,7 +268,11 @@ describe("Step3ReviewModal archived-tab offer in the Resolve box (spec §4.3/§4
     expect(
       within(box).getByText("Onboarding scan staged this sheet for review."),
     ).toBeInTheDocument();
-    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+    expect(
+      within(box).getByRole("button", {
+        name: `Use this pull sheet from tab ${archivedTab.tabName}`,
+      }),
+    ).toBeInTheDocument();
   });
 
   // 8. reviewItemsCorrupt + offer (§6): corrupt copy AND the archived offer both render.
@@ -269,7 +285,11 @@ describe("Step3ReviewModal archived-tab offer in the Resolve box (spec §4.3/§4
     expect(
       within(box).getByTestId(`wizard-step3-card-${DFID}-review-resolution-corrupt`),
     ).toBeInTheDocument();
-    expect(within(box).getByRole("button", { name: "Use this show’s gear" })).toBeInTheDocument();
+    expect(
+      within(box).getByRole("button", {
+        name: `Use this pull sheet from tab ${archivedTab.tabName}`,
+      }),
+    ).toBeInTheDocument();
   });
 
   // 9. Coexistence (REQUIRED, spec §9.6): offer renders in BOTH box and Pack-list.
@@ -283,7 +303,11 @@ describe("Step3ReviewModal archived-tab offer in the Resolve box (spec §4.3/§4
     expect(
       screen.getByTestId(`pack-list-archived-offer-${DFID}-${archivedTab.tabName}`),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Use this show’s gear" })).toHaveLength(2);
+    expect(
+      screen.getAllByRole("button", {
+        name: `Use this pull sheet from tab ${archivedTab.tabName}`,
+      }),
+    ).toHaveLength(2);
   });
 });
 

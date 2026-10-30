@@ -8,9 +8,11 @@
  * with react-dom/client, so the title row's geometry is measured against real
  * component markup and real compiled CSS.
  *
- * The scenario is chosen by `?scenario=`; only `layout` exists so far. The
- * fixture's row indices are published on <html data-warning-card-rows> so the
- * spec derives every testid from the fixture rather than retyping indices.
+ * The scenario is chosen by `?scenario=`: `layout` (the title-row fixture) or
+ * `archived` (the archived pull sheet card, plan Task 13). Each publishes its
+ * fixture's row indices on <html> (`data-warning-card-rows` /
+ * `data-warning-card-archived`) so the spec derives every testid from the fixture
+ * rather than retyping indices.
  *
  * NEVER imported by a Playwright spec (its test transform rewrites JSX in every
  * spec-imported .tsx). warning-card-layout.spec.ts bundles this out-of-process
@@ -18,23 +20,53 @@
  */
 import { createRoot } from "react-dom/client";
 import {
+  ARCHIVED_HARNESS_ROW,
+  ARCHIVED_HARNESS_TAB,
   HARNESS_DFID,
+  HARNESS_WSID,
   WARNING_CARD_ROWS,
+  archivedTabHarnessWarnings,
   buildSectionData,
   modalElement,
   warningCardHarnessWarnings,
 } from "./_step3ReviewModalHarness";
 
 const scenario = new URLSearchParams(window.location.search).get("scenario") ?? "layout";
-if (scenario !== "layout") throw new Error(`unknown warning-card scenario: ${scenario}`);
-
-document.documentElement.setAttribute(
-  "data-warning-card-rows",
-  JSON.stringify({ dfid: HARNESS_DFID, rows: WARNING_CARD_ROWS }),
-);
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("live harness page is missing #root");
-createRoot(rootEl).render(
-  modalElement(buildSectionData({ warnings: warningCardHarnessWarnings() })),
-);
+
+if (scenario === "layout") {
+  document.documentElement.setAttribute(
+    "data-warning-card-rows",
+    JSON.stringify({ dfid: HARNESS_DFID, rows: WARNING_CARD_ROWS }),
+  );
+  createRoot(rootEl).render(
+    modalElement(buildSectionData({ warnings: warningCardHarnessWarnings() })),
+  );
+} else if (scenario === "archived") {
+  // The archived pull sheet card (plan Task 13): the staged tab plus a `dq` model with
+  // the warning ACTIVE, so the card mounts Report + Ignore and its include button.
+  document.documentElement.setAttribute(
+    "data-warning-card-archived",
+    JSON.stringify({ dfid: HARNESS_DFID, row: ARCHIVED_HARNESS_ROW }),
+  );
+  const data = buildSectionData({
+    warnings: archivedTabHarnessWarnings(),
+    archivedPullSheetTabs: [ARCHIVED_HARNESS_TAB],
+  });
+  createRoot(rootEl).render(
+    modalElement({
+      ...data,
+      dq: {
+        target: { kind: "staged", wizardSessionId: HARNESS_WSID, driveFileId: HARNESS_DFID },
+        model: {
+          active: [{ index: ARCHIVED_HARNESS_ROW, reportSurfaceId: "harness-archived-sid" }],
+          ignored: [],
+        },
+      },
+    }),
+  );
+} else {
+  throw new Error(`unknown warning-card scenario: ${scenario}`);
+}
