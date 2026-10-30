@@ -42,6 +42,7 @@ vi.mock("@/app/admin/onboarding/_actions/stagedWarningIgnore", () => ({
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ParseWarning } from "@/lib/parser/types";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import {
   buildStagedSectionData,
@@ -303,6 +304,33 @@ describe("published mount", () => {
     expect(showUseRaw).toHaveLength(0);
   });
 
+  it("Save sends ours (useRaw false) from a persisted sheet reading (review R1 C1)", () => {
+    // The other direction: the card's persisted reading is the sheet's, so picking ours
+    // drafts false, and the show action must receive false.
+    const decision = {
+      code: ROOM_A.code,
+      contentHash: "hash-a",
+      preference: "raw",
+      applied: true,
+    } as UseRawDecision;
+    const data = { ...publishedData(), useRawDecisions: [decision] };
+    render(
+      <WarningAnnounceContext.Provider value={{ announce }}>
+        {buildSectionWarningExtras({ bySection: { rooms: handModel([item(ROOM_A, "rs-a")], []) } })(
+          "rooms",
+          data,
+        )}
+      </WarningAnnounceContext.Provider>,
+    );
+    const card = cardFor(screen.getByTestId("section-warning-active-rooms"), ROOM_A.rawSnippet!);
+    fireEvent.click(within(card).getByTestId("use-raw-toggle-off-showpage"));
+    const main = within(card).getByTestId("dq-ignore-rs-a");
+    premiseHolds("picking ours drafted a change", main.textContent === "Save");
+    fireEvent.click(main);
+    expect(showUseRaw).toHaveLength(1);
+    expect(showUseRaw[0]!.args[2]).toBe(false);
+  });
+
   it("Save on an Accepted-list card saves the reading only", async () => {
     renderPublished(handModel([], [item(ROOM_B, "rs-b")]));
     const card = cardFor(screen.getByTestId("section-accepted-list-rooms"), ROOM_B.rawSnippet!);
@@ -311,6 +339,9 @@ describe("published mount", () => {
     expect(main.textContent).toBe("Save");
     fireEvent.click(main);
     expect(showUseRaw).toHaveLength(1);
+    // Review R1 C1: the picked reading reaches the show action (args: showId,
+    // warningRef, useRaw).
+    expect(showUseRaw[0]!.args[2]).toBe(true);
     await act(async () => {
       showUseRaw[0]?.resolve({ ok: true });
     });

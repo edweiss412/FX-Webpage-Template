@@ -629,6 +629,10 @@ describe("§14 deferred-response probe", () => {
     t = mount(RAW_PENDING, "ignored");
     fireEvent.click(ours());
     fireEvent.click(main());
+    // Review R1 C1: the reading sent is the one picked (ours = useRaw false), on the
+    // wizard's staged action (args: session, sheet, warningRef, useRaw).
+    expect(useRawCalls).toHaveLength(1);
+    expect(useRawCalls[0]!.args[3]).toBe(false);
     await settle(useRawCalls[0], OK);
     expectIn(V("ours", "Undo accept"), "V");
     expect(note()?.textContent).toBe(applyPending);
@@ -648,6 +652,25 @@ describe("§16.1 deferred choice rules", () => {
     expect(document.activeElement).toBe(sheet());
     expectIn(D("sheet"), "arrow selects");
     expect(useRawCalls).toHaveLength(0);
+  });
+
+  it("Save sends the picked reading, both directions (review R1 C1)", async () => {
+    // The sheet's reading (useRaw true) from the clean `ours` state...
+    let t = mount();
+    toSaving();
+    expect(useRawCalls).toHaveLength(1);
+    expect(useRawCalls[0]!.args[3]).toBe(true);
+    await settle(useRawCalls[0], FAIL);
+    t.unmount();
+    // ...and ours (useRaw false) from a persisted sheet reading.
+    useRawCalls.length = 0;
+    t = mount(RAW_APPLIED);
+    fireEvent.click(ours());
+    fireEvent.click(main());
+    expect(useRawCalls).toHaveLength(1);
+    expect(useRawCalls[0]!.args[3]).toBe(false);
+    await settle(useRawCalls[0], FAIL);
+    t.unmount();
   });
 
   it("Save failure restores the draft and shows the save error", async () => {

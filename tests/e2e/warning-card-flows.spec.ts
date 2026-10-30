@@ -181,6 +181,10 @@ test.describe("deferred reading choice (spec §6.3)", () => {
     expect(focused).toBe(anchorId);
     const calls = await page.evaluate(() => (window.__warningCardCalls ?? []).map((c) => c.name));
     expect(calls).toEqual(["setStagedUseRawDecisionAction", "setStagedWarningIgnore"]);
+    // Review R1 C1 sweep: the reading sent is the one picked (the sheet's, useRaw true;
+    // the staged action's args are session, sheet, warningRef, useRaw).
+    const sent = await page.evaluate(() => window.__warningCardCalls?.[0]?.args[3]);
+    expect(sent).toBe(true);
   });
 });
 
