@@ -856,7 +856,12 @@ export function scanCandidates(): Candidate[] {
       // crew-search history above (747 -> 760) and this branch's (747 -> 748) both start at 747,
       // so the merged tree holds 761. Re-derived by running the guard on the merged tree.
       //
-      // Probed: 761 such ternaries under the derived roots, 78 on a
+      // 761 -> 763 on feat/warning-card-fixes Task 12: the Accepted (N) disclosure adds
+      // `accepted.length > 0 ? <details>… : null` on the wizard and
+      // `acceptedRecords.length > 0 ? <details>… : null` on the published extras. Neither is
+      // a fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // Probed: 763 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

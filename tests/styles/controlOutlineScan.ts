@@ -201,7 +201,9 @@ export const CENSUS: readonly CensusRow[] = [
   // above it); located by its own `wizard-step3-card-${dfid}-report-toggle` testid.
   // 4994 -> 5027 on feat/warning-card-fixes Task 8 (the row-kind maps and the `Circle`
   // import above it); located by its own report-toggle testid.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5027 },
+  // 5027 -> 5090 on feat/warning-card-fixes Task 12 (the Accepted disclosure and the shared
+  // DismissedWarningRow above it); located by its own report-toggle testid.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5090 },
   // spec §4.2 row 19 — spec cites 4178; live 4213, same reason as row 18 plus
   // the 2026-08-25 tinted-plate comment above `ArchivedTabRescanNeeded`
   // Line moved 4424 -> 4443 on 2026-08-27 by this arc's own Task 4, which added 27 lines
@@ -254,7 +256,9 @@ export const CENSUS: readonly CensusRow[] = [
   // `disabled={draft.trim()...}` opener (the report-submit <button>).
   // 5076 -> 5109 on feat/warning-card-fixes Task 8, same cause; located by its own
   // report-submit testid and `disabled={draft.trim()...}` opener.
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5109 },
+  // 5109 -> 5172 on feat/warning-card-fixes Task 12, same cause; located by its own
+  // report-submit testid.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 5172 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   // 728 -> 821 on the diagram-failure-retry arc, which inserted the retry state,
   // the in-flight overlay and the availability sweep above this chip; then

@@ -1943,10 +1943,12 @@ describe("whole-diff R1 repairs", () => {
   test("P1: two ignored rows of a NON-UNKNOWN_FIELD family are still distinguishable", () => {
     // The earlier repair gated the discriminator to UNKNOWN_FIELD, so this family
     // rendered one repeated catalog title above two identical Un-ignore buttons.
+    // warning-card-fixes spec §6.4: HOTEL_GUEST_SPLIT_AMBIGUOUS is a judgment call, so its
+    // dismissed rows now sit in Accepted (N), which shares the Ignored row markup.
     const warnings = [HOTEL("Room 214 | 2 guests"), HOTEL("Room 318 | 3 guests")];
     const q = renderBody(sectionData({ warnings }, { dq: dqFor([], [0, 1]) }), "warnings");
     const rows = Array.from(
-      q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).querySelectorAll("li"),
+      q.getByTestId(`wizard-step3-card-${DFID}-accepted-list`).querySelectorAll("li"),
     );
     expect(rows).toHaveLength(2);
     // Derived from the fixture cells, not hardcoded prose.
@@ -1963,7 +1965,8 @@ describe("whole-diff R1 repairs", () => {
       sectionData({ warnings: [HOTEL(long)] }, { dq: dqFor([], [0]) }),
       "warnings",
     );
-    const text = q.getByTestId(`wizard-step3-card-${DFID}-ignored-list`).textContent ?? "";
+    // warning-card-fixes spec §6.4: a dismissed judgment row sits in Accepted (N).
+    const text = q.getByTestId(`wizard-step3-card-${DFID}-accepted-list`).textContent ?? "";
     expect(text).toContain("…");
     expect(text.length).toBeLessThan(long.length);
   });

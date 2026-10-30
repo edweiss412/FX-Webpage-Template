@@ -72,7 +72,21 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // Then 282 -> 285 when the wizard-ignore arc gave the mount its discriminated
     // `target` prop plus its new-tab-scanner exemption comment. Re-measured on the live
     // tree by identity, not by adding a delta: 285 is that same `<summary>`.
-    line: 285,
+    // 285 -> 294 on feat/warning-card-fixes Task 12 (the record split above it); located by
+    // its own `section-ignored-summary-${id}` testid.
+    line: 294,
+    tag: "summary",
+    token: "text-text-subtle",
+    family: "summary-disclosure",
+    reason:
+      "Disclosure header over the extra parse-warning detail; the warning card itself carries the emphasis (DESIGN §1.1a Family S)",
+  },
+  {
+    file: "components/admin/showpage/sectionWarningExtras.tsx",
+    // Added on feat/warning-card-fixes Task 12 (spec §6.4, §16.3): the Accepted (N)
+    // disclosure header, the Ignored twin's classes verbatim; located by its own
+    // `section-accepted-summary-${id}` testid. Reason copied from that twin.
+    line: 332,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -153,7 +167,21 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // it); located by its own unique ignored-summary testid.
     // 3530 -> 3563 on feat/warning-card-fixes Task 8 (the row-kind maps above it); located
     // by its own ignored-summary testid.
-    line: 3563,
+    // 3563 -> 3570 on feat/warning-card-fixes Task 12 (the Ignored / Accepted split above
+    // it); located by its own ignored-summary testid.
+    line: 3570,
+    tag: "summary",
+    token: "text-text-subtle",
+    family: "summary-disclosure",
+    reason:
+      "Wizard Ignored (N) disclosure header; a caption-weight fold label over warnings the operator has already dismissed, so the active list above it stays the loudest thing in the panel. Copies the published sectionWarningExtras disclosure verbatim, including this token (DESIGN §1.1a Family S)",
+  },
+  {
+    file: "components/admin/wizard/step3ReviewSections.tsx",
+    // Added on feat/warning-card-fixes Task 12 (spec §6.4, §16.3): the wizard Accepted (N)
+    // disclosure header, the Ignored twin's classes verbatim; located by its own unique
+    // `wizard-step3-card-${dfid}-accepted-summary` testid. Reason copied from that twin.
+    line: 3602,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

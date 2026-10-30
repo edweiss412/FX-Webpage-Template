@@ -381,7 +381,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // it); the scanner reports one unclassified site in this file, 4394, the same tile `<a>`.
     // 4394 -> 4427 on feat/warning-card-fixes Task 8 (the row-kind maps above it); the same
     // tile `<a>`, located by its `anchorNodeRef.current = node` ref.
-    line: 4427,
+    // 4427 -> 4490 on feat/warning-card-fixes Task 12 (the Accepted disclosure and the shared
+    // DismissedWarningRow above it); the same tile `<a>`, located by that ref.
+    line: 4490,
     tag: "a",
     category: "full-bleed",
     reason:

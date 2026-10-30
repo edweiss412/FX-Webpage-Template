@@ -649,7 +649,11 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(
       undecidable.length,
       "the cannot-decide set moved; read the new rows and either resolve them or re-pin",
-    ).toBe(127);
+      // 127 -> 129 on feat/warning-card-fixes Task 12: the two Accepted (N) disclosure
+      // chevrons (sectionWarningExtras.tsx, step3ReviewSections.tsx), each the same
+      // `<ChevronRight>` shape as its Ignored twin, which is already in this set. Read on the
+      // tree by listing the set's rows in those two files.
+    ).toBe(129);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

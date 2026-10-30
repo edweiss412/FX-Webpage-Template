@@ -143,7 +143,10 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     expect(extras).toMatch(
       /if \(!model \|\| \(model\.active\.length === 0 && model\.ignored\.length === 0\)\) return null;/,
     );
-    expect(extras).toMatch(/ignoredWarnings\.length > 0 \? \(/);
+    // warning-card-fixes §6.4 (Task 12): the one disclosure became two, each over its own
+    // record array, and each is still a plain ternary-to-null.
+    expect(extras).toMatch(/ignoredRecords\.length > 0 \? \(/);
+    expect(extras).toMatch(/acceptedRecords\.length > 0 \? \(/);
     // show-alert-compact §5.2 tightened this guard: a null summary is no longer
     // sufficient, since a zero/negative/non-finite total must also suppress the
     // entry. The conditional is now a derived `showDataGaps` boolean consumed by

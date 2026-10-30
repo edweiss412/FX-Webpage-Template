@@ -3118,7 +3118,13 @@ export function WarningsBreakdown({
   // control state across warnings after a rescan/refresh reorders the array.
   // Keyed on the RENDERED rows so a trimmed list cannot shift control state.
   const keys = stableWarningKeys(rows);
-  const ignoredKeys = stableWarningKeys(ignoredItems.map((item) => item.w));
+  // warning-card-fixes §6.4: the ignored partition splits AT RENDER into needs-look rows
+  // (Ignored) and judgment calls (Accepted). The partition itself, the rail and heading
+  // counts and the ignore store are unchanged; each list keys its own rows.
+  const ignoredOnly = ignoredItems.filter((item) => !isJudgmentCall(item.w));
+  const accepted = ignoredItems.filter((item) => isJudgmentCall(item.w));
+  const ignoredKeys = stableWarningKeys(ignoredOnly.map((item) => item.w));
+  const acceptedKeys = stableWarningKeys(accepted.map((item) => item.w));
   // Impeccable critique P0 (2026-08-28): a successful ignore moves its row to the
   // other list, unmounting the button that holds focus. Focus then falls to `<body>`,
   // which is OUTSIDE the review modal's Tab trap — `useDialogFocus` binds its keydown
@@ -3557,14 +3563,15 @@ export function WarningsBreakdown({
             attribute: they are filtered out of attention, so a stale anchor here would
             shadow the active target the menu is trying to reach. Rendered OUTSIDE the
           active-list ternary so it survives the all-ignored case, which is exactly
-          when it is the only way back to those rows. */}
-      {dq && dfid && ignoredItems.length > 0 ? (
+          when it is the only way back to those rows. warning-card-fixes §6.4: it now
+          holds needs-look rows only; judgment calls sit in Accepted (N) below it. */}
+      {dq && dfid && ignoredOnly.length > 0 ? (
         <details data-testid={`wizard-step3-card-${dfid}-ignored-warnings`} className="group mt-3">
           <summary
             data-testid={`wizard-step3-card-${dfid}-ignored-summary`}
             className="min-h-tap-min inline-flex cursor-pointer list-none items-center text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
           >
-            Ignored ({ignoredItems.length}){" "}
+            Ignored ({ignoredOnly.length}){" "}
             <ChevronRight
               aria-hidden="true"
               className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
@@ -3574,87 +3581,143 @@ export function WarningsBreakdown({
             data-testid={`wizard-step3-card-${dfid}-ignored-list`}
             className="mt-3 flex flex-col gap-3"
           >
-            {ignoredItems.map(({ w, reportSurfaceId, ignoreOrigin }, pos) => {
-              // Impeccable critique P1 (2026-08-28): the catalog title names the CLASS
-              // ("Row we couldn't match"), never the row — the same fact the active
-              // row's own comment records above. The title alone gave three ignored
-              // UNKNOWN_FIELD rows three identical lines and three identical Un-ignore
-              // buttons, so the operator could not tell which one they were restoring.
-              // The row label is the discriminator, gated to UNKNOWN_FIELD for exactly
-              // the reason the active row gates it.
-              // Whole-diff R1 P1: EVERY ignored row needs a discriminator, not just the
-              // one family. `labelFromRawSnippet` stays gated to UNKNOWN_FIELD — only that
-              // code writes the `<label> | <value>` shape, and three other families put a
-              // pipe in the field and would render a fragment as a field label. For
-              // everything else the normalized snippet IS the identity: it is the exact
-              // content the ignore fingerprint is computed from, so two rows that render
-              // differently here are two different dismissals. Without it the parser's two
-              // committed HOTEL_GUEST_SPLIT_AMBIGUOUS emits render as one repeated title
-              // above two identical Un-ignore buttons.
-              const rowLabel =
-                w.code === "UNKNOWN_FIELD"
-                  ? labelFromRawSnippet(w.rawSnippet)
-                  : ignoredRowSnippet(w.rawSnippet);
-              return (
-                <li key={ignoredKeys[pos]} className="flex min-w-0 flex-col gap-0.5">
-                  <span className="wrap-break-word text-sm text-text">{reviewWarningTitle(w)}</span>
-                  {rowLabel ? (
-                    <span className="wrap-break-word text-xs text-text-subtle">
-                      Sheet row <span className="text-text">{rowLabel}</span>
-                    </span>
-                  ) : null}
-                  {/* Impeccable audit P3 (2026-08-28): the SAME warn-severity gate the
-                      active rows carry (§1.1.4). Without it a legacy info-severity
-                      ignore renders an Un-ignore whose success moves the row to a list
-                      that will never offer Ignore back. */}
-                  {isWarnSeverity(w) ? (
-                    /* no-newtab-announcement: `target` is the discriminated ignore
-                       BACKEND (spec §2.3), not a browser window target. No anchor. */
-                    <DataQualityWarningControls
-                      // Whole-diff P0: route by where this ignore LIVES, not by the row's
-                      // linkage. A LINKED row can hold a staged dismissal from before it
-                      // gained its show, and the slug route would delete nothing while
-                      // still reporting success.
-                      target={
-                        ignoreOrigin !== "show" && dq.target.kind !== "staged"
-                          ? {
-                              kind: "staged",
-                              wizardSessionId: wizardSessionId ?? "",
-                              driveFileId: dfid,
-                            }
-                          : dq.target
-                      }
-                      /* Whole-diff R1 P0: `both` means the dismissal is in the staged
-                         column AND the durable table. The staged arm above clears one;
-                         this clears the other in the same interaction, so the operator
-                         is never told "Warning restored" about a row the untouched
-                         store still hides. */
-                      {...(ignoreOrigin === "both" && dq.target.kind === "show"
-                        ? { alsoClear: dq.target }
-                        : {})}
-                      /* Whole-diff R2 P1: the REPORT's identity is the row's show, not
-                         the ignore backend's. The reroute above can send the ignore to
-                         staging on a row that has a show; without this the report filed
-                         from this disclosure carried show_id null and was labeled a
-                         staged sheet with no show record. */
-                      reportShowId={dq.target.kind === "show" ? dq.target.showId : null}
-                      warning={w}
-                      driveFileId={dfid}
-                      mode="ignored"
-                      reportSurfaceId={reportSurfaceId}
-                      // Same `bg-surface` panel card as the active list; this is not a
-                      // muted published card.
-                      ground="surface"
-                      onBeforeRefresh={holdFocusInPanel}
-                    />
-                  ) : null}
-                </li>
-              );
-            })}
+            {ignoredOnly.map((item, pos) => (
+              <DismissedWarningRow
+                key={ignoredKeys[pos]}
+                item={item}
+                dqTarget={dq.target}
+                dfid={dfid}
+                wizardSessionId={wizardSessionId}
+                onBeforeRefresh={holdFocusInPanel}
+              />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {/* warning-card-fixes §6.4 Accepted (N): the judgment calls of the ignored
+          partition, after Ignored (the attention menu's group order). Same classes, same
+          row markup, same reason to sit outside the active-list ternary. */}
+      {dq && dfid && accepted.length > 0 ? (
+        <details data-testid={`wizard-step3-card-${dfid}-accepted-warnings`} className="group mt-3">
+          <summary
+            data-testid={`wizard-step3-card-${dfid}-accepted-summary`}
+            className="min-h-tap-min inline-flex cursor-pointer list-none items-center text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+          >
+            Accepted ({accepted.length}){" "}
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+            />
+          </summary>
+          <ul
+            data-testid={`wizard-step3-card-${dfid}-accepted-list`}
+            className="mt-3 flex flex-col gap-3"
+          >
+            {accepted.map((item, pos) => (
+              <DismissedWarningRow
+                key={acceptedKeys[pos]}
+                item={item}
+                dqTarget={dq.target}
+                dfid={dfid}
+                wizardSessionId={wizardSessionId}
+                onBeforeRefresh={holdFocusInPanel}
+              />
+            ))}
           </ul>
         </details>
       ) : null}
     </BreakdownSection>
+  );
+}
+
+/** One row of the wizard's Ignored (N) or Accepted (N) disclosure (§2.3; warning-card-fixes
+ *  §6.4: both lists share this markup). Extracted so the two disclosures render one row
+ *  shape, not two copies of it. */
+function DismissedWarningRow({
+  item: { w, reportSurfaceId, ignoreOrigin },
+  dqTarget,
+  dfid,
+  wizardSessionId,
+  onBeforeRefresh,
+}: {
+  item: WizardWarningItem & { w: ParseWarning };
+  dqTarget: WizardDqTarget;
+  dfid: string;
+  wizardSessionId: string | undefined;
+  onBeforeRefresh: () => void;
+}) {
+  // Impeccable critique P1 (2026-08-28): the catalog title names the CLASS
+  // ("Row we couldn't match"), never the row — the same fact the active
+  // row's own comment records above. The title alone gave three ignored
+  // UNKNOWN_FIELD rows three identical lines and three identical Un-ignore
+  // buttons, so the operator could not tell which one they were restoring.
+  // The row label is the discriminator, gated to UNKNOWN_FIELD for exactly
+  // the reason the active row gates it.
+  // Whole-diff R1 P1: EVERY ignored row needs a discriminator, not just the
+  // one family. `labelFromRawSnippet` stays gated to UNKNOWN_FIELD — only that
+  // code writes the `<label> | <value>` shape, and three other families put a
+  // pipe in the field and would render a fragment as a field label. For
+  // everything else the normalized snippet IS the identity: it is the exact
+  // content the ignore fingerprint is computed from, so two rows that render
+  // differently here are two different dismissals. Without it the parser's two
+  // committed HOTEL_GUEST_SPLIT_AMBIGUOUS emits render as one repeated title
+  // above two identical Un-ignore buttons.
+  const rowLabel =
+    w.code === "UNKNOWN_FIELD"
+      ? labelFromRawSnippet(w.rawSnippet)
+      : ignoredRowSnippet(w.rawSnippet);
+  return (
+    <li className="flex min-w-0 flex-col gap-0.5">
+      <span className="wrap-break-word text-sm text-text">{reviewWarningTitle(w)}</span>
+      {rowLabel ? (
+        <span className="wrap-break-word text-xs text-text-subtle">
+          Sheet row <span className="text-text">{rowLabel}</span>
+        </span>
+      ) : null}
+      {/* Impeccable audit P3 (2026-08-28): the SAME warn-severity gate the
+            active rows carry (§1.1.4). Without it a legacy info-severity
+            ignore renders an Un-ignore whose success moves the row to a list
+            that will never offer Ignore back. */}
+      {isWarnSeverity(w) ? (
+        /* no-newtab-announcement: `target` is the discriminated ignore
+             BACKEND (spec §2.3), not a browser window target. No anchor. */
+        <DataQualityWarningControls
+          // Whole-diff P0: route by where this ignore LIVES, not by the row's
+          // linkage. A LINKED row can hold a staged dismissal from before it
+          // gained its show, and the slug route would delete nothing while
+          // still reporting success.
+          target={
+            ignoreOrigin !== "show" && dqTarget.kind !== "staged"
+              ? {
+                  kind: "staged",
+                  wizardSessionId: wizardSessionId ?? "",
+                  driveFileId: dfid,
+                }
+              : dqTarget
+          }
+          /* Whole-diff R1 P0: `both` means the dismissal is in the staged
+               column AND the durable table. The staged arm above clears one;
+               this clears the other in the same interaction, so the operator
+               is never told "Warning restored" about a row the untouched
+               store still hides. */
+          {...(ignoreOrigin === "both" && dqTarget.kind === "show" ? { alsoClear: dqTarget } : {})}
+          /* Whole-diff R2 P1: the REPORT's identity is the row's show, not
+               the ignore backend's. The reroute above can send the ignore to
+               staging on a row that has a show; without this the report filed
+               from this disclosure carried show_id null and was labeled a
+               staged sheet with no show record. */
+          reportShowId={dqTarget.kind === "show" ? dqTarget.showId : null}
+          warning={w}
+          driveFileId={dfid}
+          mode="ignored"
+          reportSurfaceId={reportSurfaceId}
+          // Same `bg-surface` panel card as the active list; this is not a
+          // muted published card.
+          ground="surface"
+          onBeforeRefresh={onBeforeRefresh}
+        />
+      ) : null}
+    </li>
   );
 }
 
