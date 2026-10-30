@@ -165,15 +165,15 @@ affordance is a fill or a border keep it as-is.
 | `--color-accent-text` on `--color-accent`         | 8.23:1 | 8.23:1 | AA body both modes (same pair)                           |
 | `--color-accent-edge` vs `--color-accent`         | 3.61:1 | 1.15:1 | ≥3:1 non-text (light = the load-bearing 1.4.11 boundary; dark edge is decorative — the track itself is the boundary, next row) |
 | `--color-accent-edge` vs `--color-bg`             | 8.06:1 | 9.39:1 | ≥3:1 non-text (dark's toggle boundary is `--color-accent` vs bg, first accent row above) |
-| `--color-status-positive` dot on bg/surface       | 3.9:1  | 9.4:1  | ≥3:1 graphical (dot)                                     |
+| `--color-status-positive` dot on bg/surface       | 3.9:1  | 8.9:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
 | `--color-status-positive-text` on `--color-surface` | 6.7:1 | 11.5:1 | AA body (≥4.5:1); also the saved-copy bar's `updated` state (spec 2026-10-26 §4.7.2), pinned by tests/styles/savedCopyBarContrast.test.ts |
 | `--color-status-positive-text` on `--color-bg`    | 6.4:1  | 12.2:1 | AA body (≥4.5:1); same pin                               |
-| `--color-status-review` dot on bg/surface         | 3.8:1  | 10.1:1 | ≥3:1 graphical (dot)                                     |
-| `--color-status-review-text` on bg/surface        | 7.3:1  | 11.9:1 | AA body (≥4.5:1)                                         |
-| `--color-status-warn` dot on bg/surface           | 4.1:1  | 8.8:1  | ≥3:1 graphical (dot)                                     |
-| `--color-status-warn-text` on bg/surface          | 8.1:1  | 10.3:1 | AA body (≥4.5:1)                                         |
-| `--color-status-idle` dot on bg/surface           | 3.2:1  | 4.0:1  | ≥3:1 graphical (dot)                                     |
-| `--color-status-degraded` dot on bg/surface       | 6.3:1  | 4.8:1  | ≥3:1 graphical (dot)                                     |
+| `--color-status-review` dot on bg/surface         | 3.8:1  | 9.5:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-review-text` on bg/surface        | 7.3:1  | 11.2:1 | AA body (≥4.5:1); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-warn` dot on bg/surface           | 4.0:1  | 8.3:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-warn-text` on bg/surface          | 8.1:1  | 9.7:1  | AA body (≥4.5:1); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-idle` dot on bg/surface           | 3.2:1  | 3.8:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-degraded` dot on bg/surface       | 6.3:1  | 4.8:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
 | `--color-status-degraded-text` on degraded fill   | 6.5:1  | 4.7:1  | AA body (≥4.5:1) — text-on-fill, not on surface         |
 | `--color-text` on `--color-warning-bg`            | 15.6:1 | 10.6:1 | AAA body — attention-banner body copy on the warning wash (published-show attention surface, 2026-07-19) |
 | `--color-text-strong` on `--color-warning-bg`     | 17.4:1 | 12.0:1 | AAA body — attention-banner title line                   |

@@ -162,7 +162,7 @@ Every page this route renders carries exactly one marker element in its body:
 <template id="fxav-saved-copy" data-v="3" data-disposition="save|keep|hold|check|purge" ...></template>
 ```
 
-A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8). A `keep` marker carries `data-viewer` for the crew identity the server had already resolved when it failed. **Every marker carries `data-show-id` whenever the server knows the show**, which is every arm except the not-found page (the token resolved to no show) and the `infra_error` arm (resolution never finished). Arms whose access result lacks the show id today (the `unpublished` result) gain it, since the RPC has already resolved it.
+A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8). A `keep` marker carries `data-viewer` for the crew identity the server had already resolved when it failed. **Every marker carries `data-show-id` whenever the server knows the show**, which is every arm except the not-found page (the token resolved to no show), the `infra_error` arm (resolution never finished), and the route's `error.tsx` (a client error boundary receives only `error` and `reset`). Arms whose access result lacks the show id today (the `unpublished` result) gain it, since the RPC has already resolved it.
 
 | Page rendered | Disposition | Rendered by |
 |---|---|---|
@@ -273,7 +273,7 @@ When the worker serves `S(U)`, it rewrites the stored HTML immediately after `<h
 - `<meta name="fxav-served" content="offline|slow|server-error|ended" data-saved-at="<ISO>">`
 - a `<style>` block that paints a sticky `body::before` notice ("Saved copy from {time}") while `html` lacks `data-fxav-bar="mounted"`.
 
-`<SavedCopyBar>` reads the meta synchronously on mount, sets `data-fxav-bar="mounted"` on `html` after mounting, and from then on owns the notice. If the page's JavaScript fails to load or hydrate, the CSS notice stays visible, so a saved copy can never appear without a notice. A document without the meta is `live`. An unknown `content` value is treated as `offline`.
+`<SavedCopyBar>` reads the meta in its mount effect, after hydration and never during render, sets `data-fxav-bar="mounted"` on `html` after mounting, and from then on owns the notice. If the page's JavaScript fails to load or hydrate, the CSS notice stays visible, so a saved copy can never appear without a notice. A document without the meta is `live`. An unknown `content` value is treated as `offline`.
 
 Ratified by the spike (§11): the injected meta produced no hydration warning in Chromium or WebKit, and the page hydrated exactly like a byte-for-byte copy. The CSS notice adds no element to the body, so React has nothing to reconcile. The plan proves that with the same hydration check.
 
@@ -281,7 +281,7 @@ Ratified by the spike (§11): the injected meta produced no hydration warning in
 
 `<SavedCopyBar>` is a client component in `components/offline/` (not `components/crew/**`, which the layout redesign owns). `_CrewShell.tsx` renders `<SavedCopySlot>` directly after `<Header>`, a one-line insertion; the slot renders the marker, the bar (crew viewers only) and the registrar. Bar props: `renderedAt` (ISO string), `sheetUnavailable` (`data.lastSyncStatus === 'sheet_unavailable'`), `slug`, `shareToken`.
 
-The bar is full width, `sticky top-0`, above section content and below the header. In the `hidden` state it renders nothing.
+The bar is full width, `sticky top-0`, above section content and below the header. In the `hidden` state it renders no visible bar; its empty live region stays mounted so the first state change is announced.
 
 **Inputs.** `mode` (from the meta, §4.7.1; becomes `live` when `renderedAt` differs from its value at mount, which means an RSC refresh brought server content), `online` (`navigator.onLine` plus `online`/`offline` events), `age` (now minus `renderedAt`, re-evaluated every 60 seconds), `sheetUnavailable`, `updating` (a fresh copy is saved and the reload is under way, §4.7.3), `justUpdated` (first 4 seconds after a recovery reload).
 
@@ -289,7 +289,7 @@ The bar is full width, `sticky top-0`, above section content and below the heade
 
 | State | When | Tone token | Icon | Copy |
 |---|---|---|---|---|
-| `hidden` | mode `live`, online, sheet fine, not `justUpdated` | none | none | nothing rendered |
+| `hidden` | mode `live`, online, sheet fine, not `justUpdated` | none | none | no visible bar (the empty live region stays mounted) |
 | `saved-fresh` | mode `offline`, `slow` or `server-error`, or mode `live` with `online` false; age under 6 h | `bg-info-bg` | signal-off | {lead} Showing your saved copy from {time} ({ago}). |
 | `saved-old` | same, age 6 h or more | `bg-stale-tint` | clock | {lead} Your saved copy is from {time} ({ago}). Things may have changed since then. |
 | `ended` | mode `ended` | `bg-stale-tint` | clock | **This show has ended.** You're seeing the last version, from {time}. |

@@ -25,6 +25,12 @@
  * later render in this document is server content, and must not bring the
  * saved-copy notice back.
  *
+ * The live region (role status, polite) is always mounted, server render
+ * included, and the visible bar renders inside it. A region inserted together
+ * with its text is not announced, so the region has to exist before the first
+ * state change fills it. While the bar is hidden the region is empty and
+ * carries no class, so it paints nothing and has no height.
+ *
  * `slug` and `shareToken` are accepted for the bar's links (spec 4.7.2). The
  * layout classes behind the spec's Dimensional Invariants (sticky placement,
  * stretch, the icon's flex-none) are not here yet; they land with their
@@ -82,46 +88,48 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
     if (hasReading) document.documentElement.setAttribute(MOUNTED_ATTRIBUTE, "mounted");
   }, [hasReading]);
 
-  if (reading === null) return null;
-
-  const mode = renderedAt === mountRenderedAt ? reading.mode : "live";
-  const view = deriveBarView({
-    ...reading,
-    mode,
-    online,
-    savedAt: mode === "live" ? renderedAt : reading.savedAt,
-    sheetUnavailable,
-    updating: false,
-    justUpdated: false,
-  });
-  // `hidden` is the one state with no icon, and it renders nothing.
-  if (view.icon === null) return null;
-  const Icon = ICONS[view.icon];
+  let view: BarView | null = null;
+  if (reading !== null) {
+    const mode = renderedAt === mountRenderedAt ? reading.mode : "live";
+    view = deriveBarView({
+      ...reading,
+      mode,
+      online,
+      savedAt: mode === "live" ? renderedAt : reading.savedAt,
+      sheetUnavailable,
+      updating: false,
+      justUpdated: false,
+    });
+  }
+  // `hidden` is the one state with no icon, and it shows nothing.
+  const Icon = view === null || view.icon === null ? null : ICONS[view.icon];
 
   return (
-    <div
-      data-testid="saved-copy-bar"
-      data-state={view.state}
-      role="status"
-      aria-live="polite"
-      className={cn("flex items-start gap-2 px-4 py-2 text-sm", view.tone)}
-    >
-      <Icon
-        aria-hidden="true"
-        data-testid="saved-copy-bar-icon"
-        className={cn(
-          "mt-0.5 size-4",
-          view.icon === "sync" && "animate-spin motion-reduce:animate-none",
-        )}
-      />
-      <p data-testid="saved-copy-bar-content">
-        {view.lead !== null && (
-          <>
-            <strong className="font-semibold">{view.lead}</strong>{" "}
-          </>
-        )}
-        {view.body}
-      </p>
+    <div data-testid="saved-copy-bar-region" role="status" aria-live="polite">
+      {view !== null && Icon !== null && (
+        <div
+          data-testid="saved-copy-bar"
+          data-state={view.state}
+          className={cn("flex items-start gap-2 px-4 py-2 text-sm", view.tone)}
+        >
+          <Icon
+            aria-hidden="true"
+            data-testid="saved-copy-bar-icon"
+            className={cn(
+              "mt-0.5 size-4",
+              view.icon === "sync" && "animate-spin motion-reduce:animate-none",
+            )}
+          />
+          <p data-testid="saved-copy-bar-content">
+            {view.lead !== null && (
+              <>
+                <strong className="font-semibold">{view.lead}</strong>{" "}
+              </>
+            )}
+            {view.body}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

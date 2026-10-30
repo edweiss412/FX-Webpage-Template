@@ -7,9 +7,16 @@
  * server never sees the `fxav-served` meta the worker injects, and cannot know
  * the phone's connection. The meta, the clock and `navigator.onLine` are read
  * after hydration, so the saved state appears on the next commit, and until
- * then the injected CSS notice is what the person sees. The two hydration
- * cases at the bottom pin that: a first render that read either would log a
- * hydration mismatch there.
+ * then the injected CSS notice is what the person sees. The hydration cases
+ * at the bottom pin that: a first render that read the meta or the connection
+ * would log a hydration mismatch there.
+ *
+ * The live region (`saved-copy-bar-region`, role status, polite) is always
+ * mounted, empty and unpainted while the bar is hidden, and the visible bar
+ * renders inside it. A region inserted together with its text is not
+ * announced (tests/components/_metaLiveRegionMounting.test.ts), so the cases
+ * below pin that the region exists before the text arrives and is the same
+ * node afterwards.
  *
  * Copy is literal here, never imported from the module under test. The one
  * exception is `{time}`, the zone-dependent part, read through `formatSavedTime`
@@ -23,8 +30,9 @@
  * Failure modes caught: a state with the wrong copy, tone, icon or lead; a lead
  * outside `<strong>`; copy present but hidden from assistive technology (inside
  * an `aria-hidden` subtree), so the live region announces nothing useful; an
- * icon that is not hidden; a bar that is not a polite live region; `hidden`
- * rendering an element, or skipping the mounted attribute; an unknown meta
+ * icon that is not hidden; a bar outside a polite live region; a live region
+ * born populated instead of mounted empty and filled; `hidden` painting
+ * anything, or skipping the mounted attribute; an unknown meta
  * read as anything but `offline`; an age that never re-evaluates or does so on
  * the wrong cadence; and a first client render that reads the meta, the clock
  * or `navigator.onLine`.
@@ -111,6 +119,17 @@ function bar(): HTMLElement {
   expect(bars).toHaveLength(1);
   return bars[0]!;
 }
+
+/** The always-mounted live region the bar renders inside. */
+function region(): HTMLElement {
+  const regions = screen.getAllByTestId("saved-copy-bar-region");
+  expect(regions).toHaveLength(1);
+  return regions[0]!;
+}
+
+/** The server render: the empty live region and nothing else. */
+const EMPTY_REGION_MARKUP =
+  '<div data-testid="saved-copy-bar-region" role="status" aria-live="polite"></div>';
 
 function contentText(): string {
   return screen.getByTestId("saved-copy-bar-content").textContent ?? "";
@@ -258,21 +277,25 @@ describe("SavedCopyBar: one case per visible state", () => {
   test.each(Object.entries(STATE_CASES))("%s", (state, testCase) => {
     renderBar(testCase.arrange());
 
-    const region = bar();
-    expect(region.getAttribute("data-state")).toBe(state);
-    expect(region.getAttribute("role")).toBe("status");
-    expect(region.getAttribute("aria-live")).toBe("polite");
-    const classes = (region.getAttribute("class") ?? "").split(/\s+/);
+    const live = region();
+    expect(live.getAttribute("role")).toBe("status");
+    expect(live.getAttribute("aria-live")).toBe("polite");
+    // The one live region on the page is the region, and the bar sits in it.
+    expect(screen.getAllByRole("status")).toEqual([live]);
+    const visible = bar();
+    expect(live.contains(visible)).toBe(true);
+    expect(visible.getAttribute("data-state")).toBe(state);
+    const classes = (visible.getAttribute("class") ?? "").split(/\s+/);
     for (const tone of testCase.tone) expect(classes).toContain(tone);
 
     const icon = screen.getByTestId("saved-copy-bar-icon");
-    expect(region.contains(icon)).toBe(true);
+    expect(visible.contains(icon)).toBe(true);
     expect(icon.getAttribute("aria-hidden")).toBe("true");
     expect(isInaccessible(icon)).toBe(true);
     expect(icon.getAttribute("class") ?? "").toContain(testCase.icon);
 
     expect(contentText()).toBe(testCase.text);
-    expect(announcedText(region)).toBe(testCase.text);
+    expect(announcedText(live)).toBe(testCase.text);
     const strong = screen.getByTestId("saved-copy-bar-content").querySelectorAll("strong");
     if (testCase.lead === null) {
       expect(strong).toHaveLength(0);
@@ -297,12 +320,37 @@ describe("SavedCopyBar: one case per visible state", () => {
 });
 
 describe("SavedCopyBar: inputs", () => {
-  test("hidden renders no element, and still marks html as mounted", () => {
+  test("hidden keeps the live region mounted, empty and unpainted, and still marks html as mounted", () => {
     renderBar();
 
+    const live = region();
+    expect(live.getAttribute("role")).toBe("status");
+    expect(live.getAttribute("aria-live")).toBe("polite");
+    // Empty and unpainted: no child and no text, and no class or style to carry
+    // a tone, padding or border, so it has no height and shows nothing.
+    expect(live.childNodes).toHaveLength(0);
+    expect(live.textContent).toBe("");
+    expect(live.hasAttribute("class")).toBe(false);
+    expect(live.hasAttribute("style")).toBe(false);
     expect(screen.queryByTestId("saved-copy-bar")).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
     expect(document.documentElement.getAttribute(MOUNTED_ATTRIBUTE)).toBe("mounted");
+  });
+
+  test("the live region is mounted before the text arrives, and the same node holds it", () => {
+    renderBar();
+    const live = region();
+    expect(live.childNodes).toHaveLength(0);
+
+    goOnline(false);
+    expect(region()).toBe(live);
+    expect(live.contains(bar())).toBe(true);
+    expect(announcedText(live)).toBe(
+      `No signal. Showing your saved copy from ${at(RENDERED_AT)} (1 min ago).`,
+    );
+
+    goOnline(true);
+    expect(region()).toBe(live);
+    expect(live.childNodes).toHaveLength(0);
   });
 
   test("a document without the meta is live", () => {
@@ -411,7 +459,8 @@ describe("SavedCopyBar: inputs", () => {
     for (const arrange of arrangements) {
       arrange();
       const without = renderBar();
-      const markupWithout = bar().outerHTML;
+      premiseHolds("the arrangement shows a bar", screen.queryByTestId("saved-copy-bar") !== null);
+      const markupWithout = region().outerHTML;
       without.unmount();
 
       Object.defineProperty(window.navigator, "serviceWorker", {
@@ -419,7 +468,7 @@ describe("SavedCopyBar: inputs", () => {
         value: new EventTarget(),
       });
       const withWorker = renderBar();
-      expect(bar().outerHTML).toBe(markupWithout);
+      expect(region().outerHTML).toBe(markupWithout);
       withWorker.unmount();
 
       delete (window.navigator as { serviceWorker?: unknown }).serviceWorker;
@@ -432,7 +481,7 @@ describe("SavedCopyBar: inputs", () => {
 /** Server-renders `element`, then hydrates that markup, collecting every error React reports. */
 async function serverRenderThenHydrate(
   element: ReactElement,
-  beforeHydrate: (markup: string) => void,
+  beforeHydrate: (markup: string, container: HTMLElement) => void,
 ): Promise<{
   container: HTMLElement;
   consoleError: MockInstance;
@@ -440,10 +489,10 @@ async function serverRenderThenHydrate(
   root: Root;
 }> {
   const markup = renderToString(element);
-  beforeHydrate(markup);
   const container = document.createElement("div");
   container.innerHTML = markup;
   document.body.appendChild(container);
+  beforeHydrate(markup, container);
 
   const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
   const recovered: unknown[] = [];
@@ -461,10 +510,14 @@ async function serverRenderThenHydrate(
 
 describe("SavedCopyBar: hydration", () => {
   test("hydrates as the hidden server render, then shows the saved copy after effects flush", async () => {
+    let serverRegion: Element | null = null;
     const { container, consoleError, recovered, root } = await serverRenderThenHydrate(
       <SavedCopyBar {...props()} />,
-      (markup) => {
-        premiseHolds("the server markup holds no bar element", !markup.includes("saved-copy-bar"));
+      (markup, filled) => {
+        // The server renders the empty live region, so the first client render
+        // must produce exactly that.
+        expect(markup).toBe(EMPTY_REGION_MARKUP);
+        serverRegion = filled.querySelector('[data-testid="saved-copy-bar-region"]');
         premiseHolds(
           "html is not marked before hydration",
           !document.documentElement.hasAttribute(MOUNTED_ATTRIBUTE),
@@ -477,11 +530,43 @@ describe("SavedCopyBar: hydration", () => {
       expect(recovered).toEqual([]);
       expect(consoleError).not.toHaveBeenCalled();
 
-      const region = container.querySelector<HTMLElement>('[data-testid="saved-copy-bar"]');
-      expect(region?.getAttribute("data-state")).toBe("saved-fresh");
-      expect(region?.querySelector("strong")?.textContent).toBe("No signal.");
-      expect(region?.textContent).toContain("(30 min ago)");
+      // Hydration adopted the server's region rather than replacing it.
+      const live = container.querySelector('[data-testid="saved-copy-bar-region"]');
+      expect(live).not.toBeNull();
+      expect(live).toBe(serverRegion);
+      const visible = live?.querySelector('[data-testid="saved-copy-bar"]');
+      expect(visible?.getAttribute("data-state")).toBe("saved-fresh");
+      expect(visible?.querySelector("strong")?.textContent).toBe("No signal.");
+      expect(visible?.textContent).toContain("(30 min ago)");
       expect(document.documentElement.getAttribute(MOUNTED_ATTRIBUTE)).toBe("mounted");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  test("a live page offline at hydration hydrates hidden, then shows the No signal. lead", async () => {
+    const { container, consoleError, recovered, root } = await serverRenderThenHydrate(
+      <SavedCopyBar {...props()} />,
+      (markup) => {
+        premiseHolds(
+          "no fxav-served meta, so this is a live page",
+          document.head.querySelector('meta[name="fxav-served"]') === null,
+        );
+        // Rendered while online: the empty region the server always sends.
+        expect(markup).toBe(EMPTY_REGION_MARKUP);
+        // The phone is offline by the time the page hydrates.
+        onLine.mockReturnValue(false);
+      },
+    );
+    try {
+      expect(recovered).toEqual([]);
+      expect(consoleError).not.toHaveBeenCalled();
+
+      const visible = container.querySelector('[data-testid="saved-copy-bar"]');
+      expect(visible?.getAttribute("data-state")).toBe("saved-fresh");
+      expect(visible?.querySelector("strong")?.textContent).toBe("No signal.");
+      expect(visible?.textContent).toContain("(1 min ago)");
     } finally {
       act(() => root.unmount());
       container.remove();
