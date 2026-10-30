@@ -220,6 +220,7 @@ afterAll(() => {
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "app/api/auth/google/start/route.ts",
   "app/api/auth/picker-bootstrap/route.ts",
+  "app/api/saved-copy/status/route.ts",
   "app/api/show/[slug]/search-miss/route.ts",
   "app/api/show/[slug]/version/route.ts",
   "app/auth/callback/route.ts",
@@ -327,6 +328,17 @@ describe("META infra-failure contract", () => {
       );
     });
 
+    test("saved-copy status route destructures its show-row read", () => {
+      // Spec §4.5 / invariant 9: the route's one read of its own (the identity reads
+      // belong to resolveCrewIdentity and resolvePickerSelection, pinned above).
+      const source = readFileSync("app/api/saved-copy/status/route.ts", "utf8");
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("shows"\)[\s\S]*?\.select\("archived, picker_epoch, unpublished_at"\)/,
+      );
+      // One table read (`Buffer.from(...)` is not a query, hence the quoted table name).
+      expect(source.match(/\.from\(\s*["'`]/g)).toHaveLength(1);
+    });
+
     test("registered Supabase client constructors are inside try blocks", () => {
       const violations = SUPABASE_CONSTRUCTOR_CONTRACT_FILES.flatMap((file) => {
         const source = stripCommentsForFile(readFileSync(file, "utf8"), file);
@@ -351,7 +363,13 @@ describe("META infra-failure contract", () => {
     // invariant 9. Sibling domains (lib/notify, lib/sync, ...) are owned by
     // their own registry-style meta-tests.
     test("every auth-domain Supabase constructor call site is registered, behaviorally covered, or waivered", () => {
-      const AUTH_DOMAIN_ROOTS = ["lib/auth", "app/auth", "app/api/auth", "app/api/show"];
+      const AUTH_DOMAIN_ROOTS = [
+        "lib/auth",
+        "app/auth",
+        "app/api/auth",
+        "app/api/show",
+        "app/api/saved-copy",
+      ];
       // Helpers exercised by the behavioral describes in this file rather
       // than the source-scan registry.
       const BEHAVIORAL_CONTRACT_FILES = new Set([

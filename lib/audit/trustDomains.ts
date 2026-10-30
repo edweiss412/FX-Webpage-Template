@@ -74,6 +74,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/asset/reel/[show]/route.ts", chain: "auth-library-exception" },
   { path: "app/api/realtime/subscriber-token/route.ts", chain: "auth-library-exception" },
   { path: "app/api/show/[slug]/version/route.ts", chain: "auth-library-exception" },
+  // Crew offline saved copy (spec 2026-10-26-crew-offline-saved-copy §4.5): GET-only status
+  // route that runs the page's own access checks (isAdminSession, then resolveCrewIdentity).
+  { path: "app/api/saved-copy/status/route.ts", chain: "auth-library-exception" },
   // Crew show search (spec 2026-10-26-crew-show-search §7.2): missed-search telemetry, the
   // version route's access model (slug lookup, isAdminSession, picker cookie).
   { path: "app/api/show/[slug]/search-miss/route.ts", chain: "auth-library-exception" },

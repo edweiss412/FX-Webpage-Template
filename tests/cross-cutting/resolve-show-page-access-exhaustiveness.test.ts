@@ -277,6 +277,7 @@ describe("resolveShowPageAccess", () => {
   test("type contract keeps showId only on page-rendering arms", () => {
     type PageRenderingKind =
       | "admin"
+      | "unpublished"
       | "resolved"
       | "no_auth"
       | "epoch_stale"
