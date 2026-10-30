@@ -1577,7 +1577,9 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
       // located by its own element, the same PackCountPill <span>.
       // 2504 -> 2506 on feat/warning-card-fixes Task 13 (two import lines above it);
       // located by its own element, the same PackCountPill <span>.
-      "components/admin/wizard/step3ReviewSections.tsx:2506",
+      // 2506 -> 2507 on feat/warning-card-fixes Task 15 (the useRawDraft import line);
+      // located by its own element, the same PackCountPill <span>.
+      "components/admin/wizard/step3ReviewSections.tsx:2507",
       // 191 -> 196 on feat/crew-show-search (Schedule search entries); the same overflow `<summary>` divider.
       "components/crew/primitives/KeyTimesStrip.tsx:196",
     ]);

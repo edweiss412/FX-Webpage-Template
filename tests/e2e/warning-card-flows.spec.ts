@@ -1,0 +1,184 @@
+/**
+ * tests/e2e/warning-card-flows.spec.ts
+ * (warning-card-fixes spec §6.3, §16.2 "One full Save flow"; plan Task 15)
+ *
+ * One full Save flow on the wizard warning card, in a real browser: pick the other
+ * reading, see Save and Cancel at the 44px tap floor, press Save, and watch the card
+ * leave the active list with focus landing on the panel's focus anchor. jsdom cannot
+ * prove where focus goes when the focused button unmounts under a real document, and it
+ * computes no layout for the tap floors.
+ *
+ * HARNESS (standalone, no app boot, no Supabase), per the plan's checklist:
+ *   1. bundles tests/e2e/_warningCardLiveEntry.tsx through
+ *      tests/e2e/_step3ReviewModalBundle.mjs with an alias map that swaps the two staged
+ *      action modules for tests/e2e/_warningCardActionStub.ts (which records calls on
+ *      `window.__warningCardCalls`);
+ *   2. compiles the real token CSS over app/globals.css with explicit @source lines for
+ *      every file whose classes these assertions measure;
+ *   3. serves live.html over node:http on port 0.
+ * The entry's router refresh() swaps the harness state as a refresh would (the row
+ * moves to the ignored partition, the saved decision persists).
+ *
+ * Runs standalone via tests/e2e/standalone.config.ts:
+ *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
+ *     tests/e2e/warning-card-flows.spec.ts
+ */
+import { test, expect } from "./helpers/fontFidelityFixture";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createServer, type Server } from "node:http";
+import { compileEntryCss } from "./helpers/liveEntryToolchain";
+
+// CommonJS package — Playwright's CJS loader provides __dirname.
+const REPO_ROOT = resolve(__dirname, "..", "..");
+const TOL = 0.5;
+const TAP_FLOOR = 44;
+const TILE_PAD_PX = "20px";
+
+let server: Server;
+let baseUrl: string;
+let workDir: string;
+
+test.beforeAll(async () => {
+  workDir = mkdtempSync(join(tmpdir(), "warning-card-flows-"));
+
+  writeFileSync(
+    join(workDir, "live.html"),
+    `<!doctype html>
+<html data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="out.css"></head>
+<body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
+  );
+
+  const stub = join(REPO_ROOT, "tests", "e2e", "_warningCardActionStub.ts");
+  execFileSync(
+    process.execPath,
+    [
+      join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"),
+      join(REPO_ROOT, "tests", "e2e", "_warningCardLiveEntry.tsx"),
+      join(workDir, "bundle.js"),
+      join(REPO_ROOT, "tsconfig.json"),
+      JSON.stringify({
+        "@/app/admin/onboarding/_actions/useRawStaged": stub,
+        "@/app/admin/onboarding/_actions/stagedWarningIgnore": stub,
+      }),
+    ],
+    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
+  );
+
+  // A client-only mount: each file whose classes the assertions measure is sourced
+  // explicitly, plus the modal shell and surface the rows sit in.
+  const entryCss = join(workDir, "entry.css");
+  const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
+  writeFileSync(
+    entryCss,
+    [
+      `@source "${join(REPO_ROOT, "components", "admin", "wizard", "step3ReviewSections.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "DataQualityWarningControls.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "UseRawControl.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "JudgmentCallTag.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "review", "attentionMark.ts")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "wizard", "Step3ReviewModal.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "review", "ReviewModalShell.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "admin", "review", "ShowReviewSurface.tsx")}";`,
+      `@source "${join(REPO_ROOT, "components", "shared", "ReportButton.tsx")}";`,
+      globals,
+    ].join("\n"),
+  );
+  compileEntryCss({ entryCss, outFile: join(workDir, "out.css") });
+
+  server = createServer((req, res) => {
+    const url = (req.url ?? "/").split("?")[0] ?? "/";
+    const file = url === "/" || url === "" ? "live.html" : url.replace(/^\//, "");
+    try {
+      const body = readFileSync(join(workDir, file));
+      res.setHeader(
+        "content-type",
+        file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html",
+      );
+      res.end(body);
+    } catch {
+      res.statusCode = 404;
+      res.end("not found");
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const addr = server.address();
+  if (addr && typeof addr === "object") baseUrl = `http://127.0.0.1:${addr.port}/`;
+});
+
+test.afterAll(async () => {
+  if (server) await new Promise<void>((r) => server.close(() => r()));
+});
+
+test.describe("deferred reading choice (spec §6.3)", () => {
+  test("pick, Save, the card leaves the active list and focus stays in the panel", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${baseUrl}?scenario=save`);
+    await page.evaluate(() => document.fonts.ready);
+    const raw = await page.locator("html").getAttribute("data-warning-card-save");
+    if (!raw) throw new Error("live entry did not publish data-warning-card-save");
+    const meta = JSON.parse(raw) as { dfid: string; row: number; sid: string };
+    const rowId = `wizard-step3-card-${meta.dfid}-warning-${meta.row}`;
+    const mainId = `dq-ignore-${meta.sid}`;
+    const cancelId = `dq-cancel-${meta.sid}`;
+    const anchorId = `wizard-step3-card-${meta.dfid}-warnings-focus-anchor`;
+    const row = page.getByTestId(rowId);
+    await expect(row).toBeVisible();
+
+    // The attention menu auto-opens above `sm` and could sit over the row; settle it.
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    );
+    const chip = page.getByTestId(`wizard-step3-card-${meta.dfid}-review-chip`);
+    if ((await chip.count()) > 0 && (await chip.getAttribute("aria-expanded")) === "true") {
+      await chip.click();
+      await expect(chip).toHaveAttribute("aria-expanded", "false");
+    }
+
+    // CSS premise: real Tailwind emitted (the rows' panel resolves `p-tile-pad`).
+    const padding = await page.evaluate((id) => {
+      const el = document.querySelector(`[data-testid="${id}"]`);
+      if (!el) throw new Error(`missing ${id}`);
+      const panel = el.closest('[data-testid$="-panel-card"]');
+      if (!panel) throw new Error(`no panel card around ${id}`);
+      return getComputedStyle(panel).paddingLeft;
+    }, rowId);
+    expect(padding, "CSS premise: the panel's p-tile-pad compiled to 20px").toBe(TILE_PAD_PX);
+
+    // Pick the other reading: a draft, nothing written.
+    await row.getByTestId("use-raw-toggle-on-list").click();
+    await expect(page.getByTestId(mainId)).toHaveText("Save");
+    await expect(page.getByTestId(cancelId)).toBeVisible();
+    expect(await page.evaluate(() => window.__warningCardCalls ?? [])).toEqual([]);
+
+    const heights = await page.evaluate(
+      ([main, cancel]) => {
+        const read = (id: string) => {
+          const el = document.querySelector(`[data-testid="${id}"]`);
+          if (!el) throw new Error(`missing ${id}`);
+          return el.getBoundingClientRect().height;
+        };
+        return { main: read(main!), cancel: read(cancel!) };
+      },
+      [mainId, cancelId],
+    );
+    expect(heights.main, "Save tap floor").toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+    expect(heights.cancel, "Cancel tap floor").toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+
+    // Save: the reading, then the accept, then the refresh moves the card.
+    await page.getByTestId(mainId).click();
+    await expect(page.getByTestId(rowId)).toHaveCount(0);
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? null,
+    );
+    expect(focused).toBe(anchorId);
+    const calls = await page.evaluate(() => (window.__warningCardCalls ?? []).map((c) => c.name));
+    expect(calls).toEqual(["setStagedUseRawDecisionAction", "setStagedWarningIgnore"]);
+  });
+});

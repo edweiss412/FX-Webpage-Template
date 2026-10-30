@@ -258,6 +258,30 @@ export function archivedTabHarnessWarnings(): ParseWarning[] {
   ];
 }
 
+/** Save-flow fixture (warning-card-fixes spec §6.3, plan Task 15): one resolvable
+ *  ROOM_HEADER_SPLIT_AMBIGUOUS whose rawSnippet is ignorable, so Save sends the reading
+ *  and then accepts the card. Reached only through `_warningCardLiveEntry.tsx?scenario=save`. */
+export const SAVE_HARNESS_ROW = 0;
+export const SAVE_HARNESS_CONTENT_HASH = "harness-room-hash";
+
+export function saveHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      message: "Room header could be read two ways",
+      blockRef: { kind: "rooms" },
+      rawSnippet: "Ballroom A / B",
+      resolution: {
+        resolvable: true,
+        contentHash: SAVE_HARNESS_CONTENT_HASH,
+        parsed: { kind: "rooms", name: "Ballroom", dimensions: null, floor: null },
+        replacement: { kind: "rooms", name: "Ballroom A / B", dimensions: null, floor: null },
+      },
+    },
+  ];
+}
+
 export function nearMissHarnessWarnings(): ParseWarning[] {
   return [
     {
@@ -379,11 +403,14 @@ export function modalElement(
     // Re-scan / Ignore footer) instead of the read-only publish footer. The
     // layout harness passes this to measure the folded resolution surface.
     resolution?: import("@/components/admin/wizard/Step3ReviewModal").Step3ReviewResolution;
+    /** warning-card-fixes Task 15: the Save-flow entry's router, whose refresh() swaps the
+     *  harness state. Absent → the inert stub router, as every other caller gets. */
+    router?: AppRouterInstance;
   } = {},
 ): React.ReactElement {
   return React.createElement(
     AppRouterContext.Provider,
-    { value: stubRouter },
+    { value: handlers.router ?? stubRouter },
     React.createElement(Step3ReviewModal, {
       data,
       checked: false,

@@ -101,6 +101,7 @@ import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { JudgmentCallTag } from "@/components/admin/JudgmentCallTag";
 import { casePreviewsText, isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
+import { UseRawDraftProvider, offersReadingChoice } from "@/components/admin/useRawDraft";
 import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import { isPublished, isStaged } from "@/components/admin/review/sectionData";
@@ -3050,6 +3051,38 @@ const WARNING_ROW_DOT = {
   info: "bg-text-faint",
 } satisfies Record<WarningRowKind, string>;
 
+/** warning-card-fixes §6.3: a staged row that offers the reading choice wraps its
+ *  controls block in the reading-draft provider (a picked reading then waits for the
+ *  action bar's Save); every other row renders its controls exactly as before. */
+function StagedReadingScope({
+  provide,
+  wizardSessionId,
+  driveFileId,
+  warning,
+  decision,
+  children,
+}: {
+  provide: boolean;
+  wizardSessionId: string | undefined;
+  driveFileId: string | null;
+  warning: ParseWarning;
+  decision: UseRawDecision | undefined;
+  children: React.ReactNode;
+}) {
+  if (!provide || !wizardSessionId || !driveFileId) return <>{children}</>;
+  return (
+    <UseRawDraftProvider
+      surface="wizard"
+      wizardSessionId={wizardSessionId}
+      driveFileId={driveFileId}
+      warning={warning}
+      decision={decision}
+    >
+      {children}
+    </UseRawDraftProvider>
+  );
+}
+
 /** The archived pull sheet warning's tab name: its `blockRef.name` when that is a
  *  non-blank string, else null (no Tab line, no include; spec §15). */
 function archivedTabNameOf(w: ParseWarning): string | null {
@@ -3326,6 +3359,7 @@ export function WarningsBreakdown({
                   ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
                   : null;
                 const isWarn = isWarnSeverity(w);
+                const decision = findUseRawDecision(w, useRawDecisions);
                 // spec §3.2: three row kinds. A judgment call is a warn row whose
                 // code is an ambiguity code; isJudgmentCall is the one spelling.
                 const isJudgment = isJudgmentCall(w);
@@ -3551,91 +3585,101 @@ export function WarningsBreakdown({
                       {context ? (
                         <p className="text-xs text-text-subtle">{renderEmphasis(context)}</p>
                       ) : null}
-                      {/* spec 2026-07-16 §4.3: the complete-list render site for the
+                      {/* warning-card-fixes §6.3: the controls block below sits inside the
+                        reading-draft provider when this row offers the reading choice. */}
+                      <StagedReadingScope
+                        provide={Boolean(dq) && isWarn && offersReadingChoice(w, decision)}
+                        wizardSessionId={wizardSessionId}
+                        driveFileId={dfid}
+                        warning={w}
+                        decision={decision}
+                      >
+                        {/* spec 2026-07-16 §4.3: the complete-list render site for the
                         use-raw + recognize-role controls (live-page parity). Since
                         2026-07-17 (USE-RAW-FULL-LIST-1) this is the SOLE actionable
                         site — the §E3 callout is a non-actionable preview. Both
                         boundaries self-hide out-of-scope warnings. */}
-                      {wizardSessionId && dfid ? (
-                        <UseRawControlBoundary
-                          surface="wizard"
-                          wizardSessionId={wizardSessionId}
-                          driveFileId={dfid}
-                          warning={w}
-                          decision={findUseRawDecision(w, useRawDecisions)}
-                          site="list"
-                        />
-                      ) : null}
-                      {wizardSessionId && dfid ? (
-                        <RoleRecognizeControlBoundary
-                          surface="wizard"
-                          wizardSessionId={wizardSessionId}
-                          driveFileId={dfid}
-                          warning={w}
-                          site="list"
-                        />
-                      ) : null}
-                      {/* Spec §2.3: the catalog's `controlsNote` renders on rows that
+                        {wizardSessionId && dfid ? (
+                          <UseRawControlBoundary
+                            surface="wizard"
+                            wizardSessionId={wizardSessionId}
+                            driveFileId={dfid}
+                            warning={w}
+                            decision={decision}
+                            site="list"
+                          />
+                        ) : null}
+                        {wizardSessionId && dfid ? (
+                          <RoleRecognizeControlBoundary
+                            surface="wizard"
+                            wizardSessionId={wizardSessionId}
+                            driveFileId={dfid}
+                            warning={w}
+                            site="list"
+                          />
+                        ) : null}
+                        {/* Spec §2.3: the catalog's `controlsNote` renders on rows that
                           actually mount controls (the 2026-08-27 §4.3 gate). That copy is
                           what promised this affordance in the first place — "Use Report to
                           flag it to us, or Ignore to hide this notice" — and the wizard was
                           the one surface where the promise was false. */}
-                      {dq && dfid && isWarn && controlsNoteFor(w) ? (
-                        <p
-                          data-testid={`wizard-step3-card-${dfid}-warning-${i}-controls-note`}
-                          className="text-xs/relaxed text-text-subtle"
-                        >
-                          {controlsNoteFor(w)}
-                        </p>
-                      ) : null}
-                      {/* §2.3: Report + Ignore, on ACTIVE warn rows only. Info rows stay
+                        {dq && dfid && isWarn && controlsNoteFor(w) ? (
+                          <p
+                            data-testid={`wizard-step3-card-${dfid}-warning-${i}-controls-note`}
+                            className="text-xs/relaxed text-text-subtle"
+                          >
+                            {controlsNoteFor(w)}
+                          </p>
+                        ) : null}
+                        {/* §2.3: Report + Ignore, on ACTIVE warn rows only. Info rows stay
                           control-free (§1.1.4), and the whole cluster follows this
                           panel's existing non-null-dfid gate. */}
-                      {dq && dfid && isWarn
-                        ? (() => {
-                            const controls = (lock: DqLockProps) => (
-                              /* no-newtab-announcement: `target` is the discriminated ignore
+                        {dq && dfid && isWarn
+                          ? (() => {
+                              const controls = (lock: DqLockProps) => (
+                                /* no-newtab-announcement: `target` is the discriminated ignore
                                  BACKEND (spec §2.3), not a browser window target. No anchor. */
-                              <DataQualityWarningControls
-                                target={dq.target}
-                                warning={w}
-                                driveFileId={dfid}
-                                mode="active"
-                                reportSurfaceId={reportSurfaceId}
-                                // The panel card is `bg-surface` (BreakdownSection), not either
-                                // published card ground — impeccable critique P1.
-                                ground="surface"
-                                onBeforeRefresh={holdFocusInPanel}
-                                {...lock}
-                              />
-                            );
-                            if (w.code !== "PULL_SHEET_ON_ARCHIVED_TAB") return controls({});
-                            // warning-card-fixes §7.3: the archived card's include, then the
-                            // section jump (Task 17), then Report + Ignore, with include and
-                            // Ignore locking each other (§14.1). The include renders only for a
-                            // tab still in the offer set, and only inside a wizard session.
-                            const tabName = archivedTabNameOf(w);
-                            const offeredTab =
-                              tabName !== null && wizardSessionId
-                                ? (deriveArchivedOffers(
-                                    archivedPullSheetTabs ?? [],
-                                    true,
-                                    pullSheetOverride ?? null,
-                                  ).offers.find((t) => t.tabName === tabName) ?? null)
-                                : null;
-                            return (
-                              <ArchivedTabWarningActions
-                                dfid={dfid}
-                                wizardSessionId={wizardSessionId ?? ""}
-                                offeredTab={offeredTab}
-                                includeTestId={`wizard-step3-card-${dfid}-warning-${i}-archived-include`}
-                                onBeforeRefresh={holdFocusInPanel}
-                                jump={null}
-                                renderControls={controls}
-                              />
-                            );
-                          })()
-                        : null}
+                                <DataQualityWarningControls
+                                  target={dq.target}
+                                  warning={w}
+                                  driveFileId={dfid}
+                                  mode="active"
+                                  reportSurfaceId={reportSurfaceId}
+                                  // The panel card is `bg-surface` (BreakdownSection), not either
+                                  // published card ground — impeccable critique P1.
+                                  ground="surface"
+                                  onBeforeRefresh={holdFocusInPanel}
+                                  {...lock}
+                                />
+                              );
+                              if (w.code !== "PULL_SHEET_ON_ARCHIVED_TAB") return controls({});
+                              // warning-card-fixes §7.3: the archived card's include, then the
+                              // section jump (Task 17), then Report + Ignore, with include and
+                              // Ignore locking each other (§14.1). The include renders only for a
+                              // tab still in the offer set, and only inside a wizard session.
+                              const tabName = archivedTabNameOf(w);
+                              const offeredTab =
+                                tabName !== null && wizardSessionId
+                                  ? (deriveArchivedOffers(
+                                      archivedPullSheetTabs ?? [],
+                                      true,
+                                      pullSheetOverride ?? null,
+                                    ).offers.find((t) => t.tabName === tabName) ?? null)
+                                  : null;
+                              return (
+                                <ArchivedTabWarningActions
+                                  dfid={dfid}
+                                  wizardSessionId={wizardSessionId ?? ""}
+                                  offeredTab={offeredTab}
+                                  includeTestId={`wizard-step3-card-${dfid}-warning-${i}-archived-include`}
+                                  onBeforeRefresh={holdFocusInPanel}
+                                  jump={null}
+                                  renderControls={controls}
+                                />
+                              );
+                            })()
+                          : null}
+                      </StagedReadingScope>
                     </div>
                   </li>
                 );

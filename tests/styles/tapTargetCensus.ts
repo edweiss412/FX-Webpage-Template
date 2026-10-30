@@ -387,7 +387,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // DismissedWarningRow above it); the same tile `<a>`, located by that ref.
     // 4490 -> 4576 on feat/warning-card-fixes Task 13 (the archived card body and its
     // action cluster above it); the same tile `<a>`, located by that ref.
-    line: 4576,
+    // 4576 -> 4620 on feat/warning-card-fixes Task 15 (the staged reading scope above it);
+    // the same tile `<a>`, located by that ref.
+    line: 4620,
     tag: "a",
     category: "full-bleed",
     reason:

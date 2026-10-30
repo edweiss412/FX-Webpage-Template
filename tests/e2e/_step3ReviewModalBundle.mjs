@@ -5,7 +5,12 @@
 // process (its test transform rewrites JSX in every spec-imported .tsx into
 // component-testing payloads, so the browser bundle must be built OUT of process).
 //
-//   node _step3ReviewModalBundle.mjs <entry.tsx> <outfile.js> <tsconfig.json>
+//   node _step3ReviewModalBundle.mjs <entry.tsx> <outfile.js> <tsconfig.json> [aliasJson]
+//
+// The optional fourth argument is a JSON object handed to esbuild as `alias`
+// (warning-card-fixes Task 15: the Save-flow spec swaps the two staged action
+// modules for a browser stub). Absent, no `alias` option is passed at all, so every
+// existing caller builds a byte-identical bundle.
 //
 // WHY A PLUGIN BUILD (not `pnpm dlx esbuild ... --external:node:fs`):
 // <Step3ReviewModal> is a real client component whose graph reaches, via the
@@ -42,11 +47,12 @@ import { builtinModules } from "node:module";
 import * as esbuild from "esbuild";
 import { useServerDirectivePlugin } from "./helpers/useServerDirectivePlugin.mjs";
 
-const [, , entry, outfile, tsconfig] = process.argv;
+const [, , entry, outfile, tsconfig, aliasJson] = process.argv;
 if (!entry || !outfile || !tsconfig) {
-  console.error("usage: node _step3ReviewModalBundle.mjs <entry> <outfile> <tsconfig>");
+  console.error("usage: node _step3ReviewModalBundle.mjs <entry> <outfile> <tsconfig> [aliasJson]");
   process.exit(2);
 }
+const alias = aliasJson ? JSON.parse(aliasJson) : {};
 
 // Any Node core module that survives into the resolve pass — node:crypto on the
 // pure-client parser path (lib/parser/warnings → useRawContentHash's isContentHash),
@@ -78,6 +84,7 @@ const result = await esbuild.build({
   loader: { ".tsx": "tsx" },
   define: { "process.env.NODE_ENV": '"production"' },
   tsconfig,
+  ...(Object.keys(alias).length > 0 ? { alias } : {}),
   // Shim `process` for Next client-runtime env reads beyond NODE_ENV.
   banner: { js: 'window.process=window.process||{env:{NODE_ENV:"production"}};' },
   // Not a React hook — an esbuild plugin factory the spec/plan names

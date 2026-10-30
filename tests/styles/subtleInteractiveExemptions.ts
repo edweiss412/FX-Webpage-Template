@@ -74,7 +74,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // tree by identity, not by adding a delta: 285 is that same `<summary>`.
     // 285 -> 294 on feat/warning-card-fixes Task 12 (the record split above it); located by
     // its own `section-ignored-summary-${id}` testid.
-    line: 294,
+    // 294 -> 318 on feat/warning-card-fixes Task 15 (SectionWarningItemControls gained the
+    // reading-draft mount above it); located by its own testid.
+    line: 318,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -86,7 +88,8 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // Added on feat/warning-card-fixes Task 12 (spec §6.4, §16.3): the Accepted (N)
     // disclosure header, the Ignored twin's classes verbatim; located by its own
     // `section-accepted-summary-${id}` testid. Reason copied from that twin.
-    line: 332,
+    // 332 -> 356 on feat/warning-card-fixes Task 15, same cause; located by its own testid.
+    line: 356,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -135,7 +138,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `{hidden.length} more` <summary>.
     // 1696 -> 1698 on feat/warning-card-fixes Task 13 (two import lines above it); the same
     // `{hidden.length} more` <summary>, located by its own element.
-    line: 1698,
+    // 1698 -> 1699 on feat/warning-card-fixes Task 15 (the useRawDraft import line); the
+    // same `{hidden.length} more` <summary>.
+    line: 1699,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -173,7 +178,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // it); located by its own ignored-summary testid.
     // 3570 -> 3656 on feat/warning-card-fixes Task 13 (the archived card body above it);
     // located by its own ignored-summary testid.
-    line: 3656,
+    // 3656 -> 3700 on feat/warning-card-fixes Task 15 (the staged reading scope above it);
+    // located by its own ignored-summary testid.
+    line: 3700,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -187,7 +194,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `wizard-step3-card-${dfid}-accepted-summary` testid. Reason copied from that twin.
     // 3602 -> 3688 on feat/warning-card-fixes Task 13 (the archived card body above it);
     // located by its own accepted-summary testid.
-    line: 3688,
+    // 3688 -> 3732 on feat/warning-card-fixes Task 15, same cause; located by its own
+    // accepted-summary testid.
+    line: 3732,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

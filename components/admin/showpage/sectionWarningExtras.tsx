@@ -12,6 +12,7 @@ import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableW
 import { correctionLoopCopy } from "@/components/admin/CorrectionLoopCallout";
 import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
+import { UseRawDraftProvider, offersReadingChoice } from "@/components/admin/useRawDraft";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { BulkIgnoreControls, type ActiveWarningGroup } from "@/components/admin/BulkIgnoreControls";
 import { findUseRawDecision } from "@/components/admin/wizard/step3ReviewSections";
@@ -116,35 +117,58 @@ function SectionWarningItemControls(props: {
   useRawDecisions: PublishedSectionData["useRawDecisions"];
 }) {
   const { warning, reportSurfaceId, mode, slug, showId, driveFileId, useRawDecisions } = props;
+  const decision = findUseRawDecision(warning, useRawDecisions);
+  const controls = (
+    /* no-newtab-announcement: `target` here is the discriminated ignore BACKEND
+       (spec §2.3), not a browser window target. This element renders no anchor. */
+    <DataQualityWarningControls
+      // Published mounts are always the show arm (§2.3): a published surface has a slug
+      // and a show record by definition.
+      target={{ kind: "show", slug, showId }}
+      warning={warning}
+      driveFileId={driveFileId}
+      mode={mode}
+      reportSurfaceId={reportSurfaceId}
+    />
+  );
+  // spec §8: use-raw toggle for the 4 recoverable structural-transform warnings; self-hides
+  // (null) for every other code.
+  const choice = (
+    <UseRawControlBoundary
+      surface="show"
+      showId={showId}
+      warning={warning}
+      decision={decision}
+      site="showpage"
+    />
+  );
+  // spec §8.1: recognize-role control for UNKNOWN_ROLE_TOKEN warnings; self-hides otherwise.
+  const role = (
+    <RoleRecognizeControlBoundary
+      surface="show"
+      showId={showId}
+      warning={warning}
+      site="showpage"
+    />
+  );
+  // warning-card-fixes §6.3: a row offering the reading choice wraps its controls in the
+  // reading-draft provider, so a picked reading waits for the action bar's Save, and
+  // shows the choice BEFORE the action bar. Every other code keeps today's order (its
+  // choice control renders null).
+  if (offersReadingChoice(warning, decision)) {
+    return (
+      <UseRawDraftProvider surface="show" showId={showId} warning={warning} decision={decision}>
+        {choice}
+        {controls}
+        {role}
+      </UseRawDraftProvider>
+    );
+  }
   return (
     <>
-      {/* no-newtab-announcement: `target` here is the discriminated ignore BACKEND
-          (spec §2.3), not a browser window target. This element renders no anchor. */}
-      <DataQualityWarningControls
-        // Published mounts are always the show arm (§2.3): a published surface has a slug
-        // and a show record by definition.
-        target={{ kind: "show", slug, showId }}
-        warning={warning}
-        driveFileId={driveFileId}
-        mode={mode}
-        reportSurfaceId={reportSurfaceId}
-      />
-      {/* spec §8: use-raw toggle for the 4 recoverable structural-transform warnings; self-hides
-          (null) for every other code. */}
-      <UseRawControlBoundary
-        surface="show"
-        showId={showId}
-        warning={warning}
-        decision={findUseRawDecision(warning, useRawDecisions)}
-        site="showpage"
-      />
-      {/* spec §8.1: recognize-role control for UNKNOWN_ROLE_TOKEN warnings; self-hides otherwise. */}
-      <RoleRecognizeControlBoundary
-        surface="show"
-        showId={showId}
-        warning={warning}
-        site="showpage"
-      />
+      {controls}
+      {choice}
+      {role}
     </>
   );
 }
