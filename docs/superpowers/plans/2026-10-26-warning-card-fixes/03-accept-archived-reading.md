@@ -91,7 +91,7 @@ Claims AC-5 (declared in 00-overview.md, Acceptance criteria).
 
 ## Task 12 — Accepted (N) disclosures on both surfaces
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/acceptedDisclosure.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:3083` why=`ignoredItems on this line is the whole ignored partition, rendered as one Ignored disclosure, and the published extras read model.ignored by position in one list, so the new suite expecting judgment rows only under the accepted testids, each row carrying its own record's report id, fails until both surfaces split the partition at render` ac=AC-8 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/acceptedDisclosure.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:3115` why=`ignoredItems on this line is the whole ignored partition, rendered as one Ignored disclosure, and the published extras read model.ignored by position in one list, so the new suite expecting judgment rows only under the accepted testids, each row carrying its own record's report id, fails until both surfaces split the partition at render` ac=AC-8 -->
 
 What is red and why: one disclosure holds every dismissed row on each surface.
 
@@ -204,7 +204,7 @@ node --import tsx -e 'const {deriveArchivedOffers:d}=require("./components/admin
 
 ## Task 14 — Transition audit: the deferred reading choice
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/useRawDraft.transitions.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:540` why=`ChoiceRow onSelect on this line calls fire, which writes the reading the moment a row is tapped, and no provider, Save, Cancel or reconciliation exists, so every pair of the spec 14 inventory and every deferred-response sequence in the new suite fails until selection is a local draft and the action bar owns Save` ac=AC-5,AC-11 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/useRawDraft.transitions.test.tsx` red-state=authored red-target=`components/admin/UseRawControl.tsx:552` why=`ChoiceRow onSelect on this line calls fire, which writes the reading the moment a row is tapped, and no provider, Save, Cancel or reconciliation exists, so every pair of the spec 14 inventory and every deferred-response sequence in the new suite fails until selection is a local draft and the action bar owns Save` ac=AC-5,AC-11 -->
 
 What is red and why: selecting a reading writes immediately; there is no draft, no Save, no Cancel, no reconciliation.
 
@@ -357,7 +357,7 @@ transform-active apply-pending raw-active clear-pending true
 
 ## Task 15 — Mount the deferred choice on both surfaces; Save flow in a real browser
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/deferredChoiceMount.test.tsx` red-state=authored red-target=`components/admin/showpage/sectionWarningExtras.tsx:122` why=`SectionWarningItemControls renders DataQualityWarningControls first on this line with no provider around it, and the wizard row renders its choice control with no provider either, so the new suite expecting no action on select, Save in the action bar, and the choice control before the controls on published fails until both surfaces mount UseRawDraftProvider` ac=AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/deferredChoiceMount.test.tsx` red-state=authored red-target=`components/admin/showpage/sectionWarningExtras.tsx:123` why=`SectionWarningItemControls renders DataQualityWarningControls first on this line with no provider around it, and the wizard row renders its choice control with no provider either, so the new suite expecting no action on select, Save in the action bar, and the choice control before the controls on published fails until both surfaces mount UseRawDraftProvider` ac=AC-5 -->
 
 What is red and why: neither surface mounts the provider, so production rows still save on tap.
 

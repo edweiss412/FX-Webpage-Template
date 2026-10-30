@@ -6,7 +6,7 @@ Read 00-overview.md first (Global Constraints, sweeps, harness checklist). Every
 
 ## Task 1 — The inline guest emitter keeps its names (`readAs`)
 
-<!-- task: red=`pnpm exec vitest run tests/parser/blocks/hotels.inlineGuestAmbiguity.test.ts` red-state=authored red-target=`lib/parser/warnings.ts:657` why=`emitInlineHotelGuestAmbiguity writes resolution with resolvable false and reason raw-not-guest-scoped and nothing else on this line, discarding the parsedNames it receives, so the new case expecting resolution.readAs.names to equal the parsed reservation names fails until this line carries readAs` ac=AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/parser/blocks/hotels.inlineGuestAmbiguity.test.ts` red-state=authored red-target=`lib/parser/warnings.ts:682` why=`emitInlineHotelGuestAmbiguity writes resolution with resolvable false and reason raw-not-guest-scoped and nothing else on this line, discarding the parsedNames it receives, so the new case expecting resolution.readAs.names to equal the parsed reservation names fails until this line carries readAs` ac=AC-4 -->
 
 What is red and why: the new case expects `resolution.readAs` on every producing exit; the emitter drops `parsedNames` at `lib/parser/warnings.ts:657`.
 
@@ -225,7 +225,7 @@ node --import tsx -e 'const {AMBIGUITY_CODES:A}=require("./lib/parser/ambiguityC
 
 ## Task 5 — §12.4 catalog lockstep: three helpfulContext rows
 
-<!-- task: red=`pnpm exec vitest run tests/messages/hotelAmbiguityCatalogCopy.test.ts tests/messages/_metaWarningCardCopy.test.ts tests/cross-cutting/codes.test.ts` red-state=authored red-target=`lib/messages/catalog.ts:1646` why=`the HOTEL_GUEST_SPLIT_AMBIGUOUS helpfulContext on this line still reads the pre-arc sentence and the two archived-tab rows still say Gear section, so the updated copy pin and the updated EXPECTED_HELPFUL_CONTEXT fixture fail until the catalog, the master spec appendix and the generated codes carry the new strings` ac=AC-6,AC-9 -->
+<!-- task: red=`pnpm exec vitest run tests/messages/hotelAmbiguityCatalogCopy.test.ts tests/messages/_metaWarningCardCopy.test.ts tests/cross-cutting/codes.test.ts` red-state=authored red-target=`lib/messages/catalog.ts:1662` why=`the HOTEL_GUEST_SPLIT_AMBIGUOUS helpfulContext on this line still reads the pre-arc sentence and the two archived-tab rows still say Gear section, so the updated copy pin and the updated EXPECTED_HELPFUL_CONTEXT fixture fail until the catalog, the master spec appendix and the generated codes carry the new strings` ac=AC-6,AC-9 -->
 
 What is red and why: the test-side copy (hotel pin, registry fixture) is updated first; the catalog still carries the old three strings.
 

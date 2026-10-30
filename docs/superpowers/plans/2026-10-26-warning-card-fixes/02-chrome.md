@@ -102,7 +102,7 @@ true 120 42 "Guessed crew table columns by position"
 
 ## Task 8 — Wizard row kinds: chip and dot per kind, DESIGN.md addendum
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/warningCardChrome.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:3297` why=`the chip glyph on this line is a two-way warn or info ternary, so a judgment row still renders the warm triangle chip and the filled warm dot, and the new kind-matrix cases expecting the info-bg Circle chip and the hollow text-subtle dot fail until the row computes three kinds` ac=AC-1 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/warningCardChrome.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:3308` why=`the chip glyph on this line is a two-way warn or info ternary, so a judgment row still renders the warm triangle chip and the filled warm dot, and the new kind-matrix cases expecting the info-bg Circle chip and the hollow text-subtle dot fail until the row computes three kinds` ac=AC-1 -->
 
 What is red and why: chip and dot are two-way (`isWarn`), so the judgment row looks like needs-a-look.
 

@@ -6,7 +6,7 @@ Read 00-overview.md first.
 
 ## Task 16 — Hotels reservation marker and the callout label
 
-<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/hotelReservationMarker.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:2828` why=`HotelsBreakdown renders HotelCard on this line with no index and no marker, and SectionFlagCallout always says Review in Sheet warnings for judgment entries, so the new suite expecting data-hotel-index, the Judgment call tag, the Sheet says line and a jump to the exact card, and See how we read it on reading-shown callouts, fails until both are built` ac=AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/components/admin/wizard/hotelReservationMarker.test.tsx` red-state=authored red-target=`components/admin/wizard/step3ReviewSections.tsx:2835` why=`HotelsBreakdown renders HotelCard on this line with no index and no marker, and SectionFlagCallout always says Review in Sheet warnings for judgment entries, so the new suite expecting data-hotel-index, the Judgment call tag, the Sheet says line and a jump to the exact card, and See how we read it on reading-shown callouts, fails until both are built` ac=AC-4 -->
 
 What is red and why: the reservation carries no index hook and no marker; the callout label ignores whether a reading is shown.
 
