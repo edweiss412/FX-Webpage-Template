@@ -306,10 +306,14 @@ export async function unpublishedStateSnapshot(s: SeededShow): Promise<Record<st
   const [alert] = await sql`
     select count(*)::int as n from public.admin_alerts
      where show_id = ${s.showId}::uuid and code = 'SHOW_UNPUBLISHED'`;
+  // `readShow` selects `*`: without this guard a row with no unpublished_at column gives
+  // `undefined` on both sides and the parity comparison passes without checking anything.
+  if (!("unpublished_at" in show)) throw new Error("shows.unpublished_at missing");
   return {
     archived: show.archived,
     published: show.published,
     archived_at_null: show.archived_at == null,
+    unpublished_at_null: show.unpublished_at == null,
     unpublish_token_null: show.unpublish_token == null,
     unpublish_token_expires_at_null: show.unpublish_token_expires_at == null,
     share_token_rotated: token !== s.originalToken,
