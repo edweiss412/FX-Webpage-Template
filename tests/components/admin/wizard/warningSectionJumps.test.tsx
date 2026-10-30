@@ -223,6 +223,36 @@ describe("section jumps on staged warning cards (spec §8.3)", () => {
       expect(HOTEL_RESERVATION_JUDGMENT_CODES.size).toBe(4);
       expect(HOTEL_RESERVATION_JUDGMENT_CODES.has("HOTEL_GUEST_SPLIT_AMBIGUOUS")).toBe(true);
     });
+    // Review R1 D2: each inline-group code exercises the reservation jump, and a judgment
+    // code outside the set falls back to the section jump, so swapping either member for
+    // DATE_ORDER_SUGGESTS_DMY fails here.
+    const onHotel = (code: string): ParseWarning => ({
+      severity: "warn",
+      code,
+      message: "Hotel judgment",
+      blockRef: { kind: "hotels", index: 1 },
+      rawSnippet: "Hyatt | group block",
+    });
+    it.each(["HOTEL_INLINE_GROUP_OWN_HOTEL", "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED"])(
+      "%s at index 1: Go to this reservation in Hotels",
+      (code) => {
+        premiseHolds(`${code} routes to Hotels`, sectionForWarning(onHotel(code)) === "hotels");
+        const spies = renderRows([onHotel(code)]);
+        const jump = jumpAt(0)!;
+        expect(jump.getAttribute("data-jump")).toBe("reservation");
+        fireEvent.click(jump);
+        expect(spies.onJumpToHotel).toHaveBeenCalledExactlyOnceWith(1);
+      },
+    );
+    it("DATE_ORDER_SUGGESTS_DMY at index 1: Go to Hotels (not a reservation code)", () => {
+      const w = onHotel("DATE_ORDER_SUGGESTS_DMY");
+      premiseHolds("it routes to Hotels", sectionForWarning(w) === "hotels");
+      const spies = renderRows([w]);
+      const jump = jumpAt(0)!;
+      expect(jump.getAttribute("data-jump")).toBe("hotels");
+      fireEvent.click(jump);
+      expect(spies.onJumpToSection).toHaveBeenCalledExactlyOnceWith("hotels");
+    });
     it.each([
       ["0", 0],
       ["1 (hotelCount - 1)", 1],

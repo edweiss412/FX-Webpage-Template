@@ -113,9 +113,48 @@ function markedIndices(): number[] {
 
 describe("the judgment code set the marker reads", () => {
   it("is the four index-carrying hotel codes, each a judgment code", () => {
-    expect(HOTEL_RESERVATION_JUDGMENT_CODES.size).toBe(4);
+    // Review R1 D2: a size and membership check accepted a substitution (an inline-group
+    // code swapped for DATE_ORDER_SUGGESTS_DMY kept size 4 and ambiguity membership).
+    // The members are pinned by name, the four spec §5.1 / C4 names.
+    expect([...HOTEL_RESERVATION_JUDGMENT_CODES].sort()).toEqual([
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+      "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    ]);
     for (const code of HOTEL_RESERVATION_JUDGMENT_CODES)
       expect(AMBIGUITY_CODES.has(code)).toBe(true);
+  });
+
+  /** A hotel-scoped judgment warning on reservation 0, of `code`. */
+  const onFirstHotel = (code: string): ParseWarning => ({
+    severity: "warn",
+    code,
+    message: "Hotel judgment",
+    blockRef: { kind: "hotels", index: 0 },
+    rawSnippet: "Hyatt | group block",
+  });
+
+  it.each(["HOTEL_INLINE_GROUP_OWN_HOTEL", "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED"])(
+    "%s marks its reservation and jumps to its card",
+    (code) => {
+      premiseHolds(`${code} is a judgment code`, AMBIGUITY_CODES.has(code));
+      const { chrome, onJump } = chromeWith([{ warning: onFirstHotel(code), index: 5 }]);
+      renderHotels(TWO_HOTELS, chrome);
+      expect(markedIndices()).toEqual([0]);
+      fireEvent.click(screen.getByTestId("wizard-step3-hotel-judgment-jump"));
+      expect(onJump).toHaveBeenCalledExactlyOnceWith(5, [5]);
+    },
+  );
+
+  it("a judgment code outside the set marks nothing (DATE_ORDER_SUGGESTS_DMY)", () => {
+    premiseHolds(
+      "DATE_ORDER_SUGGESTS_DMY is a judgment code",
+      AMBIGUITY_CODES.has("DATE_ORDER_SUGGESTS_DMY"),
+    );
+    const { chrome } = chromeWith([{ warning: onFirstHotel("DATE_ORDER_SUGGESTS_DMY"), index: 5 }]);
+    renderHotels(TWO_HOTELS, chrome);
+    expect(markedIndices()).toEqual([]);
   });
 });
 

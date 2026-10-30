@@ -165,8 +165,21 @@ describe("isJudgmentCall", () => {
 
 describe("the code sets", () => {
   it("both sets are judgment codes, and the hotel set has its four", () => {
-    expect(HOTEL_RESERVATION_JUDGMENT_CODES.size).toBe(4);
-    premiseHolds("USE_RAW_CODES is non-empty", USE_RAW_CODES.size > 0);
+    // Review R1 D2 sweep: size plus membership accepted a same-size substitution, so
+    // both sets are pinned by name (spec §5.1 / C4 hotel codes; §5.6 the four radio
+    // codes, formerly UseRawControl's IN_SCOPE).
+    expect([...HOTEL_RESERVATION_JUDGMENT_CODES].sort()).toEqual([
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+      "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    ]);
+    expect([...USE_RAW_CODES].sort()).toEqual([
+      "DATE_ORDER_SUGGESTS_DMY",
+      "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+      "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    ]);
     for (const code of HOTEL_RESERVATION_JUDGMENT_CODES) {
       expect(AMBIGUITY_CODES.has(code), code).toBe(true);
     }
