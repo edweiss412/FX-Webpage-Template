@@ -7,7 +7,9 @@
  * server-built asset list (spec 4.8); `purge` naming the show for an admin or
  * admin-preview viewer, so a phone now showing an admin view drops the crew
  * copy. The staged preview passes an admin-preview viewer, so it purges too.
- * The bar and the registrar join it for crew viewers in later tasks.
+ * A crew viewer also gets the pinned bar (spec 4.7.2), which renders nothing
+ * on the server and works out its state after hydration; an admin or
+ * admin-preview viewer gets no bar. The registrar joins them in a later task.
  *
  * Synchronous on purpose, with no hooks and no `await`: the CrewShell render
  * suites mount CrewShell's output with Testing Library, which cannot mount an
@@ -23,9 +25,11 @@
  * than validated, so a throw while building it degrades to an empty list: the
  * copy is still saved, without its assets.
  */
+import { SavedCopyBar } from "@/components/offline/SavedCopyBar";
 import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { savedCopyAssetUrls } from "@/lib/offline/assetList";
+import { isSheetUnavailable } from "@/lib/offline/barState";
 import { purgeMarkerFor, saveMarkerFor } from "@/lib/offline/serverMarkers";
 
 export type SavedCopySlotProps = {
@@ -49,16 +53,32 @@ function assetsFor(showId: string, data: ShowForViewer, viewer: Viewer): string[
   }
 }
 
-export function SavedCopySlot({ viewer, showId, data, renderedAt, epoch }: SavedCopySlotProps) {
-  const marker =
-    viewer.kind === "crew"
-      ? saveMarkerFor({
-          showId,
-          crewMemberId: viewer.crewMemberId,
-          epoch,
-          renderedAt,
-          assets: assetsFor(showId, data, viewer),
-        })
-      : purgeMarkerFor(showId);
-  return <SavedCopyMarker marker={marker} />;
+export function SavedCopySlot({
+  viewer,
+  showId,
+  data,
+  slug,
+  shareToken,
+  renderedAt,
+  epoch,
+}: SavedCopySlotProps) {
+  if (viewer.kind !== "crew") return <SavedCopyMarker marker={purgeMarkerFor(showId)} />;
+  const marker = saveMarkerFor({
+    showId,
+    crewMemberId: viewer.crewMemberId,
+    epoch,
+    renderedAt,
+    assets: assetsFor(showId, data, viewer),
+  });
+  return (
+    <>
+      <SavedCopyMarker marker={marker} />
+      <SavedCopyBar
+        renderedAt={renderedAt}
+        sheetUnavailable={isSheetUnavailable(data.lastSyncStatus)}
+        slug={slug}
+        shareToken={shareToken}
+      />
+    </>
+  );
 }

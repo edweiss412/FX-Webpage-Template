@@ -9,7 +9,7 @@
  * Each case reads the rendered HTML with the worker's own reader, so a marker
  * that renders but would not parse fails here.
  */
-import { isValidElement } from "react";
+import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -24,6 +24,7 @@ vi.mock("@/lib/offline/assetList", async (importOriginal) => {
   return { savedCopyAssetUrls: vi.fn(actual.savedCopyAssetUrls) };
 });
 
+import { SavedCopyBar, type SavedCopyBarProps } from "@/components/offline/SavedCopyBar";
 import { SavedCopySlot, type SavedCopySlotProps } from "@/components/offline/SavedCopySlot";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { savedCopyAssetUrls } from "@/lib/offline/assetList";
@@ -108,6 +109,19 @@ function markerIn(html: string): Marker {
   return read.marker;
 }
 
+/**
+ * Every <SavedCopyBar> element in the slot's output tree. The slot is a server
+ * component and the bar renders nothing on the server, so the markup cannot
+ * show the bar; the element tree shows what the slot hands the client.
+ */
+function barsIn(node: ReactNode): ReactElement<SavedCopyBarProps>[] {
+  return Children.toArray(node).flatMap((child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child)) return [];
+    if (child.type === SavedCopyBar) return [child as ReactElement<SavedCopyBarProps>];
+    return barsIn(child.props.children);
+  });
+}
+
 describe("SavedCopySlot", () => {
   test("a crew viewer gets a save marker with every attribute the worker needs", () => {
     const assets = savedCopyAssetUrls(SHOW, DATA, CREW_VIEWER);
@@ -183,6 +197,39 @@ describe("SavedCopySlot", () => {
     };
 
     expect(markerIn(renderSlot({ data }))).toMatchObject({ disposition: "save", assets: [] });
+  });
+
+  test("a crew viewer gets the bar, with the render time, the sheet state and the page's link parts", () => {
+    const bars = barsIn(SavedCopySlot(props()));
+
+    expect(bars).toHaveLength(1);
+    expect(bars[0]!.props).toEqual({
+      renderedAt: RENDERED_AT,
+      sheetUnavailable: false,
+      slug: "demo-show",
+      shareToken: "abc123",
+    });
+  });
+
+  test("the bar reads the sheet as unavailable only for the sheet_unavailable sync status", () => {
+    const unavailable = barsIn(
+      SavedCopySlot(props({ data: { ...DATA, lastSyncStatus: "sheet_unavailable" } })),
+    );
+    const failed = barsIn(SavedCopySlot(props({ data: { ...DATA, lastSyncStatus: "error" } })));
+
+    expect(unavailable.map((bar) => bar.props.sheetUnavailable)).toEqual([true]);
+    expect(failed.map((bar) => bar.props.sheetUnavailable)).toEqual([false]);
+  });
+
+  test("a crew viewer whose marker falls back to purge still gets the bar", () => {
+    expect(barsIn(SavedCopySlot(props({ epoch: undefined })))).toHaveLength(1);
+  });
+
+  test.each<[string, Viewer]>([
+    ["admin", { kind: "admin" }],
+    ["admin_preview", { kind: "admin_preview", crewMemberId: CREW }],
+  ])("an %s viewer gets no bar", (_kind, viewer) => {
+    expect(barsIn(SavedCopySlot(props({ viewer })))).toEqual([]);
   });
 
   test("is synchronous, so the CrewShell render suites can mount it", () => {
