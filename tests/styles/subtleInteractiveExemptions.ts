@@ -140,7 +140,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // `{hidden.length} more` <summary>, located by its own element.
     // 1698 -> 1699 on feat/warning-card-fixes Task 15 (the useRawDraft import line); the
     // same `{hidden.length} more` <summary>.
-    line: 1699,
+    // 1699 -> 1713 on feat/warning-card-fixes Task 16 (the reading-display imports and the
+    // callout's reading label above it); the same `{hidden.length} more` <summary>.
+    line: 1713,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -180,7 +182,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // located by its own ignored-summary testid.
     // 3656 -> 3700 on feat/warning-card-fixes Task 15 (the staged reading scope above it);
     // located by its own ignored-summary testid.
-    line: 3700,
+    // 3700 -> 3787 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
+    // it); located by its own ignored-summary testid.
+    line: 3787,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -196,7 +200,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     // located by its own accepted-summary testid.
     // 3688 -> 3732 on feat/warning-card-fixes Task 15, same cause; located by its own
     // accepted-summary testid.
-    line: 3732,
+    // 3732 -> 3819 on feat/warning-card-fixes Task 16 (the Hotels reservation marker above
+    // it); located by its own accepted-summary testid.
+    line: 3819,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",

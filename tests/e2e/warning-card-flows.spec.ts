@@ -182,3 +182,96 @@ test.describe("deferred reading choice (spec §6.3)", () => {
     expect(calls).toEqual(["setStagedUseRawDecisionAction", "setStagedWarningIgnore"]);
   });
 });
+
+/** Opens `?scenario=<name>`, settles the auto-opened attention menu and proves real
+ *  Tailwind compiled (the panel's `p-tile-pad` resolves to 20px). */
+async function openScenario(
+  page: import("@playwright/test").Page,
+  scenario: string,
+  premiseTestId: string,
+): Promise<void> {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${baseUrl}?scenario=${scenario}`);
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page.getByTestId(premiseTestId)).toBeVisible();
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  );
+  const chip = page.locator('[data-testid$="-review-chip"]');
+  if ((await chip.count()) > 0 && (await chip.first().getAttribute("aria-expanded")) === "true") {
+    await chip.first().click();
+    await expect(chip.first()).toHaveAttribute("aria-expanded", "false");
+  }
+  const padding = await page.evaluate((id) => {
+    const el = document.querySelector(`[data-testid="${id}"]`);
+    if (!el) throw new Error(`missing ${id}`);
+    const panel = el.closest('[data-testid$="-panel-card"]');
+    if (!panel) throw new Error(`no panel card around ${id}`);
+    return getComputedStyle(panel).paddingLeft;
+  }, premiseTestId);
+  expect(padding, "CSS premise: the panel's p-tile-pad compiled to 20px").toBe(TILE_PAD_PX);
+}
+
+/** Height of one element by rect, read in the page with a named failure when absent. */
+async function rectHeight(page: import("@playwright/test").Page, testId: string): Promise<number> {
+  return page.evaluate((id) => {
+    const el = document.querySelector(`[data-testid="${id}"]`);
+    if (!el) throw new Error(`missing ${id}`);
+    return el.getBoundingClientRect().height;
+  }, testId);
+}
+
+/** Whether the element matching `selector` carries the one-shot flash and lies inside the
+ *  review scroller's rect. */
+async function flashedInView(
+  page: import("@playwright/test").Page,
+  scrollerTestId: string,
+  selector: string,
+): Promise<boolean> {
+  return page.evaluate(
+    ([sid, sel]) => {
+      const scroller = document.querySelector(`[data-testid="${sid}"]`);
+      if (!scroller) throw new Error(`missing scroller ${sid}`);
+      const target = scroller.querySelector(sel!);
+      if (!target || !target.hasAttribute("data-step3-warning-flash")) return false;
+      const s = scroller.getBoundingClientRect();
+      const t = target.getBoundingClientRect();
+      return t.top >= s.top - 0.5 && t.bottom <= s.bottom + 0.5;
+    },
+    [scrollerTestId, selector],
+  );
+}
+
+test.describe("jumps (spec §5.4, §5.5)", () => {
+  test("the Hotels reservation marker jumps to its card in Sheet warnings", async ({ page }) => {
+    await openScenario(page, "jumps", "wizard-step3-hotel-judgment-marker");
+    const raw = await page.locator("html").getAttribute("data-warning-card-jumps");
+    if (!raw) throw new Error("live entry did not publish data-warning-card-jumps");
+    const meta = JSON.parse(raw) as { dfid: string; guestRow: number; hotelIndex: number };
+
+    // The marker sits on the judged reservation, and only there.
+    const marker = page.getByTestId("wizard-step3-hotel-judgment-marker");
+    await expect(marker).toHaveCount(1);
+    await expect(
+      page
+        .locator(`[data-hotel-index="${meta.hotelIndex}"]`)
+        .getByTestId("wizard-step3-hotel-judgment-marker"),
+    ).toHaveCount(1);
+
+    const jump = page.getByTestId("wizard-step3-hotel-judgment-jump");
+    await jump.scrollIntoViewIfNeeded();
+    expect(
+      await rectHeight(page, "wizard-step3-hotel-judgment-jump"),
+      "jump tap floor",
+    ).toBeGreaterThanOrEqual(TAP_FLOOR - TOL);
+
+    await jump.click();
+    const scroller = `wizard-step3-card-${meta.dfid}-review-content`;
+    await expect
+      .poll(() => flashedInView(page, scroller, `[data-warning-index="${meta.guestRow}"]`), {
+        message: "the guest split card flashes inside the scroller",
+      })
+      .toBe(true);
+  });
+});

@@ -100,7 +100,13 @@ import {
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { SheetIconLink } from "@/components/admin/SheetIconLink";
 import { JudgmentCallTag } from "@/components/admin/JudgmentCallTag";
-import { casePreviewsText, isJudgmentCall } from "@/lib/admin/warningReadingDisplay";
+import {
+  casePreviewsText,
+  HOTEL_RESERVATION_JUDGMENT_CODES,
+  isJudgmentCall,
+  readingShown,
+  sheetSaysText,
+} from "@/lib/admin/warningReadingDisplay";
 import { UseRawDraftProvider, offersReadingChoice } from "@/components/admin/useRawDraft";
 import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 import { type OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
@@ -720,8 +726,16 @@ function SectionFlagCallout({
         // contract (spec 2026-07-07 §7.3). Missing/false offersFix on any
         // member fail-safes to "Review" — never a false "Fix".
         const offersFix = members.every((m) => m.offersFix === true);
-        const jumpLabel =
-          isJudgment || !offersFix ? "Review in Sheet warnings" : "Fix in Sheet warnings";
+        // warning-card-fixes §5.5: a judgment row names what its card shows. When
+        // EVERY member's card shows a reading (§5.6 readingShown) the jump says so;
+        // one member without a reading keeps the generic label. Flagged unchanged.
+        const jumpLabel = isJudgment
+          ? members.every((m) => readingShown(m.warning))
+            ? "See how we read it"
+            : "Review in Sheet warnings"
+          : offersFix
+            ? "Fix in Sheet warnings"
+            : "Review in Sheet warnings";
         return (
           <div key={entryKeys[k]} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -2819,6 +2833,38 @@ export function HotelsBreakdown({
   // the chrome IS the single card; nest sub-cards only when there are 2+ rows.
   // Gated on chrome presence so the non-chrome path (no outer card) keeps a card.
   const flatSolo = chrome !== null && hotels.length === 1;
+  // warning-card-fixes §5.4: the reservation marker. Staged only: it needs the
+  // section's callout entries AND the jump back to Sheet warnings, which only the
+  // staged surface supplies. Accepted calls are already out of `calloutEntries`
+  // (it is built from the active partition), so accepting removes the marker.
+  const entries = chrome?.calloutEntries;
+  const onJumpToWarning = chrome?.onJumpToWarning;
+  const markerFor = (i: number): HotelJudgmentMarker | null => {
+    if (!entries || !onJumpToWarning) return null;
+    const members = entries.filter((e) => {
+      const x = e.warning.blockRef?.index;
+      return (
+        HOTEL_RESERVATION_JUDGMENT_CODES.has(e.warning.code) &&
+        typeof x === "number" &&
+        Number.isSafeInteger(x) &&
+        x >= 0 &&
+        x === i &&
+        i < shown.length
+      );
+    });
+    // The member with the lowest full-array index: the jump lands on its card and
+    // its cell is the one Sheet says line (Builder's call C4).
+    const first = members.reduce<(typeof members)[number] | undefined>(
+      (lo, m) => (lo === undefined || m.index < lo.index ? m : lo),
+      undefined,
+    );
+    if (first === undefined) return null;
+    const group = members.map((m) => m.index);
+    return {
+      onJump: () => onJumpToWarning(first.index, group),
+      sheetSays: sheetSaysText(first.warning.rawSnippet),
+    };
+  };
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-hotels`}
@@ -2832,7 +2878,7 @@ export function HotelsBreakdown({
           {shown.map((h, i) => {
             return (
               <Fragment key={`${h.hotel_name ?? "hotel"}-${i}`}>
-                <HotelCard h={h} flat={flatSolo} />
+                <HotelCard h={h} index={i} flat={flatSolo} marker={markerFor(i)} />
               </Fragment>
             );
           })}
@@ -2893,24 +2939,65 @@ function StayEnd({
  * existing review contract); dates are shown as-parsed (a non-ISO sentinel
  * echoes verbatim).
  */
-function HotelCard({ h, flat = false }: { h: HotelReservationRow; flat?: boolean }) {
+/** The judged reservation's marker data (warning-card-fixes §5.4): the jump to its
+ *  first card in Sheet warnings and that card's raw cell, already cut for display. */
+type HotelJudgmentMarker = { onJump: () => void; sheetSays: string | null };
+
+function HotelCard({
+  h,
+  index,
+  flat = false,
+  marker = null,
+}: {
+  h: HotelReservationRow;
+  /** Position in the rendered list: the `data-hotel-index` jump-target hook. */
+  index: number;
+  flat?: boolean;
+  marker?: HotelJudgmentMarker | null;
+}) {
   const address = hasContent(h.hotel_address) ? h.hotel_address : null;
   const names = arr(h.names).filter((n) => hasContent(n));
   const nights = nightsBetween(h.check_in, h.check_out);
   const guestsLabelId = useId();
+  const hotelLabel = h.hotel_name || "Hotel";
   return (
     <div
       data-testid="wizard-step3-hotel-card"
+      // warning-card-fixes §5.5: the card jump's target (same idiom as data-room-nav).
+      data-hotel-index={index}
       className={
         flat
           ? "@container flex flex-col gap-3"
           : "@container flex flex-col gap-3 rounded-md border border-border p-4"
       }
     >
+      {/* §5.4: the judgment marker sits above the hotel name. The card paints no fill
+          of its own, so the tag's plate is the panel's surface in both layouts. */}
+      {marker ? (
+        <div data-testid="wizard-step3-hotel-judgment-marker" className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <JudgmentCallTag plate="surface" testId="wizard-step3-hotel-judgment-tag" />
+            <button
+              type="button"
+              data-testid="wizard-step3-hotel-judgment-jump"
+              onClick={marker.onJump}
+              className="inline-flex min-h-tap-min items-center text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              See how we read it<span className="sr-only"> for {hotelLabel}</span>
+            </button>
+          </div>
+          {marker.sheetSays ? (
+            <p
+              data-testid="wizard-step3-hotel-judgment-sheet-says"
+              className="wrap-break-word text-xs text-text-subtle"
+            >
+              Sheet says <span className="text-text">{marker.sheetSays}</span>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="min-w-0">
-        <p className="wrap-break-word text-base font-semibold text-text-strong">
-          {h.hotel_name || "Hotel"}
-        </p>
+        <p className="wrap-break-word text-base font-semibold text-text-strong">{hotelLabel}</p>
         {address ? (
           <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
             <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />

@@ -9,10 +9,11 @@
  * component markup and real compiled CSS.
  *
  * The scenario is chosen by `?scenario=`: `layout` (the title-row fixture),
- * `archived` (the archived pull sheet card, plan Task 13) or `save` (the deferred
- * reading choice's Save flow, plan Task 15). Each publishes its fixture's row
- * indices on <html> (`data-warning-card-rows` / `data-warning-card-archived` /
- * `data-warning-card-save`) so the spec derives every testid from the fixture
+ * `archived` (the archived pull sheet card, plan Task 13), `save` (the deferred
+ * reading choice's Save flow, plan Task 15) or `jumps` (the Hotels reservation
+ * marker, plan Task 16). Each publishes its fixture's row indices on <html>
+ * (`data-warning-card-rows` / `data-warning-card-archived` / `data-warning-card-save`
+ * / `data-warning-card-jumps`) so the spec derives every testid from the fixture
  * rather than retyping indices.
  *
  * `save` is bundled with the two staged action modules aliased to
@@ -33,12 +34,16 @@ import {
   ARCHIVED_HARNESS_TAB,
   HARNESS_DFID,
   HARNESS_WSID,
+  JUMPS_HARNESS_GUEST_ROW,
+  JUMPS_HARNESS_HOTEL_INDEX,
   SAVE_HARNESS_CONTENT_HASH,
   SAVE_HARNESS_ROW,
   WARNING_CARD_ROWS,
   archivedTabHarnessWarnings,
   saveHarnessWarnings,
   buildSectionData,
+  jumpsHarnessHotels,
+  jumpsHarnessWarnings,
   modalElement,
   warningCardHarnessWarnings,
 } from "./_step3ReviewModalHarness";
@@ -133,6 +138,25 @@ if (scenario === "layout") {
     JSON.stringify({ dfid: HARNESS_DFID, row: SAVE_HARNESS_ROW, sid: SAVE_SID }),
   );
   createRoot(rootEl).render(<SaveHarness />);
+} else if (scenario === "jumps") {
+  // The Hotels reservation marker (plan Task 16): two hotels and an inline guest split
+  // on the second, so the hotel section's callout entries mark that card.
+  document.documentElement.setAttribute(
+    "data-warning-card-jumps",
+    JSON.stringify({
+      dfid: HARNESS_DFID,
+      guestRow: JUMPS_HARNESS_GUEST_ROW,
+      hotelIndex: JUMPS_HARNESS_HOTEL_INDEX,
+    }),
+  );
+  createRoot(rootEl).render(
+    modalElement(
+      buildSectionData({
+        warnings: jumpsHarnessWarnings(),
+        hotelReservations: jumpsHarnessHotels(),
+      }),
+    ),
+  );
 } else {
   throw new Error(`unknown warning-card scenario: ${scenario}`);
 }

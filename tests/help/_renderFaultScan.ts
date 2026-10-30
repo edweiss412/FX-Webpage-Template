@@ -873,7 +873,11 @@ export function scanCandidates(): Candidate[] {
       // ternary changed its condition, not its count. Neither new one is a fault branch;
       // 78 kept. Re-derived by running the guard.
       //
-      // Probed: 770 such ternaries under the derived roots, 78 on a
+      // 770 -> 772 on feat/warning-card-fixes Task 16: the Hotels reservation marker
+      // (`marker ? <div>… : null`) and its Sheet says line (`marker.sheetSays ? <p>… : null`)
+      // in HotelCard. Neither is a fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // Probed: 772 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

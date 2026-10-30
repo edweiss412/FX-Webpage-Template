@@ -783,7 +783,8 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"9220fd9a02efa131d0d4-f6ca30fe834404d4a69f\",[\"ui-polish-class-sweep.spec.ts\",\"the tinted-plate outline, measured against the plate it stands on\",\"clears 3:1 on bg-danger-bg\"]]"
     ],
     "tests/e2e/warning-card-flows.spec.ts": [
-      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-bb8afca9ad252d4d6ffc\",[\"warning-card-flows.spec.ts\",\"deferred reading choice (spec §6.3)\",\"pick, Save, the card leaves the active list and focus stays in the panel\"]]"
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-bb8afca9ad252d4d6ffc\",[\"warning-card-flows.spec.ts\",\"deferred reading choice (spec §6.3)\",\"pick, Save, the card leaves the active list and focus stays in the panel\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e25eba25146ee98dfc3d-e90c4ecb15e1224ac6dc\",[\"warning-card-flows.spec.ts\",\"jumps (spec §5.4, §5.5)\",\"the Hotels reservation marker jumps to its card in Sheet warnings\"]]"
     ],
     "tests/e2e/warning-card-layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"28f2c47f6c3a1217dedb-23173dc9c7af45588abb\",[\"warning-card-layout.spec.ts\",\"wizard warning title row (spec §13.1)\",\"DI-1 to DI-9 on the needs-look, judgment and info rows at 640px\"]]",
@@ -841,5 +842,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 732
+  "totalTests": 733
 }

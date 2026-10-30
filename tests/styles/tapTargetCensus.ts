@@ -389,7 +389,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // action cluster above it); the same tile `<a>`, located by that ref.
     // 4576 -> 4620 on feat/warning-card-fixes Task 15 (the staged reading scope above it);
     // the same tile `<a>`, located by that ref.
-    line: 4620,
+    // 4620 -> 4707 on feat/warning-card-fixes Task 16 (the Hotels reservation marker and
+    // the callout's reading label above it); the same tile `<a>`, located by that ref.
+    line: 4707,
     tag: "a",
     category: "full-bleed",
     reason:

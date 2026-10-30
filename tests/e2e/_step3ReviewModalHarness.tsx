@@ -28,7 +28,12 @@ import {
   buildStagedSectionData,
   type StagedSectionData,
 } from "@/components/admin/review/sectionData";
-import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
+import type {
+  CrewMemberRow,
+  HotelReservationRow,
+  ParseResult,
+  ParseWarning,
+} from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import {
   buildParseResult,
@@ -277,6 +282,55 @@ export function saveHarnessWarnings(): ParseWarning[] {
         contentHash: SAVE_HARNESS_CONTENT_HASH,
         parsed: { kind: "rooms", name: "Ballroom", dimensions: null, floor: null },
         replacement: { kind: "rooms", name: "Ballroom A / B", dimensions: null, floor: null },
+      },
+    },
+  ];
+}
+
+/** Jumps fixture (warning-card-fixes spec §5.4, §5.5; plan Task 16): two hotels and the
+ *  inline guest split `parseHotels` emits for `Hyatt Regency Eric Weiss - 110525` (Task
+ *  10's fixture, its shape copied from that parse), moved to reservation 1 by its
+ *  `blockRef.index`, so the Hotels section marks the SECOND card. Reached only through
+ *  `_warningCardLiveEntry.tsx?scenario=jumps`. */
+export const JUMPS_HARNESS_HOTEL_INDEX = 1;
+/** The guest split's index in `jumpsHarnessWarnings()`. */
+export const JUMPS_HARNESS_GUEST_ROW = 0;
+
+function harnessHotel(ordinal: number, name: string): HotelReservationRow {
+  return {
+    ordinal,
+    hotel_name: name,
+    hotel_address: null,
+    names: ["Eric Weiss"],
+    confirmation_no: null,
+    check_in: null,
+    check_out: null,
+    notes: null,
+  };
+}
+
+export function jumpsHarnessHotels(): HotelReservationRow[] {
+  return [harnessHotel(1, "Hotel One"), harnessHotel(2, "Hyatt Regency")];
+}
+
+export function jumpsHarnessWarnings(): ParseWarning[] {
+  return [
+    {
+      severity: "warn" as const,
+      code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+      message:
+        'Hotel line "Hyatt Regency Eric Weiss - 110525" runs the hotel and the booking details together in one cell, so we had to work out where each part starts; double-check this reservation.',
+      blockRef: {
+        kind: "hotels",
+        field: "guests",
+        index: JUMPS_HARNESS_HOTEL_INDEX,
+        name: "Hyatt Regency Eric Weiss",
+      },
+      rawSnippet: "Hyatt Regency Eric Weiss - 110525",
+      resolution: {
+        resolvable: false,
+        reason: "raw-not-guest-scoped",
+        readAs: { kind: "hotels", names: ["Hyatt Regency Eric Weiss"] },
       },
     },
   ];
