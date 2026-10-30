@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { requiredStaticUrls } from "@/lib/offline/completeness";
@@ -53,6 +55,16 @@ const CSS_BODY = `@font-face{font-family:Inter;src:url(${FONT}) format("woff2")}
 const DIAGRAM = `/api/asset/diagram/${SHOW}/rev-1/stage.png`;
 const AGENDA = `/api/asset/agenda/${SHOW}/file-1`;
 const STATUS = "/api/saved-copy/status";
+
+/**
+ * A post-stream notFound() as production sends it (fix-task-25 D1): HTTP 200, no
+ * marker element, Next's not-found digest in the payload. Capture and trim are
+ * recorded in tests/lib/offline/marker.test.ts.
+ */
+const STREAMED_NOT_FOUND = readFileSync(
+  join(process.cwd(), "tests", "lib", "offline", "fixtures", "crew-not-found-streamed.html"),
+  "utf8",
+);
 
 // --- Fixtures -------------------------------------------------------------------
 
@@ -939,6 +951,36 @@ describe("step 3: a complete response decides by its marker", () => {
     expect(worker.net.callsTo(STATUS)).toEqual([]);
   });
 
+  // The client renders not-found.tsx for that body, and its marker is check (spec 4.4).
+  test("a streamed not-found page with S(U), status ended: marks S(U) ended and serves it in ended mode", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(STREAMED_NOT_FOUND)),
+    );
+    worker.net.on(STATUS, statusAnswer("ended"));
+    const text = await (await open(worker, U)).text();
+    expect(worker.net.callsTo(STATUS)).toHaveLength(1);
+    expect(servedMode(text)).toBe("ended");
+    expect(text).toContain(savedLabel(SHOW, U));
+    expect((await worker.store.copyAtUrl(U))?.endedAt).toBe(START);
+  });
+
+  test("a streamed not-found page with S(U), status gone: purges and serves the network", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(STREAMED_NOT_FOUND)),
+    );
+    worker.net.on(STATUS, statusAnswer("gone"));
+    const response = await open(worker, U);
+    expect(worker.net.callsTo(STATUS)).toHaveLength(1);
+    expect(await response.text()).toBe(STREAMED_NOT_FOUND);
+    expect(await worker.store.copyByShow(SHOW)).toBeNull();
+  });
+
   test("purge naming a show: serves the network and purges C(show) wherever it was saved", async () => {
     const worker = boot();
     await worker.seed({ showId: SHOW, url: U_OLD });
@@ -1667,6 +1709,18 @@ describe("probe", () => {
     worker.net.on(
       U,
       reply(() => htmlResponse(page({ disposition: "check", showId: null }), 404)),
+    );
+    worker.net.on(STATUS, statusAnswer("ended"));
+    expect(await worker.ask({ type: "probe", url: U })).toEqual({ outcome: "ended" });
+    expect((await worker.store.copyAtUrl(U))?.endedAt).toBe(START);
+  });
+
+  test("a streamed not-found page whose status route says ended replies ended", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(STREAMED_NOT_FOUND)),
     );
     worker.net.on(STATUS, statusAnswer("ended"));
     expect(await worker.ask({ type: "probe", url: U })).toEqual({ outcome: "ended" });

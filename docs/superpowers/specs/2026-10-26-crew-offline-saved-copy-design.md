@@ -186,7 +186,7 @@ For a crew-URL navigation, `U` is the request's path (query ignored) and the fet
 
 1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error (the app answered without a verdict): fetch the page under the step 2 budget and keep `S(U)`. A complete response is served as is, without the step 3 table; a network error or a timeout serves `S(U)` in `ended` mode, because the app then gave no answer at all.
 2. **Otherwise fetch the request URL and buffer the whole response**, up to 8 seconds for headers and body together.
-3. **Complete response in time.** Read the marker, then:
+3. **Complete response in time.** Read the marker, then use the table below. A body with no marker element that carries Next's not-found digest (`NEXT_HTTP_ERROR_FALLBACK;404`) reads as `check` naming no show: it is the not-found page after a `notFound()` that ran once the streamed shell was out, which the client renders from the payload, so its marker never becomes an element (`readNavigationMarker`, `lib/offline/marker.ts`).
 
 | Marker | `S(U)` exists | Serve | Then |
 |---|---|---|---|
@@ -511,6 +511,7 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 - **Report clock.** `writtenAt` is phone time and is labelled as such.
 - **Offline realtime noise.** `ShowRealtimeBridge` keeps retrying its token mint while offline (about 12 failed requests in the spike's WebKit window). Harmless, unchanged.
 - **Section on reload.** An offline reload opens on the section that was showing at save time (§4.7.4).
+- **An unexpected error after the shell.** An uncaught throw once the streamed shell is out renders `error.tsx`, and its `hold` marker, on the client only, so the worker reads no marker and purges `S(U)` (§4.4 step 3). The known infrastructure failures render `<TerminalFailure>` with `hold` inline, so only an unexpected exception reaches this, and it costs a saved copy, never keeps one too long.
 
 ## 10. Left to the builder
 

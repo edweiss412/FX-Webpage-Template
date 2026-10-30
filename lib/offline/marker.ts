@@ -9,7 +9,9 @@
  *
  * The reader fails closed. A marker it cannot fully validate is `invalid` and
  * a body with no marker is `absent`; the worker acts on both as `purge`. It
- * never throws, whatever the body holds.
+ * never throws, whatever the body holds. The worker's own navigation read,
+ * `readNavigationMarker`, adds one exception: the not-found page streamed after
+ * its shell, which has no marker element, reads as that page's `check`.
  */
 
 export const MARKER_ID = "fxav-saved-copy";
@@ -66,6 +68,45 @@ export function readMarker(html: string): MarkerRead {
   // The purge can still name the show when the id is well formed.
   const showId = attributes.get("data-show-id");
   return { kind: "invalid", showId: showId !== undefined && UUID.test(showId) ? showId : null };
+}
+
+/**
+ * Next's digest for `notFound()`: `${HTTP_ERROR_FALLBACK_ERROR_CODE};404`
+ * (next/dist/client/components/not-found.js:25, the code from
+ * next/dist/client/components/http-access-fallback/http-access-fallback.js:41).
+ *
+ * Why the worker looks for it. The crew route has a `loading.tsx`, so its
+ * documents stream. When the page calls `notFound()` after the shell has gone
+ * out, the server can no longer render the not-found page into the HTML. It
+ * answers HTTP 200 with the loading skeleton, an empty hidden segment and the
+ * RSC payload, and the client renders `not-found.tsx` from that payload. Its
+ * `check` marker (spec 4.3) then exists only as props inside the payload, never
+ * as an element, so `readMarker` finds nothing. What the body does carry is
+ * this digest, twice: the payload's error row (`E{"digest":…}`) and React's
+ * instruction to render the boundary on the client (`$RX("B:0",…)`). Probed
+ * against the production build (fix-task-25 D1). Every crew page's payload also
+ * carries the not-found tree, as the layout's fallback prop, so the tree is no
+ * signal; the digest appears in no other crew page.
+ *
+ * Fail-closed: if a later Next spells the digest differently, the body reads
+ * `absent` again and the worker purges by URL. A copy is then lost at an
+ * archive it should survive (R3), never kept past one it should not. The e2e
+ * cases that would turn red are crew-offline.spec.ts 3, 4, 13 and 15.
+ */
+export const NEXT_NOT_FOUND_DIGEST = "NEXT_HTTP_ERROR_FALLBACK;404";
+
+/**
+ * The worker's read of a navigation response it has buffered whole (spec 4.4
+ * step 3): `readMarker`, except that a body with no marker element that carries
+ * Next's not-found digest is the not-found page streamed after its shell, and
+ * reads as that page's marker: `check`, naming no show. A marker element always
+ * wins. Only the worker reads bodies this way; every other reader keeps
+ * `readMarker`.
+ */
+export function readNavigationMarker(html: string): MarkerRead {
+  const read = readMarker(html);
+  if (read.kind !== "absent" || !html.includes(NEXT_NOT_FOUND_DIGEST)) return read;
+  return { kind: "valid", marker: { disposition: "check", showId: null } };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

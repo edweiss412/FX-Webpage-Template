@@ -28,7 +28,7 @@ import { fontUrlsFromCss, requiredStaticUrls } from "@/lib/offline/completeness"
 import { classifyRequest, crewPath } from "@/lib/offline/crewUrl";
 import { formatSavedTime } from "@/lib/offline/format";
 import { injectSavedCopyHead } from "@/lib/offline/inject";
-import { readMarker, type MarkerRead, type SaveMarker } from "@/lib/offline/marker";
+import { readNavigationMarker, type MarkerRead, type SaveMarker } from "@/lib/offline/marker";
 import {
   NAV_BUDGET_MS,
   STATUS_TIMEOUT_MS,
@@ -188,7 +188,8 @@ async function readFetched(response: Response): Promise<Fetched> {
     headers: response.headers,
     bytes,
     text,
-    marker: readMarker(text),
+    // A streamed not-found page reads as its check marker (readNavigationMarker).
+    marker: readNavigationMarker(text),
   };
 }
 

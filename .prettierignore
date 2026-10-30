@@ -123,6 +123,13 @@ tests/fixtures/venueSectionRawWifi.html
 # the server sent.
 tests/lib/offline/fixtures/crew-page.html
 
+# The streamed crew page and streamed not-found page are trimmed production
+# bodies, the input of the worker's navigation marker read
+# (tests/lib/offline/marker.test.ts). Their payload rows and hidden segments are
+# what the read is tested against, so prettier must leave the bytes as captured.
+tests/lib/offline/fixtures/crew-page-streamed.html
+tests/lib/offline/fixtures/crew-not-found-streamed.html
+
 # The claim sweep's historical re-enactment fixtures are FROZEN BLOBS of the
 # incident arc's documents, checked out verbatim from `fede5f084` and
 # `c272ebed3` (spec §6). Every assertion over them is a
