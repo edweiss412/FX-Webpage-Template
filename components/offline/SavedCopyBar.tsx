@@ -43,7 +43,8 @@
  * On any saved copy the bar also puts the section on screen into the URL's `s`
  * (spec 4.7.4): the copy is stored without its query, so it opens on its own
  * section whatever `?s=` says. The section is read from CrewSections' wrapper
- * in the DOM, so no file under components/crew changes.
+ * in the DOM, so no file under components/crew changes. A URL whose `s`
+ * already names that section is not rewritten.
  *
  * `slug` and `shareToken` are accepted for the bar's links (spec 4.7.2). The
  * layout classes behind the spec's Dimensional Invariants (sticky placement,
@@ -153,6 +154,9 @@ function showRenderedSectionInUrl(): void {
     ?.getAttribute("data-active-section");
   if (section === undefined || section === null || section === "") return;
   const url = new URL(window.location.href);
+  // Each replaceState through Next's patched history dispatches an
+  // ACTION_RESTORE, so a URL that already names the section is left alone.
+  if (url.searchParams.get("s") === section) return;
   url.searchParams.set("s", section);
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }

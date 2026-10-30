@@ -29,14 +29,17 @@
  *
  * Failure modes caught: a probe in the wrong mode or never fired by one of its
  * three triggers; two probes at once; a timer that keeps probing without a
- * connection; a `fresh-ready` for another page or another message type
+ * connection; a synchronous no-worker reply that throws and leaves the bar
+ * unable to probe again; any trigger probing after the bar unmounts; a
+ * `fresh-ready` for another page or another message type
  * starting a probe; an outcome mapped to the wrong action, or the reload
  * before the flag is written; the flag consumed twice, or its 4-second window
  * killed by StrictMode's second effect run; a probe that keeps running after
  * the recovery ends; an RSC refresh that leaves `updating` on screen or lets
  * an in-flight probe reload the page; the age tick knocking `updating` back to
  * a saved state; and the URL rewritten on a live page, from a missing or empty
- * attribute, or with the other parameters dropped.
+ * attribute, when its `s` already names the section, or with the other
+ * parameters or the fragment dropped.
  */
 import { StrictMode } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
@@ -351,6 +354,51 @@ describe("SavedCopyBar recovery: when the bar probes", () => {
     await fire("online");
     expect(post).toHaveBeenCalledTimes(2);
   });
+
+  test("a no-worker reply that comes back synchronously throws nothing, and the next trigger probes again", async () => {
+    // With no controller, postToWorker returns its no-worker reply as a plain
+    // object, not a promise (lib/offline/client/messaging.ts). A probe that
+    // called `.then` on it directly would throw inside the online handler and
+    // leave its one-at-a-time flag set, so no later trigger could probe.
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent): void => {
+      errors.push(event.error);
+      event.preventDefault();
+    };
+    window.addEventListener("error", onError);
+    try {
+      setServedMeta("offline", FRESH_SAVED_AT);
+      renderBar();
+      post.mockReturnValueOnce({ outcome: "no-worker" });
+
+      await fire("online");
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(errors).toEqual([]);
+      expect(barState()).toBe("saved-fresh");
+
+      await advance(PROBE_EVERY_MS);
+      expect(post).toHaveBeenCalledTimes(2);
+    } finally {
+      window.removeEventListener("error", onError);
+    }
+  });
+
+  test("an unmounted bar probes on none of the three triggers", async () => {
+    setServedMeta("offline", FRESH_SAVED_AT);
+    const { unmount } = renderBar();
+    // Mounted, it probes: the online event fires one and starts the timer.
+    await fire("online");
+    expect(post).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    await fire("online");
+    expect(post, "the online event after unmount").toHaveBeenCalledTimes(1);
+    await broadcast({ type: "fresh-ready", url: PATH });
+    expect(post, "a fresh-ready after unmount").toHaveBeenCalledTimes(1);
+    await advance(2 * PROBE_EVERY_MS);
+    expect(post, "the 30-second timer after unmount").toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("SavedCopyBar recovery: what each reply does", () => {
@@ -609,15 +657,33 @@ describe("SavedCopyBar: the section in the URL (spec 4.7.4)", () => {
     },
   );
 
-  test("a URL with no s gains one", () => {
-    window.history.replaceState(null, "", PATH);
+  test("a URL with no s gains one, and keeps its fragment", () => {
+    window.history.replaceState(null, "", `${PATH}#notes`);
     setServedMeta("offline", FRESH_SAVED_AT);
     mountSectionsWrapper("crew");
     const replace = vi.spyOn(window.history, "replaceState");
 
     renderBar();
 
-    expect(replace.mock.calls).toEqual([[null, "", `${PATH}?s=crew`]]);
+    expect(replace.mock.calls).toEqual([[null, "", `${PATH}?s=crew#notes`]]);
+    expect(window.location.hash).toBe("#notes");
+  });
+
+  test("an s that already names the rendered section is left alone; one that does not is rewritten", () => {
+    // Each replaceState through Next's patched history dispatches an
+    // ACTION_RESTORE, so a rewrite that would change nothing is skipped.
+    setServedMeta("offline", FRESH_SAVED_AT);
+    const wrapper = mountSectionsWrapper("today");
+    const replace = vi.spyOn(window.history, "replaceState");
+
+    const same = renderBar();
+    same.unmount();
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("?s=today&gate=skip");
+
+    wrapper.setAttribute("data-active-section", "schedule");
+    renderBar();
+    expect(replace.mock.calls).toEqual([[null, "", `${PATH}?s=schedule&gate=skip`]]);
   });
 
   test("a live page leaves the URL alone", () => {
