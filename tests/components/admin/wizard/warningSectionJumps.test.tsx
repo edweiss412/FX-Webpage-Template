@@ -30,6 +30,8 @@ import {
 } from "@/components/admin/wizard/step3ReviewSections";
 import { reviewWarningTitle } from "@/lib/admin/reviewWarningTitle";
 import { stripEmphasis } from "@/lib/messages/collapsedSummary";
+import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
 import { sectionForWarning, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { HOTEL_RESERVATION_JUDGMENT_CODES } from "@/lib/admin/warningReadingDisplay";
 import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
@@ -170,10 +172,27 @@ describe("section jumps on staged warning cards (spec §8.3)", () => {
     expect(spies.onJumpToHotel).not.toHaveBeenCalled();
   });
 
+  /** The row's rendered help text (its code's catalog helpfulContext), premise-checked. */
+  function helpTextIn(row: HTMLElement, w: ParseWarning): HTMLElement {
+    const help = isMessageCode(w.code)
+      ? messageFor(w.code as MessageCode).helpfulContext
+      : undefined;
+    premiseHolds(`${w.code} has help text`, typeof help === "string" && help.length > 0);
+    const el = Array.from(row.querySelectorAll("p")).find(
+      (p) => (p.textContent ?? "").trim() === stripEmphasis(help!).trim(),
+    );
+    premiseHolds(`the ${w.code} row renders its help text`, el !== undefined);
+    return el!;
+  }
+
   it("the jump follows the help text, before the row's controls", () => {
     renderRows([crewField]);
     const row = screen.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
     const jump = jumpAt(0)!;
+    // Review R1 D1: identify the help text itself (the code's catalog helpfulContext,
+    // as rendered) and pin the jump AFTER it, per spec §8.3.
+    const helpEl = helpTextIn(row, crewField);
+    expect(helpEl.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const controls = within(row).getByTestId("dq-controls");
     expect(jump.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -189,6 +208,9 @@ describe("section jumps on staged warning cards (spec §8.3)", () => {
     expect(jump).toHaveAccessibleName(`Go to ${labelOf("packlist")} for ${titleOf(archived)}`);
     const include = screen.getByTestId(`wizard-step3-card-${DFID}-warning-0-archived-include`);
     const controls = screen.getByTestId("dq-controls");
+    // Review R1 D1 sweep: on the archived card too the jump comes after the help text.
+    const helpEl = helpTextIn(screen.getByTestId(`wizard-step3-card-${DFID}-warning-0`), archived);
+    expect(helpEl.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(include.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(jump.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(allJumps()).toHaveLength(1);
