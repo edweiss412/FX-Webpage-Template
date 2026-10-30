@@ -368,7 +368,40 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     reason:
       "an interactive Link whose selected state was carried by bg-surface, shadow-tile and a text tone, all of which flatten or drop; its label is static across both paths and aria-current renders nothing, so the selected fill is what repairs it",
   },
+  {
+    site: "components/crew/CrewDayRow.tsx:115",
+    disposition: "repaired",
+    binding: {
+      locator: '[data-testid="crew-day-now"]',
+      toggle: "tapping a day, then Now, when today is not in the day set",
+      bound: false,
+    },
+    reason:
+      "crew day row's Now button; pressed and unpressed differ only in fill, border and text colour, its text is Now either way, so the aria-pressed Highlight fill is what repairs it",
+  },
+  {
+    site: "components/crew/CrewDayRow.tsx:130",
+    disposition: "repaired",
+    binding: {
+      locator: '[data-testid="crew-day-button"]',
+      toggle: "tapping another day in the crew day row",
+      bound: false,
+    },
+    reason:
+      "crew day button; the pressed day differs only in fill, border and text colour (the Today word follows the clock, not the selection), so the aria-pressed Highlight fill is what repairs it",
+  },
   // ── Carrier survives: something non-chromatic changes too. ──
+  {
+    site: "components/crew/CrewDayRow.tsx:142",
+    disposition: "carrier-survives",
+    reason:
+      "the weekday caption inside a crew day button; the button itself carries the pressed state, as aria-pressed (the forced-colors Highlight fill repaired at CrewDayRow.tsx:130), and the caption inherits HighlightText on it",
+  },
+  {
+    site: "components/crew/CrewDayRow.tsx:151",
+    disposition: "carrier-survives",
+    reason: "same",
+  },
   {
     // :93 -> :76 (and :48 -> :36, :78 -> :61 in the reason) on feat/crew-show-search (Schedule search entries): the row's
     // display fields moved to `runOfShowEntryLine` below the components. Same summary.
@@ -464,7 +497,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // :116 until the merge of origin/main (crew show search), which gave the nav a
     // `hidden` prop (search hides it while results show) above this class list.
-    site: "components/crew/CrewWideNav.tsx:119",
+    // 119 -> 124 on the crew day row's arc (plan Task 8): the accent bar's
+    // transition switch became its own effect above. Same <Icon>, confirmed at
+    // the new key.
+    site: "components/crew/CrewWideNav.tsx:124",
     disposition: "carrier-survives",
     reason:
       "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",

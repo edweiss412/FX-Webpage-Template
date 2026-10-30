@@ -456,12 +456,15 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // silently, and the family sum is what stops a new site landing in no family.
     // 42 -> 41 on feat/crew-page-redesign: the crew sub-nav tab and its icon left,
     // the wide nav item's icon arrived (the item itself does not collapse).
-    expect(COLLAPSE_CENSUS).toHaveLength(41);
-    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(41);
+    // 41 -> 45 with the crew day row (plan Task 8): its Now and day buttons and
+    // the two captions inside a day button.
+    expect(COLLAPSE_CENSUS).toHaveLength(45);
+    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(45);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
     // 12 -> 11 with the crew sub-nav tab: the wide nav item that replaced it keeps
-    // a weight delta, so it never collapsed and needs no repair row.
-    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(11);
+    // a weight delta, so it never collapsed and needs no repair row. 11 -> 13 with
+    // the crew day row's two pressed-state buttons (plan Task 8).
+    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(13);
   });
 
   it("gives every repair row a binding, and says which are not yet browser-bound", () => {

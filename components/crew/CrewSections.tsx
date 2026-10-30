@@ -80,6 +80,9 @@ import {
   type ReactNode,
 } from "react";
 import { CrewAllSections } from "@/components/crew/CrewAllSections";
+import { CrewDayRow } from "@/components/crew/CrewDayRow";
+import { DaySelectionProvider } from "@/components/crew/daySelection";
+import { CrewClockProvider } from "@/components/crew/useCrewClock";
 import { CrewSectionSheet } from "@/components/crew/CrewSectionSheet";
 import { CrewWideNav, type CrewWideNavItem } from "@/components/crew/CrewWideNav";
 import {
@@ -96,6 +99,7 @@ import {
   type CrewSectionId,
 } from "@/lib/crew/crewSections";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
+import type { DayRowProps } from "@/lib/crew/passModel";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { buildHomeHref, buildSectionHref } from "@/lib/crew/sectionHref";
 import { cn } from "@/lib/ui/cn";
@@ -116,6 +120,18 @@ export interface CrewSectionsProps {
   sectionNodes: Partial<Record<SectionId, ReactNode>>;
   /** Rendered at the top of the page column, above the Today block. */
   children?: ReactNode;
+  /**
+   * The day row's server-built props (`buildDayRowProps`), or null when the row
+   * is hidden (spec §4.2). It mounts atop the Today block in both modes, and
+   * the selected day it writes is provided to the whole page (`daySelection`).
+   */
+  dayRow?: DayRowProps | null;
+  /**
+   * The server's request time (epoch ms, the shell's `await nowDate()`). It
+   * seeds the shared crew clock so the server render and hydration agree on
+   * `now` (components/crew/useCrewClock.ts).
+   */
+  initialNow?: number | null;
 }
 
 type Mode = "ssr" | "compact" | "wide";
@@ -206,6 +222,8 @@ export function CrewSections({
   sections,
   sectionNodes,
   children,
+  dayRow = null,
+  initialNow = null,
 }: CrewSectionsProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -610,116 +628,134 @@ export function CrewSections({
     [pathname, searchParams],
   );
 
+  const dayIsos = useMemo(() => dayRow?.days.map((d) => d.iso) ?? [], [dayRow]);
+
   const showCompact = mode !== "wide";
   const showWide = mode !== "compact";
   const hasSections = sections.length > 0;
 
   return (
     <SectionControllerContext.Provider value={api}>
-      <div
-        data-testid="crew-shell-sections"
-        data-crew-controller-ready={mode === "ssr" ? undefined : "true"}
-        data-crew-mode={mode === "ssr" ? undefined : mode}
-        className="flex flex-1 flex-col"
-        onClickCapture={onClickCapture}
-      >
-        <div className={cn(CREW_PAGE_CONTAINER, "flex flex-1 items-stretch lg:gap-8")}>
-          {showWide && hasSections ? (
-            <CrewWideNav
-              items={navItems}
-              active={spyActive}
-              hrefFor={hrefFor}
-              hidden={searchActive}
-            />
-          ) : null}
-          {/* Hidden, never unmounted, while search is active: section state survives. */}
-          <main
-            data-testid="page-container"
-            hidden={searchActive}
-            className="flex min-w-0 flex-1 flex-col gap-section-gap pt-6 pb-8 sm:pt-8"
+      <CrewClockProvider initialNow={initialNow}>
+        <DaySelectionProvider days={dayIsos}>
+          <div
+            data-testid="crew-shell-sections"
+            data-crew-controller-ready={mode === "ssr" ? undefined : "true"}
+            data-crew-mode={mode === "ssr" ? undefined : mode}
+            className="flex flex-1 flex-col"
+            onClickCapture={onClickCapture}
           >
-            {children}
-            <section
-              ref={todayRef}
-              data-testid="crew-today-block"
-              aria-labelledby="crew-today-heading"
-              className="@container"
-            >
-              <h2 id="crew-today-heading" ref={todayHeadingRef} tabIndex={-1} className="sr-only">
-                {CREW_TODAY_LABEL}
-              </h2>
-              {sectionNodes.today}
-            </section>
-            {showCompact && hasSections ? (
-              <div className="lg:hidden">
-                <CrewAllSections sections={sections} hrefFor={hrefFor} />
-              </div>
-            ) : null}
-            {showWide && hasSections ? (
-              <div
-                data-testid="crew-wide-stack"
-                className="hidden flex-col gap-section-gap lg:flex"
+            <div className={cn(CREW_PAGE_CONTAINER, "flex flex-1 items-stretch lg:gap-8")}>
+              {showWide && hasSections ? (
+                <CrewWideNav
+                  items={navItems}
+                  active={spyActive}
+                  hrefFor={hrefFor}
+                  hidden={searchActive}
+                />
+              ) : null}
+              {/* Hidden, never unmounted, while search is active: section state survives. */}
+              <main
+                data-testid="page-container"
+                hidden={searchActive}
+                className="flex min-w-0 flex-1 flex-col gap-section-gap pt-6 pb-8 sm:pt-8"
               >
-                {sections.map((s) => (
-                  <section
-                    key={s.id}
-                    ref={(el) => {
-                      if (el) stackRefs.current.set(s.id, el);
-                      else stackRefs.current.delete(s.id);
-                    }}
-                    id={`crew-section-${s.id}`}
-                    data-testid="crew-wide-section"
-                    data-section={s.id}
-                    aria-labelledby={`crew-section-heading-${s.id}`}
-                    className="@container flex scroll-mt-6 flex-col gap-4"
+                {children}
+                <section
+                  ref={todayRef}
+                  data-testid="crew-today-block"
+                  aria-labelledby="crew-today-heading"
+                  className="@container"
+                >
+                  <h2
+                    id="crew-today-heading"
+                    ref={todayHeadingRef}
+                    tabIndex={-1}
+                    className="sr-only"
                   >
-                    <h2
-                      id={`crew-section-heading-${s.id}`}
-                      tabIndex={-1}
-                      className="text-lg font-semibold text-text-strong"
-                    >
-                      {s.label}
-                    </h2>
-                    {/* Server render: the open body is the sheet's (one copy of every testid and search target). */}
-                    {mode === "ssr" && s.id === open ? null : sectionNodes[s.id]}
-                  </section>
-                ))}
-              </div>
-            ) : null}
-          </main>
-          {searchActive ? (
-            <main
-              data-testid="crew-search-panel"
-              className="flex min-w-0 flex-1 flex-col gap-6 pt-6 pb-8 sm:pt-8"
-            >
-              <CrewSearchHint />
-              <CrewSearchResults />
-            </main>
-          ) : null}
-        </div>
-        {/* Unmounted, not closed, in the wide layout: a closing sheet would hold
+                    {CREW_TODAY_LABEL}
+                  </h2>
+                  {/* The day row: atop the Today block in both modes, above its body
+                  (spec §3.2, §4.2). */}
+                  {dayRow ? (
+                    <div className="mb-4">
+                      <CrewDayRow {...dayRow} />
+                    </div>
+                  ) : null}
+                  {sectionNodes.today}
+                </section>
+                {showCompact && hasSections ? (
+                  <div className="lg:hidden">
+                    <CrewAllSections sections={sections} hrefFor={hrefFor} />
+                  </div>
+                ) : null}
+                {showWide && hasSections ? (
+                  <div
+                    data-testid="crew-wide-stack"
+                    className="hidden flex-col gap-section-gap lg:flex"
+                  >
+                    {sections.map((s) => (
+                      <section
+                        key={s.id}
+                        ref={(el) => {
+                          if (el) stackRefs.current.set(s.id, el);
+                          else stackRefs.current.delete(s.id);
+                        }}
+                        id={`crew-section-${s.id}`}
+                        data-testid="crew-wide-section"
+                        data-section={s.id}
+                        aria-labelledby={`crew-section-heading-${s.id}`}
+                        className="@container flex scroll-mt-6 flex-col gap-4"
+                      >
+                        <h2
+                          id={`crew-section-heading-${s.id}`}
+                          tabIndex={-1}
+                          className="text-lg font-semibold text-text-strong"
+                        >
+                          {s.label}
+                        </h2>
+                        {/* Server render: the open body is the sheet's (one copy of every testid and search target). */}
+                        {mode === "ssr" && s.id === open ? null : sectionNodes[s.id]}
+                      </section>
+                    ))}
+                  </div>
+                ) : null}
+              </main>
+              {searchActive ? (
+                <main
+                  data-testid="crew-search-panel"
+                  className="flex min-w-0 flex-1 flex-col gap-6 pt-6 pb-8 sm:pt-8"
+                >
+                  <CrewSearchHint />
+                  <CrewSearchResults />
+                </main>
+              ) : null}
+            </div>
+            {/* Unmounted, not closed, in the wide layout: a closing sheet would hold
             its body through the exit slide while the stack shows the same body,
             and the sheet leaves wide without animation (spec §7). */}
-        {showCompact ? (
-          <CrewSectionSheet
-            section={openEntry ? { id: openEntry.id, label: openEntry.label } : null}
-            modal={mode === "compact"}
-            onRequestClose={requestClose}
-            bodyRef={sheetBodyRef}
-          >
-            {open !== null ? sectionNodes[open] : null}
-          </CrewSectionSheet>
-        ) : null}
-        {/* Left live by the sheet's inert sweep, so a gone line is announced over an open sheet. */}
-        <p
-          data-testid="crew-reveal-status"
-          data-sheet-live-region=""
-          role="status"
-          className="sr-only"
-        >
-          {revealStatus}
-        </p>
-      </div>
+            {showCompact ? (
+              <CrewSectionSheet
+                section={openEntry ? { id: openEntry.id, label: openEntry.label } : null}
+                modal={mode === "compact"}
+                onRequestClose={requestClose}
+                bodyRef={sheetBodyRef}
+              >
+                {open !== null ? sectionNodes[open] : null}
+              </CrewSectionSheet>
+            ) : null}
+            {/* Left live by the sheet's inert sweep, so a gone line is announced over an open sheet. */}
+            <p
+              data-testid="crew-reveal-status"
+              data-sheet-live-region=""
+              role="status"
+              className="sr-only"
+            >
+              {revealStatus}
+            </p>
+          </div>
+        </DaySelectionProvider>
+      </CrewClockProvider>
     </SectionControllerContext.Provider>
   );
 }

@@ -51,6 +51,7 @@
  */
 import { expect, type Page } from "@playwright/test";
 import { setDateRestrictionLocked } from "./lockedCrewRestriction";
+import { TEST_AUTH_SECRET } from "./testAuthConfig";
 import { admin } from "./supabaseAdmin";
 
 export const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
@@ -187,6 +188,23 @@ export async function setDateRestriction(leadCrewId: string, restriction: unknow
  */
 export async function pinClock(page: Page, isoDate: string): Promise<void> {
   await page.clock.install({ time: new Date(`${isoDate}T12:00:00Z`) });
+}
+
+/**
+ * Pin the SERVER's request-scoped clock (`nowDate()`, lib/time/now.ts) to the
+ * same noon-UTC instant `pinClock` gives the browser, for every request from
+ * this page. The crew clock is seeded with the server's request time so its
+ * server render and hydration agree (components/crew/useCrewClock.ts); with
+ * only the browser pinned, the page hydrates at the server's real time and then
+ * moves to the pinned day, a state change an installed page clock stalls
+ * mid-animation. The port-3000 webServer carries ENABLE_TEST_AUTH and this
+ * TEST_AUTH_SECRET, so `nowDate()` honors the header.
+ */
+export async function pinServerClock(page: Page, isoDate: string): Promise<void> {
+  await page.setExtraHTTPHeaders({
+    "X-Screenshot-Frozen-Now": `${isoDate}T12:00:00.000Z`,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  });
 }
 
 /**

@@ -47,7 +47,9 @@
  *
  * ── Clock ─────────────────────────────────────────────────────────────────
  * `page.clock` (install before goto; setSystemTime + runFor for the in-page
- * 60s tick) — the §5.7 rollover is observed WITHIN one page session, where
+ * 60s tick), with the server's request clock pinned to the same instant
+ * (`pinServerClock`), since the crew clock hydrates at the server's request time
+ * — the §5.7 rollover is observed WITHIN one page session, where
  * the client re-derives `todayIso` and re-selects the day's anchor without
  * any server round-trip (so the cache is irrelevant to the rollover leg).
  *
@@ -56,7 +58,13 @@
  * assertRenderedState (helpers/rightNow.ts).
  */
 import { test, expect } from "@playwright/test";
-import { pinClock, setSystemTime, advanceClock, assertRenderedState } from "./helpers/rightNow";
+import {
+  pinClock,
+  pinServerClock,
+  setSystemTime,
+  advanceClock,
+  assertRenderedState,
+} from "./helpers/rightNow";
 import { NON_ADMIN_CREW_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
@@ -153,6 +161,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
   test("Day 1: the hero renders Day 1's OWN run_of_show anchor", async ({ page }) => {
     seeded = await seedAnchorShow();
     await pinClock(page, DAY1_ISO);
+    await pinServerClock(page, DAY1_ISO);
     await gotoSeeded(page);
     await assertRenderedState(page, "show_day_n");
     const body = page.getByTestId("right-now-body");
@@ -166,6 +175,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
   }) => {
     seeded = await seedAnchorShow();
     await pinClock(page, DAY1_ISO);
+    await pinServerClock(page, DAY1_ISO);
     await gotoSeeded(page);
     await assertRenderedState(page, "show_day_n");
     await expect(page.getByTestId("right-now-body")).toContainText(anchorText(DAY1_TIME));
@@ -191,6 +201,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
       dateRestriction: { kind: "explicit", days: [DAY2_ISO] },
     });
     await pinClock(page, DAY1_ISO);
+    await pinServerClock(page, DAY1_ISO);
     await gotoSeeded(page);
     await assertRenderedState(page, "viewer_off_day");
     await expect(page.getByTestId("right-now-body")).not.toContainText(anchorText(DAY1_TIME));

@@ -65,6 +65,7 @@ import { resolveActiveSection, type SectionId } from "@/lib/crew/resolveActiveSe
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import { crewSectionEntries } from "@/lib/crew/crewSections";
+import { buildDayRowProps } from "@/lib/crew/passModel";
 import {
   MalformedProjectionError,
   UnmatchedViewerError,
@@ -248,10 +249,12 @@ export async function CrewShell({
   const activeSection = resolveActiveSection(rawSection, { budgetVisible });
 
   // Render-time "today" reads through the request-scoped clock so screenshot
-  // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3; the
-  // Today section's RightNowHero owns its own live clock and does not take it.
-  // The Header status pill (Task 14) also derives from this request-scoped
-  // `today` — a coarse, server-rendered badge (the hero owns the live tick).
+  // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3. The
+  // client components that tick (the hero, the day row) read the shared crew
+  // clock, which this `today` seeds through the controller (`initialNow`), so
+  // their server render and hydration agree. The Header status pill (Task 14)
+  // also derives from this request-scoped `today`, a coarse, server-rendered
+  // badge (the crew clock owns the live tick).
   const today = await nowDate();
 
   // Today leads with the live RightNowHero, built from the projection exactly as
@@ -282,6 +285,12 @@ export async function CrewShell({
         stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
       })
     : null;
+
+  // The day row's props (crew page redesign spec §4.2): the viewer's day set and
+  // its labels, built here so nothing else crosses to the client. Null hides the
+  // row: suppressed dates, a degraded show, an empty set, or a projection too
+  // thin to carry dates at all (the same guard as the Right-Now context above).
+  const dayRow = canBuildRightNow ? buildDayRowProps(data.show, ctx.dateRestriction) : null;
 
   // Guard-condition discipline: Header dereferences `show.dates` (`.set` /
   // `.travelIn` / `.showDays[0]`) and `show.venue`. A well-formed ShowForViewer
@@ -550,6 +559,8 @@ export async function CrewShell({
           initialSection={activeSection}
           sections={sections}
           sectionNodes={sectionNodes}
+          dayRow={dayRow}
+          initialNow={today.getTime()}
         />
       </CrewSearchProvider>
       {/* Posture item 3 (spec §2.6): the bridge fetches a subscriber token and a

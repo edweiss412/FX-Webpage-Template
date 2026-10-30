@@ -222,7 +222,9 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:179",
+    // 179 -> 180 on feat/crew-page-redesign (plan Task 8): the day row builder's
+    // import sits above it. Same upsertAdminAlert call, confirmed at the new key.
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:180",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",

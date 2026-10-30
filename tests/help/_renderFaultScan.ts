@@ -845,7 +845,11 @@ export function scanCandidates(): Candidate[] {
       // (the eyebrow's separator and the date line). Neither condition is on the
       // fault vocabulary, so the 78 is unchanged. Re-derived by running the guard.
       //
-      // Probed: 770 such ternaries under the derived roots, 78 on a
+      // 770 -> 771 with the crew page redesign's day row (plan PR A, Task 8):
+      // one more JSX ternary under the derived roots, not on a fault-vocabulary
+      // guard, so the 78 is unchanged. Re-derived by running the guard.
+      //
+      // Probed: 771 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

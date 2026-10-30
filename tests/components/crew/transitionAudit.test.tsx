@@ -37,7 +37,9 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
+import { CrewWideNav } from "@/components/crew/CrewWideNav";
 
 function src(rel: string): string {
   return readFileSync(join(process.cwd(), rel), "utf8");
@@ -223,6 +225,60 @@ describe("§4.10 transition audit — instant-by-design rows", () => {
     // teleporting with a per-item conditional render.
     expect(s.match(/data-testid="crew-wide-nav-indicator"/g) ?? []).toHaveLength(1);
     expect(s, "the bar slides by transform").toMatch(/transition-\[transform,height\]/);
+  });
+
+  it("wide nav: the accent bar turns its transition on after its first measure, even when effects run twice", () => {
+    // Placement is instant and every later move slides. React runs a mount
+    // effect twice in development (StrictMode), and a hydrated page reaches the
+    // nav that way; a transition switch that only the FIRST run can schedule is
+    // cancelled by the second run's cleanup and never turns on (crew page
+    // redesign plan Task 8: a seeded crew clock made the page hydrate cleanly,
+    // which is how the wide-nav e2e case found it).
+    const frames = new Map<number, FrameRequestCallback>();
+    let next = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      frames.set(++next, cb);
+      return next;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      frames.delete(id);
+    });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 10,
+      bottom: 54,
+      height: 44,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 10,
+      toJSON: () => ({}),
+    } as DOMRect);
+    render(
+      <StrictMode>
+        <CrewWideNav
+          items={[
+            { id: "today", label: "Today" },
+            { id: "venue", label: "Venue" },
+          ]}
+          active="today"
+          hrefFor={() => "#"}
+        />
+      </StrictMode>,
+    );
+    try {
+      const indicator = () => screen.getByTestId("crew-wide-nav-indicator");
+      // PREMISE: the bar mounts placed, without its transition.
+      expect(indicator().className).not.toMatch(/duration-fast/);
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const frame of pending) frame(0);
+      });
+      expect(indicator().className).toMatch(/duration-fast/);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("components/crew/** has motion ONLY in the inventory surfaces (no stray animation crept into an instant section)", () => {

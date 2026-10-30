@@ -192,6 +192,67 @@ const KIND_LABEL: Record<Exclude<PassDayKind, "show">, string> = {
   travel_out: "Travel out",
 };
 
+/** One day row button (spec §4.2): the date's parts and its phase label, nothing else. */
+export type DayRowDay = {
+  /** ISO `YYYY-MM-DD`. */
+  iso: string;
+  /** Weekday, "Sat". The client shows "Today" in its place on today's button. */
+  weekday: string;
+  /** Day of month, "13". */
+  day: string;
+  /** "Travel in", "Load in", "Show day 1", "Travel out", or "Travel in, load in" (spec §9.1). */
+  label: string;
+  /** Accessible name, "Sun Jun 14, show day 1" (spec §9.4). */
+  name: string;
+};
+
+/** What the day row receives across the client boundary. */
+export type DayRowProps = {
+  /** IANA timezone the client converts its clock in to find today. */
+  timezone: string;
+  /** The day set (`passDaySet`), in date order. */
+  days: DayRowDay[];
+};
+
+/**
+ * Build the day row's props, or null when the row is hidden (spec §4.2): the
+ * viewer's dates are suppressed, the live state is degraded (dates too thin for
+ * `selectRightNowState`, the pass's own degraded test), or the day set is empty.
+ * The day set is `passDaySet`, the pass's and the Schedule section's list.
+ */
+export function buildDayRowProps(
+  show: Pick<ShowRow, "dates" | "venue">,
+  restriction: DateRestriction,
+): DayRowProps | null {
+  const dates = show.dates;
+  if (suppressesDates(restriction) || !hasFullShowDates(dates)) return null;
+  const set = passDaySet(dates, restriction);
+  if (set.length === 0) return null;
+  const showDays = aggregateDays(dates)
+    .filter((d) => d.phase === "Show")
+    .map((d) => d.date);
+  return {
+    timezone: resolveShowTimezone(show.venue),
+    days: set.map((day): DayRowDay => {
+      const kind = dayKind(day, dates);
+      const label =
+        kind === "show" ? `Show day ${showDays.indexOf(day.date) + 1}` : KIND_LABEL[kind];
+      const at = new Date(`${day.date}T12:00:00Z`);
+      const part = (opts: Intl.DateTimeFormatOptions) =>
+        at.toLocaleDateString("en-US", { ...opts, timeZone: "UTC" });
+      const weekdayShort = weekday(day.date);
+      const dayOfMonth = part({ day: "numeric" });
+      return {
+        iso: day.date,
+        weekday: weekdayShort,
+        day: dayOfMonth,
+        label,
+        name: `${weekdayShort} ${part({ month: "short" })} ${dayOfMonth}, ${label.toLowerCase()}`,
+      };
+    }),
+  };
+}
+
 /**
  * Build the pass props for one viewer. `today` is the request-scoped server
  * clock; it decides nothing a client clock could change (the degraded states do

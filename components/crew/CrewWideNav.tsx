@@ -25,7 +25,7 @@
  * data-testid: crew-wide-nav (each item data-section), crew-wide-nav-indicator.
  */
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SECTION_ICON } from "@/components/crew/sectionIcon";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { cn } from "@/lib/ui/cn";
@@ -48,7 +48,6 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
   const itemRefs = useRef(new Map<SectionId, HTMLAnchorElement>());
   const [indicator, setIndicator] = useState<{ y: number; h: number } | null>(null);
   const [transitionsOn, setTransitionsOn] = useState(false);
-  const measuredRef = useRef(false);
 
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -67,12 +66,18 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
       y: itemRect.top - navRect.top + nav.scrollTop + INDICATOR_INSET_PX,
       h: itemRect.height - 2 * INDICATOR_INSET_PX,
     });
-    if (!measuredRef.current) {
-      measuredRef.current = true;
-      const raf = requestAnimationFrame(() => setTransitionsOn(true));
-      return () => cancelAnimationFrame(raf);
-    }
   }, [active, items]);
+
+  // The frame after the bar is first placed, turn its transition on. Its own
+  // effect, rescheduled on every run until it fires: a one-shot inside the
+  // measure effect is cancelled for good when that effect runs again within the
+  // frame (React's double mount effect in development, a hydrated page).
+  const placed = indicator !== null;
+  useEffect(() => {
+    if (!placed || transitionsOn) return;
+    const raf = requestAnimationFrame(() => setTransitionsOn(true));
+    return () => cancelAnimationFrame(raf);
+  }, [placed, transitionsOn]);
 
   return (
     <nav

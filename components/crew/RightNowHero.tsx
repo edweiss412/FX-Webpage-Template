@@ -13,8 +13,9 @@
  * changes — the state machine is NOT re-implemented (§4.16).
  *
  * Props: `{ context }` ONLY. No `state`, no `initialNow`, no server seed. The
- * hero owns the live `new Date()` clock (the pattern it inherited); it does
- * NOT call `nowDate()` (server-only). Screenshot determinism comes from the
+ * hero reads the live `new Date()` clock through the shared crew clock
+ * (`useCrewClock`, one store for the whole crew home); it does NOT call
+ * `nowDate()` (server-only). Screenshot determinism comes from the
  * capture harness freezing the browser clock (§4.11), exactly as the retired
  * `RightNowCard` required.
  *
@@ -56,6 +57,7 @@ import { todayShowAnchors } from "@/lib/crew/agendaDisplay";
 import { formatIsoDate } from "@/lib/format/date";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
 import { cn } from "@/lib/ui/cn";
+import { useCrewClock } from "@/components/crew/useCrewClock";
 
 /**
  * Format a relative-time phrase (no em dashes per DESIGN.md §9). Mirrors
@@ -330,13 +332,16 @@ type RightNowHeroProps = {
 };
 
 /**
- * Hero. Time-aware via a 60-second tick that re-derives the state from a fresh
- * `new Date()` (day-rollover becomes automatic). Render-time `new Date()` is
- * captured in `useState` initial so the very first paint already has a real
- * value (no SSR flash to a stub state). Carried verbatim from the retired card.
+ * Hero. Time-aware via the shared crew clock's 60-second tick, which re-derives
+ * the state from a fresh `new Date()` (day-rollover becomes automatic). The first
+ * read is a real `new Date()`, so the very first paint already has a real value
+ * (no SSR flash to a stub state).
  */
 export function RightNowHero({ context }: RightNowHeroProps) {
-  const [now, setNow] = useState<Date>(() => new Date());
+  // The shared crew clock (components/crew/useCrewClock.ts): the same 60-second
+  // tick and visibility bump this hero used to own privately, now one store the
+  // day row and the run card read too, so they never disagree about `now`.
+  const now = useCrewClock();
 
   // §4.3 prefers-reduced-motion: framer-motion does NOT consume the CSS
   // `--duration-*` custom properties, and framer's own `useReducedMotion()`
@@ -345,20 +350,6 @@ export function RightNowHero({ context }: RightNowHeroProps) {
   // treated as "unknown — animate at full duration" for first-paint
   // consistency. (Verbatim from the retired card; M12.11 trap.)
   const prefersReducedMotion = usePrefersReducedMotion();
-
-  useEffect(() => {
-    // 60-second tick keeps the hero "live"; cleared on unmount. Visibility
-    // bump recovers from background-tab setInterval throttling.
-    const tick = setInterval(() => setNow(new Date()), 60_000);
-    const onVisibility = () => {
-      if (!document.hidden) setNow(new Date());
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      clearInterval(tick);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
 
   const state = selectRightNowState(now, context.dates, context.dateRestriction, {
     timezone: context.timezone,

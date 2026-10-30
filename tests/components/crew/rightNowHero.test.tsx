@@ -593,7 +593,11 @@ describe("RightNowHero — client-clock freeze (Test 22b)", () => {
 
     // Reads the live clock: re-mounting at a DIFFERENT frozen instant yields a
     // different kind (it is NOT pinned to a fixed server seed prop — the hero
-    // takes `{ context }` only, no initialNow / state).
+    // takes `{ context }` only, no initialNow / state). The clock is the shared
+    // crew clock (crew page redesign plan Task 8), so every mounted subscriber
+    // reads one `now`; unmount the first two so the remount takes a fresh reading
+    // rather than the instant they share.
+    cleanup();
     vi.setSystemTime(at("2026-04-26")); // post-show
     const { container: c } = render(<RightNowHero context={ctx} />);
     expect(stateMarker(c).getAttribute("data-state")).toBe("post_show");
