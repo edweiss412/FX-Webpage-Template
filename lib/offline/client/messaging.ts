@@ -51,7 +51,8 @@ function readReply(data: unknown): PostResult {
 
 /**
  * Posts `message` to `worker`, or to the worker controlling the page when none
- * is given, and settles with its reply, or with `timeout` after `timeoutMs`.
+ * is given, and settles with its reply, with `timeout` after `timeoutMs`, or
+ * with `failed` when the post itself throws. It never rejects.
  *
  * With no worker to post to, the answer is returned synchronously rather than
  * as a promise (preflight ruling D5), so a caller can skip the await and stay
@@ -74,6 +75,13 @@ export function postToWorker(
     };
     const timer = setTimeout(() => finish(TIMEOUT), options.timeoutMs);
     channel.port1.onmessage = (event: MessageEvent) => finish(readReply(event.data));
-    worker.postMessage(message, [channel.port2]);
+    try {
+      worker.postMessage(message, [channel.port2]);
+    } catch {
+      // A redundant worker (InvalidStateError) or an uncloneable message
+      // (DataCloneError): no reply can come, so the post settles as failed.
+      channel.port2.close();
+      finish(FAILED);
+    }
   });
 }

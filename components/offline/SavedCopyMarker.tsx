@@ -4,12 +4,13 @@
  * components/offline/SavedCopyMarker.tsx
  *
  * The saved-copy marker (spec 4.3). It renders the `<template>` the service
- * worker reads from a complete document body, and on mount posts the same
- * disposition to the worker, because many renders never reach the worker as a
- * document: `router.refresh()` after a realtime invalidation, and soft
- * navigations such as TerminalFailure's retry link. One component therefore
- * covers a document load and an RSC render alike, and the client-render purge
- * triggers of spec 4.6 follow from it rather than being separate code paths.
+ * worker reads from a complete document body, and on mount, and again on each
+ * new path, posts the same disposition to the worker, because many renders
+ * never reach the worker as a document: `router.refresh()` after a realtime
+ * invalidation, and soft navigations such as TerminalFailure's retry link. One
+ * component therefore covers a document load and an RSC render alike, and the
+ * client-render purge triggers of spec 4.6 follow from it rather than being
+ * separate code paths.
  *
  * - `purge` purges the marker's show, or the copy stored at this path when the
  *   marker names no show.
@@ -25,6 +26,7 @@
  * Renders no visible UI. With no usable `navigator.serviceWorker` it renders the
  * template and does nothing else.
  */
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
@@ -48,10 +50,15 @@ function isPurgedFor(data: unknown, showId: string): boolean {
 
 export function SavedCopyMarker({ marker }: { marker: Marker }) {
   const { disposition, showId } = marker;
+  // A soft navigation can keep this instance mounted with identical props, so
+  // a new path is a new render to post for.
+  const pathname = usePathname();
 
   useEffect(() => {
     const container = serviceWorkerContainer();
     if (container === null || showId === null) return;
+    // Relies on the client message queue the browser enables at DOMContentLoaded;
+    // startMessages() is deliberately not called.
     const onMessage = (event: MessageEvent) => {
       if (isPurgedFor(event.data, showId)) reloadPage();
     };
@@ -73,16 +80,20 @@ export function SavedCopyMarker({ marker }: { marker: Marker }) {
     // `ready`, not `controller`: a hard-reloaded page is uncontrolled but still
     // reaches the registration's worker. With no registration `ready` never
     // settles, and nothing happens.
-    void container.ready.then(async ({ active }) => {
-      // StrictMode runs the effect twice; only the run still mounted posts.
-      if (!mounted || active === null) return;
-      const reply = await postToWorker(message, { timeoutMs: REPLY_TIMEOUT_MS, worker: active });
-      if (mounted && message.disposition === "check" && reply.outcome === "ended") reloadPage();
-    });
+    void container.ready
+      .then(async ({ active }) => {
+        // StrictMode runs the effect twice; only the run still mounted posts.
+        if (!mounted || active === null) return;
+        const reply = await postToWorker(message, { timeoutMs: REPLY_TIMEOUT_MS, worker: active });
+        if (mounted && message.disposition === "check" && reply.outcome === "ended") reloadPage();
+      })
+      // A ready or a post that rejects leaves the page as it is; it must not
+      // surface as an unhandled rejection.
+      .catch(() => undefined);
     return () => {
       mounted = false;
     };
-  }, [disposition, showId]);
+  }, [disposition, showId, pathname]);
 
   return <template {...markerAttributes(marker)} />;
 }

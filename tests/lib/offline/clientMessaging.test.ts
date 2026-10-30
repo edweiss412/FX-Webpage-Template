@@ -126,6 +126,26 @@ describe("postToWorker with a worker", () => {
     });
   });
 
+  test.each([
+    ["a redundant worker", "InvalidStateError"],
+    ["an uncloneable message", "DataCloneError"],
+  ])(
+    "resolves failed, leaving no timer behind, when the post throws for %s",
+    async (_label, name) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const postMessage = vi.fn(() => {
+        throw new DOMException("The post failed.", name);
+      });
+      const worker = { postMessage } as unknown as ServiceWorker;
+
+      await expect(postToWorker(MESSAGE, { timeoutMs: TIMEOUT_MS, worker })).resolves.toStrictEqual(
+        { outcome: "failed" },
+      );
+      expect(postMessage).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
   test("resolves timeout at the given bound when the worker never replies, and not before", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { worker, posts } = fakeWorker();

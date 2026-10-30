@@ -17,6 +17,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+/** The router's pathname, which the tests move with the URL (navigateTo). */
+let pathname = "/";
+vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 vi.mock("@/lib/offline/client/reload", () => ({ reloadPage: vi.fn() }));
 vi.mock("@/lib/offline/client/messaging", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/offline/client/messaging")>()),
@@ -59,17 +62,41 @@ const reload = vi.mocked(reloadPage);
  * nothing, the state of a hard-reloaded page: the marker must still reach the
  * worker through `ready`, not `controller`.
  */
-function installServiceWorker() {
+function installServiceWorker(readReady?: () => Promise<unknown>) {
   const active = { scriptURL: "/sw.js" } as unknown as ServiceWorker;
-  const container = Object.assign(new EventTarget(), {
-    controller: null,
-    ready: Promise.resolve({ active }),
-  });
+  const ready = vi.fn(readReady ?? (() => Promise.resolve({ active })));
+  const container = Object.assign(new EventTarget(), { controller: null });
+  Object.defineProperty(container, "ready", { get: ready });
   Object.defineProperty(window.navigator, "serviceWorker", {
     configurable: true,
     get: () => container,
   });
-  return { container, active };
+  return { container, active, ready };
+}
+
+/** A soft navigation: the URL changes and the router's pathname with it. */
+function navigateTo(path: string): void {
+  window.history.replaceState(null, "", path);
+  pathname = path.split("?")[0] ?? path;
+}
+
+/**
+ * Collects unhandled rejections for the duration of `run`, past the point
+ * where Node reports them (after the microtask queue drains).
+ */
+async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
+  const reasons: unknown[] = [];
+  const record = (reason: unknown) => {
+    reasons.push(reason);
+  };
+  process.on("unhandledRejection", record);
+  try {
+    await run();
+    await settle();
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+  return reasons;
 }
 
 function broadcast(container: EventTarget, data: unknown): void {
@@ -85,7 +112,7 @@ async function settle(): Promise<void> {
 
 beforeEach(() => {
   // The query must not reach the message: the worker keys copies by path.
-  window.history.replaceState(null, "", `${PATH}?gate=skip`);
+  navigateTo(`${PATH}?gate=skip`);
   post.mockResolvedValue({ outcome: "ack" });
 });
 
@@ -210,6 +237,65 @@ describe("posting the disposition on mount", () => {
         { type: "marker", disposition: "purge", showId: SHOW, url: PATH },
         expect.anything(),
       );
+    },
+  );
+
+  test.each([MARKERS.purge, MARKERS.check])(
+    "a soft navigation that keeps the $disposition marker mounted with the same props posts again for the new path",
+    async (marker) => {
+      installServiceWorker();
+      const nextPath = "/show/demo-show/def456";
+
+      const { rerender } = render(<SavedCopyMarker marker={marker} />);
+      await settle();
+      navigateTo(`${nextPath}?gate=skip`);
+      rerender(<SavedCopyMarker marker={marker} />);
+      await settle();
+      // A query-only change is not a new path, so it posts nothing more.
+      navigateTo(`${nextPath}?s=schedule`);
+      rerender(<SavedCopyMarker marker={marker} />);
+      await settle();
+
+      expect(post).toHaveBeenCalledTimes(2);
+      expect(post.mock.calls.map(([message]) => message)).toStrictEqual([
+        expect.objectContaining({ disposition: marker.disposition, url: PATH }),
+        expect.objectContaining({ disposition: marker.disposition, url: nextPath }),
+      ]);
+    },
+  );
+});
+
+describe("a post that fails", () => {
+  test.each([
+    [
+      "ready rejects",
+      () => {
+        const { ready } = installServiceWorker(() => Promise.reject(new Error("no registration")));
+        // Positive control: the failing step was reached.
+        return () => expect(ready).toHaveBeenCalledTimes(1);
+      },
+    ],
+    [
+      "the post rejects",
+      () => {
+        installServiceWorker();
+        post.mockRejectedValue(new DOMException("The post failed.", "DataCloneError"));
+        return () => expect(post).toHaveBeenCalledTimes(1);
+      },
+    ],
+  ])(
+    "when %s, nothing escapes as an unhandled rejection and nothing reloads",
+    async (_label, arrange) => {
+      const reached = arrange();
+
+      const reasons = await unhandledRejectionsDuring(async () => {
+        render(<SavedCopyMarker marker={MARKERS.check} />);
+        await settle();
+      });
+
+      reached();
+      expect(reasons).toStrictEqual([]);
+      expect(reload).not.toHaveBeenCalled();
     },
   );
 });
