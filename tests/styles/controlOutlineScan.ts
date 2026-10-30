@@ -357,8 +357,10 @@ export const CENSUS: readonly CensusRow[] = [
   // details-opening loop (spec §4.4), 11 lines above both.
   // 844 -> 865 and 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added
   // above both); each located by its own element, the rail item and chip <button>.
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 865 },
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1046 },
+  // 865 -> 886 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 886 },
+  // 1046 -> 1067 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1067 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
   // :1083 until fix/attention-autoopen-suppress-phone, whose suppression

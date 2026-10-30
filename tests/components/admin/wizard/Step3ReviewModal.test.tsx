@@ -36,7 +36,7 @@ import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useState } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { HotelReservationRow, ParseResult, ParseWarning } from "@/lib/parser/types";
 
@@ -3475,5 +3475,91 @@ describe("Step3ReviewModal — warning card section jumps (warning-card-fixes §
     expect(q.getByTestId(jumpTid(0)).getAttribute("data-jump")).toBe("reservation");
     expect(q.getByTestId(jumpTid(1)).textContent).toMatch(/^Go to Hotels /);
     expect(q.getByTestId(jumpTid(1)).getAttribute("data-jump")).toBe("hotels");
+  });
+});
+
+// warning-card-fixes §15/§16 (WCAG 2.4.3, UI gate P2): every jump this branch added
+// scrolls and flashes its target AND moves focus there, so a keyboard or screen-reader
+// user lands where the page went. A target that is not focusable takes tabindex="-1":
+// programmatic focus only, never a new tab stop.
+describe("Step3ReviewModal — jumps move focus to their target (WCAG 2.4.3)", () => {
+  const jumpTid = (i: number) => `wizard-step3-card-${DFID}-warning-${i}-section-jump`;
+  let original: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: vi.fn(),
+      configurable: true,
+      writable: true,
+    });
+  });
+  afterEach(() => {
+    if (original) Object.defineProperty(HTMLElement.prototype, "scrollTo", original);
+    else delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+  });
+  const hotel = (k: number): HotelReservationRow => ({
+    ordinal: k + 1,
+    hotel_name: `Hotel ${k + 1}`,
+    hotel_address: null,
+    names: [],
+    confirmation_no: null,
+    check_in: null,
+    check_out: null,
+    notes: null,
+  });
+  const split = (index: number): ParseWarning => ({
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: "",
+    rawSnippet: "Alice Brown and Bob Carter",
+    blockRef: { kind: "hotels", field: "guests", index },
+  });
+  /** The target is focused, and focusable only programmatically (no new tab stop). */
+  function expectFocusedOffTabOrder(target: Element | null) {
+    expect(target).not.toBeNull();
+    expect(document.activeElement).toBe(target);
+    expect((target as HTMLElement).tabIndex).toBe(-1);
+  }
+
+  test("Go to <section> focuses that section", () => {
+    const { q } = renderModal({ d: sectionData({ warnings: [warning("crew")] }) });
+    const jump = q.getByTestId(jumpTid(0));
+    jump.focus();
+    fireEvent.click(jump);
+    expectFocusedOffTabOrder(q.getByTestId(tid("section-crew")));
+  });
+
+  test("Go to this reservation in Hotels focuses the reservation card", () => {
+    const { q } = renderModal({
+      d: sectionData({ hotelReservations: [hotel(0), hotel(1)], warnings: [split(1)] }),
+    });
+    const jump = q.getByTestId(jumpTid(0));
+    premiseHolds(
+      "the card offers the reservation jump",
+      jump.getAttribute("data-jump") === "reservation",
+    );
+    fireEvent.click(jump);
+    expectFocusedOffTabOrder(document.querySelector('[data-hotel-index="1"]'));
+  });
+
+  test("Go to Hotels (index past the shown cards) focuses the Hotels section", () => {
+    const { q } = renderModal({
+      d: sectionData({ hotelReservations: [hotel(0), hotel(1)], warnings: [split(5)] }),
+    });
+    const jump = q.getByTestId(jumpTid(0));
+    premiseHolds(
+      "the card falls back to the section jump",
+      jump.getAttribute("data-jump") === "hotels",
+    );
+    fireEvent.click(jump);
+    expectFocusedOffTabOrder(q.getByTestId(tid("section-hotels")));
+  });
+
+  test("the reservation marker's See how we read it focuses the warning card", () => {
+    const { q } = renderModal({
+      d: sectionData({ hotelReservations: [hotel(0), hotel(1)], warnings: [split(1)] }),
+    });
+    fireEvent.click(q.getByTestId("wizard-step3-hotel-judgment-jump"));
+    expectFocusedOffTabOrder(document.querySelector('[data-warning-index="0"]'));
   });
 });

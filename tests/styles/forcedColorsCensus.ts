@@ -266,7 +266,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // 844 -> 865 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:865",
+    // 865 -> 886 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:886",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -279,7 +280,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:1046",
+    // 1046 -> 1067 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:1067",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -291,7 +293,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // 811 -> 832 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:832",
+    // 832 -> 853 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:853",
     disposition: "repaired",
     binding: {
       locator: '[data-testid$="-review-rail-item-"]',
@@ -304,7 +307,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // 932 -> 953 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:953",
+    // 953 -> 974 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:974",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-rail-item-"]',
@@ -399,7 +403,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // 829 -> 850 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:850",
+    // 850 -> 871 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:871",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
@@ -407,7 +412,8 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // 951 -> 972 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:972",
+    // 972 -> 993 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:993",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
@@ -475,14 +481,16 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
   {
     // 825 -> 846 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:846",
+    // 846 -> 867 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:867",
     disposition: "carrier-survives",
     reason: "an icon inside a rail item this pass repairs, so it inherits a repaired state",
   },
   {
     // 945 -> 966 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
-    site: "components/admin/review/ShowReviewSurface.tsx:966",
+    // 966 -> 987 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
+    site: "components/admin/review/ShowReviewSurface.tsx:987",
     disposition: "carrier-survives",
     reason:
       "an icon inside the second rail item this pass repairs, so it inherits its repaired state",

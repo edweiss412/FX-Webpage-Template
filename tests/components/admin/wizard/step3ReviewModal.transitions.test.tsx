@@ -1062,6 +1062,14 @@ describe("§H compound (b): unmount during an active highlight + active suppress
           .getByTestId(`wizard-step3-card-${DFID}-warning-0`)
           .hasAttribute("data-step3-warning-flash"),
       ).toBe(true);
+      // warning-card-fixes §15 (WCAG 2.4.3): the jump now focuses the card it scrolled
+      // to, and jsdom's focus() collapses the document selection, which queues its own
+      // 0ms selectionchange task (jsdom Selection-impl `_associateRange`, traced). That
+      // task is the environment's, not the component's: flush it (a 0ms advance cannot
+      // reach the settle or highlight timers) so the count measures component timers.
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
       expect(vi.getTimerCount()).toBe(ambient + 2); // settle + highlight, nothing else
       q.unmount();
       // Teardown hygiene: highlight timer (useEffect(() => clearWarningHighlight))

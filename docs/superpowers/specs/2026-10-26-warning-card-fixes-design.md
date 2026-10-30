@@ -928,6 +928,7 @@ Card chrome (§3), the shell link (§3.6), the disclosures (§6.4) and the jumps
 | | falls to 0 while the prompt is open | the prompt closes as `Go back` would; the guarded action does not run |
 | guard registry / `guardApiRef.current` (§6.5) | absent or null | the control runs its action unguarded (as today) |
 | prompt trigger (§6.5) | null or no longer in the document | focus returns to the element focused when the prompt opened |
+| jump target (the card's `Go to <section>` §8.3, `Go to this reservation in Hotels` §5.5, the reservation marker's `See how we read it` §5.4; UI gate P2, WCAG 2.4.3) | not focusable (a `section`, the hotel card, the warning card `li`) | after the scroll and flash, focus moves to the target with `preventScroll` (the scroll is already handled); a target with no `tabindex` gets `tabindex="-1"`, so it takes programmatic focus and never joins the tab order. A missing reservation card falls back to the Hotels section, focused the same way. The shared `jumpToWarning` also serves the section callouts' existing `Fix` / `Review in Sheet warnings` links, so they move focus to the card too; the attention-menu jump and the rail and chip clicks keep their own focus handling, unchanged |
 
 ---
 
@@ -966,6 +967,7 @@ Each test states the failure it catches. Real-browser tests run in the existing 
 | Section jump presence: per code, per rendered-section set; `VENUE_ADDRESS_MISSING` never; info rows never; published never | jump on the venue card; jump to an unrendered section |
 | Catalog guard: no `AMBIGUITY_CODES` member's `controlsNote` mentions `Ignore` | a future note contradicting the Accept button |
 | §9 lockstep: x1 parity (`tests/cross-cutting/codes.test.ts`), `_metaWarningCardCopy`, `hotelAmbiguityCatalogCopy` | one of the six places drifting |
+| Jump focus (§15, WCAG 2.4.3), on the real staged modal: after `Go to <section>`, `Go to this reservation in Hotels`, its `Go to Hotels` fallback and the marker's `See how we read it`, `document.activeElement` is the section, the hotel card, the Hotels section and the warning card respectively, each with `tabIndex === -1` | a jump that scrolls but leaves focus on the button; a target added to the tab order |
 | Unsaved reading guard (§6.5): one test per guard point G1 to G10 (with one dirty row, pressing it opens the prompt and the action has not run); the singular and plural titles; a Save press lowering `N`; a failed Save raising it while open; `Go back` keeping the draft and returning focus; `Discard and continue` clearing the draft then running the action once; each guard point passing through at `N = 0`; `beforeunload` absent at 0, preventing default at `N > 0`, removed on clean and on unmount | an unguarded close, publish, re-scan or re-sync path; a guard that blocks with nothing to lose; a discard that runs the action twice or not at all; a listener left behind |
 
 ### 16.2 Real browser (Playwright)

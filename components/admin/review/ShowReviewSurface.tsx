@@ -521,6 +521,24 @@ export function ShowReviewSurface({
     highlightedElsRef.current = [];
   }
 
+  /** warning-card-fixes §15 (WCAG 2.4.3): a jump that scrolls to its target also moves
+   *  focus there, so a keyboard or screen-reader user lands where the page went. A
+   *  target that is not focusable gets `tabindex="-1"` (programmatic focus only, never a
+   *  new tab stop); the scroll is already handled, so focusing must not scroll again. */
+  function focusJumpTarget(el: HTMLElement | null | undefined) {
+    if (!el) return;
+    if (el.tabIndex < 0 && !el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+    el.focus({ preventScroll: true });
+  }
+
+  /** warning-card-fixes §8.3: a wizard card's `Go to <section>`: plain nav-click semantics,
+   *  then focus on the section (§15). The rail and chip clicks keep `handleNavClick`
+   *  alone: their focus stays in the nav they belong to. */
+  function jumpToSectionFromCard(id: SectionId) {
+    handleNavClick(id);
+    focusJumpTarget(sectionElsRef.current.get(id));
+  }
+
   /** §E4 jump: `index` = FULL warnings-array position (the callout entry's
    *  key); `null` = the "+N more" section-top jump (plain nav-click
    *  semantics, no highlight). `group` = every index a grouped callout row
@@ -550,6 +568,8 @@ export function ShowReviewSurface({
       highlightedElsRef.current = flashed;
       highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
     }
+    // warning-card-fixes §15: focus follows the jump to the card it scrolled to.
+    focusJumpTarget(target);
   }
 
   /** Rooms sub-nav: scroll the content pane to the room card at `index`. Keeps
@@ -574,7 +594,7 @@ export function ShowReviewSurface({
     const scroller = scrollerRef.current;
     const target = scroller?.querySelector<HTMLElement>(`[data-hotel-index="${index}"]`);
     if (!scroller || !target || typeof scroller.scrollTo !== "function") {
-      handleNavClick("hotels");
+      jumpToSectionFromCard("hotels");
       return;
     }
     setActive("hotels");
@@ -584,6 +604,7 @@ export function ShowReviewSurface({
     target.setAttribute("data-step3-warning-flash", "");
     highlightedElsRef.current = [target];
     highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
+    focusJumpTarget(target); // §15: focus follows the jump
   }
 
   // Unmount hygiene (§H compound: drag-dismiss or unmount during highlight →
@@ -1183,7 +1204,7 @@ export function ShowReviewSurface({
                       // published-only), so neither overwrites the other.
                       ...(s.id === "warnings" && isStaged(data)
                         ? {
-                            onJumpToSection: (id: SectionId) => handleNavClick(id),
+                            onJumpToSection: jumpToSectionFromCard,
                             jumpSections: sections
                               .filter((x) => x.id !== "warnings" && x.id !== "report")
                               .map((x) => ({ id: x.id, label: x.label })),
