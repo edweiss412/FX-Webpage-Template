@@ -77,7 +77,10 @@ export function CrewWideNav({ items, active, hrefFor, hidden = false }: CrewWide
       h,
       base: prev?.base ?? h,
     }));
-  }, [active, items]);
+    // `hidden` too: a nav hidden by search measures nothing, and showing it
+    // again must place the bar for the active item (whole-diff review round 2,
+    // round 3, 3A-2).
+  }, [active, items, hidden]);
 
   // The frame after the bar is first placed, turn its transition on. Its own
   // effect, rescheduled on every run until it fires: a one-shot inside the

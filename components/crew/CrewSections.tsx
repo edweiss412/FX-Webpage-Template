@@ -450,8 +450,16 @@ export function CrewSections({
     return tops;
   }, [sections]);
 
+  // Search hides the page body (below), so its sections have no boxes and the
+  // document collapses: read then, every section would sit at the top and the
+  // spy would choose the last one. It does not run while search is active, and
+  // ending search runs it again from where the page then is (whole-diff review
+  // round 2, round 3, 3A-2).
+  const search = useOptionalCrewSearch();
+  const searchActive = search?.active ?? false;
+
   useEffect(() => {
-    if (mode !== "wide") return;
+    if (mode !== "wide" || searchActive) return;
     let raf: number | null = null;
     function evaluate() {
       raf = null;
@@ -500,7 +508,7 @@ export function CrewSections({
       releaseSuppression();
       if (raf !== null) cancelAnimationFrame(raf);
     };
-  }, [mode, spyItems, releaseSuppression]);
+  }, [mode, searchActive, spyItems, releaseSuppression]);
 
   /** Wide: scroll the window to a section (or the top for Today). */
   const scrollWide = useCallback(
@@ -868,9 +876,6 @@ export function CrewSections({
   );
 
   const api = useMemo<SectionController>(() => ({ openSectionAndReveal }), [openSectionAndReveal]);
-
-  const search = useOptionalCrewSearch();
-  const searchActive = search?.active ?? false;
 
   const navItems: CrewWideNavItem[] = useMemo(
     () => [

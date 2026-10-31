@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { CrewSections, useSectionController } from "@/components/crew/CrewSections";
+import { CrewWideNav } from "@/components/crew/CrewWideNav";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
 import { CREW_SECTION_LABELS, type CrewSectionEntry } from "@/lib/crew/crewSections";
@@ -528,6 +529,157 @@ describe("openSectionAndReveal, wide: the page scrolls to the line", () => {
     act(() => vi.advanceTimersByTime(1));
     expect(target).not.toHaveAttribute("data-search-reveal");
   });
+});
+
+// Whole-diff review round 2 (round 3), 3A-2. Search hides the page body, the
+// document collapses, and the browser clamps the scroll to the top. The spy kept
+// measuring the hidden sections (every box at 0, the page "at its bottom") and
+// chose the last one; the nav cleared its indicator while hidden; and ending
+// search re-ran neither, so the nav stayed on Gear with no indicator.
+describe("wide: search leaves the section nav where the page actually is (3A-2)", () => {
+  const ORDER = ["schedule", "venue", "travel", "crew", "gear"] as const;
+  const VIEWPORT = 900;
+  const STEP = 1000;
+
+  /**
+   * A laid-out wide page: Today at the top, each section `STEP` below the one
+   * before, the nav and its items measurable, and nothing under `hidden`
+   * measurable at all, as a browser reports it. The scroll position is the
+   * test's, moved by `scrollTo` and by `setScroll` (the browser's own clamp).
+   */
+  function layOut() {
+    let scrollY = 0;
+    const restore: Array<() => void> = [];
+    const define = (target: object, key: string, get: () => number) => {
+      const own = Object.getOwnPropertyDescriptor(target, key);
+      Object.defineProperty(target, key, { configurable: true, get });
+      restore.push(() =>
+        own
+          ? Object.defineProperty(target, key, own)
+          : delete (target as Record<string, unknown>)[key],
+      );
+    };
+    const pageHidden = () =>
+      document.querySelector('[data-testid="page-container"]')?.hasAttribute("hidden") ?? false;
+    define(window, "scrollY", () => scrollY);
+    define(document.documentElement, "clientHeight", () => VIEWPORT);
+    define(document.documentElement, "scrollHeight", () =>
+      pageHidden() ? VIEWPORT : (ORDER.length + 1) * STEP + VIEWPORT,
+    );
+    scrollToSpy.mockImplementation(((arg: ScrollToOptions | number) => {
+      scrollY = typeof arg === "number" ? arg : (arg.top ?? scrollY);
+    }) as never);
+    const box = (top: number, height: number, width: number) =>
+      ({
+        top,
+        bottom: top + height,
+        left: 0,
+        right: width,
+        width,
+        height,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.closest("[hidden]") !== null) return box(0, 0, 0);
+      const id = this.getAttribute("data-section");
+      if (this.dataset.testid === "crew-today-block") return box(-scrollY, STEP - 100, 700);
+      if (this.dataset.testid === "crew-wide-section" && id !== null) {
+        const i = ORDER.indexOf(id as (typeof ORDER)[number]);
+        return box((i + 1) * STEP - scrollY, STEP - 100, 700);
+      }
+      if (this.dataset.testid === "crew-wide-nav") return box(0, 600, 240);
+      if (this.closest('[data-testid="crew-wide-nav"]') !== null && id !== null) {
+        return box(["today", ...ORDER].indexOf(id as never) * 48, 44, 200);
+      }
+      return box(0, 0, 0);
+    });
+    return {
+      setScroll(y: number) {
+        scrollY = y;
+        act(() => {
+          window.dispatchEvent(new Event("scroll"));
+        });
+      },
+      restore() {
+        for (const undo of restore.reverse()) undo();
+      },
+    };
+  }
+
+  const navActive = () =>
+    screen
+      .getByTestId("crew-wide-nav")
+      .querySelector('[aria-current="true"]')
+      ?.getAttribute("data-section");
+  const indicator = () => screen.queryByTestId("crew-wide-nav-indicator");
+  /** Frames on the timer clock (frameOnTimers), stepped past a few of them. */
+  const frames = () => act(() => vi.advanceTimersByTime(64));
+
+  it("a nav that was hidden when its active item changed places the indicator when it shows again", () => {
+    // The spy is not the only writer of the active item: Back or Forward during
+    // search scrolls the hidden page and marks the item it lands on. The nav
+    // measures nothing while hidden, so showing it again must measure.
+    const page = layOut();
+    try {
+      const items = [
+        { id: "today" as const, label: "Today" },
+        ...ORDER.map((id) => ({ id, label: CREW_SECTION_LABELS[id] })),
+      ];
+      const nav = (active: SectionId, hidden: boolean) => (
+        <CrewWideNav items={items} active={active} hrefFor={(id) => `#${id}`} hidden={hidden} />
+      );
+      const { rerender } = render(nav("today", false));
+      expect(indicator(), "PREMISE: the indicator is placed while shown").not.toBeNull();
+      rerender(nav("venue", true));
+      expect(indicator(), "PREMISE: hidden, it measures nothing").toBeNull();
+      rerender(nav("venue", false));
+      expect(indicator()).not.toBeNull();
+    } finally {
+      page.restore();
+    }
+  });
+
+  for (const end of ["Cancel", "Escape on an empty query"] as const) {
+    it(`before, during and after a search ended by ${end}: the spy never reads the hidden page, and the nav shows where the page is`, () => {
+      vi.useFakeTimers();
+      stubMatchMedia({ mode: "wide", reduced: true });
+      frameOnTimers();
+      const page = layOut();
+      try {
+        renderShell("today");
+        frames();
+        // Before: scrolled to Venue, the nav on it with its indicator.
+        page.setScroll(2 * STEP + 100);
+        frames();
+        expect(navActive(), "PREMISE: the spy follows the page").toBe("venue");
+        expect(indicator(), "PREMISE: the indicator is placed").not.toBeNull();
+
+        // During: the body is hidden and the browser clamps the scroll to the top.
+        fireEvent.change(searchBox(), { target: { value: "ordtg" } });
+        expect(screen.getByTestId("page-container")).toHaveAttribute("hidden");
+        page.setScroll(0);
+        frames();
+        expect(navActive(), "the spy reads no hidden section").toBe("venue");
+
+        // After: the page shows again at the top, so the nav is on Today, with its indicator.
+        if (end === "Cancel") {
+          fireEvent.click(screen.getByTestId("crew-search-cancel"));
+        } else {
+          fireEvent.keyDown(searchBox(), { key: "Escape" }); // clears the query
+          fireEvent.keyDown(searchBox(), { key: "Escape" }); // ends search
+        }
+        expect(screen.getByTestId("page-container")).not.toHaveAttribute("hidden");
+        frames();
+        expect(navActive()).toBe("today");
+        expect(indicator(), "the indicator is back").not.toBeNull();
+      } finally {
+        page.restore();
+      }
+    });
+  }
 });
 
 describe("the [data-search-reveal] stylesheet rules (app/globals.css)", () => {
