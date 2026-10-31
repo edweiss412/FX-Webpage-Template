@@ -2469,6 +2469,25 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
  * No seed writes, so no single-writer `beforeAll`; the project gate is a declared
  * skip, never a bare return.
  */
+/**
+ * The streamed document cut right after the inline script that reveals the
+ * boundary holding `fallbackTestId`, or null when the fallback did not stream
+ * inside a revealed boundary. React streams a boundary's content as
+ * `<div hidden id="S:n">` and swaps it in with `$RC("B:n","S:n")`; keeping that
+ * script and nothing after it leaves the fallback on screen, as a visitor sees
+ * it while the page below it loads.
+ */
+function cutAfterFallbackReveal(html: string, fallbackTestId: string): string | null {
+  const at = html.indexOf(`data-testid="${fallbackTestId}"`);
+  if (at < 0) return null;
+  const segment = html.lastIndexOf('<div hidden id="S:', at);
+  const id = segment < 0 ? null : /^<div hidden id="S:(\d+)"/.exec(html.slice(segment))?.[1];
+  if (id === undefined || id === null) return null;
+  const reveal = html.indexOf(`$RC("B:${id}","S:${id}")`, segment);
+  const end = reveal < 0 ? -1 : html.indexOf("</script>", reveal);
+  return end < 0 ? null : `${html.slice(0, end + "</script>".length)}</body></html>`;
+}
+
 test.describe("crew loading skeleton — reserves the loaded page's geometry", () => {
   /** Sub-pixel line boxes (`text-lg/tight` is 22.5px) round differently in a plate. */
   const TOL = 2;
@@ -2483,128 +2502,191 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
     return box;
   }
 
-  for (const width of [390, 768, 1280] as const) {
-    test(`at ${width}px the skeleton's header, day row, pass and nav land where the loaded page puts them`, async ({
-      page,
-      browser,
-    }, testInfo) => {
-      test.skip(
-        testInfo.project.name !== "mobile-safari",
-        "geometry case runs once, on mobile-safari",
-      );
-      const seeded = await lookupSeededShow();
-      const shareToken = await lookupShareToken(seeded.showId);
-      const path = `/show/${seeded.slug}/${shareToken}`;
-      const viewport = { width, height: 900 };
-      const wide = width >= 1024;
+  /** The modal crew role on real sheets: the preview route's viewer, so its banner wraps like most do. */
+  const MODAL_ROLE = "- Load In / Set / Strike / Load Out - A1";
 
-      // The loaded page.
-      await page.setViewportSize(viewport);
-      await signInAs(page, ADMIN_FIXTURE);
-      await page.goto(path, { waitUntil: "domcontentloaded" });
-      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
-        "data-crew-controller-ready",
-        "true",
-        { timeout: 30_000 },
-      );
-      const firstDay = page.getByTestId("crew-day-row").locator("> button").first();
-      await expect(firstDay, "premise: the seeded show renders a day row").toBeVisible();
-      await expect(page.getByTestId("crew-pass")).toBeVisible();
-      // The header's line boxes are the resolved face's: measure after it settles.
-      await page.evaluate(() => document.fonts.ready);
-      const real = {
-        header: await boxOf(page.getByTestId("page-header"), "page-header"),
-        search: await boxOf(page.getByTestId("page-header-search"), "page-header-search"),
-        day: await boxOf(firstDay, "first day button"),
-        // The row's slot in the lead column: `CrewSections` wraps it in a margin
-        // div. The row itself can scroll sideways (five or more days, centred on
-        // mount), so its first button's x says nothing about the slot.
-        dayRow: await boxOf(page.getByTestId("crew-day-row").locator(".."), "day row slot"),
-        pass: await boxOf(page.getByTestId("crew-pass"), "crew-pass"),
-        nav: wide ? await boxOf(page.getByTestId("crew-wide-nav"), "crew-wide-nav") : null,
-      };
+  for (const route of ["crew", "preview"] as const)
+    for (const width of [390, 768, 1280] as const) {
+      test(`at ${width}px on the ${route} route the skeleton's ${route === "preview" ? "banner, " : ""}header, day row, pass and nav land where the loaded page puts them`, async ({
+        page,
+        browser,
+      }, testInfo) => {
+        test.skip(
+          testInfo.project.name !== "mobile-safari",
+          "geometry case runs once, on mobile-safari",
+        );
+        const seeded = await lookupSeededShow();
+        const shareToken = await lookupShareToken(seeded.showId);
+        let path = `/show/${seeded.slug}/${shareToken}`;
+        if (route === "preview") {
+          const crew = await admin
+            .from("crew_members")
+            .select("id, name, role")
+            .eq("show_id", seeded.showId)
+            .eq("role", MODAL_ROLE)
+            .order("name")
+            .limit(1)
+            .maybeSingle();
+          expect(crew.error, "crew lookup").toBeNull();
+          expect(
+            crew.data,
+            "PREMISE: the seeded show has a crew member with the modal role",
+          ).not.toBeNull();
+          path = `/admin/show/${seeded.slug}/preview/${crew.data!.id as string}`;
+        }
+        const viewport = { width, height: 900 };
+        const wide = width >= 1024;
 
-      // The skeleton, mid-load, in a context matching the project's device.
-      const baseURL = testInfo.project.use.baseURL;
-      if (!baseURL) throw new Error("the mobile-safari project declares a baseURL");
-      const context = await browser.newContext({
-        ...devices["iPhone 14"],
-        baseURL,
-        viewport,
-        javaScriptEnabled: false,
-      });
-      try {
-        const off = await context.newPage();
-        await signInAs(off, ADMIN_FIXTURE);
-        let rewritten = false;
-        await off.route(`**${path}`, async (route) => {
-          const response = await route.fetch();
-          const html = await response.text();
-          rewritten = html.includes(HIDE_SHELL);
-          await route.fulfill({ response, body: html.split(HIDE_SHELL).join(HIDE_NOTICE) });
-        });
-        // `load`, not `document.fonts.ready`: nothing evaluates with scripting off,
-        // and next/font preloads its faces, so the load event waits for them.
-        await off.goto(path, { waitUntil: "load" });
-        expect(rewritten, "premise: the response carries LoadingShell's no-JS rule").toBe(true);
-        await expect(
-          off.getByTestId("crew-loading-skeleton"),
-          "premise: the route streamed its loading fallback",
-        ).toBeAttached();
-        await expect(off.getByTestId("crew-loading-header")).toBeVisible();
-        const skel = {
-          header: await boxOf(off.getByTestId("crew-loading-header"), "crew-loading-header"),
-          search: await boxOf(off.getByTestId("crew-loading-search"), "crew-loading-search"),
-          day: await boxOf(
-            off.getByTestId("crew-loading-day-row").locator("> div").first(),
-            "first day slot",
-          ),
-          dayRow: await boxOf(off.getByTestId("crew-loading-day-row"), "crew-loading-day-row"),
-          pass: await boxOf(off.getByTestId("crew-loading-pass"), "crew-loading-pass"),
-          nav: wide ? await boxOf(off.getByTestId("crew-loading-nav"), "crew-loading-nav") : null,
+        // The loaded page.
+        await page.setViewportSize(viewport);
+        await signInAs(page, ADMIN_FIXTURE);
+        await page.goto(path, { waitUntil: "domcontentloaded" });
+        await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+          "data-crew-controller-ready",
+          "true",
+          { timeout: 30_000 },
+        );
+        const firstDay = page.getByTestId("crew-day-row").locator("> button").first();
+        await expect(firstDay, "premise: the seeded show renders a day row").toBeVisible();
+        await expect(page.getByTestId("crew-pass")).toBeVisible();
+        // The header's line boxes are the resolved face's: measure after it settles.
+        await page.evaluate(() => document.fonts.ready);
+        const real = {
+          header: await boxOf(page.getByTestId("page-header"), "page-header"),
+          search: await boxOf(page.getByTestId("page-header-search"), "page-header-search"),
+          day: await boxOf(firstDay, "first day button"),
+          // The row's slot in the lead column: `CrewSections` wraps it in a margin
+          // div. The row itself can scroll sideways (five or more days, centred on
+          // mount), so its first button's x says nothing about the slot.
+          dayRow: await boxOf(page.getByTestId("crew-day-row").locator(".."), "day row slot"),
+          pass: await boxOf(page.getByTestId("crew-pass"), "crew-pass"),
+          nav: wide ? await boxOf(page.getByTestId("crew-wide-nav"), "crew-wide-nav") : null,
+          banner:
+            route === "preview"
+              ? await boxOf(page.getByTestId("admin-preview-banner"), "admin-preview-banner")
+              : null,
         };
 
-        const near = (label: string, got: number, want: number) =>
+        // The skeleton, mid-load, in a context matching the project's device.
+        const baseURL = testInfo.project.use.baseURL;
+        if (!baseURL) throw new Error("the mobile-safari project declares a baseURL");
+        // The crew route's fallback is the first one the stream flushes, so it
+        // is read with scripting off, where React's swap never runs. The preview
+        // route's sits inside the admin segment's own fallback, so with scripting
+        // off the admin skeleton would show instead: there scripts run, and the
+        // document is cut right after the inline swap that reveals the preview
+        // fallback, before the page that would replace it.
+        const scripted = route === "preview";
+        const context = await browser.newContext({
+          ...devices["iPhone 14"],
+          baseURL,
+          viewport,
+          javaScriptEnabled: scripted,
+        });
+        try {
+          const off = await context.newPage();
+          await signInAs(off, ADMIN_FIXTURE);
+          let rewritten = false;
+          await off.route(`**${path}`, async (route) => {
+            const response = await route.fetch();
+            const html = await response.text();
+            if (!scripted) {
+              rewritten = html.includes(HIDE_SHELL);
+              await route.fulfill({ response, body: html.split(HIDE_SHELL).join(HIDE_NOTICE) });
+              return;
+            }
+            const cut = cutAfterFallbackReveal(html, "admin-preview-crew-loading");
+            rewritten = cut !== null;
+            await route.fulfill({ response, body: cut ?? html });
+          });
+          // `load`, not `document.fonts.ready`: nothing evaluates with scripting off,
+          // and next/font preloads its faces, so the load event waits for them.
+          await off.goto(path, { waitUntil: "load" });
           expect(
-            Math.abs(got - want),
-            `${label}: skeleton ${got}, loaded ${want}`,
-          ).toBeLessThanOrEqual(TOL);
-        /** Distance from the header's bottom edge, the one line both pages share. */
-        const under = (box: Box, header: Box) => box.y - (header.y + header.height);
-        near("header top", skel.header.y, real.header.y);
-        near(
-          "search row, offset under the header",
-          under(skel.search, skel.header),
-          under(real.search, real.header),
-        );
-        near("search row height", skel.search.height, real.search.height);
-        near(
-          "first day button, offset under the header",
-          under(skel.day, skel.header),
-          under(real.day, real.header),
-        );
-        near("first day button height", skel.day.height, real.day.height);
-        near("day row left", skel.dayRow.x, real.dayRow.x);
-        near("day row width", skel.dayRow.width, real.dayRow.width);
-        near(
-          "pass, offset under the header",
-          under(skel.pass, skel.header),
-          under(real.pass, real.header),
-        );
-        near("pass width", skel.pass.width, real.pass.width);
-        if (wide) near("header height (the fixed bar)", skel.header.height, real.header.height);
-        if (skel.nav && real.nav) {
-          near("nav left", skel.nav.x, real.nav.x);
-          near("nav width", skel.nav.width, real.nav.width);
-          near("nav top", skel.nav.y, real.nav.y);
-        } else {
-          expect(wide, "the nav column is drawn from 1024px, in both").toBe(false);
-          await expect(off.getByTestId("crew-loading-nav")).toBeHidden();
-          await expect(page.getByTestId("crew-wide-nav")).toHaveCount(0);
+            rewritten,
+            scripted
+              ? "premise: the preview fallback streamed inside a boundary the stream later reveals"
+              : "premise: the response carries LoadingShell's no-JS rule",
+          ).toBe(true);
+          await expect(
+            off.getByTestId(scripted ? "admin-preview-crew-loading" : "crew-loading-skeleton"),
+            "premise: the route streamed its loading fallback",
+          ).toBeVisible();
+          await expect(off.getByTestId("crew-loading-header")).toBeVisible();
+          const skel = {
+            header: await boxOf(off.getByTestId("crew-loading-header"), "crew-loading-header"),
+            search: await boxOf(off.getByTestId("crew-loading-search"), "crew-loading-search"),
+            day: await boxOf(
+              off.getByTestId("crew-loading-day-row").locator("> div").first(),
+              "first day slot",
+            ),
+            dayRow: await boxOf(off.getByTestId("crew-loading-day-row"), "crew-loading-day-row"),
+            pass: await boxOf(off.getByTestId("crew-loading-pass"), "crew-loading-pass"),
+            nav: wide ? await boxOf(off.getByTestId("crew-loading-nav"), "crew-loading-nav") : null,
+            banner:
+              route === "preview"
+                ? await boxOf(
+                    off.getByTestId("admin-preview-loading-banner"),
+                    "admin-preview-loading-banner",
+                  )
+                : null,
+          };
+
+          const near = (label: string, got: number, want: number) =>
+            expect(
+              Math.abs(got - want),
+              `${label}: skeleton ${got}, loaded ${want}`,
+            ).toBeLessThanOrEqual(TOL);
+          /** Distance from the header's bottom edge, the one line both pages share. */
+          const under = (box: Box, header: Box) => box.y - (header.y + header.height);
+          near("header top", skel.header.y, real.header.y);
+          near(
+            "search row, offset under the header",
+            under(skel.search, skel.header),
+            under(real.search, real.header),
+          );
+          near("search row height", skel.search.height, real.search.height);
+          near(
+            "first day button, offset under the header",
+            under(skel.day, skel.header),
+            under(real.day, real.header),
+          );
+          near("first day button height", skel.day.height, real.day.height);
+          near("day row left", skel.dayRow.x, real.dayRow.x);
+          near("day row width", skel.dayRow.width, real.dayRow.width);
+          near(
+            "pass, offset under the header",
+            under(skel.pass, skel.header),
+            under(real.pass, real.header),
+          );
+          near("pass width", skel.pass.width, real.pass.width);
+          // The page does not jump on the swap (UI-gate re-run P3-2 / critique N4):
+          // below 1024px too, the header is the loaded one's height, so everything
+          // under it lands where it will be. The skeleton reserves a representative
+          // eyebrow and title (two and three lines at 390) that wrap like the seeded
+          // show's; a show whose title wraps to another line count moves by the
+          // difference.
+          near("header height", skel.header.height, real.header.height);
+          near("first day button top", skel.day.y, real.day.y);
+          near("pass top", skel.pass.y, real.pass.y);
+          if (skel.banner && real.banner) {
+            near("preview banner top", skel.banner.y, real.banner.y);
+            near("preview banner height", skel.banner.height, real.banner.height);
+          } else {
+            expect(route, "the banner is drawn on the preview route, in both").toBe("crew");
+          }
+          if (skel.nav && real.nav) {
+            near("nav left", skel.nav.x, real.nav.x);
+            near("nav width", skel.nav.width, real.nav.width);
+            near("nav top", skel.nav.y, real.nav.y);
+          } else {
+            expect(wide, "the nav column is drawn from 1024px, in both").toBe(false);
+            await expect(off.getByTestId("crew-loading-nav")).toBeHidden();
+            await expect(page.getByTestId("crew-wide-nav")).toHaveCount(0);
+          }
+        } finally {
+          await context.close();
         }
-      } finally {
-        await context.close();
-      }
-    });
-  }
+      });
+    }
 });

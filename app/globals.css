@@ -269,6 +269,11 @@
    * auto-content scan into the built CSS).
    */
   --spacing-right-now-min-h: 176px;
+  /* The crew loading skeleton's pass block: a typical pass with its facts, not
+     the floor above, so the swap does not grow it by a column of cells (UI-gate
+     re-run, critique N4). The seeded shows' passes run 289 to 339px from 768 to
+     390px wide; this sits between them. */
+  --spacing-pass-typical: 304px;
   --spacing-page-pad-mobile: 16px;
   --spacing-page-pad-desktop: 32px;
   /* Shared max extent for wide secondary "panel"-class surfaces at 480px: the

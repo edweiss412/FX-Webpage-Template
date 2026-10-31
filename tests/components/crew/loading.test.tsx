@@ -29,9 +29,27 @@ afterEach(cleanup);
 const HOME_ORDER = [
   "crew-loading-day-row",
   "crew-loading-pass",
+  "crew-loading-quick-facts",
   "crew-loading-list",
   "crew-loading-section",
 ] as const;
+
+/** The real header with the crew page's status pill, as the crew shell renders it. */
+function realHeaderWithPill(): HTMLElement {
+  const { getByTestId } = render(
+    <Header
+      show={{
+        title: "Spring Tour 2026",
+        client_label: "FXAV Client",
+        dates: { set: "2026-04-17", travelIn: null, showDays: ["2026-04-17"] } as never,
+        venue: { name: "Hilton Anatole" } as never,
+      }}
+      statusPill={<span>Show day 1 of 1</span>}
+      search={<div />}
+    />,
+  );
+  return getByTestId("page-header");
+}
 
 /** The real header, rendered the way the crew shell renders it (search slot filled). */
 function realHeader(): HTMLElement {
@@ -111,14 +129,61 @@ describe("crew route loading skeleton", () => {
     }
   });
 
-  it("the pass block reserves the pass's height floor", () => {
+  // Critique N4: the floor (176px) grew to a loaded 289 to 339px pass on the swap.
+  it("the pass block reserves a typical pass's height, not its floor", () => {
     const { getByTestId } = render(<Loading />);
-    expect(getByTestId("crew-loading-pass")).toHaveClass("min-h-right-now-min-h");
+    expect(getByTestId("crew-loading-pass")).toHaveClass("min-h-pass-typical");
+  });
+
+  // UI-gate re-run P3-2: the header was three fixed plates (151px at 390 against
+  // a loaded 217 to 237), so everything under it jumped on the swap. Its title
+  // block and each line's element carry the live header's classes, so each line
+  // box is the loaded one's height; the real-browser half is
+  // tests/e2e/crew-layout-dimensions.spec.ts "crew loading skeleton".
+  it("the title block and its eyebrow and date lines are the live header's, a two-line eyebrow and title below 640px", () => {
+    const realBlock = realHeaderWithPill().querySelector<HTMLElement>(
+      '[data-testid="page-header-title-block"]',
+    )!;
+    const want = {
+      block: realBlock.className,
+      eyebrow: realBlock.querySelector('[data-testid="page-header-eyebrow"]')!.className,
+      titleRow: (realBlock.querySelector("h1")!.parentElement as HTMLElement).className,
+      title: realBlock.querySelector("h1")!.className,
+      pill: realBlock.querySelector('[data-testid="header-status-pill"]')!.className,
+      date: realBlock.querySelector("time")!.parentElement!.className,
+    };
+    cleanup();
+
+    const { getByTestId } = render(<Loading />);
+    const block = getByTestId("crew-loading-title-block");
+    expect(block.className).toBe(want.block);
+    const eyebrow = getByTestId("crew-loading-eyebrow");
+    expect(eyebrow.className).toBe(want.eyebrow);
+    const title = getByTestId("crew-loading-title");
+    // The h1's classes, plus a full row below 1024px: a long title pushes the
+    // pill onto its own row, and the short placeholder words would not.
+    expect(
+      title.className.split(" ").filter((c) => c !== "basis-full" && c !== "lg:basis-auto"),
+    ).toEqual(want.title.split(" "));
+    expect(title).toHaveClass("basis-full", "lg:basis-auto");
+    const titleRow = title.parentElement as HTMLElement;
+    expect(titleRow.className.split(" ").sort()).toEqual(want.titleRow.trim().split(/\s+/).sort());
+    expect((title.nextElementSibling as HTMLElement).className).toBe(want.pill);
+    expect(getByTestId("crew-loading-date").className).toBe(want.date);
+    // Two lines below 640px, one from it: a forced break that hides at `sm`.
+    for (const line of [eyebrow, title]) {
+      const breaks = line.querySelectorAll("br");
+      expect(breaks).toHaveLength(1);
+      expect(breaks[0]).toHaveClass("sm:hidden");
+    }
   });
 
   it("the list block is compact only; the home body column and the stacked frame are wide only", () => {
     const { getByTestId } = render(<Loading />);
     expect(getByTestId("crew-loading-list")).toHaveClass("lg:hidden");
+    // Below 1024px the quick facts follow the pass (critique N4); from it the
+    // home body column beside the lead holds them.
+    expect(getByTestId("crew-loading-quick-facts")).toHaveClass("lg:hidden");
     expect(getByTestId("crew-loading-home-body")).toHaveClass("hidden", "lg:flex");
     const stack = getByTestId("crew-loading-stack");
     expect(stack).toHaveClass("hidden", "lg:flex");

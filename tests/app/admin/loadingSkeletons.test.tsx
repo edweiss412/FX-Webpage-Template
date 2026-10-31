@@ -15,6 +15,7 @@ import { cleanup, render } from "@testing-library/react";
 import AdminAdminsLoading from "@/app/admin/settings/admins/loading";
 import StagedLoading from "@/app/admin/show/staged/[stagedId]/loading";
 import PreviewLoading from "@/app/admin/show/[slug]/preview/[crewId]/loading";
+import { PreviewBanner } from "@/components/admin/PreviewBanner";
 import HelpLoading from "@/app/help/loading";
 import { crewSectionLabel } from "@/lib/crew/crewSections";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
@@ -77,8 +78,7 @@ describe("admin preview loading: the crew skeleton under the banner, never a Bud
     const { getByTestId } = render(<PreviewLoading />);
     const header = getByTestId("crew-loading-header");
     const banner = header.previousElementSibling;
-    expect(banner).not.toBeNull();
-    expect(banner).toHaveClass("animate-pulse", "bg-surface-sunken");
+    expect(banner).toBe(getByTestId("admin-preview-loading-banner"));
     for (const id of [
       "crew-loading-nav",
       "crew-loading-day-row",
@@ -89,6 +89,43 @@ describe("admin preview loading: the crew skeleton under the banner, never a Bud
       expect(getByTestId(id)).toBeInTheDocument();
     }
     expect(document.querySelector('[data-testid="preview-loading-tab"]')).toBeNull();
+  });
+
+  // UI-gate re-run P3-2: a flat 40px strip grew to the banner's 69px from 1024px
+  // and 132px on a phone, so the page jumped on the swap. The strip is the
+  // banner's own box, its row and its label line, with the same classes, so it
+  // wraps where the banner does (the real-browser half is
+  // tests/e2e/crew-layout-dimensions.spec.ts "crew loading skeleton").
+  it("the banner strip is PreviewBanner's box: its tint, border and padding, its wrapping row and label line", () => {
+    const real = render(
+      <PreviewBanner
+        crewMemberName="Alex Rivera"
+        crewMemberRoleLabel="- Load In / Set / Strike / Load Out - A1"
+        slug="spring-tour"
+        showId="00000000-0000-0000-0000-000000000001"
+        crewMemberId="00000000-0000-0000-0000-000000000002"
+      />,
+    ).getByTestId("admin-preview-banner");
+    const realRow = real.querySelector("div.mx-auto")!;
+    const want = {
+      row: realRow.className,
+      label: realRow.querySelector("p")!.className,
+      actions: (realRow.lastElementChild as HTMLElement).className,
+    };
+    for (const cls of ["border-b", "border-border-strong", "bg-warning-bg"]) {
+      expect(real).toHaveClass(cls);
+    }
+    cleanup();
+
+    const banner = render(<PreviewLoading />).getByTestId("admin-preview-loading-banner");
+    expect(banner).toHaveClass("border-b", "border-border-strong", "bg-warning-bg");
+    const row = banner.firstElementChild as HTMLElement;
+    expect(row.className).toBe(want.row);
+    expect(row.querySelector("p")!.className).toBe(want.label);
+    expect((row.lastElementChild as HTMLElement).className).toBe(want.actions);
+    // Two 44px action plates, as the banner has two 44px actions.
+    expect(row.lastElementChild!.children).toHaveLength(2);
+    for (const plate of row.lastElementChild!.children) expect(plate).toHaveClass("h-tap-min");
   });
 
   it("lists exactly the base sections in the nav and the list, and never Budget", () => {
