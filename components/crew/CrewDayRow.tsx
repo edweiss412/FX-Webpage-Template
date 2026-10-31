@@ -19,8 +19,9 @@
  *
  * Layout counts buttons, not days: up to 4 (days plus "Now") sit in an
  * equal-width grid, 5 or more scroll horizontally with snapping, and on mount
- * the pressed day, or in `live` with no pressed day the nearest upcoming one, is
- * scrolled into view. Every button is at least 44px tall and 64px wide.
+ * the pressed day, or in `live` with no pressed day the next day still ahead, is
+ * scrolled into view; after the show none is, and the row stays at its start,
+ * where the pressed "Now" sits. Every button is at least 44px tall and 64px wide.
  *
  * The pressed state changes background and text colour over `--duration-fast`
  * (the `duration-fast` utility chains to the token, which reduced motion sets to
@@ -46,9 +47,14 @@ const GRID_COLS: Record<number, string> = {
 
 const NOW_NAME = "Now, your live status";
 
-/** The first day after today, else the last day (the show is over). */
+/**
+ * The first day after today, or null when none is (the show is over). There is
+ * no fallback to the last day: centring a past day scrolled the pressed "Now",
+ * which sits first, off the row (critique F5). With no target the row stays at
+ * its start, where "Now" is.
+ */
 function nearestUpcoming(days: readonly DayRowDay[], todayIso: string): string | null {
-  return (days.find((d) => d.iso > todayIso) ?? days[days.length - 1])?.iso ?? null;
+  return days.find((d) => d.iso > todayIso)?.iso ?? null;
 }
 
 export function CrewDayRow({ timezone, days }: DayRowProps) {

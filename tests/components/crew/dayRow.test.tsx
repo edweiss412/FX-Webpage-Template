@@ -585,11 +585,23 @@ describe("day row: layout", () => {
     expect(scrollWrites).toEqual([{ el: row(), value: centring(index) }]);
   });
 
-  it("day row: after the show, with no day upcoming, the last day is scrolled into view on mount", () => {
+  // Critique F5: centring the last day after the show scrolled the pressed "Now"
+  // off the row's left edge, so no pressed control was visible. No day is
+  // upcoming then, so nothing is scrolled to: the row stays at its start, where
+  // "Now" sits first.
+  it("day row: after the show, with no day upcoming, the row stays at its start with the pressed Now in view", () => {
     vi.setSystemTime(at("2026-05-30", "12:00:00"));
     renderRow(dayRowProps(FIVE));
-    const index = allButtons().indexOf(dayButton(FIVE.travelOut!)!);
-    expect(scrollWrites).toEqual([{ el: row(), value: centring(index) }]);
+    // PREMISE: the row scrolls, "Now" is pressed, and centring the last day would
+    // have moved the row past "Now" (the old behaviour).
+    expect(row()).toHaveAttribute("data-layout", "scroll");
+    expect(pressed()).toEqual([nowButton()]);
+    expect(allButtons()[0]).toBe(nowButton());
+    expect(centring(allButtons().indexOf(dayButton(FIVE.travelOut!)!))).toBeGreaterThan(
+      BUTTON_WIDTH,
+    );
+    expect(scrollWrites).toEqual([]);
+    expect(row().scrollLeft).toBe(0);
   });
 
   it("day row: the grid layout scrolls nothing on mount", () => {
