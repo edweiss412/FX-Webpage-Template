@@ -2289,12 +2289,25 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  async function pinBothClocks(page: import("@playwright/test").Page, iso: string): Promise<void> {
+  /**
+   * `flowing` starts the browser clock at the same instant and lets it run
+   * (`setSystemTime`). A case that samples a CSS keyframe animation needs it:
+   * under `setFixedTime`, Linux WebKit holds the animation at its first keyframe
+   * for about 300ms and then jumps it to wall time, so a 120ms fade shows no
+   * middle frame (measured in the pinned Playwright image, v1.59.1-jammy; the CI
+   * mobile-safari failure on PR #984). macOS WebKit and Chromium run it either way.
+   */
+  async function pinBothClocks(
+    page: import("@playwright/test").Page,
+    iso: string,
+    browserClock: "fixed" | "flowing" = "fixed",
+  ): Promise<void> {
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": noonUtc(iso),
       Authorization: `Bearer ${TEST_AUTH_SECRET}`,
     });
-    await page.clock.setFixedTime(new Date(noonUtc(iso)));
+    if (browserClock === "flowing") await page.clock.setSystemTime(new Date(noonUtc(iso)));
+    else await page.clock.setFixedTime(new Date(noonUtc(iso)));
   }
 
   /** Load a crew page path and wait for the controller. */
@@ -2422,7 +2435,7 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
   test("home: the copy toast fades and rises in, holds 2 seconds and fades out", async ({
     page,
   }) => {
-    await pinBothClocks(page, SHOW_DAY_1);
+    await pinBothClocks(page, SHOW_DAY_1, "flowing");
     await gotoHome(page, homePath());
     await stubClipboard(page, "resolve");
     const samples = await page.evaluate(
@@ -3623,12 +3636,24 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
           // mount), so its first button's x says nothing about the slot.
           dayRow: await boxOf(page.getByTestId("crew-day-row").locator(".."), "day row slot"),
           pass: await boxOf(page.getByTestId("crew-pass"), "crew-pass"),
+          title: await boxOf(
+            page.getByTestId("page-header-title-block").locator("h1"),
+            "page-header title",
+          ),
           nav: wide ? await boxOf(page.getByTestId("crew-wide-nav"), "crew-wide-nav") : null,
           banner:
             route === "preview"
               ? await boxOf(page.getByTestId("admin-preview-banner"), "admin-preview-banner")
               : null,
         };
+
+        // The title's line box, read on the loaded page: the skeleton's title line
+        // carries the same classes, and scripting is off where the skeleton is read.
+        const titleLine = await page
+          .getByTestId("page-header-title-block")
+          .locator("h1")
+          .evaluate((el) => Number.parseFloat(getComputedStyle(el).lineHeight));
+        expect(titleLine, "premise: the title has a pixel line height").toBeGreaterThan(0);
 
         // The skeleton, mid-load, in a context matching this spec's iPhone device,
         // on the origin the loaded page was served from.
@@ -3685,6 +3710,7 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
             ),
             dayRow: await boxOf(off.getByTestId("crew-loading-day-row"), "crew-loading-day-row"),
             pass: await boxOf(off.getByTestId("crew-loading-pass"), "crew-loading-pass"),
+            title: await boxOf(off.getByTestId("crew-loading-title"), "crew-loading-title"),
             nav: wide ? await boxOf(off.getByTestId("crew-loading-nav"), "crew-loading-nav") : null,
             banner:
               route === "preview"
@@ -3726,12 +3752,20 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
           // The page does not jump on the swap (UI-gate re-run P3-2 / critique N4):
           // below 1024px too, the header is the loaded one's height, so everything
           // under it lands where it will be. The skeleton reserves a representative
-          // eyebrow and title (two and three lines at 390) that wrap like the seeded
-          // show's; a show whose title wraps to another line count moves by the
-          // difference.
-          near("header height", skel.header.height, real.header.height);
-          near("first day button top", skel.day.y, real.day.y);
-          near("pass top", skel.pass.y, real.pass.y);
+          // eyebrow and title, two title lines below 640px and one from 640px; a
+          // title that wraps to another line count moves the page by the difference,
+          // which the skeleton cannot know. The seeded title does exactly that by
+          // engine: three lines in the preview header at 390 on CI's Linux WebKit,
+          // two on macOS (PR #984). So the reserved count and its line box are
+          // pinned, and the loaded page is compared at the skeleton's title lines.
+          const skelTitleLines = Math.round(skel.title.height / titleLine);
+          expect(skelTitleLines, "the skeleton reserves its title lines").toBe(width < 640 ? 2 : 1);
+          near("title line box", skel.title.height, skelTitleLines * titleLine);
+          const titleShift =
+            (Math.round(real.title.height / titleLine) - skelTitleLines) * titleLine;
+          near("header height", skel.header.height, real.header.height - titleShift);
+          near("first day button top", skel.day.y, real.day.y - titleShift);
+          near("pass top", skel.pass.y, real.pass.y - titleShift);
           if (skel.banner && real.banner) {
             near("preview banner top", skel.banner.y, real.banner.y);
             near("preview banner height", skel.banner.height, real.banner.height);
