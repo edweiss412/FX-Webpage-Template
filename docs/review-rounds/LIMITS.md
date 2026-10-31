@@ -590,3 +590,18 @@ repair, or a longer reader inventory, which is the fail-open shape.
 **Owning record:** this index, plus a comment at the published-modal step.
 
 **Re-file trigger:** a runtime-skipped case found to have shipped green through the published-modal step (its CI run), or a product arc whose case in that step needs execution proof to merge.
+
+## LIM-CSS-GUARD-RAW-TEXT
+
+**Shape:** A style guard that reads `app/globals.css` as raw text, so a commented-out declaration still counts as present and a second `@theme` block is never scanned. The guard then certifies a binding or a contrast pair the browser never applies.
+
+**Named by:** 1 arc — feat/crew-page-redesign (whole-diff review round 2, second pass, finding 2C-R2-2; that arc's corpus is docs/review-rounds/feat/crew-page-redesign/).
+
+**Instances:**
+
+- The three guards that arc added (`tests/styles/nestedThemeScope.test.ts`, `tests/styles/crewPassContrast.test.ts`, the sheet checks in `tests/styles/status-token-contrast.test.ts`). **REPAIRED 2026-10-31** by the same arc: they read parsed CSS, every `@theme` block, with comments removed; the reviewer's three probes (comment out the nested dark binding block, comment out dark `--color-surface-raised-runtime`, add a second `@theme` block with an unbound runtime-backed token) each go red.
+- Six guards that predate the arc and read raw CSS text the same way: `design-figure-parity`, `secondary-action-contrast`, `controlOutlineResidue`, `focusRingContrast`, `badge-count-contrast`, `accentCommentFigures` (each under `tests/styles/`). Not repaired: class-sweep exception (c), the repair is a rewrite of guards on surfaces that arc does not otherwise touch, and the 2026-08-25 mint freeze routes a process-facing class here rather than to the queue.
+
+**Owning record:** this index.
+
+**Re-file trigger:** a token or contrast regression that reached main while one of the six guards passed, or a second arc naming this class (the recurrence exception).
