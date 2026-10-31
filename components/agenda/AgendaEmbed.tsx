@@ -29,26 +29,26 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { FileText, X } from "lucide-react";
 
+import { loadAgendaPdfViewer } from "@/components/agenda/loadAgendaPdfViewer";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { agendaDisplayLabel } from "@/lib/agenda/agendaLabel";
 import { acquireScrollLock } from "@/lib/ui/scrollLock";
 
 // Defer pdfjs entirely until the sheet opens. Without `next/dynamic`,
 // importing AgendaPdfViewer at module top would pull `react-pdf` +
-// `pdfjs-dist` (~200kB gz total) into the crew-page chunk even for
-// shows that have no agenda. `ssr: false` keeps the worker URL setup
-// off the server-render path.
-const AgendaPdfViewer = dynamic(
-  () => import("@/components/agenda/AgendaPdfViewer").then((m) => m.AgendaPdfViewer),
-  {
-    ssr: false,
-    loading: () => (
-      <div role="status" aria-live="polite" className="py-8 text-sm text-text-subtle">
-        Loading agenda…
-      </div>
-    ),
-  },
-);
+// `pdfjs-dist` (~200kB gz total) into the crew-page chunk even for shows that
+// have no agenda. The import() itself lives in loadAgendaPdfViewer.ts, which the
+// saved-copy registrar's prefetch calls too: one import() site, so the registrar
+// stores the same loader chunk this sheet asks for when it opens offline.
+// `ssr: false` keeps the worker URL setup off the server-render path.
+const AgendaPdfViewer = dynamic(() => loadAgendaPdfViewer().then((m) => m.AgendaPdfViewer), {
+  ssr: false,
+  loading: () => (
+    <div role="status" aria-live="polite" className="py-8 text-sm text-text-subtle">
+      Loading agenda…
+    </div>
+  ),
+});
 
 export type AgendaLink = {
   label?: string;

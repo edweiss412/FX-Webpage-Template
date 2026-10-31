@@ -465,7 +465,8 @@ describe("CrewShell projection alert is section-independent (Test 16)", () => {
   // a durable regression guard against a future allowlist that drops run_of_show.
   //
   // Negative-regression procedure (mandatory per AGENTS.md anti-tautology rule):
-  //   1. In _CrewShell.tsx, temporarily replace line 142 with:
+  //   1. In _CrewShell.tsx, temporarily replace the line
+  //      `const failedKeys = Object.keys(data.tileErrors).sort();` with:
   //      const ALLOWED = ["contacts","financials","hotel","rooms","transportation"];
   //      const failedKeys = Object.keys(data.tileErrors).filter(k => ALLOWED.includes(k)).sort();
   //   2. Run: pnpm vitest run tests/components/crew/crewShell.test.tsx --reporter=verbose

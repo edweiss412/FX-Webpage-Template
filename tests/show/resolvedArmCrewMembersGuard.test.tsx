@@ -57,6 +57,8 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
     throw new Error("NEXT_REDIRECT");
   }),
+  // The saved-copy marker on the TerminalFailure reads the path.
+  usePathname: () => "/show/any-show/t",
 }));
 
 // Projection stub with crewMembers DELIBERATELY absent (malformed data).
@@ -94,6 +96,7 @@ async function resolveShowPageElement(): Promise<React.ReactElement<ShowBodyProp
     showId: "show-1",
     crewMemberId: "crew-1",
     source: "cookie",
+    pickerEpoch: 1,
   });
   vi.mocked(getShowForViewer).mockResolvedValue(malformedData);
 
@@ -123,7 +126,7 @@ describe("resolved arm: missing crewMembers array fails CLOSED", () => {
     // replaced _ShowBody); invoke it directly with the exact props the page
     // handed it and render the resolved tree. The malformed-projection
     // fail-closed contract migrated verbatim into CrewShell's producer
-    // contract 2 (_CrewShell.tsx:157-170), which renders the SAME
+    // contract 2 (_CrewShell.tsx:237-270), which renders the SAME
     // <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" /> on a non-array
     // crewMembers field.
     const { CrewShell } = await import("@/app/show/[slug]/[shareToken]/_CrewShell");

@@ -2627,7 +2627,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // 293/520/580/595 -> 340/581/644/659, same columns, same operators, same
     // reasons. A stale row here is not cosmetic — it is what left
     // `logical-connector:&&>||` reported as an unaccepted survivor on main's
-    // nightly (run 31933821808).
+    // nightly (run 31933821808). Re-derived 2026-10-30 after the not-saved
+    // page's EXPLICIT_INCLUDES row (feat/crew-offline-saved-copy) added eight
+    // lines above every site, all seventeen rows below: 368/736/759/809/820/
+    // 824/828/879/885/894/909 -> 376/744/767/817/828/832/836/887/893/902/917,
+    // same columns, same operators, same reasons, checked with enumerateSites
+    // on both trees and by a scoped gate run.
     accepted: [
       // The JSX initializer narrowing is NOT equivalent, and the argument that
       // said it was rested on a false claim about the TypeScript API: probed,
@@ -2643,40 +2648,40 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // differ and `<=` cannot decide anything `<` did not. Same class
       // taskContract carries four of.
       {
-        siteId: "relational-boundary:368:14:<><=",
+        siteId: "relational-boundary:376:14:<><=",
         kind: "equivalent",
         reason:
           "universeFiles' comparator reaches this `<` only when the two entry names differ, so `<=` cannot change the ordering",
       },
       {
-        siteId: "integer-literal:368:26:1>2",
+        siteId: "integer-literal:376:26:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — Array.sort consumes the sign only",
       },
       {
-        siteId: "integer-literal:368:30:1>2",
+        siteId: "integer-literal:376:30:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       {
-        siteId: "relational-boundary:894:50:<><=",
+        siteId: "relational-boundary:902:50:<><=",
         kind: "equivalent",
         reason:
           "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
       },
       {
-        siteId: "integer-literal:894:62:1>2",
+        siteId: "integer-literal:902:62:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — sign only",
       },
       {
-        siteId: "integer-literal:894:66:1>2",
+        siteId: "integer-literal:902:66:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       // ---- equivalent: the flip cannot change which branch is taken -------
       {
-        siteId: "logical-connector:909:38:||>&&",
+        siteId: "logical-connector:917:38:||>&&",
         kind: "equivalent",
         reason:
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
@@ -2689,49 +2694,49 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // root" case, which was written for it after the first attempt passed
       // against the mutant for an accidental reason (unequal offsets).
       {
-        siteId: "statement-removal:736:3:resolverMemo = { key, resolve };>(removed)",
+        siteId: "statement-removal:744:3:resolverMemo = { key, resolve };>(removed)",
         kind: "equivalent",
         reason:
           "removing the memo WRITE only stops the cache from ever being populated: every scan then builds its own program and returns the same answer, so the mutation is observable in wall clock alone",
       },
       {
-        siteId: "statement-removal:759:5:parsed.set(key, sf);>(removed)",
+        siteId: "statement-removal:767:5:parsed.set(key, sf);>(removed)",
         kind: "equivalent",
         reason:
           "same shape one level down — the parse cache is re-populated per lookup instead of once, and ts.createSourceFile is a pure function of (name, text), so every consumer sees an identical tree",
       },
       {
-        siteId: "logical-connector:809:32:||>&&",
+        siteId: "logical-connector:817:32:||>&&",
         kind: "equivalent",
         reason:
           "the bounds test only PRUNES the walk; with `&&` fewer subtrees are skipped and more are descended, but the identifier is accepted on the exact-offset test below it, so a wider walk finds the same node",
       },
       {
-        siteId: "relational-boundary:809:39:>=>>",
+        siteId: "relational-boundary:817:39:>=>>",
         kind: "equivalent",
         reason:
           "same pruning test at its upper bound: `pos === n.getEnd()` is the only input the flip changes, and descending into a node whose end equals pos finds no identifier STARTING at pos either",
       },
       {
-        siteId: "integer-literal:828:51:0>1",
+        siteId: "integer-literal:836:51:0>1",
         kind: "equivalent",
         reason:
           "ts.SymbolFlags.Alias is 2097152, so `flags & Alias` is 0 or 2097152 and can never be 1 (probed); `!== 1` is therefore always true, and calling getAliasedSymbol on a non-alias is already handled — the catch keeps the original symbol",
       },
       {
-        siteId: "logical-connector:879:50:&&>||",
+        siteId: "logical-connector:887:50:&&>||",
         kind: "equivalent",
         reason:
           "declPos is written on named-constant sites and on no other kind, so the right operand IMPLIES the left and `A || B` selects exactly the rows `A && B` did",
       },
       {
-        siteId: "logical-connector:885:35:||>&&",
+        siteId: "logical-connector:893:35:||>&&",
         kind: "equivalent",
         reason:
           "narrowing the early return sends non-resolvable sites into resolveBinding instead of past it; with refPos undefined the walk matches nothing, the key list is empty, and the site is kept exactly as the early return would have kept it",
       },
       {
-        siteId: "logical-connector:885:61:||>&&",
+        siteId: "logical-connector:893:61:||>&&",
         kind: "equivalent",
         reason:
           "same early return, the name leg: a site with a null name reaches the resolver, whose anchor check requires found.text === name and rejects it, so the site is kept either way",
@@ -2747,13 +2752,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // is an argument for keeping them, not for filing a queue entry whose
       // worst case today is unreachable.
       {
-        siteId: "logical-connector:820:29:||>&&",
+        siteId: "logical-connector:828:29:||>&&",
         kind: "equivalent",
         reason:
           "the mis-anchored-token guard: under `&&` a refPos landing on a non-identifier would resolve whatever symbol it hit instead of reporting. Every refPos this module writes is taken from an identifier node, so no emit path produces the input that distinguishes them",
       },
       {
-        siteId: "logical-connector:824:72:&&>||",
+        siteId: "logical-connector:832:72:&&>||",
         kind: "equivalent",
         reason:
           "the shorthand discriminator: under `||` a non-shorthand parent whose NAME node is the anchor would take the shorthand branch. Property emits anchor refPos at the VALUE and shorthand emits at the name, so parent.name === found holds only where the branch is already correct",

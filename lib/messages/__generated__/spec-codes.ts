@@ -1130,6 +1130,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → fix in sheet",
     "helpfulContext": "A row here has one fewer column than the rows around it. That is what a merged cell looks like once the sheet is exported, and it can push values under the wrong headings.",
   },
+  "SAVED_COPY_STATUS_LOOKUP_FAILED": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": "Eric → inspect the saved-copy status route logs",
+    "helpfulContext": null,
+  },
   "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE": {
     "crewFacing": null,
     "dougFacing": "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day.",

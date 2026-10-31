@@ -55,6 +55,7 @@
     "set_admin_developer_rpc(p_email text, p_is_developer boolean) -> jsonb [DEFINER]",
     "set_published_pull_sheet_override(p_drive_file_id text, p_tab_name text, p_fingerprint text, p_accepted_by text, p_expected_override_snapshot jsonb) -> jsonb [DEFINER]",
     "set_pull_sheet_override(p_drive_file_id text, p_wizard_session_id uuid, p_tab_name text, p_fingerprint text, p_accepted_by text, p_expected_override_snapshot jsonb) -> jsonb [DEFINER]",
+    "stamp_shows_unpublished_at() -> trigger [INVOKER]",
     "unarchive_show(p_show_id uuid) -> boolean [DEFINER]",
     "undo_change(p_change_log_id uuid) -> jsonb [DEFINER]",
     "unpublish_show(p_show_id uuid) -> boolean [DEFINER]",
@@ -446,6 +447,7 @@
     "title",
     "unpublish_token",
     "unpublish_token_expires_at",
+    "unpublished_at",
     "venue",
     "wizard_created_session_id"
   ],

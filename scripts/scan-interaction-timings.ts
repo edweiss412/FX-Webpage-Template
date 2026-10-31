@@ -192,6 +192,14 @@ export const EXPLICIT_INCLUDES: readonly { readonly file: string; readonly reaso
       "and components/crew/CrewSections.tsx (crew page redesign spec §5.3), and the crew page may " +
       "not import from components/admin/**. Without this include both call sites report `unclassified`.",
   },
+  {
+    file: "lib/offline/notSavedPage.ts",
+    reason:
+      "RETRY_INTERVAL_MS is how often the not-saved page retries while a crew member waits on it " +
+      "with no signal: interaction timing, set to the saved-copy bar's PROBE_INTERVAL_MS. It lives " +
+      "in lib/ because the page is a self-contained document the service worker serves, so its " +
+      "one script is a string built there, not a component.",
+  },
 ];
 
 /**

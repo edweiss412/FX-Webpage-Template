@@ -126,7 +126,7 @@ describe("GET /api/show/[slug]/version", () => {
 
   test("show_unavailable (unpublished/archived show) maps to 410 — the crew missed-broadcast durability pin (published-toggle R6/R9)", async () => {
     // An unpublished show resolves show_unavailable BEFORE the token read
-    // (lib/auth/picker/resolvePickerSelection.ts:84); the bridge maps 410 →
+    // (lib/auth/picker/resolvePickerSelection.ts:120); the bridge maps 410 →
     // auth_denied → forced router.refresh, landing the crew page on the
     // paused surface even when the realtime broadcast was missed.
     state.picker = { kind: "show_unavailable" };

@@ -149,20 +149,21 @@ The worker registers at scope `/` and acts only on:
 | `GET` navigation whose path is a crew URL: exactly `/show/<slug>/<token>`, no trailing slash, where `<token>` is not `unpublish` | §4.4. The trailing-slash form is not handled: Next's 308 sends the browser to the slash-less URL, which is handled |
 | Any navigation (`GET` or `POST`) to `/auth/sign-out` or `/auth/callback` | Passed through unchanged (`respondWith(fetch(request))` with the request's own redirect mode), with every saved copy purged before the request is sent and again after its response arrives (§4.6) |
 | `GET /_next/static/**` and `GET /fonts/**` | Cache first, store on first fetch (§4.8) |
-| `GET /api/asset/diagram/**` and `GET /api/asset/agenda/**` listed by a saved copy | Network first with a 5-second timeout, falling back to the stored asset (§4.8) |
+| `GET /api/asset/diagram/**` and `GET /api/asset/agenda/**` listed by a saved copy | Network first with a 5-second timeout that covers the whole response, headers and body, falling back to the stored asset (§4.8) |
+| `GET /api/asset/diagram/**` and `GET /api/asset/agenda/**` that no saved copy lists | Passed through unchanged (`respondWith(fetch(request))`), streaming as it would without the worker. Whether a copy lists it is decided first, before anything is read: that takes a store read, and `respondWith` cannot wait for one |
 | Everything else, including Next RSC requests (`_rsc` query parameter or `RSC: 1` header), Server Action POSTs, all other `/api/**` and `/auth/**`, admin pages, `/show/<slug>/unpublish` | Never answered: the worker does not call `respondWith`, so the browser behaves exactly as today |
 
 The crew-URL test is derived, not listed: a unit test walks `app/show/[slug]/` and asserts that every static sibling of `[shareToken]` is excluded, so a sibling added later fails the test instead of being swallowed.
 
 ### 4.3 The marker
 
-Every page this route renders carries exactly one marker element in its body:
+Every page this route renders carries exactly one marker element in its body, except the not-found page when `notFound()` runs after the streamed shell is out: its marker then exists only in the payload, and the worker reads that body by Next's not-found digest instead (§4.4 step 3):
 
 ```html
 <template id="fxav-saved-copy" data-v="3" data-disposition="save|keep|hold|check|purge" ...></template>
 ```
 
-A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8). A `keep` marker carries `data-viewer` for the crew identity the server had already resolved when it failed. **Every marker carries `data-show-id` whenever the server knows the show**, which is every arm except the not-found page (the token resolved to no show) and the `infra_error` arm (resolution never finished). Arms whose access result lacks the show id today (the `unpublished` result) gain it, since the RPC has already resolved it.
+A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UTC), `data-show-id`, `data-epoch` (the picker epoch of the resolved selection), `data-viewer` (an opaque viewer key: HMAC-SHA256 under a server-held secret over `showId:crewMemberId`, base64url, so no crew id is exposed), and `data-assets` (JSON array of asset URLs to save, §4.8). A `keep` marker carries `data-viewer` for the crew identity the server had already resolved when it failed. **Every marker carries `data-show-id` whenever the server knows the show**, which is every arm except the not-found page (the token resolved to no show), the `infra_error` arm (resolution never finished), and the route's `error.tsx` (a client error boundary receives only `error` and `reset`). Arms whose access result lacks the show id today (the `unpublished` result) gain it, since the RPC has already resolved it.
 
 | Page rendered | Disposition | Rendered by |
 |---|---|---|
@@ -174,7 +175,7 @@ A `save` marker also carries `data-rendered-at` (server render time, ISO 8601 UT
 | `<TerminalFailure>` in `_CrewShell.tsx` for `MalformedProjectionError` when `viewer.kind === "crew"` (identity resolved, data malformed) | `keep` with that viewer | marker passed into `<TerminalFailure>` |
 | `<TerminalFailure>` anywhere else: `renderPickerRepick` and `renderRacedCrewMiss` roster failures (after an identity rejection), the `no_auth` roster failure, the admin data failure, `_CrewShell.tsx`'s `UnmatchedViewerError` (the viewer does not match the data), and its `MalformedProjectionError` for any viewer other than `crew` (`admin_preview` included) | `purge` | marker passed into `<TerminalFailure>` |
 | The route's `not-found.tsx` | `check` | marker added to it |
-| Anything else, including a streamed `redirect()` and a page with no marker | treated as `purge` | none (fail closed) |
+| Anything else, including a streamed `redirect()` and a page with no marker (except the streamed not-found page, read as `check`, §4.4 step 3) | treated as `purge` | none (fail closed) |
 
 The worker reads the first `id="fxav-saved-copy"` element in the complete body (§4.4). An unknown `data-v` or `data-disposition`, or a `save` marker missing any required attribute, is treated as `purge`.
 
@@ -186,7 +187,7 @@ For a crew-URL navigation, `U` is the request's path (query ignored) and the fet
 
 1. **If `S(U)` is marked ended** (§4.5), the link is dead by construction (§3.4), so the worker skips the page fetch and asks the status route instead (5 s). `ended`: serve `S(U)` in `ended` mode. `gone`: purge and fetch the page as in step 2. Network error or timeout: serve `S(U)` in `ended` mode (the phone cannot check, §9). Server error (the app answered without a verdict): fetch the page under the step 2 budget and keep `S(U)`. A complete response is served as is, without the step 3 table; a network error or a timeout serves `S(U)` in `ended` mode, because the app then gave no answer at all.
 2. **Otherwise fetch the request URL and buffer the whole response**, up to 8 seconds for headers and body together.
-3. **Complete response in time.** Read the marker, then:
+3. **Complete response in time.** Read the marker, then use the table below. A body with no marker element that carries Next's not-found digest (`NEXT_HTTP_ERROR_FALLBACK;404`) reads as `check` naming no show: it is the not-found page after a `notFound()` that ran once the streamed shell was out, which the client renders from the payload, so its marker never becomes an element (`readNavigationMarker`, `lib/offline/marker.ts`).
 
 | Marker | `S(U)` exists | Serve | Then |
 |---|---|---|---|
@@ -238,6 +239,8 @@ Cases: archive alone keeps the copy (R3). A reset before or after the archive le
 
 **Ordering.** The worker keeps one persisted generation counter `G`, incremented by every purge of any scope. Every save captures `G` and a monotonically increasing request ordinal when its fetch starts, and commits only if `G` is unchanged at commit time and its ordinal is greater than the stored copy's. A save that starts before any purge therefore never lands after it, whether it is the copy's first save or a replacement, and whichever source it came from (navigation, `ensure-saved`, or a step-5 continuation). A purge of one show also voids in-flight saves of other shows; they are simply retried on the next load.
 
+**A purge the store cannot write fails closed.** Every purge goes through one function, and a purge whose write fails (its promise rejects, or its IndexedDB transaction aborts or errors) quarantines the worker. G advances in memory, so no save begun before the failure commits, though the stored G never moved. The worker also writes a marker entry to its own Cache Storage cache, `fxav-quarantine`, which does not depend on the failing database, and it escalates at once, inside the failing event's own `waitUntil`: it deletes its IndexedDB database, then every other `fxav-` cache. While quarantined, which is while the memory state or the marker says so, the worker serves no saved copy and no stored asset: a navigation gets the network, or the "not saved yet" page when the network fails too. No save commits, including one begun during the quarantine. The quarantine ends only when the escalation succeeds, or when a later retry of the failed purges does; the marker is deleted last, after either. If the escalation fails, every following fetch event or message retries the failed purges, and a retry that fails again escalates again. A worker reads the marker at startup, and activation and its first fetch wait for that read: a worker the browser restarted after a failed purge starts quarantined, and since which purge failed died with the old worker, its retry purges every copy. A marker that cannot be read counts as present. The store retires on the version change its own delete causes (`lib/offline/idbStore.ts`), so after an escalation the worker reads and writes nothing until the browser restarts it, and crew pages go to the network. §9 records what the marker cannot cover.
+
 **Identity transitions are bracketed.** A purge before a transition stops saves that started earlier, but a save can start after that purge and still carry the old cookies until the transition completes. So every identity transition the phone can see purges twice, once before it starts and once after it completes, and any save that started in between fails the generation check:
 
 | Transition | First purge | Second purge |
@@ -249,7 +252,7 @@ Cases: archive alone keeps the copy (R3). A reset before or after the archive le
 
 The picker bootstrap is not bracketed. On a document load its streamed `redirect()` becomes a meta refresh and the router performs it as a full navigation, so the worker could watch it, but no bracket is needed: while the Google identity and the picker entry disagree, the server answers `needs_picker_bootstrap` and never renders a `save`, so no save for the old identity can start in that window. The markerless streamed response purges `S(U)`; a copy of the same show saved under an older link is replaced by the save that follows the bootstrap, or purged by the next marker that names the show.
 
-**Completeness.** A save commits only after every asset in `data-assets` (within caps, §4.8) and every `/_next/static/**` and `/fonts/**` URL referenced in the saved HTML is present in the worker's caches, fetching any that are missing. If any required static file cannot be fetched, the save is abandoned and the show's previous copy stays. A committed copy can therefore always hydrate offline, including a copy fetched in the background from a newer deployment.
+**Completeness.** A save commits only after every asset in `data-assets` (within caps, §4.8) and every `/_next/static/**` and `/fonts/**` URL referenced in the saved HTML, plus every `/fonts/**` URL referenced by a `url(...)` in the CSS files among them (one level deep), is present in the worker's caches, fetching any that are missing. The font file is declared in CSS (`app/fonts.css`) and preloaded by a link in the HTML (`components/FontPreload.tsx`); the CSS clause makes completeness independent of whether a preload link is present, so an offline copy keeps its typeface either way. If any required static file cannot be fetched, or the required static files have not all arrived whole, headers and bodies, 15 seconds after the save asked for them, the save is abandoned (its fetches still out are aborted) and the show's previous copy stays. A committed copy can therefore always hydrate offline, including a copy fetched in the background from a newer deployment.
 
 **Purge triggers.**
 
@@ -273,7 +276,7 @@ When the worker serves `S(U)`, it rewrites the stored HTML immediately after `<h
 - `<meta name="fxav-served" content="offline|slow|server-error|ended" data-saved-at="<ISO>">`
 - a `<style>` block that paints a sticky `body::before` notice ("Saved copy from {time}") while `html` lacks `data-fxav-bar="mounted"`.
 
-`<SavedCopyBar>` reads the meta synchronously on mount, sets `data-fxav-bar="mounted"` on `html` after mounting, and from then on owns the notice. If the page's JavaScript fails to load or hydrate, the CSS notice stays visible, so a saved copy can never appear without a notice. A document without the meta is `live`. An unknown `content` value is treated as `offline`.
+`<SavedCopyBar>` reads the meta in its mount effect, after hydration and never during render, sets `data-fxav-bar="mounted"` on `html` after mounting, and from then on owns the notice. If the page's JavaScript fails to load or hydrate, the CSS notice stays visible, so a saved copy can never appear without a notice. A document without the meta is `live`. An unknown `content` value is treated as `offline`.
 
 Ratified by the spike (§11): the injected meta produced no hydration warning in Chromium or WebKit, and the page hydrated exactly like a byte-for-byte copy. The CSS notice adds no element to the body, so React has nothing to reconcile. The plan proves that with the same hydration check.
 
@@ -281,22 +284,25 @@ Ratified by the spike (§11): the injected meta produced no hydration warning in
 
 `<SavedCopyBar>` is a client component in `components/offline/` (not `components/crew/**`, which the layout redesign owns). `_CrewShell.tsx` renders `<SavedCopySlot>` directly after `<Header>`, a one-line insertion; the slot renders the marker, the bar (crew viewers only) and the registrar. Bar props: `renderedAt` (ISO string), `sheetUnavailable` (`data.lastSyncStatus === 'sheet_unavailable'`), `slug`, `shareToken`.
 
-The bar is full width, `sticky top-0`, above section content and below the header. In the `hidden` state it renders nothing.
+The bar is full width, `sticky top-0`, above section content and below the header, and an open avatar menu paints above it. It renders inside its always-mounted live region (`saved-copy-bar-region`), and the region is the element that carries this placement (Dimensional Invariants below). In the `hidden` state it renders no visible bar; its empty live region stays mounted so the first state change is announced, and adds no height. The server render and the hydrating render read no meta, clock or connection (§4.7.1), so they paint `hidden`, with one exception the props alone decide: when `sheetUnavailable` is true they paint `sheet-gone`, pinned line and detail, so a live page whose sheet is gone does not shift when the bar would otherwise arrive after mount. On a saved copy the mount effect then moves it to `sheet-gone-saved` (or a higher state, by the precedence below), which pins the same line.
+
+**One pinned line, and the full sentence once (owner decision, 2026-10-30, mockup https://claude.ai/artifact/SUYtZFqmmVkGKdPEnNVADj, Q1 Option B).** The region pins one short line: a bold lead, then a plain run. When the state has more to say, the full sentence is a separate block, `saved-copy-bar-detail`, rendered directly after the region and above the crew sections, in normal flow. It shows once at the top of the page, in the bar's tone and with a bottom edge so it reads as the bar's continuation, and it scrolls away under the pinned line. It renders only for a state that has a detail. One bottom edge closes the bar: while any of the detail shows below the pinned line, the detail draws it and the pinned line's own border is transparent, so no line splits the two; once the detail has scrolled up under the pinned line, the pinned line draws it. The pinned line keeps its border width either way, so its height does not change. For a same-day save served offline or slow ("No signal.", "Slow connection."), the pinned line fits on one line at 390 px and may wrap to two at 320 px; the server-error cause, "Couldn't load the latest version.", is longer and can take two lines at 390 px.
 
 **Inputs.** `mode` (from the meta, §4.7.1; becomes `live` when `renderedAt` differs from its value at mount, which means an RSC refresh brought server content), `online` (`navigator.onLine` plus `online`/`offline` events), `age` (now minus `renderedAt`, re-evaluated every 60 seconds), `sheetUnavailable`, `updating` (a fresh copy is saved and the reload is under way, §4.7.3), `justUpdated` (first 4 seconds after a recovery reload).
 
-**States and exact copy.** `{time}` is the saved time in the phone's local time zone: `2:14 PM` when it is today, otherwise `Fri Oct 24, 6:02 PM`. `{ago}` is `just now` under 1 minute, `N min ago` under 60 minutes, `N hr ago` under 48 hours, then `N days ago`. A saved time in the future reads `just now`. `{lead}` depends on mode: `offline` "**No signal.**", `slow` "**Slow connection.**", `server-error` "**Couldn't load the latest version.**", and a live page with `online` false "**No signal.**".
+**States and exact copy (owner decision, 2026-10-30, Q2 Option 2: the bold part is the age).** `{time}` is the saved time in the phone's local time zone: `2:14 PM` when it is today, otherwise `Fri Oct 24, 6:02 PM`. `{ago}` is `just now` under 1 minute, `N min ago` under 60 minutes, `N hr ago` under 48 hours, then `N days ago`. A saved time in the future reads `just now`. `{cause}` depends on mode: `offline` "No signal.", `slow` "Slow connection.", `server-error` "Couldn't load the latest version.", and a live page with `online` false "No signal.". In the pinned line, bold is marked `**…**`; the rest is plain.
 
-| State | When | Tone token | Icon | Copy |
-|---|---|---|---|---|
-| `hidden` | mode `live`, online, sheet fine, not `justUpdated` | none | none | nothing rendered |
-| `saved-fresh` | mode `offline`, `slow` or `server-error`, or mode `live` with `online` false; age under 6 h | `bg-info-bg` | signal-off | {lead} Showing your saved copy from {time} ({ago}). |
-| `saved-old` | same, age 6 h or more | `bg-stale-tint` | clock | {lead} Your saved copy is from {time} ({ago}). Things may have changed since then. |
-| `ended` | mode `ended` | `bg-stale-tint` | clock | **This show has ended.** You're seeing the last version, from {time}. |
-| `sheet-gone` | `sheetUnavailable`, mode `live` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet for this show isn't available in Google Drive anymore.** You're seeing the last version we have. Check with Doug before relying on it. |
-| `sheet-gone-saved` | `sheetUnavailable`, mode `offline`, `slow` or `server-error` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet for this show isn't available in Google Drive anymore.** This is the last version we have, from {time}. Check with Doug before relying on it. |
-| `updating` | `updating` | `bg-info-bg` | sync (spins; static under reduced motion) | **Signal's back.** Loading the latest version. |
-| `updated` | `justUpdated`, none of the above apply | `bg-surface text-status-positive-text` | check | Updated. You're on the latest version. |
+| State | When | Tone token | Icon | Pinned line | In-flow detail (shown once, scrolls away) |
+|---|---|---|---|---|---|
+| `hidden` | mode `live`, online, sheet fine, not `justUpdated` | none | none | no visible bar (the empty live region stays mounted) | none |
+| `saved-fresh` | mode `offline`, `slow` or `server-error`, or mode `live` with `online` false; age under 6 h | `bg-info-bg` | signal-off | **Saved {time}, {ago}.** {cause} | Showing your saved copy. |
+| `saved-old`, with a saved time | same, age 6 h or more | `bg-stale-tint` | clock | **Saved {time}, {ago}.** {cause} | Things may have changed since then. |
+| `saved-old`, no saved time known | same, the save time unusable (guard row below) | `bg-stale-tint` | clock | **{cause}** Showing your saved copy. | none |
+| `ended` | mode `ended` | `bg-stale-tint` | clock | **This show has ended.** | You're seeing the last version, from {time}. Without a time: "You're seeing the last version." |
+| `sheet-gone` | `sheetUnavailable`, mode `live` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet is gone.** Check with Doug. | Doug's sheet for this show isn't available in Google Drive anymore. You're seeing the last version we have. Check with Doug before relying on it. |
+| `sheet-gone-saved` | `sheetUnavailable`, mode `offline`, `slow` or `server-error` | `bg-warning-bg text-warning-text` | alert | **Doug's sheet is gone.** Check with Doug. | Doug's sheet for this show isn't available in Google Drive anymore. This is the last version we have, from {time}. Check with Doug before relying on it. Without a time, ", from {time}" is dropped. |
+| `updating` | `updating` | `bg-info-bg` | sync (spins; static under reduced motion) | **Signal's back.** Loading the latest version. | none |
+| `updated` | `justUpdated`, none of the above apply | `bg-surface text-status-positive-text` | check | Updated. You're on the latest version. | none |
 
 Precedence when several apply: `ended` > `updating` > `sheet-gone-saved` > `sheet-gone` > `saved-old` / `saved-fresh` > `updated` > `hidden`. `updating` outranks the sheet warnings because it lasts only until the reload, which brings the fresh state. A live page with `sheetUnavailable` and `online` false shows `sheet-gone`, since its warning already says the content is the last version.
 
@@ -306,30 +312,33 @@ The wording "isn't available in Google Drive anymore" replaces the mockup's "is 
 
 | Input | Behavior |
 |---|---|
-| `renderedAt` (or the meta's `data-saved-at`) missing, empty, or not a valid date | Copy drops the time and age ("Showing your saved copy." / "This is the last version we have."); tone is the old-copy token, since the age is unknown |
+| `renderedAt` (or the meta's `data-saved-at`) missing, empty, or not a valid date | Copy drops the time and age: a saved state pins "**{cause}** Showing your saved copy." with no detail, and the `ended` and `sheet-gone-saved` details drop ", from {time}". The tone is the old-copy token, since the age is unknown |
 | `renderedAt` in the future | Age reads `just now` |
 | Age exactly 6 h | `saved-old` (the boundary belongs to old) |
 | `navigator.serviceWorker` absent | No registration and no saved copy; the bar still handles `online` false on an open live page |
 | Storage quota error on save | The worker abandons the save, keeps the show's previous copy, and posts `save-failed` to open pages, which log `CREW_OFFLINE_SAVE_FAILED` (§6) |
 
-**Accessibility.** `role="status"`, `aria-live="polite"`. Text contrast uses `DESIGN.md` §1.2 pairs (text on `info-bg`, `stale-tint`, `warning-bg`). The icon is `aria-hidden`; the bold lead carries the meaning, which satisfies the colour-blind floor in `DESIGN.md` §1.
+**Accessibility.** The bar's always-mounted live region carries `role="status"`, `aria-live="polite"`. Text contrast uses `DESIGN.md` §1.2 pairs (text on `info-bg`, `stale-tint`, `warning-bg`); the detail uses the same tones. The icon is `aria-hidden`; the words carry the meaning, which satisfies the colour-blind floor in `DESIGN.md` §1. The region also holds the state's detail as `sr-only` text, so each state change announces the whole meaning once (the pinned line, then the detail), and the visible detail block is `aria-hidden`, so browsing does not read it a second time. The relative age (`, {ago}`) is visual only (`aria-hidden`), because the 60-second tick rewrites it and a status region re-reads its whole text on every change; the absolute `{time}` stays announced, so the minute tick announces nothing. While the visible bar shows, `<html>` carries `scroll-padding-top` equal to the region's height, following it as the copy and width change, so a focused control or a scrolled-to target lands below the pinned bar instead of under it (WCAG 2.4.11); it is removed when the bar hides and when the bar unmounts. A live page's `sheet-gone`, rendered by the server (above), is present when the region first renders, so it is not announced on load, as no text present at load is; every later state change is.
 
 ##### Dimensional Invariants
 
-The shell is `flex min-h-0 flex-1 flex-col` (`_CrewShell.tsx`, `data-testid="crew-shell"`). The bar is one of its flex children, between `<Header>` and `<CrewSections>`.
+The shell is `flex min-h-0 flex-1 flex-col` (`_CrewShell.tsx`, `data-testid="crew-shell"`). The bar's live region, `saved-copy-bar-region`, is one of its flex children, between `<Header>` and `<CrewSections>`, and the bar is the region's only child while it shows. So the placement classes sit on the region, and the bar fills it. The detail, `saved-copy-bar-detail`, is the region's next sibling, another flex child of the shell.
 
 | Parent to child | Relationship | Guaranteed by |
 |---|---|---|
-| `crew-shell` to `saved-copy-bar` | bar width equals shell width | `self-stretch` on the bar (Tailwind v4 does not default `.flex` to stretch) |
-| `crew-shell` to `saved-copy-bar` | bar height is its content, never grows | `flex-none` on the bar |
-| viewport to `saved-copy-bar` | bar top stays at the viewport top after scrolling past the header | `sticky top-0` plus a `z-index` above section content |
+| `crew-shell` to `saved-copy-bar-region` | region width equals shell width; the bar's equals the region's | `self-stretch` on the region (Tailwind v4 does not default `.flex` to stretch); the bar is a block child |
+| `crew-shell` to `saved-copy-bar-region` | region height is the bar's, never grows, and is 0 while the bar is hidden | `flex-none` on the region, which carries no padding, border or min-height |
+| viewport to `saved-copy-bar-region` | region top stays at the viewport top after scrolling past the header, and the bar paints above section content scrolled under it | `sticky top-0` plus `z-raised` on the region (section content's positioned elements carry no z-index) |
+| avatar menu to `saved-copy-bar-region` | an open avatar menu paints above the bar | `z-raised` is below the menu's `z-dropdown`; a tie would lose, since the header comes first in tree order |
 | `saved-copy-bar` to icon | icon keeps its size when the copy wraps | `flex-none` on the icon |
+| `crew-shell` to `saved-copy-bar-detail` | detail width equals shell width; its height is its own and never grows; its top is the region's bottom | `self-stretch` and `flex-none` on the detail; it is the region's next sibling |
+| viewport to `saved-copy-bar-detail` | the detail is in normal flow: after scrolling past the header plus 200 px its top is above the viewport while the region's top is 0 | no `sticky`, `fixed` or other positioning on the detail (computed `position: static`) |
 
-The plan asserts each row with `getBoundingClientRect()` in a real browser (within 0.5 px) at phone width.
+`tests/e2e/crew-offline-layout.spec.ts` asserts each row with `getBoundingClientRect()` in a real browser (within 0.5 px) at phone width. The pinned line of a same-day save served offline is measured at one line at 390 px and at most two at 320 px; the icon row is measured at 320 px and again at 240 px, below the supported width, where the pinned line must wrap.
 
 ##### Transition Inventory
 
-The bar is a pure function of its inputs, so any input change can move it between any two states. Eight states give 28 unordered pairs. Every pair is **instant (no animation)** in both directions, except one: `updated` to `hidden` when the 4-second window ends fades out over 200 ms (instant under `prefers-reduced-motion`). `updating` to `updated` crosses a page reload, so it is a new document, not an animated transition.
+The bar is a pure function of its inputs, so any input change can move it between any two states. Eight states give 28 unordered pairs. Every pair is **instant (no animation)** in both directions, except one: `updated` to `hidden` when the 4-second window ends fades out over 200 ms (instant under `prefers-reduced-motion`). `updating` to `updated` crosses a page reload, so it is a new document, not an animated transition. The in-flow detail comes and goes with its state in the same render, instantly; it never fades, because `updated`, the one state that does, has no detail. The bottom edge passing from the detail to the pinned line, as the detail scrolls under it, and back is instant too: it follows the scroll, not a change of state.
 
 | | saved-fresh | saved-old | ended | sheet-gone | sheet-gone-saved | updating | updated |
 |---|---|---|---|---|---|---|---|
@@ -352,7 +361,7 @@ Compound transitions:
 
 #### 4.7.3 Coming back online
 
-While the mode is `offline`, `slow`, or `server-error`, the bar asks the worker to `probe(U)` on the `online` event, on a `fresh-ready(U)` message, and every 30 seconds while `navigator.onLine` is true. A probe runs §4.4 steps 2 and 3 without serving anything and replies with the outcome. Probes are silent: the bar keeps its saved state, with the time and age, while one runs.
+While the mode is `offline`, `slow`, or `server-error`, the bar asks the worker to `probe(U)` on the `online` event, on a `fresh-ready(U)` message, and every 30 seconds while `navigator.onLine` is true. A probe runs §4.4 steps 2 and 3 without serving anything and replies with the outcome. A probe's save stores the listed assets the worker already holds and fetches none, so its reply waits only for the page, at most the status route, and the static files; the reload a `saved` reply starts saves the page again and fetches the rest (§4.8). Probes are silent: the bar keeps its saved state, with the time and age, while one runs.
 
 - saved a new copy: the bar shows `updating`, sets a session flag, and calls `location.reload()`; the new page reads the flag and shows `updated`. `updating` is therefore on screen only between a fresh copy being saved and the reload, so it is never shown when nothing fresh exists.
 - purged: `location.reload()` at once. The copy on screen has been disowned by the server, so the page does not keep showing it while the connection stays slow.
@@ -375,9 +384,10 @@ A small self-contained HTML page embedded in the worker (no Next chunks; inline 
 
 - Heading: "No signal, and this show isn't saved on this phone yet."
 - Body: "Open this link once while you have signal or wifi. After that it works here even with no signal."
-- Small: "This page reloads by itself when signal comes back."
+- Button: "Try again", at least 44 px tall, in the app's secondary-action style (surface fill, `text-faint` outline, the app's focus ring). It calls `location.reload()`.
+- Small: "This page reloads by itself once it can reach the server."
 
-It reloads on the `online` event. It is also what a phone sees with no signal after its copy was wiped.
+It also retries by itself: every 30 seconds while `navigator.onLine` is true (the bar's probe cadence, §4.7.3), when the tab becomes visible again (`visibilitychange`), and on the `online` event. A retry is `fetch(location.href, { cache: "no-store" })`, and the page reloads only when the response is ok. The fetch is not a navigation, so the worker passes it to the network. A phone that reports a connection but carries no data therefore keeps this page rather than flashing the browser's error page, and the note promises only what the page can do: `online` alone never fires on venue wifi with a dead uplink. It is also what a phone sees with no signal after its copy was wiped.
 
 #### 4.7.6 Actions offline
 
@@ -385,7 +395,7 @@ It reloads on the `online` event. It is also what a phone sees with no signal af
 |---|---|
 | `tel:` and `mailto:` links | Unchanged (R11) |
 | Open in Maps | Unchanged link; the Maps app may have its own offline maps |
-| Not you? Switch person | Disabled while `online` is false, labelled "Needs signal" (R11) |
+| Not you? Switch person | Disabled while `online` is false (`aria-disabled`, still focusable), and reads "Not you? Needs signal" (R11), so it still says what it is for. Its accessible name is its visible text in both states, "Not you? Switch person" online and "Not you? Needs signal" offline, with no `aria-label` override (WCAG 2.5.3) |
 | Section tabs, theme toggle, avatar menu | Work from the saved page (client-side only) |
 | Stage diagrams, agenda | Served from the saved assets (§4.8) |
 | Report a problem | Piece 2 (§5) |
@@ -398,9 +408,10 @@ It reloads on the `online` event. It is also what a phone sees with no signal af
 ### 4.8 Stored assets, static files, caps
 
 - **Asset list from the server.** `<SavedCopySlot>` builds `data-assets` from the same show data and URL shapes the crew components use: every stage diagram URL `Gallery` would request and every agenda URL `/api/asset/agenda/<showId>/<fileId>` for each `agenda_links` entry with a `fileId`. Nothing is scraped from HTML, so an unopened agenda is still listed (R2). The plan pins the slot's URL builders to the components' by a shared helper, or by a test that renders both and compares.
-- **Agenda viewer code.** When the list contains an agenda, the registrar, online and idle, imports the `AgendaPdfViewer` module and fetches the pdf.js worker URL that module configures (`pdfjs.GlobalWorkerOptions.workerSrc`), so both pass through the worker and land in its static cache. An unopened agenda then opens offline.
+- **Agenda viewer code.** When the list contains an agenda, the registrar, online and idle, loads the `AgendaPdfViewer` module through the sheet's own loader (`components/agenda/loadAgendaPdfViewer.ts`, so it stores the same chunks the sheet requests) and fetches the pdf.js worker URL that module assigns, the shared `PDF_WORKER_SRC` from `components/agenda/pdfWorkerSrc.ts` (never read back from react-pdf), so both pass through the worker and land in its static cache. An unopened agenda then opens offline; one opened before any worker controlled the page reaches the cache through the static re-store below. The worker stores the pdf.js file as its body passes through, so the registrar reads that body to its end before the prefetch counts as done; a prefetch whose import fails, whose fetch fails or answers other than ok, or whose body fails or has not arrived whole 60 seconds after the fetch was sent is aborted and tried again on the next `online` event.
 - **Static files.** `/_next/static/**` and `/fonts/**` are cache first. A static entry is deleted only when no saved copy references it and it was stored more than 14 days ago, so chunks loaded lazily while online stay available.
-- **Caps** (author's calls): one asset over 25 MB is skipped; asset prefetch for one show stops past 75 MB; at most 10 saved shows, and an 11th evicts the least recently opened show with its assets. A skipped asset fails offline the way it does today. Static files are not capped; the 14-day rule bounds them.
+- **Static re-store.** Code a page loaded before any worker controlled it (an agenda opened, or any component loaded lazily, while the first visit's worker was installing) never passed through the worker, and importing it again fetches nothing. So on every crew page, once a worker controls it, the registrar, online and idle, fetches through that worker every same-origin `/_next/static/` file the browser's resource timing lists as loaded, each once, and reads every body to its end; the worker stores each one it lacks as it serves it. Resource timing lists a file only once its download ends, so on a show with an agenda the agenda prefetch takes that list again once its viewer import settles, which is when an agenda opened before control has finished its own downloads, and reads the files on it beside the pdf.js worker. Two runs never take the same file: a run claims its files, keeps them if it succeeds, and gives them back for a later run if it fails. This runs once per page load; a run whose fetches fail or answer other than ok, or whose bodies fail or have not all arrived whole 60 seconds after the fetches were sent, is aborted at its first failure or its deadline, every fetch it still has out with it, and tried again on the next `online` event, under a new deadline of its own. The body of an answer other than ok is cancelled, not read; this holds for the agenda prefetch's pdf.js fetch too.
+- **Caps** (author's calls): one asset over 25 MB is skipped; the listed assets a save does not already hold are fetched together, at most 4 at a time, and any that has not arrived whole, headers and body, 15 seconds after the save requested them is skipped, its fetch aborted or, still queued, never sent, so an optional asset never holds back the page's copy (a probe's save fetches none, §4.7.3); asset prefetch for one show stops past 75 MB, both in what one save stores, admitted in list order, and in what its fetches download between them, every chunk read counted (the one that takes an asset past 25 MB included), so an asset whose download would pass it is not read; once the allowance refuses one, no further asset is asked for and no body still arriving is read past the chunk it has asked for, and the refused fetch is aborted; at most 10 saved shows, and an 11th evicts the least recently opened show with its assets. A skipped asset fails offline the way it does today. Static files are not capped; the 14-day rule bounds them.
 
 ### 4.9 Worker updates
 
@@ -508,9 +519,13 @@ The crew layout redesign runs in parallel in another session. B keeps its `_Crew
 - **No streamed skeleton.** Once the worker is installed, crew pages appear when complete instead of streaming (§4.4).
 - **First visit with no signal** gets the "not saved yet" page, by definition.
 - **Data use.** Diagram and agenda prefetch, and the agenda viewer code, download on whatever connection the phone has, up to the §4.8 caps.
+- **Large assets of unknown length.** A save's asset fetches share the 75 MB download allowance in arrival order, so on a show whose listed assets come without a declared length and total far more than 75 MB, four fetches can spend it between them before any one finishes, and that save stores none of them beyond what the phone already held (§4.8).
+- **Resource timing's buffer.** The static re-store (§4.8) reads the browser's resource timing, which keeps 250 entries by default and drops any after that, so a file a page loaded before control once 250 had been listed is not stored by it.
 - **Report clock.** `writtenAt` is phone time and is labelled as such.
 - **Offline realtime noise.** `ShowRealtimeBridge` keeps retrying its token mint while offline (about 12 failed requests in the spike's WebKit window). Harmless, unchanged.
 - **Section on reload.** An offline reload opens on the section that was showing at save time (§4.7.4).
+- **A failed purge, a failed marker and a worker restart.** The quarantine after a failed purge (§4.6) lives in the worker's memory and in a Cache Storage marker. If IndexedDB and Cache Storage both refuse writes, so the marker is never written and the escalation cannot run, and the browser restarts the worker before either recovers, the new worker starts unquarantined, and the copy the purge could not remove can be served again until a purge succeeds or the escalation runs.
+- **An unexpected error after the shell.** An uncaught throw once the streamed shell is out renders `error.tsx`, and its `hold` marker, on the client only, so the worker reads no marker and purges `S(U)` (§4.4 step 3). The known failure arms render `<TerminalFailure>` with their marker inline (`hold`, `keep` or `purge`, §4.3), so only an unexpected exception reaches this, and it costs a saved copy, never keeps one too long.
 
 ## 10. Left to the builder
 

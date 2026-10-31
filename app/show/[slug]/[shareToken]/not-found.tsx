@@ -13,8 +13,12 @@
  * leaking the show title. Copy routes through messageFor() per AGENTS.md
  * invariant 5 (never render the raw code).
  *
- * Server Component — no client boundary needed.
+ * Its saved-copy marker is `check`, naming no show, since the token resolved to
+ * none (spec 4.3): the worker runs the status check for a copy saved at this URL.
+ *
+ * Server Component; its one client boundary is the marker.
  */
+import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
 import { messageFor } from "@/lib/messages/lookup";
 
 export default function CrewLinkNotFound() {
@@ -24,6 +28,8 @@ export default function CrewLinkNotFound() {
       data-testid="crew-not-found-root"
       className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
     >
+      {/* An inert <template>: it renders nothing and takes no place in the column. */}
+      <SavedCopyMarker marker={{ disposition: "check", showId: null }} />
       <span
         data-testid="crew-not-found-brand-strip"
         className="text-xs font-bold uppercase tracking-eyebrow-strong text-accent-on-bg"

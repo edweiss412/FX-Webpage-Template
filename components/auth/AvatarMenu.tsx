@@ -62,9 +62,19 @@ import { PENDING_TIMEOUT_MS } from "@/components/shared/pendingTimeout";
 import { useAppliedTheme } from "@/components/layout/useAppliedTheme";
 import { messageFor } from "@/lib/messages/lookup";
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
+import { postToWorker } from "@/lib/offline/client/messaging";
+import { useOnlineStatus } from "@/lib/offline/client/online";
 
 /** The name substituted for a blank one, so the trigger is never unnamed. */
 export const CREW_MEMBER_FALLBACK = "Crew member";
+
+/**
+ * How long the switch waits for the worker to confirm the first purge before
+ * submitting the clear (saved-copy spec 2026-10-26 §4.6). Past it the clear
+ * goes ahead: the second purge, posted when the clear settles, still voids any
+ * save that started in between.
+ */
+const PURGE_ACK_WAIT_MS = 500;
 
 /**
  * What the status region says once the watchdog has re-enabled the row.
@@ -109,6 +119,10 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const { mounted, isDark, setTheme } = useAppliedTheme();
+  // Read through the shared hook, never `navigator.onLine` in render: the
+  // server cannot know the connection, so the hook hydrates online and moves
+  // to the real value on the next commit (lib/offline/client/online.ts).
+  const online = useOnlineStatus();
 
   // THE FAILURE STATE IS LOCAL `useState`, NOT `useActionState`. React 19 gives
   // `useActionState` no reset API, and `open=false` only HIDES the popover —
@@ -169,6 +183,13 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
       event.preventDefault();
       return;
     }
+    if (!online) {
+      // Offline the row reads "Needs signal" (saved-copy spec §4.7.6): the
+      // clear needs the server. Refused exactly as the busy phase is above,
+      // for the same two reasons, and before any state is touched.
+      event.preventDefault();
+      return;
+    }
     switchAttempt.current += 1;
     setSwitchStatus("idle"); // clear a prior error before the retry
     setSwitchPhase("pending"); // and arm a fresh window for this attempt
@@ -180,6 +201,21 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
   const onSwitchSubmit = (formData: FormData): void => {
     const attempt = switchAttempt.current;
     startSwitch(async () => {
+      // THE PURGE BRACKET (saved-copy spec §4.6). A copy of this show saved
+      // for the person leaving must not survive the switch, and a save that
+      // starts before the clear completes still carries their cookies. So the
+      // worker purges the show twice: here, before the clear, and again once
+      // the clear settles, and any save that started in between fails the
+      // worker's generation check.
+      //
+      // Waited for only when a worker can answer (ruling D5): with none,
+      // postToWorker answers synchronously, nothing on the phone holds a copy,
+      // and the clear still starts inside the tap.
+      const firstPurge = postToWorker(
+        { type: "purge-show", showId },
+        { timeoutMs: PURGE_ACK_WAIT_MS },
+      );
+      if (firstPurge instanceof Promise) await firstPurge;
       let failed: boolean;
       try {
         const result = await clearAction(formData);
@@ -196,6 +232,13 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
         // check gives both the same one.
         unstable_rethrow(error);
         failed = true;
+      } finally {
+        // The bracket's second purge, on EVERY settle: success, a typed
+        // failure, a thrown error, and the redirect `unstable_rethrow` passes
+        // on, which leaves through here before it propagates. A superseded
+        // attempt purges too: its clear still ran. Not waited for: nothing
+        // after it depends on the answer.
+        void postToWorker({ type: "purge-show", showId }, { timeoutMs: PURGE_ACK_WAIT_MS });
       }
       // A superseded attempt reports nothing: the live one reports itself.
       if (switchAttempt.current !== attempt) return;
@@ -486,7 +529,9 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 onClick={beginSwitch}
                 data-testid="avatar-menu-switch-person"
                 data-identity-chip-not-you=""
-                aria-label="Switch crew member"
+                // No aria-label: the visible text IS the name, online and
+                // offline, so the words a person reads are the words that
+                // activate it by voice (WCAG 2.5.3, label in name).
                 tabIndex={activeIndex === 1 ? 0 : -1}
                 // `aria-disabled`, NEVER the native `disabled` attribute. Native
                 // disabled takes the item out of the focus order, and this menu's
@@ -496,7 +541,9 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 // The WAI-ARIA menu pattern keeps a disabled item focusable and
                 // skips it only for activation; re-entry is guarded in
                 // `beginSwitch` instead, which is also where the phase is set.
-                aria-disabled={switchBusy}
+                // Offline disables it the same way (saved-copy spec §4.7.6),
+                // and `beginSwitch` refuses that tap too.
+                aria-disabled={switchBusy || !online}
                 // Pending is a network round trip now (the clear also signs the
                 // device out), so dimming alone is not enough: aria-busy here,
                 // and the announcement in the status region below (impeccable
@@ -510,7 +557,8 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 )}
               >
                 <UserRoundCog aria-hidden="true" className="size-4" />
-                Not you? Switch person
+                {/* Offline it keeps saying what it is for, and adds why it is off (spec 4.7.6). */}
+                {online ? "Not you? Switch person" : "Not you? Needs signal"}
               </button>
             </form>
           </div>

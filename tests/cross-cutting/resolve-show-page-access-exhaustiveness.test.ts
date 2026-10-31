@@ -23,7 +23,7 @@ const SLUG = "show-one";
 const TOKEN = "a".repeat(64);
 const COOKIE_NAME = "__Host-fxav_picker";
 
-type ShowRow = { id: string; published: boolean; archived: boolean };
+type ShowRow = { id: string; published: boolean; archived: boolean; picker_epoch: number };
 type CrewClaimRow = { claimed_via_oauth_at: string | null; selections_reset_at: string | null };
 
 let resolvedShowId: string | null;
@@ -72,7 +72,7 @@ beforeEach(() => {
   process.env.PICKER_COOKIE_SIGNING_KEY = KEY;
   resolvedShowId = SHOW_ID;
   resolveError = null;
-  showRow = { id: SHOW_ID, published: true, archived: false };
+  showRow = { id: SHOW_ID, published: true, archived: false, picker_epoch: 7 };
   showError = null;
   crewClaimRow = { claimed_via_oauth_at: "2025-01-15T12:00:00.123Z", selections_reset_at: null };
   crewError = null;
@@ -92,7 +92,7 @@ beforeEach(() => {
 
 describe("resolveShowPageAccess", () => {
   test("resolves archived before admin, unpublished before Google, and admin before unpublished", async () => {
-    showRow = { id: SHOW_ID, published: true, archived: true };
+    showRow = { id: SHOW_ID, published: true, archived: true, picker_epoch: 7 };
     vi.mocked(isAdminSession).mockResolvedValue({ ok: true, email: "admin@example.com" });
     await expect(
       resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
@@ -101,7 +101,7 @@ describe("resolveShowPageAccess", () => {
     });
     expect(validateGoogleSession).not.toHaveBeenCalled();
 
-    showRow = { id: SHOW_ID, published: false, archived: false };
+    showRow = { id: SHOW_ID, published: false, archived: false, picker_epoch: 7 };
     await expect(
       resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
     ).resolves.toEqual({
@@ -114,6 +114,7 @@ describe("resolveShowPageAccess", () => {
       resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
     ).resolves.toEqual({
       kind: "unpublished",
+      showId: SHOW_ID,
     });
     expect(validateGoogleSession).not.toHaveBeenCalled();
   });
@@ -194,6 +195,7 @@ describe("resolveShowPageAccess", () => {
       showId: SHOW_ID,
       crewMemberId: CREW_ID,
       source: "cookie",
+      pickerEpoch: 7,
     });
   });
 
@@ -275,6 +277,7 @@ describe("resolveShowPageAccess", () => {
   test("type contract keeps showId only on page-rendering arms", () => {
     type PageRenderingKind =
       | "admin"
+      | "unpublished"
       | "resolved"
       | "no_auth"
       | "epoch_stale"

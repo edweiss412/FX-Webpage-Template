@@ -5,12 +5,12 @@
  * the deactivated-row picker test does not depend on first running the OAuth
  * callback chain (C7). A claimed row renders in <PickerInterstitial> with
  * data-claimed="true" + a lock glyph + a GET form to /auth/sign-in
- * (app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:158-194).
+ * (app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:202-237).
  *
  * IMPORTANT: the claim timestamp lives on `crew_members`, NOT on the retired
  * M9.5 per-crew auth table (dropped in
  * supabase/migrations/20260523000099_cutover_drop_m9_5.sql). The resolver reads
- * `crew_members.claimed_via_oauth_at` (lib/auth/picker/resolvePickerSelection.ts:93).
+ * `crew_members.claimed_via_oauth_at` (lib/auth/picker/resolvePickerSelection.ts:131).
  *
  * AGENTS invariant 9 (Supabase call-boundary): destructure { data, error } and
  * throw with context; a silent no-op UPDATE (wrong id) would leave the row

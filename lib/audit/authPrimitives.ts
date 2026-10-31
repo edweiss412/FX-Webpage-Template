@@ -74,6 +74,7 @@ const AUTH_LIB_ALLOWLIST = [
   "lib/auth/cookies.ts",
   "lib/auth/constants.ts",
   "lib/auth/picker/cookieEnvelope.ts",
+  "lib/auth/picker/resolveCrewIdentity.ts",
   "lib/auth/picker/resolvePickerSelection.ts",
   "lib/auth/picker/resolveShowPageAccess.ts",
   "lib/auth/picker/validatePickerAssetSession.ts",

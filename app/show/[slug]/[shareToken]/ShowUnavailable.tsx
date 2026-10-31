@@ -7,23 +7,30 @@
  * again; only currently-valid token holders can reach this arm — resolution already
  * succeeded), unlike archived/unresolved links, which keep the 404 not-found boundary.
  *
- * Deliberately takes NO props: zero show data (no title, no dates) can render here,
- * so a paused show leaks nothing beyond "this link exists". Copy routes through
- * messageFor (AGENTS.md invariant 5).
+ * Takes only the show id, which reaches the page solely as the saved-copy marker's
+ * `data-show-id` (spec 4.3: a `purge` naming the show, so a copy saved under another
+ * link of it goes too). That id is an opaque UUID the token holder already resolved,
+ * and zero show data (no title, no dates) can render here, so a paused show leaks
+ * nothing beyond "this link exists". Copy routes through messageFor (AGENTS.md
+ * invariant 5).
  *
- * Server Component — no client boundary needed. Renders OUTSIDE _CrewShell, so the
+ * Server Component; its one client boundary is the marker. Renders OUTSIDE _CrewShell, so the
  * realtime bridge is not mounted; recovery after republish is a manual reload (the
  * copy says "check back soon" — accepted in D5).
  */
+import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
 import { messageFor } from "@/lib/messages/lookup";
+import { purgeMarkerFor } from "@/lib/offline/serverMarkers";
 
-export function ShowUnavailable() {
+export function ShowUnavailable({ showId }: { showId: string }) {
   const body = messageFor("CREW_SHOW_PAUSED").crewFacing;
   return (
     <main
       data-testid="crew-show-paused-root"
       className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
     >
+      {/* An inert <template>: it renders nothing and takes no place in the column. */}
+      <SavedCopyMarker marker={purgeMarkerFor(showId)} />
       <span
         data-testid="crew-show-paused-brand-strip"
         className="text-xs font-bold uppercase tracking-eyebrow-strong text-accent-on-bg"

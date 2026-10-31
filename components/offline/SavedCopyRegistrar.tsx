@@ -1,0 +1,518 @@
+"use client";
+
+/**
+ * components/offline/SavedCopyRegistrar.tsx
+ *
+ * Puts the saved-copy worker on the phone and keeps the saved copy current
+ * (spec 4.7.7, 4.7.3, 4.8, 4.10). Renders nothing.
+ *
+ * - Once the page is idle it registers /sw.js for the whole origin, with
+ *   `updateViaCache: 'none'` so every update check reaches the server (spec
+ *   4.9), and asks once per page load for persistent storage (best effort).
+ *   With the kill switch on (`disabled`, read by the server per request) it
+ *   unregisters every registration instead and does nothing else. Idle is
+ *   `requestIdleCallback`, or on WebKit, which lacks it, a timer after `load`.
+ * - On a live page that a worker controls, it posts `ensure-saved` with the
+ *   path and the render time: when the worker takes control, and again
+ *   whenever an RSC refresh brings a new render time, at most once per 10
+ *   seconds. Live is read as the bar reads it (spec 4.7.2): no `fxav-served`
+ *   meta (spec 4.7.1), or a render time other than the one the page mounted
+ *   with, since a saved copy that an RSC refresh brought server content to is
+ *   live even though the meta stays in its document. An empty render time is
+ *   never sent; the worker's protocol rejects it. A render time that arrives inside the window
+ *   is sent when the window ends, and a later one replaces it, because the
+ *   worker saves the page as the server renders it now, not as it was. This is
+ *   the client action of the `save` marker (plan section 1, item 5): the first
+ *   visit's save and every later one.
+ * - Once a worker controls the page, online and idle, it fetches through that
+ *   worker every same-origin `/_next/static/` file the page has loaded, each
+ *   once (spec 4.8). Code a page loaded before any worker controlled it (an
+ *   agenda opened while the first visit's worker was installing, a lazily
+ *   loaded component) never passed through the worker, and importing it again
+ *   fetches nothing, so this is how it reaches the static cache (Codex R3 C).
+ * - When the show has an agenda it loads the agenda viewer's code and the
+ *   pdf.js worker that code configures, online, idle and once a worker controls
+ *   the page, so both pass through the worker into its static cache and an
+ *   agenda nobody opened still opens offline (spec 4.8). Once that import
+ *   settles it also fetches the loaded static files no fetch has taken yet: an
+ *   agenda opened before control shares the import, and its files are listed
+ *   as loaded only when their downloads end (Codex R4 C1).
+ * - The worker stores each file as its body passes through, so both of those
+ *   read every body to its end before they count as done. One that could not
+ *   run (offline at idle) or failed (an import that rejects, a fetch that fails
+ *   or answers other than ok, a body that fails or has not arrived whole by its
+ *   deadline, PREFETCH_TIMEOUT_MS after the fetches were sent) aborts every
+ *   fetch it still has out and is tried again, under a new controller and
+ *   deadline, on the next `online` event; one that succeeded is not repeated in
+ *   this page load.
+ * - A failed registration and a `save-failed` broadcast from the worker are
+ *   logged with source `client.crew` (spec 6), the source crew components use
+ *   and the client-error route accepts. Neither is shown: nothing here renders
+ *   (invariant 5).
+ *
+ * With no usable `navigator.serviceWorker` it does nothing at all.
+ */
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+
+import { loadAgendaPdfViewer } from "@/components/agenda/loadAgendaPdfViewer";
+import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
+import { readServedCopy } from "@/lib/offline/client/servedCopy";
+import type { EnsureSavedMessage } from "@/lib/offline/protocol";
+import { clientLog } from "@/lib/observe/clientLog";
+
+export type SavedCopyRegistrarProps = {
+  /** CrewShell's render time, ISO 8601 UTC. A new value means an RSC refresh brought server content. */
+  renderedAt: string;
+  /** The kill switch, `CREW_OFFLINE_DISABLED` (spec 4.10). */
+  disabled: boolean;
+  /** The saved copy lists an agenda (spec 4.8). */
+  hasAgenda: boolean;
+};
+
+const WORKER_URL = "/sw.js";
+
+/** The build's static files, which the worker stores as they pass through it (spec 4.8). */
+const NEXT_STATIC_PREFIX = "/_next/static/";
+
+const REGISTRATION_OPTIONS: RegistrationOptions = { scope: "/", updateViaCache: "none" };
+
+/** At most one `ensure-saved` per this window (spec 4.7.3). */
+const ENSURE_SAVED_THROTTLE_MS = 10_000;
+
+/**
+ * How long a post waits for the worker's reply. Nothing here reads the reply,
+ * so the bound only frees the message channel: an `ensure-saved` that also
+ * fetches the listed assets (up to the worker's 15-second asset deadline, spec
+ * 4.8) can reply after it, and that reply is dropped with nothing lost.
+ */
+const ENSURE_SAVED_REPLY_TIMEOUT_MS = 20_000;
+
+/**
+ * How long a prefetch through the worker (the static re-store, or the agenda's
+ * pdf.js worker file) waits for its files, headers and bodies, before it counts
+ * as failed, aborts the fetches still out and leaves the next `online` event to
+ * try again (spec 4.8).
+ */
+const PREFETCH_TIMEOUT_MS = 60_000;
+
+/**
+ * Where there is no requestIdleCallback (WebKit), the work runs in the first
+ * task after `load` rather than inside it.
+ */
+const IDLE_FALLBACK_DELAY_MS = 0;
+
+/** Once per page load, however often the registrar mounts (spec 4.7.7, 4.8). */
+let persistRequested = false;
+
+/**
+ * Work done once per page load, online: `done` once it succeeded, `running`
+ * while one is out, so at most one is out at a time, and back to idle when it
+ * fails, which leaves the next attempt free to run.
+ */
+type OncePerPageLoad = { run: () => void; reset: () => void };
+
+function oncePerPageLoad(work: () => Promise<void>): OncePerPageLoad {
+  let state: "idle" | "running" | "done" = "idle";
+  return {
+    run() {
+      if (state !== "idle" || !navigator.onLine) return;
+      state = "running";
+      void work().then(
+        () => {
+          state = "done";
+        },
+        () => {
+          state = "idle";
+        },
+      );
+    },
+    reset() {
+      state = "idle";
+    },
+  };
+}
+
+/** Runs `work` when the page is idle; the returned function cancels it. */
+function whenIdle(work: () => void): () => void {
+  // Typed as always present, but WebKit has neither function.
+  if (typeof window.requestIdleCallback === "function") {
+    const handle = window.requestIdleCallback(() => work());
+    return () => window.cancelIdleCallback(handle);
+  }
+  let timer: number | undefined;
+  const afterLoad = (): void => {
+    timer = window.setTimeout(work, IDLE_FALLBACK_DELAY_MS);
+  };
+  if (document.readyState === "complete") afterLoad();
+  else window.addEventListener("load", afterLoad, { once: true });
+  return () => {
+    window.removeEventListener("load", afterLoad);
+    window.clearTimeout(timer);
+  };
+}
+
+/**
+ * The rejection's name and message, for the log's bounded detail field. Read by
+ * shape rather than `instanceof Error`: `register` rejects with a DOMException,
+ * which is not an Error in every realm.
+ */
+function describeError(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const { name, message } = error as { name?: unknown; message?: unknown };
+  return typeof name === "string" && typeof message === "string"
+    ? `${name}: ${message}`
+    : undefined;
+}
+
+function registerWorker(container: ServiceWorkerContainer): void {
+  // A register that throws instead of rejecting lands in the same catch.
+  void Promise.resolve()
+    .then(() => container.register(WORKER_URL, REGISTRATION_OPTIONS))
+    .catch((error: unknown) => {
+      clientLog(
+        "warn",
+        "client.crew",
+        "service worker registration failed",
+        undefined,
+        "CREW_OFFLINE_SW_REGISTER_FAILED",
+        describeError(error),
+      );
+    });
+}
+
+/** Best effort: each registration is removed on its own, and nothing is reported. */
+function unregisterAll(container: ServiceWorkerContainer): void {
+  void Promise.resolve()
+    .then(() => container.getRegistrations())
+    .then((registrations) =>
+      Promise.all(
+        registrations.map((registration) => registration.unregister().catch(() => false)),
+      ),
+    )
+    .catch(() => undefined);
+}
+
+function persistStorageOnce(): void {
+  if (persistRequested) return;
+  persistRequested = true;
+  try {
+    void navigator.storage.persist().catch(() => false);
+  } catch {
+    // No StorageManager (an insecure context, an older browser): nothing to ask.
+  }
+}
+
+/**
+ * Every same-origin `/_next/static/` file the page has loaded, without its
+ * fragment, each once, as the browser's resource timing lists them. One loaded
+ * before a worker controlled the page never passed through it.
+ */
+function loadedStaticFiles(): string[] {
+  if (typeof performance.getEntriesByType !== "function") return [];
+  const { origin, href } = window.location;
+  const files = new Set<string>();
+  for (const entry of performance.getEntriesByType("resource")) {
+    let url: URL;
+    try {
+      url = new URL(entry.name, href);
+    } catch {
+      continue;
+    }
+    if (url.origin !== origin || !url.pathname.startsWith(NEXT_STATIC_PREFIX)) continue;
+    url.hash = "";
+    files.add(url.href);
+  }
+  return [...files];
+}
+
+/** Fetches `url` and reads its body to the end; rejects unless both succeed. */
+async function readThrough(url: string, signal: AbortSignal): Promise<void> {
+  const response = await fetch(url, { signal });
+  // A 404 or a 503 put nothing in the worker's static cache. Nothing reads its
+  // body, so it is cancelled rather than left downloading (Codex R4 C2).
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new Error(`${url} answered ${response.status}`);
+  }
+  // Neither does a body that fails or stalls once the headers are in.
+  await response.arrayBuffer();
+}
+
+/**
+ * Reads every one of `urls` through, all within PREFETCH_TIMEOUT_MS, under a
+ * controller of its own. Past the deadline, or at the first failure, it aborts
+ * every fetch still out and rejects (Codex R4 C2).
+ */
+async function readAllThrough(urls: readonly string[]): Promise<void> {
+  const controller = new AbortController();
+  const read = Promise.all(urls.map((url) => readThrough(url, controller.signal)));
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      controller.abort();
+      reject(new Error("the files did not arrive in time"));
+    }, PREFETCH_TIMEOUT_MS);
+    read.then(
+      () => {
+        window.clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        controller.abort();
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * The loaded static files a read in this page load has out or has read whole,
+ * so no two reads take the same file. A read that fails gives its files back
+ * for the next one to take.
+ */
+const claimedStatics = new Set<string>();
+
+/**
+ * Reads `alsoRead` and every static file the page has loaded that no read in
+ * this page load has claimed through the worker that now controls it, all under
+ * one deadline, so a file loaded before control reaches the static cache. The
+ * worker serves one it holds from its cache, and stores one it lacks as it
+ * serves it (spec 4.8).
+ */
+async function readThroughUnclaimedStatics(alsoRead: readonly string[]): Promise<void> {
+  const files = loadedStaticFiles().filter((url) => !claimedStatics.has(url));
+  const urls = [...files, ...alsoRead];
+  if (urls.length === 0) return;
+  for (const url of files) claimedStatics.add(url);
+  try {
+    await readAllThrough(urls);
+  } catch (error) {
+    for (const url of files) claimedStatics.delete(url);
+    throw error;
+  }
+}
+
+async function restoreLoadedStatics(): Promise<void> {
+  await readThroughUnclaimedStatics([]);
+}
+
+const staticRestore = oncePerPageLoad(restoreLoadedStatics);
+
+/**
+ * Loads the viewer's code through the loader AgendaEmbed's sheet uses
+ * (components/agenda/loadAgendaPdfViewer.ts), so the worker stores the very
+ * chunks the sheet asks for, then fetches the pdf.js worker from the URL the
+ * viewer assigns (components/agenda/pdfWorkerSrc.ts). A viewer the page loaded
+ * before a worker controlled it is already loaded, or still loading, so the
+ * import fetches nothing and waits on the sheet's own downloads; the static
+ * re-store stores its files. That re-store runs at idle, and the viewer's files
+ * reach resource timing only as their downloads end, so once the import settles
+ * this takes the loaded static files again, beside the pdf.js worker, minus
+ * those already claimed (Codex R4 C1). No `import()` of the viewer of its own:
+ * Turbopack gives each import() site its own loader chunk. And never
+ * `import("react-pdf")`: in the production build that loaded a second copy of
+ * react-pdf's index, which reset pdf.js's worker URL to the relative
+ * `pdf.worker.mjs` for the whole page.
+ */
+async function prefetchAgendaViewer(): Promise<void> {
+  await loadAgendaPdfViewer();
+  const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
+  await readThroughUnclaimedStatics([PDF_WORKER_SRC]);
+}
+
+const agendaPrefetch = oncePerPageLoad(prefetchAgendaViewer);
+
+/** Test seam: a new page load. */
+export function __resetSavedCopyRegistrarForTests(): void {
+  persistRequested = false;
+  claimedStatics.clear();
+  staticRestore.reset();
+  agendaPrefetch.reset();
+}
+
+/**
+ * Runs `task` once the page is idle, and again whenever the phone comes back
+ * online, until the returned function stops it. The task itself decides
+ * whether there is anything left to do.
+ */
+function whenIdleAndOnline(task: () => void): () => void {
+  let cancelIdle = whenIdle(task);
+  const onOnline = (): void => {
+    cancelIdle();
+    cancelIdle = whenIdle(task);
+  };
+  window.addEventListener("online", onOnline);
+  return () => {
+    cancelIdle();
+    window.removeEventListener("online", onOnline);
+  };
+}
+
+function isSaveFailed(data: unknown): boolean {
+  return (
+    typeof data === "object" && data !== null && (data as { type?: unknown }).type === "save-failed"
+  );
+}
+
+function saveFailedReason(data: unknown): string | undefined {
+  const reason: unknown = (data as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : undefined;
+}
+
+function subscribeToController(onChange: () => void): () => void {
+  const container = serviceWorkerContainer();
+  if (container === null) return () => undefined;
+  container.addEventListener("controllerchange", onChange);
+  return () => container.removeEventListener("controllerchange", onChange);
+}
+
+function isControlled(): boolean {
+  return (serviceWorkerContainer()?.controller ?? null) !== null;
+}
+
+/** The server cannot know; the hydrating render agrees with it, and the real value follows. */
+function isControlledOnServer(): boolean {
+  return false;
+}
+
+/** The throttle's state: one per registrar, kept across renders. */
+type Throttle = {
+  /** The render time last sent or waiting to be sent. */
+  latest: string | null;
+  /** `latest` arrived inside the window and is sent when it ends. */
+  waiting: boolean;
+  /** Open window: a timer that ends it. */
+  timer: number | undefined;
+  /** False once the registrar unmounts, so a window ending later sends nothing. */
+  mounted: boolean;
+  /** The kill switch, as last rendered: a window ending while it is on sends nothing. */
+  disabled: boolean;
+};
+
+function send(throttle: Throttle, renderedAt: string): void {
+  throttle.waiting = false;
+  const message: EnsureSavedMessage = {
+    type: "ensure-saved",
+    url: window.location.pathname,
+    renderedAt,
+  };
+  // Never rejects; the reply is not needed (the worker reports quota failures
+  // by broadcast, below).
+  void postToWorker(message, { timeoutMs: ENSURE_SAVED_REPLY_TIMEOUT_MS });
+  throttle.timer = window.setTimeout(() => {
+    throttle.timer = undefined;
+    const next = throttle.latest;
+    if (throttle.waiting && throttle.mounted && !throttle.disabled && next !== null) {
+      send(throttle, next);
+    } else throttle.waiting = false;
+  }, ENSURE_SAVED_THROTTLE_MS);
+}
+
+/**
+ * The kill switch turned on: a render time waiting for the window is dropped,
+ * and forgotten, so the page sends it if the switch turns off again.
+ */
+function dropWaiting(throttle: Throttle): void {
+  if (!throttle.waiting) return;
+  throttle.waiting = false;
+  throttle.latest = null;
+}
+
+function requestEnsureSaved(throttle: Throttle, renderedAt: string): void {
+  // One render time is one message: a re-render, StrictMode's second effect
+  // run, or a new controller does not repeat it. An empty one is no render
+  // time at all: parsePageMessage (lib/offline/protocol.ts) refuses it.
+  if (renderedAt === "" || renderedAt === throttle.latest) return;
+  throttle.latest = renderedAt;
+  if (throttle.timer !== undefined) throttle.waiting = true;
+  else send(throttle, renderedAt);
+}
+
+export function SavedCopyRegistrar({ renderedAt, disabled, hasAgenda }: SavedCopyRegistrarProps) {
+  const controlled = useSyncExternalStore(
+    subscribeToController,
+    isControlled,
+    isControlledOnServer,
+  );
+  // The render time this registrar mounted with. A different one later means
+  // an RSC refresh brought server content, so the page is live (spec 4.7.2).
+  const [mountRenderedAt] = useState(renderedAt);
+  const throttle = useRef<Throttle>({
+    latest: null,
+    waiting: false,
+    timer: undefined,
+    mounted: false,
+    disabled,
+  });
+
+  // An unmount stops a window that ends later from sending; StrictMode's
+  // remount sets it back. The window itself is left to run out, so StrictMode's
+  // second effect run does not reopen the throttle early.
+  useEffect(() => {
+    const state = throttle.current;
+    state.mounted = true;
+    return () => {
+      state.mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const container = serviceWorkerContainer();
+    if (container === null) return;
+    return whenIdle(() => {
+      if (disabled) {
+        unregisterAll(container);
+        return;
+      }
+      registerWorker(container);
+      persistStorageOnce();
+    });
+  }, [disabled]);
+
+  useEffect(() => {
+    const container = serviceWorkerContainer();
+    if (container === null || disabled) return;
+    // Relies on the client message queue the browser enables at
+    // DOMContentLoaded, as SavedCopyMarker does.
+    const onMessage = (event: MessageEvent): void => {
+      if (!isSaveFailed(event.data)) return;
+      clientLog(
+        "warn",
+        "client.crew",
+        "saved copy could not be stored",
+        undefined,
+        "CREW_OFFLINE_SAVE_FAILED",
+        saveFailedReason(event.data),
+      );
+    };
+    container.addEventListener("message", onMessage);
+    return () => container.removeEventListener("message", onMessage);
+  }, [disabled]);
+
+  useEffect(() => {
+    const state = throttle.current;
+    state.disabled = disabled;
+    if (disabled) {
+      dropWaiting(state);
+      return;
+    }
+    if (!controlled) return;
+    const live = renderedAt !== mountRenderedAt || readServedCopy().mode === "live";
+    if (!live) return;
+    requestEnsureSaved(state, renderedAt);
+  }, [disabled, controlled, renderedAt, mountRenderedAt]);
+
+  // The phone back online: a re-store or a prefetch that never ran, or failed,
+  // runs once the page is idle again.
+  useEffect(() => {
+    if (disabled || !controlled) return;
+    return whenIdleAndOnline(staticRestore.run);
+  }, [disabled, controlled]);
+
+  useEffect(() => {
+    if (disabled || !hasAgenda || !controlled) return;
+    return whenIdleAndOnline(agendaPrefetch.run);
+  }, [disabled, hasAgenda, controlled]);
+
+  return null;
+}
