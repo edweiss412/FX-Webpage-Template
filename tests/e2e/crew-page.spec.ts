@@ -2289,25 +2289,12 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
     await signInAs(page, ADMIN_FIXTURE);
   });
 
-  /**
-   * `flowing` starts the browser clock at the same instant and lets it run
-   * (`setSystemTime`). A case that samples a CSS keyframe animation needs it:
-   * under `setFixedTime`, Linux WebKit holds the animation at its first keyframe
-   * for about 300ms and then jumps it to wall time, so a 120ms fade shows no
-   * middle frame (measured in the pinned Playwright image, v1.59.1-jammy; the CI
-   * mobile-safari failure on PR #984). macOS WebKit and Chromium run it either way.
-   */
-  async function pinBothClocks(
-    page: import("@playwright/test").Page,
-    iso: string,
-    browserClock: "fixed" | "flowing" = "fixed",
-  ): Promise<void> {
+  async function pinBothClocks(page: import("@playwright/test").Page, iso: string): Promise<void> {
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": noonUtc(iso),
       Authorization: `Bearer ${TEST_AUTH_SECRET}`,
     });
-    if (browserClock === "flowing") await page.clock.setSystemTime(new Date(noonUtc(iso)));
-    else await page.clock.setFixedTime(new Date(noonUtc(iso)));
+    await page.clock.setFixedTime(new Date(noonUtc(iso)));
   }
 
   /** Load a crew page path and wait for the controller. */
@@ -2435,59 +2422,102 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
   test("home: the copy toast fades and rises in, holds 2 seconds and fades out", async ({
     page,
   }) => {
-    await pinBothClocks(page, SHOW_DAY_1, "flowing");
+    await pinBothClocks(page, SHOW_DAY_1);
     await gotoHome(page, homePath());
     await stubClipboard(page, "resolve");
-    const samples = await page.evaluate(
+    // Each fade is read by seeking its own CSS animation (pause, then set
+    // currentTime), not by sampling it in real time. On CI's Linux WebKit a
+    // composited keyframe animation reported its first keyframe on every frame
+    // until it had already ended, so no real-time frame was ever mid-fade (PR
+    // #984; the same engine, in the pinned Playwright image, reports a seeked
+    // animation's values exactly). The phase timeline is still sampled live.
+    type Pose = { opacity: number; y: number };
+    type Fade = { name: string; playState: string; duration: number; start: Pose; mid: Pose };
+    const run = await page.evaluate(
       () =>
-        new Promise<Array<{ t: number; state: string; opacity: number; y: number }>>((resolve) => {
-          const out: Array<{ t: number; state: string; opacity: number; y: number }> = [];
+        new Promise<{
+          phases: Array<{ t: number; state: string; opacity: number; y: number }>;
+          enter: Fade | null;
+          exit: Fade | null;
+        }>((resolve) => {
+          const pose = (el: Element) => {
+            const s = getComputedStyle(el);
+            const m = new DOMMatrixReadOnly(s.transform === "none" ? undefined : s.transform);
+            const translate = s.translate && s.translate !== "none" ? s.translate : "";
+            const y = translate ? Number.parseFloat(translate.split(" ")[1] ?? "0") : m.m42;
+            return { opacity: s.display === "none" ? 0 : Number(s.opacity), y };
+          };
+          // Seek the named animation to its start and its midpoint, then play it on
+          // from there: a natural end fires the animationend the toast listens for
+          // to go idle, which finish() on a paused animation did not, in WebKit.
+          const seek = (el: Element, name: string) => {
+            const a = el.getAnimations().find((x) => (x as CSSAnimation).animationName === name) as
+              | CSSAnimation
+              | undefined;
+            if (!a) return null;
+            const playState = a.playState;
+            const duration = Number(a.effect?.getComputedTiming().duration ?? 0);
+            a.pause();
+            a.currentTime = 0;
+            const start = pose(el);
+            a.currentTime = duration / 2;
+            const mid = pose(el);
+            a.play();
+            return { name, playState, duration, start, mid };
+          };
+          const phases: Array<{ t: number; state: string; opacity: number; y: number }> = [];
+          let enter: Fade | null = null;
+          let exit: Fade | null = null;
           const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
             (b) => b.getAttribute("aria-label") === "Copy Wi-Fi password",
           );
           if (!button) throw new Error("no Wi-Fi copy button");
           button.click();
-          const start = performance.now();
+          const t0 = performance.now();
           const tick = () => {
             const el = document.querySelector('[data-testid="crew-quick-facts-toast"]');
             if (el) {
-              const s = getComputedStyle(el);
-              const m = new DOMMatrixReadOnly(s.transform === "none" ? undefined : s.transform);
-              const translate = s.translate && s.translate !== "none" ? s.translate : "";
-              const y = translate ? Number.parseFloat(translate.split(" ")[1] ?? "0") : m.m42;
-              out.push({
-                t: performance.now() - start,
-                state: el.getAttribute("data-state") ?? "",
-                opacity: s.display === "none" ? 0 : Number(s.opacity),
-                y,
-              });
+              const state = el.getAttribute("data-state") ?? "";
+              if (state === "shown" && enter === null) enter = seek(el, "crew-toast-in");
+              if (state === "leaving" && exit === null) exit = seek(el, "crew-toast-out");
+              phases.push({ t: performance.now() - t0, state, ...pose(el) });
             }
-            if (performance.now() - start < 2700) requestAnimationFrame(tick);
-            else resolve(out);
+            if (performance.now() - t0 < 2700) requestAnimationFrame(tick);
+            else resolve({ phases, enter, exit });
           };
           requestAnimationFrame(tick);
         }),
     );
-    const shown = samples.filter((s) => s.state === "shown");
-    expect(shown.length, JSON.stringify(samples.slice(0, 5))).toBeGreaterThan(0);
-    // Fade and rise in: some early frame is part-way, below its resting place.
-    const entering = shown.filter((s) => s.opacity > 0 && s.opacity < 1);
-    expect(
-      entering.length,
-      `no mid-fade entry frame: ${JSON.stringify(shown.slice(0, 8))}`,
-    ).toBeGreaterThan(0);
-    expect(entering.some((s) => s.y > 0 && s.y <= 4)).toBe(true);
+    const { phases, enter, exit } = run;
+    const shown = phases.filter((s) => s.state === "shown");
+    expect(shown.length, JSON.stringify(phases.slice(0, 5))).toBeGreaterThan(0);
+    // Fade and rise in: the toast's own entry animation, running when it appears,
+    // starts transparent 4px below its place and is part-way at its midpoint.
+    expect(enter, "the shown toast runs crew-toast-in").not.toBeNull();
+    expect(enter!.playState).toBe("running");
+    expect(enter!.duration).toBeGreaterThan(0);
+    expect(enter!.start.opacity).toBe(0);
+    expect(enter!.start.y).toBeCloseTo(4, 1);
+    expect(enter!.mid.opacity).toBeGreaterThan(0);
+    expect(enter!.mid.opacity).toBeLessThan(1);
+    expect(enter!.mid.y).toBeGreaterThan(0);
+    expect(enter!.mid.y).toBeLessThan(4);
     // Holds: fully shown for most of the 2 s window.
     const settled = shown.filter((s) => s.opacity === 1 && Math.abs(s.y) < 0.01);
+    expect(settled.length, JSON.stringify(shown.slice(0, 8))).toBeGreaterThan(0);
     expect(settled.at(-1)!.t - settled[0]!.t).toBeGreaterThan(1700);
     // Fades out after the hold, without rising or sinking.
-    const leaving = samples.filter((s) => s.state === "leaving" && s.opacity > 0 && s.opacity < 1);
-    expect(
-      leaving.length,
-      `no mid-fade exit frame: ${JSON.stringify(samples.slice(-12))}`,
-    ).toBeGreaterThan(0);
-    expect(leaving[0]!.t).toBeGreaterThan(1900);
-    expect(leaving.every((s) => Math.abs(s.y) < 0.01)).toBe(true);
+    const leavingAt = phases.find((s) => s.state === "leaving")?.t;
+    expect(leavingAt, `never left: ${JSON.stringify(phases.slice(-6))}`).toBeGreaterThan(1900);
+    expect(exit, "the leaving toast runs crew-toast-out").not.toBeNull();
+    expect(exit!.playState).toBe("running");
+    expect(exit!.start.opacity).toBe(1);
+    expect(exit!.mid.opacity).toBeGreaterThan(0);
+    expect(exit!.mid.opacity).toBeLessThan(1);
+    expect(Math.abs(exit!.start.y)).toBeLessThan(0.01);
+    expect(Math.abs(exit!.mid.y)).toBeLessThan(0.01);
+    // And it goes: the exit's end returns the toast to idle.
+    await expect(page.getByTestId("crew-quick-facts-toast")).toHaveAttribute("data-state", "idle");
   });
 
   test("home: under reduced motion the copy toast shows and hides at once", async ({ page }) => {
