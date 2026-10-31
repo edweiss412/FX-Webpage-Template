@@ -914,7 +914,7 @@ export function CrewSections({
                         data-testid="crew-wide-section"
                         data-section={s.id}
                         aria-labelledby={`crew-section-heading-${s.id}`}
-                        className="@container flex scroll-mt-(--crew-header-h) flex-col gap-4"
+                        className="@container flex scroll-mt-(--crew-header-bottom) flex-col gap-4"
                       >
                         <h2
                           id={`crew-section-heading-${s.id}`}

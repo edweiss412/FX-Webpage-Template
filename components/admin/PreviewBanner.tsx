@@ -17,9 +17,12 @@
  * /admin/dev or any build-gated route (memory:
  * feedback_build_gated_routes_never_fallback_target).
  *
- * Server Component (no 'use client').
+ * Server Component (no 'use client'). Its one client island besides the
+ * ReportButton is PreviewBannerHeight, which publishes the banner's height so
+ * the crew header can stick under it rather than behind it (audit P1-3).
  */
 import Link from "next/link";
+import { PreviewBannerHeight } from "@/components/admin/PreviewBannerHeight";
 import { ReportButton } from "@/components/shared/ReportButton";
 
 export type PreviewBannerProps = {
@@ -69,6 +72,8 @@ export function PreviewBanner({
       style={{ position: "sticky", top: 0 }}
       className="z-sticky-banner border-b border-border-strong bg-warning-bg text-warning-text shadow-tile"
     >
+      {/* The banner's height, published for the crew header that sticks under it. */}
+      <PreviewBannerHeight bannerTestId="admin-preview-banner" />
       <div className="mx-auto flex w-full max-w-300 flex-wrap items-center gap-3 px-4 py-3 sm:px-8">
         <p className="flex flex-1 flex-wrap items-center gap-2 text-sm sm:text-base">
           <span

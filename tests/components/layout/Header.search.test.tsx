@@ -15,7 +15,9 @@
  * no-search markup of THAT header now. Re-recorded again the same day for the
  * invariant-8 fixes (audit P2-3, critique F8): the wide title block is a grid
  * holding the status pill on the date line, the h1 carries `title`, and the
- * search caps at `max-w-sm`. That an absent or null `search` adds no
+ * search caps at `max-w-sm`; and the wide header sticks at `--crew-sticky-top`
+ * so the admin preview banner never covers it (audit P1-3). That an absent or
+ * null `search` adds no
  * element at all, not even a wrapper, is pinned by
  * tests/components/layout/crewHeader.test.tsx ("search slot: renders nothing,
  * no wrapper, when given none").
@@ -49,7 +51,7 @@ describe("Header without the search slot (markup unchanged)", () => {
     );
     expect(container.firstChild).toMatchInlineSnapshot(`
       <header
-        class="border-b border-border bg-bg lg:sticky lg:top-0 lg:z-nav lg:h-(--crew-header-h)"
+        class="border-b border-border bg-bg lg:sticky lg:top-(--crew-sticky-top) lg:z-nav lg:h-(--crew-header-h)"
         data-testid="page-header"
       >
         <div
@@ -153,7 +155,7 @@ describe("Header without the search slot (markup unchanged)", () => {
     const { container } = render(<Header show={SHOW} />);
     expect(container.firstChild).toMatchInlineSnapshot(`
       <header
-        class="border-b border-border bg-bg lg:sticky lg:top-0 lg:z-nav lg:h-(--crew-header-h)"
+        class="border-b border-border bg-bg lg:sticky lg:top-(--crew-sticky-top) lg:z-nav lg:h-(--crew-header-h)"
         data-testid="page-header"
       >
         <div

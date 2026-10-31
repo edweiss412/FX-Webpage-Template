@@ -384,7 +384,7 @@ Tailwind v4 here does not stretch flex children by default; each relationship be
 3. **Quick facts.** `grid-cols-2` with `items-stretch`; every tile `h-full`, so tiles in one row share a height. A spanning tile is `col-span-2`.
 4. **Section sheet (compact).** Fixed to the viewport bottom, `max-h-[90dvh]`, a flex column: the header row is `shrink-0`, the body is `flex-1 min-h-0 overflow-y-auto`. The sheet never grows past 90% of the dynamic viewport height, and its body scrolls inside it.
 5. **Wide layout.** The nav is `w-60 shrink-0`, sticky under the header, its height the viewport minus the header (`h-[calc(100dvh-var(--crew-header-h))]`) with its own scroll. The content column is `flex-1 min-w-0`.
-6. **Header.** One fixed height token `--crew-header-h`, used by the header itself, the wide nav offset and the scroll-margin of every section anchor (so a nav jump never lands a heading under the header).
+6. **Header.** One fixed height token `--crew-header-h`, used by the header itself, the wide nav offset and the scroll-margin of every section anchor (so a nav jump never lands a heading under the header). **Amendment 2026-10-30 (invariant-8 gate, audit P1-2 / P1-3, critique F3; overridable):** the header sticks at `--crew-sticky-top`, which is 0 on the crew route and the admin preview banner's measured height on the preview route (the banner publishes it as `--preview-banner-h`), so the banner never covers the header. The nav's sticky offset and height, every section's scroll margin, and the page's `scroll-padding-top` from 1024px read the header's bottom edge, `--crew-header-bottom` (that offset plus `--crew-header-h`), so neither a nav jump nor keyboard focus lands under the header or the banner.
 
 ## 9. Copy
 

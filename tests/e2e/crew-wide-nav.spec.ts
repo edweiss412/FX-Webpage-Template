@@ -480,6 +480,44 @@ test.describe("crew wide nav (spec §5.3)", () => {
     expect(Math.abs(scrolled.nav.width - 240), at).toBeLessThanOrEqual(TOL);
   });
 
+  test("header: Shift+Tab back up the wide page never leaves the focused control under the sticky header (WCAG 2.4.11)", async ({
+    page,
+  }) => {
+    // Audit P1-2: with no scroll padding, a reverse Tab scrolled each control
+    // only just into view, which on the wide layout is UNDER the 96px sticky
+    // header: 8 of 60 focused controls ended up fully covered. Read every stop
+    // on the way back up from the page's last control.
+    await load(page, "?s=today");
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight }));
+    const last = page.locator("a[href], button:not([disabled]), input, summary").last();
+    await last.focus();
+    const covered: string[] = [];
+    let stops = 0;
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press("Shift+Tab");
+      const r = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        const header = document.querySelector('[data-testid="page-header"]')!;
+        if (!el || el === document.body || header.contains(el)) return null;
+        const b = el.getBoundingClientRect();
+        const bottom = header.getBoundingClientRect().bottom;
+        return {
+          name: (el.getAttribute("aria-label") ?? el.textContent ?? el.tagName).trim().slice(0, 40),
+          top: b.top,
+          bottom: b.bottom,
+          headerBottom: bottom,
+        };
+      });
+      if (r === null) continue;
+      stops += 1;
+      // Fully under the header: its whole box sits above the header's bottom edge.
+      if (r.bottom <= r.headerBottom + 0.5) covered.push(`${r.name} ${r.top}-${r.bottom}`);
+    }
+    // PREMISE: the walk visited real controls in the page body.
+    expect(stops).toBeGreaterThan(20);
+    expect(covered).toEqual([]);
+  });
+
   test("dimensional: header: one token, --crew-header-h, is the header's height, the nav's sticky offset and every section anchor's scroll margin, so a nav jump lands each heading just under the header", async ({
     page,
   }) => {
@@ -979,6 +1017,68 @@ test.describe("the composed home, wide (crew page redesign Task 11)", () => {
     await expect(page.getByTestId("crew-all-sections")).toHaveCount(0);
     await expect(page.getByTestId("today-run-of-show")).toContainText(RUN_ROWS[0]!);
     await expect(page.getByTestId("today-notes")).toContainText(VENUE.notes);
+  });
+
+  test("home: on the preview route the crew header sticks under the preview banner, and the nav, a section jump and the scroll padding clear both", async ({
+    page,
+  }) => {
+    // Audit P1-3 / critique F3: banner and header were both sticky at top 0, so
+    // once the page scrolled the banner (z above) covered the header's title,
+    // search field and theme switch.
+    const crewId = seeded.crew[0]!.id;
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await loadWide(page, `/admin/show/${seeded.slug}/preview/${crewId}`);
+    await page.evaluate(() => window.scrollTo({ top: 1500, behavior: "auto" }));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+    const read = () =>
+      page.evaluate(() => {
+        const box = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+        const banner = box('[data-testid="admin-preview-banner"]');
+        const header = box('[data-testid="page-header"]');
+        const nav = box('[data-testid="crew-wide-nav"]');
+        const search = box('[data-testid="crew-search-input"]');
+        const hit = document.elementFromPoint(
+          search.left + search.width / 2,
+          search.top + search.height / 2,
+        );
+        return {
+          bannerBottom: banner.bottom,
+          headerTop: header.top,
+          headerBottom: header.bottom,
+          navTop: nav.top,
+          searchHitsHeader: Boolean(hit?.closest('[data-testid="page-header"]')),
+          scrollPadding: parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop),
+        };
+      });
+    const m = await read();
+    const at = JSON.stringify(m);
+    expect(
+      Math.abs(m.headerTop - m.bannerBottom),
+      `the header sticks under the banner ${at}`,
+    ).toBeLessThanOrEqual(0.5);
+    expect(m.searchHitsHeader, `the banner covers the header's search field ${at}`).toBe(true);
+    expect(
+      Math.abs(m.navTop - m.headerBottom),
+      `the nav sticks under the header ${at}`,
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs(m.scrollPadding - m.headerBottom),
+      `scroll padding clears banner and header ${at}`,
+    ).toBeLessThanOrEqual(0.5);
+    // A nav jump lands the section's heading just under the header, not under the banner.
+    await page.getByTestId("crew-wide-nav").locator('[data-section="crew"]').click();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Math.round(
+            document
+              .querySelector('[data-testid="crew-wide-section"][data-section="crew"] h2')!
+              .getBoundingClientRect().top -
+              document.querySelector('[data-testid="page-header"]')!.getBoundingClientRect().bottom,
+          ),
+        ),
+      )
+      .toBeGreaterThanOrEqual(0);
   });
 
   test("home: the preview banner shows above the wide home on the preview route", async ({

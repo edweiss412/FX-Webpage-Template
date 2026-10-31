@@ -32,6 +32,9 @@
  *   - Wide (1024px and up): a fixed-height bar that sticks to the top of the
  *     viewport, `--crew-header-h` tall (spec §8 item 6), the token the wide
  *     nav's sticky offset and every stacked section's scroll margin read too.
+ *     It sticks at `--crew-sticky-top`: 0 on the crew route, the preview
+ *     banner's height on the admin preview route, so the banner never covers
+ *     it (audit P1-3).
  *     Its content is centred in the bar on one row, and the eyebrow and the
  *     title truncate to one line each so a long show title cannot grow it.
  *     The title block takes twice the search slot's share and the search
@@ -116,7 +119,7 @@ export function Header({ show, identityChip, statusPill, search }: HeaderProps) 
     <>
       <header
         data-testid="page-header"
-        className="border-b border-border bg-bg lg:sticky lg:top-0 lg:z-nav lg:h-(--crew-header-h)"
+        className="border-b border-border bg-bg lg:sticky lg:top-(--crew-sticky-top) lg:z-nav lg:h-(--crew-header-h)"
       >
         {/* `flex-wrap` only ever wraps the search slot: the title block is
             `flex-1` (a zero basis) beside a small right slot, so without a

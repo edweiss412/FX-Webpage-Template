@@ -564,8 +564,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // the new key. 124 -> 128 on the layout dimensions arc (plan Task 13): the
     // header comment gained the nav's dimension rule. Same <Icon>. 128 -> 137 on
     // the invariant-8 fixes (critique F15): the bar's fixed base height and its
-    // scaleY style sit above. Same <Icon>.
-    site: "components/crew/CrewWideNav.tsx:137",
+    // scaleY style sit above. Same <Icon>. 137 -> 138 (audit P1-3): the header
+    // comment's dimension rule names the header's bottom edge. Same <Icon>.
+    site: "components/crew/CrewWideNav.tsx:138",
     disposition: "carrier-survives",
     reason:
       "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",

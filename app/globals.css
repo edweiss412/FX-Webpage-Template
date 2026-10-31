@@ -1918,7 +1918,31 @@ details[open] > summary [data-agenda-day-count] {
  * `scroll-margin-top`, so a nav jump lands each heading just under the header.
  * It fits the header's three lines (eyebrow, the title row with its status
  * pill, the date) and the 52px search field beside them.
+ *
+ * Where the header sticks, and where its bottom edge then sits (spec §8 item 6
+ * amendment 2026-10-30). On the admin preview route a sticky banner sits above
+ * the crew header, so the header sticks under it: `--preview-banner-h` is the
+ * banner's measured height, published on <html> by the banner itself
+ * (components/admin/PreviewBannerHeight.tsx) and absent everywhere else, so the
+ * offset is 0 on the crew route. The nav's sticky offset and height, every
+ * section's scroll margin and the page's scroll padding read the header's
+ * bottom edge, never its height alone (audit P1-3, critique F3).
  */
 :root {
   --crew-header-h: 6rem;
+  --crew-sticky-top: var(--preview-banner-h, 0rem);
+  --crew-header-bottom: calc(var(--crew-sticky-top) + var(--crew-header-h));
+}
+
+/*
+ * Keyboard focus never lands under the wide sticky header (WCAG 2.2 SC 2.4.11,
+ * audit P1-2). A control focused by Tab or Shift+Tab is scrolled into view
+ * inside the scroll padding, so it stops below the header (and the preview
+ * banner) instead of under them. Only from 1024px, where the header sticks, and
+ * only on a page that has the crew header.
+ */
+:root:has([data-testid="page-header"]) {
+  @variant lg {
+    scroll-padding-top: var(--crew-header-bottom);
+  }
 }
