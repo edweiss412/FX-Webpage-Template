@@ -667,7 +667,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 18 since the crew page redesign's Task 13: the compact dimensional cases
     // build the preview-as path for the four-tile quick facts (previewPath in
     // crew-page.spec.ts). Re-derived from the failure's own count (18 candidates).
-    expectedCount: 18,
+    // 19 since the crew page redesign's gate fix X1: the pass sizing case in
+    // crew-page.spec.ts ("pass: no time, label or role is cut ...") loads the
+    // preview-as route for the seed's longest role. Re-derived from the
+    // failure's own count (19 candidates).
+    expectedCount: 19,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
