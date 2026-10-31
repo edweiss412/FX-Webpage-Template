@@ -95,7 +95,7 @@ describe("admin preview loading: the crew skeleton under the banner, never a Bud
   // and 132px on a phone, so the page jumped on the swap. The strip is the
   // banner's own box, its row and its label line, with the same classes, so it
   // wraps where the banner does (the real-browser half is
-  // tests/e2e/crew-layout-dimensions.spec.ts "crew loading skeleton").
+  // tests/e2e/crew-page.spec.ts "crew loading skeleton").
   it("the banner strip is PreviewBanner's box: its tint, border and padding, its wrapping row and label line", () => {
     const real = render(
       <PreviewBanner

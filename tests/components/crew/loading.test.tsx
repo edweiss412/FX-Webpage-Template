@@ -139,7 +139,7 @@ describe("crew route loading skeleton", () => {
   // a loaded 217 to 237), so everything under it jumped on the swap. Its title
   // block and each line's element carry the live header's classes, so each line
   // box is the loaded one's height; the real-browser half is
-  // tests/e2e/crew-layout-dimensions.spec.ts "crew loading skeleton".
+  // tests/e2e/crew-page.spec.ts "crew loading skeleton".
   it("the title block and its eyebrow and date lines are the live header's, a two-line eyebrow and title below 640px", () => {
     const realBlock = realHeaderWithPill().querySelector<HTMLElement>(
       '[data-testid="page-header-title-block"]',

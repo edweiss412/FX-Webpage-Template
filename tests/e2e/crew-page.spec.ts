@@ -62,7 +62,7 @@
  * - **Truncation.** Values wrap to at most 3 lines, then ellipsis. The full text
  *    is in the section the fact comes from.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, devices } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
@@ -3273,4 +3273,431 @@ test.describe("dimensional invariants, compact (crew page redesign Task 13)", ()
       expectClear(m, at);
     }
   });
+});
+
+// ── Moved from crew-layout-dimensions.spec.ts (whole-diff review round 2, 2C-1) ──
+// CI runs that file only through two `-g` filters (phantom-gap-e2e.yml), so its
+// other cases never ran there. These run in crew-e2e.yml, whose executed-count
+// oracle (scripts/check-crew-e2e-executed.mjs) fails on a case that did not run.
+
+/**
+ * Who to call's actions and every card title, on the seeded show, with the
+ * server's `today` pinned to show day 1, as in crew-layout-dimensions.
+ */
+test.describe("quick facts and card titles on the seeded show (moved from crew-layout-dimensions)", () => {
+  test.setTimeout(180_000);
+
+  /** tight tolerance for the shared-row and tap-target checks (±0.5px). */
+  const TOL_TIGHT = 0.5;
+  let slug = "";
+  let shareToken = "";
+
+  test.beforeEach(async ({ page }) => {
+    const seeded = await lookupSeededShow();
+    slug = seeded.slug;
+    shareToken = await lookupShareToken(seeded.showId);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    // The server's `today`, pinned through the test-auth frozen-now header.
+    await page.setExtraHTTPHeaders({
+      "X-Screenshot-Frozen-Now": SHOW_DAY_N_INSTANT,
+      Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+    });
+  });
+
+  /** A section of the seeded crew route, settled past its enter crossfade. */
+  async function gotoSection(
+    page: import("@playwright/test").Page,
+    section: string,
+  ): Promise<void> {
+    const res = await page.goto(`/show/${slug}/${shareToken}?s=${section}`, {
+      waitUntil: "domcontentloaded",
+    });
+    expect(res?.status(), `crew route /show/${slug}/${shareToken}?s=${section} must render`).toBe(
+      200,
+    );
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId(`section-${section}`)).toBeVisible();
+    // Today's body joins the Today block's packed grid when the show has no run
+    // of show (`display: contents`, no box of its own), so Today settles on the block.
+    const settled = section === "today" ? "crew-today-block" : `section-${section}`;
+    await expect
+      .poll(() => page.getByTestId(settled).evaluate((el) => el.getBoundingClientRect().height), {
+        timeout: 8000,
+        message: `${settled} has a laid-out height`,
+      })
+      .toBeGreaterThan(1);
+  }
+
+  // Critique F13 (gate fix X6), then the re-run's P3-3 / N3: Who to call's three
+  // actions wrapped, leaving Email alone on a second row. Three 44px targets and
+  // their gaps need 144px, more than a half-width tile holds at 320, 360 and 375
+  // and in the 1024 wide column (126 to 134px). So where the grid is too narrow
+  // for that, the tile spans both columns, and so does the tile it would have
+  // shared a row with, leaving no half-width tile alone on a row. Every width the
+  // quick facts render at, phones through the wide column.
+  test("quick facts: Who to call's call, text and email share one row at every width, each a full tap target, and no tile sits alone on a row", async ({
+    page,
+  }) => {
+    const widths = [320, 360, 375, 390, 430, 768, 1024, 1152, 1280, 1440];
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 900 });
+      const res = await page.goto(`/show/${slug}/${shareToken}`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status(), "crew home must render").toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const tile = page.locator('[data-testid="crew-quick-fact"][data-fact="contact"]');
+      await expect(tile).toBeVisible();
+      const links = tile.getByRole("link", { name: /^(Call|Text|Email) / });
+      // PREMISE: the seeded primary contact has a phone and an email, so all three render.
+      await expect(links).toHaveCount(3);
+      const tap = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.style.width = "var(--spacing-tap-min)";
+        document.body.appendChild(probe);
+        const px = probe.getBoundingClientRect().width;
+        probe.remove();
+        return px;
+      });
+      expect(tap, "PREMISE: --spacing-tap-min resolves").toBeGreaterThan(0);
+      const rects = await links.evaluateAll((els) =>
+        els.map((el) => {
+          const r = el.getBoundingClientRect();
+          return { top: r.top, width: r.width, height: r.height };
+        }),
+      );
+      for (const r of rects) {
+        expect(r.width, `${width}: each action is a full tap target wide`).toBeGreaterThanOrEqual(
+          tap - TOL_TIGHT,
+        );
+        expect(r.height, `${width}: each action is a full tap target tall`).toBeGreaterThanOrEqual(
+          tap - TOL_TIGHT,
+        );
+      }
+      const tops = rects.map((r) => r.top);
+      expect(
+        Math.max(...tops) - Math.min(...tops),
+        `${width}: the three actions share one row (tops ${JSON.stringify(tops)})`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+      // No half-width tile alone on its row: each tile spans the grid, or another
+      // tile shares its top.
+      const grid = await page.getByTestId("crew-quick-facts-grid").evaluate((g) => {
+        const gb = g.getBoundingClientRect();
+        return {
+          width: gb.width,
+          tiles: [...g.querySelectorAll('[data-testid="crew-quick-fact"]')].map((t) => {
+            const r = t.getBoundingClientRect();
+            return { fact: t.getAttribute("data-fact"), top: r.top, width: r.width };
+          }),
+        };
+      });
+      const at = `${width}: ${JSON.stringify(grid)}`;
+      for (const t of grid.tiles) {
+        const full = Math.abs(t.width - grid.width) <= TOL_TIGHT;
+        const shared = grid.tiles.some((o) => o !== t && Math.abs(o.top - t.top) <= TOL_TIGHT);
+        expect(full || shared, `${t.fact} sits alone on a row ${at}`).toBe(true);
+      }
+    }
+  });
+
+  // UI-gate re-run, critique N2 (the X10 class swept): a card title truncated
+  // beside its header actions ("In sheet" and the report button): "CREW SCHE…" and
+  // "ROOM DETAI…" in the sheets at 320, "CREW S…" in the 1024 wide column. The
+  // title is the card's name and its search group, so it wraps instead. Every
+  // card title the seeded show renders: each section's sheet at 320 and 390, and
+  // every stacked section at 1024 and 1280.
+  test("card titles: no SectionCard title is cut, in a sheet at 320 and 390 or in the wide column at 1024 and 1280", async ({
+    page,
+  }) => {
+    const readTitles = (scope: string) =>
+      page.evaluate((sel) => {
+        const root = document.querySelector(sel);
+        if (root === null) return [];
+        return [...root.querySelectorAll<HTMLElement>('[data-slot="section-card-title"]')]
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => ({
+            text: el.textContent,
+            scrollWidth: el.scrollWidth,
+            clientWidth: el.clientWidth,
+            overflow: getComputedStyle(el).textOverflow,
+          }));
+      }, scope);
+    const cut = (titles: Awaited<ReturnType<typeof readTitles>>) =>
+      titles.filter((t) => t.scrollWidth > t.clientWidth + TOL_TIGHT || t.overflow === "ellipsis");
+    let seen = 0;
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const section of ["schedule", "venue", "travel", "crew", "gear"]) {
+        await gotoSection(page, section);
+        const titles = await readTitles('[data-testid="crew-section-sheet-body"]');
+        seen += titles.length;
+        expect(cut(titles), `${width}px ${section}: ${JSON.stringify(titles)}`).toEqual([]);
+      }
+    }
+    for (const width of [1024, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoSection(page, "today");
+      const titles = await readTitles('[data-testid="crew-wide-stack"]');
+      seen += titles.length;
+      expect(cut(titles), `${width}px: ${JSON.stringify(titles)}`).toEqual([]);
+    }
+    // PREMISE: the walk read real titles, the ones that were cut among them.
+    expect(seen).toBeGreaterThan(20);
+  });
+});
+
+/**
+ * Loading skeleton vs. the loaded page (crew page redesign PR A).
+ *
+ * `app/show/[slug]/[shareToken]/loading.tsx` draws `CrewLoadingSkeleton`
+ * (components/crew/CrewLoadingSkeleton.tsx) while the route streams. It must
+ * reserve the loaded page's geometry, or the swap jumps. Below 1024px the header
+ * grows with its text (a long title wraps; the skeleton cannot know it), so the
+ * case reads everything under the header from the header's bottom edge: the
+ * search row, the first day button's offset and height, the pass's offset and
+ * width. From 1024px the header is a fixed `--crew-header-h` bar, so its box is
+ * compared outright, and so is the left nav column's. Every expected value is the
+ * LOADED page's own measurement at the same viewport; nothing is restated here but
+ * the tolerance.
+ *
+ * The skeleton is read in a JavaScript-off context, where React's swap never runs
+ * and the fallback stays in the DOM. LoadingShell's <noscript> rule hides it there
+ * (tests/e2e/nojs-loading-notice.spec.ts), so the response is rewritten to hide
+ * the notice instead, leaving the skeleton as a JS-on visitor sees it mid-load.
+ * (Not `addStyleTag`: it waits on a load event that script delivers, so it never
+ * settles with scripting off.) The rewrite landing and the skeleton being attached
+ * are premises: a route that resolved before its first flush would inline the page
+ * and leave nothing to measure.
+ *
+ * No seed writes, so no single-writer `beforeAll`. Moved here from
+ * crew-layout-dimensions.spec.ts, which CI runs only through two `-g` filters
+ * that never selected these cases (whole-diff review round 2, 2C-1); this spec
+ * resolves under mobile-safari alone, so the cases need no project gate.
+ */
+/**
+ * The streamed document cut right after the inline script that reveals the
+ * boundary holding `fallbackTestId`, or null when the fallback did not stream
+ * inside a revealed boundary. React streams a boundary's content as
+ * `<div hidden id="S:n">` and swaps it in with `$RC("B:n","S:n")`; keeping that
+ * script and nothing after it leaves the fallback on screen, as a visitor sees
+ * it while the page below it loads.
+ */
+function cutAfterFallbackReveal(html: string, fallbackTestId: string): string | null {
+  const at = html.indexOf(`data-testid="${fallbackTestId}"`);
+  if (at < 0) return null;
+  const segment = html.lastIndexOf('<div hidden id="S:', at);
+  const id = segment < 0 ? null : /^<div hidden id="S:(\d+)"/.exec(html.slice(segment))?.[1];
+  if (id === undefined || id === null) return null;
+  const reveal = html.indexOf(`$RC("B:${id}","S:${id}")`, segment);
+  const end = reveal < 0 ? -1 : html.indexOf("</script>", reveal);
+  return end < 0 ? null : `${html.slice(0, end + "</script>".length)}</body></html>`;
+}
+
+test.describe("crew loading skeleton — reserves the loaded page's geometry", () => {
+  /** Sub-pixel line boxes (`text-lg/tight` is 22.5px) round differently in a plate. */
+  const TOL = 2;
+  /** LoadingShell's no-JS rule (components/layout/Skeleton.tsx), and its stand-in. */
+  const HIDE_SHELL = "[data-loading-shell-content]{display:none}";
+  const HIDE_NOTICE = "noscript{display:none}";
+
+  type Box = { x: number; y: number; width: number; height: number };
+  async function boxOf(locator: import("@playwright/test").Locator, label: string): Promise<Box> {
+    const box = await locator.boundingBox();
+    if (!box) throw new Error(`${label} has no box`);
+    return box;
+  }
+
+  /** The modal crew role on real sheets: the preview route's viewer, so its banner wraps like most do. */
+  const MODAL_ROLE = "- Load In / Set / Strike / Load Out - A1";
+
+  for (const route of ["crew", "preview"] as const)
+    for (const width of [390, 768, 1280] as const) {
+      test(`at ${width}px on the ${route} route the skeleton's ${route === "preview" ? "banner, " : ""}header, day row, pass and nav land where the loaded page puts them`, async ({
+        page,
+        browser,
+      }, testInfo) => {
+        const seeded = await lookupSeededShow();
+        const shareToken = await lookupShareToken(seeded.showId);
+        let path = `/show/${seeded.slug}/${shareToken}`;
+        if (route === "preview") {
+          const crew = await admin
+            .from("crew_members")
+            .select("id, name, role")
+            .eq("show_id", seeded.showId)
+            .eq("role", MODAL_ROLE)
+            .order("name")
+            .limit(1)
+            .maybeSingle();
+          expect(crew.error, "crew lookup").toBeNull();
+          expect(
+            crew.data,
+            "PREMISE: the seeded show has a crew member with the modal role",
+          ).not.toBeNull();
+          path = `/admin/show/${seeded.slug}/preview/${crew.data!.id as string}`;
+        }
+        const viewport = { width, height: 900 };
+        const wide = width >= 1024;
+
+        // The loaded page.
+        await page.setViewportSize(viewport);
+        await signInAs(page, ADMIN_FIXTURE);
+        await page.goto(path, { waitUntil: "domcontentloaded" });
+        await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+          "data-crew-controller-ready",
+          "true",
+          { timeout: 30_000 },
+        );
+        const firstDay = page.getByTestId("crew-day-row").locator("> button").first();
+        await expect(firstDay, "premise: the seeded show renders a day row").toBeVisible();
+        await expect(page.getByTestId("crew-pass")).toBeVisible();
+        // The header's line boxes are the resolved face's: measure after it settles.
+        await page.evaluate(() => document.fonts.ready);
+        const real = {
+          header: await boxOf(page.getByTestId("page-header"), "page-header"),
+          search: await boxOf(page.getByTestId("page-header-search"), "page-header-search"),
+          day: await boxOf(firstDay, "first day button"),
+          // The row's slot in the lead column: `CrewSections` wraps it in a margin
+          // div. The row itself can scroll sideways (five or more days, centred on
+          // mount), so its first button's x says nothing about the slot.
+          dayRow: await boxOf(page.getByTestId("crew-day-row").locator(".."), "day row slot"),
+          pass: await boxOf(page.getByTestId("crew-pass"), "crew-pass"),
+          nav: wide ? await boxOf(page.getByTestId("crew-wide-nav"), "crew-wide-nav") : null,
+          banner:
+            route === "preview"
+              ? await boxOf(page.getByTestId("admin-preview-banner"), "admin-preview-banner")
+              : null,
+        };
+
+        // The skeleton, mid-load, in a context matching the project's device.
+        const baseURL = testInfo.project.use.baseURL;
+        if (!baseURL) throw new Error("the mobile-safari project declares a baseURL");
+        // The crew route's fallback is the first one the stream flushes, so it
+        // is read with scripting off, where React's swap never runs. The preview
+        // route's sits inside the admin segment's own fallback, so with scripting
+        // off the admin skeleton would show instead: there scripts run, and the
+        // document is cut right after the inline swap that reveals the preview
+        // fallback, before the page that would replace it.
+        const scripted = route === "preview";
+        const context = await browser.newContext({
+          ...devices["iPhone 14"],
+          baseURL,
+          viewport,
+          javaScriptEnabled: scripted,
+        });
+        try {
+          const off = await context.newPage();
+          await signInAs(off, ADMIN_FIXTURE);
+          let rewritten = false;
+          await off.route(`**${path}`, async (route) => {
+            const response = await route.fetch();
+            const html = await response.text();
+            if (!scripted) {
+              rewritten = html.includes(HIDE_SHELL);
+              await route.fulfill({ response, body: html.split(HIDE_SHELL).join(HIDE_NOTICE) });
+              return;
+            }
+            const cut = cutAfterFallbackReveal(html, "admin-preview-crew-loading");
+            rewritten = cut !== null;
+            await route.fulfill({ response, body: cut ?? html });
+          });
+          // `load`, not `document.fonts.ready`: nothing evaluates with scripting off,
+          // and next/font preloads its faces, so the load event waits for them.
+          await off.goto(path, { waitUntil: "load" });
+          expect(
+            rewritten,
+            scripted
+              ? "premise: the preview fallback streamed inside a boundary the stream later reveals"
+              : "premise: the response carries LoadingShell's no-JS rule",
+          ).toBe(true);
+          await expect(
+            off.getByTestId(scripted ? "admin-preview-crew-loading" : "crew-loading-skeleton"),
+            "premise: the route streamed its loading fallback",
+          ).toBeVisible();
+          await expect(off.getByTestId("crew-loading-header")).toBeVisible();
+          const skel = {
+            header: await boxOf(off.getByTestId("crew-loading-header"), "crew-loading-header"),
+            search: await boxOf(off.getByTestId("crew-loading-search"), "crew-loading-search"),
+            day: await boxOf(
+              off.getByTestId("crew-loading-day-row").locator("> div").first(),
+              "first day slot",
+            ),
+            dayRow: await boxOf(off.getByTestId("crew-loading-day-row"), "crew-loading-day-row"),
+            pass: await boxOf(off.getByTestId("crew-loading-pass"), "crew-loading-pass"),
+            nav: wide ? await boxOf(off.getByTestId("crew-loading-nav"), "crew-loading-nav") : null,
+            banner:
+              route === "preview"
+                ? await boxOf(
+                    off.getByTestId("admin-preview-loading-banner"),
+                    "admin-preview-loading-banner",
+                  )
+                : null,
+          };
+
+          const near = (label: string, got: number, want: number) =>
+            expect(
+              Math.abs(got - want),
+              `${label}: skeleton ${got}, loaded ${want}`,
+            ).toBeLessThanOrEqual(TOL);
+          /** Distance from the header's bottom edge, the one line both pages share. */
+          const under = (box: Box, header: Box) => box.y - (header.y + header.height);
+          near("header top", skel.header.y, real.header.y);
+          near(
+            "search row, offset under the header",
+            under(skel.search, skel.header),
+            under(real.search, real.header),
+          );
+          near("search row height", skel.search.height, real.search.height);
+          near(
+            "first day button, offset under the header",
+            under(skel.day, skel.header),
+            under(real.day, real.header),
+          );
+          near("first day button height", skel.day.height, real.day.height);
+          near("day row left", skel.dayRow.x, real.dayRow.x);
+          near("day row width", skel.dayRow.width, real.dayRow.width);
+          near(
+            "pass, offset under the header",
+            under(skel.pass, skel.header),
+            under(real.pass, real.header),
+          );
+          near("pass width", skel.pass.width, real.pass.width);
+          // The page does not jump on the swap (UI-gate re-run P3-2 / critique N4):
+          // below 1024px too, the header is the loaded one's height, so everything
+          // under it lands where it will be. The skeleton reserves a representative
+          // eyebrow and title (two and three lines at 390) that wrap like the seeded
+          // show's; a show whose title wraps to another line count moves by the
+          // difference.
+          near("header height", skel.header.height, real.header.height);
+          near("first day button top", skel.day.y, real.day.y);
+          near("pass top", skel.pass.y, real.pass.y);
+          if (skel.banner && real.banner) {
+            near("preview banner top", skel.banner.y, real.banner.y);
+            near("preview banner height", skel.banner.height, real.banner.height);
+          } else {
+            expect(route, "the banner is drawn on the preview route, in both").toBe("crew");
+          }
+          if (skel.nav && real.nav) {
+            near("nav left", skel.nav.x, real.nav.x);
+            near("nav width", skel.nav.width, real.nav.width);
+            near("nav top", skel.nav.y, real.nav.y);
+          } else {
+            expect(wide, "the nav column is drawn from 1024px, in both").toBe(false);
+            await expect(off.getByTestId("crew-loading-nav")).toBeHidden();
+            await expect(page.getByTestId("crew-wide-nav")).toHaveCount(0);
+          }
+        } finally {
+          await context.close();
+        }
+      });
+    }
 });
