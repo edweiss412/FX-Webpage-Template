@@ -369,9 +369,11 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
     <>
       <div className="flex flex-1 flex-col p-5">
         {/* The role side wraps under the day label when the two do not fit one
-            line, and then clamps at two: the role renders as the sheet writes
+            line, and then clamps at three: the role renders as the sheet writes
             it (spec §9.2), and on a real roster that is a long string whose
-            trailing position code is the part that matters. */}
+            trailing position code is the part that matters. The seed's longest,
+            "- Load In / Set / Strike / Load Out - LEAD / V1", takes three lines
+            in the 288px pass of a 320px window. */}
         <div
           data-testid="crew-pass-eyebrow-row"
           className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"
@@ -400,7 +402,7 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
           {eyebrowRight ? (
             <p
               data-testid="crew-pass-eyebrow-right"
-              className="line-clamp-2 min-w-0 text-balance wrap-break-word text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+              className="line-clamp-3 min-w-0 text-balance wrap-break-word text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
             >
               {eyebrowRight}
             </p>

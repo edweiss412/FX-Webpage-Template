@@ -1993,9 +1993,13 @@ test.describe("the pass (crew page redesign Task 9)", () => {
         "data-selection",
         `day:${SHOW_DAY_2}`,
       );
-      await expect
-        .poll(() => page.locator('[data-testid="crew-pass-body"]').count(), { timeout: 5_000 })
-        .toBe(1);
+      // The day's own body is present (readBoxes reads only the present body, so
+      // a crossfade's exiting body does not need to have left).
+      await expect(
+        page.locator(
+          '[data-testid="crew-pass-body"]:not([data-exiting]) [data-testid="crew-pass-eyebrow"]',
+        ),
+      ).toHaveText(`Show day 2 of ${SHOW_DAYS.length}`);
       bodies.push(await readBoxes());
 
       for (const boxes of bodies) {
@@ -2892,69 +2896,89 @@ test.describe("dimensional invariants, compact (crew page redesign Task 13)", ()
     }
   });
 
-  test("dimensional: pass fact grid: three equal columns whose cells never widen, and a long value stays on one line with an ellipsis", async ({
+  // Spec §8 item 2, amended 2026-10-30 (gate fix X1): the fact grid is two
+  // equal columns until the pass is `@lg` (32rem) wide, then three, read from the
+  // pass's own width; cells never widen, and a long value clamps at two lines
+  // with an ellipsis instead of one.
+  test("dimensional: pass fact grid: equal columns (two, three from an @lg-wide pass) whose cells never widen, and a long value stops at two lines with an ellipsis", async ({
     page,
   }) => {
     await pinBothClocks(page, SHOW_DAY_1);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoHome(page);
-    await expect(page.getByTestId("crew-pass-facts")).toBeVisible();
-    const m = await page.evaluate(() => {
-      const grid = document.querySelector<HTMLElement>('[data-testid="crew-pass-facts"]')!;
-      const cs = getComputedStyle(grid);
-      const gb = grid.getBoundingClientRect();
-      return {
-        display: cs.display,
-        gap: Number.parseFloat(cs.columnGap),
-        tracks: cs.gridTemplateColumns.split(" ").map(Number.parseFloat),
-        contentLeft: gb.left + Number.parseFloat(cs.paddingLeft),
-        contentRight: gb.right - Number.parseFloat(cs.paddingRight),
-        cells: [...grid.children].map((cell) => {
-          const r = cell.getBoundingClientRect();
-          const value = cell.querySelector("dd")!;
-          const vs = getComputedStyle(value);
-          return {
-            fact: cell.getAttribute("data-fact"),
-            left: r.left,
-            right: r.right,
-            width: r.width,
-            value: {
-              height: value.getBoundingClientRect().height,
-              lineHeight: Number.parseFloat(vs.lineHeight),
-              scrollWidth: value.scrollWidth,
-              clientWidth: value.clientWidth,
-              whiteSpace: vs.whiteSpace,
-              textOverflow: vs.textOverflow,
-              overflowX: vs.overflowX,
-            },
-          };
-        }),
-      };
-    });
-    const at = JSON.stringify(m);
-    expect(m.display, at).toBe("grid");
-    expect(m.tracks, at).toHaveLength(3);
-    const track = (m.contentRight - m.contentLeft - 2 * m.gap) / 3;
-    for (const t of m.tracks) expect(Math.abs(t - track), at).toBeLessThanOrEqual(TOL);
-    expect(m.cells.length, at).toBeGreaterThan(0);
-    for (const c of m.cells) {
-      expect(Math.abs(c.width - track), `${at} ${c.fact} keeps its track`).toBeLessThanOrEqual(TOL);
-      expect(c.right, `${at} ${c.fact} stays in the grid`).toBeLessThanOrEqual(
-        m.contentRight + TOL,
-      );
+    const counts = new Set<number>();
+    for (const width of [390, 768]) {
+      await page.setViewportSize({ width, height: 844 });
+      await gotoHome(page);
+      await expect(page.getByTestId("crew-pass-facts")).toBeVisible();
+      const m = await page.evaluate(() => {
+        const grid = document.querySelector<HTMLElement>('[data-testid="crew-pass-facts"]')!;
+        const pass = document.querySelector<HTMLElement>('[data-testid="crew-pass"]')!;
+        const cs = getComputedStyle(grid);
+        const gb = grid.getBoundingClientRect();
+        const rootFont = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+        return {
+          display: cs.display,
+          gap: Number.parseFloat(cs.columnGap),
+          tracks: cs.gridTemplateColumns.split(" ").map(Number.parseFloat),
+          // `@lg/pass`: Tailwind's lg container size, 32rem, against the pass's width.
+          wide: pass.getBoundingClientRect().width >= 32 * rootFont,
+          contentLeft: gb.left + Number.parseFloat(cs.paddingLeft),
+          contentRight: gb.right - Number.parseFloat(cs.paddingRight),
+          cells: [...grid.children].map((cell) => {
+            const r = cell.getBoundingClientRect();
+            const value = cell.querySelector("dd")!;
+            const vs = getComputedStyle(value);
+            return {
+              fact: cell.getAttribute("data-fact"),
+              right: r.right,
+              width: r.width,
+              value: {
+                height: value.getBoundingClientRect().height,
+                lineHeight: Number.parseFloat(vs.lineHeight),
+                scrollWidth: value.scrollWidth,
+                clientWidth: value.clientWidth,
+                scrollHeight: value.scrollHeight,
+                clientHeight: value.clientHeight,
+                overflowY: vs.overflowY,
+              },
+            };
+          }),
+        };
+      });
+      const at = `@${width}px ${JSON.stringify(m)}`;
+      expect(m.display, at).toBe("grid");
+      const n = m.wide ? 3 : 2;
+      counts.add(n);
+      expect(m.tracks, at).toHaveLength(n);
+      const track = (m.contentRight - m.contentLeft - (n - 1) * m.gap) / n;
+      for (const t of m.tracks) expect(Math.abs(t - track), at).toBeLessThanOrEqual(TOL);
+      expect(m.cells.length, at).toBeGreaterThan(0);
+      for (const c of m.cells) {
+        expect(Math.abs(c.width - track), `${at} ${c.fact} keeps its track`).toBeLessThanOrEqual(
+          TOL,
+        );
+        expect(c.right, `${at} ${c.fact} stays in the grid`).toBeLessThanOrEqual(
+          m.contentRight + TOL,
+        );
+        // No value widens its cell: a long one wraps or clamps.
+        expect(c.value.scrollWidth, `${at} ${c.fact} never overflows sideways`).toBeLessThanOrEqual(
+          c.value.clientWidth + TOL,
+        );
+      }
+      const dress = m.cells.find((c) => c.fact === "dressCode");
+      expect(dress, `the Dress code cell renders ${at}`).toBeDefined();
+      if (width === 390) {
+        // PREMISE: at the phone width the long value needs more than two lines, so
+        // the clamp is what stops it.
+        expect(dress!.value.scrollHeight, at).toBeGreaterThan(dress!.value.clientHeight + TOL);
+        expect(dress!.value.overflowY, at).toBe("hidden");
+      }
+      expect(
+        dress!.value.height,
+        `${at} the Dress code value stops at two lines`,
+      ).toBeLessThanOrEqual(2 * dress!.value.lineHeight + TOL);
     }
-    const dress = m.cells.find((c) => c.fact === "dressCode");
-    expect(dress, `the Dress code cell renders ${at}`).toBeDefined();
-    // PREMISE: the value is wider than its column, so the cell would widen or wrap
-    // without the invariant.
-    expect(dress!.value.scrollWidth, at).toBeGreaterThan(dress!.value.clientWidth);
-    expect(dress!.value.whiteSpace, at).toBe("nowrap");
-    expect(dress!.value.overflowX, at).toBe("hidden");
-    expect(dress!.value.textOverflow, at).toBe("ellipsis");
-    expect(
-      Math.abs(dress!.value.height - dress!.value.lineHeight),
-      `${at} one line`,
-    ).toBeLessThanOrEqual(TOL);
+    // PREMISE: the two widths reached both column counts.
+    expect([...counts].sort()).toEqual([2, 3]);
   });
 
   test("dimensional: quick facts: two equal columns whose tiles share their row's height, a spanning tile the grid's full width, and a long value stops at 3 lines with an ellipsis", async ({
