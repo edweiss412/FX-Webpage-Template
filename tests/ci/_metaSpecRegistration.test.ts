@@ -995,7 +995,10 @@ describe("spec registration detector (spec §3.1)", () => {
   const COMPLEX_INVOCATION_REGISTRY: Record<string, readonly string[]> = {
     'pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"':
       ["playwright.config.ts"],
-    'pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"':
+    // A json report since whole-diff review round 2 (second pass, 2C-R2-1): the
+    // crew probe's own executed-count check, scripts/check-phantom-gap-crew-executed.mjs,
+    // reads it, so a runtime skip in a T-NOPHANTOM-CREW case fails the job.
+    'pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"':
       ["playwright.config.ts"],
     // The private-image-pipeline variant geometry + no-optimizer network gate. Its
     // OWN step for the same reason as the rows around it: the T-NOPHANTOM-CREW

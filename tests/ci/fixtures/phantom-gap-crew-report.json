@@ -1,0 +1,364 @@
+{
+  "suites": [
+    {
+      "title": "crew-layout-dimensions.spec.ts",
+      "file": "crew-layout-dimensions.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "crew layout dimensions — split-wide ratio + natural height (Task 10)",
+          "file": "crew-layout-dimensions.spec.ts",
+          "specs": [],
+          "suites": [
+            {
+              "title": "phantom gap — crew page sections",
+              "file": "crew-layout-dimensions.spec.ts",
+              "specs": [
+                {
+                  "title": "T-NOPHANTOM-CREW [schedule] @ 390: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-fd607ab93e248bc864c1",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [schedule] @ 1000: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-eeb81c7be5ae7815b379",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [schedule] @ 1280: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-34a35290d8b6b1a2fb77",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [crew] @ 390: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-64e0796be254fed54fe5",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [crew] @ 1000: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-59f43967e5b7607cf1fb",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [crew] @ 1280: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-950885b9e00678dbf263",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [today] @ 390: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-bf6b8d7b65607720317e",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [today] @ 1000: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-7826b32ed44be0054fa8",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [today] @ 1280: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-bd6562f54b89063278e4",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [venue] @ 390: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-966ed3c88042e0787625",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [venue] @ 1000: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-6a8ea3e576785f04c331",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [venue] @ 1280: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-ba31bd7e6a888967a8bd",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [travel] @ 390: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-e1ccf73c78236149f311",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [travel] @ 1000: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-a3bf03caf1577ffb893f",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [travel] @ 1280: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-30f5bd18a41be941454f",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [gear] @ 390: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-ac4a4155b8c408c2e69f",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [gear] @ 1000: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-228202bf0ce7aa728491",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [gear] @ 1280: no zero-extent flex/grid item inside any gapped container",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 926,
+                  "id": "ed594352c1f77274529b-0edc46598c730d31b315",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [eyebrow displacement] blank leg",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 1057,
+                  "id": "ed594352c1f77274529b-51c0f0ad04768b70674f",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "title": "T-NOPHANTOM-CREW [eyebrow displacement] labelled leg",
+                  "file": "crew-layout-dimensions.spec.ts",
+                  "line": 1091,
+                  "id": "ed594352c1f77274529b-944872340cb02024f4a2",
+                  "tests": [
+                    {
+                      "projectName": "mobile-safari",
+                      "status": "expected",
+                      "results": [
+                        {
+                          "status": "passed"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

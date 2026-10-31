@@ -84,6 +84,116 @@ export const REQUIRED_PAIRS = [
 ];
 
 /**
+ * The CREW probe step's pairs (whole-diff review round 2, second pass,
+ * 2C-R2-1): the phantom-gap job's `-g "T-NOPHANTOM-CREW"` step ran list-only, so
+ * a runtime `test.skip()` there kept the job green (probed 2026-10-31: the six
+ * 1280px legs skipped, exit 0). That step now writes its own report, and
+ * scripts/check-phantom-gap-crew-executed.mjs reads it against this table.
+ *
+ * DERIVED FROM A REAL RUN (2026-10-31, `--project=mobile-safari`, json
+ * reporter, 20 passed): every case of the step, mobile-safari only, because the
+ * describe is single-writer and declares a skip off that project. The captured
+ * report is tests/ci/fixtures/phantom-gap-crew-report.json.
+ */
+export const CREW_REQUIRED_PAIRS = [
+  {
+    title:
+      "T-NOPHANTOM-CREW [schedule] @ 390: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [schedule] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [schedule] @ 1280: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [crew] @ 390: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [crew] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [crew] @ 1280: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [today] @ 390: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [today] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [today] @ 1280: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [venue] @ 390: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [venue] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [venue] @ 1280: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [travel] @ 390: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [travel] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [travel] @ 1280: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [gear] @ 390: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [gear] @ 1000: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  {
+    title:
+      "T-NOPHANTOM-CREW [gear] @ 1280: no zero-extent flex/grid item inside any gapped container",
+    project: "mobile-safari",
+  },
+  { title: "T-NOPHANTOM-CREW [eyebrow displacement] blank leg", project: "mobile-safari" },
+  { title: "T-NOPHANTOM-CREW [eyebrow displacement] labelled leg", project: "mobile-safari" },
+];
+
+/** Where the crew probe step writes its report. */
+export const CREW_REPORT_RELATIVE = ["test-results", "phantom-gap-crew-report.json"];
+
+/**
  * The composite key. NUL joins the two halves because it cannot occur in a
  * Playwright title or project name, so no title ending in the project's name can
  * collide with a different pair.
@@ -166,9 +276,9 @@ export const DEFAULT_REPORT_RELATIVE = ["test-results", "phantom-gap-diagrams-re
  * default there would read a DIFFERENT run's report than the operator asked for
  * and report on it as if it were theirs.
  */
-export function resolveReportPath(argv, cwd) {
+export function resolveReportPath(argv, cwd, defaultRelative = DEFAULT_REPORT_RELATIVE) {
   const flag = argv.indexOf("--report");
-  if (flag === -1) return join(cwd, ...DEFAULT_REPORT_RELATIVE);
+  if (flag === -1) return join(cwd, ...defaultRelative);
   return argv[flag + 1];
 }
 

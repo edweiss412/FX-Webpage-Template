@@ -892,6 +892,14 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
         governs: [],
       },
       {
+        // The crew probe step's own report (whole-diff review round 2, second
+        // pass, 2C-R2-1), read by scripts/check-phantom-gap-crew-executed.mjs.
+        // Empty by live derivation, for the diagrams value's reason: the job is
+        // path-filtered.
+        text: "test-results/phantom-gap-crew-report.json",
+        governs: [],
+      },
+      {
         text: "test-results/phantom-gap-width-chain-report.json",
         governs: [],
       },
@@ -905,10 +913,11 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test. " +
       "TWO CONSUMER CLASSES, with DIFFERENT failure behavior, and the distinction is recorded " +
       "because an earlier version of this text claimed the first for all of them (2026-08-16 " +
-      "diff review, finding 2). (1) ORACLE-CONSUMED — the four original paths, read by a " +
-      "post-run executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
+      "diff review, finding 2). (1) ORACLE-CONSUMED — the four original paths and the crew " +
+      "probe's, read by a post-run executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
       "scripts/check-app-e2e-executed.mjs, scripts/check-lifecycle-layout-executed.mjs, " +
-      "scripts/check-phantom-gap-executed.mjs); a wrong value makes the oracle fail CLOSED on a " +
+      "scripts/check-phantom-gap-executed.mjs, scripts/check-phantom-gap-crew-executed.mjs); " +
+      "a wrong value makes the oracle fail CLOSED on a " +
       "missing report rather than pass. (2) PRINTER-CONSUMED — the seven paths the modal-wait " +
       "adoption arc added, read only by scripts/print-infra-recoveries.mjs, which always exits 0; " +
       "a wrong value fails OPEN, losing that step's infra-recovery print while the run's verdict " +

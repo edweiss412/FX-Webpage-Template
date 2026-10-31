@@ -406,7 +406,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // (BL-PREMISESCAN-NESTED-HELPER-SCOPE): extents are keyed by scope and
   // resolved innermost-out, so a helper declared inside `describe` carries its
   // provenance and the count no longer depends on where the helper sits.
-  "tests/ci/phantomGapExecuted.test.ts": 3,
+  //
+  // 4 since whole-diff review round 2 (second pass, 2C-R2-1): the crew probe
+  // step's CLI case spawns scripts/check-phantom-gap-crew-executed.mjs for its
+  // exit codes, the same reason as the three above.
+  "tests/ci/phantomGapExecuted.test.ts": 4,
   // The interactive-scan guard surfaces, enrolled 2026-08-14
   // (fix/ui-interactive-token-policy). All three declare 0, and the declaration
   // is honest rather than convenient: each reads the live tree through node:fs
