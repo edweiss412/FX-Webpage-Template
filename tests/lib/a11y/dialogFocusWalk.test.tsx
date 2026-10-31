@@ -652,6 +652,49 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     expect(back).toEqual(["next", "close"]);
   });
 
+  // Whole-diff review round 2, 2B-2. The group's stop was picked before anyone
+  // asked whether it takes focus: with none checked, a first radio inside a
+  // disabled fieldset became the group's only stop, focus() refused it, and the
+  // walk passed over the whole group, its enabled radios included.
+  test("walk: a disabled radio never stands in for its group: the first enabled one is the stop", () => {
+    render(
+      <Dialog testId="d" walk>
+        <button type="button" data-testid="before">
+          Before
+        </button>
+        <fieldset disabled>
+          <input type="radio" name="pick" value="a" data-testid="radio-locked" />
+        </fieldset>
+        <input type="radio" name="pick" value="b" disabled data-testid="radio-off" />
+        <input type="radio" name="pick" value="c" data-testid="radio-c" />
+        <input type="radio" name="pick" value="d" data-testid="radio-d" />
+        <button type="button" data-testid="after">
+          After
+        </button>
+      </Dialog>,
+    );
+    // PREMISE: the fieldset's radio refuses focus, as in both engines.
+    screen.getByTestId("radio-locked").focus();
+    expect(active(), "focus() in a disabled fieldset does nothing").toBe("d-title");
+
+    screen.getByTestId("before").focus();
+    const forward: (string | null)[] = [];
+    for (let i = 0; i < 3; i++) {
+      tab();
+      forward.push(active());
+    }
+    expect(forward).toEqual(["radio-c", "after", "before"]);
+    const back: (string | null)[] = [];
+    for (let i = 0; i < 3; i++) {
+      tab(true);
+      back.push(active());
+    }
+    // Which enabled radio a Shift+Tab enters an unchecked group at is not this
+    // case's subject; that it enters at an enabled one is.
+    expect([back[0], back[2]]).toEqual(["after", "before"]);
+    expect(["radio-c", "radio-d"]).toContain(back[1]);
+  });
+
   // The walk listens on `window`, so it hears Tabs from anywhere on the page. A
   // dialog opened from the sheet but portaled outside it (as the admin review
   // modal's unsaved-readings prompt is portaled) owns its own Tabs.

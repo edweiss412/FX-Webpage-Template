@@ -98,6 +98,11 @@ function isTabStop(el: HTMLElement): boolean {
   }
   return (
     !inClosedDisclosure(el) &&
+    // A control disabled by a disabled fieldset around it refuses focus, though
+    // the selector's own `:not([disabled])` cannot see the fieldset. Dropped
+    // here, before a radio group picks its stop, so a disabled radio never
+    // stands in for its enabled siblings (whole-diff review round 2, 2B-2).
+    !el.matches(":disabled") &&
     el.offsetParent !== null &&
     // An explicit negative tabindex takes an element out of sequential order:
     // `a[href]` (etc.) with tabindex="-1" is click/programmatically focusable
