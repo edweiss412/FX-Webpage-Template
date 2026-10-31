@@ -154,6 +154,24 @@ function ConfirmPopover({ resolving = false }: { resolving?: boolean }) {
 
 const active = () => (document.activeElement as HTMLElement | null)?.dataset.testid ?? null;
 
+/** Lets a task run: the walk settles a Tab it left to the browser after the browser's own move. */
+const settle = () => new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+/** The browser's own Tab from a player, as WebKit's is (measured): focus lands on <body>. */
+async function landOnBody(): Promise<void> {
+  const el = document.activeElement as HTMLElement | null;
+  if (el !== null && el !== document.body) {
+    // jsdom blurs only what it deems focusable, which a player is not (above).
+    const marked = el.hasAttribute("tabindex");
+    if (!marked) el.setAttribute("tabindex", "-1");
+    el.blur();
+    if (!marked) el.removeAttribute("tabindex");
+  }
+  // PREMISE: the browser's move left focus on <body>.
+  expect(document.activeElement).toBe(document.body);
+  await settle();
+}
+
 /** Press Tab (or Shift+Tab) on whatever holds focus; returns whether anything cancelled it. */
 function tab(shift = false): boolean {
   const target = document.activeElement ?? document.body;
@@ -477,7 +495,7 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
     });
   }
 
-  test("walk: media with controls, a frame and an editing host are stops; media without controls and a non-editable region are not (R2-F3)", () => {
+  test("walk: media with controls, a frame and an editing host are stops; media without controls and a non-editable region are not (R2-F3)", async () => {
     render(
       <Dialog testId="d" walk>
         <button type="button" data-testid="close">
@@ -504,19 +522,94 @@ describe("walk mode (walkTabs, the crew section sheet): the hook moves focus on 
       screen.getByTestId(id).focus();
       expect(active(), `${id} takes focus`).toBe(id);
     }
+    // A Tab on a player, or a Shift+Tab onto one, is the browser's (the next
+    // case); here the browser's move lands on <body>, as WebKit's plain Tab
+    // does, so the walk's own order shows.
+    const step = async (shift = false) => {
+      if (!tab(shift)) await landOnBody();
+      return active();
+    };
     screen.getByTestId("close").focus();
     const forward: (string | null)[] = [];
-    for (let i = 0; i < 6; i++) {
-      tab();
-      forward.push(active());
-    }
+    for (let i = 0; i < 6; i++) forward.push(await step());
     expect(forward).toEqual(["reel", "clip", "frame", "editable", "last", "close"]);
     const back: (string | null)[] = [];
-    for (let i = 0; i < 6; i++) {
-      tab(true);
-      back.push(active());
-    }
+    for (let i = 0; i < 6; i++) back.push(await step(true));
     expect(back).toEqual(["last", "editable", "frame", "clip", "reel", "close"]);
+  });
+
+  // Whole-diff review round 2, 2A-2. A player's own controls are the browser's:
+  // Chromium's are a closed shadow tree behind the <video> (measured, Playwright
+  // 1.59: from the element, six more Tabs stay on it, then the next control;
+  // Space plays, as does Tab then Enter on its play button), and WebKit's are
+  // reached with Option+Tab (one more stop on it, Enter plays). The walk used to
+  // cancel every Tab on the player and move past it, so none of those controls
+  // could be reached. Now a Tab on a player, and a Shift+Tab onto one, go to the
+  // browser; once focus leaves the player the walk puts it on its own next stop
+  // (WebKit's plain Tab from a player lands on <body>).
+  test("walk: on a player with controls, Tab and Shift+Tab are the browser's while focus stays in it, and the walk takes over once focus leaves it (round 2, 2A-2)", async () => {
+    render(
+      <Dialog testId="d" walk>
+        <button type="button" data-testid="close">
+          Close
+        </button>
+        <video controls preload="none" data-testid="reel" />
+        <button type="button" data-testid="last">
+          Last
+        </button>
+      </Dialog>,
+    );
+    const reel = screen.getByTestId("reel");
+
+    // Into the player: the walk's own Tab, onto the element, as Chromium's is.
+    screen.getByTestId("close").focus();
+    expect(tab(), "the walk takes the Tab onto the player").toBe(true);
+    expect(active()).toBe("reel");
+
+    // On the player: the browser's, so its controls are reached. Focus stays on
+    // the element while it moves among them, and the walk leaves it there.
+    for (const shift of [false, true]) {
+      reel.focus();
+      expect(tab(shift), `${shift ? "Shift+Tab" : "Tab"} on the player is the browser's`).toBe(
+        false,
+      );
+      await settle();
+      expect(active(), "still in the player's controls").toBe("reel");
+    }
+
+    // Leaving it forward: wherever the browser put focus, the walk's next stop.
+    reel.focus();
+    tab();
+    await landOnBody(); // WebKit's own Tab from a player
+    expect(active()).toBe("last");
+    reel.focus();
+    tab();
+    screen.getByTestId("last").focus(); // Chromium's, already the walk's stop
+    await settle();
+    expect(active()).toBe("last");
+
+    // Leaving it backward, from its first control.
+    reel.focus();
+    tab(true);
+    await landOnBody();
+    expect(active()).toBe("close");
+
+    // Onto the player backward: the browser's Shift+Tab, which lands on the
+    // player's last control (Chromium); anywhere else, the walk puts it on the player.
+    screen.getByTestId("last").focus();
+    expect(tab(true), "Shift+Tab onto the player is the browser's").toBe(false);
+    await landOnBody();
+    expect(active()).toBe("reel");
+    screen.getByTestId("last").focus();
+    tab(true);
+    reel.focus(); // the browser's own landing, on the player
+    await settle();
+    expect(active()).toBe("reel");
+
+    // Away from players, every Tab is still the walk's.
+    screen.getByTestId("last").focus();
+    expect(tab(), "the walk takes a Tab between buttons").toBe(true);
+    expect(active()).toBe("close");
   });
 
   // The class R2-F1 belongs to: a stop the walk accepts while focus() on it does

@@ -146,6 +146,17 @@ function walkStops(container: HTMLElement): HTMLElement[] {
 }
 
 /**
+ * A player with native controls. Its controls are the browser's: Chromium's are
+ * a closed shadow tree behind the element, which the walk cannot see, so Tabs
+ * among them stay on the element (measured, Playwright 1.59: six of them, then
+ * the next control); WebKit's are reached with Option+Tab (whole-diff review
+ * round 2, 2A-2).
+ */
+function isPlayer(el: Element | null): el is HTMLMediaElement {
+  return el instanceof HTMLMediaElement && el.controls;
+}
+
+/**
  * The stop a Tab (or Shift+Tab) moves to from `active`: the next (previous)
  * stop in document order, wrapping. From an element that is not a stop (a
  * `tabindex="-1"` heading focused on open, or the container itself), the first
@@ -200,7 +211,10 @@ export function useDialogFocus(
     /**
      * Opt-in, for the crew section sheet only: the trap moves focus itself on
      * every `Tab` and `Shift+Tab`, to the next or previous stop in document
-     * order, wrapping, and never hands a Tab to the browser. WebKit's default
+     * order, wrapping, and hands a Tab to the browser only on (or, going back,
+     * onto) a player with native controls, whose controls only the browser can
+     * walk, settling focus on its own next stop once it leaves (whole-diff
+     * review round 2, 2A-2). WebKit's default
      * sequential navigation skips buttons and links, so a Tab left to it in a
      * dialog of buttons and links lands on `<body>` (measured under
      * Playwright's mobile-safari). Every other dialog keeps the default: act at
@@ -290,6 +304,27 @@ export function useDialogFocus(
       }
     }
 
+    /**
+     * Focus the stop after (before) `start`. A stop that refuses focus (a
+     * control in a disabled fieldset, an editable region nested in another
+     * editing host) would hold the walk in place on every Tab, as a closed
+     * disclosure's contents did (R2-F1): pass over it, as the browser's own
+     * navigation does.
+     */
+    function walkFrom(start: Element | null, backward: boolean) {
+      const stops = walkStops(container as HTMLElement);
+      let from = start;
+      for (let tries = 0; tries < stops.length; tries++) {
+        const target = nextStop(stops, from, backward);
+        target.focus();
+        if (document.activeElement === target) return;
+        from = target;
+      }
+    }
+
+    // A Tab left to the browser is settled a task later, after its own move.
+    let settleTimer: number | null = null;
+
     // The walk listens on `window`, in the bubble phase, so it runs after
     // everything inside: React dispatches every onKeyDown from the root
     // container, or from a portal's container, both ancestors of the dialog. On
@@ -303,25 +338,43 @@ export function useDialogFocus(
       if (!(event.target instanceof Node) || !(container as HTMLElement).contains(event.target)) {
         return;
       }
-      event.preventDefault();
+      const from = document.activeElement;
+      const backward = event.shiftKey;
+      // A player's Tab, and a Shift+Tab onto one, are the browser's, so its
+      // own controls are reached (the player is entered at its last control
+      // going back, as the browser does). While focus stays on the player the
+      // browser is moving it among them; once focus has left, the walk puts it
+      // where its own order says, wherever the browser put it (WebKit's plain
+      // Tab from a player lands on <body>, measured).
+      const onPlayer = isPlayer(from);
       const stops = walkStops(container as HTMLElement);
-      // A stop that refuses focus (a control in a disabled fieldset, an editable
-      // region nested in another editing host) would hold the walk in place on
-      // every Tab, as a closed disclosure's contents did (R2-F1): pass over it,
-      // as the browser's own navigation does.
-      let from: Element | null = document.activeElement;
-      for (let tries = 0; tries < stops.length; tries++) {
-        const target = nextStop(stops, from, event.shiftKey);
-        target.focus();
-        if (document.activeElement === target) return;
-        from = target;
+      const ontoPlayer =
+        backward && !onPlayer && stops.length > 0 && isPlayer(nextStop(stops, from, true));
+      if (onPlayer || ontoPlayer) {
+        if (settleTimer !== null) window.clearTimeout(settleTimer);
+        settleTimer = window.setTimeout(() => {
+          settleTimer = null;
+          const now = document.activeElement;
+          if (onPlayer) {
+            if (now === from) return; // still among the player's controls
+            const expected = nextStop(walkStops(container as HTMLElement), from, backward);
+            if (now !== expected) walkFrom(from, backward);
+            return;
+          }
+          const player = nextStop(walkStops(container as HTMLElement), from, true);
+          if (now !== player) walkFrom(from, true);
+        }, 0);
+        return;
       }
+      event.preventDefault();
+      walkFrom(from, backward);
     }
 
     if (walkTabs) {
       window.addEventListener("keydown", onWalkKeyDown);
       return () => {
         window.removeEventListener("keydown", onWalkKeyDown);
+        if (settleTimer !== null) window.clearTimeout(settleTimer);
       };
     }
     container.addEventListener("keydown", onKeyDown);
