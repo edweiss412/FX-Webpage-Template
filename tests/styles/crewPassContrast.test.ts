@@ -101,6 +101,17 @@ describe("day row pressed state (X4, critique F6)", () => {
     });
   }
 
+  // UI-gate re-run, critique N6: the pressed day carries a short accent bar, so
+  // in dark, where the fills sit 1.06:1 apart, the selection has a cue beyond a
+  // 1px edge.
+  for (const mode of MODES) {
+    it(`${mode.name}: the pressed day's accent bar clears 3:1 on the pressed fill`, () => {
+      expect(
+        contrast(token(mode.src, "--color-accent"), token(mode.src, "--color-day-pressed")),
+      ).toBeGreaterThanOrEqual(GRAPHIC);
+    });
+  }
+
   it("light: the pressed fill is the near-black chip it was (the text colour)", () => {
     expect(token(light, "--color-day-pressed")).toBe(token(light, "--color-text"));
   });

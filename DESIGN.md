@@ -112,10 +112,15 @@ same documented limit as the onboarding wizard's step pills), so it has no
 registry row. In light its pressed day inverts the fill, which puts it outside
 Family D like the telemetry filter below. In dark the pressed fill is
 `--color-day-pressed`, one step above the unpressed `bg-surface` (1.06:1), so the
-Family D predicate applies, and the cue that carries the pair is the pressed
-button's `border-text` edge against the unpressed `border-text-faint` (3.81:1,
-pinned in tests/styles/crewPassContrast.test.ts), with `aria-pressed` in the
-semantic tree.
+Family D predicate applies, and the cues that carry the pair sit on the pressed
+member: its `border-text` edge against the unpressed `border-text-faint` (3.81:1)
+and, since the invariant-8 re-run (critique N6, 2026-10-31), a short accent bar
+under its label (`after:bg-accent`, 3px by 24px, 7.22:1 on the dark pressed fill
+and 7.39:1 on the light chip), both pinned in tests/styles/crewPassContrast.test.ts,
+with `aria-pressed` in the semantic tree. A 1px edge alone read as a hover or
+focus outline at glance distance; the bar is the wide nav's active-item mark, and
+small enough that the pass stays the focal point. Under forced colors it takes
+`HighlightText` on the `Highlight` fill.
 
 No pair is color-ALONE in the semantic tree: every one carries `aria-current`
 or a structural glyph, holding the §1 color-blind floor while preserving the

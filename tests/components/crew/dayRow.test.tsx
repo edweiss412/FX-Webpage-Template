@@ -463,6 +463,25 @@ describe("day row: content and names", () => {
     }
   });
 
+  // UI-gate re-run, critique N6: in dark the quiet pressed fill sits 1.06:1 from
+  // the unpressed one, so a 1px edge alone carried the selection and read like a
+  // hover or focus outline. A short accent bar under the label marks the pressed
+  // day in both themes (the wide nav's active-item language), small enough that
+  // the pass stays the focal point (contrast pinned in crewPassContrast.test.ts).
+  it("day row: a pressed button, Now included, carries the accent selection bar; an unpressed one does not", () => {
+    vi.setSystemTime(at("2026-05-30", "12:00:00"));
+    renderRow(dayRowProps(FIVE));
+    const MARK = ["relative", "after:absolute", "after:bg-accent", "after:rounded-pill"];
+    // PREMISE: after the show "Now" is pressed and every day is not.
+    expect(pressed()).toEqual([nowButton()]);
+    expect(nowButton()).toHaveClass(...MARK);
+    fireEvent.click(dayButton(FIVE.showDays[0]!)!);
+    expect(dayButton(FIVE.showDays[0]!)).toHaveClass(...MARK);
+    for (const button of [nowButton(), dayButton(FIVE.travelOut!)!]) {
+      expect(button).not.toHaveClass("after:bg-accent");
+    }
+  });
+
   it("day row: the pressed state changes background and text colour over --duration-fast, instant under reduced motion", () => {
     renderRow(dayRowProps(FIVE));
     const on = dayButton(FIVE.showDays[0]!)!.className.split(/\s+/);

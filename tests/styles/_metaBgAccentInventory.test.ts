@@ -118,6 +118,10 @@ const REGISTRY: Row[] = [
   // The crew wide nav's sliding accent bar, the same §A3 mechanism (crew page
   // redesign spec §5.3); the active item also carries aria-current and weight.
   D("components/crew/CrewWideNav.tsx", 0, "rounded-r-pill bg-accent"),
+  // The crew day row's selection bar under the pressed day's label (UI-gate
+  // re-run, critique N6), the wide nav's mark: the pressed day also carries
+  // aria-pressed, its fill (light) and its border-text edge.
+  D("components/crew/CrewDayRow.tsx", 0, "after:bg-accent"),
   D("components/crew/CrewPass.tsx", 0),
   D("components/crew/primitives/DayCard.tsx", 0),
 ];

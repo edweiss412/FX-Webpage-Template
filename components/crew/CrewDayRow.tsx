@@ -94,13 +94,17 @@ export function CrewDayRow({ timezone, days }: DayRowProps) {
 
   const buttonClass = (pressed: boolean) =>
     cn(
-      "flex min-h-tap-min min-w-16 flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-2 text-center transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+      "relative flex min-h-tap-min min-w-16 flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-2 text-center transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
       scroll ? "shrink-0 snap-start self-stretch" : "h-full",
       pressed
         ? // Its own pair (DESIGN.md §1.1): light keeps the near-black chip; dark
           // takes the pass's surface, so the pressed day never outshines the pass
-          // it selects, and the bright border-text edge carries the state there.
-          "border-text bg-day-pressed text-day-pressed-text"
+          // it selects. The bright border-text edge and a short accent bar under
+          // the label carry the state there: with the fills 1.06:1 apart, a 1px
+          // edge alone read as a hover or focus outline (UI-gate re-run,
+          // critique N6). The bar is the wide nav's active-item mark, in both
+          // themes, and small enough that the pass stays the focal point.
+          "border-text bg-day-pressed text-day-pressed-text after:absolute after:bottom-1 after:left-1/2 after:h-0.75 after:w-6 after:-translate-x-1/2 after:rounded-pill after:bg-accent"
         : "border-text-faint bg-surface text-text hover:border-text-subtle",
     );
   const caption = (pressed: boolean) =>

@@ -1909,6 +1909,15 @@ details[open] > summary [data-agenda-day-count] {
     outline-offset: 2px;
   }
 
+  /* The crew day row's selection bar (UI-gate re-run, critique N6) is a pseudo
+     element, which the selected-control rule above leaves out of forcing (it
+     opts the button out, and its descendants rule does not reach ::after), so it
+     would paint the brand accent on Highlight. It takes HighlightText, the
+     system pair for the fill it sits on. */
+  [data-testid="crew-day-row"] [aria-pressed="true"]::after {
+    background-color: HighlightText;
+  }
+
   /* Crew pass progress (audit P3-1, rule 3): every show-day segment carries a 1px
      border, which forced colors paints CanvasText, and the fill that told done
      from remaining flattens to Canvas. Fill the done segments, so a done day is a
