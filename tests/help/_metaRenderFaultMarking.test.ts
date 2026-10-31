@@ -589,7 +589,16 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // started, so its digest returned to ddb7e342...; this branch's three HomeSection rows
     // are untouched by it. The merged tree therefore reproduces this branch's ce25e4d6...
     // byte-for-byte: nothing joined or left, membership is still 34, and no row moved.
-    expect(digest).toBe("ce25e4d67e893e5b38403bae0c642f0671c749a60d62b63daca07571d46b0e17");
+    // Regenerated for the crew page redesign gate fix X9 (audit P3-3: only a truncated
+    // show note is a disclosure), to the same bar. EXACTLY THREE inputs changed, all line
+    // numbers, in the one file of this set the fix edits:
+    //   components/crew/sections/HomeSection.tsx 192/193/194 -> 198/199/200 (+6: the
+    //   notes card gains a plain-text arm for a note that fits, and the unused `cn`
+    //   import leaves)
+    // The same rooms / hotel / contacts `SectionTileError` rows, still marked. Nothing
+    // joined or left: membership is still 34, and mapping those three rows back to
+    // 192/193/194 reproduces ce25e4d6... byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("706b9565ba595545f70f6c6f2615b6199406a8c22134f6fa9a19d9e467d641da");
   });
 });
 

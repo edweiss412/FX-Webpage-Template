@@ -54,7 +54,6 @@ import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
-import { cn } from "@/lib/ui/cn";
 
 export { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/todayRows";
 
@@ -121,35 +120,42 @@ export function HomeSection({
                           {...(truncated ? { "data-truncated": "true" } : {})}
                           className="rounded-sm border border-border bg-surface"
                         >
-                          <details className="group">
-                            {/* Chevron, not a bare row: this summary suppresses
+                          {/* A note that fits is plain text: a disclosure that
+                              opens nothing is a dead tab stop announced as
+                              expandable. Only a cut note is a disclosure. */}
+                          {truncated ? (
+                            <details className="group">
+                              {/* Chevron, not a bare row: this summary suppresses
                                 the native marker, so the chevron is what says a
                                 truncated value expands (design doc
                                 2026-08-25-ui-polish-class-sweep-design.md, D10). */}
-                            <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
-                              <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                                {entry.label}
-                                <ChevronRight
-                                  aria-hidden="true"
-                                  className="inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
-                                />
-                              </span>
-                              <span
-                                data-search-skip={truncated ? "" : undefined}
-                                className={cn(
-                                  "text-sm/snug text-text",
-                                  truncated ? "group-open:hidden" : "",
-                                )}
-                              >
-                                {display}
-                              </span>
-                            </summary>
-                            {truncated ? (
+                              <summary className="flex min-h-tap-min cursor-pointer list-none flex-col gap-1 rounded-sm px-3 py-2 [&::-webkit-details-marker]:hidden">
+                                <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                                  {entry.label}
+                                  <ChevronRight
+                                    aria-hidden="true"
+                                    className="inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+                                  />
+                                </span>
+                                <span
+                                  data-search-skip=""
+                                  className="text-sm/snug text-text group-open:hidden"
+                                >
+                                  {display}
+                                </span>
+                              </summary>
                               <div className="whitespace-pre-wrap border-t border-border p-3 text-sm/relaxed text-text">
                                 {entry.text}
                               </div>
-                            ) : null}
-                          </details>
+                            </details>
+                          ) : (
+                            <div className="flex flex-col gap-1 px-3 py-2">
+                              <span className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
+                                {entry.label}
+                              </span>
+                              <span className="text-sm/snug text-text">{display}</span>
+                            </div>
+                          )}
                         </li>
                       );
                     })}

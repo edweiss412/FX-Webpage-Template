@@ -203,6 +203,31 @@ describe("home: kept blocks (spec §6.2 crew-only content)", () => {
     );
   });
 
+  // Audit P3-3: a note that fits is plain text. A disclosure that opens nothing
+  // is a dead tab stop announced as expandable, so only a cut note is one.
+  test("home: only a truncated show note is a disclosure; a note that fits is plain text", () => {
+    const long = `LONG_NOTE ${"x".repeat(todayRows.TRUNCATE_AT)}`;
+    const data = makeShowForViewer({
+      show: { venue: { name: "V", address: "A", notes: "SHORT_NOTE" } },
+      contacts: [{ kind: "venue", name: "C", notes: long, phone: "555-0000", email: null }],
+    });
+    const notes = home(data, ADMIN).container.querySelector('[data-testid="today-notes"]')!;
+    const rows = [...notes.querySelectorAll("li[data-source]")];
+    const short = rows.find((li) => li.textContent!.includes("SHORT_NOTE"))!;
+    const cut = rows.find((li) => li.textContent!.includes("LONG_NOTE"))!;
+    // PREMISE: the fixture produced one note under the cap and one over it.
+    expect(short.hasAttribute("data-truncated")).toBe(false);
+    expect(cut.getAttribute("data-truncated")).toBe("true");
+
+    expect(short.querySelector("details, summary")).toBeNull();
+    expect(within(short as HTMLElement).queryByRole("button")).toBeNull();
+    expect(short).toHaveTextContent("SHORT_NOTE");
+
+    const summary = cut.querySelector("details > summary");
+    expect(summary, "a cut note keeps its disclosure").not.toBeNull();
+    expect(cut.querySelector("details")!.textContent).toContain(long);
+  });
+
   test("home: the client contact never appears; Who to call names the deterministic actionable primary", () => {
     const data = makeShowForViewer({
       show: {
