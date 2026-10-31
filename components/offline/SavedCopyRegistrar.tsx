@@ -33,7 +33,10 @@
  * - When the show has an agenda it loads the agenda viewer's code and the
  *   pdf.js worker that code configures, online, idle and once a worker controls
  *   the page, so both pass through the worker into its static cache and an
- *   agenda nobody opened still opens offline (spec 4.8).
+ *   agenda nobody opened still opens offline (spec 4.8). Once that import
+ *   settles it also fetches the loaded static files no fetch has taken yet: an
+ *   agenda opened before control shares the import, and its files are listed
+ *   as loaded only when their downloads end (Codex R4 C1).
  * - The worker stores each file as its body passes through, so both of those
  *   read every body to its end before they count as done. One that could not
  *   run (offline at idle) or failed (an import that rejects, a fetch that fails
@@ -253,14 +256,34 @@ async function readAllThrough(urls: readonly string[]): Promise<void> {
 }
 
 /**
- * Every static file the page has loaded, read through the worker that now
- * controls it, so a file loaded before control reaches the static cache. The
+ * The loaded static files a read in this page load has out or has read whole,
+ * so no two reads take the same file. A read that fails gives its files back
+ * for the next one to take.
+ */
+const claimedStatics = new Set<string>();
+
+/**
+ * Reads `alsoRead` and every static file the page has loaded that no read in
+ * this page load has claimed through the worker that now controls it, all under
+ * one deadline, so a file loaded before control reaches the static cache. The
  * worker serves one it holds from its cache, and stores one it lacks as it
  * serves it (spec 4.8).
  */
+async function readThroughUnclaimedStatics(alsoRead: readonly string[]): Promise<void> {
+  const files = loadedStaticFiles().filter((url) => !claimedStatics.has(url));
+  const urls = [...files, ...alsoRead];
+  if (urls.length === 0) return;
+  for (const url of files) claimedStatics.add(url);
+  try {
+    await readAllThrough(urls);
+  } catch (error) {
+    for (const url of files) claimedStatics.delete(url);
+    throw error;
+  }
+}
+
 async function restoreLoadedStatics(): Promise<void> {
-  const files = loadedStaticFiles();
-  if (files.length > 0) await readAllThrough(files);
+  await readThroughUnclaimedStatics([]);
 }
 
 const staticRestore = oncePerPageLoad(restoreLoadedStatics);
@@ -270,17 +293,21 @@ const staticRestore = oncePerPageLoad(restoreLoadedStatics);
  * (components/agenda/loadAgendaPdfViewer.ts), so the worker stores the very
  * chunks the sheet asks for, then fetches the pdf.js worker from the URL the
  * viewer assigns (components/agenda/pdfWorkerSrc.ts). A viewer the page loaded
- * before a worker controlled it is already loaded, so the import fetches
- * nothing; the static re-store above stores its files. No `import()` of the
- * viewer of its own: Turbopack gives each import() site its own loader chunk.
- * And never `import("react-pdf")`: in the production build that loaded a
- * second copy of react-pdf's index, which reset pdf.js's worker URL to the
- * relative `pdf.worker.mjs` for the whole page.
+ * before a worker controlled it is already loaded, or still loading, so the
+ * import fetches nothing and waits on the sheet's own downloads; the static
+ * re-store stores its files. That re-store runs at idle, and the viewer's files
+ * reach resource timing only as their downloads end, so once the import settles
+ * this takes the loaded static files again, beside the pdf.js worker, minus
+ * those already claimed (Codex R4 C1). No `import()` of the viewer of its own:
+ * Turbopack gives each import() site its own loader chunk. And never
+ * `import("react-pdf")`: in the production build that loaded a second copy of
+ * react-pdf's index, which reset pdf.js's worker URL to the relative
+ * `pdf.worker.mjs` for the whole page.
  */
 async function prefetchAgendaViewer(): Promise<void> {
   await loadAgendaPdfViewer();
   const { PDF_WORKER_SRC } = await import("@/components/agenda/pdfWorkerSrc");
-  await readAllThrough([PDF_WORKER_SRC]);
+  await readThroughUnclaimedStatics([PDF_WORKER_SRC]);
 }
 
 const agendaPrefetch = oncePerPageLoad(prefetchAgendaViewer);
@@ -288,6 +315,7 @@ const agendaPrefetch = oncePerPageLoad(prefetchAgendaViewer);
 /** Test seam: a new page load. */
 export function __resetSavedCopyRegistrarForTests(): void {
   persistRequested = false;
+  claimedStatics.clear();
   staticRestore.reset();
   agendaPrefetch.reset();
 }

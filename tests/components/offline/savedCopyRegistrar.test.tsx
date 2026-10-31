@@ -1072,6 +1072,78 @@ describe("static files loaded before control (spec 4.8)", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2 * files.length);
     },
   );
+
+  // Codex R4 C1: an agenda opened before control shares its viewer import with
+  // the agenda prefetch, and its files reach resource timing only when their
+  // downloads end, which can be after the re-store's run at idle.
+  test("an agenda opened before control whose files finish downloading after the re-store ran: they are fetched once the viewer import settles", async () => {
+    const origin = window.location.origin;
+    const lazy = `${origin}/_next/static/chunks/lightbox.55ee.js`;
+    const viewer = `${origin}/_next/static/chunks/agenda-viewer.22bb.js`;
+    const stylesheet = `${origin}/_next/static/chunks/agenda-viewer.33cc.css`;
+    const loaded = [lazy];
+    vi.spyOn(performance, "getEntriesByType").mockImplementation((type: string) =>
+      type === "resource"
+        ? loaded.map((name) => ({ name, entryType: "resource" }) as unknown as PerformanceEntry)
+        : [],
+    );
+    // The sheet's viewer import, still downloading. The bundler hands that one
+    // load to every importer, so the agenda prefetch's import waits on it.
+    let finishDownloads = (): void => undefined;
+    const sheetImport = new Promise<void>((resolve) => {
+      finishDownloads = resolve;
+    }).then(() => agenda.viewer());
+    const loads = { loader: 0 };
+    vi.resetModules();
+    vi.doMock("@/components/agenda/loadAgendaPdfViewer", () => ({
+      loadAgendaPdfViewer: () => {
+        loads.loader += 1;
+        return sheetImport;
+      },
+    }));
+    vi.doMock("react-pdf", () => agenda.reactPdf());
+    vi.doMock("@/components/agenda/AgendaPdfViewer", () => agenda.viewer());
+    vi.doMock("@/components/agenda/pdfWorkerSrc", () => agenda.workerSrc());
+    try {
+      const fresh = await import("@/components/offline/SavedCopyRegistrar");
+      const { container } = installServiceWorker({ controlled: false });
+      installStorage();
+
+      render(<fresh.SavedCopyRegistrar {...BASE} hasAgenda />);
+      await settle();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      takeControl(container);
+      await settle();
+      // The re-store ran at idle, on what the page had finished loading then;
+      // the viewer's files were not listed yet. The agenda prefetch waits.
+      expect(fetchMock.mock.calls).toEqual([loadedFetch(lazy)]);
+      premiseHolds("the agenda prefetch is waiting on the shared import", loads.loader === 1);
+
+      loaded.push(viewer, stylesheet, `${viewer}#again`);
+      finishDownloads();
+      await vi.waitFor(() =>
+        expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(agenda.WORKER_SRC),
+      );
+      await settle();
+      // The viewer's files, each once, and never the file the re-store already holds.
+      expect(fetchMock.mock.calls).toEqual([
+        loadedFetch(lazy),
+        loadedFetch(viewer),
+        loadedFetch(stylesheet),
+        workerFetch(),
+      ]);
+
+      // Once per page load per file: an online event fetches nothing more.
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      await restoreAgendaMocks();
+    }
+  });
 });
 
 describe("no service worker container", () => {
