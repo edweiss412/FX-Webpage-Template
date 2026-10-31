@@ -393,11 +393,11 @@ A client provider, `CrewSearchProvider` (components/crew/search/CrewSearchProvid
 
 ## 10. Copy
 
-All crew-visible strings. No em dashes. "Wi-Fi" in visible text, aria-labels and placeholders (redesign §9.2).
+All crew-visible strings. No em dashes. "Wi-Fi" in visible text, aria-labels and placeholders (redesign §9.2). **Amendment 2026-10-31 (crew page redesign invariant-8 gate re-run, audit P3-4 / critique N8; overridable):** the input placeholder is "Try Wi-Fi, dock, hotel…", shortened from "Find anything: Wi-Fi, dock, hotel…", which the 1024px header's field and a 320px phone's cut mid-word; the field ends a copy wider than itself with an ellipsis.
 
 | Where | Text |
 |---|---|
-| Input placeholder | Find anything: Wi-Fi, dock, hotel… |
+| Input placeholder | Try Wi-Fi, dock, hotel… |
 | Input accessible name | Search this show |
 | Clear button aria-label | Clear search |
 | Cancel button | Cancel |

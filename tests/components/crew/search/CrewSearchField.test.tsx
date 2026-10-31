@@ -255,7 +255,11 @@ describe("CrewSearchField: markup and copy (spec §6.8, §10)", () => {
 
   it("uses the spec §10 placeholder, clear label and Cancel text verbatim", () => {
     const input = renderField();
-    expect(input).toHaveAttribute("placeholder", "Find anything: Wi-Fi, dock, hotel…");
+    // Spec §10, amended 2026-10-31 (crew redesign gate re-run P3-4 / N8): the old
+    // "Find anything: Wi-Fi, dock, hotel…" was cut mid-word in the 1024px header.
+    expect(input).toHaveAttribute("placeholder", "Try Wi-Fi, dock, hotel…");
+    // A field narrower than the copy ends it with an ellipsis, never mid-word.
+    expect(input).toHaveClass("text-ellipsis");
     fireEvent.change(input, { target: { value: "dock" } });
     expect(screen.getByRole("button", { name: "Clear search" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveTextContent(/^Cancel$/);

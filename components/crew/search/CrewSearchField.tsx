@@ -86,7 +86,7 @@ export function CrewSearchField() {
             if (next !== "") setActive(true);
           }}
           onKeyDown={onKeyDown}
-          className="min-h-tap-min w-full min-w-0 self-stretch bg-transparent text-base text-text-strong placeholder:text-text-subtle focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
+          className="min-h-tap-min w-full min-w-0 self-stretch text-ellipsis bg-transparent text-base text-text-strong placeholder:text-text-subtle focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
         />
         {query !== "" ? (
           <button

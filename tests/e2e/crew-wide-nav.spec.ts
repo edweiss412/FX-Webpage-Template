@@ -862,6 +862,25 @@ test.describe("crew wide nav (spec §5.3)", () => {
       expect(r.pillBottom).toBeGreaterThan(r.dateTop);
       expect(r.pillLeft).toBeGreaterThanOrEqual(r.dateRight - 0.5);
     }
+    // The search placeholder fits its field whole on this, the tightest header
+    // row, at every width (UI-gate re-run P3-4 / critique N8: at 1024 it read
+    // "Find anything: Wi-Fi, dock, ho"). Measured with the field's own font.
+    for (const width of [320, 390, 768, 1024, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      const fit = await page.getByTestId("crew-search-input").evaluate((el) => {
+        const input = el as HTMLInputElement;
+        const cs = getComputedStyle(input);
+        const ctx = document.createElement("canvas").getContext("2d")!;
+        ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        return {
+          placeholder: input.placeholder,
+          text: ctx.measureText(input.placeholder).width,
+          box: input.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+        };
+      });
+      expect(fit.placeholder.length, "PREMISE: the field has a placeholder").toBeGreaterThan(0);
+      expect(fit.text, `${width}: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.box);
+    }
   });
 
   // Crew page redesign Task 7 (spec §4.1): in wide mode the header's search slot
