@@ -83,8 +83,18 @@ export type WorkerDeps = {
   timers: Timers;
 };
 
-/** An asset request waits this long for the network before a stored copy may answer (spec 4.8). */
+/**
+ * An asset request waits this long for the network's whole response, headers
+ * and body, before a stored copy may answer (spec 4.8).
+ */
 const ASSET_TIMEOUT_MS = 5_000;
+
+/**
+ * A save waits this long for one listed asset, headers and body together,
+ * before it aborts the fetch and skips the asset (spec 4.8): assets are
+ * optional, so one that hangs must not hold back the page's own copy.
+ */
+const ASSET_FETCH_BUDGET_MS = 30_000;
 
 /** Every document the worker builds: a saved copy, the not-saved page (spec 4.7.1, 4.7.5). */
 const HTML_HEADERS: Readonly<Record<string, string>> = {
@@ -116,6 +126,15 @@ type Fetched =
 type Attempt = { result: Promise<Fetched | null>; abort: () => void };
 
 type Timed<T> = { kind: "done"; value: T } | { kind: "timeout" };
+
+/** One listed asset as a save fetched it: its bytes, or skip it, or stop the show's prefetch. */
+type FetchedAsset =
+  | { kind: "read"; bytes: Uint8Array<ArrayBuffer>; headers: Headers }
+  | { kind: "skip" }
+  | { kind: "stop" };
+
+const SKIP: FetchedAsset = Object.freeze({ kind: "skip" });
+const STOP: FetchedAsset = Object.freeze({ kind: "stop" });
 
 /** What a fetch handler serves, and the work that continues after it (kept alive by waitUntil). */
 type Handled = { response: Response; background: Promise<unknown> };
@@ -191,6 +210,23 @@ async function readFetched(response: Response): Promise<Fetched> {
     // A streamed not-found page reads as its check marker (readNavigationMarker).
     marker: readNavigationMarker(text),
   };
+}
+
+/**
+ * A response read to its end, as a fresh one with the same status and headers
+ * over the bytes read. The bytes are decoded, so the encoding header goes and
+ * the length is the decoded one; rejects when the body fails mid-stream.
+ */
+async function readWhole(response: Response): Promise<Response> {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const empty = NULL_BODY_STATUSES.has(response.status);
+  const headers = withoutTransportHeaders(response.headers);
+  if (!empty) headers.set("content-length", String(bytes.byteLength));
+  return new Response(empty ? null : bytes, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function declaredLength(response: Response): number | null {
@@ -502,13 +538,50 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   }
 
   /**
+   * One listed asset from the network, judged against the caps with `total`
+   * already admitted: its bytes and headers, or `skip` it, or `stop` the show's
+   * prefetch. Headers and body share ASSET_FETCH_BUDGET_MS; past it the fetch
+   * is aborted and the asset skipped. Any failure (a network error, a status
+   * other than 200, a body that fails mid-stream) skips it too.
+   */
+  async function fetchAsset(url: string, total: number): Promise<FetchedAsset> {
+    const controller = new AbortController();
+    const work = (async (): Promise<FetchedAsset> => {
+      const response = await deps.fetch(url, { signal: controller.signal });
+      if (response.status !== 200) {
+        await response.body?.cancel();
+        return SKIP;
+      }
+      const declared = admitAsset(total, declaredLength(response));
+      if (declared !== "admit") {
+        await response.body?.cancel();
+        return declared === "stop" ? STOP : SKIP;
+      }
+      const body = await readCapped(
+        response,
+        Math.min(ASSET_MAX_BYTES, SHOW_PREFETCH_MAX_BYTES - total),
+      );
+      const size = body.kind === "read" ? body.bytes.byteLength : body.read;
+      const verdict = admitAsset(total, size);
+      if (verdict === "stop") return STOP;
+      if (verdict === "skip" || body.kind === "over") return SKIP;
+      return { kind: "read", bytes: body.bytes, headers: response.headers };
+    })().catch(() => SKIP);
+    const outcome = await within(work, ASSET_FETCH_BUDGET_MS);
+    if (outcome.kind === "done") return outcome.value;
+    controller.abort();
+    return SKIP;
+  }
+
+  /**
    * Every listed asset within the caps, present in the asset cache, in list
    * order: one over 25 MB is skipped, and the show's prefetch stops before its
    * total would pass 75 MB. An asset that cannot be fetched (a network error, a
-   * status other than 200, a body that fails mid-stream) is skipped the same way:
-   * it fails offline the way it does today (spec 4.8, controller ruling on Task
-   * 10). Only static files are mandatory for a commit. Returns the assets
-   * stored, which are the ones the copy lists.
+   * status other than 200, a body that fails mid-stream, no whole response
+   * within ASSET_FETCH_BUDGET_MS) is skipped the same way: it fails offline the
+   * way it does today (spec 4.8, controller ruling on Task 10). Only static
+   * files are mandatory for a commit. Returns the assets stored, which are the
+   * ones the copy lists.
    */
   async function storeAssets(
     paths: readonly string[],
@@ -532,31 +605,13 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
         continue;
       }
 
-      const response = await deps.fetch(url).catch(() => null);
-      if (response === null) continue;
-      if (response.status !== 200) {
-        await response.body?.cancel();
-        continue;
-      }
-      const declared = admitAsset(total, declaredLength(response));
-      if (declared !== "admit") {
-        await response.body?.cancel();
-        if (declared === "stop") break;
-        continue;
-      }
-      const body = await readCapped(
-        response,
-        Math.min(ASSET_MAX_BYTES, SHOW_PREFETCH_MAX_BYTES - total),
-      ).catch(() => null);
-      if (body === null) continue;
-      const size = body.kind === "read" ? body.bytes.byteLength : body.read;
-      const verdict = admitAsset(total, size);
-      if (verdict === "stop") break;
-      if (verdict === "skip" || body.kind === "over") continue;
-
-      const headers = withoutTransportHeaders(response.headers);
+      const fetched = await fetchAsset(url, total);
+      if (fetched.kind === "stop") break;
+      if (fetched.kind === "skip") continue;
+      const size = fetched.bytes.byteLength;
+      const headers = withoutTransportHeaders(fetched.headers);
       headers.set("content-length", String(size));
-      await cache.put(url, new Response(body.bytes, { status: 200, headers }));
+      await cache.put(url, new Response(fetched.bytes, { status: 200, headers }));
       total += size;
       stored.push(path);
     }
@@ -699,11 +754,17 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
     }
   }
 
-  /** The `check` row for S(U), or the marker's check message. */
+  /**
+   * The `check` row for S(U), or the marker's check message. A copy the status
+   * route finds ended replies ended every time, whether this call marked it or an
+   * earlier one did (a second tab, a later probe, a slow fallback's continuation);
+   * nothing is broadcast for it. A copy replaced or purged during the check is
+   * left as it is.
+   */
   async function checkCopy(copy: StoredCopy, announce: boolean): Promise<SilentResult> {
     const check = decideCheckOutcome(await askStatus(copy), copy);
     if (check.serve === "saved") {
-      return (await store.markEnded(refOf(copy), deps.now())) ? "marked-ended" : "unchanged";
+      return (await markedEnded(copy.url, copy)) === null ? "unchanged" : "marked-ended";
     }
     if (check.then === "none") return "unchanged";
     const removed = await purge(check.scope);
@@ -874,26 +935,36 @@ export function installWorker(scope: WorkerScope, deps: WorkerDeps): void {
   }
 
   /**
-   * Network first. A 2xx within 5 s is served. Otherwise (a non-2xx answer, a
-   * network error, 5 s with no answer) the stored asset is served when a saved
-   * copy lists it: after an archive the asset routes refuse an ended copy's
-   * assets, which are still the right ones to show (controller ruling, Task 10).
-   * An unlisted asset gets the network's own answer, or its error, or a longer wait.
+   * Network first. A 2xx whose body arrives whole within 5 s is served, as the
+   * bytes read with the network's status and headers. Otherwise (a non-2xx
+   * answer, a network error, a body that fails mid-stream, 5 s without the whole
+   * response) the stored asset is served when a saved copy lists it, and the
+   * network's fetch is aborted: after an archive the asset routes refuse an
+   * ended copy's assets, which are still the right ones to show (controller
+   * ruling, Task 10). An unlisted asset gets the network's own answer, or its
+   * error, or a longer wait. The page's own abort still reaches the fetch.
    */
   async function serveAsset(request: Request): Promise<Response> {
-    const network = deps.fetch(request);
-    const first = await within(
-      network.catch(() => null),
-      ASSET_TIMEOUT_MS,
-    );
+    const controller = new AbortController();
+    if (request.signal.aborted) controller.abort();
+    else request.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    const network = deps
+      .fetch(request, { signal: controller.signal })
+      .then((response) => (response.ok ? readWhole(response) : response))
+      .catch(() => null);
+    const first = await within(network, ASSET_TIMEOUT_MS);
     const answered = first.kind === "done" ? first.value : null;
     if (answered !== null && answered.ok) return answered;
     const stored = await listedAsset(request);
     if (stored !== undefined) {
+      controller.abort();
       void answered?.body?.cancel().catch(() => undefined);
       return stored;
     }
-    return answered ?? network;
+    if (answered !== null) return answered;
+    const late = first.kind === "done" ? null : await network;
+    if (late === null) throw new TypeError(`asset unavailable: ${request.url}`);
+    return late;
   }
 
   // --- Messages (spec 4.3, 4.4, 4.6, 4.7.3) --------------------------------------------

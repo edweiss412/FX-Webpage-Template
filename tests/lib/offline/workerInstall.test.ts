@@ -151,6 +151,15 @@ function brokenBody(): Response {
   return new Response(stream, { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
+/** A body that sends some bytes and then nothing more, never ending, as a stalled connection does. */
+function stalledBody(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("partial"));
+    },
+  });
+}
+
 /** `totalBytes` of zeros in `chunkBytes` pieces, counting how often the reader pulled. */
 function counted(
   totalBytes: number,
@@ -1727,6 +1736,58 @@ describe("probe", () => {
     expect((await worker.store.copyAtUrl(U))?.endedAt).toBe(START);
   });
 
+  test("two probes that each find the show ended both reply ended", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page({ disposition: "check", showId: null }), 404)),
+    );
+    worker.net.on(STATUS, statusAnswer("ended"));
+    expect(await worker.ask({ type: "probe", url: U })).toEqual({ outcome: "ended" });
+    expect(await worker.ask({ type: "probe", url: U })).toEqual({ outcome: "ended" });
+    expect((await worker.store.copyAtUrl(U))?.endedAt).toBe(START);
+  });
+
+  test("an archive the slow fallback's continuation found is ended for the next probe too", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    const onU = worker.clients.open(U);
+    const gate = deferred<Response>();
+    worker.net.on(U, later(gate));
+    worker.net.on(STATUS, statusAnswer("ended"));
+    const nav = worker.navigate(U);
+    await worker.clock.advance(8_000);
+    expect(servedMode(await (await responseOf(nav)).text())).toBe("slow");
+    // The page answers late: the show was archived meanwhile.
+    gate.resolve(htmlResponse(page({ disposition: "check", showId: null }), 404));
+    await nav.settled();
+    expect((await worker.store.copyAtUrl(U))?.endedAt).toBe(START + 8_000);
+    // The continuation broadcasts nothing for an ended mark; the next probe says ended.
+    expect(onU.received).toEqual([]);
+    worker.net.on(
+      U,
+      reply(() => htmlResponse(page({ disposition: "check", showId: null }), 404)),
+    );
+    expect(await worker.ask({ type: "probe", url: U })).toEqual({ outcome: "ended" });
+  });
+
+  test("a check that finds the show ended after its copy was replaced replies kept", async () => {
+    const worker = boot();
+    await worker.seed({ showId: SHOW, url: U });
+    const gate = deferred<Response>();
+    worker.net.on(STATUS, later(gate));
+    const sent = worker.post({ type: "marker", disposition: "check", url: U });
+    await settle();
+    // A newer save lands while the status route is out.
+    await worker.seed({ showId: SHOW, url: U, savedAt: LATER });
+    gate.resolve(Response.json({ state: "ended" }));
+    await sent.settled();
+    sent.close();
+    expect(sent.replies).toEqual([{ outcome: "kept" }]);
+    expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: LATER, endedAt: null });
+  });
+
   test("a network error replies failed and keeps S(U)", async () => {
     const worker = boot();
     await worker.seed({ showId: SHOW, url: U });
@@ -1772,17 +1833,24 @@ describe("marker messages", () => {
     expect(await worker.store.copyByShow(SHOW_B)).not.toBeNull();
   });
 
-  test("check replies ended only when it transitioned the copy", async () => {
+  test("check replies ended every time the status route says ended, not only when it marked the copy", async () => {
     const worker = boot();
     await worker.seed({ showId: SHOW, url: U });
+    const onU = worker.clients.open(U);
     worker.net.on(STATUS, statusAnswer("ended"));
     expect(await worker.ask({ type: "marker", disposition: "check", url: U })).toEqual({
       outcome: "ended",
     });
     expect((await worker.store.copyAtUrl(U))?.endedAt).toBe(START);
+    // A second tab, or the same one later: the copy is already marked, and the
+    // reply still says ended. The first mark stays as it was.
+    await worker.clock.advance(1_000);
     expect(await worker.ask({ type: "marker", disposition: "check", url: U })).toEqual({
-      outcome: "kept",
+      outcome: "ended",
     });
+    expect((await worker.store.copyAtUrl(U))?.endedAt).toBe(START);
+    expect(worker.net.callsTo(STATUS)).toHaveLength(2);
+    expect(onU.received).toEqual([]);
   });
 
   test("check with status gone purges and replies purged", async () => {
@@ -1910,6 +1978,43 @@ describe("completeness", () => {
       premise("the failing asset was requested", worker.net.callsTo(DIAGRAM).length, 0);
       expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: LATER, assets: [AGENDA] });
       expect(worker.assetCache().paths()).toEqual([AGENDA]);
+    },
+  );
+
+  // Spec 4.8: an asset that has not arrived whole 30 s after its request is
+  // skipped like one that failed, so an optional asset never holds back the save.
+  test.each([
+    ["whose headers never arrive", hang],
+    ["whose body stalls after the headers", reply(() => new Response(stalledBody()))],
+  ] as const)(
+    "a listed asset %s is abandoned at 30 s: its fetch is aborted and the save commits without it",
+    async (_label, route) => {
+      const worker = boot();
+      await worker.seed({ showId: SHOW, url: U, savedAt: RENDERED });
+      worker.net.on(DIAGRAM, route);
+      worker.net.on(
+        AGENDA,
+        reply(() => new Response("%PDF")),
+      );
+      worker.net.on(
+        U,
+        reply(() => htmlResponse(page(save({ renderedAt: LATER, assets: [DIAGRAM, AGENDA] })))),
+      );
+      const nav = worker.navigate(U);
+      await responseOf(nav);
+      await worker.clock.advance(29_999);
+      premise("the hanging asset was requested", worker.net.callsTo(DIAGRAM).length, 0);
+      const call = worker.net.callsTo(DIAGRAM)[0];
+      const signal = call?.init?.signal ?? call?.request?.signal;
+      const abortedEarly = signal?.aborted;
+      expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: RENDERED });
+
+      await worker.clock.advance(1);
+      expect(await worker.store.copyAtUrl(U)).toMatchObject({ savedAt: LATER, assets: [AGENDA] });
+      expect(worker.assetCache().paths()).toEqual([AGENDA]);
+      expect(abortedEarly).toBe(false);
+      expect(signal?.aborted).toBe(true);
+      await nav.settled();
     },
   );
 
@@ -2055,6 +2160,65 @@ describe("asset requests (spec 4.8)", () => {
     expect(served.done()).toBe(false);
     await worker.clock.advance(1);
     expect(await (await responseOf(dispatched)).text()).toBe("stored diagram");
+  });
+
+  // The 5 s budget covers the body too: a 200 is served only once it has arrived whole.
+  test("fall back to the stored asset when the network's body stalls past 5 s", async () => {
+    const worker = await withListedDiagram();
+    worker.net.on(
+      DIAGRAM,
+      reply(() => new Response(stalledBody())),
+    );
+    const dispatched = worker.dispatchFetch(new Request(ORIGIN + DIAGRAM));
+    const served = watch(responseOf(dispatched));
+    await worker.clock.advance(4_999);
+    expect(served.done()).toBe(false);
+    await worker.clock.advance(1);
+    expect(await (await responseOf(dispatched)).text()).toBe("stored diagram");
+    const call = worker.net.callsTo(DIAGRAM)[0];
+    expect((call?.init?.signal ?? call?.request?.signal)?.aborted).toBe(true);
+  });
+
+  test("fall back to the stored asset when the network's body fails mid-stream", async () => {
+    const worker = await withListedDiagram();
+    worker.net.on(DIAGRAM, reply(brokenBody));
+    const response = await responseOf(worker.dispatchFetch(new Request(ORIGIN + DIAGRAM)));
+    expect(await response.text()).toBe("stored diagram");
+  });
+
+  test("a network answer read whole is served with its own status and headers", async () => {
+    const worker = await withListedDiagram();
+    worker.net.on(
+      DIAGRAM,
+      reply(
+        () =>
+          new Response("bytes 2 to 5", {
+            status: 206,
+            headers: { "content-type": "image/png", "content-range": "bytes 2-5/10" },
+          }),
+      ),
+    );
+    const response = await responseOf(
+      worker.dispatchFetch(new Request(ORIGIN + DIAGRAM, { headers: { range: "bytes=2-5" } })),
+    );
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(await response.text()).toBe("bytes 2 to 5");
+  });
+
+  test("the page's own abort reaches the network fetch", async () => {
+    const worker = await withListedDiagram();
+    const gate = deferred<Response>();
+    worker.net.on(DIAGRAM, later(gate));
+    const page = new AbortController();
+    worker.dispatchFetch(new Request(ORIGIN + DIAGRAM, { signal: page.signal }));
+    await settle();
+    const call = worker.net.callsTo(DIAGRAM)[0];
+    const signal = call?.init?.signal ?? call?.request?.signal;
+    expect(signal?.aborted).toBe(false);
+    page.abort();
+    expect(signal?.aborted).toBe(true);
   });
 
   test("never fall back to a stored asset no saved copy lists", async () => {

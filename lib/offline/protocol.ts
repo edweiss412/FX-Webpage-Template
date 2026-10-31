@@ -84,9 +84,11 @@ export type WorkerBroadcast =
 
 /**
  * What a run of the step 3 table without serving did (a probe, an ensure-saved,
- * a step 5 continuation, a marker check). `unchanged` is every row that leaves the
- * store as it was: hold, keep, an opaque redirect, a status route without a verdict,
- * an ended mark that was already there.
+ * a step 5 continuation, a marker check). `marked-ended` is a status route that
+ * found S(U) ended, whether this run marked the copy or an earlier one had, so
+ * every check of an ended show replies `ended`. `unchanged` is every other row
+ * that leaves the store as it was: hold, keep, an opaque redirect, a status route
+ * without a verdict, a copy replaced or purged while its check was out.
  */
 export type SilentResult =
   | "committed"
