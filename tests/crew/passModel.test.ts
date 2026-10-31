@@ -37,6 +37,7 @@ import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import { effectiveViewerDateRestriction } from "@/lib/crew/stageSchedule";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { parseDressCodeLines } from "@/lib/crew/dressCodeLines";
 import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
 
 const RAW_DIR = "fixtures/shows/raw";
@@ -410,6 +411,27 @@ describe("pass model: fact grid", () => {
       ["Strike", anchors.strike],
       ["Load in", anchors.set],
     ]);
+  });
+
+  // UI-gate re-run, critique N1: the cell showed the whole value, whose first
+  // line is the set/strike attire, and its 2-line clamp hid the show attire on a
+  // show day. A phased value now gives each day its phase's line, labelled.
+  it("pass model: the Dress code cell is the day's phase line: Show on a show day, Set/Strike on the load-in day, the whole value on a travel day", () => {
+    const { parsed, data, viewer } = fullWaldorf();
+    const value = parsed.show.event_details.dress_code!;
+    const phases = parseDressCodeLines(value);
+    premiseHolds("the donor dress code is phased, Set/Strike then Show", phases?.length === 2);
+    const [setStrike, show] = phases!;
+    const props = buildPassProps({ data, viewer, today: TODAY });
+    const dressOf = (iso: string) =>
+      dayOf(props, iso).facts.find((f) => f.id === "dressCode")?.value;
+    const d = parsed.show.dates;
+    premiseHolds("the set day is its own load-in day", d.set !== null && d.set !== d.travelIn);
+    for (const iso of d.showDays) {
+      expect(dressOf(iso), iso).toBe(`${show!.phase}: ${show!.attire}`);
+    }
+    expect(dressOf(d.set!)).toBe(`${setStrike!.phase}: ${setStrike!.attire}`);
+    expect(dressOf(d.travelIn!)).toBe(value);
   });
 
   it("pass model: Strike is a cell only when it is not already the big time", () => {

@@ -18,6 +18,11 @@ import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { resolveWifiDisplay } from "@/lib/crew/wifiDisplay";
+import {
+  dressCodeLineForPhase,
+  parseDressCodeLines,
+  type DressPhase,
+} from "@/lib/crew/dressCodeLines";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { digitsOnly } from "@/lib/format/phone";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
@@ -43,7 +48,7 @@ export const DEFAULT_QUICK_FACT_ORDER: readonly QuickFactId[] = [
 
 export const QUICK_FACT_LIMIT = 4;
 
-/** One line of a tile's value. `label` is set only on split values (Wi-Fi). */
+/** One line of a tile's value. `label` is set only on split values (Wi-Fi, a phased dress code). */
 export type QuickFactLine = { label?: string; text: string };
 
 export type QuickFactAction =
@@ -194,7 +199,7 @@ function resolveFact(
       const dress = present(data.show.event_details.dress_code);
       return dress === null
         ? null
-        : { id, label: "Dress code", lines: [{ text: dress }], actions: [] };
+        : { id, label: "Dress code", lines: dressCodeLines(dress, data, viewer), actions: [] };
     }
     case "address": {
       const name = present(data.show.venue?.name);
@@ -212,6 +217,33 @@ function resolveFact(
       };
     }
   }
+}
+
+/**
+ * The Dress code tile's lines (UI-gate re-run, critique N1). A phased value gives
+ * tonight's phase line, labelled: Show on a show day, Set/Strike on the load-in
+ * day. Any other night, a value that names tonight's phase in no single line, or
+ * a viewer whose dates are withheld (the line would say what day it is) gets
+ * every phase on its own labelled line; the tile used to run them together with
+ * the line break collapsed. A value with no phase lines stays one line.
+ */
+function dressCodeLines(
+  value: string,
+  data: ShowForViewer,
+  viewer: QuickFactViewer,
+): QuickFactLine[] {
+  const phases = parseDressCodeLines(value);
+  if (phases === null) return [{ text: value }];
+  const { set, showDays } = data.show.dates;
+  const tonight: DressPhase | null = viewer.datesSuppressed
+    ? null
+    : showDays.includes(viewer.tonightIso)
+      ? "show"
+      : set === viewer.tonightIso
+        ? "set_strike"
+        : null;
+  const line = tonight === null ? null : dressCodeLineForPhase(value, tonight);
+  return (line === null ? phases : [line]).map((l) => ({ label: l.phase, text: l.attire }));
 }
 
 /** Walks `order` and keeps the first `QUICK_FACT_LIMIT` facts that resolve for this viewer. */

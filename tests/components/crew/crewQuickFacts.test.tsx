@@ -216,7 +216,10 @@ describe("quick facts: layout (spec §4.5, §8 invariant 3)", () => {
     expect(values.map((v) => v.textContent)).toEqual(
       built.flatMap((f) => f.lines.map((l) => l.text)),
     );
-    for (const value of values) expect(value).toHaveClass("line-clamp-3", "select-text");
+    // A value's own line breaks hold (critique N1: an unphased multi-line dress
+    // code ran its lines together).
+    for (const value of values)
+      expect(value).toHaveClass("line-clamp-3", "select-text", "whitespace-pre-line");
   });
 
   it("quick facts: a labeled line shows its label, so a bare code never sits alone", () => {

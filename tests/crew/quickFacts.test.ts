@@ -160,6 +160,58 @@ describe("selectQuickFacts", () => {
   });
 });
 
+// UI-gate re-run, critique N1: the tile showed the whole value with its line
+// break collapsed ("…closed-toe shoes Show: Busine…"). A phased value now gives
+// tonight's phase line, labelled, or every phase on its own labelled line.
+describe("Dress code fact", () => {
+  const SET = "2026-11-02";
+  const SHOW_1 = "2026-11-03";
+  const PHASED = "Set/Strike: Black pants, black tee\nShow: Business formal, dark suit";
+  function dressShow(dress: string) {
+    return makeShowForViewer({
+      show: {
+        event_details: { dress_code: dress },
+        dates: {
+          travelIn: "2026-11-01",
+          set: SET,
+          showDays: [SHOW_1, "2026-11-04"],
+          travelOut: null,
+        },
+      },
+    });
+  }
+  const linesOf = (dress: string, viewer: QuickFactViewer) =>
+    selectQuickFacts(["dressCode"], dressShow(dress), viewer)[0]?.lines;
+
+  it("on a show day, the Show line, labelled", () => {
+    expect(linesOf(PHASED, { ...CREW, tonightIso: SHOW_1 })).toEqual([
+      { label: "Show", text: "Business formal, dark suit" },
+    ]);
+  });
+
+  it("on the load-in day, the Set/Strike line, labelled", () => {
+    expect(linesOf(PHASED, { ...CREW, tonightIso: SET })).toEqual([
+      { label: "Set/Strike", text: "Black pants, black tee" },
+    ]);
+  });
+
+  it("on a day with no phase, or with dates withheld, every phase on its own labelled line", () => {
+    const all = [
+      { label: "Set/Strike", text: "Black pants, black tee" },
+      { label: "Show", text: "Business formal, dark suit" },
+    ];
+    expect(linesOf(PHASED, { ...CREW, tonightIso: "2026-11-01" })).toEqual(all);
+    expect(linesOf(PHASED, { ...CREW, tonightIso: "2026-12-25" })).toEqual(all);
+    expect(linesOf(PHASED, { ...SUPPRESSED, tonightIso: SHOW_1 })).toEqual(all);
+  });
+
+  it("a value with no phase lines stays one line, whatever the day", () => {
+    expect(linesOf("Show blacks", { ...CREW, tonightIso: SHOW_1 })).toEqual([
+      { text: "Show blacks" },
+    ]);
+  });
+});
+
 describe("Wi-Fi fact", () => {
   it("copies the password when the Venue split finds one", () => {
     const [fact] = selectQuickFacts(["wifi"], fullShow(), CREW);

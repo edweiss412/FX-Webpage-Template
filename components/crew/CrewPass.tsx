@@ -506,7 +506,9 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
                 <dd
                   className={cn(
                     "mt-0.5 wrap-break-word text-sm font-semibold text-text-strong",
-                    TIME_FACTS.has(fact.id) ? "text-balance tabular-nums" : "line-clamp-2",
+                    TIME_FACTS.has(fact.id)
+                      ? "text-balance tabular-nums"
+                      : "line-clamp-2 whitespace-pre-line",
                   )}
                 >
                   {fact.value}

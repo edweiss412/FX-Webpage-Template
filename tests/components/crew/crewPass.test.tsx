@@ -465,7 +465,9 @@ describe("pass: layout", () => {
       const dd = cell.querySelector("dd")!;
       expect(dd).not.toHaveClass("truncate");
       if (TIMES.has(cell.dataset.fact!)) expect(dd).not.toHaveClass("line-clamp-2");
-      else expect(dd).toHaveClass("line-clamp-2");
+      // A value's own line breaks hold (critique N1: a whole phased dress code
+      // ran its phases together), and it still stops at two lines.
+      else expect(dd).toHaveClass("line-clamp-2", "whitespace-pre-line");
     }
     // PREMISE: the fixture holds a time cell and a text cell, so both arms ran.
     expect(factIds()).toEqual(expect.arrayContaining(["strike", "room"]));

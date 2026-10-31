@@ -328,7 +328,7 @@ function Line({ line, primary }: { line: QuickFactLine; primary: boolean }) {
       <span
         data-testid="crew-quick-fact-value"
         className={cn(
-          "line-clamp-3 select-text wrap-break-word",
+          "line-clamp-3 select-text whitespace-pre-line wrap-break-word",
           primary ? "text-sm/snug font-semibold text-text-strong" : "text-sm/snug text-text",
         )}
       >
@@ -358,7 +358,7 @@ function CopyRow({
         ) : null}
         <span
           data-testid="crew-quick-fact-value"
-          className="code-value line-clamp-3 select-text break-all text-sm/snug font-semibold text-text-strong"
+          className="code-value line-clamp-3 select-text whitespace-pre-line break-all text-sm/snug font-semibold text-text-strong"
         >
           {line.text}
         </span>

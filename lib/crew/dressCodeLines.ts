@@ -39,3 +39,48 @@ export function parseDressCodeLines(value: string): DressCodeLine[] | null {
   }
   return parsed;
 }
+
+/** The work a day is for, as far as attire goes: show days, and the load-in day. */
+export type DressPhase = "show" | "set_strike";
+
+/**
+ * The phase names each day's attire goes by, lower case. A label names the phase
+ * when it, or one of its parts split on "/", "&", "," or "and", is one of these:
+ * "Set/Strike" and "Load In/Out" name the load-in day, "Show" the show days.
+ */
+const PHASE_NAMES: Record<DressPhase, ReadonlySet<string>> = {
+  show: new Set(["show"]),
+  set_strike: new Set([
+    "set",
+    "set up",
+    "set-up",
+    "setup",
+    "strike",
+    "load in",
+    "load-in",
+    "loadin",
+    "load out",
+    "load-out",
+  ]),
+};
+
+/** True when a line's phase label names the day's phase. */
+function namesPhase(label: string, phase: DressPhase): boolean {
+  const names = PHASE_NAMES[phase];
+  const whole = label.toLowerCase().replace(/\s+/g, " ").trim();
+  return whole.split(/\s*[/&,]\s*|\s+and\s+/).some((part) => names.has(part));
+}
+
+/**
+ * The one line of a phased dress code that names `phase`, or null: the value is
+ * not phased (`parseDressCodeLines`), no line names the phase, or more than one
+ * does. Conservative by design (UI-gate re-run, critique N1): the pass and the
+ * quick-fact tile show the day's line only when there is exactly one to show,
+ * and the whole value otherwise, so a wrong guess never hides the right attire.
+ */
+export function dressCodeLineForPhase(value: string, phase: DressPhase): DressCodeLine | null {
+  const lines = parseDressCodeLines(value);
+  if (lines === null) return null;
+  const matches = lines.filter((line) => namesPhase(line.phase, phase));
+  return matches.length === 1 ? matches[0]! : null;
+}

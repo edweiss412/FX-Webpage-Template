@@ -21,6 +21,7 @@ import type { DateRestriction, ShowRow } from "@/lib/parser/types";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { aggregateDays, visibleShowDays, type AggregateDay } from "@/lib/crew/agendaDisplay";
+import { dressCodeLineForPhase, type DressPhase } from "@/lib/crew/dressCodeLines";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { reservationForNight } from "@/lib/crew/quickFacts";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
@@ -204,6 +205,28 @@ function dayKind(day: AggregateDay, dates: ShowRow["dates"]): PassDayKind {
   }
 }
 
+/** The attire phase a day kind works: travel days work none. */
+const DRESS_PHASE: Record<PassDayKind, DressPhase | null> = {
+  travel_in: null,
+  travel_in_load_in: "set_strike",
+  load_in: "set_strike",
+  show: "show",
+  travel_out: null,
+};
+
+/**
+ * The day's Dress code cell (UI-gate re-run, critique N1): the line of a phased
+ * value that names the day's phase, labelled ("Show: Business formal"), or the
+ * whole value when the day works no phase or the value names it in no single
+ * line. The cell clamps at two lines, and the whole value leads with the
+ * set/strike attire, so on a show day the clamp hid exactly the line that applied.
+ */
+function dressCodeFor(value: string | null, kind: PassDayKind): string | null {
+  const phase = DRESS_PHASE[kind];
+  const line = value === null || phase === null ? null : dressCodeLineForPhase(value, phase);
+  return line === null ? value : `${line.phase}: ${line.attire}`;
+}
+
 const KIND_LABEL: Record<Exclude<PassDayKind, "show">, string> = {
   travel_in: "Travel in",
   travel_in_load_in: "Travel in, load in",
@@ -356,7 +379,7 @@ export function buildPassProps(input: {
       ["room", "Room", room],
       ["lead", "Your lead", lead],
       ["hotel", "Hotel tonight", hotel],
-      ["dressCode", "Dress code", dressCode],
+      ["dressCode", "Dress code", dressCodeFor(dressCode, kind)],
       ["strike", "Strike", isLastShow ? null : strikeTime],
       ["loadIn", "Load in", kind === "travel_in" ? setTime : null],
     ];
