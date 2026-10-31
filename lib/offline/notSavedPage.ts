@@ -20,12 +20,17 @@
 
 // Hex values are the runtime color tokens in app/globals.css (--color-bg-runtime,
 // --color-text-runtime, --color-text-subtle-runtime, and for the button
-// --color-surface-runtime, --color-text-faint-runtime, --color-focus-ring-runtime),
-// light and dark. They are copies, because this page cannot read the app's stylesheet;
+// --color-surface-runtime, --color-text-faint-runtime, --color-focus-ring-runtime,
+// --color-surface-sunken-runtime, --color-accent-on-bg-runtime), light and dark. They
+// are copies, because this page cannot read the app's stylesheet;
 // tests/lib/offline/palette.test.ts ties each one to its token so a palette change
 // cannot leave this page off-palette. The button is the app's secondary-action recipe:
 // a surface fill, a text-faint outline (3:1 against both grounds, DESIGN.md 1.2) and
-// the focus ring of the app's own :focus-visible rule.
+// the focus ring of the app's own :focus-visible rule. Its pressed and hover states are
+// the app's own for a surface-filled control with that outline
+// (components/admin/dev/SwitcherControls.tsx): a surface-sunken fill while pressed, an
+// accent-on-bg outline under a hovering pointer. Neither touches the outline property,
+// so the focus ring draws over both.
 const LIGHT = {
   bg: "#fafaf9",
   text: "#1a1b1f",
@@ -33,6 +38,8 @@ const LIGHT = {
   surface: "#ffffff",
   outline: "#8b8c92",
   ring: "#e06000",
+  pressed: "#f4f3f1",
+  hover: "#a65000",
 };
 const DARK = {
   bg: "#0f1014",
@@ -41,6 +48,8 @@ const DARK = {
   surface: "#16171c",
   outline: "#74736d",
   ring: "rgba(255, 160, 71, 0.65)",
+  pressed: "#0b0c10",
+  hover: "#ffa047",
 };
 
 // The heading doubles as the tab title, so the page carries no copy beyond the spec's.
@@ -79,15 +88,21 @@ const CSS = [
     `font: inherit; font-size: 0.875rem; font-weight: 500; color: ${LIGHT.text}; ` +
     `background-color: ${LIGHT.surface}; border: 1px solid ${LIGHT.outline}; ` +
     `border-radius: 6px; cursor: pointer; }`,
+  `button:active { background-color: ${LIGHT.pressed}; }`,
   // Longhands, so the palette test can read the ring's colour back by name.
   `button:focus-visible { outline-width: 3px; outline-style: solid; ` +
     `outline-color: ${LIGHT.ring}; outline-offset: 2px; }`,
+  // Only a pointer that hovers: a tap must not leave the hover outline stuck on.
+  `@media (hover: hover) { button:hover { border-color: ${LIGHT.hover}; } }`,
   `@media (prefers-color-scheme: dark) { ` +
     `body { background-color: ${DARK.bg}; color: ${DARK.text}; } ` +
     `small { color: ${DARK.subtle}; } ` +
     `button { color: ${DARK.text}; background-color: ${DARK.surface}; ` +
     `border-color: ${DARK.outline}; } ` +
+    `button:active { background-color: ${DARK.pressed}; } ` +
     `button:focus-visible { outline-color: ${DARK.ring}; } }`,
+  `@media (hover: hover) and (prefers-color-scheme: dark) { ` +
+    `button:hover { border-color: ${DARK.hover}; } }`,
 ].join("\n");
 
 /** The complete HTML document, ready to be the body of a `text/html` response. */

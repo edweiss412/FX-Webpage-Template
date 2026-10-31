@@ -398,6 +398,47 @@ describe("the Try again button", () => {
     expect(parseFloat(ring[0]!.style.getPropertyValue("outline-width"))).toBeGreaterThanOrEqual(2);
   });
 
+  // UI gate re-check E3: a tap in a dead zone reloads into this same page, so the
+  // button's own pressed state is what shows a try happened. Hover is gated on a
+  // pointer that hovers, so a touch never leaves it stuck on.
+  test("has a pressed state and a hover state of its own, and keeps its focus ring", () => {
+    const { window, document } = load();
+    const sheet = theOnlyStyleSheet(window, document);
+    const top = Array.from(sheet.cssRules);
+    const styleRules = (rules: CSSRule[], selector: string): CSSStyleRule[] =>
+      rules.filter(
+        (rule): rule is CSSStyleRule =>
+          rule instanceof window.CSSStyleRule && rule.selectorText === selector,
+      );
+    const base = styleRules(top, "button");
+    expect(base).toHaveLength(1);
+
+    const pressed = styleRules(top, "button:active");
+    expect(pressed).toHaveLength(1);
+    const pressedFill = pressed[0]!.style.getPropertyValue("background-color");
+    expect(pressedFill).not.toBe("");
+    expect(pressedFill).not.toBe(base[0]!.style.getPropertyValue("background-color"));
+
+    const hoverMedia = top.filter(
+      (rule): rule is CSSMediaRule =>
+        rule instanceof window.CSSMediaRule && rule.media.mediaText === "(hover: hover)",
+    );
+    expect(hoverMedia).toHaveLength(1);
+    const hover = styleRules(Array.from(hoverMedia[0]!.cssRules), "button:hover");
+    expect(hover).toHaveLength(1);
+    const hoverOutline = hover[0]!.style.getPropertyValue("border-color");
+    expect(hoverOutline).not.toBe("");
+    expect(hoverOutline).not.toBe(base[0]!.style.getPropertyValue("border-color"));
+
+    // Neither state touches the outline, so the focus ring draws over both.
+    for (const rule of [...pressed, ...hover]) {
+      expect(rule.style.getPropertyValue("outline")).toBe("");
+      expect(rule.style.getPropertyValue("outline-style")).toBe("");
+      expect(rule.style.getPropertyValue("outline-color")).toBe("");
+    }
+    expect(styleRules(top, "button:focus-visible")).toHaveLength(1);
+  });
+
   test("a tap reloads the page at once, without asking the network first", async () => {
     const page = loadAndWatch(notSavedPageHtml());
     const button = page.window.document.querySelector("button") as HTMLButtonElement;

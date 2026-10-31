@@ -172,13 +172,42 @@ const PAGE_COLORS = [
     property: "outline-color",
     token: "--color-focus-ring-runtime",
   },
+  // The app's own secondary-control states (components/admin/dev/SwitcherControls.tsx):
+  // a pressed fill of surface-sunken, a hover outline of accent-on-bg.
+  {
+    role: "button pressed fill",
+    selector: "button:active",
+    property: "background-color",
+    token: "--color-surface-sunken-runtime",
+  },
+  {
+    role: "button hover outline",
+    selector: "button:hover",
+    property: "border-color",
+    token: "--color-accent-on-bg-runtime",
+  },
 ] as const;
+
+/** The hover rules sit in media blocks of their own, so a touch never keeps them on. */
+const HOVER_QUERY = "(hover: hover)";
+const DARK_HOVER_QUERY = `${HOVER_QUERY} and ${DARK_QUERY}`;
 
 function pageRules(): { light: CSSStyleRule[]; dark: CSSStyleRule[] } {
   const page = new DOMParser().parseFromString(notSavedPageHtml(), "text/html");
   const style = theOne([...page.querySelectorAll("style")], "the page's style element");
-  const { top, dark } = splitByDarkMedia(rulesOf(style.textContent ?? ""));
-  return { light: top, dark };
+  const rules = rulesOf(style.textContent ?? "");
+  const { top, dark } = splitByDarkMedia(rules);
+  const inMedia = (query: string): CSSStyleRule[] =>
+    Array.from(
+      theOne(
+        rules.filter(isMediaRule).filter((rule) => rule.media.mediaText === query),
+        `the ${query} media block`,
+      ).cssRules,
+    ).filter(isStyleRule);
+  return {
+    light: [...top, ...inMedia(HOVER_QUERY)],
+    dark: [...dark, ...inMedia(DARK_HOVER_QUERY)],
+  };
 }
 
 function declared(rules: CSSStyleRule[], selector: string, property: string): string {
