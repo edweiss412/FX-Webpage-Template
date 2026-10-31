@@ -51,16 +51,17 @@
  * renamed or deleted case fails here; (3) every source pin holds.
  *
  * CONDITIONAL RENDERS. `CONDITIONAL_RENDERS` lists every conditional render
- * (`cond ? <A> : …`, `cond && <A>`, `cond ? null : <A>`) and every
- * `AnimatePresence` in the crew components this redesign added, each with the
- * §7 treatment that governs it. The scan finds them by shape; a new one fails
- * here until it is registered.
+ * (`cond ? <A> : …`, `cond && <A>`, `cond ? null : <A>`, a JSX child `{cond ? x : y}`,
+ * an `if` returning JSX) and every `AnimatePresence` in the crew components this
+ * redesign added, each with the §7 treatment that governs it. The scan derives
+ * them from each file's TypeScript AST, wherever they sit (whole-diff review
+ * round 2, second pass, 2C-R2-3: a line-shape scan missed `const x = cond && <p/>`
+ * rendered later); a new one fails here until it is registered.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { describe, expect, test } from "vitest";
-
-import { stripCommentsForFile } from "../_shared/stripComments";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
@@ -659,6 +660,8 @@ const T = {
   toast: "L359 inside the toast, which fades and rises; reduced motion instant",
   search: "instant: search results replace the page (crew show search spec §6.2), outside §7",
   hydration: "instant: the server render leaves the open body to the sheet; filled after hydration",
+  sheetBody:
+    "L353 the open section's body crossfades inside the sheet (CrewSectionTransition), reduced motion one commit; empty while closed (L348/L349)",
 } as const;
 
 type Conditional = {
@@ -686,6 +689,9 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
       { match: '{mode === "ssr" && s.id === open ? null', treatment: T.hydration },
       { match: "{searchActive ? (", treatment: T.search },
       { match: "{showCompact ? (\n<CrewSectionSheet", treatment: T.sheetHost },
+      // Found by the AST derivation (round 2, 2C-R2-3): the sheet's children,
+      // the open section's body, a JSX child whose operands are values.
+      { match: "{open !== null ? sectionNodes[open] : null}", treatment: T.sheetBody },
     ],
   },
   [SHEET]: {
@@ -704,7 +710,15 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
     presences: 0,
     renders: [{ match: "{section.peek !== null ? (", treatment: T.serverPresence }],
   },
-  [DAY_ROW]: { presences: 0, renders: [{ match: "{todayInSet ? null : (", treatment: T.now }] },
+  [DAY_ROW]: {
+    presences: 0,
+    renders: [
+      { match: "{todayInSet ? null : (", treatment: T.now },
+      // Found by the AST derivation (round 2, 2C-R2-3): today's button reads
+      // "Today" in place of its weekday, which changes with the day set at midnight.
+      { match: '{isToday ? "Today" : day.weekday}', treatment: T.now },
+    ],
+  },
   [PASS]: {
     presences: 1,
     renders: [
@@ -764,31 +778,86 @@ const CONDITIONAL_RENDERS: Record<string, { presences: number; renders: Conditio
         treatment: T.serverPresence,
       },
       { match: "{facts.length > 0 ? <CrewQuickFacts", treatment: T.serverPresence },
+      // Found by the AST derivation (round 2, 2C-R2-3): the overflow line's plural.
+      {
+        match: '{model.notesOverflow === 1 ? "more note" : "more notes"}',
+        treatment: T.serverPresence,
+      },
     ],
   },
 };
 
+/** The expression inside any parentheses around it. */
+function unwrap(node: ts.Node | undefined): ts.Node | undefined {
+  let n = node;
+  while (n !== undefined && ts.isParenthesizedExpression(n)) n = n.expression;
+  return n;
+}
+
+/** A JSX element, self-closing element or fragment (parentheses aside). */
+function isJsx(node: ts.Node | undefined): boolean {
+  const n = unwrap(node);
+  return (
+    n !== undefined && (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n))
+  );
+}
+
+/** A branch of an `if` that returns JSX: a `return <X/>`, directly or as a block's statement. */
+function returnsJsx(stmt: ts.Statement | undefined): boolean {
+  if (stmt === undefined) return false;
+  if (ts.isReturnStatement(stmt)) return isJsx(stmt.expression);
+  return (
+    ts.isBlock(stmt) && stmt.statements.some((s) => ts.isReturnStatement(s) && isJsx(s.expression))
+  );
+}
+
+const LOGICAL = new Set([
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+]);
+
 /**
- * Conditional renders, by shape: a line that ends in `? (` (a multi-line arm),
- * an inline `{cond ? <X`, a `{cond && (` or `{cond && <X`, or `{cond ? null :`.
- * Comments are blanked first (the shared stripper keeps line numbers). Each hit
- * is its trimmed line and the next one, so two renders on one condition are
- * told apart by what they render.
+ * Conditional renders, by DERIVATION from the TypeScript AST rather than by line
+ * shape (whole-diff review round 2, second pass, 2C-R2-3: the shape scan missed
+ * `const label = cond && <p/>` rendered later as `{label}`). A conditional render
+ * is any of, wherever it appears:
+ *   - a `?:`, `&&`, `||` or `??` with a JSX operand (`cond && <X/>`, `cond ? <X/> : null`);
+ *   - a `?:` or logical expression that IS a JSX child (`{cond ? null : body}`):
+ *     whatever its operands are, they render;
+ *   - an `if` whose branch returns JSX (a conditional return).
+ * Comments are not syntax, so they never count. Each hit is its node's first
+ * line, trimmed, then the next line, so two renders on one condition are told
+ * apart by what they render.
  */
 function conditionalRenders(src: string, file: string): string[] {
-  const shapes = [
-    /\?\s*\($/,
-    /\{[^{}]*\s\?\s*</,
-    /\{[^{}]*&&\s*(?:\($|<)/,
-    /\{[^{}]*\s\?\s*null\s*:/,
-  ];
-  const lines = stripCommentsForFile(src, file).split("\n");
+  const sf = ts.createSourceFile(
+    file,
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const lines = src.split("\n");
   const hits: string[] = [];
-  lines.forEach((line, i) => {
-    if (shapes.some((re) => re.test(line.trimEnd()))) {
-      hits.push(`${line.trim()}\n${(lines[i + 1] ?? "").trim()}`);
+  const record = (node: ts.Node) => {
+    const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+    hits.push(`${lines[line]!.trim()}\n${(lines[line + 1] ?? "").trim()}`);
+  };
+  const jsxChild = (node: ts.Node) =>
+    ts.isJsxExpression(node.parent) &&
+    (ts.isJsxElement(node.parent.parent) || ts.isJsxFragment(node.parent.parent));
+  const visit = (node: ts.Node) => {
+    if (ts.isConditionalExpression(node)) {
+      if (isJsx(node.whenTrue) || isJsx(node.whenFalse) || jsxChild(node)) record(node);
+    } else if (ts.isBinaryExpression(node) && LOGICAL.has(node.operatorToken.kind)) {
+      if (isJsx(node.right) || jsxChild(node)) record(node);
+    } else if (ts.isIfStatement(node)) {
+      if (returnsJsx(node.thenStatement) || returnsJsx(node.elseStatement)) record(node);
     }
-  });
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
   return hits;
 }
 
@@ -798,14 +867,28 @@ function claims(hit: string, match: string): boolean {
 }
 
 describe("§7 transition inventory: every conditional render in the redesign's crew components has its row", () => {
-  test("PREMISE: the scan finds each shape it claims, and skips comments and value ternaries", () => {
-    expect(conditionalRenders("{a ? (\n<X/>", "x.tsx")).toHaveLength(1);
-    expect(conditionalRenders("{a ? <X/> : null}", "x.tsx")).toHaveLength(1);
-    expect(conditionalRenders("{a && (\n<X/>", "x.tsx")).toHaveLength(1);
-    expect(conditionalRenders("{a && <X/>}", "x.tsx")).toHaveLength(1);
-    expect(conditionalRenders("{a ? null : (\n<X/>", "x.tsx")).toHaveLength(1);
-    expect(conditionalRenders("// {a ? <X/> : null}", "x.tsx")).toHaveLength(0);
-    expect(conditionalRenders("const x = a ? (b ?? c) : null;", "x.tsx")).toHaveLength(0);
+  test("PREMISE: the scan finds every conditional render form, wherever it sits, and skips comments and value ternaries", () => {
+    const tsx = (body: string) => `export function C({ a, b, n }: P) {\n${body}\n}`;
+    const count = (body: string) => conditionalRenders(tsx(body), "x.tsx").length;
+    expect(count("return <div>{a ? (\n<X/>\n) : null}</div>;")).toBe(1);
+    expect(count("return <div>{a ? <X/> : null}</div>;")).toBe(1);
+    expect(count("return <div>{a && (\n<X/>\n)}</div>;")).toBe(1);
+    expect(count("return <div>{a && <X/>}</div>;")).toBe(1);
+    expect(count("return <div>{a ? null : (\n<X/>\n)}</div>;")).toBe(1);
+    // A JSX child whose operands are values still renders conditionally.
+    expect(count("return <div>{a ? null : n}</div>;")).toBe(1);
+    expect(count("return <>{a ?? n}</>;")).toBe(1);
+    // The reviewer's probe: bound to a name, rendered later.
+    expect(count("const label = a && <p>Notes</p>;\nreturn <div>{label}</div>;")).toBe(1);
+    expect(count("const x = a ? <X/> : b ? <Y/> : null;\nreturn x;")).toBe(2);
+    // A conditional return.
+    expect(count("if (a) return <X/>;\nreturn null;")).toBe(1);
+    expect(count("if (a) {\n  return (\n<X/>\n);\n}\nreturn null;")).toBe(1);
+    // Not renders: comments, value ternaries, attribute values, an `if` returning a value.
+    expect(count("// return <div>{a ? <X/> : null}</div>;\nreturn null;")).toBe(0);
+    expect(count("const x = a ? (b ?? n) : null;\nreturn null;")).toBe(0);
+    expect(count('return <div className={a ? "on" : "off"} />;')).toBe(0);
+    expect(count("if (a) return null;\nreturn <X/>;")).toBe(0);
   });
 
   for (const [rel, entry] of Object.entries(CONDITIONAL_RENDERS)) {
