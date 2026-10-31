@@ -28,6 +28,12 @@
  * instant. Nothing here leaves a transform on the panel at rest, so a nested
  * dialog's `position: fixed` still resolves against the viewport.
  *
+ * Height: at most 90dvh less `--crew-sheet-clearance`, the admin preview
+ * banner's bottom edge in the viewport on the preview route and 0 everywhere
+ * else. The banner sticks above the sheet layer (`z-sticky-banner` over
+ * `z-sheet`), so a sheet capped at 90dvh alone rose under it and the banner
+ * covered the title and the close control (whole-diff review round 2, 2A-1).
+ *
  * The body is the section's size container (`@container`): the body's grids
  * read its width (`@min-crew-split:`), so at 446px they stay one column even
  * when the window is 1000px wide. `container-type: inline-size` adds no
@@ -434,7 +440,7 @@ function SheetFrame({
         <div
           ref={panelRef}
           data-testid="crew-section-sheet-panel"
-          className="pointer-events-auto flex max-h-[90dvh] w-full flex-col rounded-t-lg border border-b-0 border-border bg-surface-raised text-text shadow-popover sm:max-w-panel-max"
+          className="pointer-events-auto flex max-h-[calc(90dvh-var(--crew-sheet-clearance))] w-full flex-col rounded-t-lg border border-b-0 border-border bg-surface-raised text-text shadow-popover sm:max-w-panel-max"
         >
           <div
             className="shrink-0 touch-none select-none"

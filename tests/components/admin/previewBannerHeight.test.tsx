@@ -45,6 +45,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   ManualObserver.all = [];
   document.documentElement.style.removeProperty("--preview-banner-h");
+  document.documentElement.style.removeProperty("--preview-banner-bottom");
 });
 
 function renderBanner() {
@@ -92,6 +93,63 @@ describe("PreviewBanner publishes its height (audit P1-3)", () => {
 
     unmount();
     expect(root.style.getPropertyValue("--preview-banner-h")).toBe("");
+  });
+
+  // Whole-diff review round 2, 2A-1: the compact section sheet is fixed to the
+  // viewport under the banner, so its cap needs the banner's bottom edge, which
+  // sits below the admin nav at the top of the page and rises as the page scrolls.
+  it("sets --preview-banner-bottom to the banner's bottom edge, follows the scroll once a frame, and removes it on unmount", () => {
+    vi.stubGlobal("ResizeObserver", ManualObserver);
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    let top = 89; // under the admin nav at the top of the page
+    const reads = vi.fn();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const banner = this.dataset.testid === "admin-preview-banner";
+      if (banner) reads();
+      const h = banner ? 132 : 0;
+      return {
+        top: banner ? top : 0,
+        bottom: banner ? top + h : 0,
+        height: h,
+        left: 0,
+        right: 0,
+        width: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+    const { unmount } = renderBanner();
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--preview-banner-bottom")).toBe("221px");
+    expect(root.style.getPropertyValue("--preview-banner-h")).toBe("132px");
+
+    // Two scroll events in one frame: one read, on the frame.
+    top = 40;
+    reads.mockClear();
+    window.dispatchEvent(new Event("scroll"));
+    window.dispatchEvent(new Event("scroll"));
+    expect(reads).not.toHaveBeenCalled();
+    expect(frames).toHaveLength(1);
+    act(() => frames.shift()!(0));
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(root.style.getPropertyValue("--preview-banner-bottom")).toBe("172px");
+
+    // Stuck at the top: the edge is the height.
+    top = 0;
+    window.dispatchEvent(new Event("scroll"));
+    act(() => frames.shift()!(0));
+    expect(root.style.getPropertyValue("--preview-banner-bottom")).toBe("132px");
+
+    unmount();
+    expect(root.style.getPropertyValue("--preview-banner-bottom")).toBe("");
+    // No listener outlives the banner.
+    window.dispatchEvent(new Event("scroll"));
+    expect(frames).toHaveLength(0);
   });
 
   it("still publishes once without ResizeObserver", () => {

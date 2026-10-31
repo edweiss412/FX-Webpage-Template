@@ -3186,4 +3186,91 @@ test.describe("dimensional invariants, compact (crew page redesign Task 13)", ()
     expect(m.body.scrolled, at).toBeGreaterThan(0);
     expect(m.scrollYAfter, at).toBe(m.scrollYBefore);
   });
+
+  // Whole-diff review round 2, 2A-1: the preview banner sticks above the sheet
+  // layer (z 100 over z-sheet 45), so a tall sheet capped at 90dvh alone rose
+  // under it and the banner covered the sheet's title and close control. Where
+  // the banner sits depends on the scroll: under the admin nav at the top of the
+  // page, at the viewport's top once the page has scrolled. Both are measured.
+  //
+  // Geometry, not `elementFromPoint`: the sheet's inert sweep makes the banner
+  // inert while the sheet is open, and an inert element is skipped by hit
+  // testing, so a point the banner paints over still "hits" the sheet under it.
+  test("dimensional: sheet on the preview route: the banner never covers the sheet's title or close control, at 320 and 390", async ({
+    page,
+  }) => {
+    await pinBothClocks(page, SHOW_DAY_1);
+    const panel = page.getByTestId("crew-section-sheet-panel");
+    /** The banner, the panel's top, the title and the close control, once the panel has settled. */
+    async function readSheet() {
+      await expect(page.getByTestId("section-crew")).toBeVisible();
+      // Settled: the panel has finished sliding up to the viewport's bottom edge.
+      await expect
+        .poll(() =>
+          panel.evaluate((el) => Math.abs(el.getBoundingClientRect().bottom - window.innerHeight)),
+        )
+        .toBeLessThanOrEqual(TOL);
+      return page.evaluate(() => {
+        const rect = (el: Element) => {
+          const r = el.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom };
+        };
+        const panel = document.querySelector<HTMLElement>(
+          '[data-testid="crew-section-sheet-panel"]',
+        )!;
+        const header = panel.firstElementChild as HTMLElement;
+        const body = document.querySelector('[data-testid="crew-section-sheet-body"]')!;
+        const dialog = document.querySelector('[data-testid="crew-section-sheet-dialog"]')!;
+        return {
+          innerHeight: window.innerHeight,
+          scrollY: window.scrollY,
+          banner: rect(document.querySelector('[data-testid="admin-preview-banner"]')!),
+          panelTop: panel.getBoundingClientRect().top,
+          natural: header.getBoundingClientRect().height + body.scrollHeight,
+          title: rect(document.getElementById(dialog.getAttribute("aria-labelledby")!)!),
+          close: rect(panel.querySelector("button[aria-label^='Close']")!),
+        };
+      });
+    }
+    function expectClear(m: Awaited<ReturnType<typeof readSheet>>, at: string) {
+      // PREMISE: the Crew sheet's content is taller than the space under the
+      // banner, so only the cap keeps the sheet clear of it.
+      expect(m.natural, at).toBeGreaterThan(m.innerHeight - m.banner.bottom + 1);
+      expect(m.panelTop, `${at} the sheet starts below the banner`).toBeGreaterThanOrEqual(
+        m.banner.bottom - TOL,
+      );
+      expect(m.title.top, `${at} the title is below the banner`).toBeGreaterThanOrEqual(
+        m.banner.bottom - TOL,
+      );
+      expect(m.close.top, `${at} the close control is below the banner`).toBeGreaterThanOrEqual(
+        m.banner.bottom - TOL,
+      );
+    }
+
+    for (const viewport of [
+      { width: 320, height: 480 },
+      { width: 390, height: 640 },
+    ]) {
+      await page.setViewportSize(viewport);
+
+      // A deep link: the page at its top, the banner under the admin nav.
+      await gotoHome(page, "?s=crew", previewPath());
+      let m = await readSheet();
+      let at = `${viewport.width}px deep link ${JSON.stringify(m)}`;
+      // PREMISE: something sits above the banner, so its bottom edge is lower than its height.
+      expect(m.banner.top, at).toBeGreaterThan(1);
+      expectClear(m, at);
+
+      // Scrolled, then opened from its row: the banner stuck at the viewport's top.
+      await gotoHome(page, "", previewPath());
+      await page.evaluate(() => window.scrollTo({ top: 400, behavior: "instant" }));
+      await page.locator('[data-testid="crew-all-sections-row"][data-section="crew"]').click();
+      m = await readSheet();
+      at = `${viewport.width}px scrolled ${JSON.stringify(m)}`;
+      // PREMISE: the page scrolled far enough that the banner stuck at the top.
+      expect(m.scrollY, at).toBeGreaterThan(0);
+      expect(Math.abs(m.banner.top), at).toBeLessThanOrEqual(TOL);
+      expectClear(m, at);
+    }
+  });
 });

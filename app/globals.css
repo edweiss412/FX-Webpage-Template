@@ -1948,6 +1948,14 @@ details[open] > summary [data-agenda-day-count] {
  * offset is 0 on the crew route. The nav's sticky offset and height read the
  * header's bottom edge, never its height alone (audit P1-3, critique F3).
  *
+ * How far down the viewport the chrome above the compact section sheet reaches
+ * (whole-diff review round 2, 2A-1): `--crew-sheet-clearance`, the preview
+ * banner's bottom edge in the viewport (`--preview-banner-bottom`, published by
+ * the same component, following the scroll), 0 on the crew route. The banner
+ * stacks above the fixed sheet, and at the top of the page the admin nav sits
+ * above the banner, so the sheet's height cap subtracts the edge, not the
+ * height, and the banner never covers the sheet's title or close control.
+ *
  * Where anything the page scrolls to may land (UI-gate re-run, audit P1-1 and
  * P3-1): `--crew-scroll-clearance`, below everything that sticks plus the focus
  * ring's reach (`--crew-ring-clearance`: the `:focus-visible` ring is a 3px
@@ -1962,6 +1970,7 @@ details[open] > summary [data-agenda-day-count] {
 :root {
   --crew-header-h: 6rem;
   --crew-sticky-top: var(--preview-banner-h, 0rem);
+  --crew-sheet-clearance: var(--preview-banner-bottom, 0rem);
   --crew-header-bottom: calc(var(--crew-sticky-top) + var(--crew-header-h));
   --crew-ring-clearance: 0.5rem;
   --crew-scroll-clearance: calc(var(--crew-sticky-top) + var(--crew-ring-clearance));

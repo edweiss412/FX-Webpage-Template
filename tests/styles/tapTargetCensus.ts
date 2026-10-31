@@ -303,7 +303,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // 361 -> 379 (critique F4): the per-open presence count sits above it. Same scrim.
     // 379 -> 409 (UI-gate re-run P2-1): the deep-link close's scroll into view and
     // its Strict Mode guard sit above it. Same scrim, read at the new key.
-    line: 409,
+    // 409 -> 415 (whole-diff review round 2, 2A-1): the height cap's doc sits
+    // above it. Same scrim, read at the new key.
+    line: 415,
     tag: "motion.div",
     category: "full-bleed",
     reason:
