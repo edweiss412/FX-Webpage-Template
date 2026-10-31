@@ -187,7 +187,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   // it, so the title cannot drift from the number the guard asserts (it read 233 over
   // an assertion of 236 until whole-diff review R4-F5). Re-derive by running this
   // guard, never by adding up the members named below.
-  const DERIVED_LIB_POPULATION = 236;
+  const DERIVED_LIB_POPULATION = 247;
 
   it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
@@ -439,6 +439,9 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // feat/crew-page-redesign. Both sides start from 228; this branch's members above and
     // that arc's three are all present and nothing left. Re-derived by running this guard
     // on the merged tree, not by adding the two sides up.
+    // 247 on the merge of origin/main (PR #983, the crew offline saved copy) into
+    // feat/crew-page-redesign: this branch's 236 plus main's eleven lib/offline joiners
+    // asserted above, nothing left. Re-derived by running this guard on the merged tree.
     expect(rel.length).toBe(DERIVED_LIB_POPULATION);
   });
 

@@ -564,7 +564,9 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // comment's dimension rule names the header's bottom edge. Same <Icon>.
     // 138 -> 141 (whole-diff review round 2, round 3, 3A-2): the indicator
     // effect's `hidden` dependency and its note sit above. Same <Icon>.
-    site: "components/crew/CrewWideNav.tsx:141",
+    // 141 -> 142 (origin/main merge, saved-copy bar): the header comment's
+    // dimension rule names the saved-copy bar's height. Same <Icon>.
+    site: "components/crew/CrewWideNav.tsx:142",
     disposition: "carrier-survives",
     reason:
       "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",
