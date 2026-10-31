@@ -209,7 +209,7 @@ Each criterion paraphrases the spec section it cites; the spec text wins on any 
 
 ### Task 1: Crew-URL classification derived from the route tree
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/crewUrl.test.ts` red-state=authored red-target=`lib/offline/crewUrl.ts` why=`crewPath and classifyRequest are stubs that throw and NON_CREW_SEGMENTS is empty, so the derivation case fails comparing an empty list to the on-disk siblings and every classification case throws` ac=AC-1 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/crewUrl.test.ts` red-state=authored red-target=`lib/offline/crewUrl.ts:31` why=`crewPath and classifyRequest are stubs that throw and NON_CREW_SEGMENTS is empty, so the derivation case fails comparing an empty list to the on-disk siblings and every classification case throws` ac=AC-1 -->
 
 **What is red and why:** the derivation case compares `NON_CREW_SEGMENTS` (empty in the stub) to the static siblings read from disk (`["unpublish"]` today), and every classification case calls a stub that throws.
 
@@ -290,7 +290,7 @@ describe("crew URL exclusion is derived from the route tree", () => {
 
 ### Task 2: Marker contract and fail-closed reader
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/marker.test.ts` red-state=authored red-target=`lib/offline/marker.ts` why=`markerAttributes and readMarker are stubs that throw, so the round-trip, fail-closed and decoy cases all fail on the throw rather than on a missing module` ac=AC-2 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/marker.test.ts` red-state=authored red-target=`lib/offline/marker.ts:39` why=`markerAttributes and readMarker are stubs that throw, so the round-trip, fail-closed and decoy cases all fail on the throw rather than on a missing module` ac=AC-2 -->
 
 **What is red and why:** both exported functions throw; every case calls one of them.
 
@@ -346,7 +346,7 @@ export function readMarker(html: string): MarkerRead {
 
 ### Task 3: Saved time and age formatting
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/format.test.ts` red-state=authored red-target=`lib/offline/format.ts` why=`formatSavedTime and formatAgo are stubs that throw, so every exact-string case fails before comparing` ac=AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/format.test.ts` red-state=authored red-target=`lib/offline/format.ts:43` why=`formatSavedTime and formatAgo are stubs that throw, so every exact-string case fails before comparing` ac=AC-7 -->
 
 **What is red and why:** both functions are throwing stubs.
 
@@ -367,7 +367,7 @@ create  tests/lib/offline/format.test.ts
 
 ### Task 4: Bar state derivation with exact copy
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/barState.test.ts` red-state=authored red-target=`lib/offline/barState.ts` why=`deriveBarView is a stub that throws, so every state, precedence and guard case fails on the throw` ac=AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/barState.test.ts` red-state=authored red-target=`lib/offline/barState.ts:124` why=`deriveBarView is a stub that throws, so every state, precedence and guard case fails on the throw` ac=AC-7 -->
 
 **What is red and why:** `deriveBarView` is a throwing stub.
 
@@ -444,7 +444,7 @@ Leads per mode: `offline` `No signal.`; `slow` `Slow connection.`; `server-error
 
 ### Task 5: Navigation decision tables (§4.4)
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/navigation.test.ts` red-state=authored red-target=`lib/offline/navigation.ts` why=`decideStep3, decideEndedStep1, decideEndedFetch, decideCheckOutcome and decideNoResponse are stubs that throw (with lib/offline/store.ts holding the types, per preflight ruling D1), so every row of the step tables fails on the throw` ac=AC-3 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/navigation.test.ts` red-state=authored red-target=`lib/offline/navigation.ts:82` why=`decideStep3, decideEndedStep1, decideEndedFetch, decideCheckOutcome and decideNoResponse are stubs that throw (with lib/offline/store.ts holding the types, per preflight ruling D1), so every row of the step tables fails on the throw` ac=AC-3 -->
 
 **What is red and why:** every decision function is a throwing stub.
 
@@ -518,7 +518,7 @@ This task imports the `StoredCopy` and `PurgeScope` types from Task 6's module, 
 
 ### Task 6: One copy per show, the generation counter, the ordinal, and the IndexedDB adapter
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/store.test.ts tests/lib/offline/idbStore.test.ts` red-state=authored red-target=`lib/offline/store.ts` why=`planBeginSave, planCommit, planPurge and copyAtUrl are stubs that throw and every IndexedDB adapter method is a stub that throws, so each ordering race, each one-copy-per-show case and each persistence case fails on the throw` ac=AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/store.test.ts tests/lib/offline/idbStore.test.ts` red-state=authored red-target=`lib/offline/store.ts:92` why=`planBeginSave, planCommit, planPurge and copyAtUrl are stubs that throw and every IndexedDB adapter method is a stub that throws, so each ordering race, each one-copy-per-show case and each persistence case fails on the throw` ac=AC-4 -->
 
 **What is red and why:** the plan functions and the adapter's methods are throwing stubs (the types already exist from Task 5's RED step).
 
@@ -611,7 +611,7 @@ export function copyAtUrl(state: StoreState, url: string): StoredCopy | null {
 
 ### Task 7: Completeness (HTML and CSS font references), caps, eviction and static retention
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/completeness.test.ts tests/lib/offline/caps.test.ts` red-state=authored red-target=`lib/offline/caps.ts` why=`requiredStaticUrls and fontUrlsFromCss (lib/offline/completeness.ts) and admitAsset, evictionVictims and staticEvictions (lib/offline/caps.ts) are throwing stubs, so each extraction, cap boundary, eviction and retention case fails on the throw (preflight ruling D23)` ac=AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/completeness.test.ts tests/lib/offline/caps.test.ts` red-state=authored red-target=`lib/offline/caps.ts:38` why=`requiredStaticUrls and fontUrlsFromCss (lib/offline/completeness.ts) and admitAsset, evictionVictims and staticEvictions (lib/offline/caps.ts) are throwing stubs, so each extraction, cap boundary, eviction and retention case fails on the throw (preflight ruling D23)` ac=AC-5 -->
 
 **What is red and why:** all five functions are throwing stubs.
 
@@ -635,7 +635,7 @@ create  tests/lib/offline/fixtures/crew-page.html
 
 ### Task 8: Head injection and the CSS notice
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/inject.test.ts` red-state=authored red-target=`lib/offline/inject.ts` why=`injectSavedCopyHead is a stub that throws, so the placement, escaping and allowlist cases all fail on the throw` ac=AC-6 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/inject.test.ts` red-state=authored red-target=`lib/offline/inject.ts:45` why=`injectSavedCopyHead is a stub that throws, so the placement, escaping and allowlist cases all fail on the throw` ac=AC-6 -->
 
 **What is red and why:** `injectSavedCopyHead` throws.
 
@@ -656,7 +656,7 @@ create  tests/lib/offline/inject.test.ts
 
 ### Task 9: The "not saved yet" page
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/notSavedPage.test.ts` red-state=authored red-target=`lib/offline/notSavedPage.ts` why=`notSavedPageHtml is a stub that throws, so the copy, theming and reload cases fail on the throw` ac=AC-9 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/notSavedPage.test.ts` red-state=authored red-target=`lib/offline/notSavedPage.ts:94` why=`notSavedPageHtml is a stub that throws, so the copy, theming and reload cases fail on the throw` ac=AC-9 -->
 
 **What is red and why:** `notSavedPageHtml()` throws.
 
@@ -675,7 +675,7 @@ create  tests/lib/offline/notSavedPage.test.ts
 
 ### Task 10: Worker state machine with injected dependencies
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/workerInstall.test.ts` red-state=authored red-target=`lib/offline/worker/install.ts` why=`installWorker registers no listeners in its stub, so every fetch and message case finds no handler and fails its respondWith, reply and store assertions` ac=AC-3,AC-4,AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/workerInstall.test.ts` red-state=authored red-target=`lib/offline/worker/install.ts:263` why=`installWorker registers no listeners in its stub, so every fetch and message case finds no handler and fails its respondWith, reply and store assertions` ac=AC-3,AC-4,AC-5 -->
 
 **What is red and why:** the stub `installWorker(scope, deps)` registers nothing, so dispatching a fake `fetch` or `message` event finds no listener and the respondWith, reply and store assertions fail.
 
@@ -716,7 +716,7 @@ create  tests/lib/offline/workerInstall.test.ts
 
 ### Task 11: Worker entry and `pnpm gen:sw` with a freshness test
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/swSourceFreshness.test.ts` red-state=authored red-target=`lib/offline/__generated__/swSource.ts` why=`the RED step commits a placeholder generated module whose SW_SOURCE is an empty string while the entry, the build script and buildSwSource are real, so the equality case fails on content and nothing in the RED step throws` ac=AC-10,AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/swSourceFreshness.test.ts` red-state=authored red-target=`lib/offline/__generated__/swSource.ts:2` why=`the RED step commits a placeholder generated module whose SW_SOURCE is an empty string while the entry, the build script and buildSwSource are real, so the equality case fails on content and nothing in the RED step throws` ac=AC-10,AC-4 -->
 
 **What is red and why:** the RED step writes the test, the real build script, the one-line entry, and a placeholder generated module whose `SW_SOURCE` is `""`. The equality case then fails on content, because the placeholder differs from the bundle a real `buildSwSource()` produces. The input-allowlist case runs on that same real build and may already pass at RED; it is a guard on the bundle's inputs, with its premise stated, not the red.
 
@@ -743,7 +743,7 @@ The generated directory follows the same rule as `lib/admin/__generated__/` at `
 
 ### Task 12: The /sw.js route and the kill switch
 
-<!-- task: red=`pnpm exec vitest run tests/app/swRoute.test.ts tests/lib/offline/killSwitch.test.ts` red-state=authored red-target=`app/sw.js/route.ts` why=`the stub GET returns an empty 404 and the kill-switch source is an empty string, so the header, body-selection and self-removal cases all fail on status and content` ac=AC-10 -->
+<!-- task: red=`pnpm exec vitest run tests/app/swRoute.test.ts tests/lib/offline/killSwitch.test.ts` red-state=authored red-target=`app/sw.js/route.ts:16` why=`the stub GET returns an empty 404 and the kill-switch source is an empty string, so the header, body-selection and self-removal cases all fail on status and content` ac=AC-10 -->
 
 **What is red and why:** the stub route returns `new Response(null, { status: 404 })`, and the stub kill-switch source is empty.
 
@@ -770,7 +770,7 @@ The `.env.local.example` entry goes under the `# Auth` heading at `.env.local.ex
 
 ### Task 13: `shows.unpublished_at` and its trigger
 
-<!-- task: red=`pnpm exec vitest run tests/db/showsUnpublishedAt.test.ts tests/sync/unpublishArchiveParity.test.ts` red-state=authored red-target=`supabase/migrations/20261027000000_shows_unpublished_at.sql` why=`no migration adds the column or the trigger, so the information_schema case finds no unpublished_at column, the explicit select after each unpublish path errors on the missing column, and the snapshot helper throws when the row it reads has no unpublished_at key` ac=AC-11 -->
+<!-- task: red=`pnpm exec vitest run tests/db/showsUnpublishedAt.test.ts tests/sync/unpublishArchiveParity.test.ts` red-state=authored red-target=`supabase/migrations/20261027000000_shows_unpublished_at.sql:4` why=`no migration adds the column or the trigger, so the information_schema case finds no unpublished_at column, the explicit select after each unpublish path errors on the missing column, and the snapshot helper throws when the row it reads has no unpublished_at key` ac=AC-11 -->
 
 **What is red and why:** three checks fail before the migration, each on the column's absence. The new DB test's `information_schema.columns` lookup finds no `unpublished_at` on `public.shows`. Its explicit `select unpublished_at` after each unpublish path errors. And `unpublishedStateSnapshot` (`tests/db/_b2Helpers.ts:302`) now throws when the row it reads with `select *` (`tests/db/_b2Helpers.ts:95`) has no `unpublished_at` key, so the existing parity test at `tests/sync/unpublishArchiveParity.test.ts:43` cannot pass by comparing `undefined` with `undefined`.
 
@@ -836,7 +836,7 @@ DB completeness matrix (every §4.11 layer): DDL (migration); inline CHECKs N/A,
 
 ### Task 14: Extract the post-unpublished identity resolution
 
-<!-- task: red=`pnpm exec vitest run tests/auth/picker/resolveCrewIdentity.test.ts tests/auth/picker/resolvePickerSelection.test.ts tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts tests/show/showUnavailablePaused.test.tsx tests/show/resolvedArmCrewMembersGuard.test.tsx` red-state=authored red-target=`lib/auth/picker/resolveShowPageAccess.ts:229` why=`the unpublished result at this line carries no showId and the resolved result carries no pickerEpoch, so the updated exhaustiveness expectations fail on both fields, the new saved-epoch cases fail because resolvePickerSelection ignores an epochCheck input, and the resolveCrewIdentity cases throw from its stub` ac=AC-12 -->
+<!-- task: red=`pnpm exec vitest run tests/auth/picker/resolveCrewIdentity.test.ts tests/auth/picker/resolvePickerSelection.test.ts tests/cross-cutting/resolve-show-page-access-exhaustiveness.test.ts tests/show/showUnavailablePaused.test.tsx tests/show/resolvedArmCrewMembersGuard.test.tsx` red-state=authored red-target=`lib/auth/picker/resolveShowPageAccess.ts:178` why=`the unpublished result at this line carries no showId and the resolved result carries no pickerEpoch, so the updated exhaustiveness expectations fail on both fields, the new saved-epoch cases fail because resolvePickerSelection ignores an epochCheck input, and the resolveCrewIdentity cases throw from its stub` ac=AC-12 -->
 
 **What is red and why:** `lib/auth/picker/resolveShowPageAccess.ts:229` returns `{ kind: "unpublished" }` with no show id and the `resolved` result has no `pickerEpoch`, so the updated expectations fail; `resolvePickerSelection` has no `epochCheck` input, so the new saved-epoch cases resolve against the row's epoch and fail; the new module's cases call a stub that throws.
 
@@ -924,7 +924,7 @@ export async function resolveCrewIdentity(input: {
 
 ### Task 15: Viewer key, status route, and identity parity
 
-<!-- task: red=`pnpm exec vitest run tests/lib/offline/viewerKey.test.ts tests/lib/offline/statusLifecycle.test.ts tests/api/savedCopyStatus.test.ts tests/auth/picker/savedCopyIdentityParity.test.ts tests/auth/_metaInfraContract.test.ts tests/cross-cutting/picker-resolver-callsite-contract.test.ts tests/cross-cutting/no-jwt-surface.test.ts tests/cross-cutting/auth-chain-audit.test.ts` red-state=authored red-target=`app/api/saved-copy/status/route.ts` why=`the stub route answers 200 ended for every request with no Cache-Control header, so every deny row of the parity table, every gone and 500 case of the route suite and the no-store case fail, and the new registry rows name a route that reads no show row and imports no shared resolver` ac=AC-12 -->
+<!-- task: red=`pnpm exec vitest run tests/lib/offline/viewerKey.test.ts tests/lib/offline/statusLifecycle.test.ts tests/api/savedCopyStatus.test.ts tests/auth/picker/savedCopyIdentityParity.test.ts tests/auth/_metaInfraContract.test.ts tests/cross-cutting/picker-resolver-callsite-contract.test.ts tests/cross-cutting/no-jwt-surface.test.ts tests/cross-cutting/auth-chain-audit.test.ts` red-state=authored red-target=`app/api/saved-copy/status/route.ts:92` why=`the stub route answers 200 ended for every request with no Cache-Control header, so every deny row of the parity table, every gone and 500 case of the route suite and the no-store case fail, and the new registry rows name a route that reads no show row and imports no shared resolver` ac=AC-12 -->
 
 **What is red and why:** the RED step writes a stub route that returns `200 { "state": "ended" }` for everything and sets no `Cache-Control`, so every deny row, every `gone` and `500` case of the route suite and the no-store case fail; the `viewerKey` and `lifecycleAllowsEnded` stubs throw; the registry extensions fail because the stub reads no show row (no destructure to pin) and does not import `resolveCrewIdentity`.
 
@@ -1003,7 +1003,7 @@ R15 is also reached end to end, through the worker and this route against the re
 
 ### Task 16: `<SavedCopyMarker>` and the client messaging helper
 
-<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyMarker.test.tsx tests/lib/offline/clientMessaging.test.ts` red-state=authored red-target=`components/offline/SavedCopyMarker.tsx` why=`the stub component renders nothing and posts nothing and postToWorker is a stub that throws, so the template, per-disposition post and purged-reload cases fail` ac=AC-2,AC-13 -->
+<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyMarker.test.tsx tests/lib/offline/clientMessaging.test.ts` red-state=authored red-target=`components/offline/SavedCopyMarker.tsx:54` why=`the stub component renders nothing and posts nothing and postToWorker is a stub that throws, so the template, per-disposition post and purged-reload cases fail` ac=AC-2,AC-13 -->
 
 **What is red and why:** the stub component returns `null` and the messaging stub throws.
 
@@ -1024,7 +1024,7 @@ create  tests/lib/offline/clientMessaging.test.ts
 
 ### Task 17: `<SavedCopySlot>`, the server marker helpers, and the server-built asset list
 
-<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopySlot.test.tsx tests/lib/offline/assetList.test.ts tests/lib/offline/serverMarkers.test.ts` red-state=authored red-target=`components/offline/SavedCopySlot.tsx` why=`the stub slot renders no marker and savedCopyAssetUrls and the marker helpers are stubs that throw, so the disposition-per-viewer cases, the fallback cases and the Gallery comparison case fail` ac=AC-5,AC-13 -->
+<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopySlot.test.tsx tests/lib/offline/assetList.test.ts tests/lib/offline/serverMarkers.test.ts` red-state=authored red-target=`components/offline/SavedCopySlot.tsx:63` why=`the stub slot renders no marker and savedCopyAssetUrls and the marker helpers are stubs that throw, so the disposition-per-viewer cases, the fallback cases and the Gallery comparison case fail` ac=AC-5,AC-13 -->
 
 **What is red and why:** the stub slot renders nothing; the asset-list and marker-helper stubs throw.
 
@@ -1125,7 +1125,7 @@ The two `ShowUnavailable` render sites are `app/show/[slug]/[shareToken]/page.ts
 
 ### Task 20: `<SavedCopyBar>` rendering, hydration and contrast rows
 
-<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyBar.test.tsx tests/styles/savedCopyBarContrast.test.ts` red-state=authored red-target=`components/offline/SavedCopyBar.tsx` why=`the stub bar renders nothing and never marks html as mounted, and DESIGN.md section 1.2 has no matching row for any of the four bar pairs, so the per-state DOM cases, the hydration case and the DESIGN.md row-pin cases fail` ac=AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyBar.test.tsx tests/styles/savedCopyBarContrast.test.ts` red-state=authored red-target=`components/offline/SavedCopyBar.tsx:236` why=`the stub bar renders nothing and never marks html as mounted, and DESIGN.md section 1.2 has no matching row for any of the four bar pairs, so the per-state DOM cases, the hydration case and the DESIGN.md row-pin cases fail` ac=AC-7 -->
 
 **What is red and why:** the stub returns `null` and never sets `data-fxav-bar`, so the DOM and hydration cases fail. The contrast test has two halves. The computed half reads the live hex values from `app/globals.css` and asserts each bar pair clears 4.5:1; those pairs already pass today, so that half is a regression pin with a premise that every hex value parsed. The red half pins `DESIGN.md`: for each bar pair it requires a §1.2 row whose stated light and dark ratios are within 0.05 of the computed ones, and none of the four has one today (Q4).
 
@@ -1160,7 +1160,7 @@ edit    DESIGN.md                                (section 1.2 rows added and cor
 
 ### Task 21: Coming back online, purge reloads, and the section in the URL
 
-<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyBarRecovery.test.tsx` red-state=authored red-target=`components/offline/SavedCopyBar.tsx` why=`the bar from Task 20 never probes, never sets the updating flag and never rewrites the s parameter, so every probe, reload and replaceState case fails` ac=AC-8 -->
+<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyBarRecovery.test.tsx` red-state=authored red-target=`components/offline/SavedCopyBar.tsx:302` why=`the bar from Task 20 never probes, never sets the updating flag and never rewrites the s parameter, so every probe, reload and replaceState case fails` ac=AC-8 -->
 
 **What is red and why:** Task 20's bar has no recovery logic.
 
@@ -1179,7 +1179,7 @@ create  tests/components/offline/savedCopyBarRecovery.test.tsx
 
 ### Task 22: `<SavedCopyRegistrar>` and the two telemetry codes
 
-<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyRegistrar.test.tsx tests/components/offline/savedCopyRegistrarTelemetry.test.tsx` red-state=authored red-target=`components/offline/SavedCopyRegistrar.tsx` why=`the stub registrar does nothing, so the registration, persist-once, kill-switch, ensure-saved throttle and agenda prefetch cases fail, and the telemetry cases capture no request body to replay through the client-error route handler` ac=AC-10,AC-15,AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyRegistrar.test.tsx tests/components/offline/savedCopyRegistrarTelemetry.test.tsx` red-state=authored red-target=`components/offline/SavedCopyRegistrar.tsx:245` why=`the stub registrar does nothing, so the registration, persist-once, kill-switch, ensure-saved throttle and agenda prefetch cases fail, and the telemetry cases capture no request body to replay through the client-error route handler` ac=AC-10,AC-15,AC-5 -->
 
 **What is red and why:** the stub component does nothing, so no registration call, no `persist`, no message and no client-error POST happens.
 
@@ -1221,7 +1221,7 @@ create  tests/components/auth/avatarMenuSavedCopy.test.tsx
 
 ### Task 24: E2E proxy and lifecycle helpers
 
-<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/crewOfflineProxy.unit.test.ts` red-state=authored red-target=`tests/e2e/helpers/crewOfflineProxy.ts` why=`startCrewOfflineProxy is a stub that throws, so the pass, refuse, hang, release, selective-refuse and stub cases all fail on the throw` ac=AC-16 -->
+<!-- task: red=`pnpm exec vitest run tests/e2e/helpers/crewOfflineProxy.unit.test.ts` red-state=authored red-target=`tests/e2e/helpers/crewOfflineProxy.ts:142` why=`startCrewOfflineProxy is a stub that throws, so the pass, refuse, hang, release, selective-refuse and stub cases all fail on the throw` ac=AC-16 -->
 
 **What is red and why:** the proxy stub throws.
 
@@ -1279,7 +1279,7 @@ The lifecycle helper exposes `archiveShow`, `unpublishShow`, `rotateShareToken` 
 
 ### Task 25: Real-browser offline cases; mount the registrar
 
-<!-- task: red=`CI=1 E2E_PORT=3417 CREW_E2E_ONLY=1 pnpm heavy pnpm exec playwright test --project=crew-offline-chromium --project=crew-offline-webkit tests/e2e/crew-offline.spec.ts tests/e2e/crew-offline-realtime.spec.ts` red-state=authored red-target=`components/offline/SavedCopySlot.tsx` why=`the slot does not yet render SavedCopyRegistrar, so no page ever registers the worker and every case times out in the worker-control readiness gate with an explicit message` ac=AC-16,AC-3,AC-6 -->
+<!-- task: red=`CI=1 E2E_PORT=3417 CREW_E2E_ONLY=1 pnpm heavy pnpm exec playwright test --project=crew-offline-chromium --project=crew-offline-webkit tests/e2e/crew-offline.spec.ts tests/e2e/crew-offline-realtime.spec.ts` red-state=authored red-target=`components/offline/SavedCopySlot.tsx:90` why=`the slot does not yet render SavedCopyRegistrar, so no page ever registers the worker and every case times out in the worker-control readiness gate with an explicit message` ac=AC-16,AC-3,AC-6 -->
 
 **What is red and why:** the registrar exists (Task 22) but nothing mounts it, so the readiness gate that waits for `navigator.serviceWorker.controller` times out in every case, with a message naming the gate.
 
@@ -1329,7 +1329,7 @@ create  tests/e2e/crew-offline-realtime.spec.ts
 
 ### Task 26: Layout dimensions in a real browser
 
-<!-- task: red=`CI=1 E2E_PORT=3417 CREW_E2E_ONLY=1 pnpm heavy pnpm exec playwright test --project=crew-offline-chromium --project=crew-offline-webkit tests/e2e/crew-offline-layout.spec.ts` red-state=authored red-target=`components/offline/SavedCopyBar.tsx` why=`the bar carries no sticky, top or z-index class yet, so after scrolling past the header its top is far below the viewport top and the elementFromPoint check lands on section content` ac=AC-17 -->
+<!-- task: red=`CI=1 E2E_PORT=3417 CREW_E2E_ONLY=1 pnpm heavy pnpm exec playwright test --project=crew-offline-chromium --project=crew-offline-webkit tests/e2e/crew-offline-layout.spec.ts` red-state=authored red-target=`components/offline/SavedCopyBar.tsx:444` why=`the bar carries no sticky, top or z-index class yet, so after scrolling past the header its top is far below the viewport top and the elementFromPoint check lands on section content` ac=AC-17 -->
 
 **What is red and why:** Task 20 deliberately left the layout classes out. The sticky row and the z-index row are observed red (the bar scrolls away). The width, height and icon rows may already hold by CSS defaults (a flex column's default `align-items: normal` stretches); they are regression pins, each with its premise stated, and the commit body records which rows were red.
 
@@ -1357,7 +1357,7 @@ The spec takes `test` from the Task 25 helper fixture, so, like the other two en
 
 ### Task 27: Transition audit and the `updated` fade
 
-<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyBarTransitionAudit.test.ts tests/components/offline/savedCopyBarTransitions.test.tsx` red-state=authored red-target=`components/offline/SavedCopyBar.tsx` why=`updated still unmounts instantly when its 4-second window ends, so the fade-phase, reduced-motion and fade-cancel cases fail, and the bijection has no declared row for the fade conditional` ac=AC-18 -->
+<!-- task: red=`pnpm exec vitest run tests/components/offline/savedCopyBarTransitionAudit.test.ts tests/components/offline/savedCopyBarTransitions.test.tsx` red-state=authored red-target=`components/offline/SavedCopyBar.tsx:267` why=`updated still unmounts instantly when its 4-second window ends, so the fade-phase, reduced-motion and fade-cancel cases fail, and the bijection has no declared row for the fade conditional` ac=AC-18 -->
 
 **What is red and why:** Task 20 ends `updated` instantly; the fade cases fail and the AST audit finds the bar's conditionals with no `DECLARED` row for the fade.
 
