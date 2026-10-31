@@ -1,6 +1,6 @@
 /**
  * components/crew/sections/ScheduleSection.tsx — crew-redesign §9 "Schedule"
- * section. Synchronous Server Component for the Schedule sub-nav surface.
+ * section. Synchronous Server Component for the Schedule section body.
  *
  * Two non-negotiable contracts (§9 tests 32 + 34):
  *
@@ -179,7 +179,7 @@ export function ScheduleSection({
         aria-labelledby="agenda-heading"
         className="flex min-w-0 flex-col gap-3"
       >
-        <h2
+        <h3
           id="agenda-heading"
           // The heading names every agenda line (their search group); with no
           // agenda line rendered it is plain chrome.
@@ -188,7 +188,7 @@ export function ScheduleSection({
           className="text-sm font-semibold text-text-strong"
         >
           {AGENDA_GROUP}
-        </h2>
+        </h3>
         <AgendaEmbed
           showId={showId}
           agendaLinks={agendaLinks}
@@ -248,10 +248,10 @@ export function ScheduleSection({
 
           const todayIso = todayIsoInShowTimezone(data.show, today);
 
-          // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT
+          // §4.9 mock `split-wide`: once split (`@min-crew-split`) it is two columns — LEFT
           // the day-card list (primary, wider via the 1.6fr track), RIGHT the
           // "Crew Schedule" SectionCard THEN (admin) the rooms-fetch degraded
-          // tile, stacked. <720px it collapses to a single column (grid-cols-1)
+          // tile, stacked. Narrower it collapses to a single column (grid-cols-1)
           // with the left column first, then the right column. The grid uses
           // `items-start` (NOT the default stretch) so the SHORT right column
           // ("Crew Schedule", ~3 rows) takes its natural height instead of
@@ -263,7 +263,7 @@ export function ScheduleSection({
           // One-sided collapse (Task 4 §6 / Codex plan R2, mirrors Crew Task 8):
           // when the RIGHT column would have NO content — no "Crew Schedule"
           // card (all anchors absent → KeyTimesStrip null) AND no rooms-error
-          // tile — the 2-track grid would leave a BLANK right column at ≥720px.
+          // tile — the 2-track grid would leave a BLANK right column when split.
           // In that case the wrapper falls back to `flex flex-col` so the days
           // column spans full width. The right-column container is STILL emitted
           // (empty, zero-height) so the `data-schedule-column="times"` anchor-
@@ -282,7 +282,7 @@ export function ScheduleSection({
               data-testid="schedule-grid"
               className={
                 rightHasContent
-                  ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
+                  ? "grid grid-cols-1 gap-4 @min-crew-split:grid-cols-[1.6fr_1fr] @min-crew-split:items-start"
                   : "flex flex-col gap-4"
               }
             >

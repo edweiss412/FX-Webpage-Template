@@ -38,6 +38,8 @@ import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider"
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
+import { DRAG_DISMISS_THRESHOLD_PX, DRAG_SLOP_PX } from "@/components/shared/sheetConstants";
+import { acquireScrollLock } from "@/lib/ui/scrollLock";
 import {
   UnsavedReadingsScope,
   useUnsavedReadingsRegistry,
@@ -46,12 +48,11 @@ import {
 
 // ── Interaction constants (spec §10; DESIGN.md §5 note) ─────────────────────
 // Behavioral thresholds, not rendered visual values — they never paint a px.
-// Moved here with the drag machinery; Step3ReviewModal.tsx re-exports them
-// unchanged so existing importers keep resolving from that module's path.
-/** Sheet-mode drag distance past which release dismisses the modal (§10). */
-export const DRAG_DISMISS_THRESHOLD_PX = 110;
-/** Max pointer travel still treated as a tap (click) rather than a drag (§10). */
-export const DRAG_SLOP_PX = 6;
+// The drag thresholds live in components/shared/sheetConstants.ts, shared with
+// the crew section sheet; they are re-exported here, and Step3ReviewModal.tsx
+// re-exports them unchanged, so existing importers keep resolving from either
+// module's path.
+export { DRAG_DISMISS_THRESHOLD_PX, DRAG_SLOP_PX };
 /** transitionend fallback timer for the dismiss transition (§10, §11 T5) —
  *  mirrors `--duration-normal: 220ms` (app/globals.css). Kept as an explicit
  *  constant (not read from CSS at runtime) so a token change is CAUGHT by the
@@ -257,15 +258,10 @@ function OpenReviewModalShell({
     target.focus({ preventScroll: true });
   }, [mounted, initialFocusRef]);
 
-  // Lock background scroll while the overlay is open; restore the prior value
-  // on close/unmount (the consumer unmounts this component to close).
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
+  // Lock background scroll while the overlay is open; the release on
+  // close/unmount restores the page once no other dialog holds the lock (the
+  // consumer unmounts this component to close).
+  useEffect(() => acquireScrollLock(), []);
 
   // Escape closes. The focus hook traps Tab but defers Esc to the dialog
   // (lib/a11y/dialogFocus.ts contract). Listen on document so the key is

@@ -181,9 +181,9 @@ export function GearSection({
               ) : null}
 
               {/* §4.9 scope-card grid (mock `thirds`). The A/V/L cards lay out as a
-                  responsive CSS grid: a single full-width column <720px (so they are
-                  not cramped on mobile) and 3 equal columns ≥720px. CSS grid tracks
-                  default to `align-items: stretch`, so cards in the same ≥720px row
+                  responsive CSS grid: a single full-width column in a narrow body container
+                  (a phone, the section sheet), 3 equal columns once split (`@min-crew-split`).
+                  CSS grid tracks default to `align-items: stretch`, so cards in the same row
                   share an equal height without the Tailwind-v4 `.flex`-no-stretch
                   trap (DESIGN §7) — no explicit `items-stretch`/`h-full` needed. The
                   per-discipline `gear-scope-<id>` testids + their A→V→L order are
@@ -192,7 +192,7 @@ export function GearSection({
               {scopeCards.length > 0 ? (
                 <div
                   data-testid="gear-scopes-row"
-                  className="grid grid-cols-1 gap-3 min-[720px]:grid-cols-3"
+                  className="grid grid-cols-1 gap-3 @min-crew-split:grid-cols-3"
                 >
                   {scopeCards.map((d) => (
                     <div
@@ -204,7 +204,7 @@ export function GearSection({
                         // Grid item (cell stretches to row height via grid's default
                         // align-items:stretch); `flex flex-col` lets the inner
                         // SectionCard (`h-full`) fill the stretched cell so same-row
-                        // cards stay equal-height at ≥720px. `min-w-0` keeps long room
+                        // cards stay equal-height. `min-w-0` keeps long room
                         // values wrapping instead of overflowing.
                         "flex min-w-0 flex-col",
                         // §4.16: keep the ratified accent left-edge, but at 1px
@@ -218,36 +218,38 @@ export function GearSection({
                       <SectionCard
                         icon={DISCIPLINE_ICONS[d.id]}
                         title={d.heading}
+                        eyebrow={
+                          // The viewer's-own-scope eyebrow, above the header: in the
+                          // action slot beside "In sheet" and the report button it
+                          // left the title 2px at 320 and none in the 1024 thirds
+                          // (whole-diff review round 2, CI-parity run). Chrome, not
+                          // sheet data; the card's search lines carry it as context.
+                          d.emphasized ? (
+                            <span
+                              data-search-skip=""
+                              className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg"
+                            >
+                              {YOUR_SCOPE}
+                            </span>
+                          ) : undefined
+                        }
                         action={
-                          // The viewer's-own-scope eyebrow (when emphasized) and the
-                          // recessive source link share the header action slot.
-                          <div className="flex items-center gap-2">
-                            {d.emphasized ? (
-                              // Chrome, not sheet data; the card's search lines carry it as context.
-                              <span
-                                data-search-skip=""
-                                className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg"
-                              >
-                                {YOUR_SCOPE}
-                              </span>
-                            ) : null}
-                            <CardHeaderActions
-                              cardId={`gear-scope-${d.id}`}
-                              driveFileId={data.driveFileId}
-                              anchor={
-                                // GEAR-derived scope (modern shows) → link to the GEAR tab via the
-                                // date-grid-gated `gear_scope` anchor; legacy INFO-inline shows have no
-                                // `gear_scope` anchor → the precise `rooms` (INFO) anchor (spec §3.6).
-                                data.sourceAnchors[
-                                  data.sourceAnchors["gear_scope"]
-                                    ? "gear_scope"
-                                    : CARD_REGION_MAP[`gear-scope-${d.id}`]
-                                ]
-                              }
-                              showId={showId}
-                              cardReport={cardReport}
-                            />
-                          </div>
+                          <CardHeaderActions
+                            cardId={`gear-scope-${d.id}`}
+                            driveFileId={data.driveFileId}
+                            anchor={
+                              // GEAR-derived scope (modern shows) → link to the GEAR tab via the
+                              // date-grid-gated `gear_scope` anchor; legacy INFO-inline shows have no
+                              // `gear_scope` anchor → the precise `rooms` (INFO) anchor (spec §3.6).
+                              data.sourceAnchors[
+                                data.sourceAnchors["gear_scope"]
+                                  ? "gear_scope"
+                                  : CARD_REGION_MAP[`gear-scope-${d.id}`]
+                              ]
+                            }
+                            showId={showId}
+                            cardReport={cardReport}
+                          />
                         }
                       >
                         <KeyValueRows rows={d.rows} />
@@ -373,7 +375,7 @@ export function GearSection({
                     }
                   >
                     {/* columns={2} packs ~15 reference specs efficiently on desktop;
-                        KeyValueRows collapses to a single column <720px (mobile-safe). */}
+                        KeyValueRows collapses to a single column in a narrow container. */}
                     <KeyValueRows rows={specs.rows} columns={2} />
                   </SectionCard>
                 </div>
@@ -401,16 +403,16 @@ export function GearSection({
                           data-testid={`gear-room-detail-${b.id}`}
                           className="flex flex-col gap-1.5"
                         >
-                          {/* Room name as an h3 (under the card's h2) — gives each
+                          {/* Room name as an h4 (under the card's h3) — gives each
                               per-room block a heading so the room↔detail relationship
                               is exposed to SR + reads as a distinct block, not another
                               field label (impeccable critique + audit MED). */}
-                          <h3
+                          <h4
                             data-search-target={b.heading?.id}
                             className="text-sm font-semibold text-text-strong"
                           >
                             {b.label}
-                          </h3>
+                          </h4>
                           {/* columns={1}: detail reads label:value per line, keeping the
                               physical (dimensions/floor/setup) → schedule (set/show/strike)
                               order intact at every width (no 2-col interleave). */}

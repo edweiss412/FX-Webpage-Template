@@ -57,6 +57,12 @@ import {
   Step3RunStateContext,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { warningOffersFix } from "@/lib/admin/warningFixAffordance";
+import {
+  activeSectionFor,
+  NAV_SCROLL_SETTLE_EPSILON_PX,
+  NAV_SCROLL_SETTLE_TIMEOUT_MS,
+  SCROLL_SPY_OFFSET_PX,
+} from "@/lib/ui/scrollSpy";
 import { isWarnSeverity } from "@/lib/parser/dataGaps";
 import type { SectionAttention } from "@/lib/admin/sectionAttention";
 import { isStaged, type SectionData } from "@/components/admin/review/sectionData";
@@ -69,51 +75,21 @@ import { WARNING_HIGHLIGHT_MS } from "@/components/admin/wizard/Step3ReviewModal
 
 // ── Interaction constants (spec §6.3a; DESIGN.md §5 note) ───────────────────
 // Behavioral thresholds, not rendered visual values — they never paint a px.
-/** Scroll-spy anchor offset: a section is "active" once its top passes this
- *  many px below the content pane's top (§6.3a). */
-export const SCROLL_SPY_OFFSET_PX = 90;
-/** §A2 fallback release of the nav-click scroll-spy suppression when a
- *  programmatic glide never settles (zero-event and interrupted glides).
- *  Measured from the click/jump AND from every suppressed scroll-progress
- *  frame (the spy's evaluate restarts it while the glide is in flight), so a
- *  healthy glide longer than this window is NOT cut short — see the restart
- *  comment in the scroll-spy effect (Task 14 real-browser finding). */
-export const NAV_SCROLL_SETTLE_TIMEOUT_MS = 700;
-/** §A2 settle tolerance: |scrollTop − target| at/below this many px releases
- *  the nav-click scroll-spy suppression. */
-export const NAV_SCROLL_SETTLE_EPSILON_PX = 2;
+// The scroll-spy rule and its thresholds live in lib/ui/scrollSpy.ts, shared
+// with the crew page's wide nav (crew page redesign spec §5.3); they are
+// re-exported here, and Step3ReviewModal.tsx re-exports them unchanged, so
+// existing importers keep resolving from either module's path.
+export {
+  activeSectionFor,
+  SCROLL_SPY_OFFSET_PX,
+  NAV_SCROLL_SETTLE_TIMEOUT_MS,
+  NAV_SCROLL_SETTLE_EPSILON_PX,
+};
 /** §A3 sliding rail indicator's vertical inset inside the active rail item —
  *  matches the retired per-item `inset-y-3` span (12px). Painted geometry,
  *  but derived at runtime from measured rects (never a static class), so it
  *  lives here beside the interaction constants it composes with. */
 export const INDICATOR_INSET_PX = 12;
-
-/**
- * Pure scroll-spy rule (spec §6.3a): the active section is the LAST one whose
- * top is at/above `scrollTop + SCROLL_SPY_OFFSET_PX`; when the pane is scrolled
- * to the bottom the last section wins (it may be too short to ever cross the
- * offset line). Task 6 wires this to the content pane's rAF-throttled scroll
- * listener below (`sectionTopFor` + the effect after `handleNavClick`).
- */
-export function activeSectionFor(
-  scrollTop: number,
-  clientHeight: number,
-  scrollHeight: number,
-  // Phase 2 (spec §5/§10): rail item ids are `SectionId | ExtraSection.id`
-  // (`"overview"`/`"changes"`), so the pure spy rule reads string ids.
-  sectionTops: ReadonlyArray<{ id: string; top: number }>,
-): string {
-  const first = sectionTops[0];
-  if (!first) return "warnings"; // registry always renders ≥11 sections; defensive only
-  const last = sectionTops[sectionTops.length - 1] ?? first;
-  if (scrollTop + clientHeight >= scrollHeight - 1) return last.id;
-  let current = first.id;
-  for (const s of sectionTops) {
-    if (s.top <= scrollTop + SCROLL_SPY_OFFSET_PX) current = s.id;
-    else break;
-  }
-  return current;
-}
 
 /** Coordinate contract (§6.3a): DOM `offsetTop` is relative to `offsetParent`,
  *  NOT necessarily the scroll container — it is NOT used. `el`'s top is

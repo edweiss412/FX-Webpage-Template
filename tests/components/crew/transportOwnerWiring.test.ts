@@ -8,12 +8,15 @@ import { describe, expect, it } from "vitest";
 // transportTileVisible({ ... }) object, not merely somewhere in the file (a comment / unused
 // object could satisfy a file-wide regex while the real call passes null).
 //
-// Today's call moved to its sibling rows module (todayRows.ts), which the section and
-// its search builder share; the Schedule and Travel search builders each make their own
+// The home body's call lives in its sibling rows module (todayRows.ts), which the section
+// and its search builder share, and the quick facts make their own for parking; the Schedule and Travel search builders each make their own
 // call, mirroring their section's, so each is pinned the same way.
 const FILES: ReadonlyArray<{ name: string; file: string }> = [
   { name: "ScheduleSection", file: "components/crew/sections/ScheduleSection.tsx" },
-  { name: "TodaySection", file: "components/crew/sections/todayRows.ts" },
+  // The home body's notes gate (HomeSection renders from todayRows.ts) and its
+  // parking quick fact (buildQuickFacts), crew page redesign plan Task 11.
+  { name: "HomeSection notes", file: "components/crew/sections/todayRows.ts" },
+  { name: "Home quick facts", file: "lib/crew/quickFacts.ts" },
   { name: "TravelSection", file: "components/crew/sections/TravelSection.tsx" },
   // Since crew search (2026-10-26) VenueSection's call lives in its rows module,
   // which the search builder shares; the delegation itself is pinned below.

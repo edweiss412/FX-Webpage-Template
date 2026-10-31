@@ -48,8 +48,8 @@ const mockSection = (testid: string) => {
 // real builder through the shell.
 vi.mock("@/lib/search/buildSearchIndex", () => ({ buildSearchIndex: () => ({ entries: [] }) }));
 
-vi.mock("@/components/crew/sections/TodaySection", () => ({
-  TodaySection: mockSection("section-today"),
+vi.mock("@/components/crew/sections/HomeSection", () => ({
+  HomeSection: mockSection("section-today"),
 }));
 vi.mock("@/components/crew/sections/ScheduleSection", () => ({
   ScheduleSection: mockSection("section-schedule"),

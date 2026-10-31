@@ -184,6 +184,15 @@ export const EXPLICIT_INCLUDES: readonly { readonly file: string; readonly reaso
       "`unclassified` — the constant would be less visible in §5.5 than the bare literal it replaced.",
   },
   {
+    file: "lib/ui/scrollSpy.ts",
+    reason:
+      "NAV_SCROLL_SETTLE_TIMEOUT_MS is the fallback that hands the section rail back to the " +
+      "scroll-spy after a nav-click glide — interaction timing a person sees as the active item " +
+      "settling. It lives in lib/ because two trees share it: components/admin/review/ShowReviewSurface.tsx " +
+      "and components/crew/CrewSections.tsx (crew page redesign spec §5.3), and the crew page may " +
+      "not import from components/admin/**. Without this include both call sites report `unclassified`.",
+  },
+  {
     file: "lib/offline/notSavedPage.ts",
     reason:
       "RETRY_INTERVAL_MS is how often the not-saved page retries while a crew member waits on it " +
@@ -218,11 +227,22 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
       "a regression, and naming a constant for `0` would not make either branch more visible.",
   },
   {
-    file: "components/crew/RightNowHero.tsx",
-    name: "prefersReducedMotion === true ? 0 : 0.22",
+    file: "components/crew/CrewPass.tsx",
+    name: "fade ? CROSSFADE_SECONDS : 0",
     reason:
-      "The same reduced-motion ternary as EventRow.tsx, spelled with an explicit === comparison. " +
-      "0 reduced, 0.22 otherwise — the standard motion duration.",
+      "The pass's body swap (crew page redesign spec §7): CROSSFADE_SECONDS, a §5.5 row, when the " +
+      "swap crossfades, 0 when the transition table makes it instant or reduced motion is on (the " +
+      "`fade` it receives is already false then). The two sites are the enter and exit variants " +
+      "of the same swap.",
+  },
+  {
+    file: "components/crew/CrewRunOfShowCard.tsx",
+    name: "fade ? CROSSFADE_SECONDS : 0",
+    reason:
+      "The run-of-show card's rows on a day switch (crew page redesign spec §7, plan Task 10), " +
+      "the same swap as the pass's beside it: CROSSFADE_SECONDS, a §5.5 row, when the day " +
+      "changes, 0 when reduced motion is on (the `fade` it receives is already false then). The " +
+      "two sites are the enter and exit variants of the same swap.",
   },
   {
     file: "components/crew/CrewSectionTransition.tsx",

@@ -21,10 +21,10 @@ if (!previewEntry) {
   throw new Error("preview-as-crew-banner manifest entry is required for F.9");
 }
 const previewUrl = new URL(previewEntry.route, BASE_URL).toString();
-// The crew redesign replaced the flat tile scroll with a 6-section sub-nav, so
-// the schedule day cards (whose today-marking proves the frozen clock reached
-// the server render) only render under ?s=schedule, not on the default Today
-// section. All requests here target the schedule section explicitly.
+// The schedule day cards (whose today-marking proves the frozen clock reached
+// the server render) are the Schedule section's body. Under ?s=schedule it is the
+// open section, which the server renders exactly once, in the section sheet; so
+// every request here targets the schedule section explicitly.
 const scheduleUrl = `${previewUrl}${previewUrl.includes("?") ? "&" : "?"}s=schedule`;
 
 async function cookieHeaderFor(page: Page): Promise<string> {

@@ -4,14 +4,16 @@
  * The crew-page section shell — the full redesigned crew show page body
  * (§4.1). Composes:
  *   Header (identityChip, search field) → CrewSections (the client controller:
- *   controlled CrewSubNav + CrewSectionTransition over the server-rendered
- *   section bodies), both inside CrewSearchProvider with the server-built
- *   search index → ShowRealtimeBridge → Footer (per-viewer-kind report props).
+ *   the compact home with its section sheet, and the wide nav with every
+ *   section stacked, over the server-rendered section bodies), both inside
+ *   CrewSearchProvider with the server-built search index → ShowRealtimeBridge
+ *   → Footer (per-viewer-kind report props).
  *
- * SECTION SWITCHING IS A CLIENT TOGGLE (client-section-toggle): the shell
- * renders ALL entitled section bodies SERVER-SIDE into `sectionNodes` and hands
- * them to <CrewSections>, which owns `activeSection` state and toggles
- * VISIBILITY only — no server round-trip per tab. FRESHNESS (NON-NEGOTIABLE):
+ * OPENING A SECTION IS A CLIENT HISTORY CALL (crew page redesign spec §5.2):
+ * the shell renders ALL entitled section bodies SERVER-SIDE into
+ * `sectionNodes`, plus the "All sections" membership and peeks
+ * (`crewSectionEntries`), and hands them to <CrewSections>, which only chooses
+ * where each body shows. No server round-trip per open. FRESHNESS (NON-NEGOTIABLE):
  * section bodies stay server-sourced; the controller never fetches/derives/
  * caches section data. The page stays sheet-synced via ShowRealtimeBridge →
  * router.refresh(), which re-runs this server component (all bodies fresh) while
@@ -46,27 +48,25 @@ import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider"
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
+import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { SavedCopySlot } from "@/components/offline/SavedCopySlot";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
-import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { createTileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { sweepTileRenderAlerts } from "@/lib/crew/sweepTileRenderAlerts";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
-import {
-  BASE_SECTION_IDS,
-  resolveActiveSection,
-  type SectionId,
-} from "@/lib/crew/resolveActiveSection";
+import { resolveActiveSection, type SectionId } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
+import { crewSectionEntries } from "@/lib/crew/crewSections";
+import { buildDayRowProps, buildPassProps } from "@/lib/crew/passModel";
+import { buildRunCardProps } from "@/lib/crew/runOfShowCard";
 import {
   MalformedProjectionError,
   UnmatchedViewerError,
@@ -84,7 +84,7 @@ import { financialsVisible } from "@/lib/visibility/scopeTiles";
  * Compact show-lifecycle label for the Header status pill (Task 14 / D-2 /
  * wp-18). Ports the show-status surface out of the deleted `ShowStatusTile`
  * into a single short badge visible on EVERY section (complements the
- * Today-only hero). The vocabulary mirrors the §4.3 hero-state map's eyebrow
+ * home-only pass). The vocabulary mirrors the §4.3 hero-state map's eyebrow
  * column — no new lifecycle words are invented. The degraded set
  * (`unknown`/`dateless`/`viewer_unconfirmed`) collapses to the neutral
  * "Show details" pill (never blank), consistent with ShowStatusTile's
@@ -271,45 +271,41 @@ export async function CrewShell({
   }
 
   // Single financialsVisible authority for the Budget gate — used identically by
-  // the sub-nav (tab presence) and resolveActiveSection (section + direct-URL).
+  // the section membership (`crewSectionsFor`) and resolveActiveSection
+  // (section + direct-URL).
   const budgetVisible = financialsVisible(ctx.viewerFlags, ctx.isAdmin);
   const activeSection = resolveActiveSection(rawSection, { budgetVisible });
 
   // Render-time "today" reads through the request-scoped clock so screenshot
-  // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3; the
-  // Today section's RightNowHero owns its own live clock and does not take it.
-  // The Header status pill (Task 14) also derives from this request-scoped
-  // `today` — a coarse, server-rendered badge (the hero owns the live tick).
+  // capture can pin it (M11 Phase C). Sections consume `today` in Phase 3. The
+  // client components that tick (the pass, the day row) read the shared crew
+  // clock, which this `today` seeds through the controller (`initialNow`), so
+  // their server render and hydration agree. The Header status pill (Task 14)
+  // also derives from this request-scoped `today`, a coarse, server-rendered
+  // badge (the crew clock owns the live tick).
   const today = await nowDate();
 
-  // Today leads with the live RightNowHero, built from the projection exactly as
-  // _ShowBody.tsx:122-127 does. Every other section is a Phase-3 placeholder.
+  // The pass's props (crew page redesign spec §4.3), built ONCE on the server
+  // and handed to two client carriers: the pass itself, under the day row, and
+  // the Footer's bug-report autocapture, which files them as `rightNowState`
+  // for every viewer kind (crew or admin-preview), as the Right-Now context was
+  // before the pass replaced the hero. One object, so the report carries exactly
+  // what the viewer may see: a suppressed viewer's props hold no date
+  // (passModel.ts closes the §2.2 leak), and nothing transport-gated is in them.
   //
   // Guard-condition discipline (partial data must render): a well-formed
-  // ShowForViewer always carries `show.dates` and array `hotelReservations` /
-  // `rooms` (getShowForViewer guarantees them), but the hero's context builder
-  // dereferences all three, so a degraded/partial projection would otherwise
-  // crash the whole Today page. When the projection is too thin to derive a
-  // Right Now state, the Today section falls back to the bare placeholder rather
+  // ShowForViewer always carries `show.dates`, but a degraded or partial
+  // projection may not, and the builder dereferences them. When the projection
+  // is too thin to derive a live state, the home renders without a pass rather
   // than throwing.
   const canBuildRightNow = Boolean(data.show?.dates);
+  const pass = canBuildRightNow ? buildPassProps({ data, viewer, today }) : null;
 
-  // Build the Right-Now context ONCE (when the projection is well-formed enough):
-  // the Today section leads with it (RightNowHero) AND the Footer's bug-report
-  // autocapture carries it as `rightNowState` for BOTH viewer kinds — verbatim
-  // parity with _ShowBody.tsx:520-531, where every report (crew or admin-preview)
-  // captures the server-built Right-Now context for triage. Null only in the
-  // degraded case the guard above protects.
-  const rightNowCtx = canBuildRightNow
-    ? buildRightNowContext({
-        show: data.show,
-        dateRestriction: ctx.dateRestriction,
-        hotelReservations: data.hotelReservations ?? [],
-        rooms: data.rooms ?? [],
-        runOfShow: data.runOfShow ?? null, // NEW — keeps rightNowState in sync, no stale context
-        stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
-      })
-    : null;
+  // The day row's props (crew page redesign spec §4.2): the viewer's day set and
+  // its labels, built here so nothing else crosses to the client. Null hides the
+  // row: suppressed dates, a degraded show, an empty set, or a projection too
+  // thin to carry dates at all (the same guard as the pass above).
+  const dayRow = canBuildRightNow ? buildDayRowProps(data.show, ctx.dateRestriction) : null;
 
   // Guard-condition discipline: Header dereferences `show.dates` (`.set` /
   // `.travelIn` / `.showDays[0]`) and `show.venue`. A well-formed ShowForViewer
@@ -331,13 +327,13 @@ export async function CrewShell({
 
   // Header status pill (Task 14 / D-2 / wp-18): the compact show-lifecycle
   // state, derived from the show's date-state via the SAME selectRightNowState
-  // machine the hero uses — but server-rendered from the request-scoped `today`
-  // (coarser than the hero's live tick) and collapsed to a SHORT label. Visible
-  // on EVERY section (the hero is Today-only). Degraded/dateless collapses to
+  // machine the pass uses — but server-rendered from the request-scoped `today`
+  // (coarser than the pass's live tick) and collapsed to a SHORT label. Visible
+  // on EVERY section (the pass is on the home only). Degraded/dateless collapses to
   // the neutral "Show details" pill (pillLabelForState), never blank. Uses the
   // normalized `headerShow.dates` so a degraded/partial projection can't throw.
   // §4.16 day-boundary contract: the pill is a today-comparison, so it MUST share
-  // the single timezone authority the hero (via buildRightNowContext) and the
+  // the single timezone authority the pass (via buildPassProps) and the
   // Schedule today-pin (via todayIsoInShowTimezone) use — otherwise a venue in a
   // non-default timezone could classify the lifecycle one day off the other two
   // surfaces near a day boundary. resolveShowTimezone returns the venue tz
@@ -360,10 +356,8 @@ export async function CrewShell({
   // is the CrewShell prop, threaded uniformly so GearSection can mount
   // `<OpeningReelVideo showId={showId}>`). `today` is the request-scoped
   // `await nowDate()` Date, threaded so the section's timezone today-pin matches
-  // the frozen screenshot clock (R8-HIGH-1). The Today section owns its OWN
-  // RightNowHero internally (built from its own buildRightNowContext) — the
-  // shell no longer renders a separate hero; `rightNowCtx` survives ONLY for the
-  // Footer's report autocapture.
+  // the frozen screenshot clock (R8-HIGH-1). The pass is not a section body: the
+  // controller mounts it under the day row from the `pass` props built above.
   //
   // FRESHNESS INVARIANT (NON-NEGOTIABLE): the bodies are SERVER-RENDERED here
   // and handed to the <CrewSections> client controller, which toggles VISIBILITY
@@ -382,6 +376,16 @@ export async function CrewShell({
     ? null
     : buildCardReportContext(viewer, ctx.viewerName, ctx.viewerCrew?.role ?? null);
 
+  // The run-of-show card's props (crew page redesign spec §4.4): each of the
+  // viewer's own days with its rows, already filtered (transport gate, date
+  // restriction) and capped here, so no other day's rows and no gated entry
+  // cross to the client. It replaces Today's run-of-show card on the home, with
+  // the same card id and header actions. Null when no day has rows, and for a
+  // projection too thin to carry dates (the pass's guard above).
+  const runCard = canBuildRightNow
+    ? buildRunCardProps({ data, viewer, today, showId, cardReport })
+    : null;
+
   // Per-request tile ledger. Created ONCE here, in the component body, never
   // inside the after() callback: that runs after the render lifecycle and would
   // observe a different object, silently sweeping an empty ledger.
@@ -396,8 +400,11 @@ export async function CrewShell({
   const renderOne = (id: SectionId): JSX.Element => {
     switch (id) {
       case "today":
+        // The composed home's server body (quick facts, show notes, the Dress
+        // code card, the admin fetch-failure blocks), placed by the controller
+        // after the day row, the pass and the run card (plan Task 11).
         return (
-          <TodaySection
+          <HomeSection
             data={data}
             viewer={viewer}
             today={today}
@@ -475,12 +482,16 @@ export async function CrewShell({
     }
   };
 
-  // Entitled set = BASE_SECTION_IDS + (`budget` iff budgetVisible). The Budget
-  // body is BUILT only when entitled, so a non-lead never receives a Budget body
-  // in the payload (no-Budget-flash invariant §4.17 / Budget gate §4.1).
-  const entitled: SectionId[] = budgetVisible
-    ? [...BASE_SECTION_IDS, "budget"]
-    : [...BASE_SECTION_IDS];
+  // The "All sections" card and the wide nav read ONE membership, with each
+  // section's peek built here on the server through that section's own gates
+  // (spec §4.6), so the client never derives a peek from data it should not see.
+  const sections = crewSectionEntries(data, { ...ctx, today });
+
+  // Entitled set = Today + the listed sections (`budget` iff financialsVisible,
+  // the same predicate as `budgetVisible`). The Budget body is BUILT only when
+  // entitled, so a non-lead never receives a Budget body in the payload
+  // (no-Budget-flash invariant §4.17 / Budget gate §4.1).
+  const entitled: SectionId[] = ["today", ...sections.map((s) => s.id)];
   const sectionNodes = Object.fromEntries(entitled.map((id) => [id, renderOne(id)])) as Partial<
     Record<SectionId, JSX.Element>
   >;
@@ -518,12 +529,11 @@ export async function CrewShell({
   }
 
   return (
-    // NOTE: `data-active-section` lives ONLY on the CrewSections controller's
-    // wrapper (`crew-shell-sections`), which updates client-side on toggle. The
-    // outer shell must NOT also carry it — a static server value here would
-    // diverge from the live one after a tap, exposing two conflicting active
-    // sections in the DOM (whole-diff review R1 [MED]). `activeSection` is still
-    // the controller's `initialSection` seed below.
+    // NOTE: the open section lives ONLY in the CrewSections controller, which
+    // updates client-side. The outer shell must NOT also carry it — a static
+    // server value here would diverge from the live one after an open, exposing
+    // two conflicting sections in the DOM (whole-diff review R1 [MED]).
+    // `activeSection` is the controller's `initialSection` seed below.
     // THE FLEX CHAIN, stated explicitly because Tailwind v4 does NOT default
     // `.flex` to `align-items: stretch` (DESIGN.md §7). `page-shell` is
     // `flex min-h-screen flex-col` (app/show/[slug]/layout.tsx) precisely so the
@@ -532,21 +542,13 @@ export async function CrewShell({
     // BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT and
     // BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR.
     //
-    // The bar clearance lives HERE, as bottom padding on the shell, and that
-    // placement is the fix rather than an implementation detail: padding INSIDE
-    // the footer moves the footer's CONTENT up while the footer's own box still
-    // ends underneath the fixed bar. The space has to be UNDER the footer.
-    // 44px (`--spacing-tap-min`) + 1rem = 60px clears the measured 53.3px bar
-    // with 6.7px to spare; `env(safe-area-inset-bottom)` adds the iOS home
-    // indicator on hardware that has one and is 0 in the e2e harness.
-    <div
-      data-testid="crew-shell"
-      className="flex min-h-0 flex-1 flex-col pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] min-[720px]:pb-0"
-    >
+    // No fixed bottom bar any more (the tab bar became the "All sections" card
+    // and the section sheet), so the shell carries no bar clearance.
+    <div data-testid="crew-shell" className="flex min-h-0 flex-1 flex-col">
       {/* The search provider sits ABOVE the header (which holds the field) and the
           section controller (which hides its body and shows the results), so both
-          read one search state (spec §9.2). It renders no element of its own, so
-          the flex chain below is unchanged. */}
+          read one search state (search spec §9.2). It renders no element of its
+          own, so the flex chain below is unchanged. */}
       <CrewSearchProvider
         index={searchIndex}
         missLogging={missLogging}
@@ -581,17 +583,23 @@ export async function CrewShell({
           renderedAt={today.toISOString()}
           epoch={savedCopyEpoch}
         />
-        {/* The CrewSections client controller owns the live section state: it
-          renders the controlled CrewSubNav + the <main data-testid="page-container">
-          + the CrewSectionTransition over the SERVER-RENDERED `sectionNodes`.
-          `initialSection` is the server-resolved, budget-gated active section
-          (first paint); the controller toggles VISIBILITY only thereafter
-          (freshness invariant). Header / ShowRealtimeBridge / Footer stay
-          server-rendered siblings (section-independent). */}
+        {/* The CrewSections client controller owns the live section state: the
+            <main data-testid="page-container">, the "All sections" card, the wide
+            nav and stack, the section sheet and, while search is active, the
+            search panel in place of the page body, all over the SERVER-RENDERED
+            `sectionNodes`. `initialSection` is the server-resolved, budget-gated
+            section (first paint: the sheet open, or the wide page scrolled to it);
+            the controller only chooses where bodies show thereafter (freshness
+            invariant). Header / ShowRealtimeBridge / Footer stay server-rendered
+            siblings (section-independent). */}
         <CrewSections
           initialSection={activeSection}
-          budgetVisible={budgetVisible}
+          sections={sections}
           sectionNodes={sectionNodes}
+          dayRow={dayRow}
+          pass={pass}
+          runCard={runCard}
+          initialNow={today.getTime()}
         />
       </CrewSearchProvider>
       {/* Posture item 3 (spec §2.6): the bridge fetches a subscriber token and a
@@ -613,15 +621,15 @@ export async function CrewShell({
         reportAutocapture={
           viewer.kind === "admin_preview"
             ? {
-                ...(rightNowCtx ? { rightNowState: rightNowCtx } : {}),
+                ...(pass ? { rightNowState: pass } : {}),
                 crewPreview: {
                   crewMemberId: viewer.crewMemberId,
                   name: ctx.viewerName,
                   role: ctx.viewerCrew?.role ?? null,
                 },
               }
-            : rightNowCtx
-              ? { rightNowState: rightNowCtx }
+            : pass
+              ? { rightNowState: pass }
               : {}
         }
         reportSurfaceOverride={viewer.kind === "admin_preview" ? "admin" : "crew"}

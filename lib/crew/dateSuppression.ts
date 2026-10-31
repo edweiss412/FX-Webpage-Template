@@ -19,7 +19,19 @@
  *   - agenda days (`lib/crew/agendaDisplay.ts`) — gated
  *   - key-times strip (`lib/crew/resolveKeyTimes.ts`) — gated
  *   - schedule day derivation (`components/crew/sections/ScheduleSection.tsx`) — gated
- *   - the Today Tonight card's check-in/check-out rows — gated
+ *   - the home day row (`buildDayRowProps`, `lib/crew/passModel.ts`) — hidden
+ *     entirely, so the viewer cannot infer which show days exist; `passDaySet`,
+ *     the day set the row, the pass and the run card share, is empty
+ *   - the pass (`buildPassProps`, `lib/crew/passModel.ts`) — a degraded state
+ *     computed on the server, so its props carry no day, anchor or hotel date,
+ *     and no "Hotel tonight" cell
+ *   - the home run-of-show card (`runCardDays`, `lib/crew/runOfShowCard.ts`) —
+ *     no days, so the card does not render
+ *   - the hotel quick fact (`selectQuickFacts`, `lib/crew/quickFacts.ts`) —
+ *     omitted, since naming tonight's hotel states a night the viewer works
+ *   - the "All sections" peeks (`lib/crew/sectionPeek.ts`) — the Schedule peek
+ *     and the Travel peek's hotel part are withheld; ground-transport legs are
+ *     counted through `visibleTransportLegs` with dates hidden
  *   - TravelSection's ground-transport leg dates — gated (arc A)
  *   - TravelSection's hotel check-in/check-out rows — gated (arc A)
  *   - TravelSection's personal flight block — gated (arc A): the structured date,

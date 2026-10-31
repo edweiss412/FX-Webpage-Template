@@ -138,7 +138,7 @@ describe("parseEventDetails — v2 labels-only DETAILS block (2025-04)", () => {
 
 // ── Dress-code canonicalization + sentinel-aware precedence (M4-D1) ───────────
 // The dress-code probe used to live stringly-typed in the consumer
-// (TodaySection iterated ["dress_code","dress code","dress","attire"] and
+// (the Today section, since retired, iterated ["dress_code","dress code","dress","attire"] and
 // skipped sentinels). M4-D1 routes that authority through the parser's
 // CANONICAL_KEY_MAP: every dress label collapses to the single `dress_code`
 // key, and a sentinel value (''/TBD/N/A/TBA) must yield to a real value for

@@ -222,6 +222,12 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
+    // 179 -> 180 on feat/crew-page-redesign (plan Task 8): the day row builder's
+    // import sits above it. 180 -> 179 (Task 9): the retired right-now context
+    // builder's import left. 179 -> 180 (Task 10): the run-of-show card builder's
+    // import sits above it. -> 190 at the origin/main merge: main's saved-copy
+    // props and marker imports (PR #983) sit above it. Same upsertAdminAlert
+    // call, confirmed at the new key.
     site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:190",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",

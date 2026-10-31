@@ -23,3 +23,11 @@
  * retuning.
  */
 export const COPY_FEEDBACK_RESET_MS = 2_000;
+
+/**
+ * How long a copy-FAILURE toast stays. It is an instruction ("press and hold the
+ * text"), not a confirmation, so it outlasts the 2 s window above (impeccable
+ * critique A6, audit U4 on crew search). Shared by search's result toast and
+ * the crew home's quick facts toast, so the two failure toasts cannot drift.
+ */
+export const COPY_FAILED_TOAST_MS = 6_000;

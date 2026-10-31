@@ -410,13 +410,17 @@ describe("forced-colors state collapse (Arm 1)", () => {
     const collisions = findCollisions(ELEMENTS, SURVIVAL);
     premiseHolds("some element collapses on today's tree", collisions.length > 0);
 
-    // CrewSubNav's tab has eight paths and only some pairs collide. A union over all
-    // eight would report tokens that have nothing to do with the collision, which is
-    // why the unit is the pair.
-    const tab = collisions.find((c) => c.file.endsWith("CrewSubNav.tsx"));
-    expect(tab, "the crew tab bar collapses and must be reported").toBeDefined();
-    expect(tab?.differing).toContain("border-transparent");
-    expect(tab?.differing).toContain("border-accent");
+    // AccentButton's button has 64 paths (variant x size x state) and only some
+    // pairs collide, on the tile shadow alone. A union over all 64 would report the
+    // size and variant tokens, which have nothing to do with the collision, which is
+    // why the unit is the pair. (The subject was the crew sub-nav tab until the crew
+    // page redesign retired it.)
+    const button = collisions.filter((c) => c.file.endsWith("components/shared/AccentButton.tsx"));
+    expect(
+      button.length,
+      "the accent button's shadow pairs collapse and must be reported",
+    ).toBeGreaterThan(1);
+    for (const pair of button) expect(pair.differing).toEqual(["shadow-tile"]);
   });
 
   it("does not treat a shadow or ring utility as a survivor", () => {
@@ -447,17 +451,32 @@ describe("forced-colors state collapse (Arm 1)", () => {
     ).toEqual([]);
   });
 
-  it("holds exactly 41 collapse rows, each disposed once", () => {
+  // The census size, pinned once so the case title cannot drift from the assertion
+  // (it read 41 over an assertion of 42 on main and 45 here, whole-diff review R4-F5).
+  const COLLAPSE_ROWS = 45;
+  it(`holds exactly ${COLLAPSE_ROWS} collapse rows, each disposed once`, () => {
     // The anti-vacuity literal. A subset assertion passes while the census grows
     // silently, and the family sum is what stops a new site landing in no family.
+    // 42 -> 41 on feat/crew-page-redesign: the crew sub-nav tab and its icon left,
+    // the wide nav item's icon arrived (the item itself does not collapse).
+    // 41 -> 45 with the crew day row (plan Task 8): its Now and day buttons and
+    // the two captions inside a day button.
     // 42 -> 41 on feat/warning-card-fixes Task 9: the PerShowActionableWarnings
     // "Open in Sheet" text link (a deliberate-flatten row) left with its element.
     // 41 -> 42 on feat/warning-card-fixes Task 13: the shared archived-tab include button
     // (a not-a-state row: one button, two placement plates).
-    expect(COLLAPSE_CENSUS).toHaveLength(42);
-    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(42);
+    // 45 on the merge of origin/main (feat/warning-card-fixes) into
+    // feat/crew-page-redesign, re-derived by running this guard: that arc's two moves
+    // net to zero, and the sub-nav tab row it still carried left with the sub-nav.
+    expect(COLLAPSE_CENSUS).toHaveLength(COLLAPSE_ROWS);
+    expect(new Set(COLLAPSE_CENSUS.map((r) => r.site)).size).toBe(COLLAPSE_ROWS);
     const repaired = COLLAPSE_CENSUS.filter((r) => r.disposition === "repaired");
-    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(12);
+    // 12 -> 11 with the crew sub-nav tab: the wide nav item that replaced it keeps
+    // a weight delta, so it never collapsed and needs no repair row. 11 -> 13 with
+    // the crew day row's two pressed-state buttons (plan Task 8). 13 -> 11 when
+    // the pressed day gained its selection bar (UI-gate re-run, critique N6): a
+    // shape that survives forcing, so the two rows are carrier-survives now.
+    expect(repaired, "the repair set the pass owes AC-4").toHaveLength(11);
   });
 
   it("gives every repair row a binding, and says which are not yet browser-bound", () => {
@@ -490,7 +509,7 @@ describe("forced-colors state collapse (Arm 1)", () => {
     // caught in the first draft of spec §8 limit 9: a number describing what the
     // test was meant to do rather than what it does.
     //
-    // The other eleven are proved at the CSS level only, and limit 9 names what
+    // The other ten are proved at the CSS level only, and limit 9 names what
     // each still needs. That limit's original blocker did not survive contact:
     // `/admin` is reachable here, it just needs the `signInAs` step every other
     // admin spec takes.
@@ -651,11 +670,32 @@ describe("forced-colors state collapse (Arm 1)", () => {
     expect(
       undecidable.length,
       "the cannot-decide set moved; read the new rows and either resolve them or re-pin",
+      // 124 -> 127 on feat/crew-page-redesign (2026-10-27): the retired sub-nav's
+      // table-read <Icon> left, and four table-read or lucide glyphs arrived (the
+      // "All sections" row's <Icon> and <ChevronRight>, the wide nav's <Icon>, the
+      // section sheet's close <X>), each aria-hidden decoration inside a control
+      // whose own state the census already disposes.
+      // 127 -> 130 on the merge of origin/main (crew show search), re-derived by
+      // running findUndecidable on the merged tree: main had also gone 124 -> 127
+      // with three lucide glyphs, each aria-hidden decoration inside a control the
+      // census disposes (the search field's clear <XIcon>, a result row's
+      // <ChevronRightIcon> and its copy button's <CopyIcon>). Both sides' rows are
+      // present on the merged tree and nothing else moved.
+      // 130 -> 134 on the crew page redesign's Task 11 (the composed home), re-derived
+      // by running findUndecidable on the tree: four lucide glyphs arrived in the home's
+      // quick facts (the Who to call tile's <PhoneIcon>, <MessageSquareIcon> and
+      // <MailIcon> links and the copy button's <CopyIcon>), each aria-hidden decoration
+      // inside a control the census disposes; the show notes' <ChevronRight> moved from
+      // the retired TodaySection to HomeSection, so it is one row, not a new one.
       // 127 -> 129 on feat/warning-card-fixes Task 12: the two Accepted (N) disclosure
       // chevrons (sectionWarningExtras.tsx, step3ReviewSections.tsx), each the same
       // `<ChevronRight>` shape as its Ignored twin, which is already in this set. Read on the
       // tree by listing the set's rows in those two files.
-    ).toBe(129);
+      // 136 on the merge of origin/main (feat/warning-card-fixes) into
+      // feat/crew-page-redesign, re-derived by running findUndecidable on the merged tree:
+      // this branch's rows above and that arc's two Accepted (N) chevrons are all present,
+      // and nothing else moved.
+    ).toBe(136);
     expect(
       undecidable.every((row) => /:\d+ </.test(row) || row.includes("single-path-state-variant")),
       "every cannot-decide row names a site",

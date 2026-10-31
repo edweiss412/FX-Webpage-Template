@@ -55,11 +55,11 @@ import { readAppliedTheme, useAppliedTheme } from "./useAppliedTheme";
 /**
  * The standalone theme control.
  *
- * Since 2026-08-09 this is the IDENTITY-LESS form: crew pages with a resolved
- * identity carry the switch inside the header avatar menu instead (UI spec
- * §2.3), and admin surfaces keep their own instance. The dataset/localStorage
- * handshake it used to own now lives in `useAppliedTheme` so the two controls
- * cannot drift apart on what "dark" means.
+ * The crew page header mounts it for EVERY viewer (crew page redesign spec
+ * §4.1), beside the avatar menu when there is one, whose "Dark mode" checkbox
+ * stays; admin surfaces keep their own instance. The dataset/localStorage
+ * handshake it used to own lives in `useAppliedTheme`, whose one store keeps
+ * every mounted control on the same value and the same meaning of "dark".
  */
 export function ThemeToggle() {
   const { mounted, theme, isDark, setTheme } = useAppliedTheme();

@@ -101,19 +101,28 @@ const REGISTRY: Row[] = [
   E("components/admin/settings/DeveloperToggleButton.tsx", 0),
   E("components/admin/settings/NotifyToggle.tsx", 0),
   E("components/admin/telemetry/AutoRefreshControl.tsx", 2),
-  // ACCENT-PASS-1: RightNowHero active show-day segment (occurrence 0 = live-dot,
-  // decorative, below). Vibrant bg-accent fill + border-accent-edge 1.4.11 boundary.
-  E("components/crew/RightNowHero.tsx", 1),
+  // ACCENT-PASS-1: the pass's active show-day segment (occurrence 0 = live-dot,
+  // decorative, below), carried from RightNowHero when the pass replaced it (crew
+  // page redesign plan Task 9). Vibrant bg-accent fill + border-accent-edge 1.4.11
+  // boundary.
+  E("components/crew/CrewPass.tsx", 1),
   // redundant-glyph (2): checkbox fills with a Check glyph opacity swap
   G("components/admin/wizard/Step3SheetCard.tsx", 0),
   G("components/admin/wizard/Step3Review.tsx", 1),
-  // decorative (7)
+  // decorative (8)
   D("components/admin/telemetry/AutoRefreshControl.tsx", 0, "telemetry-ping"),
   D("components/admin/telemetry/AutoRefreshControl.tsx", 1, "size-2 rounded-full"),
   D("components/admin/telemetry/EventVolumeSparkline.tsx", 0),
   // Phase-1 extraction: the §A3 sliding rail indicator moved here from the modal.
   D("components/admin/review/ShowReviewSurface.tsx", 0, "rounded-r-pill bg-accent"),
-  D("components/crew/RightNowHero.tsx", 0),
+  // The crew wide nav's sliding accent bar, the same §A3 mechanism (crew page
+  // redesign spec §5.3); the active item also carries aria-current and weight.
+  D("components/crew/CrewWideNav.tsx", 0, "rounded-r-pill bg-accent"),
+  // The crew day row's selection bar under the pressed day's label (UI-gate
+  // re-run, critique N6), the wide nav's mark: the pressed day also carries
+  // aria-pressed, its fill (light) and its border-text edge.
+  D("components/crew/CrewDayRow.tsx", 0, "after:bg-accent"),
+  D("components/crew/CrewPass.tsx", 0),
   D("components/crew/primitives/DayCard.tsx", 0),
 ];
 

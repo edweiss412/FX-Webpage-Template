@@ -22,6 +22,25 @@ export function Skeleton({ className = "" }: { className?: string }) {
 }
 
 /**
+ * A text-shaped skeleton: placeholder words, transparent, on one pulsing plate
+ * per line box (`box-decoration-clone`). It sits inside an element carrying the
+ * typography of the text it stands for, so each line box is that text's own
+ * height in every engine, and a loading header is the loaded one's height
+ * wherever their line counts agree (crew loading skeleton, UI-gate re-run P3-2).
+ * Decorative: hidden from assistive tech, and never selectable.
+ */
+export function SkeletonText({ children }: { children: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="animate-pulse select-none rounded-sm bg-surface-sunken text-transparent box-decoration-clone motion-reduce:animate-none"
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
  * The standard route-loading shell: an sr-only live-region announcement for
  * assistive tech (the skeleton blocks are aria-hidden) plus the skeleton
  * content. Every `loading.tsx` wraps its skeleton in this so the loading state

@@ -158,6 +158,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/font-binding.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-rendering-census.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": PATH_GATED_BY_EXCLUSION,
+  "tests/e2e/crew-wide-nav.spec.ts": PATH_GATED_BY_EXCLUSION,
   // Named in crew-e2e.yml's run command (crew show search, desktop-chromium only:
   // the spec drives the picker, whose `__Host-` cookie WebKit will not store over http).
   "tests/e2e/crew-search.spec.ts": PATH_GATED_BY_EXCLUSION,

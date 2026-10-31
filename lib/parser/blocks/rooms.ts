@@ -552,8 +552,8 @@ function parseAdditionalRoomFields(markdown: string): RoomRow | null {
   // (free-text Google-Form answers), not Doug's INFO room blocks — so the "name" answer is
   // usually meal/social PROSE ("Lunch in Adorn both days. Reception Social Lounge…"). Do NOT
   // use it as the room NAME (that renders as a paragraph-as-name card). Surface one generic
-  // "Additional rooms" card and move the prose into `notes` — which the crew Today section
-  // renders as a "Room: Additional rooms" callout (components/crew/sections/TodaySection.tsx),
+  // "Additional rooms" card and move the prose into `notes` — which the crew home's show notes card
+  // renders as a "Room: Additional rooms" line (components/crew/sections/todayRows.ts),
   // so the real "which rooms / no AV needed" signal stays visible behind a clean label.
   const room = buildEmptyRoom("additional", "Additional rooms");
   room.notes = nameVal;

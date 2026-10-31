@@ -88,6 +88,26 @@ export function deleteShowBody(driveFileId: string): string {
 }
 
 /**
+ * The jsonb columns a fixture may rewrite in place (crew page redesign plan
+ * Task 12): the day set, the agenda links and the venue. Named, so a typo'd or
+ * non-jsonb column is a compile error rather than a runtime SQL fault.
+ */
+export type UpdatableShowColumn = "dates" | "agenda_links" | "venue";
+
+/** The in-place update body, exported for the same reason as `lockedStatement`. */
+export function updateShowBody(
+  driveFileId: string,
+  set: Partial<Record<UpdatableShowColumn, unknown>>,
+): string {
+  const assignments = Object.entries(set).map(
+    ([column, value]) => `${column} = ${sqlString(JSON.stringify(value ?? null))}::jsonb`,
+  );
+  return `update public.shows set ${assignments.join(", ")} where drive_file_id = ${sqlString(
+    driveFileId,
+  )} returning id;`;
+}
+
+/**
  * Runs one SQL block and returns its stdout. Injectable so the unit proof can
  * drive the REAL `copyShowLocked` / `deleteShowsLocked` and read back the exact
  * SQL they emit, key and all.
@@ -242,5 +262,33 @@ export function deleteShowsLocked(
     throw new Error(
       `lockedShowCopy: ${failures.length} cleanup failure(s):\n${failures.join("\n")}`,
     );
+  }
+}
+
+/**
+ * Rewrite jsonb columns of an EXISTING show in place, under that show's lock.
+ *
+ * The header's reason for copying instead of mutating still holds: a direct
+ * write does not bust the crew page's per-show cache, so the next ordinary
+ * render serves the pre-write projection. A caller that mutates a show it has
+ * already rendered therefore re-renders through helpers/crewRefresh.ts, which
+ * asks the server to revalidate, the way the app's own write paths call
+ * `revalidateShow`.
+ *
+ * Throws when the show matched no row, so a missing fixture fails by name.
+ */
+export function updateShowLocked(
+  driveFileId: string,
+  set: Partial<Record<UpdatableShowColumn, unknown>>,
+  exec: SqlExecutor = psqlExecutor,
+): void {
+  if (Object.keys(set).length === 0) {
+    throw new Error("lockedShowCopy: updateShowLocked needs at least one column to set");
+  }
+  const stdout = runLocked("updateShowLocked", driveFileId, updateShowBody(driveFileId, set), exec);
+  try {
+    assertDeletedRows(stdout, driveFileId);
+  } catch {
+    throw new Error(`lockedShowCopy: update matched no show (drive_file_id=${driveFileId})`);
   }
 }

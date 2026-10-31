@@ -37,7 +37,7 @@ export type SubtleExemption = {
 };
 
 export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
-  // ---- Family S: <summary> disclosure headers (7) -------------------------
+  // ---- Family S: <summary> disclosure headers (10) ------------------------
   // Half caption, half control: the text names the CONTENT it folds, and the
   // fold affordance is carried by the marker/chevron and the interaction, not
   // by label weight.
@@ -221,8 +221,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   {
     file: "components/crew/AgendaScheduleBlock.tsx",
     // 107 -> 116 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
-    // lines around it. Same `<summary>`, same token.
-    line: 116,
+    // lines around it. Same `<summary>`, same token. 116 -> 117 on the invariant-8
+    // fixes (audit P2-4): the header comment's heading levels grew a line. Same `<summary>`.
+    line: 117,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -243,8 +244,9 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   {
     file: "components/crew/primitives/RunOfShowList.tsx",
     // 93 -> 76 on feat/crew-show-search (Schedule search entries): search-marker props and shared row helpers moved
-    // lines around it. Same `<summary>`, same token.
-    line: 76,
+    // lines around it. Same `<summary>`, same token. 76 -> 79 on feat/crew-page-redesign
+    // (plan Task 10): the row's `next` prop for the run card's "Next" marker sits above it.
+    line: 79,
     tag: "summary",
     token: "text-text-subtle",
     family: "summary-disclosure",
@@ -272,7 +274,7 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
   // ratified policy says about a control that belongs to no carve-out family.
   // The family set is untouched; a membership claim that was false is not.
 
-  // ---- Family D: state-pair dim members (6) -------------------------------
+  // ---- Family D: state-pair dim members (5) -------------------------------
   // The dim member of a state pair may rest subtle only while the pair stays
   // distinguishable by at least one cue besides the text-color delta. The cue
   // may sit on EITHER member, and the suite validates it against source.
@@ -348,23 +350,6 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     siblingCue: {
       file: "components/admin/nav/AdminNav.tsx",
       token: 'aria-current={active ? "page" : undefined}',
-    },
-  },
-  {
-    file: "components/crew/CrewSubNav.tsx",
-    line: 114,
-    tag: "button",
-    token: "text-text-subtle",
-    family: "state-dim",
-    reason:
-      'Inactive crew sub-nav tab; the active desktop branch carries `border-accent` + `text-text-strong`, the active mobile branch `text-accent-on-bg` plus `aria-current="page"` (DESIGN §1.1a Family D)',
-    // `border-accent` is the DESKTOP branch's cue only; the mobile branch this
-    // row also covers rests on `aria-current` alone, so the desktop pin left
-    // half the row unasserted (whole-diff R1 F7). Pinned on the cue both
-    // branches share.
-    siblingCue: {
-      file: "components/crew/CrewSubNav.tsx",
-      token: 'aria-current={isActive ? "page" : undefined}',
     },
   },
 ];

@@ -151,11 +151,12 @@ describe("DESIGN.md §5.5 interaction-timing inventory", () => {
 // ── Property-totality census pins (BL-TIMING-SCAN-PROPERTY-TOTALITY) ─────────
 
 describe("the non-literal timing-property census", () => {
-  /** The six live sites, by (file, propertyKey, name) and by COUNT. */
+  /** The nine live sites, by (file, propertyKey, name) and by COUNT. */
   const CENSUS: ReadonlyArray<readonly [string, string, string, number]> = [
     ["components/admin/telemetry/EventRow.tsx", "duration", "reduce ? 0 : 0.22", 1],
+    ["components/crew/CrewPass.tsx", "duration", "fade ? CROSSFADE_SECONDS : 0", 2],
+    ["components/crew/CrewRunOfShowCard.tsx", "duration", "fade ? CROSSFADE_SECONDS : 0", 2],
     ["components/crew/CrewSectionTransition.tsx", "duration", "duration", 1],
-    ["components/crew/RightNowHero.tsx", "duration", "prefersReducedMotion === true ? 0 : 0.22", 1],
     ["components/diagrams/GalleryLightbox.tsx", "duration", "emblaDuration(prefersReducedMotion)", 2],
     ["components/diagrams/GalleryLightbox.tsx", "duration", "motionDuration", 1],
   ];

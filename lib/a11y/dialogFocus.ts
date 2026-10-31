@@ -10,8 +10,10 @@
  *      reachable control inside the dialog).
  *   3. Trap focus inside the dialog: `Tab` from the last focusable
  *      element cycles to the first; `Shift+Tab` from the first cycles
- *      to the last. Esc handling is the dialog's responsibility
- *      (typically already wired in the dialog component).
+ *      to the last. Every other Tab is the browser's. Esc handling is the
+ *      dialog's responsibility (typically already wired in the dialog
+ *      component). One dialog opts into a walk instead (`walkTabs`,
+ *      below): the crew section sheet.
  *   4. On unmount, restore focus to the saved element. If the element
  *      is no longer in the DOM (rare — the trigger was removed during
  *      the dialog's lifetime), focus falls through to `document.body`
@@ -43,6 +45,168 @@ function focusableDescendants(container: HTMLElement): HTMLElement[] {
   );
 }
 
+// ── Walk mode (`walkTabs`) ──────────────────────────────────────────────────
+// The trap moves focus itself on every Tab, so its stop list has to match the
+// browser's: a stop it omits is one Tab never reaches.
+const WALK_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  'input:not([disabled]):not([type="hidden"])',
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  // A disclosure's own summary is a native Tab stop (narrowed to a details
+  // element's first summary in `isTabStop`).
+  "summary",
+  // Focusable in both engines (measured, Playwright 1.59): media with controls
+  // (the Gear section's opening reel, whole-diff review R2-F3), a frame, and an
+  // editing host. A video without controls is not.
+  "video[controls]",
+  "audio[controls]",
+  "iframe",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+/** A details element's own summary: the first summary child, the one the browser renders. */
+function ownSummary(details: HTMLDetailsElement): Element | null {
+  return details.querySelector(":scope > summary");
+}
+
+/**
+ * Inside a closed <details> and not in its own summary: not rendered. Both
+ * engines still report an offsetParent and tabIndex 0 for such a control, but
+ * focus() on it does nothing, so a walk that counted it would stay where it was
+ * on every Tab (whole-diff review R2-F1).
+ */
+function inClosedDisclosure(el: HTMLElement): boolean {
+  let child: Element = el;
+  for (let parent = el.parentElement; parent; child = parent, parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement && !parent.open && child !== ownSummary(parent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Whether the browser's own sequential navigation would stop on `el`. */
+function isTabStop(el: HTMLElement): boolean {
+  if (el.tagName === "SUMMARY") {
+    const details = el.parentElement;
+    if (!(details instanceof HTMLDetailsElement) || ownSummary(details) !== el) {
+      return false;
+    }
+  }
+  return (
+    !inClosedDisclosure(el) &&
+    // A control disabled by a disabled fieldset around it refuses focus, though
+    // the selector's own `:not([disabled])` cannot see the fieldset. Dropped
+    // here, before a radio group picks its stop, so a disabled radio never
+    // stands in for its enabled siblings (whole-diff review round 2, 2B-2).
+    !el.matches(":disabled") &&
+    el.offsetParent !== null &&
+    // An explicit negative tabindex takes an element out of sequential order:
+    // `a[href]` (etc.) with tabindex="-1" is click/programmatically focusable
+    // but NOT Tab-reachable (e.g. HoverHelp's learn-more link while its popover
+    // is closed or collision-hidden). Without the attribute, everything the
+    // selector matches is a stop. The property is no guide there: WebKit reports
+    // tabIndex -1 for a `video[controls]` it focuses, both engines for an
+    // editing host.
+    (!el.hasAttribute("tabindex") || el.tabIndex >= 0) &&
+    // visibility:hidden keeps offsetParent non-null, and focus() on such an
+    // element is a no-op that would strand the walk on it.
+    getComputedStyle(el).visibility !== "hidden" &&
+    el.closest("[inert]") === null
+  );
+}
+
+/**
+ * A named radio's group: its form element (null for a radio no form owns) and
+ * its name, as the browser groups them. Keyed by the element, never its id: two
+ * forms without one, or such a form and the document, are different groups
+ * (whole-diff review round 2, 2B-3).
+ */
+function radioGroup(el: HTMLElement): { form: HTMLFormElement | null; name: string } | null {
+  return el instanceof HTMLInputElement && el.type === "radio" && el.name !== ""
+    ? { form: el.form, name: el.name }
+    : null;
+}
+
+function walkStops(container: HTMLElement): HTMLElement[] {
+  const active = document.activeElement;
+  const stops = Array.from(container.querySelectorAll<HTMLElement>(WALK_SELECTOR)).filter(
+    (el) => el === active || isTabStop(el),
+  );
+  // A radio group is ONE stop, as it is natively: the radio holding focus,
+  // else the checked one, else the group's first. Arrow keys move within it.
+  const groups = new Map<HTMLFormElement | null, Map<string, HTMLElement>>();
+  const stopFor = (group: { form: HTMLFormElement | null; name: string }) => {
+    let byName = groups.get(group.form);
+    if (byName === undefined) groups.set(group.form, (byName = new Map()));
+    return byName;
+  };
+  for (const el of stops) {
+    const group = radioGroup(el);
+    if (group === null) continue;
+    const byName = stopFor(group);
+    const held = byName.get(group.name);
+    const better =
+      held === undefined ||
+      el === active ||
+      (held !== active && (el as HTMLInputElement).checked && !(held as HTMLInputElement).checked);
+    if (better) byName.set(group.name, el);
+  }
+  return stops.filter((el) => {
+    const group = radioGroup(el);
+    return group === null || stopFor(group).get(group.name) === el;
+  });
+}
+
+/**
+ * A player with native controls. Its controls are the browser's: Chromium's are
+ * a closed shadow tree behind the element, which the walk cannot see, so Tabs
+ * among them stay on the element (measured, Playwright 1.59: six of them, then
+ * the next control); WebKit's are reached with Option+Tab (whole-diff review
+ * round 2, 2A-2).
+ */
+function isPlayer(el: Element | null): el is HTMLMediaElement {
+  return el instanceof HTMLMediaElement && el.controls;
+}
+
+/** Another open modal dialog besides `self`, not one `self` sits inside. */
+function anotherModalOpen(self: HTMLElement): boolean {
+  return Array.from(document.querySelectorAll('[aria-modal="true"]')).some(
+    (el) => el !== self && !el.contains(self),
+  );
+}
+
+/** Focus is nowhere a keyboard user can act from: on <body>, or on nothing. */
+function focusOnBody(): boolean {
+  const active = document.activeElement;
+  return active === null || active === document.body || active === document.documentElement;
+}
+
+/**
+ * The stop a Tab (or Shift+Tab) moves to from `active`: the next (previous)
+ * stop in document order, wrapping. From an element that is not a stop (a
+ * `tabindex="-1"` heading focused on open, or the container itself), the first
+ * stop after it (the last before it), as the browser would choose.
+ */
+function nextStop(
+  focusables: readonly HTMLElement[],
+  active: Element | null,
+  backward: boolean,
+): HTMLElement {
+  const count = focusables.length;
+  const index = active instanceof HTMLElement ? focusables.indexOf(active) : -1;
+  if (index !== -1) return focusables[(index + (backward ? count - 1 : 1)) % count]!;
+  const follows = (el: HTMLElement) =>
+    active !== null &&
+    (active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  return backward
+    ? (focusables.findLast((el) => !follows(el)) ?? focusables[count - 1]!)
+    : (focusables.find(follows) ?? focusables[0]!);
+}
+
 export function useDialogFocus(
   containerRef: RefObject<HTMLElement | null>,
   initialFocusRef?: RefObject<HTMLElement | null>,
@@ -71,12 +235,33 @@ export function useDialogFocus(
    * frozen and no re-render can reach it, and a ref object's identity survives
    * that freeze so a `.current` write is visible at the unmount cleanup below.
    */
-  options?: { restoreTargetRef?: RefObject<HTMLElement | null> | undefined },
+  options?: {
+    restoreTargetRef?: RefObject<HTMLElement | null> | undefined;
+    /**
+     * Opt-in, for the crew section sheet only: the trap moves focus itself on
+     * every `Tab` and `Shift+Tab`, to the next or previous stop in document
+     * order, wrapping, and hands a Tab to the browser only on (or, going back,
+     * onto) a player with native controls, whose controls only the browser can
+     * walk, settling focus on its own next stop once it leaves (whole-diff
+     * review round 2, 2A-2). It also keeps focus in the dialog when the focused
+     * node leaves the document (back to the title) and takes a Tab from
+     * <body> into it (round 2, 2A-R2-1). WebKit's default
+     * sequential navigation skips buttons and links, so a Tab left to it in a
+     * dialog of buttons and links lands on `<body>` (measured under
+     * Playwright's mobile-safari). Every other dialog keeps the default: act at
+     * the two ends only, which leaves a closed disclosure's contents and a
+     * child's own Tab handling to the browser and the child (whole-diff review
+     * R2-F1, R2-F2).
+     */
+    walkTabs?: boolean | undefined;
+  },
 ): void {
   // Mirrored into a ref so the mount-lifetime effect below can read the LATEST
   // one without taking `options` as a dependency — a new options object every
   // render would otherwise re-run that effect and restore focus mid-dialog.
   const restoreTargetRef = options?.restoreTargetRef;
+  // Used when the trap attaches: a dialog keeps one mode for its lifetime.
+  const walkTabs = options?.walkTabs === true;
   const latestRestoreTarget = useRef(restoreTargetRef);
   useEffect(() => {
     latestRestoreTarget.current = restoreTargetRef;
@@ -126,7 +311,8 @@ export function useDialogFocus(
     // NEW container is never stolen.
     const active = document.activeElement;
     if (!(active instanceof HTMLElement) || !container.contains(active)) {
-      const initial = initialFocusRef?.current ?? focusableDescendants(container)[0] ?? container;
+      const stops = walkTabs ? walkStops(container) : focusableDescendants(container);
+      const initial = initialFocusRef?.current ?? stops[0] ?? container;
       initial.focus();
     }
 
@@ -149,6 +335,127 @@ export function useDialogFocus(
       }
     }
 
+    /**
+     * Focus the stop after (before) `start`. A stop that refuses focus (a
+     * control in a disabled fieldset, an editable region nested in another
+     * editing host) would hold the walk in place on every Tab, as a closed
+     * disclosure's contents did (R2-F1): pass over it, as the browser's own
+     * navigation does.
+     */
+    function walkFrom(start: Element | null, backward: boolean) {
+      const stops = walkStops(container as HTMLElement);
+      let from = start;
+      for (let tries = 0; tries < stops.length; tries++) {
+        const target = nextStop(stops, from, backward);
+        target.focus();
+        if (document.activeElement === target) return;
+        from = target;
+      }
+    }
+
+    // A Tab left to the browser is settled a task later, after its own move.
+    let settleTimer: number | null = null;
+
+    // The walk listens on `window`, in the bubble phase, so it runs after
+    // everything inside: React dispatches every onKeyDown from the root
+    // container, or from a portal's container, both ancestors of the dialog. On
+    // the dialog itself it moved focus before a child's own Tab handler ran,
+    // and the handler then read an activeElement that had already moved
+    // (whole-diff review R2-F2). A Tab anything inside already handled, a
+    // child or a dialog nested in this one, arrives cancelled and is left
+    // alone; one stopped on the way never arrives at all.
+    // Whether the dialog is open and the one in charge: attached, not leaving
+    // (a departing sheet is inert), and no other modal open beside it.
+    const inCharge = () =>
+      (container as HTMLElement).isConnected &&
+      (container as HTMLElement).closest("[inert]") === null &&
+      !anotherModalOpen(container as HTMLElement);
+
+    function onWalkKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Tab" || event.defaultPrevented) return;
+      // From <body> (focus fell there, below): into the dialog, at its first
+      // stop going forward and its last going back. The page behind is inert, so
+      // nowhere else would take it.
+      if (
+        focusOnBody() &&
+        (event.target === document.body || event.target === document.documentElement)
+      ) {
+        if (!inCharge()) return;
+        event.preventDefault();
+        walkFrom(null, event.shiftKey);
+        return;
+      }
+      if (!(event.target instanceof Node) || !(container as HTMLElement).contains(event.target)) {
+        return;
+      }
+      const from = document.activeElement;
+      const backward = event.shiftKey;
+      // A player's Tab, and a Shift+Tab onto one, are the browser's, so its
+      // own controls are reached (the player is entered at its last control
+      // going back, as the browser does). While focus stays on the player the
+      // browser is moving it among them; once focus has left, the walk puts it
+      // where its own order says, wherever the browser put it (WebKit's plain
+      // Tab from a player lands on <body>, measured).
+      const onPlayer = isPlayer(from);
+      const stops = walkStops(container as HTMLElement);
+      const ontoPlayer =
+        backward && !onPlayer && stops.length > 0 && isPlayer(nextStop(stops, from, true));
+      if (onPlayer || ontoPlayer) {
+        if (settleTimer !== null) window.clearTimeout(settleTimer);
+        settleTimer = window.setTimeout(() => {
+          settleTimer = null;
+          const now = document.activeElement;
+          if (onPlayer) {
+            if (now === from) return; // still among the player's controls
+            const expected = nextStop(walkStops(container as HTMLElement), from, backward);
+            if (now !== expected) walkFrom(from, backward);
+            return;
+          }
+          const player = nextStop(walkStops(container as HTMLElement), from, true);
+          if (now !== player) walkFrom(from, true);
+        }, 0);
+        return;
+      }
+      event.preventDefault();
+      walkFrom(from, backward);
+    }
+
+    // Focus kept in the dialog when its node leaves the document (whole-diff
+    // review round 2, 2A-R2-1): a refresh that replaces the focused control, an
+    // in-sheet link that swaps the body, a nested dialog whose owner is removed
+    // with it open. Focus then falls to <body>, the page behind is inert, and a
+    // keyboard user has nowhere to act from. After each change to the document,
+    // if focus is on <body> and the element that last held it is gone, focus
+    // goes to the dialog's title (its first stop without one). A focus that
+    // left for <body> any other way, its element still attached, is left alone.
+    let lastFocused: Element | null = document.activeElement;
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target instanceof Element) lastFocused = event.target;
+    };
+    const containFocus = () => {
+      if (!focusOnBody() || lastFocused === null || lastFocused.isConnected) return;
+      if (!inCharge()) return;
+      const title = initialFocusRef?.current;
+      const target =
+        title?.isConnected && (container as HTMLElement).contains(title)
+          ? title
+          : (walkStops(container as HTMLElement)[0] ?? (container as HTMLElement));
+      target.focus({ preventScroll: true });
+    };
+
+    if (walkTabs) {
+      window.addEventListener("keydown", onWalkKeyDown);
+      document.addEventListener("focusin", onFocusIn);
+      const removals =
+        typeof MutationObserver === "function" ? new MutationObserver(containFocus) : null;
+      removals?.observe(document.body, { childList: true, subtree: true });
+      return () => {
+        window.removeEventListener("keydown", onWalkKeyDown);
+        document.removeEventListener("focusin", onFocusIn);
+        removals?.disconnect();
+        if (settleTimer !== null) window.clearTimeout(settleTimer);
+      };
+    }
     container.addEventListener("keydown", onKeyDown);
     return () => {
       container.removeEventListener("keydown", onKeyDown);

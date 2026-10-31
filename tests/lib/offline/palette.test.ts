@@ -270,15 +270,24 @@ function fallbacksIn(rule: CSSStyleRule): { name: string; hex: string }[] {
   }));
 }
 
-/** The runtime token a theme token resolves to, from `--color-bg: var(--color-bg-runtime);`. */
+/**
+ * The runtime token a theme token resolves to, from `--color-bg: var(--color-bg-runtime);`.
+ * The `@theme` block declares it, and the nested dark-theme scope (`:root
+ * [data-theme="dark"]`, from the crew page redesign) re-declares the same
+ * mapping so a nested scope resolves against its own runtime values
+ * (tests/styles/nestedThemeScope.test.ts). So there may be more than one
+ * declaration, and every one must name the same runtime token.
+ */
 function runtimeTokenOf(name: string): string {
   const declaration = new RegExp(`^\\s*${name}:\\s*var\\((--[a-z0-9-]+)\\)\\s*;`, "gm");
-  const found = [...GLOBALS.matchAll(declaration)];
+  const found = [...GLOBALS.matchAll(declaration)].map((match) => match[1] as string);
+  const tokens = [...new Set(found)];
   premiseHolds(
-    `app/globals.css declares ${name} exactly once, as var(--...): found ${found.length}`,
-    found.length === 1,
+    `app/globals.css declares ${name} as var(--...) at least once, and every declaration names ` +
+      `one runtime token: found ${found.length} naming ${tokens.join(", ") || "none"}`,
+    found.length > 0 && tokens.length === 1,
   );
-  return (found[0] as RegExpMatchArray)[1] as string;
+  return tokens[0] as string;
 }
 
 describe("the saved-copy notice", () => {

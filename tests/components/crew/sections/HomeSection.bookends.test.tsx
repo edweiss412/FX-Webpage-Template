@@ -1,25 +1,27 @@
 // @vitest-environment jsdom
 /**
- * tests/components/crew/sections/TodaySection.bookends.test.tsx
+ * tests/components/crew/sections/HomeSection.bookends.test.tsx (moved for crew page
+ * redesign plan Task 11)
  * (schedule SET/strike/load-out inference — Task 13)
  *
- * The crew Today run-of-show (Mode A) must route entries through
+ * The home's run-of-show card must route entries through
  * scheduleEntriesForViewer so the synthesized SET Load In shows when today is
  * the set day, and the load-out is transport-gated: an unassigned crew viewer
  * is denied it (while the room-sourced strike still shows); admin + assigned
  * crew get it.
  *
- * RightNowHero is a 'use client' island that owns a live clock + matchMedia
- * reduced-motion hook; jsdom has neither, so we stub matchMedia (mirrors the
- * sibling TodaySection tests).
+ * matchMedia is stubbed for the section's client islands (mirrors the sibling
+ * home body tests; the right-now hero that first needed it was replaced by
+ * the pass, which mounts from the section controller).
  *
  * Anti-tautology: SET entry time asserted against data.show.dates.loadIn (source);
  * synthetic presence/absence scoped to the row's data-entry-kind marker (not titles).
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
+import type { JSX } from "react";
 import { cleanup, render, within } from "@testing-library/react";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { AgendaEntry, TransportationRow } from "@/lib/parser/types";
@@ -43,7 +45,18 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+/**
+ * The home's Today block (crew page redesign plan Task 10): the run-of-show
+ * card, which left the Today section for the home, above the home body. The card
+ * reads the crew clock to find today, so `Date` is pinned at the case's `today`.
+ */
+function renderBlock(el: JSX.Element) {
+  pinCrewClock((el.props as { today: Date }).today);
+  return render(el);
+}
 
 function transport(assignedNames: string[]): TransportationRow {
   return {
@@ -92,8 +105,8 @@ test("when today is the set day, Today's run-of-show shows the synthesized Load 
       [TODAY_ISO]: { entries: setEntries, showStart: null, showEnd: null, window: null },
     },
   });
-  const { container } = render(
-    <TodaySection
+  const { container } = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={data}
       viewer={adminViewer}
@@ -122,14 +135,8 @@ test("unassigned crew viewer is DENIED the load-out on today; the strike still s
     transportation: transport(["Nobody Here"]), // viewerName not assigned → false
     runOfShow: { [TODAY_ISO]: { entries, showStart: null, showEnd: null, window: null } },
   });
-  const { container } = render(
-    <TodaySection
-      {...ledgerProp()}
-      data={data}
-      viewer={crewViewer}
-      today={TODAY}
-      showId={SHOW_ID}
-    />,
+  const { container } = renderBlock(
+    <TodayBlock {...ledgerProp()} data={data} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
   );
   const ros = container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`) as HTMLElement;
   expect(ros).not.toBeNull();
@@ -155,8 +162,8 @@ test("admin AND an assigned crew viewer both see today's load-out", () => {
       runOfShow: { [TODAY_ISO]: { entries, showStart: null, showEnd: null, window: null } },
     });
 
-  const assigned = render(
-    <TodaySection
+  const assigned = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={mk([VIEWER_NAME])}
       viewer={crewViewer}
@@ -170,8 +177,8 @@ test("admin AND an assigned crew viewer both see today's load-out", () => {
   expect(loadoutRow(aRos)).not.toBeNull();
   cleanup();
 
-  const admin = render(
-    <TodaySection
+  const admin = renderBlock(
+    <TodayBlock
       {...ledgerProp()}
       data={mk(["Nobody Here"])}
       viewer={adminViewer}

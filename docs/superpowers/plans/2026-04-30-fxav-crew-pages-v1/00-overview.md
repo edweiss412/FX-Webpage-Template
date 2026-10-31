@@ -373,7 +373,7 @@ app/
 
 components/
   layout/{Header,Footer}.tsx
-  crew/RightNowHero.tsx      # state machine (§8.2; superseded right-now/RightNowCard.tsx at b327d5eb0)
+  crew/CrewPass.tsx          # state machine (§8.2; superseded crew/RightNowHero.tsx, itself the successor of right-now/RightNowCard.tsx at b327d5eb0)
   tiles/
     LodgingTile.tsx VenueTile.tsx ScheduleTile.tsx
     AudioScopeTile.tsx VideoScopeTile.tsx LightingScopeTile.tsx
@@ -433,7 +433,7 @@ lib/
     getShowForViewer.ts # role-aware fetcher (§7.4)
     listShowsForCrew.ts
   messages/
-    catalog.ts # §12.4 — every code → message
+    catalog.ts # §12.4: every code → message
     lookup.ts
   reports/
     submit.ts # reserve-then-call (§13.2.3)

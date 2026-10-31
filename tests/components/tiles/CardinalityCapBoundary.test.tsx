@@ -12,7 +12,7 @@
  *   - Key contacts     — CONTACTS_INLINE_CAP = 6 (CrewSection, exported)
  *                        rows: [data-testid="contact-person-row"]
  *                        overflow stub: [data-testid="contacts-overflow-stub"]
- *   - Show notes       — SOURCE_CAP = 8 / TRUNCATE_AT = 280 (TodaySection,
+ *   - Show notes       — SOURCE_CAP = 8 / TRUNCATE_AT = 280 (HomeSection,
  *                        exported → value pin + behavioral)
  *                        rows: li[data-source]
  *                        overflow: [data-testid="today-notes-overflow"]
@@ -52,7 +52,7 @@ import {
   CONTACTS_INLINE_CAP,
 } from "@/components/crew/sections/CrewSection";
 import { CASE_CAP, GearSection } from "@/components/crew/sections/GearSection";
-import { SOURCE_CAP, TodaySection, TRUNCATE_AT } from "@/components/crew/sections/TodaySection";
+import { HomeSection, SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/HomeSection";
 import {
   ScheduleSection,
   RUN_OF_SHOW_DISPLAY_CAP,
@@ -65,10 +65,10 @@ const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
 const VIEWER = { kind: "admin" } as const;
 
-// The Notes block renders TodaySection, which mounts the RightNowHero client
-// island; the hero's usePrefersReducedMotion hook calls window.matchMedia in a
-// mount effect that jsdom lacks. Stub it (matches:false = no reduced-motion)
-// so the hero's REAL wiring runs — mirrors TodaySection.test.tsx.
+// The Notes block renders HomeSection, the home body. jsdom lacks
+// window.matchMedia, which the crew client islands' usePrefersReducedMotion
+// reads (the home's quick facts toast is one). Stub it (matches:false = no
+// reduced-motion) — mirrors HomeSection.test.tsx.
 beforeEach(() => {
   vi.stubGlobal(
     "matchMedia",
@@ -210,15 +210,15 @@ describe("§8.4 cardinality-cap — Key contacts (CONTACTS_INLINE_CAP, CrewSecti
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Show notes — SOURCE_CAP = 8 + TRUNCATE_AT = 280 (TodaySection)
+// Show notes — SOURCE_CAP = 8 + TRUNCATE_AT = 280 (HomeSection, the home body)
 // Not covered by any Phase-3 section test — fully owned here.
 // The caps are exported (the search builders read the same constants), so the
 // boundary cases below run against the section's own values, and a value pin
 // keeps the spec'd numbers from drifting unnoticed.
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodaySection)", () => {
-  test("value pin — TodaySection exports SOURCE_CAP = 8 and TRUNCATE_AT = 280", () => {
+describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, HomeSection)", () => {
+  test("value pin — HomeSection re-exports SOURCE_CAP = 8 and TRUNCATE_AT = 280", () => {
     expect(SOURCE_CAP).toBe(8);
     expect(TRUNCATE_AT).toBe(280);
   });
@@ -238,7 +238,7 @@ describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodayS
 
   function renderNotes(count: number) {
     return render(
-      <TodaySection
+      <HomeSection
         {...ledgerProp()}
         data={makeShowForViewer({ contacts: makeContactsWithNotes(count) })}
         viewer={VIEWER}
@@ -277,7 +277,7 @@ describe("§8.4 cardinality-cap — Show notes (SOURCE_CAP / TRUNCATE_AT, TodayS
     const longBody = "X".repeat(TRUNCATE_AT + 50);
     const shortBody = "Y".repeat(10);
     const c = render(
-      <TodaySection
+      <HomeSection
         {...ledgerProp()}
         data={makeShowForViewer({
           contacts: [

@@ -24,6 +24,7 @@ import {
   sortSegmentsByDate,
   type FlightSegment,
 } from "@/lib/crew/flightDisplay";
+import { visibleTransportLegs } from "@/lib/crew/transportLegs";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { formatIsoDate } from "@/lib/format/date";
 import type { TransportationRow } from "@/lib/parser/types";
@@ -367,35 +368,10 @@ export function gettingThereRows(
       ? transportation.notes
       : null;
 
-  // Per-leg sentinel hiding: each schedule leg's `stage` / `date` /
-  // `time` is a generic-optional free-text field — a sentinel ('TBD' /
-  // 'N/A' / 'TBA' / '') must reflow out at the READ site, never reach
-  // the bold `tprimary` / eyebrow / meta. (`assigned_names` is a
-  // string[]; empties are already filtered upstream in the projection.)
-  // A leg with NO surviving real field (no stage, no date, no time, no
-  // names) is dropped entirely so the list never shows an empty row.
-  const legs = (transportation ? transportation.schedule : []).flatMap((leg) => {
-    const stage = !shouldHideGenericOptional(leg.stage) ? leg.stage : null;
-    // LEAK SITE 1. Withheld before the retention check below, so a leg
-    // whose only content WAS its date leaves the list rather than
-    // rendering an empty row — and `dateIsPrimary` (which mounts the
-    // <time dateTime=…>, itself the leak) is false by construction.
-    const date = hideDates || shouldHideGenericOptional(leg.date) ? null : leg.date;
-    const time = !shouldHideGenericOptional(leg.time) ? leg.time : null;
-    // The projection preserves schedule members unvalidated, so a blank
-    // or corrupt assignee can reach here. It renders as an empty "With "
-    // label — not visible content, and therefore not something that may
-    // keep a date-emptied row alive. Sanitized ONLY under suppression so
-    // every other viewer's output stays byte-identical to today's.
-    const assignedNames = hideDates
-      ? leg.assigned_names.filter((n) => typeof n === "string" && n.trim().length > 0)
-      : leg.assigned_names;
-    // No surviving real content → omit the whole leg.
-    if (stage === null && date === null && time === null && assignedNames.length === 0) {
-      return [];
-    }
-    return [{ stage, date, time, assignedNames }];
-  });
+  // Per-leg sentinel hiding and the empty-leg drop live in
+  // `visibleTransportLegs`, shared with the "All sections" Travel peek, so the
+  // section, the peek's ride count and the search index read one leg list.
+  const legs = visibleTransportLegs(transportation ? transportation.schedule : [], hideDates);
 
   const seen: Seen = new Map();
   // A travelrow is one line: its eyebrow is the label, its first non-empty

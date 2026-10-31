@@ -256,8 +256,8 @@ test("split-wide grid uses the 1.6fr/1fr ratio (wide getting-there, narrow hotel
   const firstColumn = columns[0];
   if (firstColumn === undefined) throw new Error("expected a travel column");
   const grid = firstColumn.parentElement!;
-  expect(grid.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
-  expect(grid.className).not.toContain("min-[720px]:grid-cols-2");
+  expect(grid.className).toContain("@min-crew-split:grid-cols-[1.6fr_1fr]");
+  expect(grid.className).not.toContain("@min-crew-split:grid-cols-2");
 });
 
 test("hotel card keeps its structured form (name + address + check-in/out + confirmation)", () => {

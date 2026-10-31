@@ -435,7 +435,7 @@ colour to the background system colour, NOT by `border-style: none`, because eve
 site here declares the border on BOTH paths and varies only its colour, so removing
 the width would reflow. §3.1 rule 2's first branch and §5.7 both say this; the
 first draft said `border-style: none` in this paragraph and contradicted its own
-§5.7, which review R1 counted across all five sites and six transparent paths.
+§5.7, which review R1 counted across all five sites and six transparent paths. **Amendment 2026-10-30 (crew page redesign invariant-8 audit P1-4):** the selected rule also sets `forced-color-adjust: none`, with its border on the fill and its children handed `HighlightText`; Chromium paints a `Canvas` readability backplate behind forced text, so `HighlightText` on the fill rendered invisible on both palettes, which computed style never showed. DESIGN.md §17.5 records the use (rule 5); `tests/e2e/forcedColors.spec.ts` AC-4f pins it on pixels.
 
 Every element Arm 1 reports is repaired or gets a census row with a reason, and a
 ruled design exemption is a census row rather than a silent pass.

@@ -121,7 +121,7 @@ function compileAppCss() {
   return readFileSync(out, "utf8");
 }
 
-/** The shipped focus idiom, verbatim from the corpus (e.g. components/crew/CrewSubNav.tsx:88-89). */
+/** The shipped focus idiom, verbatim from the corpus (e.g. components/crew/CrewSectionSheet.tsx, the close button). */
 const FOCUS_CLASSES =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring " +
   "focus-visible:ring-offset-2 focus-visible:ring-offset-surface";

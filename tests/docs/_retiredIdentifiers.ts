@@ -187,38 +187,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
   },
   {
     kind: "line",
-    file: "components/crew/RightNowHero.tsx",
-    text:
-      "* `RightNowCard` required.",
-    reason:
-      "Continuation of the retirement provenance sentence above it.",
-  },
-  {
-    kind: "line",
-    file: "components/crew/RightNowHero.tsx",
-    text:
-      "* `RightNowHero` IS the retired `RightNowCard` re-skinned into the mock's",
-    reason:
-      "Provenance: the hero is defined by what it was reskinned from, and the reader needs the name to find it in history.",
-  },
-  {
-    kind: "line",
-    file: "components/crew/RightNowHero.tsx",
-    text:
-      "// ── lastGood / morph-to-last-good tracker (verbatim from RightNowCard) ──",
-    reason:
-      "Provenance: marks the block as carried verbatim, which is why the retargeted regression pins apply to it.",
-  },
-  {
-    kind: "line",
-    file: "components/right-now/buildRightNowContext.ts",
-    text:
-      "* original `RightNowCard` at `b327d5eb0`, which is retired).",
-    reason:
-      "Provenance for the projection's consumer: the sentence exists to name what superseded what.",
-  },
-  {
-    kind: "line",
     file: "components/shared/AccentButton.tsx",
     text:
       "* consolidation, ResolveAlertButton and RunFinalCASButton retired 2026-08-03,",
@@ -229,9 +197,9 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
     kind: "line",
     file: "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md",
     text:
-      "crew/RightNowHero.tsx      # state machine (§8.2; superseded right-now/RightNowCard.tsx at b327d5eb0)",
+      "crew/CrewPass.tsx          # state machine (§8.2; superseded crew/RightNowHero.tsx, itself the successor of right-now/RightNowCard.tsx at b327d5eb0)",
     reason:
-      "The canonical file map points at the live hero; the retired path survives only as the supersession note that makes the change legible.",
+      "The canonical file map points at the live pass; the retired paths survive only as the supersession note that makes the change legible.",
   },
   {
     kind: "line",
@@ -360,30 +328,6 @@ export const RETIRED_IDENTIFIER_EXEMPTIONS: readonly ExemptionRow[] = [
       "* RunFinalCASButton, all since deleted, and ReSyncButton, de-migrated).",
     reason:
       "Second half of the same census sentence.",
-  },
-  {
-    kind: "line",
-    file: "tests/components/crew/rightNowHero.test.tsx",
-    text:
-      "* `RightNowHero` IS the retired `RightNowCard` re-skinned into the §4.16 five-slot hero",
-    reason:
-      "Provenance: the suite's subject is defined by what it was reskinned from.",
-  },
-  {
-    kind: "line",
-    file: "tests/components/crew/rightNowHeroRecovery.test.tsx",
-    text:
-      "* RETARGET (2026-08-03): this suite pinned `RightNowCard`, which the",
-    reason:
-      "Provenance for the retarget: naming the component this suite used to pin IS the content.",
-  },
-  {
-    kind: "line",
-    file: "tests/help/_metaServerTimeGuard.test.ts",
-    text:
-      "// 'use client' directive over from the retired RightNowCard verbatim, so the",
-    reason:
-      "Explains why swapping the island exemplar preserves the classifier's contract; naming the source is the justification.",
   },
   {
     kind: "line",

@@ -36,7 +36,7 @@ export type KeyValueRow = {
   /**
    * Grid-span hint, honored ONLY when the list is in 2-column mode
    * (`columns={2}`). `2` makes this row occupy the full card width (both
-   * columns) at ≥720px — for a headline field (hotel/venue name, address) that
+   * columns) when split — for a headline field (hotel/venue name, address) that
    * reads better full-bleed above the short paired fields (check-in/out). No
    * effect in the default single-column mode. Defaults to a 1-column cell.
    */
@@ -55,9 +55,9 @@ type KeyValueRowsProps = {
    * Column count (default `1`):
    *
    *   - `1` — the original single vertical column (every existing consumer).
-   *   - `2` — at ≥720px the present rows flow into a 2-up grid so short fields
+   *   - `2` — once split (`@min-crew-split`) the rows flow into a 2-up grid so short fields
    *     (dates, codes) sit side-by-side and a card fills its width instead of
-   *     leaving a tall empty right side. Below 720px it stays a single stacked
+   *     leaving a tall empty right side. Narrower it stays a single stacked
    *     column. Individual rows opt into full width via `span: 2`.
    *
    * Additive: the DOM shape (`<dl>` → per-row `<div>` → `<dt>`/`<dd>`) and the
@@ -78,13 +78,13 @@ export function KeyValueRows({ rows, columns = 1 }: KeyValueRowsProps) {
     <dl
       data-testid="key-value-rows"
       data-columns={columns}
-      // `grid` mode collapses to a single column below 720px (the safe mobile
-      // stack); the 2-up grid only engages at the crew ≥720px split-wide
-      // breakpoint. `gap-x-6` widens the inter-column gutter; the row gap stays
+      // `grid` mode is a single column in a narrow body container (a phone, the
+      // section sheet); the 2-up grid engages at the split-wide CONTAINER width
+      // (`@min-crew-split`, never the viewport). `gap-x-6` widens the inter-column gutter; the row gap stays
       // `gap-3`. Default (`columns={1}`) keeps the original flex stack byte-for-byte.
       className={
         grid
-          ? "grid grid-cols-1 gap-3 min-[720px]:grid-cols-2 min-[720px]:gap-x-6"
+          ? "grid grid-cols-1 gap-3 @min-crew-split:grid-cols-2 @min-crew-split:gap-x-6"
           : "flex flex-col gap-3"
       }
     >
@@ -93,13 +93,13 @@ export function KeyValueRows({ rows, columns = 1 }: KeyValueRowsProps) {
         // flex slot (the §4.9 quick-cards row at 390px ≈ 110px per card); without
         // it a long unbroken `v` (hotel/venue name) would force the card wider than
         // its slot and overflow off the right viewport edge. In 2-up mode a
-        // `span: 2` row spans both columns at ≥720px (headline fields).
+        // `span: 2` row spans both columns when split (headline fields).
         <div
           key={`${row.k}-${i}`}
           data-search-target={row.searchTarget}
           className={
             grid && row.span === 2
-              ? "flex min-w-0 flex-col gap-1 min-[720px]:col-span-2"
+              ? "flex min-w-0 flex-col gap-1 @min-crew-split:col-span-2"
               : "flex min-w-0 flex-col gap-1"
           }
         >

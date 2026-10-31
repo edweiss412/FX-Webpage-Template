@@ -4,9 +4,26 @@
  *
  * `Header` gains an optional `search` slot (spec §6.1). Without it, Header
  * must render exactly the markup it rendered before the slot existed. The two
- * inline snapshots below were recorded against the UNCHANGED Header.tsx
- * (HEAD 61b5cc618), so the change cannot move them. This file imports only
- * Header, so nothing else can shift what it records.
+ * inline snapshots below were first recorded against the UNCHANGED Header.tsx
+ * (HEAD 61b5cc618), so the search change could not move them. This file imports
+ * only Header, so nothing else can shift what it records.
+ *
+ * RE-RECORDED 2026-10-30 by the crew page redesign (plan PR A, Task 7; redesign
+ * spec §4.1), which changes the header itself: the eyebrow joins client and
+ * venue, the theme switch mounts for every viewer, and the row wraps so search's
+ * field can sit under the title on phones and beside it at 1024px. They pin the
+ * no-search markup of THAT header now. Re-recorded again the same day for the
+ * invariant-8 fixes (audit P2-3, critique F8): the wide title block is a grid
+ * holding the status pill on the date line, the h1 carries `title`, and the
+ * search caps at `max-w-sm`; and the wide header sticks at `--crew-sticky-top`
+ * so the admin preview banner never covers it (audit P1-3). Re-recorded
+ * 2026-10-31 (UI-gate re-run, critique N7): the pill moved from the date line to
+ * the end of the eyebrow line, so it no longer reads as qualifying the
+ * unlabeled set date. That an absent or
+ * null `search` adds no
+ * element at all, not even a wrapper, is pinned by
+ * tests/components/layout/crewHeader.test.tsx ("search slot: renders nothing,
+ * no wrapper, when given none").
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,30 +54,45 @@ describe("Header without the search slot (markup unchanged)", () => {
     );
     expect(container.firstChild).toMatchInlineSnapshot(`
       <header
-        class="border-b border-border bg-bg"
+        class="border-b border-border bg-bg lg:sticky lg:top-(--crew-sticky-top) lg:z-nav lg:h-(--crew-header-h)"
         data-testid="page-header"
       >
         <div
-          class="mx-auto flex w-full max-w-[1200px] items-baseline justify-between gap-6 px-4 py-3 sm:px-8 sm:py-4"
+          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
-            class="min-w-0 flex-1"
+            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-2 lg:gap-y-1"
+            data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate lg:col-start-1"
+              data-testid="page-header-eyebrow"
+              title="Acme Corp · Hilton Chicago"
             >
               Acme Corp
+              <span
+                class="sr-only"
+              >
+                , 
+              </span>
+              <span
+                aria-hidden="true"
+              >
+                 · 
+              </span>
+              Hilton Chicago
             </p>
             <div
-              class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1"
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 lg:contents mt-1"
             >
               <h1
-                class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg"
+                class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:col-span-2 lg:min-w-0 lg:truncate"
+                title="Spring Gala 2026"
               >
                 Spring Gala 2026
               </h1>
               <span
-                class="shrink-0"
+                class="shrink-0 lg:col-start-2 lg:row-start-1 lg:justify-self-end"
                 data-testid="header-status-pill"
               >
                 <span>
@@ -69,7 +101,7 @@ describe("Header without the search slot (markup unchanged)", () => {
               </span>
             </div>
             <p
-              class="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-text-subtle"
+              class="mt-1 text-xs text-text-subtle lg:col-span-2 lg:mt-0"
             >
               <time
                 class="font-medium text-text"
@@ -77,21 +109,41 @@ describe("Header without the search slot (markup unchanged)", () => {
               >
                 April 17, 2026
               </time>
-              <span
-                aria-hidden="true"
-                class="text-text-faint"
-              >
-                ·
-              </span>
-              <span>
-                Hilton Chicago
-              </span>
             </p>
           </div>
           <div
-            class="shrink-0 self-start"
+            class="flex shrink-0 items-center gap-3 self-start lg:self-center"
             data-testid="page-header-right-slot"
           >
+            <button
+              aria-label="Dark mode"
+              aria-pressed="false"
+              class="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface text-text transition-colors duration-fast hover:border-text-subtle hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              data-testid="theme-toggle"
+              type="button"
+            >
+              <span
+                aria-hidden="true"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="lucide lucide-moon size-4"
+                  fill="none"
+                  height="24"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                  width="24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"
+                  />
+                </svg>
+              </span>
+            </button>
             <button
               type="button"
             >
@@ -107,27 +159,42 @@ describe("Header without the search slot (markup unchanged)", () => {
     const { container } = render(<Header show={SHOW} />);
     expect(container.firstChild).toMatchInlineSnapshot(`
       <header
-        class="border-b border-border bg-bg"
+        class="border-b border-border bg-bg lg:sticky lg:top-(--crew-sticky-top) lg:z-nav lg:h-(--crew-header-h)"
         data-testid="page-header"
       >
         <div
-          class="mx-auto flex w-full max-w-[1200px] items-baseline justify-between gap-6 px-4 py-3 sm:px-8 sm:py-4"
+          class="mx-auto flex w-full max-w-[1200px] flex-wrap items-baseline justify-between gap-x-6 gap-y-3 px-4 py-3 sm:gap-y-4 sm:px-8 sm:py-4 lg:h-full lg:flex-nowrap lg:items-center lg:py-0"
         >
           <div
-            class="min-w-0 flex-1"
+            class="min-w-0 flex-1 lg:grid lg:flex-[2_1_0%] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-2 lg:gap-y-1"
+            data-testid="page-header-title-block"
           >
             <p
-              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
+              class="text-xs font-medium uppercase tracking-eyebrow text-text-subtle lg:truncate lg:col-span-2"
+              data-testid="page-header-eyebrow"
+              title="Acme Corp · Hilton Chicago"
             >
               Acme Corp
+              <span
+                class="sr-only"
+              >
+                , 
+              </span>
+              <span
+                aria-hidden="true"
+              >
+                 · 
+              </span>
+              Hilton Chicago
             </p>
             <h1
-              class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg mt-1"
+              class="text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg lg:col-span-2 lg:mt-0 lg:truncate mt-1"
+              title="Spring Gala 2026"
             >
               Spring Gala 2026
             </h1>
             <p
-              class="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-text-subtle"
+              class="mt-1 text-xs text-text-subtle lg:col-span-2 lg:mt-0"
             >
               <time
                 class="font-medium text-text"
@@ -135,19 +202,10 @@ describe("Header without the search slot (markup unchanged)", () => {
               >
                 April 17, 2026
               </time>
-              <span
-                aria-hidden="true"
-                class="text-text-faint"
-              >
-                ·
-              </span>
-              <span>
-                Hilton Chicago
-              </span>
             </p>
           </div>
           <div
-            class="flex shrink-0 items-center gap-3 self-start"
+            class="flex shrink-0 items-center gap-3 self-start lg:self-center"
             data-identity="none"
             data-testid="page-header-right-slot"
           >
@@ -202,8 +260,18 @@ describe("Header search slot", () => {
     rerender(<Header show={SHOW} search={<div data-testid="search-payload">field</div>} />);
     const row = screen.getByTestId("page-header-search");
     expect(row).toContainElement(screen.getByTestId("search-payload"));
-    // A full-width row of its own under the title block, not inside the title row.
-    expect(row.parentElement).toBe(screen.getByTestId("page-header"));
+    // A slot of its own, not inside the title block. MIGRATED 2026-10-30 (crew
+    // page redesign Task 7): the slot used to be a second child of <header>; it is
+    // now an item of the header's row, which places it under the title on phones
+    // and between the title and the identity chip at 1024px (redesign spec §4.1,
+    // measured in a real browser by the "header: …" cases in
+    // tests/e2e/crew-section-toggle.spec.ts and tests/e2e/crew-wide-nav.spec.ts).
+    // What this case still pins is the part jsdom can see: inside the header,
+    // outside the title block and the right slot.
+    const header = screen.getByTestId("page-header");
+    expect(header).toContainElement(row);
+    expect(screen.getByTestId("page-header-title-block")).not.toContainElement(row);
+    expect(screen.getByTestId("page-header-right-slot")).not.toContainElement(row);
     expect(screen.getByRole("heading", { level: 1 }).compareDocumentPosition(row)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );

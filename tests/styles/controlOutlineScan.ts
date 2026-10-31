@@ -296,13 +296,13 @@ export const CENSUS: readonly CensusRow[] = [
   // 928 -> 970 on the R2 class-level repairs. FOURTH key this arc; the element
   // has never changed.
   // 988 -> 1165 on the retry check-in arc, which inserted a phase map, three effects and the check-in branch above it. FIFTH key; the element has still never changed, and this key was found by stepping to the opening tag rather than by adding the diff's delta.
-  { file: "components/diagrams/GalleryLightbox.tsx", line: 1167 },
+  { file: "components/diagrams/GalleryLightbox.tsx", line: 1162 },
   // spec §4.2 row 21
   // Inside the start-fresh `bg-warning-bg` plate: moved to the plate token
   // 2026-08-25. Its sibling at :675 is on a neutral ground and did not move.
   {
     file: "components/shared/ReportModal.tsx",
-    line: 622,
+    line: 666,
     outline: "control-outline-tinted",
   },
 
@@ -361,9 +361,13 @@ export const CENSUS: readonly CensusRow[] = [
   // 844 -> 865 and 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added
   // above both); each located by its own element, the rail item and chip <button>.
   // 865 -> 886 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 886 },
+  // 886 -> 862 on the merge of origin/main into feat/crew-page-redesign (that branch read
+  // 820: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own element on the
+  // merged tree (6-line context match).
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 862 },
   // 1046 -> 1067 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1067 },
+  // 1067 -> 1043 on the same merge (that branch read 1001); located the same way.
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 1043 },
   // :979 until 2026-08-27 — the sheetWarnings memo and navigateWarning sit
   // above the pill button (spec §4.1/§4.4).
   // :1083 until fix/attention-autoopen-suppress-phone, whose suppression
@@ -378,7 +382,10 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
   // 83 -> 94 on feat/crew-show-search (Schedule search entries): the button gained a `searchTargets` prop and its
   // per-button target/chrome lines above the tag. Same `<button>`, same recipe.
-  { file: "components/agenda/AgendaEmbed.tsx", line: 94 },
+  // 94 -> 95 on the merge of origin/main into feat/crew-page-redesign: that arc's
+  // `acquireScrollLock` import (lib/ui/scrollLock.ts) sits above it, read off the
+  // merged file by tag, not added up from the two sides.
+  { file: "components/agenda/AgendaEmbed.tsx", line: 95 },
   { file: "components/agenda/AgendaPdfViewer.tsx", line: 198 },
   { file: "components/crew/SectionChipLink.tsx", line: 48 },
   // :196 and :213 until feat/crew-show-search-impl, which added the react import,
@@ -390,7 +397,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/crew/primitives/PersonRow.tsx", line: 298 },
   { file: "components/layout/ThemeToggle.tsx", line: 92 },
   { file: "components/shared/ReportButton.tsx", line: 142 },
-  { file: "components/shared/ReportModal.tsx", line: 675 },
+  { file: "components/shared/ReportModal.tsx", line: 719 },
 ];
 
 /**

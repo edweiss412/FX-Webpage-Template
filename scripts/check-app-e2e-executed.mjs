@@ -75,8 +75,10 @@ export const REQUIRED = {
   // runtime-skip, which is the shape named at the top of this file. The skip is kept as a
   // backstop against a future WebKit that implements the feature, or a project added without
   // reading this; `testMatch` is what actually decides. Measured with --list on the branch:
-  // 10 resolved, 10 executed, zero skipped.
-  "forcedColors.spec.ts": 10,
+  // 10 resolved, 10 executed, zero skipped. 10 -> 12 on the crew page redesign's
+  // invariant-8 fixes: AC-4f (selected text on rendered pixels) and AC-4g (crew pass
+  // progress segments), re-derived from the live resolution the wiring test reads.
+  "forcedColors.spec.ts": 12,
   // 4 cases x 1 project — empty-state-reachability resolves under mobile-safari
   // only. It came OUT of the desktop-chromium testMatch with the 2026-08-25
   // re-target (BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE): it is a live

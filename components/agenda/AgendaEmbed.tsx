@@ -32,6 +32,7 @@ import { FileText, X } from "lucide-react";
 import { loadAgendaPdfViewer } from "@/components/agenda/loadAgendaPdfViewer";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { agendaDisplayLabel } from "@/lib/agenda/agendaLabel";
+import { acquireScrollLock } from "@/lib/ui/scrollLock";
 
 // Defer pdfjs entirely until the sheet opens. Without `next/dynamic`,
 // importing AgendaPdfViewer at module top would pull `react-pdf` +
@@ -127,13 +128,9 @@ function AgendaSheet({ src, label, onClose }: { src: string; label: string; onCl
 
   useDialogFocus(dialogRef, closeRef);
 
-  useEffect(() => {
-    const original = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = original;
-    };
-  }, []);
+  // Lock background scroll while open, through the shared reference-counted
+  // lock so closing in any order relative to an enclosing sheet restores it.
+  useEffect(() => acquireScrollLock(), []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

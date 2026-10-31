@@ -61,6 +61,19 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
   {
+    file: "tests/styles/nestedThemeScope.test.ts",
+    family: "two-char-literal",
+    marker: "*/",
+    reason:
+      "NOT comment handling: it WRITES a comment. The case plants the reviewer's " +
+      "probe (whole-diff review round 2, 2C-R2-2) by wrapping the nested dark binding " +
+      "block in a CSS comment and asserts the postcss-based scan stops counting it. " +
+      "Wrapping a block that itself contains comments needs its inner `*/` neutralised " +
+      "first, or the planted comment would end early and the probe would not be the " +
+      "commented-out block it claims. The scan under test reads parsed CSS through " +
+      "tests/styles/_cssDecls.ts, which is where comment handling belongs.",
+  },
+  {
     file: "tests/styles/accentCommentFigures.test.ts",
     family: "two-char-literal",
     marker: "*/",

@@ -10,13 +10,13 @@
  * per-field render-level assertion that a sentinel never reaches the DOM.
  *
  * Field → new owner map:
- *   - venue/hotel/room/transport/contact notes aggregation → TodaySection
+ *   - venue/hotel/room/transport/contact notes aggregation → HomeSection
  *     "Show notes" + the transport-source visibility gate.
  *   - transportation driver/vehicle/plate/color/parking/notes → TravelSection
  *     "Getting there".
  *   - hotel address / confirmation / notes → TravelSection "Hotels".
  *   - venue notes / loadingDock / googleLink (+URL guard) → VenueSection.
- *   - dress code → TodaySection "Dress code".
+ *   - dress code → HomeSection "Dress code".
  *   - contact phone/email/notes (dead-link guard) → CrewSection → PersonRow.
  *   - crew member phone/email (dead-link guard) → CrewSection → PersonRow.
  *   - room audio/video/lighting scope → GearSection scope cards.
@@ -37,7 +37,7 @@ import { GearSection } from "@/components/crew/sections/GearSection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ContactRow, RoleFlag } from "@/lib/parser/types";
 import { ledgerProp } from "../crew/sections/_ledgerProp";
@@ -52,8 +52,8 @@ const ADMIN = { kind: "admin" } as const;
 // array becomes a false-positive — keep them aligned.
 const SENTINELS = ["TBD", "N/A", "TBA", "  ", ""] as const;
 
-// TodaySection mounts the RightNowHero client island (matchMedia-on-mount).
-// jsdom lacks matchMedia; stub it so the hero's real wiring runs.
+// jsdom lacks matchMedia, which the crew client islands read on mount (the
+// home body's quick facts toast is one); stub it.
 beforeEach(() => {
   vi.stubGlobal(
     "matchMedia",
@@ -75,13 +75,13 @@ function html(container: HTMLElement): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Notes aggregation → TodaySection "Show notes"
+// Notes aggregation → HomeSection "Show notes"
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Show notes aggregation (TodaySection)", () => {
+describe("§8.3 sentinel-hiding — Show notes aggregation (HomeSection, the home body)", () => {
   function renderToday(over: Parameters<typeof makeShowForViewer>[0]) {
     return render(
-      <TodaySection
+      <HomeSection
         {...ledgerProp()}
         data={makeShowForViewer(over)}
         viewer={ADMIN}
@@ -162,13 +162,13 @@ describe("§8.3 sentinel-hiding — Show notes aggregation (TodaySection)", () =
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Dress code → TodaySection
+// Dress code → HomeSection
 // ─────────────────────────────────────────────────────────────────────
 
-describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
+describe("§8.3 sentinel-hiding — Dress code (HomeSection, the home body)", () => {
   function renderDress(dress: string) {
     return render(
-      <TodaySection
+      <HomeSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: dress } } })}
         viewer={ADMIN}
@@ -196,10 +196,10 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
 
   test("single-key sentinel dress_code with no other candidate → block omitted", () => {
     // A sentinel `dress_code` alone reflows out (the predicate is wired on the
-    // resolved value). This is the part of the dress contract TodaySection DOES
+    // resolved value). This is the part of the dress contract HomeSection DOES
     // satisfy.
     const c = render(
-      <TodaySection
+      <HomeSection
         {...ledgerProp()}
         data={makeShowForViewer({ show: { event_details: { dress_code: "N/A" } } })}
         viewer={ADMIN}
@@ -219,12 +219,12 @@ describe("§8.3 sentinel-hiding — Dress code (TodaySection)", () => {
     // (including the `dress_code:"N/A"` + `attire:"Black tie"` → "Black tie"
     // case in both orders) is pinned by the parser test:
     //   tests/parser/blocks/event.test.ts → "dress-code canonicalization (M4-D1)".
-    // TodaySection now reads `event_details.dress_code` only, so this component
+    // HomeSection reads `event_details.dress_code` only, so this component
     // test exercises the POST-parser shape: a single canonical `dress_code`
     // holding the resolved real value renders, and the value-level sentinel
     // guard still applies (covered by the single-key sentinel test above).
     const c = render(
-      <TodaySection
+      <HomeSection
         {...ledgerProp()}
         data={makeShowForViewer({
           show: { event_details: { dress_code: "Black tie" } },

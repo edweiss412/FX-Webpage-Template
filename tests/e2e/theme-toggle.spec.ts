@@ -179,15 +179,15 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
    * Land on the crew route with the header chrome up.
    *
    * AT 390px, the mobile width this product is designed for. The previous
-   * version ran at 760 and said why: at 390 the crew sub-nav's fixed bottom bar
-   * overlapped the FOOTER's theme toggle, `document.elementFromPoint` at the
+   * version ran at 760 and said why: at 390 the crew tab bar of the time, fixed
+   * to the bottom, overlapped the FOOTER's theme toggle, `elementFromPoint` at the
    * toggle's centre returned the BAR's svg, and no amount of scrolling cleared
    * it. That obstruction was real and it was filed, with that probe attached, as
    * BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR.
    *
-   * BOTH halves of the workaround's premise are now gone. The shell pads below
-   * the footer so its box clears the bar (UI spec §2.1), and the toggle itself
-   * left the footer for the header (§2.3), where nothing has ever overlapped it.
+   * BOTH halves of the workaround's premise are now gone. The bar itself is gone
+   * (the crew page redesign retired the tab bar), and the toggle itself left the
+   * footer for the header (UI spec §2.3), where nothing has ever overlapped it.
    * Running at 760 would now be testing a width no crew member uses, to dodge a
    * defect that no longer exists.
    */

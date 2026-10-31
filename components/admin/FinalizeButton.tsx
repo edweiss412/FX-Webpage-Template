@@ -55,6 +55,7 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { AccentButton } from "@/components/shared/AccentButton";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { BlockedRowResolver } from "@/components/admin/BlockedRowResolver";
+import { acquireScrollLock } from "@/lib/ui/scrollLock";
 import {
   FINALIZE_STREAM_CONTENT_TYPE,
   type PerRowFailure,
@@ -809,15 +810,10 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
   // <body> in the compound case and is a harmless no-op — see the inert effect.)
   useDialogFocus(panelRef, dismissRef);
 
-  // Body scroll lock while open; restore prior value on unmount (composes with a
-  // Step3ReviewModal already-open underneath — each captures its own prior value).
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
+  // Body scroll lock while open, through the shared reference-counted lock, so
+  // it composes with a Step3ReviewModal already open underneath in either close
+  // order.
+  useEffect(() => acquireScrollLock(), []);
 
   const dismissible = state.kind === "error";
   const dismissLabel = dismissible ? "Close" : "Back";

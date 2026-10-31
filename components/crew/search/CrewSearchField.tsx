@@ -6,7 +6,7 @@
  *
  * `CrewSearchField` mounts in the page header (`Header`'s `search` slot).
  *
- * Focus alone changes nothing (WCAG 3.2.1 On Focus). Search hides the sub-nav
+ * Focus alone changes nothing (WCAG 3.2.1 On Focus). Search hides the section nav
  * and the section body, which is a change of context, so it starts on the user's
  * input instead: the first typed character, or any edit that leaves the query
  * non-empty. Focus, and the click or tap that gives a text field focus, never
@@ -86,7 +86,7 @@ export function CrewSearchField() {
             if (next !== "") setActive(true);
           }}
           onKeyDown={onKeyDown}
-          className="min-h-tap-min w-full min-w-0 self-stretch bg-transparent text-base text-text-strong placeholder:text-text-subtle focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
+          className="min-h-tap-min w-full min-w-0 self-stretch text-ellipsis bg-transparent text-base text-text-strong placeholder:text-text-subtle focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
         />
         {query !== "" ? (
           <button

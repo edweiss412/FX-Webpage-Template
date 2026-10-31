@@ -20,12 +20,16 @@
  *
  * Seeded 2026-08-14 by running the shipped scanner (spec §1.1 R7: the branch
  * derives its own numbers), and re-derived 2026-08-15 after the whole-diff
- * review tightened the grammar. 54 rows out of 354 in-scope elements — 301
- * clear statically. Per category: 15 full-bleed, 14 unresolvable-dynamic, 9
+ * review tightened the grammar. Re-derived 2026-10-27 (crew page redesign PR A:
+ * the crew sub-nav left, the section sheet, its scrim and the wide nav arrived),
+ * and again on that branch's merge of origin/main (feat/warning-card-fixes):
+ * 55 rows out of 385 in-scope elements — 330 clear statically. Per category:
+ * 16 full-bleed, 14 unresolvable-dynamic, 9
  * padding-arithmetic, 7 inline-prose-link, 7 parent-label-target, 2
- * dev-only-unstyled. (53 rows at that seeding; 54 since feat/warning-card-fixes
+ * dev-only-unstyled. (53 rows at the 2026-08-15 seeding; feat/warning-card-fixes
  * Task 14 added the deferred reading choice's Cancel, one more unresolvable-dynamic
- * element. The in-scope and clear-statically figures are the seeding's.)
+ * element, and the crew page redesign the section-sheet scrim, one more full-bleed.
+ * Every figure here is the merged tree's, re-derived by running the scanner.)
  *
  * Three rows moved from `under-floor-filed` to `parent-label-target` on
  * 2026-08-25, and the direction is the point: they are not reclassified, they
@@ -143,7 +147,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/ReportModal.tsx",
-    line: 599,
+    line: 643,
     tag: "button",
     category: "inline-prose-link",
     reason:
@@ -262,7 +266,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     reason:
       "Staged-review action radio inside `<label className='flex min-h-tap-min cursor-pointer items-center gap-2 py-1 …'>`. Was `under-floor-filed` and deferred under class-sweep exception (c); the 2026-08-25 sweep touched this surface, so (c) stopped fencing it.",
   },
-  // ---- full-bleed (13) ----------------------------------------------------
+  // ---- full-bleed (14) ----------------------------------------------------
   // Scrims, click-away layers, and controls whose box IS a region far taller
   // than 44px. Every one is `inset-0`/`size-full` or fills a sized parent.
   {
@@ -281,10 +285,31 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/FinalizeButton.tsx",
-    line: 880,
+    // 880 -> 876 on feat/crew-page-redesign (2026-10-27): the body-overflow save-and-restore effect above it became one `acquireScrollLock` call. Same scrim button, confirmed by reading its className at the new key.
+    line: 876,
     tag: "button",
     category: "full-bleed",
     reason: "Finalize details scrim: `absolute inset-0 bg-overlay-scrim`.",
+  },
+  {
+    file: "components/crew/CrewSectionSheet.tsx",
+    // 296 -> 304 on the merge of origin/main (crew show search): the inert sweep's
+    // live-region exemption (`LIVE_REGION_ATTR`) sits above it. Same scrim, confirmed
+    // by reading its className at the new key. 304 -> 316 in plan Task 12: the
+    // `presence` prop and its doc sit above it. Same scrim. 316 -> 329 on the
+    // invariant-8 fixes (audit P3-5): the inert sweep's exempt set grew a route
+    // announcer row and a doc. Same scrim. 329 -> 361 (audit P2-5): the deep-link
+    // focus fallback's prop, doc and latest-value ref sit above it. Same scrim.
+    // 361 -> 379 (critique F4): the per-open presence count sits above it. Same scrim.
+    // 379 -> 409 (UI-gate re-run P2-1): the deep-link close's scroll into view and
+    // its Strict Mode guard sit above it. Same scrim, read at the new key.
+    // 409 -> 415 (whole-diff review round 2, 2A-1): the height cap's doc sits
+    // above it. Same scrim, read at the new key.
+    line: 415,
+    tag: "motion.div",
+    category: "full-bleed",
+    reason:
+      "Crew section-sheet scrim: `absolute inset-0 bg-overlay-scrim` inside the `fixed inset-0` sheet root.",
   },
   {
     file: "components/admin/HelpSheet.tsx",
@@ -428,14 +453,15 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // confirmed by reading that className at the new key.
     // 822 -> 864 on the R2 repairs; still the `fixed inset-0 z-overlay` surface.
     // 882 -> 1059 on the retry check-in arc; still that surface, confirmed by reading the className at the new key rather than trusting the delta.
-    line: 1061,
+    // 1061 -> 1056 on feat/crew-page-redesign (2026-10-27): the body-overflow save-and-restore effect above it became one `acquireScrollLock` call. Still the `fixed inset-0 z-overlay flex` surface, read at the new key.
+    line: 1056,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",
   },
   {
     file: "components/shared/ReportModal.tsx",
-    line: 546,
+    line: 590,
     tag: "button",
     category: "full-bleed",
     reason: "Report-modal scrim: `absolute inset-0 bg-text-strong/40`.",
@@ -655,10 +681,13 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/review/ReviewModalShell.tsx",
+    // 609 -> 605 on feat/crew-page-redesign (2026-10-27): the drag-threshold constants above it moved to components/shared/sheetConstants.ts (re-exported here) and the body-overflow effect became one `acquireScrollLock` call. Same scrim button with the same two spreads, read at the new key.
     // 609 -> 655 on feat/warning-card-fixes Task 18b (the unsaved-reading guard's
     // registry, guarded close and header close above the dialog root); located by
     // the scrim's own `-backdrop` testid.
-    line: 655,
+    // 651 on the merge of origin/main into feat/crew-page-redesign: both edits above
+    // it, located on the merged tree by the scrim's own `-backdrop` testid.
+    line: 651,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:

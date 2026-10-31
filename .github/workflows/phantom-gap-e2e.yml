@@ -105,6 +105,7 @@ on:
       # job is a guard nobody has watched work. Both halves are listed: the CLI
       # wrapper and the module holding every decision it makes.
       - "scripts/check-phantom-gap-executed.mjs"
+      - "scripts/check-phantom-gap-crew-executed.mjs"
       - "scripts/lib/phantomGapExecuted.mjs"
       - "scripts/ci/supabase-local-bootstrap.sh"
       - "supabase/config.toml"
@@ -203,8 +204,17 @@ jobs:
       - name: Print infra-recovery annotations (phantom-gap probe)
         if: always()
         run: node scripts/print-infra-recoveries.mjs --report test-results/phantom-gap-nophantom-report.json
+      # Its own json report and executed-count check (whole-diff review round 2,
+      # second pass, 2C-R2-1). List-only, a runtime `test.skip()` in a
+      # T-NOPHANTOM-CREW case kept the list and this step green (probed
+      # 2026-10-31: the six 1280px legs skipped, exit 0); the check below reads
+      # this run's report against CREW_REQUIRED_PAIRS and fails on that run.
       - name: Phantom-gap probe — crew page
-        run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/phantom-gap-crew-report.json
+        run: pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
+      - name: Crew probe cases really executed
+        run: node scripts/check-phantom-gap-crew-executed.mjs
       # The width chain, which is what stops the two standalone steps above from
       # proving a counterfactual: they measure 15 header cells inside containers of
       # a fixed width per viewport, and this asserts the REAL mount produces exactly

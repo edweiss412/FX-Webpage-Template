@@ -253,21 +253,13 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "crew-facing role chip; both paths render the same {c.role}, no glyph, no aria, no size or weight difference",
   },
   {
-    site: "components/crew/CrewSubNav.tsx:114",
-    disposition: "repaired",
-    binding: {
-      locator: '[data-testid="crew-sub-nav"] [data-section]',
-      toggle: "navigating between crew sections",
-      bound: false,
-    },
-    reason:
-      "crew-facing tabs; border-b-2 on BOTH paths so only its colour differs, same icon either way, aria-current toggles nothing rendered",
-  },
-  {
     // 844 -> 865 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 865 -> 886 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:886",
+    // 886 -> 862 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 820: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:862",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -281,7 +273,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // 1025 -> 1046 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 1046 -> 1067 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:1067",
+    // 1067 -> 1043 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 1001: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:1043",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-chip-item-"]',
@@ -294,7 +289,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // 811 -> 832 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 832 -> 853 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:853",
+    // 853 -> 829 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 787: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:829",
     disposition: "repaired",
     binding: {
       locator: '[data-testid$="-review-rail-item-"]',
@@ -308,7 +306,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // 932 -> 953 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 953 -> 974 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:974",
+    // 974 -> 950 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 908: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:950",
     disposition: "repaired",
     binding: {
       locator: '[data-testid*="-review-rail-item-"]',
@@ -392,19 +393,53 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "an interactive Link whose selected state was carried by bg-surface, shadow-tile and a text tone, all of which flatten or drop; its label is static across both paths and aria-current renders nothing, so the selected fill is what repairs it",
   },
   // ── Carrier survives: something non-chromatic changes too. ──
+  // The day row's two pressed-state buttons were repair rows until the UI-gate
+  // re-run (critique N6) gave the pressed day a selection bar, an ::after box the
+  // unpressed day does not have: a shape, which forcing keeps (the bar paints
+  // HighlightText there, app/globals.css), so the pair no longer collapses and
+  // the scanner no longer reports it. The aria-pressed Highlight fill still
+  // applies to both buttons.
+  {
+    site: "components/crew/CrewDayRow.tsx:128",
+    disposition: "carrier-survives",
+    reason:
+      "crew day row's Now button; pressed, it carries the selection bar under its label (an ::after box the unpressed button lacks), which survives forcing, and the aria-pressed Highlight fill still applies",
+  },
+  {
+    site: "components/crew/CrewDayRow.tsx:144",
+    disposition: "carrier-survives",
+    reason:
+      "crew day button; pressed, it carries the selection bar under its label (an ::after box the unpressed day lacks), which survives forcing, and the aria-pressed Highlight fill still applies",
+  },
+  {
+    site: "components/crew/CrewDayRow.tsx:158",
+    disposition: "carrier-survives",
+    reason:
+      "the weekday caption inside a crew day button; the button itself carries the pressed state, as aria-pressed (the forced-colors Highlight fill at CrewDayRow.tsx:144, and its selection bar), and the caption inherits HighlightText on it",
+  },
+  {
+    site: "components/crew/CrewDayRow.tsx:167",
+    disposition: "carrier-survives",
+    reason: "same",
+  },
   {
     // :93 -> :76 (and :48 -> :36, :78 -> :61 in the reason) on feat/crew-show-search (Schedule search entries): the row's
     // display fields moved to `runOfShowEntryLine` below the components. Same summary.
-    site: "components/crew/primitives/RunOfShowList.tsx:76",
+    // :76 -> :79 (and :36 -> :39, :61 -> :64 in the reason) on feat/crew-page-redesign
+    // (plan Task 10): the row's `next` prop for the run card's "Next" marker sits above it.
+    site: "components/crew/primitives/RunOfShowList.tsx:79",
     disposition: "carrier-survives",
     reason:
-      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:36), the SAME condition that gives the ancestor border-l border-border pl-2 at :61 - a border WIDTH and an indent, both of which survive",
+      "titleTone is driven by isSynthetic (components/crew/primitives/RunOfShowList.tsx:39), the SAME condition that gives the ancestor border-l border-border pl-2 at :64 - a border WIDTH and an indent, both of which survive",
   },
   {
     // 829 -> 850 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 850 -> 871 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:871",
+    // 871 -> 847 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 805: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:847",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :805, whose aria-current the selected-state rule paints; its sibling icon at :819 is censused on the same reasoning",
@@ -413,7 +448,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // 951 -> 972 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 972 -> 993 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:993",
+    // 993 -> 969 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 927: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:969",
     disposition: "carrier-survives",
     reason:
       "a label inside the rail item at :926, whose aria-current the selected-state rule paints; its sibling icon at :939 is censused on the same reasoning",
@@ -482,7 +520,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // 825 -> 846 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 846 -> 867 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:867",
+    // 867 -> 843 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 801: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:843",
     disposition: "carrier-survives",
     reason: "an icon inside a rail item this pass repairs, so it inherits a repaired state",
   },
@@ -490,7 +531,10 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
     // 945 -> 966 on feat/warning-card-fixes Task 17 (jumpToHotel added above it); located
     // by its own element on the edited tree (same tag, same class string).
     // 966 -> 987 on feat/warning-card-fixes (a11y fix (a): the jump-focus helpers above the rail); located by its own element (5-line context match).
-    site: "components/admin/review/ShowReviewSurface.tsx:987",
+    // 987 -> 963 on the merge of origin/main into feat/crew-page-redesign (that branch
+    // read 921: its scroll spy moved out to lib/ui/scrollSpy.ts); located by its own
+    // element on the merged tree (6-line context match), not by adding the deltas.
+    site: "components/admin/review/ShowReviewSurface.tsx:963",
     disposition: "carrier-survives",
     reason:
       "an icon inside the second rail item this pass repairs, so it inherits its repaired state",
@@ -509,9 +553,23 @@ export const COLLAPSE_CENSUS: readonly CollapseCensusRow[] = [
       "same shape as PublishedReviewModal:1376: the mark's shape carries the state and the chevron's rotation is driven by a different variable",
   },
   {
-    site: "components/crew/CrewSubNav.tsx:125",
+    // :116 until the merge of origin/main (crew show search), which gave the nav a
+    // `hidden` prop (search hides it while results show) above this class list.
+    // 119 -> 124 on the crew day row's arc (plan Task 8): the accent bar's
+    // transition switch became its own effect above. Same <Icon>, confirmed at
+    // the new key. 124 -> 128 on the layout dimensions arc (plan Task 13): the
+    // header comment gained the nav's dimension rule. Same <Icon>. 128 -> 137 on
+    // the invariant-8 fixes (critique F15): the bar's fixed base height and its
+    // scaleY style sit above. Same <Icon>. 137 -> 138 (audit P1-3): the header
+    // comment's dimension rule names the header's bottom edge. Same <Icon>.
+    // 138 -> 141 (whole-diff review round 2, round 3, 3A-2): the indicator
+    // effect's `hidden` dependency and its note sit above. Same <Icon>.
+    // 141 -> 142 (origin/main merge, saved-copy bar): the header comment's
+    // dimension rule names the saved-copy bar's height. Same <Icon>.
+    site: "components/crew/CrewWideNav.tsx:142",
     disposition: "carrier-survives",
-    reason: "an icon inside the tab button this pass repairs",
+    reason:
+      "an icon inside the crew wide nav item; the item itself carries the state, as aria-current (the forced-colors Highlight fill) and as weight (font-semibold on the active path only)",
   },
   // ── Deliberate flatten: a ruled exemption, or a limit the spec records. ──
   {

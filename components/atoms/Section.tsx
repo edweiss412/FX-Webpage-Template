@@ -67,9 +67,10 @@
  *     `max-h-tile-overflow overflow-y-auto`
  *     so the §8.4 internal-overflow rule is enforced inside ONE place
  *     (this atom). Tiles do NOT restate it.
- *   • heading is an `<h2>` — page hierarchy is <h1>=show title
- *     (Header), <h2>=tile heading. The Right Now card's <h2> is a
- *     sibling section, not a sub-heading.
+ *   • heading is an `<h3>`: page hierarchy is <h1>=show title (Header),
+ *     <h2>=the crew section or sheet that holds the tile, <h3>=tile heading,
+ *     the level of every crew card title (SectionCard; audit P2-4 of the crew
+ *     page redesign, 2026-10-30).
  *
  * Server Component (no `'use client'`).
  */
@@ -89,7 +90,7 @@ type SectionProps = {
    */
   testId: string;
 
-  /** Tile heading text. Rendered inside an <h2>. */
+  /** Tile heading text. Rendered inside an <h3>. */
   heading: string;
 
   /**
@@ -233,14 +234,14 @@ export function Section({
             <span aria-hidden="true" className="text-text-faint">
               {headingIcon}
             </span>
-            <h2 {...headingSearch} className={headingClass}>
+            <h3 {...headingSearch} className={headingClass}>
               {heading}
-            </h2>
+            </h3>
           </div>
         ) : (
-          <h2 {...headingSearch} className={headingClass}>
+          <h3 {...headingSearch} className={headingClass}>
             {heading}
-          </h2>
+          </h3>
         )}
         {subheading ? <div className="text-sm text-text-subtle">{subheading}</div> : null}
       </header>

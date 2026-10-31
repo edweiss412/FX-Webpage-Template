@@ -22,7 +22,6 @@ import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
@@ -36,6 +35,7 @@ import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import * as matrix from "@/tests/search/_viewerMatrix";
+import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import {
   ALL_CASES,
   fullContent,
@@ -49,7 +49,7 @@ import {
 const SHOW_ID = "matrix-show";
 
 beforeEach(() => {
-  // RightNowHero (inside Today) reads matchMedia on mount; jsdom has none.
+  // The crew pass (the section controller mounts it) reads matchMedia on mount; jsdom has none.
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockReturnValue({
@@ -63,10 +63,16 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
-/** Renders one section with the props `CrewShell` (_CrewShell.tsx `renderOne`) passes. */
+/**
+ * Renders one section with the props `CrewShell` (_CrewShell.tsx `renderOne`)
+ * passes. Today renders as the home's Today block, the run-of-show card above
+ * the body (tests/search/_todayBlock.tsx), on the crew clock pinned at `today`.
+ */
 function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
+  if (id === "today") pinCrewClock(c.today);
   const ctx = resolveViewerContext(c.viewer, c.data);
   const props = {
     data: c.data,
@@ -79,7 +85,7 @@ function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
       : buildCardReportContext(c.viewer, ctx.viewerName, ctx.viewerCrew?.role ?? null),
   };
   const byId: Record<SectionId, () => JSX.Element> = {
-    today: () => <TodaySection {...props} />,
+    today: () => <TodayBlock {...props} />,
     schedule: () => <ScheduleSection {...props} />,
     venue: () => <VenueSection {...props} />,
     travel: () => <TravelSection {...props} />,
@@ -158,21 +164,17 @@ describe("Wi-Fi forms (VenueSection)", () => {
   });
 });
 
-describe("modeAToday (TodaySection)", () => {
-  test("renders Mode A: the bare key times strip and the merged run-of-show timeline", () => {
+describe("modeAToday (the home)", () => {
+  test("renders the run card's merged timeline", () => {
     const todayIso = todayIsoInShowTimezone(modeAToday.data.show, modeAToday.today);
     const root = renderSection("today", modeAToday);
 
-    byTestId(root, "today-mode-a-grid");
     const card = byTestId(root, "today-run-of-show");
     const timeline = byTestId(card, `show-day-timeline-${todayIso}`);
     expect(timeline.querySelectorAll('[data-testid="agenda-entry"]').length).toBeGreaterThan(0);
     expect(
       timeline.querySelectorAll('[data-testid="timeline-agenda-session"]').length,
     ).toBeGreaterThan(0);
-
-    const strips = [...root.querySelectorAll('[data-testid="key-times-strip"]')];
-    expect(strips.filter((s) => s.closest("[data-card-id]") === null)).toHaveLength(1);
   });
 
   test("renders the dress code as one paragraph (the unparsed form)", () => {
@@ -190,7 +192,7 @@ describe("fullContent", () => {
   const ed = fullContent.data.show.event_details;
   const venueNotes = fullContent.data.show.venue?.notes ?? null;
 
-  test("Today: Mode A with the plain run-of-show list, a long title and a long note folded", () => {
+  test("Today: the run card's plain run-of-show list, a long title and a long note folded", () => {
     const todayIso = todayIsoInShowTimezone(fullContent.data.show, fullContent.today);
     const root = renderSection("today", fullContent);
 

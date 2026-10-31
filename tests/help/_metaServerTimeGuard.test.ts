@@ -183,7 +183,13 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 242 members, including both directory-index modules", () => {
+  // The population's size, pinned once: the case title and its assertion both read
+  // it, so the title cannot drift from the number the guard asserts (it read 233 over
+  // an assertion of 236 until whole-diff review R4-F5). Re-derive by running this
+  // guard, never by adding up the members named below.
+  const DERIVED_LIB_POPULATION = 248;
+
+  it(`the derived lib population has exactly ${DERIVED_LIB_POPULATION} members, including both directory-index modules`, () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -307,6 +313,75 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // is already a member through travelRows.ts, so nothing joins: 228 -> 228,
     // re-derived by running this guard.
     expect(rel).toContain("lib/search/normalize.ts");
+    // 228 -> 233 on the merge of origin/main (crew show search, above) into
+    // feat/crew-page-redesign. That arc grew this population from 223 on its own
+    // base (223 -> 226 -> 228); the merged tree was re-derived by running this
+    // guard, not by adding the two sides up. FIVE modules joined and none left,
+    // each because a RENDERED file imports it directly; none makes a clock read,
+    // and the waiver set and violation count below are unchanged.
+    //   lib/crew/generalSessionRoom.ts, the general-session room rule lifted out
+    //   of the Venue section; on the merged tree its importer is
+    //   components/crew/sections/venueRows.ts, the rows module VenueSection and
+    //   the search index share.
+    //   lib/crew/transportLegs.ts, the visible transport-leg rule lifted out of
+    //   the Travel section; on the merged tree its importer is
+    //   components/crew/sections/travelRows.ts.
+    //   lib/ui/scrollLock.ts, the shared body scroll lock, imported by
+    //   components/agenda/AgendaEmbed.tsx, components/diagrams/GalleryLightbox.tsx,
+    //   components/admin/FinalizeButton.tsx and
+    //   components/admin/review/ReviewModalShell.tsx in place of each one's own
+    //   save-and-restore of body overflow.
+    // The arc's other new lib modules were ABSENT at this point: only other lib
+    // modules imported them, so they sat at depth 2. sectionPeek still does (asserted
+    // below); quickFacts joined in Task 11 and passModel in Task 9 (both below).
+    expect(rel).toContain("lib/crew/generalSessionRoom.ts");
+    expect(rel).toContain("lib/crew/transportLegs.ts");
+    expect(rel).toContain("lib/ui/scrollLock.ts");
+    // And two from that arc's Task 6:
+    //   lib/ui/scrollSpy.ts, the scroll-spy rule moved out of
+    //   components/admin/review/ShowReviewSurface.tsx, imported by it and by
+    //   components/crew/CrewSections.tsx.
+    //   lib/crew/crewSections.ts, now imported directly by
+    //   components/crew/CrewSections.tsx, app/show/[slug]/[shareToken]/_CrewShell.tsx
+    //   and both crew loading skeletons (the one section-label source), and on
+    //   the merged tree by components/crew/search/CrewSearchResults.tsx too (its
+    //   chip and group labels, `crewSectionLabel`).
+    // Neither makes a clock read.
+    expect(rel).toContain("lib/ui/scrollSpy.ts");
+    expect(rel).toContain("lib/crew/crewSections.ts");
+    // 233 -> 234 (crew page redesign plan Task 9): lib/crew/passModel.ts joins.
+    // The pass (components/crew/CrewPass.tsx), a rendered file, calls its
+    // `passStatusLine` and `spokenDate` at runtime; until now only type imports
+    // and the shell reached it. Pure, no clock read: the builder takes `today` and
+    // the status line takes `now` as arguments. The two modules only the retired
+    // hero imported directly, lib/crew/agendaDisplay.ts and lib/format/date.ts,
+    // stay members through their other rendered importers. Re-derived by running
+    // this guard.
+    expect(rel).toContain("lib/crew/passModel.ts");
+    // 234 -> 233 (crew page redesign plan Task 10): the run-of-show card left
+    // TodaySection for the home. lib/crew/runOfShowCard.ts joins: the card
+    // (components/crew/CrewRunOfShowCard.tsx), todayRows.ts, CrewSections.tsx and
+    // the shell import it, pure and clockless (the builder takes `today`). Two
+    // leave, because their only depth-1 runtime importer was todayRows.ts and the
+    // run-of-show derivation moved into that lib module: lib/crew/agendaDayForToday.ts
+    // and lib/crew/showDayTimeline.ts (ShowDayTimelineList.tsx imports a type from
+    // it, which the walk does not count). Neither is retired; both sit at depth 2.
+    expect(rel).toContain("lib/crew/runOfShowCard.ts");
+    expect(rel).not.toContain("lib/crew/agendaDayForToday.ts");
+    expect(rel).not.toContain("lib/crew/showDayTimeline.ts");
+    // 233 -> 233 (crew page redesign plan Task 11, the composed home retiring
+    // TodaySection): one joins and one leaves, which is why both are named. JOINED:
+    // lib/crew/quickFacts.ts, which components/crew/sections/HomeSection.tsx calls
+    // (`buildQuickFacts`) at runtime; pure, the builder takes `today`. LEFT:
+    // lib/crew/selectPrimaryContact.ts, whose only depth-1 runtime importer was
+    // todayRows.ts (the retired Need something card); quickFacts.ts imports it now,
+    // so it sits at depth 2 and is not retired. lib/crew/sectionPeek.ts stays ABSENT:
+    // its only importer is lib/crew/crewSections.ts. Re-derived with this guard's
+    // derivation on 1a5efd617 and 9462c6f78; whole-diff review R4-F5 found the move
+    // unrecorded, its net zero hiding it from the count.
+    expect(rel).toContain("lib/crew/quickFacts.ts");
+    expect(rel).not.toContain("lib/crew/selectPrimaryContact.ts");
+    expect(rel).not.toContain("lib/crew/sectionPeek.ts");
     // Joined, from feat/warning-card-fixes Task 4: lib/admin/warningReadingDisplay.ts, a new
     // module holding the reading-display caps and formats and the USE_RAW_CODES set, now
     // imported directly by components/admin/UseRawControl.tsx. Pure string formatting and
@@ -356,7 +431,23 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // to tell when the in-flow detail has scrolled under the pinned line. It reads
     // layout, never the clock. 241 -> 242, re-derived by running this guard.
     expect(rel).toContain("lib/offline/client/scrolledUnder.ts");
-    expect(rel.length).toBe(242);
+    // Merged with origin/main 2026-10-29: main's crew-search joins (228) plus this branch's
+    // three (warningReadingDisplay, collapsedSummary, ambiguityCodes), re-derived by running
+    // this guard on the merged tree.
+    // 236 on the merge of origin/main (feat/warning-card-fixes, which merged main's crew
+    // search and then added warningReadingDisplay, collapsedSummary and ambiguityCodes) into
+    // feat/crew-page-redesign. Both sides start from 228; this branch's members above and
+    // that arc's three are all present and nothing left. Re-derived by running this guard
+    // on the merged tree, not by adding the two sides up.
+    // 247 on the merge of origin/main (PR #983, the crew offline saved copy) into
+    // feat/crew-page-redesign: this branch's 236 plus main's eleven lib/offline joiners
+    // asserted above, nothing left. Re-derived by running this guard on the merged tree.
+    // 248 (Codex review of that merge, M1-1): lib/ui/historyState.ts, the history
+    // state helper CrewSections and SavedCopyBar now share so the saved copy's URL
+    // correction keeps the sheet's marker. It reads history state, never the clock.
+    // Re-derived by running this guard.
+    expect(rel).toContain("lib/ui/historyState.ts");
+    expect(rel.length).toBe(DERIVED_LIB_POPULATION);
   });
 
   // The twelve waivers this arc added, plus the client effect read that
@@ -443,14 +534,14 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libViolations, libViolations.join("\n")).toEqual([]);
   });
 
-  it("client-vs-server classification: includes Footer/StaleFooter (server), excludes RightNowHero/ReportModal (use client)", () => {
+  it("client-vs-server classification: includes Footer/StaleFooter (server), excludes CrewPass/ReportModal (use client)", () => {
     const footerSrc = readFileSync(join(process.cwd(), "components/layout/Footer.tsx"), "utf8");
     const staleSrc = readFileSync(join(process.cwd(), "components/shared/StaleFooter.tsx"), "utf8");
-    // The island exemplar is RightNowHero (the live Today hero). It carried the
-    // 'use client' directive over from the retired RightNowCard verbatim, so the
-    // classifier's contract — it separates a directive-carrying island from a
-    // server component — is unchanged by the swap.
-    const rightSrc = readFileSync(join(process.cwd(), "components/crew/RightNowHero.tsx"), "utf8");
+    // The island exemplar is the crew pass, the live card on the crew home. It
+    // replaced the right-now hero (crew page redesign plan Task 9) and carries the
+    // same 'use client' directive, so the classifier's contract — it separates a
+    // directive-carrying island from a server component — is unchanged.
+    const rightSrc = readFileSync(join(process.cwd(), "components/crew/CrewPass.tsx"), "utf8");
     const reportSrc = readFileSync(
       join(process.cwd(), "components/shared/ReportModal.tsx"),
       "utf8",

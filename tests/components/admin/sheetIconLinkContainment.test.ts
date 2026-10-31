@@ -1114,8 +1114,8 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/crew/sections/BudgetSection.tsx": 1,
         "components/crew/sections/CrewSection.tsx": 1,
         "components/crew/sections/GearSection.tsx": 1,
+        "components/crew/sections/HomeSection.tsx": 1,
         "components/crew/sections/ScheduleSection.tsx": 1,
-        "components/crew/sections/TodaySection.tsx": 1,
         "components/crew/sections/TravelSection.tsx": 1,
         "components/crew/sections/VenueSection.tsx": 1,
         "components/shared/CardReportTrigger.tsx": 1,
@@ -1129,6 +1129,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "lib/admin/lookupStagedRow.ts": 1,
         "lib/admin/step3SectionStatus.ts": 1,
         "lib/adminAlerts/alertActions.ts": 5,
+        // The crew home's run-of-show card props (crew page redesign plan Task 10)
+        // carry Today's run-of-show card header anchor, looked up through
+        // CARD_REGION_MAP["today-run-of-show"]; SourceLink still builds the href.
+        "lib/crew/runOfShowCard.ts": 1,
         "lib/data/getShowForViewer.ts": 2,
         // The staged adapter carries `sourceAnchors` straight onto the projection.
         "lib/data/stagedShowForViewer.ts": 1,

@@ -156,9 +156,9 @@ export function VenueSection({
 
   const allHidden = !hasWhere && !hasFacts && !hasStatus && !hasDiagrams;
 
-  // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT the venue
+  // §4.9 mock `split-wide`: once split (`@min-crew-split`), two columns — LEFT the venue
   // detail tiles (Where / Facilities / Venue status, which carries dock / parking
-  // / Wi-Fi / power / COI / venue notes), RIGHT the site-diagrams block. <720px
+  // / Wi-Fi / power / COI / venue notes), RIGHT the site-diagrams block. Narrower
   // collapses to one column with the left tiles first, then diagrams. The grid
   // only mounts when BOTH a left-detail tile AND diagrams have content; when
   // diagrams are absent the left tiles render full-width (no dead right column),
@@ -319,7 +319,7 @@ export function VenueSection({
           height rather than stretching to match the taller left detail stack
           (2026-06-21 owner amendment, see v1-pre-deployment-amendments). */}
       {useSplit ? (
-        <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start">
+        <div className="grid grid-cols-1 gap-4 @min-crew-split:grid-cols-[1.6fr_1fr] @min-crew-split:items-start">
           <div
             data-testid="venue-column"
             data-venue-column="details"

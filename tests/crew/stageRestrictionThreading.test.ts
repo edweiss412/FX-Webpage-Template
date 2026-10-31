@@ -4,20 +4,22 @@ import { readFileSync } from "node:fs";
 
 /**
  * #248 structural guard — pins that EVERY production caller of `resolveKeyTimes`
- * and `buildRightNowContext` threads `stageRestriction`.
+ * threads `stageRestriction`. (The pass's builder, `buildPassProps`, calls it with
+ * the viewer's own restriction; it replaced `buildRightNowContext`, retired with
+ * the right-now hero, crew page redesign plan Task 9.)
  *
- * Both params are OPTIONAL (default `{ kind: "none" }`): `resolveKeyTimes` has 28
+ * The param is OPTIONAL (default `{ kind: "none" }`): `resolveKeyTimes` has 28
  * existing 4-arg test callers, so a required param would be prohibitive churn. The
  * downside of an optional param is that a caller silently defaulting to "none"
  * re-opens the off-stage Set/Strike leak (spec §3.4) — and typecheck won't catch a
  * dropped thread. This source-scan pins each caller so a dropped thread fails CI,
  * not silently in production. (The gating LOGIC itself is unit-tested in
- * resolveKeyTimes.test.ts / buildRightNowContext.test.ts; the caller-render behavior
- * in ScheduleSection.test.tsx + TodaySection.test.tsx.)
+ * resolveKeyTimes.test.ts / passModel.test.ts; the caller-render behavior
+ * in ScheduleSection.test.tsx + the pass suites.)
  */
 
-/** Strip block + line comments so a bare `fn(` mention in prose (e.g. TodaySection's
- *  JSDoc "`resolveKeyTimes(show, rooms)` resolver") is not mistaken for a real call. */
+/** Strip block + line comments so a bare `fn(` mention in prose (e.g. a JSDoc
+ *  "`resolveKeyTimes(show, rooms)` resolver") is not mistaken for a real call. */
 
 /** Balanced-paren argument substrings of EVERY `${fn}(` occurrence in `src`. */
 function allCallArgs(src: string, fn: string): string[] {
@@ -44,16 +46,16 @@ function allCallArgs(src: string, fn: string): string[] {
 
 const CASES: Array<{ file: string; fn: string }> = [
   { file: "components/crew/sections/ScheduleSection.tsx", fn: "resolveKeyTimes" },
-  // Today's call moved to the rows module its section and search builder share.
-  { file: "components/crew/sections/todayRows.ts", fn: "resolveKeyTimes" },
+  // Today's own call (its key-times strip) retired with TodaySection (crew page
+  // redesign plan Task 11): the home's key times are the pass's, whose builder
+  // is pinned below.
   // The Schedule search builder mirrors the section's call for the key-time entries.
   { file: "lib/search/sections/schedule.ts", fn: "resolveKeyTimes" },
-  { file: "components/right-now/buildRightNowContext.ts", fn: "resolveKeyTimes" },
-  { file: "components/crew/sections/TodaySection.tsx", fn: "buildRightNowContext" },
-  { file: "app/show/[slug]/[shareToken]/_CrewShell.tsx", fn: "buildRightNowContext" },
+  // The pass's builder (crew page redesign spec §4.3), with the viewer's own restriction.
+  { file: "lib/crew/passModel.ts", fn: "resolveKeyTimes" },
 ];
 
-describe("stage_restriction threading through resolveKeyTimes / buildRightNowContext callers (#248)", () => {
+describe("stage_restriction threading through resolveKeyTimes callers (#248)", () => {
   for (const { file, fn } of CASES) {
     it(`${file}: EVERY ${fn}(...) call threads stageRestriction`, () => {
       const src = stripCommentsForFile(readFileSync(file, "utf8"), file);

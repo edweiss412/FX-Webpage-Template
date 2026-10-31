@@ -29,7 +29,21 @@ import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecover
 // cases is the registered static skip (its own comment in picker-flow.spec.ts, the
 // "Admin Reset + Rotate flow" case).
 export const REQUIRED = {
-  "crew-section-toggle.spec.ts": 6,
+  // 15 since the crew page redesign (plan PR A, Task 6) rebuilt it around the
+  // section sheet: 12 sheet cases plus the rows' dimensional, payload and
+  // duration-token records, all mobile-safari (its only project). Derived from
+  // the 2026-10-27 local run's report: 15 passing unique spec ids. 16 since Task 7
+  // added the compact header case (search row under the title, status slot).
+  // 26 since Task 12 added ten "compound" cases (the realtime refresh, the lost
+  // entitlement, the removed day, the removed dialog owner, Esc in each of the
+  // three nested dialogs, Back to another route, the second day tap, the theme
+  // switch behind the sheet). Counted from the observed mobile-safari run.
+  // 27 since the WebKit focus-trap fix added "sheet: Tab and Shift+Tab stay
+  // inside the sheet". Counted from the observed mobile-safari run.
+  // 28 since the UI-gate re-run's P2-1 added "closing a deep-linked sheet with
+  // Esc focuses its All sections row, on screen". Counted from the observed
+  // mobile-safari run (28 passed).
+  "crew-section-toggle.spec.ts": 28,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
@@ -60,7 +74,55 @@ export const REQUIRED = {
   // 2026-08-10-wifi-password-legibility §6(b) splits production-route topology
   // here from the standalone geometry harness). Counted from the observed
   // mobile-safari run (21 passed / 4 skipped), not from arithmetic.
-  "crew-page.spec.ts": 21,
+  // 27 as of the crew page redesign's Task 9: the hero's rest-state crossfade
+  // case (inv4) left, and seven "the pass" cases joined (the dark surface in both
+  // themes, the live body, a tapped day, the preview route's personal cells, the
+  // crossfade overlap, reduced motion, and the height floor sampled every frame).
+  // Counted from the observed mobile-safari run.
+  // 35 as of the crew page redesign's Task 11: eight "home" cases joined (the
+  // compact order, the copy toasts, the toast's motion and its reduced-motion
+  // form, tonight's hotel on the preview route, the flight-only and the
+  // date-suppressed payload searches, and the preview banner); inv1 and inv6
+  // were retargeted in place (the quick facts grid, Schedule's key-times strip).
+  // Counted from the observed mobile-safari run.
+  // 40 as of the crew page redesign's Task 13: five "dimensional" cases joined
+  // (the day row at 4 and at 5 or more buttons, the pass's fact grid, the quick
+  // facts at three and four tiles, the sheet). The observed local run executed
+  // 39: inv3 skipped itself at runtime because the local shared seed rendered no
+  // gear scope cards (the same seed state that fails crew-layout-dimensions'
+  // 5-card gear case locally and on origin/main), so the row is that run plus inv3.
+  // 42 since the UI-gate fixes: the pass sizing case (no time, label or role is
+  // cut, X1) and the pass floor case (a set day and after the show, review R4-F7).
+  // Re-derived from the wiring guard's live Playwright resolution (42).
+  // 51 since whole-diff review round 2 (2026-10-31): the sheet-under-the-preview-
+  // banner case (2A-1), and eight cases moved in from crew-layout-dimensions.spec.ts,
+  // which CI ran only through two `-g` filters that never selected them (2C-1):
+  // Who to call's action row, the card titles, and the six loading-skeleton cases.
+  // Re-derived from the wiring guard's live Playwright resolution (51).
+  "crew-page.spec.ts": 51,
+  // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
+  // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
+  // since Task 7 added the wide header case (search between title and chip).
+  // Eleven since Task 11 added the composed home's two wide cases (the Today
+  // block's columns, and the preview banner in wide). Fifteen since Task 12 added
+  // four "compound" cases across the 1024px breakpoint (into wide with the sheet
+  // open, mid-drag, with a nested dialog, and back into compact). Seventeen since
+  // Task 13 added two "dimensional" cases (the nav and content column, and the
+  // header token). Counted from the observed desktop-chromium run. Twenty-two since
+  // the UI-gate fixes added five (card headings one level under their section, Y5;
+  // the Today block with no run of show, Y9; Shift+Tab never under the sticky
+  // header, Y1; the title fits its row, Y4; the header under the preview banner,
+  // Y2). Re-derived from the wiring guard's live Playwright resolution (22).
+  // Twenty-four since the UI-gate re-run's P1-1 added two (a Today search reveal
+  // on the preview route clears the banner and header, at 1280 and at 390).
+  // Re-derived from the wiring guard's live Playwright resolution (24).
+  // Twenty-five since whole-diff review round 2 (2026-10-31, 2A-3) added one (a
+  // Today search reveal after a nav jump to Venue leaves the URL at home). Re-derived
+  // from the wiring guard's live Playwright resolution (25). Twenty-six since
+  // round 3 (3A-2) added one (a search started from a scrolled section leaves the
+  // nav on the section in view, with its bar). Re-derived from the wiring
+  // guard's live Playwright resolution (26).
+  "crew-wide-nav.spec.ts": 26,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -102,8 +164,10 @@ export const REQUIRED = {
   // over plain http). Counted from
   // `playwright test --project=desktop-chromium tests/e2e/crew-search.spec.ts --list`
   // ("Total: 8 tests in 1 file"), not from arithmetic. Re-derive with --list after
-  // adding or removing a case.
-  "crew-search.spec.ts": 8,
+  // adding or removing a case. 12 since review repair R1-F1 added two cases at each
+  // viewport (a Today run-of-show result reveals its line after the viewer picked
+  // another day, and after the device clock passed midnight).
+  "crew-search.spec.ts": 12,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry
@@ -129,21 +193,23 @@ export const REQUIRED = {
   // and the UI gate re-check E4 added layout case 9), after every D edit; the
   // crew-offline row re-derived again after Codex R3 C added case 11c:
   //   == crew-offline.spec.ts
-  //     [crew-offline-webkit] › crew-offline.spec.ts:943:5 › 15. hydration is clean on a served copy, offline and ended
+  //     [crew-offline-webkit] › crew-offline.spec.ts:958:5 › 15. hydration is clean on a served copy, offline and ended
   //   Total: 34 tests in 1 file
   //   == crew-offline-realtime.spec.ts
   //     [crew-offline-chromium] › crew-offline-realtime.spec.ts:150:5 › an unpublish arriving by realtime refresh wipes the copy
   //   Total: 3 tests in 1 file
   //   == crew-offline-layout.spec.ts
-  //     [crew-offline-webkit] › crew-offline-layout.spec.ts:636:5 › 9. one bottom edge: under the detail at rest, under the pinned line once the detail has scrolled away
-  //   Total: 18 tests in 1 file
+  //     [crew-offline-webkit] › crew-offline-layout.spec.ts:868:5 › 11. an open section sheet covers the bar with its scrim, and the bar's region stays live
+  //   Total: 22 tests in 1 file
+  //   (layout row re-derived on the merge into feat/crew-page-redesign, 2026-10-31:
+  //   cases 10 (the wide layout) and 11 (the section sheet) joined; was 18.)
   //
   // 34 = 17 cases under each of Chromium and WebKit.
   "crew-offline.spec.ts": 34,
   // 3 = three realtime cases, Chromium alone by testMatch.
   "crew-offline-realtime.spec.ts": 3,
-  // 18 = 9 layout cases under each engine.
-  "crew-offline-layout.spec.ts": 18,
+  // 22 = 11 layout cases under each engine.
+  "crew-offline-layout.spec.ts": 22,
 };
 
 // Importable table, runnable script. The wiring guard imports REQUIRED to pin these thresholds

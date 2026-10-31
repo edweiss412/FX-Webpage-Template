@@ -7,7 +7,9 @@
  * never import this module, so a constant that drifts from the spec fails them.
  */
 export const SEARCH_COPY = {
-  placeholder: "Find anything: Wi-Fi, dock, hotel…",
+  // Short enough for the 1024px header's field and a 320px phone's (UI-gate
+  // re-run P3-4 / critique N8); spec §10's 2026-10-31 amendment.
+  placeholder: "Try Wi-Fi, dock, hotel…",
   inputName: "Search this show",
   clear: "Clear search",
   cancel: "Cancel",

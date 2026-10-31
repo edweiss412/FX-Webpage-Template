@@ -462,10 +462,10 @@ test("chevron: the rotation actually changes between states (§5.2)", async ({ p
 test("a11y: the disclosure keeps BOTH its expandable state and its heading", async ({ page }) => {
   // The real-browser accessibility proof spec §7 asked for and this suite did not have. Review
   // R4 (MEDIUM) was right that it was missing: the other assertions here measure geometry and
-  // computed styles, and the jsdom test can only see that a `summary h3` node exists.
+  // computed styles, and the jsdom test can only see that a `summary h4` node exists.
   //
   // Why it needs a browser. HTML's content model for <summary> is phrasing content OR a single
-  // heading -- and this summary carries an <h3> alongside sibling spans and an SVG, which is
+  // heading -- and this summary carries an <h4> alongside sibling spans and an SVG, which is
   // outside the model the spec assumed. Whether a browser still exposes the heading AND the
   // disclosure is therefore empirical. The impeccable audit's P1 was this exact class: the fold
   // silently dropped every day from the document outline while roles and geometry stayed green.
@@ -490,18 +490,18 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
   //    remains the state probe below. It is the observable the platform actually offers.
   await expect(page.getByRole("group")).toHaveCount(TOTAL_DAYS);
 
-  // 1. The heading survives into the accessibility tree, at the right level, named by its day.
-  const headings = page.getByRole("heading", { level: 3 });
+  // 1. The heading survives into the accessibility tree at h4 (under "Agenda"), named by its day.
+  const headings = page.getByRole("heading", { level: 4 });
   await expect(headings).toHaveCount(TOTAL_DAYS);
   await expect(headings.first()).toHaveAccessibleName("Tuesday, May 14, 2026");
   // CONTAINMENT, not two independent counts. Whole-diff review R12 (HIGH): moving every heading
   // OUT of its <summary> and next to the disclosure preserved both counts and the accessible
   // name, while the exposure this test exists to prove — the heading living inside the
-  // disclosure — was gone. So assert each group CONTAINS its own h3.
+  // disclosure — was gone. So assert each group CONTAINS its own h4.
   const groups = page.getByRole("group");
   for (let i = 0; i < TOTAL_DAYS; i += 1) {
     await expect(
-      groups.nth(i).getByRole("heading", { level: 3 }),
+      groups.nth(i).getByRole("heading", { level: 4 }),
       `day ${i}'s heading must live INSIDE its disclosure, not beside it`,
     ).toHaveCount(1);
   }
@@ -521,7 +521,7 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
 
   // 3. The heading is still exposed after toggling -- catches a structure where the browser's
   //    own disclosure handling drops the nested heading once the row's state changes.
-  await expect(page.getByRole("heading", { level: 3 }), "headings survive a toggle").toHaveCount(
+  await expect(page.getByRole("heading", { level: 4 }), "headings survive a toggle").toHaveCount(
     TOTAL_DAYS,
   );
 

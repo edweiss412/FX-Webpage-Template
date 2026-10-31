@@ -10,26 +10,26 @@
  * `upsertAdminAlert({ code: "TILE_PROJECTION_FETCH_FAILED" })`. That write
  * happens at module-render time, before the section model is even resolved.
  *
- * Next.js App Router prefetches route segments aggressively. If a sub-nav tab
- * were an `<Link prefetch>` pointing at a `?s=<section>` URL, hovering/scrolling
- * the nav would cause Next to RENDER the destination route segment ahead of any
- * click — and because the crew page render runs CrewShell, that prefetch would
- * fire the projection-fetch admin_alerts write WITHOUT a real human visit. A
- * burst of prefetches across six tabs would spray phantom alert rows. The
+ * Next.js App Router prefetches route segments aggressively. If a section link
+ * (an "All sections" row, a nav item) were a `<Link prefetch>` to a `?s=` URL,
+ * scrolling it into view would cause Next to RENDER the destination route segment
+ * ahead of any click — and because the crew page render runs CrewShell, that
+ * prefetch would fire the projection-fetch admin_alerts write WITHOUT a real human
+ * visit. A burst of prefetches across the section links would spray phantom rows.
  * §12.4 alert catalog is supposed to mean "a real load actually failed for a
  * real viewer," not "Next speculatively rendered a segment."
  *
  * Two structural guarantees keep that from happening; this file pins both:
  *
- *   (i)  Section nav is a PURE CLIENT TOGGLE (client-section-toggle). CrewSubNav
- *        is a controlled, presentational component: a tab is a <button> that
- *        calls `onSelect(id)` — it owns NO navigation, imports no `useRouter`/
- *        `router.push`, and renders no `<Link>`. The CrewSections controller
- *        applies the section change as client state plus a SHALLOW URL update
- *        (`window.history.pushState`, NOT `router.push`) — so the dynamic crew
- *        route never re-renders per tab and there is NO `?s=` section URL anchor
- *        for Next to prefetch. With no `<Link>`/`router.push` to a `?s=` URL at
- *        all, the phantom-prefetch hazard is moot for section nav.
+ *   (i)  Opening a section is a CLIENT HISTORY CALL (crew page redesign spec
+ *        §5.2). The "All sections" rows and the wide nav items are plain
+ *        `<a href>` anchors, never `next/link`: Next prefetches only its own
+ *        `<Link>`, so a plain anchor to a `?s=` URL is never speculatively
+ *        rendered. Neither component imports `useRouter`/`router.push`. The
+ *        CrewSections controller intercepts the click and applies the change as
+ *        client state plus a SHALLOW URL update (`window.history.pushState`,
+ *        NOT `router.push`), so the dynamic crew route never re-renders per
+ *        open. The sheet itself navigates nowhere.
  *
  *   (ii) The crew route (and the admin preview-as route) is DYNAMIC: it reads a
  *        request-scoped input (cookies()/headers() via
@@ -52,7 +52,12 @@ function src(rel: string): string {
   return readFileSync(join(process.cwd(), rel), "utf8");
 }
 
-const SUB_NAV = "components/crew/CrewSubNav.tsx";
+/** Every crew surface that renders a link or control opening a section. */
+const SECTION_OPENERS = [
+  "components/crew/CrewAllSections.tsx",
+  "components/crew/CrewWideNav.tsx",
+  "components/crew/CrewSectionSheet.tsx",
+] as const;
 const SECTIONS = "components/crew/CrewSections.tsx";
 const SECTION_HREF = "lib/crew/sectionHref.ts";
 const SECTION_CHIP_LINK = "components/crew/SectionChipLink.tsx";
@@ -61,26 +66,22 @@ const CREW_ROUTE_REQUEST = "lib/auth/picker/showPageChainRequest.ts";
 const PREVIEW_ROUTE = "app/admin/show/[slug]/preview/[crewId]/page.tsx";
 
 describe("test 36b — no phantom prefetch alert (structural)", () => {
-  // ── (i) Section nav is a pure client toggle: CrewSubNav is controlled
-  // (onSelect, no router.push, no <Link>); the controller updates the URL via a
-  // SHALLOW history.pushState, never router.push. No `?s=` anchor for Next to
-  // prefetch, and no per-tap server render. ──
-  it("(i) CrewSubNav is controlled (onSelect) — no router.push, no next/link, tabs are <button>", () => {
-    const code = src(SUB_NAV);
-
-    // The nav owns NO navigation: it calls the parent-supplied onSelect.
-    expect(code, "CrewSubNav must be controlled — call the parent onSelect(id) on tap").toMatch(
-      /onSelect\s*\(/,
-    );
-    // It must NOT obtain the App Router or call router.push (no per-tab server nav).
-    expect(code, "CrewSubNav must not obtain the App Router").not.toMatch(/useRouter\s*\(/);
-    expect(code, "CrewSubNav must not call router.push (no per-tab server nav)").not.toMatch(
-      /router\.push\s*\(/,
-    );
-    // And it must not import a prefetching next/link <Link>.
-    expect(code, "CrewSubNav must not import next/link").not.toMatch(/from\s+["']next\/link["']/);
-    // Tabs are real <button>s, not anchors.
-    expect(code, "CrewSubNav tabs are <button> elements").toMatch(/<button\b/);
+  // ── (i) Opening a section is a client history call: the openers render plain
+  // anchors (no next/link, no router), and the controller updates the URL via a
+  // SHALLOW history.pushState, never router.push. No prefetchable `?s=` <Link>,
+  // and no per-open server render. ──
+  it("(i) the section openers (list rows, wide nav, sheet) own no navigation: no router, no next/link", () => {
+    for (const file of SECTION_OPENERS) {
+      const code = src(file);
+      expect(code, `${file} must not obtain the App Router`).not.toMatch(/useRouter\s*\(/);
+      expect(code, `${file} must not call router.push`).not.toMatch(/router\.push\s*\(/);
+      expect(code, `${file} must not import next/link`).not.toMatch(/from\s+["']next\/link["']/);
+    }
+    // The rows and nav items are real anchors (a pre-hydration tap and "open in
+    // new tab" still land on the server-rendered sheet), not <Link>s.
+    for (const file of ["components/crew/CrewAllSections.tsx", "components/crew/CrewWideNav.tsx"]) {
+      expect(src(file), `${file} renders plain <a href> anchors`).toMatch(/<a\b[\s\S]*?href=/);
+    }
   });
 
   it("(i) CrewSections updates the URL via shallow history.pushState — NOT router.push (no per-tap server render)", () => {
@@ -132,40 +133,6 @@ describe("test 36b — no phantom prefetch alert (structural)", () => {
         usage,
         `every <Link> in SectionChipLink must carry prefetch={false} (no auto-prefetch to a section URL): ${usage}`,
       ).toMatch(/prefetch=\{false\}/);
-    }
-  });
-
-  it("(i) CrewSubNav imports no next/link <Link>, so there is no auto-prefetching anchor to a ?s= section URL", () => {
-    const code = src(SUB_NAV);
-
-    // The compliant implementation uses buttons + router.push, never <Link>.
-    // If a future refactor DID add a next/link import, the guard below forces it
-    // to be an explicitly non-prefetching link (prefetch={false}) — never a bare
-    // default-prefetch <Link href="...?s=...">.
-    const importsNextLink = /from\s+["']next\/link["']/.test(code);
-    if (importsNextLink) {
-      // Any <Link …> rendered in the nav must opt out of prefetch. (Next's
-      // <Link> prefetches by default; a section-URL <Link> without
-      // prefetch={false} is exactly the phantom-prefetch hazard.)
-      const linkUsages = code.match(/<Link\b[^>]*>/g) ?? [];
-      expect(
-        linkUsages.length,
-        "CrewSubNav imported next/link but rendered no <Link> — drop the unused import",
-      ).toBeGreaterThan(0);
-      for (const usage of linkUsages) {
-        expect(
-          usage,
-          `every <Link> in CrewSubNav must carry prefetch={false} (no auto-prefetch to a section URL): ${usage}`,
-        ).toMatch(/prefetch=\{false\}/);
-      }
-    } else {
-      // The expected state: nav is button + router.push, no <Link> at all.
-      expect(
-        importsNextLink,
-        "CrewSubNav should not import next/link — section activation is router.push, so there is no prefetchable section anchor",
-      ).toBe(false);
-      // And the tabs are real <button>s, not anchors.
-      expect(code, "CrewSubNav tabs are <button> elements").toMatch(/<button\b/);
     }
   });
 

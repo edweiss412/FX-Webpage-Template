@@ -17,14 +17,14 @@
  *
  * Layout: when BOTH columns have data the surface is a split-wide grid — Show
  * crew on the wide-left `1.6fr` track, Key contacts on the narrow-right `1fr` —
- * side-by-side at ≥720px, stacked (single column) below. The grid is
+ * side-by-side once split (`@min-crew-split`), stacked (single column) below. The grid is
  * `items-start` so the SHORT "Key contacts" card takes its natural height
  * instead of stretching to match the tall roster and leaving dead space below it
  * (2026-06-21 owner amendment — see v1-pre-deployment-amendments). When only ONE side has
  * data (roster-only OR contacts-only) the wrapper is a plain `flex flex-col`
  * single full-width column so a one-sided surface never leaves a blank right
- * track at ≥720px. There is no `md` breakpoint in this project; the
- * `min-[720px]:` arbitrary variant is the single source of the column split.
+ * track. The split reads the body's CONTAINER, never the viewport (DESIGN.md §6);
+ * `@min-crew-split:` is the single source of the column split.
  *
  * Generic-optional reads route through `shouldHideGenericOptional` so a
  * sentinel name/role (`''`/`TBD`/`N/A`/`TBA`) never seeds a PersonRow heading;
@@ -126,7 +126,7 @@ export function CrewSection({
           const bothEmpty = !hasCrew && !hasContacts;
           // Split-wide grid (Show crew 1.6fr / Key contacts 1fr) ONLY when BOTH
           // columns have data; otherwise a single full-width column so a
-          // one-sided surface never leaves a blank right track at ≥720px.
+          // one-sided surface never leaves a blank right track when split.
           const bothColumns = hasCrew && hasContacts;
 
           return (
@@ -143,7 +143,7 @@ export function CrewSection({
                 <div
                   className={
                     bothColumns
-                      ? "grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
+                      ? "grid grid-cols-1 gap-4 @min-crew-split:grid-cols-[1.6fr_1fr] @min-crew-split:items-start"
                       : "flex flex-col gap-4"
                   }
                 >

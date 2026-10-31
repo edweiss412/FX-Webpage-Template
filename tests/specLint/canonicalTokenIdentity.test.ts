@@ -74,8 +74,10 @@ const CANONICAL_USE_SITES = [
   },
   {
     id: "C5",
-    file: "components/crew/RightNowHero.tsx",
-    testId: "right-now-hero",
+    // The pass replaced RightNowHero and carries the same utility on its card
+    // (crew page redesign spec §8 item 2; plan Task 9).
+    file: "components/crew/CrewPass.tsx",
+    testId: "crew-pass",
     utility: "min-h-right-now-min-h",
     replaced: "min-h-(--spacing-right-now-min-h)",
   },
@@ -335,7 +337,7 @@ describe("canonicalized utilities resolve to the values they replaced (spec §6)
         "the SAME token, which is what makes C5 an identity. Two definitions would mean the " +
         "arrow form and the utility could resolve to different values.",
     ).toBe(1);
-    // The RightNowHero 176px card height is a ratified invariant (app/globals.css §
+    // The pass's 176px minimum card height is a ratified invariant (app/globals.css §
     // "right-now" block), so the value is pinned too, not just the cardinality.
     expect(values).toEqual(["176px"]);
   });

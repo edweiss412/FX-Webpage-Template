@@ -196,10 +196,9 @@ export const CARD_REGION_MAP = {
   "schedule-days": "schedule",
   "schedule-call-times": "rooms",
   "budget-main": "financials",
-  "today-tonight": "hotels",
-  "today-where": "venue",
-  "today-contact": "contacts",
-  "today-key-times": "rooms",
+  // Today's Tonight, Where, Need something and Key times cards retired with
+  // TodaySection (crew page redesign plan Task 11): their facts are the home's
+  // quick facts and the pass, composites that carry no source link (spec §6.4).
   "today-dress": "dress",
   "today-run-of-show": "schedule",
 } satisfies Record<string, RegionId>;

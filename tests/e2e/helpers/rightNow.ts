@@ -26,7 +26,7 @@
  *   single session, so we use page.clock. That spec was deleted 2026-08-09 as
  *   superseded — wholly `describe.skip` against the retired `?crew=` viewer
  *   mock and a route that 404s; its behavior keeps unit coverage in
- *   `tests/time/rightNow.test.ts` and `tests/components/crew/rightNowHero.test.tsx`
+ *   `tests/time/rightNow.test.ts` and `tests/components/crew/crewPass.test.tsx`
  *   (spec docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md
  *   §2.3). `right-now-transitions.spec.ts` is this helper's live caller:
  *   un-skipped 2026-08-10 (M-wave 2 W-E2E) and wired into crew-e2e.yml on
@@ -49,8 +49,9 @@
  *   `afterAll` can restore it. The serialization (`workers: 1` in
  *   playwright.config.ts) prevents inter-suite races.
  */
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { setDateRestrictionLocked } from "./lockedCrewRestriction";
+import { TEST_AUTH_SECRET } from "./testAuthConfig";
 import { admin } from "./supabaseAdmin";
 
 export const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
@@ -187,6 +188,23 @@ export async function setDateRestriction(leadCrewId: string, restriction: unknow
  */
 export async function pinClock(page: Page, isoDate: string): Promise<void> {
   await page.clock.install({ time: new Date(`${isoDate}T12:00:00Z`) });
+}
+
+/**
+ * Pin the SERVER's request-scoped clock (`nowDate()`, lib/time/now.ts) to the
+ * same noon-UTC instant `pinClock` gives the browser, for every request from
+ * this page. The crew clock is seeded with the server's request time so its
+ * server render and hydration agree (components/crew/useCrewClock.ts); with
+ * only the browser pinned, the page hydrates at the server's real time and then
+ * moves to the pinned day, a state change an installed page clock stalls
+ * mid-animation. The port-3000 webServer carries ENABLE_TEST_AUTH and this
+ * TEST_AUTH_SECRET, so `nowDate()` honors the header.
+ */
+export async function pinServerClock(page: Page, isoDate: string): Promise<void> {
+  await page.setExtraHTTPHeaders({
+    "X-Screenshot-Frozen-Now": `${isoDate}T12:00:00.000Z`,
+    Authorization: `Bearer ${TEST_AUTH_SECRET}`,
+  });
 }
 
 /**
@@ -328,25 +346,37 @@ export async function driveToState(page: Page, show: SeededShow, kind: string): 
   // HTTP 200 alone is NOT state entry. The helper previously stopped here, so a
   // viewer whose resolution IGNORES the requested restriction still "arrived" and
   // the caller's anchor-text assertions could pass on a coincident render. Assert
-  // the RENDERED discriminant the hero publishes (RightNowHero.tsx:507-510) so a
-  // lost state fails loudly, naming both kinds.
+  // the RENDERED discriminant the pass publishes (its `crew-pass-state` marker)
+  // so a lost state fails loudly, naming both kinds.
   await assertRenderedState(page, kind);
 }
 
 /**
- * Assert the hero's rendered state kind matches `kind`.
+ * Assert the pass's rendered state kind matches `kind`.
  *
  * `data-state` is the RESOLVED state the production state machine computed for
- * this viewer — not an echo of anything the test requested — so it discriminates
+ * this viewer, not an echo of anything the test requested, so it discriminates
  * "the viewer really entered this state" from "the page rendered something".
+ * The pass (components/crew/CrewPass.tsx) publishes it on its hidden state
+ * marker, as `RightNowHero` did before the pass replaced it (crew page redesign
+ * plan Task 9).
  */
 export async function assertRenderedState(page: Page, kind: string): Promise<void> {
-  const marker = page.getByTestId("right-now-hero").getByTestId("right-now-state");
-  await expect(marker, `RightNow hero must render state kind "${kind}"`).toHaveAttribute(
+  const marker = page.getByTestId("crew-pass").getByTestId("crew-pass-state");
+  await expect(marker, `the pass must render state kind "${kind}"`).toHaveAttribute(
     "data-state",
     kind,
     { timeout: 15_000 },
   );
+}
+
+/**
+ * The pass's present body. A crossfade keeps the outgoing body mounted while it
+ * fades (crew page redesign spec §7), and the pass marks it `data-exiting`, so
+ * this resolves to the one body that stays.
+ */
+export function passBody(page: Page): Locator {
+  return page.locator('[data-testid="crew-pass-body"]:not([data-exiting])');
 }
 
 /**

@@ -13,7 +13,7 @@
  * Semantics (D1): the strip is a description list — a `<dl>` container whose
  * rows are `<div data-anchor>` groups of `<dt>` (label) + `<dd>` (value), the
  * SAME structure the two sibling primitives use (`KeyValueRows.tsx`,
- * `RightNowHero.tsx`). This gives SRs an explicit label↔value association
+ * the pass's fact grid in `CrewPass.tsx`). This gives SRs an explicit label↔value association
  * (WCAG 1.3.1). The label/value spans are kept as the first/last span inside
  * `<dt>`/`<dd>` so the crew-page inv6 alignment contract (`span.first()` /
  * `span.last()`) is unchanged. Per-day date labels are wrapped in
@@ -46,15 +46,15 @@ type KeyTimesStripProps = {
    *
    *   - `"stack"` — the vertical list: one row per anchor, label-left /
    *     value-right (`justify-between`). Used in NARROW columns (ScheduleSection's
-   *     1fr "Crew Schedule" card) and at <720px everywhere. The e2e
+   *     1fr "Crew Schedule" card) and in every narrow body container. The e2e
    *     label-left / value-right column-alignment contract (crew-page inv6, which
    *     runs mobile-only) pins this shape.
-   *   - `"row"` — at ≥720px the present anchors lay out as an equal-width
+   *   - `"row"` — split (`@min-crew-split`), the anchors lay out as an equal-width
    *     HORIZONTAL strip (eyebrow label stacked over value, hairline-divided), so
    *     a WIDE column (the Today "Key times" card in the 1.6fr column, and the
    *     Mode A bare banner) fills its width instead of leaving a large empty
-   *     right side. Below 720px `"row"` is identical to `"stack"` — the
-   *     horizontal classes are all `min-[720px]:`-gated, so mobile and inv6 are
+   *     right side. Narrower, `"row"` is identical to `"stack"` — the
+   *     horizontal classes are all `@min-crew-split:`-gated, so mobile and inv6 are
    *     untouched.
    *
    * Per-row markup is invariant across both: each present anchor is a
@@ -141,18 +141,18 @@ export function KeyTimesStrip({ anchors, layout = "stack", searchTargets }: KeyT
   const isRow = layout === "row";
 
   // Mobile (and the whole `"stack"` posture) is the original vertical list. The
-  // `"row"` additions are all `min-[720px]:`-gated so they only engage on the
-  // desktop split-wide layout. `divide-border` draws the hairline column rules;
+  // `"row"` additions are all `@min-crew-split:`-gated so they only engage on the
+  // split-wide container width. `divide-border` draws the hairline column rules;
   // `first:pl-0`/`last:pr-0` keep the band flush to the card's content edges.
   const containerClass = isRow
-    ? "flex flex-col gap-2 min-[720px]:flex-row min-[720px]:flex-wrap min-[720px]:gap-0 min-[720px]:divide-x min-[720px]:divide-border"
+    ? "flex flex-col gap-2 @min-crew-split:flex-row @min-crew-split:flex-wrap @min-crew-split:gap-0 @min-crew-split:divide-x @min-crew-split:divide-border"
     : "flex flex-col gap-2";
   const anchorClass = isRow
-    ? "flex min-w-0 items-baseline justify-between gap-3 min-[720px]:flex-1 min-[720px]:flex-col min-[720px]:items-start min-[720px]:justify-start min-[720px]:gap-0.5 min-[720px]:px-4 min-[720px]:first:pl-0 min-[720px]:last:pr-0"
+    ? "flex min-w-0 items-baseline justify-between gap-3 @min-crew-split:flex-1 @min-crew-split:flex-col @min-crew-split:items-start @min-crew-split:justify-start @min-crew-split:gap-0.5 @min-crew-split:px-4 @min-crew-split:first:pl-0 @min-crew-split:last:pr-0"
     : "flex items-baseline justify-between gap-3";
   // The overflow disclosure is a vertical list regardless of the outer posture,
   // so its disclosed rows always use the STACK row shape (never the row-layout
-  // `min-[720px]:flex-col` column form, which is meant for the equal-width strip).
+  // `@min-crew-split:flex-col` column form, which is meant for the equal-width strip).
   const stackAnchorClass = cn("flex items-baseline justify-between gap-3");
 
   return (
@@ -176,12 +176,12 @@ export function KeyTimesStrip({ anchors, layout = "stack", searchTargets }: KeyT
         // bare <details>. The <dd> legally holds the disclosure, and the hidden
         // days nest under the "More show days" term as their definition, so a SR
         // reads them as a continuation of the key-times list, not a stray list.
-        // In `layout="row"` (the ≥720px equal-width strip) the disclosure is not
+        // In `layout="row"` (the split-wide equal-width strip) the disclosure is not
         // an equal column — it wraps to its OWN full-width line below the columns
-        // (`min-[720px]:basis-full`, paired with the container's `flex-wrap`), so
+        // (`@min-crew-split:basis-full`, paired with the container's `flex-wrap`), so
         // a >8-show-day show never overflows the strip horizontally. Verified in a
         // real browser at 390px (stack) and 1000px (row) — D4.
-        <div className="min-w-0 min-[720px]:basis-full min-[720px]:border-l-0">
+        <div className="min-w-0 @min-crew-split:basis-full @min-crew-split:border-l-0">
           <dt className="sr-only" data-search-skip={skip}>
             More show days
           </dt>

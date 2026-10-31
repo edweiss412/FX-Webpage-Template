@@ -48,6 +48,7 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-status-degraded` / `-text` | `#B3261E` / `#FFFFFF`              | `#E5534B` / `#1A1A1A`           | App-health **degraded** signal (alert-audience-split). Red — the **third scoped §1.3 exception** to "orange stays alone", introduced for the app-health indicator's worst-active state. Unlike positive/review/warn, the `-text` is drawn ON the filled degraded pill (`bg-status-degraded text-status-degraded-text`), so its floor is text-on-fill (§1.2), not text-on-surface. Always dot/pill + label, never color-only.                                                    |
 | `--color-accent-tint`               | `#FEEEDE`                          | `#2A1E10`                       | Warm low-chroma wash behind the bell panel's **active-count pill**. The pill NUMBER stays `--color-text-strong` for hierarchy, not necessity. A quiet tint, never a CTA fill; the ≤10% accent-coverage cap is unaffected (a small pill). Also backs the review-modal mobile state badge's **Live pill** (`bg-accent-tint text-accent-on-bg` + `bg-accent-on-bg` dot — spec 2026-07-24-strip-mobile-stacked-band §3 R0; both legs are the pinned §1.2 accent-on-bg-on-tint pair). _(Was also the info severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the circle with an on-surface stroke glyph, so the tint now backs the count pill only.)_                                              |
 | `--color-danger-bg`                 | `#FBEAE8`                          | `#3A1E1C`                       | Soft red wash — retained token. _(Was the bell panel's **critical** severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the filled circle with a 3px rail + on-surface `--color-status-degraded` stroke glyph, so no bell surface fills this today. Kept as a defined danger wash for future use; still paired with row title text wherever a red wash is used, holding the §1 color-blind floor.)_                                                                                                                                                          |
+| `--color-day-pressed` / `-text`   | `#1A1B1F` / `#FAFAF9`              | `#1C1D23` / `#F5F3EE`           | The crew day row's pressed day (crew page redesign, 2026-10-30). Light keeps the near-black chip (the `--color-text` value, so light mode is unchanged); dark takes the pass's own surface (`--color-surface-raised`), so the selected day never outshines the pass it selects, and the button's `border-text` edge carries the pressed state there (§1.1a). Text on fill 16.47:1 light, 15.16:1 dark; pinned by tests/styles/crewPassContrast.test.ts. |
 
 ### 1.1a Subtle-on-interactive carve-outs (2026-08-14, user-ratified)
 
@@ -62,7 +63,7 @@ interactive rests at `--color-text` or stronger.
 **Family S — `<summary>` disclosure headers.** A disclosure summary is half
 caption, half control: its text names the CONTENT it folds, and the fold
 affordance is carried by the marker/chevron and the interaction, not by label
-weight. Resting subtle is sanctioned. (7 sites.)
+weight. Resting subtle is sanctioned. (10 sites.)
 
 **What carries Family S when a site suppresses the native marker (2026-08-25).**
 The family's whole argument is that something OTHER than label weight carries
@@ -90,15 +91,36 @@ stays distinguishable by at least one cue besides the text-color delta**. The
 cue may sit on EITHER member — fill, border, weight, glyph, or `aria-current`
 semantics — and every registry row names its cue and the file it lives in; the
 suite reads that file and fails the row if the cue is gone, so the claim cannot
-go stale. (6 sites.)
+go stale. (5 sites.)
 
 | Dim member | The cue that carries the state |
 | --- | --- |
 | Inactive desktop admin nav link | active carries `bg-surface-raised` + `text-text-strong` + `aria-current="page"` |
 | Inactive admin bottom tab | active carries `aria-current="page"`; the visual delta is `text-accent-on-bg` vs subtle — a hue-plus-lightness delta with no layout cue, recorded as-is |
-| Inactive crew sub-nav tab | active desktop branch carries `border-accent` + `text-text-strong`; active mobile branch carries `text-accent-on-bg` plus `aria-current="page"` |
 | Unselected dashboard bucket segment (x2) | selected carries `bg-surface` + `shadow-tile` + `text-text-strong` + `aria-current="page"` |
 | Claimed picker row | the dim member ITSELF carries the cues: a `bg-surface-sunken` fill plus the lock glyph |
+
+The crew sub-nav's inactive tab left this table with the sub-nav (crew page
+redesign, 2026-10-27). The crew left nav that replaced it
+(`components/crew/CrewWideNav.tsx`) rests its inactive labels at `text-text`
+and dims only the icon, so it is not a Family D member.
+
+The crew day row (`components/crew/CrewDayRow.tsx`, 2026-10-30) is a state
+pair this table cannot list: its unpressed buttons rest their weekday and phase
+captions at `text-text-subtle` on nested spans, which the scan does not read (the
+same documented limit as the onboarding wizard's step pills), so it has no
+registry row. In light its pressed day inverts the fill, which puts it outside
+Family D like the telemetry filter below. In dark the pressed fill is
+`--color-day-pressed`, one step above the unpressed `bg-surface` (1.06:1), so the
+Family D predicate applies, and the cues that carry the pair sit on the pressed
+member: its `border-text` edge against the unpressed `border-text-faint` (3.81:1)
+and, since the invariant-8 re-run (critique N6, 2026-10-31), a short accent bar
+under its label (`after:bg-accent`, 3px by 24px, 7.22:1 on the dark pressed fill
+and 7.39:1 on the light chip), both pinned in tests/styles/crewPassContrast.test.ts,
+with `aria-pressed` in the semantic tree. A 1px edge alone read as a hover or
+focus outline at glance distance; the bar is the wide nav's active-item mark, and
+small enough that the pass stays the focal point. Under forced colors it takes
+`HighlightText` on the `Highlight` fill.
 
 No pair is color-ALONE in the semantic tree: every one carries `aria-current`
 or a structural glyph, holding the §1 color-blind floor while preserving the
@@ -188,6 +210,7 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-subtle` on `--color-surface-sunken`     | 6.09:1 | 6.94:1 | AA body (≥4.5:1) — stacked-band Published/Draft pill (spec 2026-07-24 §3 R0); pinned by tests/styles/status-token-contrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-surface`  | 3.35:1 | 3.76:1 | ≥3:1 non-text (SC 1.4.11) — the secondary action button's boundary on a card fill (§1.2a control-outline rule); pinned by tests/styles/secondary-action-contrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-surface-sunken` | 3.02:1 | 4.11:1 | ≥3:1 non-text — same button on the attention plate; light clears with a thin margin, so any `text-faint` or `surface-sunken` retune re-checks this row |
+| `--color-day-pressed-text` on `--color-day-pressed` | 16.47:1 | 15.16:1 | AA body (≥4.5:1) — the crew day row's pressed day; in dark the pressed edge `--color-text` vs the unpressed `--color-text-faint` edge is 3.81:1, the cue that carries the state (§1.1a); pinned by tests/styles/crewPassContrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
 | `--color-text-subtle` on `--color-surface-raised`  | 6.76:1 | 5.97:1 | AA body (≥4.5:1) — raised-surface captions: the HoverHelp popover, the admin-nav and onboarding count pills, and the tile error fallback. The pairing was first surfaced by the theme persist-failure note (removed 2026-08-26); the row outlived it because those four did not. Pinned in `tests/styles/status-token-contrast.test.ts` |
 | `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
@@ -683,12 +706,13 @@ Tailwind v4's default 4px-step scale (1 = 4px, 2 = 8px, 3 = 12px, 4 = 16px, 6 = 
 | `--spacing-tile-min-h`       | 96px  | Tile minimum height (per spec §8.4 — `min-h-24` in Tailwind units).                                                                                                                                                                            |
 | `--spacing-tile-overflow`    | 240px | Tile body max before "see more" disclosure (per spec §8.4 — `max-h-60`).                                                                                                                                                                       |
 | `--spacing-right-now-min-h`  | 176px | Right Now card minimum height. Holds the container fixed during the §8.2 AnimatePresence crossfade so body content swaps without the card resizing. Sized to the tallest state body (`unknown`, two-line detail) at the 390px mobile viewport. |
+| `--spacing-pass-typical`     | 304px | The crew loading skeleton's pass block: a typical pass with its facts (289 to 339px from 768 to 390px wide on the seeded shows), not the 176px floor, so the swap to the loaded pass does not grow it by a column of cells (2026-10-31, invariant-8 re-run N4). |
 | `--spacing-page-pad-mobile`  | 16px  | Page-level horizontal padding on mobile (<640px).                                                                                                                                                                                              |
 | `--spacing-page-pad-desktop` | 32px  | Page-level horizontal padding on desktop (≥1024px).                                                                                                                                                                                            |
 | `--spacing-panel-max`        | 480px | Shared max extent for wide secondary "panel"-class surfaces: the dashboard Needs-Attention inbox column (`min-[1400px]:w-panel-max`), the report modal (`max-w-panel-max`), and the notification panel's desktop scroll container (`sm:max-h-panel-max`). One value → one token (the `--spacing-*` namespace generates `w-*`/`max-w-*`/`max-h-*` alike). |
 | `--spacing-panel-max-mobile` | 70vh  | Notification panel (`BellPanel`) scroll-container max-height on mobile — a bottom-sheet capped to 70vh so the drag handle + header stay on-screen. Bell-specific; consumed via `max-h-panel-max-mobile`. |
 
-> **Tailwind v4 naming note:** the `--spacing-*` prefix is non-arbitrary — Tailwind v4's arbitrary-value `min-h-(--name)` / `p-(--name)` arrows resolve ONLY tokens declared in the `--spacing-*` namespace (declared in `app/globals.css` `@theme`). Renaming any of these to `--space-*` would silently break the Tailwind-utility consumption sites (e.g., `min-h-(--spacing-right-now-min-h)` in `components/crew/RightNowHero.tsx`).
+> **Tailwind v4 naming note:** the `--spacing-*` prefix is non-arbitrary — Tailwind v4's arbitrary-value `min-h-(--name)` / `p-(--name)` arrows resolve ONLY tokens declared in the `--spacing-*` namespace (declared in `app/globals.css` `@theme`). Renaming any of these to `--space-*` would silently break the Tailwind-utility consumption sites (e.g., `--spacing-right-now-min-h`, which the crew pass consumes as `min-h-right-now-min-h` in `components/crew/CrewPass.tsx`).
 
 ### 3.1 Spacing rhythm
 
@@ -744,7 +768,7 @@ Every motion token must be wrapped in a media-query reduction. The pattern is:
 
 This is implemented in `app/globals.css` `:root` block. Components do NOT need to opt in — they get reduction for free as long as they consume the duration tokens (not hardcoded ms values). Spec §8.2 motion contracts (crossfade body, morph-to-last-good for sync errors) all consume `--duration-normal` / `--duration-slow`.
 
-Tailwind `duration-<name>` utility classes (`duration-fast`, `duration-normal`, …) are equally covered: the `@theme` block chains `--transition-duration-<name>: var(--duration-<name>)` aliases (Tailwind v4 resolves the utility from the `--transition-duration-*` namespace), so a class site and a direct `var(--duration-*)` site get identical values and identical reduced-motion collapse. Guarded by `tests/design/durationTokenEmission.test.ts` (compile emission + chain) and the crew sub-nav computed-value e2e assertion. Elements with a bare `transition-*` utility and NO named duration class resolve Tailwind's default through the `@theme` alias `--default-transition-duration: var(--duration-fast)` (2026-08-01, focus-ring pass spec §5) — 120ms normally, 0ms under reduced motion — so bare sites are inside the collapse too; a named `duration-<name>` class still wins where a different speed is intended (disclosure chevrons carry `duration-normal`).
+Tailwind `duration-<name>` utility classes (`duration-fast`, `duration-normal`, …) are equally covered: the `@theme` block chains `--transition-duration-<name>: var(--duration-<name>)` aliases (Tailwind v4 resolves the utility from the `--transition-duration-*` namespace), so a class site and a direct `var(--duration-*)` site get identical values and identical reduced-motion collapse. Guarded by `tests/design/durationTokenEmission.test.ts` (compile emission + chain) and the computed-value e2e assertion on the crew "All sections" row (`tests/e2e/crew-section-toggle.spec.ts`, which reads `--duration-fast` from `app/globals.css` and expects `0s` under reduced motion). Elements with a bare `transition-*` utility and NO named duration class resolve Tailwind's default through the `@theme` alias `--default-transition-duration: var(--duration-fast)` (2026-08-01, focus-ring pass spec §5) — 120ms normally, 0ms under reduced motion — so bare sites are inside the collapse too; a named `duration-<name>` class still wins where a different speed is intended (disclosure chevrons carry `duration-normal`).
 
 ### 5.4 Layout-property ban
 
@@ -780,7 +804,6 @@ realtime reconnect backoff.
 | `DURATION_FAST_FALLBACK_MS` | 120 | `components/admin/review/ReviewModalShell.tsx` |
 | `EXIT_FALLBACK_BUFFER_MS` | 80 | `components/admin/review/ReviewModalShell.tsx` |
 | `timer(0)` | 0 | `components/admin/review/ReviewModalShell.tsx` |
-| `NAV_SCROLL_SETTLE_TIMEOUT_MS` | 700 | `components/admin/review/ShowReviewSurface.tsx` |
 | `SECTION_FRESHNESS_FLASH_MS` | 1600 | `components/admin/review/sectionFreshness.ts` |
 | `BUSY_GATE_MAX_MS` | 15000 | `components/admin/showpage/ShareHub.tsx` |
 | `SHARE_LINK_FLASH_MS` | 1600 | `components/admin/showpage/ShareHub.tsx` |
@@ -791,14 +814,16 @@ realtime reconnect backoff.
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `PURGE_ACK_WAIT_MS` | 500 | `components/auth/AvatarMenu.tsx` |
-| `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
-| `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
+| `CROSSFADE_SECONDS` | 0.22 | `components/crew/CrewPass.tsx` |
+| `CROSSFADE_SECONDS` | 0.22 | `components/crew/CrewRunOfShowCard.tsx` |
+| `duration(0.22)` | 0.22 | `components/crew/CrewSectionSheet.tsx` |
+| `duration(0)` | 0 | `components/crew/CrewSectionSheet.tsx` |
 | `REVEAL_WAIT_MS` | 1500 | `components/crew/CrewSections.tsx` |
 | `REVEAL_HIGHLIGHT_MS` | 1600 | `components/crew/CrewSections.tsx` |
 | `REVEAL_HIGHLIGHT_REDUCED_MS` | 2000 | `components/crew/CrewSections.tsx` |
 | `RESULT_COUNT_ANNOUNCE_MS` | 300 | `components/crew/search/CrewSearchResults.tsx` |
-| `COPY_FAILED_TOAST_MS` | 6000 | `components/crew/search/CrewSearchResults.tsx` |
 | `MISS_DEBOUNCE_MS` | 2000 | `components/crew/search/CrewSearchProvider.tsx` |
+| `CREW_CLOCK_TICK_MS` | 60000 | `components/crew/useCrewClock.ts` |
 | `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
 | `RETRY_CHECK_IN_MS` | 30000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
@@ -819,6 +844,8 @@ realtime reconnect backoff.
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
 | `RETRY_INTERVAL_MS` | 30000 | `lib/offline/notSavedPage.ts` |
 | `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
+| `COPY_FAILED_TOAST_MS` | 6000 | `lib/ui/copyFeedback.ts` |
+| `NAV_SCROLL_SETTLE_TIMEOUT_MS` | 700 | `lib/ui/scrollSpy.ts` |
  | `ANNOUNCE_DELAY_MS` | 400 | `components/admin/wizard/DraftRestoredNote.tsx` |
  | `DRAFT_RESTORED_NOTE_MS` | 5000 | `components/admin/wizard/DraftRestoredNote.tsx` |
 
@@ -831,11 +858,11 @@ hardcoding ban:
 
 **Behavioral thresholds** — gesture and scroll values that never produce a painted px, so the ban genuinely does not apply, and which for the same reason carry no row in the derived table above (they are distances and tolerances, not timings; only `NAV_SCROLL_SETTLE_TIMEOUT_MS` is both). The Phase-1 extraction moved these out of `Step3ReviewModal.tsx`, which this section went on claiming until the derived inventory contradicted it; each owning file is now named per entry:
 
-- `SCROLL_SPY_OFFSET_PX = 90` (`components/admin/review/ShowReviewSurface.tsx`) — the review modal's scroll-spy anchor line: a section becomes "active" once its top passes this many px below the content pane's top.
+- `SCROLL_SPY_OFFSET_PX = 90` (`lib/ui/scrollSpy.ts`, shared by the review modal's rail and the crew page's wide nav) — the scroll-spy anchor line: a section becomes "active" once its top passes this many px below the scroller's top (the review modal's content pane; the crew page's window).
 - `DRAG_DISMISS_THRESHOLD_PX = 110` (`components/admin/review/ReviewModalShell.tsx`) — sheet-mode drag distance past which release dismisses the modal.
 - `DRAG_SLOP_PX = 6` (`components/admin/review/ReviewModalShell.tsx`) — max pointer travel still treated as a tap (click) rather than a drag.
-- `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` (`components/admin/review/ShowReviewSurface.tsx`) — review-modal nav click / warning jump: fallback release of the scroll-spy suppression when a programmatic glide never settles.
-- `NAV_SCROLL_SETTLE_EPSILON_PX = 2` (`components/admin/review/ShowReviewSurface.tsx`) — settle tolerance (px) that releases the nav-click scroll-spy suppression.
+- `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` (`lib/ui/scrollSpy.ts`) — review-modal nav click / warning jump and crew wide-nav click: fallback release of the scroll-spy suppression when a programmatic glide never settles.
+- `NAV_SCROLL_SETTLE_EPSILON_PX = 2` (`lib/ui/scrollSpy.ts`) — settle tolerance (px) that releases the nav-click scroll-spy suppression.
 
 **Animation durations** — these DO paint. They are exempt from the `--duration-*` token scale only because they exceed its longest step (`--duration-slow`, 360ms), which is why each carries an explicit `prefers-reduced-motion` override rather than inheriting the global collapse (§5.3). Both are paired with a keyframe in `app/globals.css` and pinned against it by a drift test:
 
@@ -866,6 +893,16 @@ Match spec §8.4 grid contract exactly.
 
 Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--breakpoint-*` tokens.
 
+**Crew section grids are container-relative, not viewport-relative (2026-10-27).** One section body renders in two places at the same window width: the 480px section sheet below 1024px and the wide column from 1024px up (crew page redesign spec §5.2, §5.3). A viewport switch turned the two-column layout on inside the 480px sheet and squeezed card titles to zero width. So every one-to-two-column switch inside a crew section body (the split-wide grids, the Gear scope grid, `KeyValueRows columns={2}`, the `KeyTimesStrip` row strip) reads the width of the element that bounds the body. Those elements carry `@container`: each wide stacked section and the sheet body. The Today block is not one: nothing in its home body (quick facts, show notes, Dress code card) queries it (crew page redesign plan Task 11; the Dress code lines carry their own `@container`), and containment would make the block the containing block of the fixed copy toast, so no `@min-crew-split:` grid belongs in the home body. One home-body grid queries its own wrapper instead: the quick facts (`@container/facts`, `--container-quick-pair: 352px`, the narrowest grid whose half tile holds Who to call's three 44px actions on one row), where a narrower grid spans that tile and its row partner across both columns (2026-10-31, invariant-8 re-run P3-3 / N3). The grids use `@min-crew-split:`, the one named threshold, `--container-crew-split: 656px` in `app/globals.css`:
+
+| Container (window width)      | Content width  | Layout      |
+| ----------------------------- | -------------- | ----------- |
+| Sheet body (below 640px)      | at most 605px  | one column  |
+| Sheet body (640px to 1023px)  | 446px          | one column  |
+| Wide sections (1024px up)     | 688px to 864px | two columns |
+
+The threshold only has to fall between the widest sheet body (605px) and the narrowest wide section (688px). 656px is where the retired `min-[720px]` viewport switch landed (720 − 2 × 32px `sm:px-8` gutter), kept because it falls in that gap; the widths are derived in the token's comment. Do not put a viewport variant (`sm:`, `min-[…]:`) on a layout switch inside a crew section body.
+
 ---
 
 ## 7. Tailwind v4 layout gotcha — `align-items: stretch` is NOT default
@@ -879,7 +916,7 @@ Without both, tiles collapse to their intrinsic content height and the spec §8.
 
 This gotcha is the single most common failure mode on this project's UI work — see `memory/feedback_tailwind_v4_flex_items_stretch.md`. Every tile component's spec must call out the parent → child stretch relationship explicitly, and the M4 layout-dimensions Playwright task (the in-browser `getBoundingClientRect()` assertion) verifies it. jsdom is NOT sufficient — it doesn't compute real layout.
 
-> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue, Travel, and Today Mode A) are the one place this project deliberately does NOT use equal-height: they use `min-[720px]:items-start` so the shorter column (e.g. the ~3-row "Crew Schedule", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid, the CrewSubNav tab bar, and the admin Dashboard split all keep `items-stretch` + `h-full`.
+> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue and Travel; Today Mode A's grid retired with the crew page redesign's home, 2026-10-30) are the one place this project deliberately does NOT use equal-height: they use `@min-crew-split:items-start` (container-relative since 2026-10-27, §6) so the shorter column (e.g. the ~3-row "Crew Schedule", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid and the admin Dashboard split keep `items-stretch` + `h-full`.
 
 ---
 
@@ -894,7 +931,7 @@ Two caveats:
 - `:empty` matches only when the element has NO child nodes, **text included**. JSX drops whitespace-only children, so a `{cond ? … : null}` or `{items.map(…)}` body is safe — but inserting a literal space or `{" "}` silently re-enables the gap.
 - The pattern is for elements that can only be hidden when they are genuinely empty. `display:none` on a POPULATED element is an accessibility change; this is not, because there is never content or an accessible name to remove.
 
-Verified in a real browser, never in jsdom (no layout computed there, and a class-presence assertion only restates the fix): `T-OVERVIEW-TIGHT` measures the slack below a section's last child with real extent, and `T-NOPHANTOM` walks the whole rendered modal for zero-extent in-flow items inside any gapped container — both in `tests/e2e/published-review-modal.layout.spec.ts`. Current sites: `components/admin/showpage/OverviewSection.tsx` (sheet/sync slot), `ScheduleDayRow`'s 2-track time grid in `components/admin/wizard/step3ReviewSections.tsx`, the TravelRow eyebrow in `components/crew/sections/TravelSection.tsx` (a ground leg whose stage was promoted to the primary line renders `label=""`), and the finalize CAS phase label in both of its renderers, `components/admin/FinalizeButton.tsx` and `components/admin/wizard/Step3ReviewWithFinalize.tsx` (`casPhaseLabel` returns `""` before the first phase event, deliberately, so the heading is not followed by a redundant second line; the element charged its column's gap until 2026-08-31). `tests/docs/designSevenAEmptyHiddenSites.test.ts` fails if this list goes stale.
+Verified in a real browser, never in jsdom (no layout computed there, and a class-presence assertion only restates the fix): `T-OVERVIEW-TIGHT` measures the slack below a section's last child with real extent, and `T-NOPHANTOM` walks the whole rendered modal for zero-extent in-flow items inside any gapped container — both in `tests/e2e/published-review-modal.layout.spec.ts`. Current sites: `components/admin/showpage/OverviewSection.tsx` (sheet/sync slot), `ScheduleDayRow`'s 2-track time grid in `components/admin/wizard/step3ReviewSections.tsx`, the TravelRow eyebrow in `components/crew/sections/TravelSection.tsx` (a ground leg whose stage was promoted to the primary line renders `label=""`), the crew home's two Today-block columns (`crew-today-lead` in `components/crew/CrewSections.tsx`, which holds the day row, the pass and the run card, and the home body in `components/crew/sections/HomeSection.tsx`, whose every piece is data-gated; in the wide layout an empty column hiding leaves its sibling the full width), and the finalize CAS phase label in both of its renderers, `components/admin/FinalizeButton.tsx` and `components/admin/wizard/Step3ReviewWithFinalize.tsx` (`casPhaseLabel` returns `""` before the first phase event, deliberately, so the heading is not followed by a redundant second line; the element charged its column's gap until 2026-08-31). `tests/docs/designSevenAEmptyHiddenSites.test.ts` fails if this list goes stale.
 
 **The zero-WIDTH sibling — same seam, different cause, and `empty:hidden` is the WRONG tool for it.** A decorative `flex-1` rule between a label and a control IS childless — `components/admin/BulkIgnoreControls.tsx` and the event-detail group rule in `components/admin/wizard/step3ReviewSections.tsx` are both childless spans, so `:empty` does match them. That is exactly why the idiom must not be used here: it would hide an intentionally PAINTED element at every width. The distinction §7a turns on is painted-empty-element (a decorative rule — keep it visible, give it a floor) versus empty CONTENT SLOT (nothing to show — `empty:hidden` is right). What actually goes wrong is that the rule is squeezed: When the row's other items fill the line, `flex-1` resolves `flex-basis: 0` with nothing left to grow into, the rule settles at 0 px, and the row still spends its `gap` on both sides of it. Note what the defect is NOT: `:empty` matches these spans perfectly well, so the §7a idiom is available — it is simply the wrong tool, because applying it would hide a rule that is meant to be seen. The idiom keys on emptiness; the question here is whether the element PAINTS. Rule: a decorative rule in a row that can get crowded carries (a) a breakpoint that removes it from flow where it would collapse — `hidden min-[480px]:block`, the boundary MEASURED rather than assumed — and (b) a `min-w-*` floor at the widths where it is drawn, so the zero-width state is unreachable in containers the measurement never covered. Site: `components/admin/BulkIgnoreControls.tsx` (data-quality group eyebrow), where the rule measured 0 px at every width from 320 to 430 and first drew 31.4 px at 480.
 
@@ -934,9 +971,11 @@ These are the absolute bans from shared design laws + this project's specific an
 - **No glassmorphism by default.** Backdrop-blur only when purposeful.
 - **No identical card grids** with icon + heading + text repeated. Tiles vary in content shape — schedule has a date list, hotel has a stack of fields, RightNow has dynamic copy.
 - **No modals as a first thought.** Inline / progressive disclosure first.
+  **Named exception, crew section sheet (2026-10-30).** Below 1024px the crew show page opens each section in a bottom sheet (`components/crew/CrewSectionSheet.tsx`, crew page redesign spec §3.3, §5.2). It replaces the old tab bar, so it is the page's navigation, not a confirmation or an interruption: one sheet at a time, Back and Escape close it, the section body inside is the same server-rendered node the wide layout shows. It uses the panel width (`--spacing-panel-max`) from 640px and full width below. No other crew surface may open a modal on the strength of this exception.
 - **No em dashes.** Use commas, colons, semicolons, periods, parentheses. Also not `--`. **Enforced** by `tests/styles/_metaEmDashCopy.test.ts`, which parses TypeScript and keys on node kinds (string literals, template fragments, JSX text and attributes) plus help MDX prose, so comments and fenced code are out of scope by construction; anything internal is exempted by name with a reason, and a lone `—` is treated as an empty-value sentinel rather than prose.
 - **No printed-paper / spreadsheet skeuomorph.** No cream backgrounds, no ruled lines, no serif body. The point is to replace the spreadsheet, not echo it.
 - **No "enterprise SaaS dashboard" cliché.** No dense sidebar nav, no chart-grid density.
+  **Named exception, crew left nav (2026-10-30).** From 1024px the crew show page has a 240px left nav (`components/crew/CrewWideNav.tsx`, spec §3.3, §5.3) that mirrors the admin review modal's rail: one level, at most 12 items in at most 6 groups, no counts or badges, Today first, the active item following the scroll through the shared scroll spy (`lib/ui/scrollSpy.ts`). Every section is stacked to its right, so the nav is a table of contents, not a mode switch. The header above it is sticky at this width with a fixed height (`--crew-header-h` in `app/globals.css`), so a show title longer than its row truncates to one line there; the title block takes twice the search field's share of the row and the `h1` carries the full title as `title`, so truncation is the fallback rather than the norm (2026-10-30, crew redesign invariant-8 audit P2-3). Whatever the page scrolls to, a nav jump's heading or a search reveal's line, lands `--crew-scroll-clearance` below the viewport top: the sticky header's bottom edge (and the preview banner above it) plus `--crew-ring-clearance`, the focus ring's reach, so neither the target nor its ring sits under the header; the page's scroll padding is the same value (2026-10-31, invariant-8 re-run P1-1 / P3-1). The dense-sidebar warning applies to anything that grows past those limits.
 - **No consumer-playful.** No bouncy mascots, no rounded-everything, no gradient-on-gradient.
 - **No competing accent hue.** Orange stays alone.
 - **No red/green as primary semantic.** Pair color with text or icon.
@@ -994,7 +1033,7 @@ The Gear view renders a **"Tech specs"** card (`data-testid="gear-tech-specs"`, 
 The Gear view renders a **"Room details"** card (`data-testid="gear-room-details"`, title "Room details", `LayoutGrid` icon) surfacing the per-room physical + schedule detail the parser captures but no card rendered: **dimensions, floor, setup, and per-room set / show / strike times**. It is a **full-width card in the Gear section's vertical stack** (`flex flex-col gap-4`), a peer of the Tech-specs / Keynote / Opening-reel cards (not in the 3-up discipline grid).
 
 - **Room-first layout (distinct from the discipline-first scope cards).** The body is one block per room (`data-testid="gear-room-detail-<id>"`): the room name as an `<h3>` block heading (`roomLabel`, `text-sm font-semibold text-text-strong` — a real heading under the card's `<h2>`, so the room↔detail relationship is exposed to assistive tech and reads as a distinct block, not another field label) above a single-column `KeyValueRows` (`columns={1}`, label:value per line) of that room's detail fields in physical→schedule order. Rooms are ordered via `compareRooms` (gs-first), matching the show-level KeyTimesStrip's room selection.
-- **Source of truth:** `lib/crew/roomDetailFields.ts` (`ROOM_DETAIL_FIELDS`), shared with the Step-3 review modal so the two surfaces can't drift. Excludes `power`/`digital_signage` (AV-adjacent; show-level `event_details` already surfaces them) and `notes` (TodaySection renders it).
+- **Source of truth:** `lib/crew/roomDetailFields.ts` (`ROOM_DETAIL_FIELDS`), shared with the Step-3 review modal so the two surfaces can't drift. Excludes `power`/`digital_signage` (AV-adjacent; show-level `event_details` already surfaces them) and `notes` (the crew home's show notes card renders it, `components/crew/sections/HomeSection.tsx`).
 - **Sentinel-hiding:** every value routed through `KeyValueRows` (`shouldHideGenericOptional`) and `String(...)`-coerced; a room block with all-empty detail is dropped, and the whole card hides when no room has any detail (folded into the Gear-section `allHidden` gate). Per-room times share the same predicate (it strips `TBD`/`N/A`/`TBA`).
 - **Cap:** at most 12 room blocks; beyond that a single `…and N more rooms` stub. Bounded by the room count (real shows carry ≤ ~9).
 - **Content states (data-driven, instant — no animation):** **present** (≥1 room has ≥1 non-sentinel detail) → card shown; **absent** → card not in the tree. Pure RSC; §5 motion does not apply.
@@ -1129,3 +1168,9 @@ positioned element reads like a shape carrier, but if its only paint is a
 background it flattens to the same system colour as whatever is behind it. The
 review rail's active indicator is exactly that: positioned by `transform`, sized by
 `height`, and painted only by `bg-accent`.
+
+### 17.5 `forced-color-adjust: none`, each use and what its colour means (rule 5)
+
+| Selector (`app/globals.css`, forced-colors block) | What the colour means | Why the opt-out |
+| --- | --- | --- |
+| The selected-state rule, `:is(a, button, [role="tab"], …):is([aria-current]:not([aria-current="false"]), [aria-pressed="true"]):not([data-fc-skip])`, and its descendants | This control is the chosen one: the `Highlight` fill with `HighlightText` on it (§17.3) | Measured on pixels (crew page redesign invariant-8 audit P1-4, 2026-10-30): Chromium paints its readability backplate in `Canvas` behind every forced text run, so `HighlightText` text on the fill sat on a `Canvas` block and vanished on the dark and the light palette alike, where the two are one colour. The pressed day, the crew wide nav's current item and the admin top bar's current link all blanked. Out of forcing there is no backplate, and both colours are still system colours, so the palette still decides them. Because the property inherits, the descendants rule hands the children what forcing gave them: text and icons take `HighlightText`, fills clear to the control's own, borders follow the text, shadows drop. Firefox paints no backplate and renders the pair either way. Pinned by AC-4f in `tests/e2e/forcedColors.spec.ts`, which reads the text run's pixels for every control the rule reaches. |

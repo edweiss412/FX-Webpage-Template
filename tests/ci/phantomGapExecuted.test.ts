@@ -29,6 +29,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
+  CREW_REPORT_RELATIVE,
+  CREW_REQUIRED_PAIRS,
   DEFAULT_REPORT_RELATIVE,
   REQUIRED_PAIRS,
   executedPairs,
@@ -54,6 +56,9 @@ type ReportSuite = { title?: string; file?: string; specs?: ReportSpec[]; suites
 type Report = { suites?: ReportSuite[] };
 
 const FIXTURE_PATH = "tests/ci/fixtures/phantom-gap-diagrams-report.json";
+/** A captured `--reporter=list,json` run of the CREW probe step (2026-10-31), trimmed as above. */
+const CREW_FIXTURE_PATH = "tests/ci/fixtures/phantom-gap-crew-report.json";
+const CREW_CLI = "scripts/check-phantom-gap-crew-executed.mjs";
 const SPEC_PATH = "tests/e2e/crew-layout-dimensions.spec.ts";
 const CLI = "scripts/check-phantom-gap-executed.mjs";
 
@@ -69,12 +74,12 @@ const CLI = "scripts/check-phantom-gap-executed.mjs";
  * contract report a clean corpus it no longer understands. The recognizer's
  * blindness is the wider class, filed as BL-PREMISESCAN-NESTED-HELPER-SCOPE.
  */
-function runCli(args: string[]) {
-  return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+function runCli(args: string[], cli: string = CLI) {
+  return spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
 }
 
-function loadReport(): Report {
-  return JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as Report;
+function loadReport(path: string = FIXTURE_PATH): Report {
+  return JSON.parse(readFileSync(path, "utf8")) as Report;
 }
 
 /** Walk every spec in a report, in place. Used to build the doctored variants. */
@@ -414,5 +419,102 @@ describe("check-phantom-gap-executed — the shipped CLI", () => {
     premiseHolds(`node actually ran the CLI (${result.error?.message ?? "ran"})`, !result.error);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("no report at");
+  });
+});
+
+// ── The CREW probe step (whole-diff review round 2, second pass, 2C-R2-1) ─────
+// The phantom-gap job's `-g "T-NOPHANTOM-CREW"` step ran list-only: a runtime
+// `test.skip()` kept it green (probed: the six 1280px legs skipped, exit 0). It
+// now writes test-results/phantom-gap-crew-report.json, and
+// scripts/check-phantom-gap-crew-executed.mjs reads it against
+// CREW_REQUIRED_PAIRS, with the same decisions as the diagram step's oracle.
+describe("check-phantom-gap-crew-executed — the crew probe step's own pairs", () => {
+  /** Every (title, project) pair that really executed in a report, as `pairKey`s. */
+  const executedKeys = (report: Report) => new Set(executedPairs(report).keys());
+
+  test("the captured crew report executed every required pair, and the table is exactly what ran", () => {
+    const report = loadReport(CREW_FIXTURE_PATH);
+    premise("the crew table requires pairs", CREW_REQUIRED_PAIRS.length, 0);
+    expect(missingPairs(report, CREW_REQUIRED_PAIRS)).toEqual([]);
+    // Set equality with the run, so a pair dropped from the table fails too.
+    expect([...executedKeys(report)].sort()).toEqual(
+      CREW_REQUIRED_PAIRS.map((pair) => pairKey(pair.title, pair.project)).sort(),
+    );
+  });
+
+  test("THE CONSTRUCTED RED: a 1280px leg skipped at runtime fails the crew check", () => {
+    const target = CREW_REQUIRED_PAIRS.find((pair) => pair.title.includes("@ 1280:"))!;
+    const report = loadReport(CREW_FIXTURE_PATH);
+    const arm = findArm(report, target.title, target.project);
+    premiseHolds(`the fixture carries the leg to doctor (${target.title})`, arm !== undefined);
+    premiseHolds(
+      "that leg really executed before doctoring",
+      (arm!.test.results ?? []).some((result) => result.status === "passed"),
+    );
+    arm!.test.status = "skipped";
+    arm!.test.results = [{ status: "skipped" }];
+
+    expect(missingPairs(report, CREW_REQUIRED_PAIRS)).toEqual([target]);
+    expect(runCheck(report, CREW_REQUIRED_PAIRS).ok).toBe(false);
+  });
+
+  test("the crew pairs are mobile-safari only, the step's one project", () => {
+    expect(new Set(CREW_REQUIRED_PAIRS.map((pair) => pair.project))).toEqual(
+      new Set(["mobile-safari"]),
+    );
+  });
+
+  test("every crew title is one the live spec declares", () => {
+    // The per-section legs are a template over the spec's section list and widths,
+    // so each is checked against those three parts; the eyebrow legs are verbatim.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    const LEG = /^T-NOPHANTOM-CREW \[([a-z]+)\] @ (\d+): (.+)$/;
+    for (const pair of CREW_REQUIRED_PAIRS) {
+      const leg = LEG.exec(pair.title);
+      if (leg === null) {
+        expect(spec.includes(pair.title), `${SPEC_PATH} no longer declares "${pair.title}"`).toBe(
+          true,
+        );
+        continue;
+      }
+      const [, section, width, rest] = leg;
+      expect(spec, `${pair.title}: the section`).toContain(`section: "${section}"`);
+      expect(spec, `${pair.title}: the widths`).toContain("for (const width of [390, 1000, 1280]");
+      // The spec's own template, `${section}` and `${width}` as written there.
+      expect(spec, `${pair.title}: the template`).toContain(
+        "T-NOPHANTOM-CREW [${section}] @ ${width}: " + rest,
+      );
+      expect(["390", "1000", "1280"]).toContain(width);
+    }
+  });
+
+  test("the crew CLI's default report is the path the workflow step writes", () => {
+    expect(resolveReportPath([], "/repo", CREW_REPORT_RELATIVE)).toBe(
+      join("/repo", ...CREW_REPORT_RELATIVE),
+    );
+    const workflow = readFileSync(".github/workflows/phantom-gap-e2e.yml", "utf8");
+    expect(workflow).toContain(CREW_REPORT_RELATIVE.join("/"));
+    expect(workflow).toContain(`node ${CREW_CLI}`);
+  });
+
+  test("the shipped crew CLI exits 0 on the captured report and 1 on a doctored one", () => {
+    premiseHolds("the crew CLI is present to be spawned", existsSync(CREW_CLI));
+    const ok = runCli(["--report", CREW_FIXTURE_PATH], CREW_CLI);
+    premiseHolds(`node actually ran the crew CLI (${ok.error?.message ?? "ran"})`, !ok.error);
+    expect(ok.status, ok.stderr).toBe(0);
+
+    const target = CREW_REQUIRED_PAIRS.find((pair) => pair.title.includes("@ 1280:"))!;
+    const report = loadReport(CREW_FIXTURE_PATH);
+    findArm(report, target.title, target.project)!.test.results = [{ status: "skipped" }];
+    const doctored = join(tmpdir(), `phantom-gap-crew-doctored-${process.pid}.json`);
+    writeFileSync(doctored, JSON.stringify(report));
+    try {
+      const red = runCli(["--report", doctored], CREW_CLI);
+      premiseHolds(`node actually ran the crew CLI (${red.error?.message ?? "ran"})`, !red.error);
+      expect(red.status).toBe(1);
+      expect(red.stderr).toContain(target.title);
+    } finally {
+      rmSync(doctored, { force: true });
+    }
   });
 });

@@ -1,5 +1,5 @@
 import type { JSX } from "react";
-import { RunOfShowEntry } from "@/components/crew/primitives/RunOfShowList";
+import { NextMarker, RunOfShowEntry } from "@/components/crew/primitives/RunOfShowList";
 import type { AgendaSession } from "@/lib/agenda/types";
 import { RUN_OF_SHOW_DISPLAY_CAP, resolveOptionalField } from "@/lib/crew/agendaDisplay";
 import type { TimelineItem } from "@/lib/crew/showDayTimeline";
@@ -12,9 +12,12 @@ import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 function AgendaSessionRow({
   session,
   searchTarget,
+  next,
 }: {
   session: AgendaSession;
   searchTarget: string | undefined;
+  /** The crew home's run card marks the next row (crew page redesign spec §4.4). */
+  next: boolean;
 }): JSX.Element {
   const { time, title, room } = agendaSessionRowLine(session);
   return (
@@ -38,6 +41,7 @@ function AgendaSessionRow({
             {title}
           </span>
         ) : null}
+        {next ? <NextMarker /> : null}
       </div>
       {room ? <div className="text-xs text-text-subtle">{room}</div> : null}
     </li>
@@ -54,6 +58,7 @@ export function ShowDayTimelineList({
   items,
   isoDate,
   searchTargets,
+  nextIndex,
 }: {
   items: TimelineItem[];
   isoDate: string;
@@ -62,6 +67,8 @@ export function ShowDayTimelineList({
    * Absent renders no search markers.
    */
   searchTargets?: readonly (string | undefined)[];
+  /** The row, in render order, that carries the run card's "Next" marker; absent marks none. */
+  nextIndex?: number;
 }): JSX.Element {
   const { kept, dropped } = capTimelineItems(items);
   return (
@@ -73,10 +80,16 @@ export function ShowDayTimelineList({
             <RunOfShowEntry
               key={`c${i}`}
               entry={it.entry}
+              next={nextIndex === i}
               {...(target !== undefined ? { searchTarget: target } : {})}
             />
           ) : (
-            <AgendaSessionRow key={`a${i}`} session={it.session} searchTarget={target} />
+            <AgendaSessionRow
+              key={`a${i}`}
+              session={it.session}
+              searchTarget={target}
+              next={nextIndex === i}
+            />
           );
         })}
       </ul>

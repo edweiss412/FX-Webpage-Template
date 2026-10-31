@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import type { Page } from "@playwright/test";
 import sharp from "sharp";
 import { createHash } from "node:crypto";
-import { encodeWebp } from "./capture-core";
+import { DEFAULT_EXPECT_STABLE_MS, encodeWebp, waitForPaintQuiescence } from "./capture-core";
 import { pixelSha256 } from "./capture-evidence";
 import { checkGeometry } from "./capture-geometry";
 import { detectRenderFaults } from "./capture-render-fault";
@@ -22,7 +22,17 @@ export class RenderFaultError extends Error {
 
 async function screenshotPng(page: Page, entry: { captureSelector?: string }): Promise<Buffer> {
   if (entry.captureSelector !== undefined) {
-    return await page.locator(entry.captureSelector).first().screenshot({ type: "png" });
+    const target = page.locator(entry.captureSelector).first();
+    // The element screenshot scrolls its target into view, and a page can react
+    // to that scroll a frame or more later: the crew preview's section sheet caps
+    // its height at the preview banner's bottom edge, which a scroll listener
+    // republishes on the next frame. Shooting straight after the scroll captured
+    // either side of that reaction, two byte-different sheets on one commit
+    // (screenshots-drift, PR #984). So scroll first and settle again, and the
+    // screenshot's own scroll finds nothing left to do.
+    await target.scrollIntoViewIfNeeded();
+    await waitForPaintQuiescence(page, DEFAULT_EXPECT_STABLE_MS);
+    return await target.screenshot({ type: "png" });
   }
   return await page.screenshot({ type: "png", fullPage: true });
 }

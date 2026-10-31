@@ -16,8 +16,8 @@ import { createElement } from "react";
 import { CarIcon, DockIcon, WifiIcon } from "@/components/crew/icons/sectionIcons";
 import type { FactRow } from "@/components/crew/primitives/FactRows";
 import type { KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
-import { compareRooms } from "@/lib/crew/resolveKeyTimes";
-import { parseWifiValue } from "@/lib/crew/wifiDisplay";
+import { generalSessionRoomName } from "@/lib/crew/generalSessionRoom";
+import { resolveWifiDisplay } from "@/lib/crew/wifiDisplay";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { entryId } from "@/lib/search/entryId";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -35,18 +35,6 @@ export const STATUS_CARD_ID = "venue-status";
 /** The Facilities rows the copy controls key on (spec §3 `copy`). */
 export const WIFI_SSID_TEST_ID = "venue-wifi-ssid";
 export const WIFI_PASSWORD_TEST_ID = "venue-wifi-password";
-
-/**
- * The name the parser synthesizes when a v1 / metadata-trimmed sheet heads its
- * general-session block with nothing nameable (`lib/parser/blocks/rooms.ts` —
- * "fall back to 'General Session' rather than mis-naming the GS room"). Five of
- * the ten raw fixtures parse to exactly this. A row reading "Room: General
- * Session" restates the block heading and tells a crew member nothing, so it is
- * suppressed. Held locally rather than imported because the parser is out of
- * scope for this change; the suppression test is fixture-derived (it runs the
- * real parser) so a renamed fallback fails loudly instead of passing vacuously.
- */
-const SYNTHESIZED_GS_ROOM_NAME = "General Session";
 
 type Venue = ShowForViewer["show"]["venue"];
 
@@ -115,55 +103,22 @@ export function venueFactRows(
     transportVisible && !shouldHideGenericOptional(rawParking) ? rawParking!.trim() : null;
 
   // --- Connectivity: Wi-Fi (internet) + power --------------------------------
-  const rawInternet = data.show.event_details["internet"] ?? null;
-  const internet = shouldHideGenericOptional(rawInternet) ? null : rawInternet!.trim();
-  // Display-time split into SSID / password / notes. `null` means the value is
-  // outside the observed label vocabulary, and the raw row below renders it
-  // verbatim — the value is never silently reshaped.
-  //
-  // The DERIVED ssid is re-checked against the sentinel predicate (diff review
-  // R2 F2). `SSID: TBD` is not a sentinel as a whole cell, so it reaches the
-  // split branch, but its ssid IS one — and FactRows drops sentinel rows, so the
-  // component committed to the split branch and then rendered nothing at all,
-  // losing the cell entirely. Rejecting the split here returns it to the raw row,
-  // which renders "SSID: TBD" verbatim.
-  const splitWifi = internet !== null ? parseWifiValue(internet) : null;
-  // EVERY derived field is re-checked, not just the ssid. FactRows drops a
-  // sentinel row, so a sentinel `password` or `notes` used to be suppressed
-  // AFTER the component had committed to the split — the raw row was gone too,
-  // and that text left the page entirely. One sentinel anywhere returns the
-  // whole cell to the raw row, where it renders verbatim.
-  const splitHasSentinel =
-    splitWifi !== null &&
-    [splitWifi.ssid, splitWifi.password, splitWifi.notes].some(
-      (value) => value !== null && shouldHideGenericOptional(value),
-    );
-  const wifi = splitWifi !== null && !splitHasSentinel ? splitWifi : null;
+  // The cell's sentinel hiding and the split's field-by-field sentinel re-check
+  // live in `resolveWifiDisplay`, shared with the crew home's Wi-Fi quick fact
+  // so the section, the quick fact and the search index cannot disagree. `wifi`
+  // is null when the split is outside the observed label vocabulary or carries
+  // a sentinel; the raw row below then renders `internet` verbatim, never
+  // silently reshaped.
+  const wifiDisplay = resolveWifiDisplay(data.show.event_details["internet"] ?? null);
+  const internet = wifiDisplay?.text ?? null;
+  const wifi = wifiDisplay?.split ?? null;
   const rawPower = data.show.event_details["power"] ?? null;
   const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
 
   // --- Room: the general-session room's name ---------------------------------
-  // Already parsed (ROOMS header line 2, section prefix stripped) — surfaced
-  // here, never re-derived. Suppressed on a rooms fetch failure: `readRooms`
-  // fail-softs to `[]` with `tileErrors.rooms`, so the array alone cannot tell
-  // "no rooms" from "we could not read them", and the failure is already
-  // surfaced by the rooms-consuming tiles' SectionTileError. Suppressed for the
-  // parser's synthesized fallback name too: a v1 sheet that never named its room
-  // gets the literal "General Session" from the parser, and echoing that back is
-  // noise, not information.
-  const roomsFetchFailed = Boolean(data.tileErrors["rooms"]);
-  const gsRoom = roomsFetchFailed
-    ? null
-    : (data.rooms.filter((room) => room.kind === "gs").sort(compareRooms)[0] ?? null);
-  // Sentinel-gated at the READ SITE like every other value in this module: a
-  // room literally named "TBD" would otherwise be pushed as a row, counted by
-  // `hasFacts`, and then dropped by FactRows — rendering an empty Facilities
-  // card when Room is the only fact (diff review R2 F2).
-  const gsRoomName = shouldHideGenericOptional(gsRoom?.name ?? null) ? "" : gsRoom!.name.trim();
-  const roomName =
-    gsRoomName.length > 0 && gsRoomName.toLowerCase() !== SYNTHESIZED_GS_ROOM_NAME.toLowerCase()
-      ? gsRoomName
-      : null;
+  // `generalSessionRoomName` holds the rule (fetch-failure, sentinel and
+  // synthesized-fallback suppression), shared with the crew home's pass.
+  const roomName = generalSessionRoomName(data);
 
   // --- Loading dock — §8.3 generic-optional; sentinels reflow out ------------
   // Read at THIS site through `shouldHideGenericOptional` so the sentinel-hiding

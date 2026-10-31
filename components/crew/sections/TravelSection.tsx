@@ -272,10 +272,10 @@ export function TravelSection({
               // limit 7, and a plain absence beats a wrong reason.
               flight.sortedSegments.some((seg) => seg.date !== null || seg.dateRaw !== null));
 
-          // §4.9 mock `split-wide`: at ≥720px the section is two columns — a WIDE
+          // §4.9 mock `split-wide`: once split (`@min-crew-split`), two columns — a WIDE
           // LEFT "Getting there" (ground transport / itinerary) and a NARROW RIGHT
-          // "Where you're staying" (hotels), at the mock's 1.6fr/1fr ratio. <720px
-          // collapses to one column, getting-there above hotels. The grid only
+          // "Where you're staying" (hotels), at the mock's 1.6fr/1fr ratio. Narrower
+          // it collapses to one column, getting-there above hotels. The grid only
           // mounts when BOTH blocks have content; with just one present it renders
           // full-width (no dead 1.6fr track). The grid uses `items-start` (NOT the
           // default stretch) so the SHORT right "Hotels" column takes its natural
@@ -618,8 +618,8 @@ export function TravelSection({
                   <EmptyState
                     label={
                       suppressionEmptiedSection
-                        ? // Harmonized with its two ratified siblings — RightNowHero's "Your
-                          // days aren't confirmed yet" and ScheduleSection's "Your days
+                        ? // Harmonized with its two ratified siblings — the pass's "Your
+                          // days aren't confirmed yet." and ScheduleSection's "Your days
                           // haven't been confirmed yet. Check back after the schedule is
                           // finalized." A suppressed viewer meets all three in one scroll,
                           // and the first draft was the outlier: passive, led with the
@@ -632,7 +632,7 @@ export function TravelSection({
               ) : null}
 
               {useSplit ? (
-                <div className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start">
+                <div className="grid grid-cols-1 gap-4 @min-crew-split:grid-cols-[1.6fr_1fr] @min-crew-split:items-start">
                   <div
                     data-testid="travel-column"
                     data-travel-column="getting-there"

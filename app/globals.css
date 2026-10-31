@@ -76,11 +76,15 @@
    * raised: lifted in-flow chrome (rails, chips)      · dropdown: anchored menus
    * nav: sticky nav chrome                            · banner: page banners
    * overlay: modals/popovers/sheets                   · dev-controls: dev-only strip
-   * sticky-banner: the preview banner, above all admin chrome. */
+   * sticky-banner: the preview banner, above all admin chrome.
+   * sheet: the crew section sheet, BELOW overlay on purpose: the agenda viewer,
+   * the diagram lightbox and the report modal open from inside it and must
+   * stack above it (crew page redesign spec §5.2). */
   --z-index-raised: 10;
   --z-index-dropdown: 20;
   --z-index-nav: 30;
   --z-index-banner: 40;
+  --z-index-sheet: 45;
   --z-index-overlay: 50;
   --z-index-dev-controls: 60;
   --z-index-sticky-banner: 100;
@@ -114,6 +118,12 @@
   --color-accent-tint: var(--color-accent-tint-runtime);
   --color-danger-bg: var(--color-danger-bg-runtime);
   --color-focus-ring: var(--color-focus-ring-runtime);
+  /* The crew day row's pressed day (DESIGN.md §1.1): light keeps the near-black
+     chip (the text colour); dark is the pass's own surface, so the selected day
+     never outshines the pass it selects, and its border-text edge carries the
+     state (§1.1a). tests/styles/crewPassContrast.test.ts pins both pairs. */
+  --color-day-pressed: var(--color-day-pressed-runtime);
+  --color-day-pressed-text: var(--color-day-pressed-text-runtime);
   /*
    * Modal overlay scrim. M10 §B Phase 3 / Cluster I-6 added a
    * tokenized backdrop so the admin Tour modal could stop using a
@@ -202,7 +212,7 @@
    * (0.12 / 0.14 / 0.18 / 0.22) used as small differences across
    * eyebrow surfaces; consolidated to two values per DESIGN.md §2.
    *   --tracking-eyebrow         standard eyebrow tracking
-   *   --tracking-eyebrow-strong  emphasis eyebrow (RightNowHero,
+   *   --tracking-eyebrow-strong  emphasis eyebrow (the crew pass,
    *                              Footer wordmark, Header crew tag)
    */
   --tracking-eyebrow: 0.12em;
@@ -259,6 +269,11 @@
    * auto-content scan into the built CSS).
    */
   --spacing-right-now-min-h: 176px;
+  /* The crew loading skeleton's pass block: a typical pass with its facts, not
+     the floor above, so the swap does not grow it by a column of cells (UI-gate
+     re-run, critique N4). The seeded shows' passes run 289 to 339px from 768 to
+     390px wide; this sits between them. */
+  --spacing-pass-typical: 304px;
   --spacing-page-pad-mobile: 16px;
   --spacing-page-pad-desktop: 32px;
   /* Shared max extent for wide secondary "panel"-class surfaces at 480px: the
@@ -318,6 +333,26 @@
   --breakpoint-sm: 640px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1200px;
+
+  /* ── Container sizes (`@min-*` container-query variants) ── */
+  /* The crew section grids' one-to-two-column switch (`@min-crew-split:`). It
+     reads the element that bounds a section body (`@container` on the sheet
+     body and each wide stacked section), never the viewport: the same body
+     renders in a 480px sheet and in a wide column. The Today block is not a
+     container (its home body queries nothing, plan Task 11). The value falls
+     between the two: the sheet is 446px from 640px up (480 - 2 x 1 border -
+     2 x 16 `px-4`), at most 605px below (639 - 2 - 32); the narrowest wide
+     column is 688px (1024 - 64 gutter - 240 `w-60` nav - 32 `lg:gap-8`).
+     656px is where the retired `min-[720px]` viewport switch landed, 720 -
+     2 x 32 (`sm:px-8`, CREW_PAGE_CONTAINER), kept because it falls between. */
+  --container-crew-split: 656px;
+  /* The quick facts grid's narrowest width at which a half-width tile still
+     holds Who to call's three 44px actions on one row (`@max-quick-pair/facts:`,
+     a container on the grid's wrapper): 3 x 44 + 2 x 6 gaps = 144 of content,
+     + 2 x 12 `p-3` + 2 x 1 border = 170 a tile, x 2 + the grid's 12px gap = 352.
+     Narrower (320 to 375px phones, the 1024 wide column), that tile and the one
+     it would share a row with span both columns (UI-gate re-run P3-3 / N3). */
+  --container-quick-pair: 352px;
 
   /* ── Shadows ── */
   /*
@@ -407,6 +442,8 @@
   --color-info-bg-runtime: #f1ede7;
   --color-accent-tint-runtime: #feeede;
   --color-danger-bg-runtime: #fbeae8;
+  --color-day-pressed-runtime: #1a1b1f;
+  --color-day-pressed-text-runtime: #fafaf9;
   --color-focus-ring-runtime: #e06000;
   --color-overlay-scrim-runtime: rgba(20, 18, 12, 0.4);
   --shadow-tile-runtime: 0 1px 2px rgba(20, 18, 12, 0.04);
@@ -463,6 +500,8 @@
     --color-info-bg-runtime: #1f1e22;
     --color-accent-tint-runtime: #2a1e10;
     --color-danger-bg-runtime: #3a1e1c;
+    --color-day-pressed-runtime: #1c1d23;
+    --color-day-pressed-text-runtime: #f5f3ee;
     --color-focus-ring-runtime: rgba(255, 160, 71, 0.65);
     --color-overlay-scrim-runtime: rgba(0, 0, 0, 0.6);
     --shadow-tile-runtime: 0 1px 3px rgba(0, 0, 0, 0.45);
@@ -515,6 +554,8 @@
   --color-info-bg-runtime: #1f1e22;
   --color-accent-tint-runtime: #2a1e10;
   --color-danger-bg-runtime: #3a1e1c;
+  --color-day-pressed-runtime: #1c1d23;
+  --color-day-pressed-text-runtime: #f5f3ee;
   --color-focus-ring-runtime: rgba(255, 160, 71, 0.65);
   --shadow-tile-runtime: 0 1px 3px rgba(0, 0, 0, 0.45);
   --shadow-popover-runtime: 0 10px 28px -6px rgba(0, 0, 0, 0.6);
@@ -532,6 +573,59 @@
   --color-status-degraded-text-runtime: #1a1a1a;
 
   color-scheme: dark;
+}
+
+/*
+ * A NESTED dark scope: `data-theme="dark"` on an element below the root, the
+ * crew pass (crew page redesign spec §4.3 "Color", R7). The `@theme` tokens are
+ * declared on `:root`, so each resolves THERE, against the root's runtime
+ * values, and descendants inherit the resolved colour. The block above only
+ * re-declares the runtime values, which on an inner element reaches no utility:
+ * `bg-surface` under it would still paint the page's surface. Re-binding every
+ * runtime-backed token on the scope makes it resolve against the scope's own
+ * values. `:root ` keeps this off the root itself, where `@theme` already makes
+ * the same declarations. tests/styles/nestedThemeScope.test.ts derives the list
+ * from `@theme`, so a token added there without a row here fails.
+ */
+:root [data-theme="dark"] {
+  --color-bg: var(--color-bg-runtime);
+  --color-surface: var(--color-surface-runtime);
+  --color-surface-raised: var(--color-surface-raised-runtime);
+  --color-surface-sunken: var(--color-surface-sunken-runtime);
+  --color-text: var(--color-text-runtime);
+  --color-text-strong: var(--color-text-strong-runtime);
+  --color-text-subtle: var(--color-text-subtle-runtime);
+  --color-text-faint: var(--color-text-faint-runtime);
+  --color-control-outline-tinted: var(--color-control-outline-tinted-runtime);
+  --color-border: var(--color-border-runtime);
+  --color-border-strong: var(--color-border-strong-runtime);
+  --color-accent: var(--color-accent-runtime);
+  --color-accent-hover: var(--color-accent-hover-runtime);
+  --color-accent-text: var(--color-accent-text-runtime);
+  --color-accent-on-bg: var(--color-accent-on-bg-runtime);
+  --color-accent-edge: var(--color-accent-edge-runtime);
+  --color-badge-count: var(--color-badge-count-runtime);
+  --color-badge-count-text: var(--color-badge-count-text-runtime);
+  --color-stale-tint: var(--color-stale-tint-runtime);
+  --color-warning-bg: var(--color-warning-bg-runtime);
+  --color-warning-text: var(--color-warning-text-runtime);
+  --color-info-bg: var(--color-info-bg-runtime);
+  --color-accent-tint: var(--color-accent-tint-runtime);
+  --color-danger-bg: var(--color-danger-bg-runtime);
+  --color-focus-ring: var(--color-focus-ring-runtime);
+  --color-day-pressed: var(--color-day-pressed-runtime);
+  --color-day-pressed-text: var(--color-day-pressed-text-runtime);
+  --color-overlay-scrim: var(--color-overlay-scrim-runtime);
+  --color-status-positive: var(--color-status-positive-runtime);
+  --color-status-positive-text: var(--color-status-positive-text-runtime);
+  --color-status-review: var(--color-status-review-runtime);
+  --color-status-review-text: var(--color-status-review-text-runtime);
+  --color-status-warn: var(--color-status-warn-runtime);
+  --color-status-warn-text: var(--color-status-warn-text-runtime);
+  --color-status-degraded: var(--color-status-degraded-runtime);
+  --color-status-degraded-text: var(--color-status-degraded-text-runtime);
+  --shadow-tile: var(--shadow-tile-runtime);
+  --shadow-popover: var(--shadow-popover-runtime);
 }
 
 /*
@@ -610,6 +704,30 @@
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+/* Crew home copy toast (crew page redesign spec §7, the copy-toast row): fades
+   and rises 4px in, then fades out in place. Callers apply both with
+   `motion-safe:`, so reduced motion gets the instant alternative (the toast
+   shows and hides at once) rather than a collapsed keyframe. Transform and
+   opacity only; the toast is fixed, so neither reflows the page. */
+@keyframes crew-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes crew-toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -837,8 +955,8 @@ time,
  *
  * Deliberately NARROWER than `.tabular-nums`, and the distinction is the whole
  * point. `.tabular-nums` marks "digits that should not shift width", which in
- * this codebase includes whole prose sentences -- the Right Now hero's lead is
- * a 30px bold <h2> carrying it (components/crew/RightNowHero.tsx), and the
+ * this codebase includes whole prose sentences -- the crew pass's status line
+ * carries it (components/crew/CrewPass.tsx), and the
  * footer's copyright year carries it too. Slashing zeros there reads as a
  * terminal readout and works against the "not techie" anti-reference in
  * PRODUCT.md. Impeccable critique P1, 2026-08-03: `zero` shipped on the
@@ -1633,13 +1751,46 @@ details[open] > summary [data-agenda-day-count] {
      a text node in a trail, and painting the current crumb was never selection.
      `[data-fc-skip]` is the opt-out for a control whose state the census already
      rules deliberately flattened, so the stylesheet and the census cannot
-     disagree. */
+     disagree.
+
+     WHY `forced-color-adjust: none` (rule 5; DESIGN.md §17.5), measured on
+     pixels, invariant-8 audit P1-4 of the crew page redesign. With the fill
+     alone, Chromium computed the right pair and then painted its readability
+     backplate in Canvas behind every text run, so HighlightText text sat on a
+     Canvas block: invisible on both palettes, where HighlightText and Canvas are
+     the same colour. The day row, the crew wide nav and the admin top bar's
+     current link all blanked this way. Opting the control out of forcing drops
+     the backplate; the pair is then the author's, and both halves are system
+     colours, so the palette still decides them. The border joins the fill, so the
+     chosen control is one solid shape, and box-shadow goes as forcing would have
+     taken it (no ring utility paints a brand colour here). The descendants rule
+     below does for the control's children what forcing did for them: text and
+     icons take HighlightText, fills clear to the control's own, borders follow the
+     text. */
   :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
       [aria-current]:not([aria-current="false"]),
       [aria-pressed="true"]
     ):not([data-fc-skip]) {
+    forced-color-adjust: none;
     background-color: Highlight;
     color: HighlightText;
+    border-color: Highlight;
+    box-shadow: none;
+  }
+
+  /* `forced-color-adjust` inherits, so every child of a selected control is out
+     of forcing too and would otherwise paint its authored colours: a subtle
+     caption, an accent icon, a sunken chip. Unlayered, so it beats the
+     utilities that set them. */
+  :is(a, button, [role="tab"], [role="option"], [role="radio"], [role="menuitemradio"]):is(
+      [aria-current]:not([aria-current="false"]),
+      [aria-pressed="true"]
+    ):not([data-fc-skip])
+    * {
+    color: inherit;
+    background-color: transparent;
+    border-color: currentColor;
+    box-shadow: none;
   }
 
   /* Keyboard focus ON a selected control. The pair exists for exactly this.
@@ -1762,4 +1913,94 @@ details[open] > summary [data-agenda-day-count] {
     outline: 2px solid Highlight;
     outline-offset: 2px;
   }
+
+  /* The crew day row's selection bar (UI-gate re-run, critique N6) is a pseudo
+     element, which the selected-control rule above leaves out of forcing (it
+     opts the button out, and its descendants rule does not reach ::after), so it
+     would paint the brand accent on Highlight. It takes HighlightText, the
+     system pair for the fill it sits on. */
+  [data-testid="crew-day-row"] [aria-pressed="true"]::after {
+    background-color: HighlightText;
+  }
+
+  /* Crew pass progress (audit P3-1, rule 3): every show-day segment carries a 1px
+     border, which forced colors paints CanvasText, and the fill that told done
+     from remaining flattens to Canvas. Fill the done segments, so a done day is a
+     solid bar and a remaining day an outline. */
+  [data-testid="crew-pass-progress"] > [data-segment-active="true"] {
+    background-color: CanvasText;
+  }
+}
+
+/*
+ * Crew page header height (crew page redesign spec §8 item 6). One fixed
+ * value, read by the wide layout's sticky header (`lg:h-(--crew-header-h)`),
+ * the wide nav's sticky offset and height, and every stacked section's
+ * `scroll-margin-top`, so a nav jump lands each heading just under the header.
+ * It fits the header's three lines (eyebrow, the title row with its status
+ * pill, the date) and the 52px search field beside them.
+ *
+ * Where the header sticks, and where its bottom edge then sits (spec §8 item 6
+ * amendment 2026-10-30). On the admin preview route a sticky banner sits above
+ * the crew header, so the header sticks under it: `--preview-banner-h` is the
+ * banner's measured height, published on <html> by the banner itself
+ * (components/admin/PreviewBannerHeight.tsx) and absent everywhere else, so the
+ * offset is 0 on the crew route. The nav's sticky offset and height read the
+ * header's bottom edge, never its height alone (audit P1-3, critique F3).
+ *
+ * How far down the viewport the chrome above the compact section sheet reaches
+ * (whole-diff review round 2, 2A-1): `--crew-sheet-clearance`, the preview
+ * banner's bottom edge in the viewport (`--preview-banner-bottom`, published by
+ * the same component, following the scroll), 0 on the crew route. The banner
+ * stacks above the fixed sheet, and at the top of the page the admin nav sits
+ * above the banner, so the sheet's height cap subtracts the edge, not the
+ * height, and the banner never covers the sheet's title or close control.
+ *
+ * Where anything the page scrolls to may land (UI-gate re-run, audit P1-1 and
+ * P3-1): `--crew-scroll-clearance`, below everything that sticks plus the focus
+ * ring's reach (`--crew-ring-clearance`: the `:focus-visible` ring is a 3px
+ * outline at a 2px offset, so 5px past its box, rounded up to the spacing
+ * scale). From 1024px the header and, on the preview route, the banner above it
+ * stick; below 1024px only the banner does, so there the clearance is the
+ * banner's height (0 on the crew route) plus the ring. Every scroll margin a nav
+ * jump or a search reveal reads (the Today block's and each stacked section's)
+ * and the page's scroll padding are this one value, so neither the target nor
+ * its ring lands under the chrome.
+ *
+ * The saved-copy bar sticks too (offline spec 4.7.2, merged with this layout
+ * 2026-10-31). It sticks under whatever already sticks above it,
+ * `--saved-copy-bar-top`: the preview banner's height below 1024px (0 on the
+ * crew route, the only route that renders the bar) and the header's bottom
+ * edge from 1024px. The bar publishes its own height on <html> as
+ * `--saved-copy-bar-h` while it shows (components/offline/SavedCopyBar.tsx),
+ * absent otherwise, so `--crew-sticky-bottom`, the bottom edge of everything
+ * that sticks, is the bar's bottom while it shows and the old edge when it
+ * does not. The scroll clearance and the wide nav's sticky offset and height
+ * read that edge, so neither a nav jump, a reveal nor keyboard focus lands
+ * under the bar, and the nav never slides under it.
+ */
+:root {
+  --crew-header-h: 6rem;
+  --crew-sticky-top: var(--preview-banner-h, 0rem);
+  --crew-sheet-clearance: var(--preview-banner-bottom, 0rem);
+  --crew-header-bottom: calc(var(--crew-sticky-top) + var(--crew-header-h));
+  --saved-copy-bar-top: var(--crew-sticky-top);
+  --crew-sticky-bottom: calc(var(--saved-copy-bar-top) + var(--saved-copy-bar-h, 0rem));
+  --crew-ring-clearance: 0.5rem;
+  --crew-scroll-clearance: calc(var(--crew-sticky-bottom) + var(--crew-ring-clearance));
+  @variant lg {
+    --saved-copy-bar-top: var(--crew-header-bottom);
+  }
+}
+
+/*
+ * Keyboard focus never lands under the sticky chrome (WCAG 2.2 SC 2.4.11,
+ * audit P1-2). A control focused by Tab or Shift+Tab is scrolled into view
+ * inside the scroll padding, so it stops below the header and the preview
+ * banner, ring included, instead of under them. At every width, since the
+ * preview banner sticks below 1024px too; only on a page that has the crew
+ * header.
+ */
+:root:has([data-testid="page-header"]) {
+  scroll-padding-top: var(--crew-scroll-clearance);
 }

@@ -2116,13 +2116,13 @@ describe("no corpus component escapes the follow branch unnamed", () => {
   });
 
   /**
-   * The in-corpus tags the resolver correctly declines to name. THREE, and each
+   * The in-corpus tags the resolver correctly declines to name. FOUR, and each
    * is a non-follow for a reason no resolver can fix rather than one this arc
    * chose not to fix:
    *
-   * - the two `<Icon />` sites render a component read out of a TABLE at
-   *   runtime (`const Icon = SECTION_ICON[id]`, and an `Icon: LucideIcon` field
-   *   on a section record). Which component that is depends on a value, so no
+   * - the three `<Icon />` sites render a component read out of a TABLE at
+   *   runtime (`const Icon = SECTION_ICON[id]` in the crew "All sections" rows
+   *   and the crew wide nav, and an `Icon: LucideIcon` field on a section record). Which component that is depends on a value, so no
    *   static resolver can name it — limit L1, stated as a registry row rather
    *   than left to the prose.
    * - `ZoomController` is a local function that renders NO JSX; it drives a zoom
@@ -2130,13 +2130,14 @@ describe("no corpus component escapes the follow branch unnamed", () => {
    *   holds JSX, so declining it is correct: there is nothing to follow and
    *   nothing it can paint.
    *
-   * Sorted, file-relative, and compared as a SET: a fourth member fails here,
+   * Sorted, file-relative, and compared as a SET: a fifth member fails here,
    * which is the whole point. An alias refactor of a real corpus component lands
    * in this list and reds instead of vanishing.
    */
   const UNNAMABLE_IN_CORPUS = [
     "components/admin/wizard/step3ReviewSections.tsx <Icon>",
-    "components/crew/CrewSubNav.tsx <Icon>",
+    "components/crew/CrewAllSections.tsx <Icon>",
+    "components/crew/CrewWideNav.tsx <Icon>",
     "components/diagrams/GalleryLightbox.tsx <ZoomController>",
   ];
 

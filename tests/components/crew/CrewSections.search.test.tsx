@@ -1,19 +1,23 @@
 // @vitest-environment jsdom
 /**
- * tests/components/crew/CrewSections.search.test.tsx (crew show search, Task 16)
+ * tests/components/crew/CrewSections.search.test.tsx (crew show search, Task 16;
+ * migrated to the crew page redesign's controller on the merge of the two arcs)
  *
- * The section controller under search (spec §6.2, §6.6, §9.1):
- * - while search is active, the sub-nav and the section body carry `hidden` and
+ * The section controller under search (search spec §6.2, §6.6, §6.8, §9.1;
+ * redesign spec §1.2, §5.2, §5.3):
+ * - while search is active, the wide nav and the page body carry `hidden` and
  *   the results slot renders in their place; ending search un-hides them, and an
  *   open `<details>` in the body is still open (the body was hidden, never
- *   unmounted);
- * - `useSectionController().openSectionAndReveal(section, id)` switches the
- *   section the way a tab tap does (shallow pushState to the section href), waits
- *   for the target to mount, opens every `<details>` around AND inside it,
- *   scrolls it to centre, focuses it and sets `data-search-reveal`;
- * - a target that never mounts is announced after 1500 ms; the highlight clears
- *   after 1600 ms, or after 2000 ms under reduced motion, where the stylesheet
- *   holds the tint without animating.
+ *   unmounted). Both layouts.
+ * - `useSectionController().openSectionAndReveal(section, id)`: compact opens
+ *   that section's sheet (the §5.2 push with the `crewSheet` marker) and centres
+ *   the line inside the sheet body; wide replaces `s`, never pushes, and scrolls
+ *   the page to the line. Both wait for the target to mount, open every
+ *   `<details>` around AND inside it, focus it and set `data-search-reveal`.
+ * - a target that never mounts is announced after 1500 ms, in a status region
+ *   the sheet's inert sweep leaves live; the highlight clears after 1600 ms, or
+ *   after 2000 ms under reduced motion, where the stylesheet holds the tint
+ *   without animating.
  *
  * Every duration is typed here from the spec, never imported from the
  * component, so a constant that drifts fails.
@@ -23,13 +27,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { CrewSections, useSectionController } from "@/components/crew/CrewSections";
+import { CrewWideNav } from "@/components/crew/CrewWideNav";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider } from "@/components/crew/search/CrewSearchProvider";
+import { CREW_SECTION_LABELS, type CrewSectionEntry } from "@/lib/crew/crewSections";
+import { buildSectionHref } from "@/lib/crew/sectionHref";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { FIXTURE_INDEX } from "../../search/_fixtureIndex";
+
+const PATH = "/show/spring-gala/tok123";
 
 const nav = vi.hoisted(() => ({
   pathname: "/show/spring-gala/tok123",
@@ -42,32 +51,40 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => nav.searchParams,
 }));
 
-function stubMatchMedia(reduced: boolean) {
+type Mode = "compact" | "wide";
+
+function stubMatchMedia({ mode, reduced }: { mode: Mode; reduced: boolean }) {
   vi.stubGlobal(
     "matchMedia",
-    vi.fn().mockReturnValue({
-      matches: reduced,
-      media: "(prefers-reduced-motion: reduce)",
+    vi.fn((query: string) => ({
+      matches: query.includes("prefers-reduced-motion")
+        ? reduced
+        : query.includes("min-width: 1024px")
+          ? mode === "wide"
+          : false,
+      media: query,
       onchange: null,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       addListener: vi.fn(),
       removeListener: vi.fn(),
       dispatchEvent: vi.fn(),
-    }),
+    })),
   );
 }
 
 let pushStateSpy: ReturnType<typeof vi.spyOn>;
-let scrollIntoView: ReturnType<typeof vi.fn>;
+let replaceStateSpy: ReturnType<typeof vi.spyOn>;
+let scrollToSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   nav.searchParams = new URLSearchParams();
-  stubMatchMedia(false);
+  History.prototype.replaceState.call(window.history, null, "", PATH);
+  stubMatchMedia({ mode: "compact", reduced: false });
   pushStateSpy = vi.spyOn(window.history, "pushState").mockImplementation(() => {});
-  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
-  scrollIntoView = vi.fn();
-  Element.prototype.scrollIntoView = scrollIntoView as unknown as Element["scrollIntoView"];
+  replaceStateSpy = vi.spyOn(window.history, "replaceState").mockImplementation(() => {});
+  vi.spyOn(window.history, "back").mockImplementation(() => {});
+  scrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -75,7 +92,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  document.body.style.overflow = "";
 });
 
 /** The controller, captured from inside the CrewSections tree. */
@@ -92,6 +109,14 @@ function Capture() {
 
 const VENUE_TARGET = "venue:venue-facilities:k3x9";
 const TODAY_TARGET = "today:today-notes:p01";
+
+function entries(): CrewSectionEntry[] {
+  return (["schedule", "venue", "travel", "crew", "gear"] as const).map((id) => ({
+    id,
+    label: CREW_SECTION_LABELS[id],
+    peek: null,
+  }));
+}
 
 function nodes(): Partial<Record<SectionId, ReactNode>> {
   return {
@@ -129,7 +154,10 @@ function nodes(): Partial<Record<SectionId, ReactNode>> {
   };
 }
 
-function renderShell(initialSection: SectionId = "today") {
+function renderShell(
+  initialSection: SectionId = "today",
+  over: Partial<Record<SectionId, ReactNode>> = {},
+) {
   render(
     <CrewSearchProvider
       slug="spring-gala"
@@ -139,14 +167,23 @@ function renderShell(initialSection: SectionId = "today") {
       cardReport={null}
     >
       <CrewSearchField />
-      <CrewSections initialSection={initialSection} budgetVisible={false} sectionNodes={nodes()} />
+      <CrewSections
+        initialSection={initialSection}
+        sections={entries()}
+        sectionNodes={{ ...nodes(), ...over }}
+      />
     </CrewSearchProvider>,
   );
 }
 
 const REVEAL_GONE = "That line isn't on the page anymore.";
 
-/** Frames on the (fake) timer clock, so a test can step them. */
+/**
+ * Frames on the timer clock, so a test can step them under fake timers. The
+ * real-timer cases use it too: jsdom's own frame loop runs on a timer, and a
+ * fake-timer case in this file leaves that loop parked on the fake clock, so a
+ * later case waiting on jsdom's frames would wait on a frame that never comes.
+ */
 function frameOnTimers() {
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
     window.setTimeout(() => cb(performance.now()), 16),
@@ -154,25 +191,48 @@ function frameOnTimers() {
   vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
 }
 
-describe("CrewSections while search is active", () => {
-  it("hides the sub-nav and the body, renders the results slot, and keeps body state", () => {
+function searchBox(): HTMLElement {
+  return screen.getByRole("searchbox", { name: "Search this show" });
+}
+
+/** The open sheet's dialog, or null. */
+function sheet(): HTMLElement | null {
+  return screen.queryByRole("dialog");
+}
+
+/** The wide layout's stacked section for an id. */
+function wideSection(id: SectionId): HTMLElement {
+  return screen
+    .getByTestId("crew-wide-stack")
+    .querySelector<HTMLElement>(`[data-section="${id}"]`)!;
+}
+
+describe.each(["compact", "wide"] as const)("CrewSections while search is active (%s)", (mode) => {
+  beforeEach(() => stubMatchMedia({ mode, reduced: false }));
+
+  it("hides the section nav and the body, renders the results slot, and keeps body state", () => {
     renderShell();
     const body = screen.getByTestId("page-container");
     const details = screen.getByTestId("today-details") as HTMLDetailsElement;
     details.open = true;
     expect(body).not.toHaveAttribute("hidden");
     expect(screen.queryByTestId("crew-search-panel")).toBeNull();
+    // Premise: the layout's section navigation is on the page before search starts.
+    const sectionNav =
+      mode === "wide"
+        ? screen.getByTestId("crew-wide-nav")
+        : screen.getByTestId("crew-all-sections");
+    expect(sectionNav.closest("[hidden]")).toBeNull();
 
     // Search starts on the first typed character (one character is the Hint
     // state), never on focus alone (WCAG 3.2.1; the next case).
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search this show" }), {
-      target: { value: "w" },
-    });
+    fireEvent.change(searchBox(), { target: { value: "w" } });
 
     expect(body).toHaveAttribute("hidden");
-    expect(screen.getByTestId("crew-sub-nav").closest("[hidden]")).not.toBeNull();
+    expect(sectionNav.closest("[hidden]")).not.toBeNull();
     const panel = screen.getByTestId("crew-search-panel");
     expect(panel).not.toHaveAttribute("hidden");
+    expect(panel.closest("[hidden]")).toBeNull();
     expect(panel).toHaveTextContent("Search Wi-Fi, the dock, rooms, gear, people and more.");
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -180,63 +240,77 @@ describe("CrewSections while search is active", () => {
     expect(screen.queryByTestId("crew-search-panel")).toBeNull();
     expect(screen.getByTestId("page-container")).toBe(body);
     expect(body).not.toHaveAttribute("hidden");
-    expect(screen.getByTestId("crew-sub-nav").closest("[hidden]")).toBeNull();
+    expect(sectionNav.closest("[hidden]")).toBeNull();
     // Hidden, never unmounted: the same element, still open.
     expect(screen.getByTestId("today-details")).toBe(details);
     expect(details.open).toBe(true);
   });
-});
 
-describe("CrewSections while the search field only has focus", () => {
   // Impeccable audit U1 (WCAG 3.2.1 On Focus): tabbing or tapping into the field
   // must not hide the page.
-  it("keeps the sub-nav and the body visible and renders no results slot", () => {
+  it("while the field only has focus, keeps the nav and the body visible and renders no results slot", () => {
     renderShell();
-    const input = screen.getByRole("searchbox", { name: "Search this show" });
+    const input = searchBox();
     act(() => input.focus());
     fireEvent.focus(input);
     fireEvent.click(input);
 
     expect(document.activeElement).toBe(input);
     expect(screen.getByTestId("page-container")).not.toHaveAttribute("hidden");
-    expect(screen.getByTestId("crew-sub-nav").closest("[hidden]")).toBeNull();
+    if (mode === "wide") expect(screen.getByTestId("crew-wide-nav")).not.toHaveAttribute("hidden");
     expect(screen.queryByTestId("crew-search-panel")).toBeNull();
   });
 });
 
-describe("openSectionAndReveal", () => {
-  it("switches section with a shallow pushState, then opens, scrolls, focuses and marks the target", async () => {
+describe("openSectionAndReveal, compact: the section's sheet", () => {
+  it("pushes the sheet entry, then opens, centres inside the sheet body, focuses and marks the target", async () => {
+    frameOnTimers();
     renderShell("today");
     act(() => controllerRef.current!.openSectionAndReveal("venue", VENUE_TARGET));
 
     expect(pushStateSpy).toHaveBeenCalledTimes(1);
-    expect(pushStateSpy.mock.calls[0]![2]).toContain("?s=venue");
+    const [state, , url] = pushStateSpy.mock.calls[0]!;
+    expect(state).toMatchObject({ crewSheet: true });
+    expect(url).toBe(buildSectionHref(PATH, nav.searchParams, "venue"));
+    expect(sheet()).toHaveAttribute("data-section", "venue");
 
-    // The venue body mounts only after the outgoing section's exit animation.
-    const target = await screen.findByTestId("venue-target");
+    const sheetBody = screen.getByTestId("crew-section-sheet-body");
+    const target = within(sheetBody).getByTestId("venue-target");
+    let scrollTop = 0;
+    Object.defineProperty(sheetBody, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = v;
+      },
+    });
+    Object.defineProperty(sheetBody, "clientHeight", { configurable: true, value: 300 });
+    sheetBody.getBoundingClientRect = () => ({ top: 100, height: 300 }) as DOMRect;
+    target.getBoundingClientRect = () => ({ top: 500, height: 20 }) as DOMRect;
+
     await waitFor(() => expect(target).toHaveAttribute("data-search-reveal"));
     expect((screen.getByTestId("outer-details") as HTMLDetailsElement).open).toBe(true);
     expect((screen.getByTestId("inner-details") as HTMLDetailsElement).open).toBe(true);
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
-    expect(scrollIntoView.mock.contexts[0]).toBe(target);
+    // Centred inside the body: 0 + (500 - 100) - (300 - 20) / 2.
+    expect(scrollTop).toBe(260);
+    expect(scrollToSpy, "the page behind the sheet does not scroll").not.toHaveBeenCalled();
     expect(target).toHaveAttribute("tabindex", "-1");
     expect(document.activeElement).toBe(target);
-    expect(screen.getByTestId("crew-shell-sections")).toHaveAttribute(
-      "data-active-section",
-      "venue",
-    );
   });
 
-  it("reveals in the section already open without pushing a history entry", async () => {
+  it("reveals a Today line on the home without pushing a history entry", async () => {
+    frameOnTimers();
     renderShell("today");
     act(() => controllerRef.current!.openSectionAndReveal("today", TODAY_TARGET));
     const target = screen.getByTestId("today-target");
     await waitFor(() => expect(target).toHaveAttribute("data-search-reveal"));
     expect(pushStateSpy).not.toHaveBeenCalled();
+    expect(sheet()).toBeNull();
     expect(document.activeElement).toBe(target);
   });
 
   it("does not take a natively focusable target out of the tab order", async () => {
+    frameOnTimers();
     const button = (
       <div data-testid="body-today">
         <Capture />
@@ -245,21 +319,7 @@ describe("openSectionAndReveal", () => {
         </button>
       </div>
     );
-    render(
-      <CrewSearchProvider
-        slug="spring-gala"
-        index={FIXTURE_INDEX}
-        missLogging={false}
-        showId="show-1"
-        cardReport={null}
-      >
-        <CrewSections
-          initialSection="today"
-          budgetVisible={false}
-          sectionNodes={{ ...nodes(), today: button }}
-        />
-      </CrewSearchProvider>,
-    );
+    renderShell("today", { today: button });
     act(() => controllerRef.current!.openSectionAndReveal("today", TODAY_TARGET));
     const target = screen.getByTestId("button-target");
     await waitFor(() => expect(target).toHaveAttribute("data-search-reveal"));
@@ -267,10 +327,110 @@ describe("openSectionAndReveal", () => {
     expect(document.activeElement).toBe(target);
   });
 
+  it("announces a gone line over the open sheet, from a status region the sheet leaves live", () => {
+    vi.useFakeTimers();
+    frameOnTimers();
+    renderShell("today");
+    fireEvent.change(searchBox(), { target: { value: "ordtg" } });
+    const row = screen.getByTestId("crew-search-row-open");
+    act(() => row.focus());
+    fireEvent.click(row);
+    // Premise: the result opened the sheet, and the tapped line is not in it.
+    expect(sheet()).toHaveAttribute("data-section", "venue");
+    expect(
+      screen.getByTestId("crew-section-sheet-body").querySelector("[data-search-reveal]"),
+    ).toBeNull();
+
+    const status = screen.getByTestId("crew-reveal-status");
+    // Premise: the sheet's inert sweep ran (the page body behind it is inert).
+    expect(screen.getByTestId("page-container").closest("[inert]")).not.toBeNull();
+    expect(status.closest("[inert]"), "an inert live region is never announced").toBeNull();
+
+    act(() => vi.advanceTimersByTime(1499));
+    expect(status).toHaveTextContent("");
+    act(() => vi.advanceTimersByTime(1));
+    expect(status).toHaveTextContent(REVEAL_GONE);
+    // Focus never fell to the page: the sheet took it on open (redesign spec §5.2).
+    expect(sheet()!.contains(document.activeElement)).toBe(true);
+  });
+});
+
+describe("openSectionAndReveal, wide: the page scrolls to the line", () => {
+  beforeEach(() => stubMatchMedia({ mode: "wide", reduced: false }));
+
+  it("replaces s (never pushes), scrolls the page to the target, opens, focuses and marks it", async () => {
+    frameOnTimers();
+    renderShell("today");
+    const target = within(wideSection("venue")).getByTestId("venue-target");
+    target.getBoundingClientRect = () => ({ top: 1500, height: 20 }) as DOMRect;
+    act(() => controllerRef.current!.openSectionAndReveal("venue", VENUE_TARGET));
+
+    expect(pushStateSpy).not.toHaveBeenCalled();
+    expect(replaceStateSpy).toHaveBeenCalledWith(
+      null,
+      "",
+      buildSectionHref(PATH, nav.searchParams, "venue"),
+    );
+    await waitFor(() => expect(target).toHaveAttribute("data-search-reveal"));
+    expect((screen.getByTestId("outer-details") as HTMLDetailsElement).open).toBe(true);
+    expect((screen.getByTestId("inner-details") as HTMLDetailsElement).open).toBe(true);
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: 1500, behavior: "smooth" });
+    expect(sheet()).toBeNull();
+    expect(target).toHaveAttribute("tabindex", "-1");
+    expect(document.activeElement).toBe(target);
+    expect(
+      screen.getByTestId("crew-wide-nav").querySelector('[data-section="venue"]'),
+    ).toHaveAttribute("aria-current", "true");
+  });
+
+  // Whole-diff review round 2, 2A-3: a Today reveal wrote no history in wide, so
+  // the previous section's `s` stayed in the URL and a reload went back there.
+  it("Venue then Today: each reveal replaces the URL once (never pushes), and Today's leaves it at home with Next's keys left out", async () => {
+    frameOnTimers();
+    const NEXT_KEYS = ["__NA", "_N", "__PRIVATE_NEXTJS_INTERNALS_TREE"];
+    const NEXT_STATE = { __NA: true, _N: 1, __PRIVATE_NEXTJS_INTERNALS_TREE: {} };
+    // The entry as Next leaves it: its own keys plus one of the page's.
+    History.prototype.replaceState.call(window.history, { ...NEXT_STATE, keep: "x" }, "", PATH);
+    // Writes land, with Next's keys copied back as its patched method does, so
+    // each reveal reads the entry the one before it left.
+    replaceStateSpy.mockImplementation(
+      (state: unknown, unused: string, url?: string | URL | null) =>
+        History.prototype.replaceState.call(
+          window.history,
+          { ...(state as object), ...NEXT_STATE },
+          unused,
+          url,
+        ),
+    );
+    renderShell("today");
+
+    act(() => controllerRef.current!.openSectionAndReveal("venue", VENUE_TARGET));
+    await waitFor(() =>
+      expect(within(wideSection("venue")).getByTestId("venue-target")).toHaveAttribute(
+        "data-search-reveal",
+      ),
+    );
+    // PREMISE: the Venue reveal put `s` in the URL, so there is something to leave.
+    expect(replaceStateSpy).toHaveBeenCalledTimes(1);
+    expect(new URLSearchParams(window.location.search).get("s")).toBe("venue");
+
+    act(() => controllerRef.current!.openSectionAndReveal("today", TODAY_TARGET));
+    await waitFor(() =>
+      expect(screen.getByTestId("today-target")).toHaveAttribute("data-search-reveal"),
+    );
+    expect(pushStateSpy).not.toHaveBeenCalled();
+    expect(replaceStateSpy).toHaveBeenCalledTimes(2);
+    const [state, , url] = replaceStateSpy.mock.calls[1]!;
+    expect(url).toBe(PATH);
+    expect(new URLSearchParams(window.location.search).has("s")).toBe(false);
+    for (const key of NEXT_KEYS) expect(state as Record<string, unknown>).not.toHaveProperty(key);
+    expect(state).toEqual({ keep: "x" });
+  });
+
   it("announces a target that never mounts after 1500 ms, and stops looking", () => {
     vi.useFakeTimers();
     frameOnTimers();
-    renderShell("venue");
+    renderShell("today");
     act(() => controllerRef.current!.openSectionAndReveal("venue", "venue:venue-facilities:gone"));
     const status = screen.getByTestId("crew-reveal-status");
     expect(status).toHaveAttribute("role", "status");
@@ -287,17 +447,15 @@ describe("openSectionAndReveal", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("a tapped result whose line is gone moves focus to the opened section's body after the wait", () => {
+  it("a tapped result whose line is gone moves focus to the opened section after the wait", () => {
     vi.useFakeTimers();
     frameOnTimers();
-    renderShell("venue");
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search this show" }), {
-      target: { value: "ordtg" },
-    });
+    renderShell("today");
+    fireEvent.change(searchBox(), { target: { value: "ordtg" } });
     const row = screen.getByTestId("crew-search-row-open");
     act(() => row.focus());
     fireEvent.click(row);
-    // Premise: the tapped row went with the search panel, and its line is not in the body.
+    // Premise: the tapped row went with the search panel, and its line is not in the page.
     expect(row.isConnected).toBe(false);
     expect(screen.getByTestId("page-container").querySelector("[data-search-reveal]")).toBeNull();
 
@@ -305,16 +463,16 @@ describe("openSectionAndReveal", () => {
     expect(document.activeElement).toBe(document.body);
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByTestId("crew-reveal-status")).toHaveTextContent(REVEAL_GONE);
-    const body = screen.getByTestId("page-container");
-    expect(document.activeElement).toBe(body);
-    expect(body).toHaveAttribute("tabindex", "-1");
+    const section = wideSection("venue");
+    expect(document.activeElement).toBe(section);
+    expect(section).toHaveAttribute("tabindex", "-1");
   });
 
   it("the gone-line fallback never takes focus from something the viewer moved to", () => {
     vi.useFakeTimers();
     frameOnTimers();
-    renderShell("venue");
-    const input = screen.getByRole("searchbox", { name: "Search this show" });
+    renderShell("today");
+    const input = searchBox();
     fireEvent.change(input, { target: { value: "ordtg" } });
     const row = screen.getByTestId("crew-search-row-open");
     act(() => row.focus());
@@ -325,18 +483,20 @@ describe("openSectionAndReveal", () => {
     act(() => vi.advanceTimersByTime(1000));
     expect(screen.getByTestId("crew-reveal-status")).toHaveTextContent(REVEAL_GONE);
     expect(document.activeElement).toBe(input);
-    expect(screen.getByTestId("page-container")).not.toHaveAttribute("tabindex");
+    expect(wideSection("venue")).not.toHaveAttribute("tabindex");
   });
 
   it("a new reveal replaces a pending one, so the first never announces", () => {
     vi.useFakeTimers();
     frameOnTimers();
-    renderShell("venue");
+    renderShell("today");
     act(() => controllerRef.current!.openSectionAndReveal("venue", "venue:venue-facilities:gone"));
     act(() => vi.advanceTimersByTime(800));
     act(() => controllerRef.current!.openSectionAndReveal("venue", VENUE_TARGET));
     act(() => vi.advanceTimersByTime(16));
-    expect(screen.getByTestId("venue-target")).toHaveAttribute("data-search-reveal");
+    expect(within(wideSection("venue")).getByTestId("venue-target")).toHaveAttribute(
+      "data-search-reveal",
+    );
     act(() => vi.advanceTimersByTime(1500));
     expect(screen.getByTestId("crew-reveal-status")).toHaveTextContent("");
   });
@@ -344,9 +504,9 @@ describe("openSectionAndReveal", () => {
   it("clears the highlight 1600 ms after it is set", () => {
     vi.useFakeTimers();
     frameOnTimers();
-    renderShell("venue");
+    renderShell("today");
     act(() => controllerRef.current!.openSectionAndReveal("venue", VENUE_TARGET));
-    const target = screen.getByTestId("venue-target");
+    const target = within(wideSection("venue")).getByTestId("venue-target");
     act(() => vi.advanceTimersByTime(16));
     expect(target).toHaveAttribute("data-search-reveal");
     act(() => vi.advanceTimersByTime(1599));
@@ -356,12 +516,12 @@ describe("openSectionAndReveal", () => {
   });
 
   it("under reduced motion, holds the highlight for 2000 ms", () => {
-    stubMatchMedia(true);
+    stubMatchMedia({ mode: "wide", reduced: true });
     vi.useFakeTimers();
     frameOnTimers();
-    renderShell("venue");
+    renderShell("today");
     act(() => controllerRef.current!.openSectionAndReveal("venue", VENUE_TARGET));
-    const target = screen.getByTestId("venue-target");
+    const target = within(wideSection("venue")).getByTestId("venue-target");
     act(() => vi.advanceTimersByTime(16));
     expect(target).toHaveAttribute("data-search-reveal");
     act(() => vi.advanceTimersByTime(1999));
@@ -369,6 +529,157 @@ describe("openSectionAndReveal", () => {
     act(() => vi.advanceTimersByTime(1));
     expect(target).not.toHaveAttribute("data-search-reveal");
   });
+});
+
+// Whole-diff review round 2 (round 3), 3A-2. Search hides the page body, the
+// document collapses, and the browser clamps the scroll to the top. The spy kept
+// measuring the hidden sections (every box at 0, the page "at its bottom") and
+// chose the last one; the nav cleared its indicator while hidden; and ending
+// search re-ran neither, so the nav stayed on Gear with no indicator.
+describe("wide: search leaves the section nav where the page actually is (3A-2)", () => {
+  const ORDER = ["schedule", "venue", "travel", "crew", "gear"] as const;
+  const VIEWPORT = 900;
+  const STEP = 1000;
+
+  /**
+   * A laid-out wide page: Today at the top, each section `STEP` below the one
+   * before, the nav and its items measurable, and nothing under `hidden`
+   * measurable at all, as a browser reports it. The scroll position is the
+   * test's, moved by `scrollTo` and by `setScroll` (the browser's own clamp).
+   */
+  function layOut() {
+    let scrollY = 0;
+    const restore: Array<() => void> = [];
+    const define = (target: object, key: string, get: () => number) => {
+      const own = Object.getOwnPropertyDescriptor(target, key);
+      Object.defineProperty(target, key, { configurable: true, get });
+      restore.push(() =>
+        own
+          ? Object.defineProperty(target, key, own)
+          : delete (target as Record<string, unknown>)[key],
+      );
+    };
+    const pageHidden = () =>
+      document.querySelector('[data-testid="page-container"]')?.hasAttribute("hidden") ?? false;
+    define(window, "scrollY", () => scrollY);
+    define(document.documentElement, "clientHeight", () => VIEWPORT);
+    define(document.documentElement, "scrollHeight", () =>
+      pageHidden() ? VIEWPORT : (ORDER.length + 1) * STEP + VIEWPORT,
+    );
+    scrollToSpy.mockImplementation(((arg: ScrollToOptions | number) => {
+      scrollY = typeof arg === "number" ? arg : (arg.top ?? scrollY);
+    }) as never);
+    const box = (top: number, height: number, width: number) =>
+      ({
+        top,
+        bottom: top + height,
+        left: 0,
+        right: width,
+        width,
+        height,
+        x: 0,
+        y: top,
+      }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.closest("[hidden]") !== null) return box(0, 0, 0);
+      const id = this.getAttribute("data-section");
+      if (this.dataset.testid === "crew-today-block") return box(-scrollY, STEP - 100, 700);
+      if (this.dataset.testid === "crew-wide-section" && id !== null) {
+        const i = ORDER.indexOf(id as (typeof ORDER)[number]);
+        return box((i + 1) * STEP - scrollY, STEP - 100, 700);
+      }
+      if (this.dataset.testid === "crew-wide-nav") return box(0, 600, 240);
+      if (this.closest('[data-testid="crew-wide-nav"]') !== null && id !== null) {
+        return box(["today", ...ORDER].indexOf(id as never) * 48, 44, 200);
+      }
+      return box(0, 0, 0);
+    });
+    return {
+      setScroll(y: number) {
+        scrollY = y;
+        act(() => {
+          window.dispatchEvent(new Event("scroll"));
+        });
+      },
+      restore() {
+        for (const undo of restore.reverse()) undo();
+      },
+    };
+  }
+
+  const navActive = () =>
+    screen
+      .getByTestId("crew-wide-nav")
+      .querySelector('[aria-current="true"]')
+      ?.getAttribute("data-section");
+  const indicator = () => screen.queryByTestId("crew-wide-nav-indicator");
+  /** Frames on the timer clock (frameOnTimers), stepped past a few of them. */
+  const frames = () => act(() => vi.advanceTimersByTime(64));
+
+  it("a nav that was hidden when its active item changed places the indicator when it shows again", () => {
+    // The spy is not the only writer of the active item: Back or Forward during
+    // search scrolls the hidden page and marks the item it lands on. The nav
+    // measures nothing while hidden, so showing it again must measure.
+    const page = layOut();
+    try {
+      const items = [
+        { id: "today" as const, label: "Today" },
+        ...ORDER.map((id) => ({ id, label: CREW_SECTION_LABELS[id] })),
+      ];
+      const nav = (active: SectionId, hidden: boolean) => (
+        <CrewWideNav items={items} active={active} hrefFor={(id) => `#${id}`} hidden={hidden} />
+      );
+      const { rerender } = render(nav("today", false));
+      expect(indicator(), "PREMISE: the indicator is placed while shown").not.toBeNull();
+      rerender(nav("venue", true));
+      expect(indicator(), "PREMISE: hidden, it measures nothing").toBeNull();
+      rerender(nav("venue", false));
+      expect(indicator()).not.toBeNull();
+    } finally {
+      page.restore();
+    }
+  });
+
+  for (const end of ["Cancel", "Escape on an empty query"] as const) {
+    it(`before, during and after a search ended by ${end}: the spy never reads the hidden page, and the nav shows where the page is`, () => {
+      vi.useFakeTimers();
+      stubMatchMedia({ mode: "wide", reduced: true });
+      frameOnTimers();
+      const page = layOut();
+      try {
+        renderShell("today");
+        frames();
+        // Before: scrolled to Venue, the nav on it with its indicator.
+        page.setScroll(2 * STEP + 100);
+        frames();
+        expect(navActive(), "PREMISE: the spy follows the page").toBe("venue");
+        expect(indicator(), "PREMISE: the indicator is placed").not.toBeNull();
+
+        // During: the body is hidden and the browser clamps the scroll to the top.
+        fireEvent.change(searchBox(), { target: { value: "ordtg" } });
+        expect(screen.getByTestId("page-container")).toHaveAttribute("hidden");
+        page.setScroll(0);
+        frames();
+        expect(navActive(), "the spy reads no hidden section").toBe("venue");
+
+        // After: the page shows again at the top, so the nav is on Today, with its indicator.
+        if (end === "Cancel") {
+          fireEvent.click(screen.getByTestId("crew-search-cancel"));
+        } else {
+          fireEvent.keyDown(searchBox(), { key: "Escape" }); // clears the query
+          fireEvent.keyDown(searchBox(), { key: "Escape" }); // ends search
+        }
+        expect(screen.getByTestId("page-container")).not.toHaveAttribute("hidden");
+        frames();
+        expect(navActive()).toBe("today");
+        expect(indicator(), "the indicator is back").not.toBeNull();
+      } finally {
+        page.restore();
+      }
+    });
+  }
 });
 
 describe("the [data-search-reveal] stylesheet rules (app/globals.css)", () => {

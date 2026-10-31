@@ -5,24 +5,29 @@
  *
  * Why a real browser (jsdom is NOT sufficient): this project's Tailwind v4 does
  * NOT default `.flex` to `align-items: stretch` (DESIGN §7 / AGENTS.md). The
- * split-wide grids carry `min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-
- * stretch`; a stretch-collapse (children no longer fill the row height) OR a
+ * split-wide grids carry `@min-crew-split:grid-cols-[1.6fr_1fr]
+ * @min-crew-split:items-start`, a CONTAINER query on the element that bounds the
+ * section body (DESIGN.md §6, `./helpers/crewSplitContainer`); a stretch-collapse (children no longer fill the row height) OR a
  * ratio drift passes every jsdom unit test and only surfaces in a real layout
  * engine. This suite reads `getBoundingClientRect()` against the live render to
  * pin the documented "Dimensional invariants":
  *
  *   - Each split-wide section (Schedule, Venue, Travel, Crew, Today Mode A):
- *     at ≥720px the LEFT column width ≈ 1.6 × the RIGHT column (±2px) AND the
+ *     split exactly when the body's container is at least `--container-crew-split`
+ *     wide: in the wide column (1024px and up) and the compact home's Today
+ *     block, never in the 480px section sheet. When split the LEFT column
+ *     width ≈ 1.6 × the RIGHT column (±2px) AND the
  *     two columns use items-start natural height (the short column is NOT
- *     stretched to the taller; 2026-06-21 owner amendment, NOT equal-height); at 390px the
- *     columns STACK to a single full-width column with NO horizontal overflow.
+ *     stretched to the taller; 2026-06-21 owner amendment, NOT equal-height); in
+ *     the sheet (1000px, 390px) the columns STACK to a single column with NO
+ *     horizontal overflow.
  *   - Schedule date badge `[data-testid="day-card-date"]` is 50px wide.
  *   - `[data-testid="avatar"]` is 40px square.
- *   - Sub-nav (Task 8.5): at ≥720px the desktop sub-nav's FIRST `[data-section]`
- *     tab's left edge aligns (±2px) with the LEFT *content* edge of
+ *   - Section list (Task 8.5's centering case): the compact "All sections"
+ *     card's left edge aligns (±2px) with the LEFT *content* edge of
  *     `[data-testid="page-container"]` (the shared `CREW_PAGE_CONTAINER`
- *     `max-w-300 px-4 sm:px-8` — NOT a hardcoded 1120px). Each tab contains an
- *     `svg` icon (asserted desktop ≥720px AND mobile 390px).
+ *     `max-w-300 px-4 sm:px-8` — NOT a hardcoded 1120px). Every row and every
+ *     wide nav item contains an `svg` icon.
  *
  * The only hardcoded numbers are the 50px badge, 40px avatar, the 1.6 ratio,
  * and the ±2px / ±0.5px tolerances — every other expected value is DERIVED from
@@ -69,6 +74,11 @@ import {
   type PhantomLedgerRow,
 } from "./helpers/phantomGap";
 import { premise, premiseHolds } from "../_shared/premise";
+import {
+  CREW_SPLIT_PX,
+  expectColumnsFollowSplit,
+  splitContainerOf,
+} from "./helpers/crewSplitContainer";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -208,7 +218,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // budget absorbs that. The layout reads themselves are sub-second once warm.
   test.setTimeout(180_000);
 
-  /** ≥720px tolerance for the 1.6 ratio + the sub-nav alignment (px). */
+  /** Tolerance for the 1.6 ratio + the section-list alignment (px). */
   const TOL_PX = 2;
   /** tight tolerance for stack-edge / shared-left-edge / overflow / ratio checks (±0.5px). */
   const TOL_TIGHT = 0.5;
@@ -299,8 +309,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     shareToken = await lookupShareToken(seeded.showId);
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
-    // Pin the SERVER's `today` to show-day-1 so TodaySection's Mode A gate fires
-    // (the section reads the server-supplied `today`, NOT a browser clock). The
+    // Pin the SERVER's `today` to show-day-1 so the home's run card mounts (the
+    // shell builds it from the server-supplied `today`, NOT a browser clock). The
     // port-3000 webServer carries ENABLE_TEST_AUTH=true + this exact
     // TEST_AUTH_SECRET, so nowDate() honors the frozen-now header (now.ts:37-73).
     // This header rides EVERY request from this context (sub-resources included),
@@ -331,6 +341,14 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       200,
     );
     await expect(page.getByTestId("crew-shell")).toBeVisible();
+    // Readiness gate: until the section controller hydrates and resolves its
+    // layout, the server render can hold a body twice (compact sheet and wide
+    // stack); after it, exactly once.
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
     await expect(page.getByTestId(`section-${section}`)).toBeVisible();
     await expect
       .poll(async () => (await rectOf(page.getByTestId(`section-${section}`))).height, {
@@ -340,112 +358,96 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   }
 
   /**
-   * The shared split-wide contract: at ≥720px the LEFT (first) column is ≈ 1.6×
-   * the RIGHT (second) column's width, side by side, with items-start natural
-   * height (NOT equal-height; 2026-06-21 owner amendment);
-   * at 390px the columns STACK (col2 below col1, shared left edge, full-width).
-   * `columnsLocator` returns the section's two `*-column` divs in DOM order
-   * (left/wide first). Derives the expected ratio from the measured rects — the
-   * only literal is the 1.6 target + the ±2px tolerance.
+   * The shared split-wide contract, keyed to the CONTAINER (DESIGN.md §6): a
+   * section body's two `*-column` divs are split exactly when the element that
+   * bounds the body is at least `CREW_SPLIT_PX` wide, and stacked otherwise.
+   * Three legs, each pinned to the container it exists to cover:
+   *   - 1024px, the narrowest wide window: the stacked wide section, split. The
+   *     LEFT (first) column is ≈ 1.6× the RIGHT, side by side, with items-start
+   *     natural height (NOT equal-height; 2026-06-21 owner amendment).
+   *   - 1000px: the section sheet (480px panel), NOT split, at a window the old
+   *     `min-[720px]` viewport rule split in. This leg is the 480px-sheet defect.
+   *   - 390px: the full-width sheet, stacked, with no horizontal overflow.
+   * Every width is measured; the only literals are the 1.6 target, the
+   * tolerances and the three window sizes.
    */
   async function assertSplitWide(
     page: import("@playwright/test").Page,
     section: string,
     columnsTestId: string,
     expectTwoColumns: boolean,
-  ): Promise<{ assertedSideBySide: boolean }> {
-    // ── ≥720px (viewport 1000): side-by-side, 1.6 ratio, natural height. ──
-    await page.setViewportSize({ width: 1000, height: 1000 });
-    await gotoSection(page, section);
-    const colsWide = page.getByTestId(columnsTestId);
-    const colCount = await colsWide.count();
-    expect(
-      colCount,
-      `${section}: must render at least one [data-testid="${columnsTestId}"]`,
-    ).toBeGreaterThan(0);
-
+  ): Promise<{ assertedSideBySide: boolean; assertedStacked: number }> {
+    const legs = [
+      { width: 1024, height: 1000, split: true, container: "crew-wide-section" },
+      { width: 1000, height: 1000, split: false, container: "crew-section-sheet-body" },
+      { width: 390, height: 844, split: false, container: "crew-section-sheet-body" },
+    ] as const;
     let assertedSideBySide = false;
-    if (colCount >= 2) {
-      const a = await rectOf(colsWide.nth(0)); // LEFT / wide (1.6fr)
-      const b = await rectOf(colsWide.nth(1)); // RIGHT / narrow (1fr)
-      // Side-by-side: the right column starts to the RIGHT of the left column.
+    let assertedStacked = 0;
+    for (const leg of legs) {
+      await page.setViewportSize({ width: leg.width, height: leg.height });
+      await gotoSection(page, section);
+      const cols = page.getByTestId(columnsTestId);
+      const colCount = await cols.count();
       expect(
-        b.left,
-        `@1000px ${section} columns must be side-by-side (col2.left > col1.left)`,
-      ).toBeGreaterThan(a.left + 1);
-      expect(a.width, `${section} left column must have non-zero width`).toBeGreaterThan(1);
-      expect(b.width, `${section} right column must have non-zero width`).toBeGreaterThan(1);
-      expect(a.height, `${section} left column must have non-zero height`).toBeGreaterThan(1);
-      expect(b.height, `${section} right column must have non-zero height`).toBeGreaterThan(1);
-
-      // (1) 1.6 ratio: left ≈ 1.6 × right. The grid tracks are `1.6fr 1fr`; with
-      // the inter-column gap subtracted equally from neither track, each column
-      // rect fills its track → leftWidth/rightWidth ≈ 1.6. Compared against the
-      // EXPECTED right-derived left width (1.6 × measured right), ±2px.
-      const expectedLeft = 1.6 * b.width;
-      expect(
-        Math.abs(a.width - expectedLeft),
-        `@1000px ${section} left column must be ≈1.6× the right (1.6fr/1fr); left=${a.width} right=${b.width} ratio=${(a.width / b.width).toFixed(4)} expectedLeft=${expectedLeft.toFixed(2)}`,
-      ).toBeLessThanOrEqual(TOL_PX);
-
-      // (2) Natural height — NOT equal-height. Per the 2026-06-21 owner amendment
-      // the split-wide grids use `items-start`, so the shorter column (e.g. the
-      // ~3-row "Crew Schedule" / ~2-contact "Key contacts" card) takes its
-      // own height instead of stretching to the taller column and leaving dead
-      // space. We assert the grid's computed align-items POSITIVELY: a regression
-      // that drops `min-[720px]:items-start` would otherwise still pass the ratio
-      // + side-by-side checks (CSS grid defaults to align-items:normal, which
-      // renders as stretch) while reintroducing the dead-space bug. Tailwind
-      // compiles `items-start` → `align-items: flex-start`, so browsers report
-      // `flex-start` for items-start, `stretch` for the old items-stretch, and
-      // `normal` for the unset default — so `toBe("flex-start")` catches both regressions.
-      // The grid is the column's direct parent (both `*-column` divs are direct
-      // children of the `grid-cols-[1.6fr_1fr]` container).
-      const align = await colsWide
-        .nth(0)
-        .evaluate((el) => getComputedStyle(el.parentElement as HTMLElement).alignItems);
-      expect(
-        align,
-        `@1000px ${section} split-wide grid must be items-start (natural height), not stretched; got align-items=${align}`,
-      ).toBe("flex-start");
-      assertedSideBySide = true;
-    } else if (expectTwoColumns) {
-      throw new Error(
-        `${section}: expected a 2-column split-wide layout but only ${colCount} ${columnsTestId} rendered on the seed`,
-      );
-    }
-
-    // ── 390px: stacked, single full-width column, no horizontal overflow. ──
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoSection(page, section);
-    const colsNarrow = page.getByTestId(columnsTestId);
-    if ((await colsNarrow.count()) >= 2) {
-      const a = await rectOf(colsNarrow.nth(0));
-      const b = await rectOf(colsNarrow.nth(1));
-      // Stacked: column 2's top is at/below column 1's bottom.
-      expect(
-        b.top,
-        `@390px ${section} columns must stack (col2.top ≥ col1.bottom); col2.top=${b.top} col1.bottom=${a.bottom}`,
-      ).toBeGreaterThanOrEqual(a.bottom - TOL_TIGHT);
-      // Single column: shared left edge.
-      expect(
-        Math.abs(a.left - b.left),
-        `@390px stacked ${section} columns must share a left edge; ${a.left} vs ${b.left}`,
-      ).toBeLessThanOrEqual(TOL_TIGHT);
-      // Full-width: each column's right edge does not exceed the viewport.
-      const vp = page.viewportSize()!;
-      for (const [name, r] of [
-        ["col1", a],
-        ["col2", b],
-      ] as const) {
+        colCount,
+        `@${leg.width}px ${section}: must render at least one [data-testid="${columnsTestId}"]`,
+      ).toBeGreaterThan(0);
+      if (colCount < 2) {
+        if (expectTwoColumns) {
+          throw new Error(
+            `${section}: expected a 2-column split-wide layout but only ${colCount} ${columnsTestId} rendered on the seed @${leg.width}px`,
+          );
+        }
+        continue;
+      }
+      const { a, b } = await expectColumnsFollowSplit(cols.nth(0), cols.nth(1), {
+        split: leg.split,
+        container: leg.container,
+        label: `@${leg.width}px ${section}`,
+        tolPx: TOL_TIGHT,
+      });
+      if (leg.split) {
+        expect(a.height, `${section} left column must have non-zero height`).toBeGreaterThan(1);
+        expect(b.height, `${section} right column must have non-zero height`).toBeGreaterThan(1);
+        // (1) 1.6 ratio: the grid tracks are `1.6fr 1fr`, so left ≈ 1.6 × the
+        // measured right, ±2px.
+        const expectedLeft = 1.6 * b.width;
         expect(
-          r.right,
-          `@390px ${section} ${name} right edge must not exceed viewport; right=${r.right} vp=${vp.width}`,
-        ).toBeLessThanOrEqual(vp.width + TOL_TIGHT);
+          Math.abs(a.width - expectedLeft),
+          `@${leg.width}px ${section} left column must be ≈1.6× the right (1.6fr/1fr); left=${a.width} right=${b.width} ratio=${(a.width / b.width).toFixed(4)} expectedLeft=${expectedLeft.toFixed(2)}`,
+        ).toBeLessThanOrEqual(TOL_PX);
+        // (2) Natural height, asserted POSITIVELY: a regression that drops
+        // `@min-crew-split:items-start` would still pass the ratio and
+        // side-by-side checks (a grid's unset align-items renders as stretch)
+        // while bringing back the dead-space bug. Tailwind compiles items-start
+        // to `align-items: flex-start`; `stretch` / `normal` are the
+        // regressions. The grid is the columns' direct parent.
+        const align = await cols
+          .nth(0)
+          .evaluate((el) => getComputedStyle(el.parentElement as HTMLElement).alignItems);
+        expect(
+          align,
+          `@${leg.width}px ${section} split-wide grid must be items-start (natural height), not stretched; got align-items=${align}`,
+        ).toBe("flex-start");
+        assertedSideBySide = true;
+      } else {
+        // Each column stays inside the sheet body's box.
+        const body = await rectOf(page.getByTestId(leg.container));
+        for (const [name, r] of [
+          ["col1", a],
+          ["col2", b],
+        ] as const) {
+          expect(
+            r.right,
+            `@${leg.width}px ${section} ${name} right edge must stay inside the sheet body; right=${r.right} body.right=${body.right}`,
+          ).toBeLessThanOrEqual(body.right + TOL_TIGHT);
+        }
+        assertedStacked += 1;
       }
     }
-    // Page-level: no horizontal scroll at 390px (a clipped/overflowing column
-    // would make scrollWidth exceed clientWidth).
+    // Page-level, on the last (390px) leg: no horizontal scroll (a clipped or
+    // overflowing column would make scrollWidth exceed clientWidth).
     const { scrollWidth, clientWidth } = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -455,7 +457,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       `@390px ${section} must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
     ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
 
-    return { assertedSideBySide };
+    return { assertedSideBySide, assertedStacked };
   }
 
   // ── Schedule / Venue / Travel / Crew — the four standing split-wide sections.
@@ -472,270 +474,174 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     { section: "travel", columnsTestId: "travel-column", expectTwoColumns: false },
     { section: "crew", columnsTestId: "crew-column", expectTwoColumns: false },
   ] as const) {
-    test(`${section}: split-wide 1.6 ratio + natural height (≥720px) / stacked (390px)`, async ({
+    test(`${section}: split-wide 1.6 ratio + natural height in the wide column (1024px) / stacked in the sheet (1000px, 390px)`, async ({
       page,
     }, testInfo) => {
       if (testInfo.project.name !== "mobile-safari") return;
-      const { assertedSideBySide } = await assertSplitWide(
+      const { assertedSideBySide, assertedStacked } = await assertSplitWide(
         page,
         section,
         columnsTestId,
         expectTwoColumns,
       );
-      // For the always-two-column Schedule the side-by-side branch MUST have run
-      // (otherwise the 1.6-ratio assertions never executed → silent pass).
+      // For the always-two-column Schedule every branch MUST have run (otherwise
+      // the 1.6-ratio or the in-sheet stacking assertions never executed, a
+      // silent pass).
       if (expectTwoColumns) {
         expect(
           assertedSideBySide,
-          `${section}: the ≥720px 1.6-ratio assertions must have executed (two columns present)`,
+          `${section}: the wide-column 1.6-ratio assertions must have executed (two columns present)`,
         ).toBe(true);
+        expect(
+          assertedStacked,
+          `${section}: both in-sheet stacking legs (1000px, 390px) must have executed`,
+        ).toBe(2);
       }
     });
   }
 
-  // ── Today Mode A — the gated run-of-show split-wide. The fixture (beforeAll)
-  // seeds show-day-1's agenda + the frozen server clock pins today=2026-04-21, so
-  // the [data-testid="today-mode-a-grid"] mounts. Its two children are the
-  // `today-run-of-show` card (LEFT, 1.6fr) and the quick-cards stack (RIGHT, 1fr).
-  // The grid's direct children carry no shared testid, so we measure the two
-  // `:scope > *` children of the grid directly.
-  test("today Mode A: split-wide 1.6 ratio + natural height (≥720px) / stacked (390px)", async ({
+  // ── Today Mode A — the run of show on the home (crew page redesign plan
+  // Task 10). The fixture (beforeAll) seeds show-day-1's run of show + agenda and
+  // the frozen server clock pins today=2026-04-21. The run-of-show card left the
+  // Today body's split grid for the home, under the pass: it reads the shared
+  // crew clock to find today, so the BROWSER clock is pinned to the same instant
+  // too, or hydration would move the card to the real date (no rows). The card
+  // spans the Today block, and its merged timeline keeps the list invariant.
+  test("today Mode A: the run card spans the Today block and its timeline list height equals its rows (1000px / 390px)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
+    await page.clock.setFixedTime(new Date(SHOW_DAY_1_INSTANT));
+    const seededRows = SEED_RUN_OF_SHOW[SHOW_DAY_1_ISO].entries.length;
 
-    // First prove Mode A actually mounted (not faked / not silently skipped).
-    await page.setViewportSize({ width: 1000, height: 1000 });
-    await gotoSection(page, "today");
-    const grid = page.getByTestId("today-mode-a-grid");
-    await expect(
-      grid,
-      "Today Mode A grid must mount (eligible admin viewer + seeded runOfShow[2026-04-21] + frozen server clock at show-day-1)",
-    ).toBeVisible();
-    // The run-of-show card is the LEFT column — its presence confirms Mode A, not
-    // the full-width Mode B stack.
-    await expect(page.getByTestId("today-run-of-show")).toBeVisible();
-
-    // Unified show-day timeline (spec §6.1 Dimensional Invariants): the seeded agenda
-    // (April 21, 2026 → SHOW_DAY_1_ISO) merges with the 9 crew run-of-show entries → the
-    // `show-day-timeline-*` list mounts in the LEFT column. The fixture has 11 non-synthetic
-    // rows (≤ RUN_OF_SHOW_DISPLAY_CAP=20) → NO overflow stub → the list height equals exactly
-    // the <ul> row stack (each row's border-box height already includes the divide-y divider).
-    const timeline = page.locator('[data-testid^="show-day-timeline-"]');
-    await expect(timeline).toBeVisible();
-    await expect(timeline.locator('[data-testid="timeline-agenda-overflow"]')).toHaveCount(0);
-    // At least one agenda row mounted (proves the merge actually ran, not crew-only).
-    await expect(timeline.locator('[data-testid="timeline-agenda-session"]').first()).toBeVisible();
-    const timelineBox = await rectOf(timeline);
-    const timelineRows = timeline.locator(
-      '[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]',
-    );
-    const rowCount = await timelineRows.count();
-    expect(rowCount, "unified timeline must render ≥4 interleaved rows").toBeGreaterThanOrEqual(4);
-    let rowHeightSum = 0;
-    for (let i = 0; i < rowCount; i++) {
-      const rb = await rectOf(timelineRows.nth(i));
-      expect(
-        Math.abs(rb.width - timelineBox.width),
-        `timeline row ${i} must fill the list width; row=${rb.width} list=${timelineBox.width}`,
-      ).toBeLessThanOrEqual(TOL_TIGHT);
-      rowHeightSum += rb.height;
-    }
-    // Spec §6.1: list height EQUALS the sum of row heights (±0.5px) — two-sided.
-    expect(
-      Math.abs(timelineBox.height - rowHeightSum),
-      `timeline list height must equal Σ row heights; list=${timelineBox.height} sum=${rowHeightSum}`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
-
-    // ≥720px: the two grid children are side-by-side, 1.6 ratio, natural height
-    // (items-start per the 2026-06-21 owner amendment — NOT equal-height).
-    const childRects: Rect[] = await grid.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(childRects.length, "Today Mode A grid must have exactly two columns").toBe(2);
-    const [left, right] = childRects as [Rect, Rect];
-    expect(right.left, "@1000px Today Mode A columns must be side-by-side").toBeGreaterThan(
-      left.left + 1,
-    );
-    const expectedLeft = 1.6 * right.width;
-    expect(
-      Math.abs(left.width - expectedLeft),
-      `@1000px Today Mode A left (run-of-show) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
-    ).toBeLessThanOrEqual(TOL_PX);
-    // Natural height: assert items-start POSITIVELY (Tailwind compiles items-start
-    // → align-items: flex-start, so browsers report `flex-start`; `stretch`/`normal`
-    // for the regression) so dropping `min-[720px]:items-start` can't pass on ratio
-    // + side-by-side alone.
-    const alignA = await grid.evaluate((el) => getComputedStyle(el as HTMLElement).alignItems);
-    expect(
-      alignA,
-      `@1000px Today Mode A grid must be items-start (natural height), not stretched; got align-items=${alignA}`,
-    ).toBe("flex-start");
-
-    // 390px: stacked, single full-width column, no horizontal overflow.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoSection(page, "today");
-    const gridNarrow = page.getByTestId("today-mode-a-grid");
-    await expect(gridNarrow).toBeVisible();
-    const narrowRects: Rect[] = await gridNarrow.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(narrowRects.length, "Today Mode A grid must still have two columns at 390px").toBe(2);
-    const [na, nb] = narrowRects as [Rect, Rect];
-    expect(
-      nb.top,
-      `@390px Today Mode A columns must stack (col2.top ≥ col1.bottom); col2.top=${nb.top} col1.bottom=${na.bottom}`,
-    ).toBeGreaterThanOrEqual(na.bottom - TOL_TIGHT);
-    expect(
-      Math.abs(na.left - nb.left),
-      `@390px stacked Today Mode A columns must share a left edge; ${na.left} vs ${nb.left}`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
-    const vp = page.viewportSize()!;
-    for (const [name, r] of [
-      ["col1", na],
-      ["col2", nb],
+    for (const [width, height] of [
+      [1000, 1000],
+      [390, 844],
     ] as const) {
+      await page.setViewportSize({ width, height });
+      await gotoSection(page, "today");
+      // First prove Mode A's run card actually mounted (not faked / not silently skipped).
+      const card = page.getByTestId("today-run-of-show");
+      await expect(
+        card,
+        `@${width}px the run card must mount (eligible admin + seeded runOfShow[${SHOW_DAY_1_ISO}] + both clocks at show-day-1)`,
+      ).toBeVisible();
+      await expect(card).toHaveAttribute("data-selection", "live");
+
+      // Unified show-day timeline (spec §6.1 Dimensional Invariants): the seeded
+      // agenda merges with the crew rows; the card keeps the first rows and links
+      // the rest ("Full schedule"), so fewer rows render than were seeded.
+      const timeline = card.locator('[data-testid^="show-day-timeline-"]');
+      await expect(timeline).toBeVisible();
+      await expect(timeline.locator('[data-testid="timeline-agenda-overflow"]')).toHaveCount(0);
+      await expect(
+        timeline.locator('[data-testid="timeline-agenda-session"]').first(),
+      ).toBeVisible();
+      await expect(card.getByRole("link", { name: "Full schedule" })).toBeVisible();
+      // Gate fix X10: with "Full schedule" in the header the title read "RU…" at
+      // 390. It sits at the foot now, and the title is never cut.
+      const title = card.locator('[data-slot="section-card-title"]');
+      await expect(title).toHaveText("Run of show");
+      const titleFit = await title.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
       expect(
-        r.right,
-        `@390px Today Mode A ${name} right edge must not exceed viewport; right=${r.right} vp=${vp.width}`,
-      ).toBeLessThanOrEqual(vp.width + TOL_TIGHT);
+        titleFit.sw,
+        `@${width}px the run card title must not be cut (${JSON.stringify(titleFit)})`,
+      ).toBeLessThanOrEqual(titleFit.cw + TOL_TIGHT);
+      const timelineBox = await rectOf(timeline);
+      const timelineRows = timeline.locator(
+        '[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]',
+      );
+      const rowCount = await timelineRows.count();
+      expect(rowCount, "the run card must render ≥4 interleaved rows").toBeGreaterThanOrEqual(4);
+      expect(rowCount, "the run card caps the rows below the seeded count").toBeLessThan(
+        seededRows,
+      );
+      let rowHeightSum = 0;
+      for (let i = 0; i < rowCount; i++) {
+        const rb = await rectOf(timelineRows.nth(i));
+        expect(
+          Math.abs(rb.width - timelineBox.width),
+          `@${width}px timeline row ${i} must fill the list width; row=${rb.width} list=${timelineBox.width}`,
+        ).toBeLessThanOrEqual(TOL_TIGHT);
+        rowHeightSum += rb.height;
+      }
+      // Spec §6.1: list height EQUALS the sum of row heights (±0.5px) — two-sided.
+      expect(
+        Math.abs(timelineBox.height - rowHeightSum),
+        `@${width}px timeline list height must equal Σ row heights; list=${timelineBox.height} sum=${rowHeightSum}`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+
+      // The card spans the Today block's content box, at every width.
+      const block = await rectOf(page.getByTestId("crew-today-block"));
+      const cardBox = await rectOf(card);
+      expect(
+        Math.abs(cardBox.width - block.width),
+        `@${width}px the run card must span the Today block; card=${cardBox.width} block=${block.width}`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        scrollWidth,
+        `@${width}px Today (Mode A) must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
+      ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
     }
-    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
-    expect(
-      scrollWidth,
-      `@390px Today (Mode A) must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
-    ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
   });
 
-  // ── Today Mode B — the PERSISTENT split-wide (the non-show-day desktop
-  // two-column treatment; the fix for the wrapped/off-day Today stretching its
-  // cards full-bleed). Overriding the frozen server clock to a POST-show instant
-  // (2026-04-25 — the Waldorf seed's show days are 2026-04-21/22) makes
-  // `isShowDay` false → Mode B. The seed has a GS room with set/show/strike times
-  // (→ a "Key times" card in the LEFT day-context column) AND a hotel + venue (→
-  // the quick-cards RIGHT column), so [data-testid="today-mode-b-grid"] mounts.
-  // Mode B uses `items-start` (the day-context + cards stacks differ in height),
-  // so this asserts the 1.6 ratio + side-by-side (NOT equal-height) at ≥720px and
-  // the single full-width stack at 390px.
-  test("today Mode B: persistent split-wide 1.6 ratio (≥720px) / stacked (390px) on a non-show-day", async ({
+  // ── Today on a non-show-day: the home body under the pass ──────────────────
+  // Today's Mode B split grid (key times LEFT, quick cards RIGHT) retired with
+  // TodaySection (crew page redesign plan Task 11), and with it the 720px
+  // container split the Today block owned: the home body reads no container
+  // query. The failure modes carried over are the stack and the overflow: below
+  // 1024px the home body (quick facts, show notes, Dress code card) sits under
+  // the day row and the pass at the Today block's full width, and the page never
+  // scrolls sideways. A POST-show server clock (2026-04-25; the Waldorf seed's
+  // show days are 2026-04-21/22) keeps the run card out, as Mode B did.
+  test("today: on a non-show-day the home body stacks under the pass at the Today block's width (1000px / 390px)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
-
-    // Override the beforeEach show-day-1 clock with a POST-show instant → Mode B.
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": "2026-04-25T12:00:00Z",
       Authorization: `Bearer ${TEST_AUTH_SECRET}`,
     });
-
-    // First prove Mode B actually mounted (not Mode A, not the lone-stack fallback).
-    await page.setViewportSize({ width: 1000, height: 1000 });
-    await gotoSection(page, "today");
-    await expect(
-      page.getByTestId("today-mode-a-grid"),
-      "post-show Today must be Mode B (no run-of-show), not Mode A",
-    ).toHaveCount(0);
-    const grid = page.getByTestId("today-mode-b-grid");
-    await expect(
-      grid,
-      "Today Mode B persistent split-wide grid must mount (non-show-day + key-times LEFT + quick-cards RIGHT)",
-    ).toBeVisible();
-    // LEFT = day-context (key times); RIGHT = the quick-cards stack.
-    await expect(page.getByTestId("today-day-context")).toBeVisible();
-    await expect(page.getByTestId("today-quick-cards")).toBeVisible();
-
-    // ≥720px: the two grid children are side-by-side, 1.6 ratio (NOT equal-height
-    // — Mode B is items-start, the two stacks differ in height by design).
-    const childRects: Rect[] = await grid.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(childRects.length, "Today Mode B grid must have exactly two columns").toBe(2);
-    const [left, right] = childRects as [Rect, Rect];
-    expect(right.left, "@1000px Today Mode B columns must be side-by-side").toBeGreaterThan(
-      left.left + 1,
-    );
-    const expectedLeft = 1.6 * right.width;
-    expect(
-      Math.abs(left.width - expectedLeft),
-      `@1000px Today Mode B left (day-context) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
-    ).toBeLessThanOrEqual(TOL_PX);
-    // Natural height: items-start asserted positively (Mode B has always been
-    // items-start; pinning it keeps the whole split-wide family uniform).
-    const alignB = await grid.evaluate((el) => getComputedStyle(el as HTMLElement).alignItems);
-    expect(
-      alignB,
-      `@1000px Today Mode B grid must be items-start (natural height), not stretched; got align-items=${alignB}`,
-    ).toBe("flex-start");
-
-    // 390px: stacked, single full-width column, no horizontal overflow.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await gotoSection(page, "today");
-    const gridNarrow = page.getByTestId("today-mode-b-grid");
-    await expect(gridNarrow).toBeVisible();
-    const narrowRects: Rect[] = await gridNarrow.evaluate((el) =>
-      Array.from(el.children).map((c) => {
-        const r = (c as HTMLElement).getBoundingClientRect();
-        return {
-          top: r.top,
-          left: r.left,
-          right: r.right,
-          bottom: r.bottom,
-          width: r.width,
-          height: r.height,
-        };
-      }),
-    );
-    expect(narrowRects.length, "Today Mode B grid must still have two columns at 390px").toBe(2);
-    const [na, nb] = narrowRects as [Rect, Rect];
-    expect(
-      nb.top,
-      `@390px Today Mode B columns must stack (col2.top ≥ col1.bottom); col2.top=${nb.top} col1.bottom=${na.bottom}`,
-    ).toBeGreaterThanOrEqual(na.bottom - TOL_TIGHT);
-    expect(
-      Math.abs(na.left - nb.left),
-      `@390px stacked Today Mode B columns must share a left edge; ${na.left} vs ${nb.left}`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
-    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
-    expect(
-      scrollWidth,
-      `@390px Today (Mode B) must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
-    ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
+    for (const [width, height] of [
+      [1000, 1000],
+      [390, 844],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await gotoSection(page, "today");
+      await expect(
+        page.getByTestId("today-run-of-show"),
+        "post-show Today has no run card",
+      ).toHaveCount(0);
+      const block = await rectOf(page.getByTestId("crew-today-block"));
+      const lead = await rectOf(page.getByTestId("crew-today-lead"));
+      const body = await rectOf(page.getByTestId("section-today"));
+      await expect(page.getByTestId("crew-quick-facts")).toBeVisible();
+      expect(
+        body.top,
+        `@${width}px the home body sits under the day row and the pass; body.top=${body.top} lead.bottom=${lead.bottom}`,
+      ).toBeGreaterThanOrEqual(lead.bottom - TOL_TIGHT);
+      for (const [name, r] of [
+        ["lead", lead],
+        ["home body", body],
+      ] as const) {
+        expect(
+          Math.abs(r.width - block.width),
+          `@${width}px the ${name} spans the Today block; ${r.width} vs ${block.width}`,
+        ).toBeLessThanOrEqual(TOL_TIGHT);
+      }
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        scrollWidth,
+        `@${width}px Today must have NO horizontal overflow; scrollWidth=${scrollWidth} clientWidth=${clientWidth}`,
+      ).toBeLessThanOrEqual(clientWidth + TOL_TIGHT);
+    }
   });
 
   // ── Schedule date badge is 50px wide (DayCard.tsx `w-12.5` = 3.125rem = 50px). ──
@@ -752,27 +658,10 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     ).toBeLessThanOrEqual(TOL_TIGHT);
   });
 
-  // ── §5.5 KeyTimesStrip row-layout equal-width cells ──────────────────────
-  // At ≥720px the `layout="row"` posture gives every [data-anchor] cell
-  // `min-[720px]:flex-1`. With ≥2 anchors present the cells must be equal-width
-  // (±2px). The seed populates two show days (2026-04-21 + 2026-04-22), so the
-  // strip renders ≥2 [data-anchor] cells (Set + Show×2 or Show×2 at minimum).
-  // Expected fail mode before §5 UI tasks: the strip renders only the single
-  // legacy `show` anchor → `n < 2` → the `≥2 row anchors` assertion fails.
-  test("§5.5 KeyTimesStrip row cells are equal-width at ≥720px", async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-    await page.setViewportSize({ width: 1000, height: 1200 });
-    await gotoSection(page, "today"); // Today wide → KeyTimesStrip layout="row"
-    const cells = page.locator('[data-testid="key-times-strip"][data-layout="row"] [data-anchor]');
-    const n = await cells.count();
-    expect(n, "expected ≥2 row anchors (Set + ≥1 Show)").toBeGreaterThanOrEqual(2);
-    const widths: number[] = [];
-    for (let i = 0; i < n; i++) widths.push((await rectOf(cells.nth(i))).width);
-    // DERIVED expectation (anti-hardcode): every cell ≈ the first cell's width.
-    // widths.length >= n >= 2 so widths[0] is always defined here.
-    const w0 = widths[0] as number;
-    for (const w of widths) expect(Math.abs(w - w0)).toBeLessThanOrEqual(2);
-  });
+  // §5.5 KeyTimesStrip row-layout cells: the only `layout="row"` strip was
+  // Today's carded Key times, which retired with TodaySection (plan Task 11);
+  // Schedule's strip renders the default stack, so the row posture has no
+  // subject on the page and its equal-width case left with it.
 
   // ── §5.5 DayCard self-stretch vline fills the taller (meta-bearing) row ───
   // The bare-window day 2 card carries [data-slot="day-card-meta"] → it is the
@@ -828,23 +717,30 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   });
 
   // ── §5.5 schedule split-wide grid is items-start (natural height) ─────────
-  // At ≥720px the schedule-grid uses `min-[720px]:grid-cols-[1.6fr_1fr]
-  // min-[720px]:items-start` (ScheduleSection.tsx:166). The 1.6fr/1fr ratio is
+  // In a split-wide container (the wide column; never the 480px sheet) the
+  // schedule-grid uses `@min-crew-split:grid-cols-[1.6fr_1fr]
+  // @min-crew-split:items-start` (ScheduleSection.tsx). The 1.6fr/1fr ratio is
   // asserted positively; items-start is asserted via the height-inequality check:
   // with two show days of differing content the columns WILL differ in height, so
   // the shorter column NOT being stretched to the taller's height produces a
   // measurable difference (>2px). This complements the existing
   // `assertSplitWide` check which reads `getComputedStyle.alignItems === "flex-start"`.
-  test("§5.5 schedule split-wide grid is items-start (natural height, NOT stretch) at ≥720px", async ({
+  test("§5.5 schedule split-wide grid is items-start (natural height, NOT stretch) in the wide column", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
-    await page.setViewportSize({ width: 1000, height: 1200 });
+    // 1024px: the narrowest window with the wide column (below it the section
+    // opens in the 480px sheet, whose body never splits).
+    await page.setViewportSize({ width: 1024, height: 1200 });
     await gotoSection(page, "schedule");
     const cols = page.locator('[data-testid="schedule-column"]');
     expect(await cols.count()).toBe(2);
-    const left = await rectOf(cols.nth(0));
-    const right = await rectOf(cols.nth(1));
+    const { a: left, b: right } = await expectColumnsFollowSplit(cols.nth(0), cols.nth(1), {
+      split: true,
+      container: "crew-wide-section",
+      label: "@1024px schedule",
+      tolPx: TOL_TIGHT,
+    });
     // 1.6fr / 1fr ratio (DERIVED tolerance, not a hardcoded px width).
     expect(left.width / right.width).toBeGreaterThan(1.45);
     expect(left.width / right.width).toBeLessThan(1.75);
@@ -871,72 +767,54 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     ).toBeLessThanOrEqual(TOL_TIGHT);
   });
 
-  // ── Sub-nav centering (Task 8.5): at ≥720px the desktop sub-nav's FIRST
-  // [data-section] tab's left edge aligns (±2px) with the LEFT *content* edge of
-  // [data-testid="page-container"] — i.e. the container's box-left + its computed
-  // padding-left (the shared CREW_PAGE_CONTAINER `max-w-300 px-4 sm:px-8`). NOT a
-  // hardcoded 1120px. The content edge is derived live from getComputedStyle so
-  // the test survives any future gutter/max-width change made via the constant. ──
-  test("sub-nav: desktop first tab aligns with page-container content edge (≥720px) + every tab has an svg icon", async ({
+  // ── Section list and wide nav alignment (crew page redesign, from the Task
+  // 8.5 sub-nav centering case): the compact "All sections" card's left edge
+  // aligns (±2px) with the LEFT *content* edge of [data-testid="page-container"],
+  // i.e. its box-left + its computed padding-left, derived live from
+  // getComputedStyle so the case survives a gutter change made via the shared
+  // CREW_PAGE_CONTAINER. Every row, and every wide nav item, carries its svg icon. ──
+  test("section list: the All sections card aligns with the page-container content edge + every row and wide nav item has an svg icon", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
 
-    await page.setViewportSize({ width: 1000, height: 1000 });
-    await gotoSection(page, "today");
+    for (const width of [390, 1000]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await gotoSection(page, "today");
+      const card = page.getByTestId("crew-all-sections-card");
+      await expect(card).toBeVisible();
+      const cardRect = await rectOf(card);
+      const contentLeft = await page.getByTestId("page-container").evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const pl = Number.parseFloat(getComputedStyle(el).paddingLeft) || 0;
+        return r.left + pl;
+      });
+      expect(
+        Math.abs(cardRect.left - contentLeft),
+        `@${width}px the All sections card's left edge must align with the page-container content edge; card.left=${cardRect.left} contentLeft=${contentLeft}`,
+      ).toBeLessThanOrEqual(TOL_PX);
 
-    // The desktop nav is the FIRST <nav> with [data-section] children (DOM order:
-    // desktop first, mobile bottom-bar last — CrewSubNav.tsx). It is `hidden
-    // min-[720px]:flex`, so at 1000px it is the visible one.
-    const desktopNav = page
-      .getByTestId("crew-sub-nav")
-      .locator("nav")
-      .filter({ has: page.locator("[data-section]") })
-      .first();
-    await expect(desktopNav).toBeVisible();
-    const firstTab = desktopNav.locator("[data-section]").first();
-    await expect(firstTab).toBeVisible();
-    const firstTabRect = await rectOf(firstTab);
-
-    // Content-left of the page-container = its box left + computed padding-left.
-    const container = page.getByTestId("page-container");
-    const contentLeft = await container.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const pl = Number.parseFloat(getComputedStyle(el).paddingLeft) || 0;
-      return r.left + pl;
-    });
-
-    expect(
-      Math.abs(firstTabRect.left - contentLeft),
-      `@1000px sub-nav first tab's left edge must align with the page-container content edge (Task 8.5); tab.left=${firstTabRect.left} contentLeft=${contentLeft}`,
-    ).toBeLessThanOrEqual(TOL_PX);
-
-    // Every desktop tab contains an <svg> icon.
-    const desktopTabs = desktopNav.locator("[data-section]");
-    const desktopCount = await desktopTabs.count();
-    expect(desktopCount, "desktop sub-nav must render section tabs").toBeGreaterThan(1);
-    for (let i = 0; i < desktopCount; i++) {
-      const svgCount = await desktopTabs.nth(i).locator("svg").count();
-      const id = await desktopTabs.nth(i).getAttribute("data-section");
-      expect(svgCount, `@1000px desktop tab "${id}" must contain an svg icon`).toBeGreaterThan(0);
+      const rows = page.getByTestId("crew-all-sections-row");
+      const n = await rows.count();
+      expect(n, `@${width}px the list must render section rows`).toBeGreaterThan(1);
+      for (let i = 0; i < n; i++) {
+        const id = await rows.nth(i).getAttribute("data-section");
+        expect(
+          await rows.nth(i).locator("svg").count(),
+          `@${width}px row "${id}" must contain an svg icon`,
+        ).toBeGreaterThan(0);
+      }
     }
 
-    // Mobile: every bottom-bar tab also contains an <svg> icon.
-    await page.setViewportSize({ width: 390, height: 844 });
+    // Wide: every nav item carries its icon too.
+    await page.setViewportSize({ width: 1280, height: 900 });
     await gotoSection(page, "today");
-    const mobileNav = page
-      .getByTestId("crew-sub-nav")
-      .locator("nav")
-      .filter({ has: page.locator("[data-section]") })
-      .last();
-    await expect(mobileNav).toBeVisible();
-    const mobileTabs = mobileNav.locator("[data-section]");
-    const mobileCount = await mobileTabs.count();
-    expect(mobileCount, "mobile sub-nav must render section tabs").toBeGreaterThan(1);
-    for (let i = 0; i < mobileCount; i++) {
-      const svgCount = await mobileTabs.nth(i).locator("svg").count();
-      const id = await mobileTabs.nth(i).getAttribute("data-section");
-      expect(svgCount, `@390px mobile tab "${id}" must contain an svg icon`).toBeGreaterThan(0);
+    const items = page.getByTestId("crew-wide-nav").locator("[data-section]");
+    const count = await items.count();
+    expect(count, "the wide nav must render items").toBeGreaterThan(1);
+    for (let i = 0; i < count; i++) {
+      const id = await items.nth(i).getAttribute("data-section");
+      expect(await items.nth(i).locator("svg").count(), `nav item "${id}" svg`).toBeGreaterThan(0);
     }
   });
   // ───────────────────────────────────────────────────────────────────────────
@@ -1044,7 +922,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
 
     for (const { section, anchor } of NOPHANTOM_SECTIONS) {
-      for (const width of [390, 1000] as const) {
+      for (const width of [390, 1000, 1280] as const) {
         test(`T-NOPHANTOM-CREW [${section}] @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
           page,
         }, testInfo) => {
@@ -1052,7 +930,27 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
           await page.setViewportSize({ width, height: 1000 });
           await gotoSection(page, section);
 
-          const found = await scanForPhantomGaps(page.getByTestId("page-container"));
+          // 390 and 1000 are compact (below 1024px): Today is the home's column, and
+          // every other section opens in the section sheet, whose body is the
+          // container holding it (crew page redesign spec §5.2). 1280 is wide
+          // (spec §5.3): the sheet is unmounted and every section sits in the wide
+          // stack, the only place the two-column grids split (whole-diff review
+          // R4-F1). There Today's root is still the page container, which now holds
+          // the wide stack too, so the stack's own gap and every section in it are
+          // walked; each other section walks its own stacked section.
+          const wide = width >= 1024;
+          if (wide) {
+            // PREMISE: the wide layout is the one walked, not a compact sheet.
+            await expect(page.getByTestId("crew-wide-stack")).toBeVisible();
+            await expect(page.getByTestId("crew-section-sheet-body")).toHaveCount(0);
+          }
+          const found = await scanForPhantomGaps(
+            section === "today"
+              ? page.getByTestId("page-container")
+              : wide
+                ? page.locator(`[data-testid="crew-wide-section"][data-section="${section}"]`)
+                : page.getByTestId("crew-section-sheet-body"),
+          );
 
           // NON-VACUITY BY NAMED ANCHOR, never by a container count. The anchor is
           // a container the section genuinely renders, so a section that failed to
@@ -1225,8 +1123,8 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
  * Task 10 — GEAR scope grid (Scenic/Other 5-card) real-browser layout.
  *
  * The new Scenic + Other cards (spec §3.6) join the EXISTING `gear-scopes-row`
- * responsive grid (`grid grid-cols-1 gap-3 min-[720px]:grid-cols-3`). CSS grid
- * tracks default to `align-items: stretch`, so cards in the same ≥720px row share
+ * responsive grid (`grid grid-cols-1 gap-3 @min-crew-split:grid-cols-3`). CSS grid
+ * tracks default to `align-items: stretch`, so cards in the same split row share
  * an equal height — this asserts that invariant against a live Chromium render so a
  * regression (a card no longer filling its grid cell) cannot pass jsdom unit tests.
  * The live Waldorf seed has 0/0/0 room scope, so this block seeds ONE room with all
@@ -1291,7 +1189,7 @@ test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", 
     }
   });
 
-  test("≥720px: all 5 gear-scope cards render; same-row cards are equal-height (grid stretch)", async ({
+  test("wide column: all 5 gear-scope cards render; same-row cards are equal-height (grid stretch)", async ({
     page,
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return; // single-writer
@@ -1301,11 +1199,19 @@ test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", 
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
 
-    await page.setViewportSize({ width: 1000, height: 1000 });
+    // 1024px: the narrowest window with the wide column. The grid is
+    // container-relative, so below 1024px the section opens in the 480px sheet
+    // and the cards stack one per row there.
+    await page.setViewportSize({ width: 1024, height: 1000 });
     const res = await page.goto(`/show/${gearSlug}/${gearShareToken}?s=gear`, {
       waitUntil: "domcontentloaded",
     });
     expect(res?.status(), "crew gear route must render").toBe(200);
+    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+      "data-crew-controller-ready",
+      "true",
+      { timeout: 30_000 },
+    );
     await expect(page.getByTestId("section-gear")).toBeVisible();
     await expect(page.getByTestId("gear-scopes-row")).toBeVisible();
 
@@ -1334,7 +1240,14 @@ test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", 
       if (row) row.push(r);
       else rows.push([r]);
     }
-    // grid-cols-3 at ≥720px → no row holds more than 3 cards (5 cards ⇒ 3 + 2).
+    // The grid's container is the wide section, past the split threshold.
+    const split = await splitContainerOf(page.getByTestId("gear-scopes-row"));
+    expect(split.testid, "gear-scopes-row's size container").toBe("crew-wide-section");
+    expect(
+      split.split,
+      `@1024px the wide section is ${split.width}px against the ${CREW_SPLIT_PX}px split threshold`,
+    ).toBe(true);
+    // grid-cols-3 when split → no row holds more than 3 cards (5 cards ⇒ 3 + 2).
     for (const row of rows) {
       expect(
         row.length,

@@ -297,7 +297,10 @@ describe("the ConditionalExpression arm's decline is pinned, not just written do
 });
 
 describe("the scanner's population is pinned against resolver drift", () => {
-  it("scanCandidates reports exactly 35 candidates", () => {
+  // The candidate count, pinned once so the case title cannot drift from the
+  // assertion (it read 35 over an assertion of 34, whole-diff review R4-F5).
+  const SCAN_CANDIDATES = 34;
+  it(`scanCandidates reports exactly ${SCAN_CANDIDATES} candidates`, () => {
     // Pinned HERE rather than in the server-time guard's suite, which needs the
     // same fact but would pay a second full project scan for it (measured: the
     // duplicate scan blew a 30s test timeout). CANDIDATES is already computed
@@ -312,7 +315,7 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // step3ReviewSections.tsx:4152 became a three-state union, so that site is no
     // longer an unrecognized candidate. Probed rather than inferred — origin/main
     // reports 35 with that row present, this tree 34 with it absent.
-    expect(CANDIDATES.length).toBe(34);
+    expect(CANDIDATES.length).toBe(SCAN_CANDIDATES);
   });
 
   it("scanCandidates reports exactly the same file:line:form:marked SET", () => {
@@ -528,6 +531,40 @@ describe("the scanner's population is pinned against resolver drift", () => {
     // The same rooms / hotel / contacts `SectionTileError` rows in the same order, still
     // marked. Nothing joined or left: membership is still 34, and reverting those three
     // rows in the scan output reproduces dbbf3983... byte-for-byte.
+    // Re-derived on the merge of origin/main (crew show search) into
+    // feat/crew-page-redesign, to the same bar. That arc had regenerated this set on
+    // its own base (6c20e86f... -> 242e037f..., three line moves in TravelSection and
+    // VenueSection after it lifted the leg, Wi-Fi and room rules into lib/crew/).
+    // Search moved the same derivations out of both files into travelRows.ts and
+    // venueRows.ts, and the merge applies the arc's helpers INSIDE those rows
+    // modules, so neither section file changes on top of search's version. Running
+    // the guard on the merged tree reproduces ddb7e342... byte-for-byte: nothing
+    // joined or left, membership is still 34, and no row moved.
+    // Regenerated for the crew page redesign's Task 9 (the pass replaces the
+    // right-now hero), to the same bar. EXACTLY THREE inputs changed, all line
+    // numbers, in the one file of this set the task edits:
+    //   components/crew/sections/TodaySection.tsx 396/397/398 -> 383/384/385 (-13: the
+    //   hero's two imports, its context build and its mount leave the section)
+    // The same rooms / hotel / contacts `SectionTileError` rows in the same order, still
+    // marked. Nothing joined or left: membership is still 34, and reverting those three
+    // rows in the scan output reproduces ddb7e342... byte-for-byte.
+    // Regenerated for the crew page redesign's Task 10 (the run-of-show card leaves
+    // TodaySection for the home), to the same bar. EXACTLY THREE inputs changed, all
+    // line numbers, in the one file of this set the task edits:
+    //   components/crew/sections/TodaySection.tsx 383/384/385 -> 377/378/379 (-6: the
+    //   run-of-show card's imports and the Mode A grid leave the section)
+    // The same rooms / hotel / contacts `SectionTileError` rows in the same order, still
+    // marked. Nothing joined or left: membership is still 34, and reverting those three
+    // rows in the scan output reproduces 071e2796... byte-for-byte.
+    // Regenerated for the crew page redesign's Task 11 (the composed home retires
+    // TodaySection), to the same bar. EXACTLY THREE inputs changed, the same three
+    // rows changing FILE as well as line:
+    //   components/crew/sections/TodaySection.tsx 377/378/379 ->
+    //   components/crew/sections/HomeSection.tsx 192/193/194 (the home body took
+    //   over Today's rooms / hotel / contacts fetch-failure blocks, for the same
+    //   audience, with the same `tile-errors` form, still marked)
+    // Nothing joined or left: membership is still 34, and mapping those three rows
+    // back to TodaySection 377/378/379 reproduces acf1cfef... byte-for-byte.
     // Regenerated for feat/warning-card-fixes Task 4, to the same bar. EXACTLY ONE input
     // changed, a line number, in the one file of this set the task edits:
     //   components/admin/UseRawControl.tsx 433 -> 428 (-5: the IN_SCOPE set above it moved
@@ -549,7 +586,22 @@ describe("the scanner's population is pinned against resolver drift", () => {
     //   ChoiceRow's per-row marker doc and the draft hook land above it)
     // Same `unknown:false` row. Membership is still 34, and reverting that ONE row
     // reproduces 5fe71de3... byte-for-byte (recomputed from scanCandidates()).
-    expect(digest).toBe("ddb7e342ac03336845e454af08c667bfe4d0e454e160a82ede219a0892884504");
+    // Recomputed on the merge of origin/main (feat/warning-card-fixes) into
+    // feat/crew-page-redesign, by running this guard on the merged tree. That arc's one
+    // input in this set, components/admin/UseRawControl.tsx, ended at line 433, where it
+    // started, so its digest returned to ddb7e342...; this branch's three HomeSection rows
+    // are untouched by it. The merged tree therefore reproduces this branch's ce25e4d6...
+    // byte-for-byte: nothing joined or left, membership is still 34, and no row moved.
+    // Regenerated for the crew page redesign gate fix X9 (audit P3-3: only a truncated
+    // show note is a disclosure), to the same bar. EXACTLY THREE inputs changed, all line
+    // numbers, in the one file of this set the fix edits:
+    //   components/crew/sections/HomeSection.tsx 192/193/194 -> 198/199/200 (+6: the
+    //   notes card gains a plain-text arm for a note that fits, and the unused `cn`
+    //   import leaves)
+    // The same rooms / hotel / contacts `SectionTileError` rows, still marked. Nothing
+    // joined or left: membership is still 34, and mapping those three rows back to
+    // 192/193/194 reproduces ce25e4d6... byte-for-byte (recomputed from scanCandidates()).
+    expect(digest).toBe("706b9565ba595545f70f6c6f2615b6199406a8c22134f6fa9a19d9e467d641da");
   });
 });
 

@@ -9,6 +9,9 @@
  *
  *   C1  OnboardingWizard  `max-w-[60px]` → `max-w-confirm-box`
  *   C5  RightNowHero      `min-h-(--spacing-right-now-min-h)` → `min-h-right-now-min-h`
+ *       (the pass replaced the hero and carries the same `min-h-right-now-min-h`, crew page
+ *       redesign spec §8 item 2; plan Task 9 renamed the key to `crew-pass-card` and
+ *       re-captured it; its height was re-captured after commit 84ab5ebaa, see the message below)
  *
  * Both are claimed equivalent because the token carries the same value. That claim is
  * only checkable against a measurement taken BEFORE the fix lands: "width ≤ token" passes
@@ -93,7 +96,7 @@ type Baseline = Record<string, Rect>;
  * string. A singular locator would either fail strict-mode or silently verify one
  * connector and leave the other's geometry unproven.
  */
-const KEYS = ["wizard-step-connector-0", "wizard-step-connector-1", "right-now-hero-card"] as const;
+const KEYS = ["wizard-step-connector-0", "wizard-step-connector-1", "crew-pass-card"] as const;
 
 async function rectOf(locator: Locator): Promise<Rect> {
   const box = await locator.evaluate((el) => {
@@ -199,8 +202,8 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
     if (testInfo.project.name !== "mobile-safari") return;
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
-    // Pin the SERVER's `today` to show-day-1 — TodaySection reads the server-supplied
-    // `today`, NOT a browser clock. The :3000 webServer carries ENABLE_TEST_AUTH=true and
+    // Pin the SERVER's `today` to show-day-1 — the shell builds the home from the
+    // server-supplied `today`, NOT a browser clock. The :3000 webServer carries ENABLE_TEST_AUTH=true and
     // this exact TEST_AUTH_SECRET, so nowDate() honors the frozen-now header.
     await page.setExtraHTTPHeaders({
       "X-Screenshot-Frozen-Now": SHOW_DAY_1_INSTANT,
@@ -550,8 +553,16 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
     };
   }
 
-  /** C5 — the RightNowHero card on the seeded crew route, at the project's own viewport. */
-  async function measureHero(page: Page): Promise<Record<string, Rect>> {
+  /**
+   * C5 — the pass on the seeded crew route, at the project's own viewport. Both clocks
+   * read show day 1 (the server through the frozen-now header above, the browser here),
+   * so the rest state is the live show-day body whatever day the run happens on, rather
+   * than whatever state the real wall clock reaches after hydration. `setFixedTime`, not
+   * `install`: it fixes `Date` and leaves timers and frames running, so the pass's
+   * hydration settle is not stalled on WebKit (plan harness rule "WebKit animations").
+   */
+  async function measurePass(page: Page): Promise<Record<string, Rect>> {
+    await page.clock.setFixedTime(new Date(SHOW_DAY_1_INSTANT));
     await page.setViewportSize(PROJECT_VIEWPORT);
     const response = await page.goto(`/show/${slug}/${shareToken}?s=today`, {
       waitUntil: "domcontentloaded",
@@ -562,8 +573,9 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
     await expect(page.getByTestId("crew-shell")).toBeVisible();
     await expect(page.getByTestId("section-today")).toBeVisible();
 
-    const hero = page.getByTestId("right-now-hero");
+    const hero = page.getByTestId("crew-pass");
     await expect(hero).toBeVisible();
+    await expect(page.getByTestId("crew-pass-state")).toHaveAttribute("data-state", "show_day_n");
 
     // READINESS GATE — never `networkidle` alone, and never an immediate read.
     // CrewSectionTransition wraps the section body in a framer `motion.div` with
@@ -588,15 +600,17 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
       )
       .toBe(true);
 
-    return { "right-now-hero-card": await rectOf(hero) };
+    return { "crew-pass-card": await rectOf(hero) };
   }
 
-  test("rest-state rects match the committed baseline within 0.5px", async ({ page }, testInfo) => {
+  test("rest-state rects of the wizard connectors and the pass match the committed baseline within 0.5px", async ({
+    page,
+  }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
 
     const measured: Baseline = {
       ...(await measureConnectors(page)),
-      ...(await measureHero(page)),
+      ...(await measurePass(page)),
     };
 
     // Premise: the measurement produced every key the contract names. Without this, a
@@ -664,11 +678,15 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
       // And position is the axis that does not travel. This baseline is captured on a dev
       // machine and verified on the Linux CI runner, and x/y here are downstream of text
       // metrics — the connector's x is the width of the pills and labels to its left
-      // (130.09375px), the hero's y is everything stacked above it (159.859375px). Both
-      // are exactly the sub-pixel, font-rendering-dependent values this repo's
-      // byte-comparison lesson says not to pin across environments. width/height by
-      // contrast land on token-clamped values (the hero is exactly its 176px `min-h`),
-      // which is what makes them portable AND what makes them the discriminating axes.
+      // (130.09375px), the pass's y is everything stacked above it (the header and the
+      // day row, 332.984375px). Both are exactly the sub-pixel, font-rendering-dependent
+      // values this repo's byte-comparison lesson says not to pin across environments.
+      // width/height by contrast are layout-clamped: the pass's width is the viewport
+      // less the page gutters (358px), and its height (233.6875px on the live show-day
+      // body, above its 176px `min-h`) is a sum of fixed line heights and spacing
+      // tokens, which is what makes them portable AND the discriminating axes. The
+      // Task 9 re-capture was taken in mcr.microsoft.com/playwright:v1.59.1-jammy under
+      // --platform linux/amd64 and read identically on an arm64 dev host's WebKit.
       // They stay in the JSON because a diagnostic is cheap and a re-derivation is not.
       for (const axis of ["width", "height"] as const) {
         const delta = Math.abs(measuredRect[axis] - baselineRect[axis]);
@@ -688,8 +706,11 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
         "means that claim is wrong — re-derive spec §6 and §9.4. Do NOT recapture the baseline " +
         "to get past a surprise: it is the committed record of what these surfaces measure, and " +
         "rewriting it to match a change erases the only evidence the change was safe. It was " +
-        "recaptured ONCE, deliberately, when the step connectors went from 0-width to their " +
-        "token width — a move the change intended and the band asserts independently.",
+        "recaptured deliberately when the step connectors went from 0-width to their token " +
+        "width (a move the change intended and the band asserts independently), and when the " +
+        "pass replaced the hero (crew page redesign plan Task 9: a new surface, new key), and " +
+        "when the pass stopped cutting its big time (commit 84ab5ebaa: at 390px the time steps " +
+        "down to text-3xl and the facts take two columns, 8px shorter, measured the same in CI).",
     ).toEqual([]);
   });
 });

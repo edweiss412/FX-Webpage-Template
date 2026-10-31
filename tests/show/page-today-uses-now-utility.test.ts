@@ -45,8 +45,8 @@ describe("app/show/[slug]/[shareToken]/_CrewShell.tsx — render-side time migra
 
   it("derives the Header status-pill lifecycle through the venue timezone (§4.16 day-boundary contract)", () => {
     // The pill is a today-comparison, so it MUST pass the venue timezone to
-    // selectRightNowState — sharing the single timezone authority the hero
-    // (buildRightNowContext → resolveShowTimezone) and the Schedule today-pin
+    // selectRightNowState — sharing the single timezone authority the pass
+    // (buildPassProps → resolveShowTimezone) and the Schedule today-pin
     // (todayIsoInShowTimezone → resolveShowTimezone) already use. Without the
     // `{ timezone }` option, selectRightNowState falls back to America/New_York
     // and a non-default-tz venue could classify the show-day one day off the

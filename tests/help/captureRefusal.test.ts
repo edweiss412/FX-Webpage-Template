@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "@playwright/test";
+import sharp from "sharp";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { RenderFaultError, captureOrRefuse } from "@/scripts/capture-refusal";
 import { rejectionFrom } from "./_expectRejection";
@@ -112,6 +113,43 @@ describe("a clean capture still writes", () => {
     await captureOrRefuse(page, ENTRY, "light", out);
 
     expect(existsSync(join(out, "dashboard-overview-light.webp"))).toBe(true);
+    await page.close();
+  });
+});
+
+// Screenshots-drift on PR #984: crew-preview-gear-mobile-dark captured the open
+// section sheet at two heights on the same commit. The element screenshot scrolls
+// its target into view, the sheet's height cap follows the preview banner's bottom
+// edge, and a scroll listener republishes that edge a frame later, so the bytes
+// depended on which side of that frame the shot landed. The capture must settle
+// after its own scroll. The fixture reacts 100ms after a scroll, so a shot taken
+// right after the scroll reliably lands before it.
+describe("the capture settles after scrolling its target into view", () => {
+  it("captures the page's settled reaction to that scroll", async () => {
+    const page = await pageWith(`
+      <body style="margin:0">
+        <header style="height:200px;background:#888"></header>
+        <main data-testid="root" style="height:2000px;background:rgb(255,255,255)"></main>
+        <script>
+          let reacted = false;
+          addEventListener("scroll", () => {
+            if (reacted) return;
+            reacted = true;
+            setTimeout(() => {
+              document.querySelector("main").style.background = "rgb(0,0,0)";
+            }, 100);
+          }, { passive: true });
+        </script>
+      </body>`);
+    await captureOrRefuse(page, ENTRY, "light", out);
+
+    const { data } = await sharp(readFileSync(join(out, "dashboard-overview-light.webp")))
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    // Premise: the page did scroll, so the fixture exercised the reaction at all.
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    // The first pixel is the capture root's own background: black once settled.
+    expect([data[0], data[1], data[2]]).toEqual([0, 0, 0]);
     await page.close();
   });
 });

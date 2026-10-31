@@ -2,7 +2,7 @@
 //
 // Before this extraction there were two duplicate, non-reusable show-tz
 // implementations: an unexported `resolveTimezone` in packList.ts and an
-// inline cast-and-read in buildRightNowContext.ts. Neither could be reused
+// inline cast-and-read in the right-now context builder (since retired). Neither could be reused
 // by the admin dashboard live compute. This is the one exported resolver;
 // crew right-now, pack-list, and admin all call it so "today" is evaluated
 // in the SAME show timezone everywhere — structural parity, not asserted.

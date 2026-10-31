@@ -826,6 +826,44 @@ export function scanCandidates(): Candidate[] {
       // toast and its check). None is a fault branch; re-derived on the merged
       // tree (751 -> 764 on the branch's own base), 78 unchanged.
       //
+      // 747 -> 755 on feat/crew-page-redesign (Task 6), against its own base: the
+      // crew section controller, sheet, wide nav and "All sections" card replaced
+      // the sub-nav, and their JSX-bearing ternaries (mode-gated layouts, the open
+      // sheet, the nav indicator, the optional peek line) outnumber the sub-nav's
+      // by eight. None is a fault branch.
+      //
+      // 760 -> 768 on the merge of origin/main (crew show search) into
+      // feat/crew-page-redesign. BOTH sides grew this population from 747, and the
+      // search side's CrewSections ternary was rewritten into the redesign's
+      // controller, so neither side's number describes the merged tree; the value
+      // below is re-derived from the merged tree by running the guard, never by
+      // taking a side or adding the two deltas. The eight are the redesign's
+      // (the search panel's own ternary is in both trees). The 78 is unchanged.
+      //
+      // 768 -> 770 with the crew page redesign's header (plan PR A, Task 7):
+      // `components/layout/Header.tsx` holds six JSX ternaries where it held four
+      // (the eyebrow's separator and the date line). Neither condition is on the
+      // fault vocabulary, so the 78 is unchanged. Re-derived by running the guard.
+      //
+      // 770 -> 771 with the crew page redesign's day row (plan PR A, Task 8):
+      // one more JSX ternary under the derived roots, not on a fault-vocabulary
+      // guard, so the 78 is unchanged. Re-derived by running the guard.
+      //
+      // 771 -> 778 with the crew page redesign's pass (plan PR A, Task 9): the
+      // pass's JSX ternaries replace the retired hero's, seven more in all, none
+      // on a fault-vocabulary guard, so the 78 is unchanged. Re-derived by
+      // running the guard.
+      //
+      // 778 -> 781 with the crew page redesign's run-of-show card (plan PR A,
+      // Task 10): the card's JSX ternaries arrive and Today's run-of-show and
+      // Mode A grid ternaries leave, three more in all. Re-derived by running the
+      // guard.
+      //
+      // 781 -> 783 with the crew page redesign's composed home (plan PR A, Task
+      // 11): TodaySection's ternaries leave (its retired cards, its key times and
+      // its Mode B grid) and the home's arrive (HomeSection's notes, dress and
+      // fetch-failure blocks, the quick facts' tiles, actions and toast), two
+      // more in all. Re-derived by running the guard.
       //
       // 747 -> 748 on feat/warning-card-fixes Task 7: the wizard warning card's title
       // row deleted one JSX-bearing ternary (the standalone `href ? <a>… : null` link)
@@ -882,7 +920,24 @@ export function scanCandidates(): Candidate[] {
       // components/admin/review/unsavedReadings.tsx. Not a fault branch; 78 kept.
       // Re-derived by running the guard.
       //
-      // Probed: 773 such ternaries under the derived roots, 78 on a
+      // 796 on the merge of origin/main (feat/warning-card-fixes) into
+      // feat/crew-page-redesign. Both histories above start from 760; neither
+      // side's number describes the merged tree, so the value below is re-derived
+      // by running the guard on it. None of either side's additions is a fault
+      // branch, so the 78 is unchanged.
+      //
+      // 796 -> 797 on the crew page redesign gate fixes (X8, X9): the pass's
+      // visually hidden Live label (`body.live ? <span>… : null`, CrewPass) is
+      // new, and the show note's `truncated ? <details>… : <div>…` in HomeSection
+      // replaces the `truncated ? <div>… : null` it held inside the details. None
+      // is a fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // 797 -> 798 on the whole-diff review round 2 card-title fix: SectionCard's
+      // optional eyebrow (`eyebrow !== undefined ? <div>… : null`) is new; Gear's
+      // "Your scope" ternary moved from the action slot into that prop. Not a
+      // fault branch; 78 kept. Re-derived by running the guard.
+      //
+      // Probed: 798 such ternaries under the derived roots, 78 on a
       // fault-vocabulary guard and unclassifiable. 69 of those 78 sit in
       // `"use client"` files, where the guard is interaction state -- `errorCode`,
       // `state.kind === "error"`, `switchStatus === "error"` -- and not a server-render

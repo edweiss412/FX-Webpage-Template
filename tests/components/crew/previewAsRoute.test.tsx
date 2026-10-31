@@ -9,7 +9,7 @@
  *     viewer.kind === "admin_preview" and NO shareToken.
  *   - The route passes the RAW `?s=` through to CrewShell as `rawSection` —
  *     CrewShell is the single activeSection authority. `{ s: "venue" }` →
- *     data-active-section="venue"; absent `s` → "today".
+ *     the controller's initialSection="venue"; absent `s` → "today".
  *   - Budget gate (R2-HIGH-1): CrewShell resolves the Budget gate from the
  *     PREVIEWED crew's LEAD flag (isAdmin is false for an admin_preview viewer).
  *     A non-LEAD previewed crew requesting ?s=budget lands on "today"; a LEAD
@@ -137,29 +137,20 @@ vi.mock("@/components/auth/IdentityChip", () => ({
 vi.mock("@/components/crew/CrewSections", () => ({
   CrewSections: ({
     initialSection,
-    budgetVisible,
+    sections,
     sectionNodes,
   }: {
     initialSection: string;
-    budgetVisible: boolean;
+    sections: ReadonlyArray<{ id: string }>;
     sectionNodes: Record<string, ReactNode>;
   }) => (
-    <div data-testid="mock-crew-sections">
-      <nav
-        data-testid="crew-sub-nav"
-        data-active-section={initialSection}
-        data-budget-visible={String(budgetVisible)}
-      />
-      <div data-testid="crew-section-transition" data-section-id={initialSection}>
-        {sectionNodes[initialSection] ?? null}
-      </div>
+    <div
+      data-testid="mock-crew-sections"
+      data-initial-section={initialSection}
+      data-budget-listed={String(sections.some((s) => s.id === "budget"))}
+    >
+      {sectionNodes[initialSection] ?? null}
     </div>
-  ),
-}));
-
-vi.mock("@/components/crew/RightNowHero", () => ({
-  RightNowHero: ({ context }: { context: { showTitle?: string } }) => (
-    <div data-testid="mock-right-now-hero" data-show-title={context.showTitle ?? ""} />
   ),
 }));
 
@@ -181,8 +172,8 @@ const previewSectionMarker = (testid: string) => {
 // real builder through the shell.
 vi.mock("@/lib/search/buildSearchIndex", () => ({ buildSearchIndex: () => ({ entries: [] }) }));
 
-vi.mock("@/components/crew/sections/TodaySection", () => ({
-  TodaySection: previewSectionMarker("section-today"),
+vi.mock("@/components/crew/sections/HomeSection", () => ({
+  HomeSection: previewSectionMarker("section-today"),
 }));
 vi.mock("@/components/crew/sections/ScheduleSection", () => ({
   ScheduleSection: previewSectionMarker("section-schedule"),
@@ -309,12 +300,12 @@ afterEach(() => {
 // Renders CrewShell (not the legacy ShowBody), admin_preview viewer, no token
 // ============================================================================
 describe("preview-as route renders CrewShell", () => {
-  it("renders <CrewShell> with ?s=venue → data-active-section='venue', banner above", async () => {
+  it("renders <CrewShell> with ?s=venue → the controller opens 'venue', banner above", async () => {
     await renderPreviewPage({ crewId: LEAD_ID, s: "venue", previewCrewRoleFlags: ["LEAD"] });
-    // data-active-section lives on the CrewSections controller (here its mock
-    // exposes it on crew-sub-nav), not the outer crew-shell (review R1 [MED]).
-    const shell = screen.getByTestId("crew-sub-nav");
-    expect(shell.getAttribute("data-active-section")).toBe("venue");
+    // The open section lives in the CrewSections controller (its mock surfaces
+    // initialSection), not the outer crew-shell (review R1 [MED]).
+    const shell = screen.getByTestId("mock-crew-sections");
+    expect(shell.getAttribute("data-initial-section")).toBe("venue");
     // PreviewBanner sits above the shell.
     expect(screen.getByTestId("preview-banner")).toBeTruthy();
   });
@@ -342,9 +333,11 @@ describe("preview-as route renders CrewShell", () => {
     expect(screen.queryByTestId("mock-identity-chip")).toBeNull();
   });
 
-  it("default (no ?s) → data-active-section='today'", async () => {
+  it("default (no ?s) → the controller starts on 'today' (home)", async () => {
     await renderPreviewPage({ crewId: HAND_ID, previewCrewRoleFlags: ["A2"] });
-    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-active-section")).toBe("today");
+    expect(screen.getByTestId("mock-crew-sections").getAttribute("data-initial-section")).toBe(
+      "today",
+    );
   });
 });
 
@@ -354,13 +347,15 @@ describe("preview-as route renders CrewShell", () => {
 describe("preview-as Budget gate reads the previewed crew's LEAD flag", () => {
   it("previewing a NON-LEAD crew + ?s=budget → today (Budget not entered)", async () => {
     await renderPreviewPage({ crewId: HAND_ID, s: "budget", previewCrewRoleFlags: ["A2"] });
-    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-active-section")).toBe("today");
-    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("false");
+    const shell = screen.getByTestId("mock-crew-sections");
+    expect(shell.getAttribute("data-initial-section")).toBe("today");
+    expect(shell.getAttribute("data-budget-listed")).toBe("false");
   });
 
   it("previewing a LEAD crew + ?s=budget → budget", async () => {
     await renderPreviewPage({ crewId: LEAD_ID, s: "budget", previewCrewRoleFlags: ["LEAD"] });
-    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-active-section")).toBe("budget");
-    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("true");
+    const shell = screen.getByTestId("mock-crew-sections");
+    expect(shell.getAttribute("data-initial-section")).toBe("budget");
+    expect(shell.getAttribute("data-budget-listed")).toBe("true");
   });
 });

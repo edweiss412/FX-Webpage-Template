@@ -13,7 +13,7 @@ vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
   },
 }));
 
-import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { HomeSection } from "@/components/crew/sections/HomeSection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
@@ -65,8 +65,9 @@ function withBench(over: Parameters<typeof makeShowForViewer>[0]) {
   };
 }
 
-// TodaySection renders RightNowHero, whose usePrefersReducedMotion hook calls
-// window.matchMedia on mount (jsdom has none). Stub it so the hero mounts.
+// The crew client islands' usePrefersReducedMotion hook calls window.matchMedia
+// on mount (jsdom has none); stub it. (The home body's quick facts read it for
+// the toast's reduced-motion branch.)
 beforeEach(() => {
   vi.stubGlobal(
     "matchMedia",
@@ -136,14 +137,14 @@ test("hotel fetch error: admin sees degraded block, crew sees omission", () => {
   expect(upsertSpy).toHaveBeenCalledTimes(0);
 });
 
-test("hotel fetch error on Today Tonight: admin degraded, crew omission", () => {
+test("hotel fetch error on the home (the hotel fact): admin degraded, crew omission", () => {
   const data = makeShowForViewer(err("hotel"));
   const admin = render(
-    <TodaySection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
+    <HomeSection {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
   );
   expect(admin.container.querySelector('[data-testid="section-tile-error-hotel"]')).not.toBeNull();
   const crew = render(
-    <TodaySection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
+    <HomeSection {...ledgerProp()} data={data} viewer={CREW} today={TODAY} showId={SHOW_ID} />,
   );
   expect(crew.container.querySelector('[data-testid="section-tile-error-hotel"]')).toBeNull();
 });
@@ -253,11 +254,11 @@ test("financials fetch error: admin (lead-equivalent) sees degraded; non-lead cr
 });
 
 // ---------------------------------------------------------------------------
-// rooms on Today KeyTimesStrip + Schedule daily-times (representative pairs)
+// rooms on the home (the pass's Room cell) + Schedule daily-times (representative pairs)
 // ---------------------------------------------------------------------------
-test("rooms fetch error on Today + Schedule: admin degraded, crew omission", () => {
+test("rooms fetch error on the home + Schedule: admin degraded, crew omission", () => {
   const data = makeShowForViewer(err("rooms"));
-  for (const Section of [TodaySection, ScheduleSection]) {
+  for (const Section of [HomeSection, ScheduleSection]) {
     const admin = render(
       <Section {...ledgerProp()} data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />,
     );

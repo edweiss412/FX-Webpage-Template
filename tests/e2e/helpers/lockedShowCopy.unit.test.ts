@@ -45,6 +45,7 @@ import {
   copyShowLocked,
   deleteShowsLocked,
   type SqlExecutor,
+  updateShowLocked,
 } from "./lockedShowCopy";
 
 const NEW_ID = "11111111-2222-3333-4444-555555555555";
@@ -199,4 +200,40 @@ describe("assertDeletedRows discriminates a real delete from a status line", () 
       else expect(() => assertDeletedRows(stdout, "d")).toThrow(/no row id/);
     });
   }
+});
+
+describe("updateShowLocked rewrites one show in place under that show's own lock", () => {
+  test("the emitted SQL is character-for-character the declared transaction", () => {
+    const { exec, seen } = recorder([NEW_ID]);
+    const dates = { showDays: ["2026-04-21"] };
+    updateShowLocked(NEW_DFID, { dates, agenda_links: [] }, exec);
+
+    expect(seen, "exactly one statement block is run").toHaveLength(1);
+    expect(norm(seen[0]!)).toBe(
+      norm(`
+        begin;
+        select pg_advisory_xact_lock(hashtext('show:' || '${NEW_DFID}'));
+        update public.shows set dates = '${JSON.stringify(dates)}'::jsonb, agenda_links = '[]'::jsonb
+         where drive_file_id = '${NEW_DFID}' returning id;
+        commit;
+      `),
+    );
+  });
+
+  test("a value carrying a quote is escaped, not interpolated raw", () => {
+    const { exec, seen } = recorder([NEW_ID]);
+    updateShowLocked(NEW_DFID, { venue: { name: "O'Brien Hall" } }, exec);
+    expect(seen[0]).toContain(`'{"name":"O''Brien Hall"}'::jsonb`);
+  });
+
+  test("an update that matched no show throws instead of passing quietly", () => {
+    const { exec } = recorder(["UPDATE 0"]);
+    expect(() => updateShowLocked(NEW_DFID, { dates: null }, exec)).toThrow(/matched no show/);
+  });
+
+  test("an empty set is refused before any SQL runs", () => {
+    const { exec, seen } = recorder([NEW_ID]);
+    expect(() => updateShowLocked(NEW_DFID, {}, exec)).toThrow(/at least one column/);
+    expect(seen).toHaveLength(0);
+  });
 });

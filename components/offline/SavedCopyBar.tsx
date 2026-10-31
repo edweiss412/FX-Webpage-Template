@@ -45,12 +45,26 @@
  *
  * The region, not the bar, is the crew shell's flex child, so it carries the
  * spec's Dimensional Invariants (4.7.2): `self-stretch` and `flex-none` against
- * the shell, and `sticky top-0` with `z-raised` against the viewport. The band
+ * the shell, and `sticky` with `z-raised` against the viewport. It sticks at
+ * `--saved-copy-bar-top` (app/globals.css), under whatever already sticks: the
+ * viewport top below 1024px, where the crew header scrolls away, and the
+ * header's bottom edge from 1024px, where the header sticks too. While the bar
+ * shows it publishes its height on <html> as `--saved-copy-bar-h`, which the
+ * crew layout adds into `--crew-sticky-bottom`: the page's scroll padding and
+ * every scroll margin (`--crew-scroll-clearance`) and the wide nav's sticky
+ * offset read it, so keyboard focus, a nav jump or a reveal lands below the
+ * bar and the nav never slides under it. The band
  * is the lowest one that lifts the bar above section content, whose positioned
  * elements carry no z-index. It cannot be higher: the header's avatar menu is
  * `z-dropdown` and comes earlier in tree order, so a tie would paint the bar
- * over the open menu. The icon is `flex-none` so a wrapping copy cannot shrink
- * it. tests/e2e/crew-offline-layout.spec.ts measures each of these.
+ * over the open menu. It is also below the crew section sheet's `z-sheet`, so
+ * an open sheet's scrim covers the bar as it covers the header; the bar never
+ * covers the sheet, so the sheet's height cap does not count it. The region
+ * carries `data-sheet-live-region`, which the sheet's inert sweep leaves alone
+ * (components/crew/CrewSectionSheet.tsx): it holds no control, and an inert
+ * status region would announce nothing while a sheet is up. The icon is
+ * `flex-none` so a wrapping copy cannot shrink it.
+ * tests/e2e/crew-offline-layout.spec.ts measures each of these.
  *
  * On a copy served `offline`, `slow` or `server-error` the bar asks the worker
  * to probe the page (spec 4.7.3) on the `online` event, on a `fresh-ready`
@@ -103,9 +117,10 @@ import {
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { useOnlineStatus } from "@/lib/offline/client/online";
 import { reloadPage } from "@/lib/offline/client/reload";
-import { useScrollPaddingTop } from "@/lib/offline/client/scrollPadding";
+import { useBarHeightProperty } from "@/lib/offline/client/scrollPadding";
 import { useScrolledUnder } from "@/lib/offline/client/scrolledUnder";
 import { readServedCopy, type ServedCopyReading } from "@/lib/offline/client/servedCopy";
+import { forHistory } from "@/lib/ui/historyState";
 import { cn } from "@/lib/ui/cn";
 
 export type SavedCopyBarProps = {
@@ -233,11 +248,15 @@ function takeUpdatedFlag(): boolean {
 
 /**
  * Puts the section CrewSections rendered into the URL's `s`, keeping every
- * other parameter (spec 4.7.4). The state is `null`, as CrewSections' own
- * pushState passes, so Next's patched history copies its router state in and
- * keeps useSearchParams in step. The page sits in the route's loading.tsx
- * Suspense boundary, which React hydrates in a later commit than the app
- * router's, so that patch is in place by the time this runs.
+ * other parameter (spec 4.7.4) and the entry's own state. The state handed over
+ * is the entry's own keys, Next's left out (`forHistory`, as CrewSections'
+ * history writes pass it), so Next's patched history copies its router state
+ * back in and keeps useSearchParams in step, and the section sheet's
+ * `crewSheet` marker stays on the entry. A `null` state erased that marker, so
+ * closing the saved section replaced the entry instead of going Back (Codex
+ * review of the origin/main merge, M1-1). The page sits in the route's
+ * loading.tsx Suspense boundary, which React hydrates in a later commit than
+ * the app router's, so that patch is in place by the time this runs.
  */
 function showRenderedSectionInUrl(): void {
   const section = document
@@ -249,7 +268,11 @@ function showRenderedSectionInUrl(): void {
   // ACTION_RESTORE, so a URL that already names the section is left alone.
   if (url.searchParams.get("s") === section) return;
   url.searchParams.set("s", section);
-  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  window.history.replaceState(
+    forHistory(window.history.state),
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
 }
 
 export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps) {
@@ -414,10 +437,11 @@ export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps
     view = viewBeforeReadings(sheetUnavailable);
   }
 
-  // The bar is sticky, so while it shows the page's scroll padding reserves its
-  // height: a control focused from the keyboard then scrolls out from under it.
+  // The bar is sticky, so while it shows it publishes its height, which the
+  // crew layout adds into the page's scroll padding: a control focused from the
+  // keyboard then scrolls out from under it.
   const barShown = view !== null && view.state !== "hidden";
-  useScrollPaddingTop(regionRef, barShown);
+  useBarHeightProperty(regionRef, barShown);
   const detailScrolledAway = useScrolledUnder(detailRef, regionRef, view?.detail?.text ?? null);
 
   return (
@@ -444,7 +468,7 @@ export type SavedCopyBarViewProps = {
    * bottom edge instead of the detail. False at rest, and when there is no detail.
    */
   detailScrolledAway?: boolean;
-  /** The live region, which the container measures for the page's scroll padding. */
+  /** The live region, which the container measures for the bar's published height. */
   ref?: Ref<HTMLDivElement>;
   /** The in-flow detail, which the container measures against the region. */
   detailRef?: Ref<HTMLDivElement>;
@@ -481,7 +505,8 @@ export function SavedCopyBarView({
         data-testid="saved-copy-bar-region"
         role="status"
         aria-live="polite"
-        className="sticky top-0 z-raised flex-none self-stretch"
+        data-sheet-live-region=""
+        className="sticky top-(--saved-copy-bar-top) z-raised flex-none self-stretch"
       >
         {view !== null && Icon !== null && (
           <div

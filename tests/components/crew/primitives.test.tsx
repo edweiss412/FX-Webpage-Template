@@ -62,6 +62,35 @@ describe("<SectionCard>", () => {
   });
 });
 
+describe("<SectionCard> heading level (audit P2-4)", () => {
+  // Every crew page card sits under an h2: a stacked section's heading in the
+  // wide layout, the sheet's title, or the Today block's. So a card title is an
+  // h3 unless its caller says otherwise; at h2 it read as a sibling of the very
+  // section that holds it.
+  const level = (headingLevel?: 2 | 3 | 4) =>
+    render(
+      <SectionCard title="Where" {...(headingLevel === undefined ? {} : { headingLevel })}>
+        <p>body</p>
+      </SectionCard>,
+    ).container.querySelector('[data-slot="section-card-title"]')!.tagName;
+
+  test("the title is an h3 by default", () => {
+    expect(level()).toBe("H3");
+  });
+
+  test("a caller can set the level, and the title keeps its search-group hook at each", () => {
+    for (const [given, tag] of [
+      [2, "H2"],
+      [3, "H3"],
+      [4, "H4"],
+    ] as const) {
+      cleanup();
+      expect(level(given)).toBe(tag);
+      expect(document.querySelector(`${tag}[data-search-group]`)).not.toBeNull();
+    }
+  });
+});
+
 describe("<KeyValueRows>", () => {
   // Fixture: two present rows, two sentinel/empty rows that must be omitted.
   const rows = [
@@ -104,7 +133,7 @@ describe("<KeyValueRows>", () => {
     expect(dl.innerHTML).not.toContain("col-span-2");
   });
 
-  test("columns={2} → 2-up grid at >=720px (data-columns=2); a span:2 row spans both columns", () => {
+  test("columns={2} → 2-up grid in a split-wide container (data-columns=2); a span:2 row spans both columns", () => {
     const gridRows = [
       { k: "Hotel", v: "Four Seasons", span: 2 as const },
       { k: "Check in", v: "2026-06-13" },
@@ -113,15 +142,16 @@ describe("<KeyValueRows>", () => {
     const { getByTestId } = render(<KeyValueRows rows={gridRows} columns={2} />);
     const dl = getByTestId("key-value-rows");
     expect(dl.getAttribute("data-columns")).toBe("2");
-    // grid (not the default flex stack), gated to the crew >=720px breakpoint so
-    // mobile keeps the single stacked column.
-    expect(dl.className).toContain("min-[720px]:grid-cols-2");
+    // grid (not the default flex stack), gated to the crew split-wide CONTAINER
+    // width (`@min-crew-split`, never a viewport variant) so a phone and the
+    // section sheet keep the single stacked column.
+    expect(dl.className).toContain("@min-crew-split:grid-cols-2");
     expect(dl.className).not.toContain("flex-col");
     // The span:2 row (Hotel headline) opts into full width; the short date rows do not.
     const dts = Array.from(dl.querySelectorAll("dt"));
     const hotelWrapper = dts.find((dt) => dt.textContent === "Hotel")!.parentElement!;
     const checkInWrapper = dts.find((dt) => dt.textContent === "Check in")!.parentElement!;
-    expect(hotelWrapper.className).toContain("min-[720px]:col-span-2");
+    expect(hotelWrapper.className).toContain("@min-crew-split:col-span-2");
     expect(checkInWrapper.className).not.toContain("col-span-2");
   });
 });
@@ -344,7 +374,7 @@ describe("<KeyTimesStrip>", () => {
     expect(strip.className).not.toContain("flex-row");
   });
 
-  test('layout="row" → horizontal N-across strip at >=720px (data-layout="row"); anchors + span order preserved', () => {
+  test('layout="row" → horizontal N-across strip in a split-wide container (data-layout="row"); anchors + span order preserved', () => {
     const anchors: KeyTimeAnchors = {
       set: "9:00 AM",
       shows: [{ date: "2026-10-08", label: "Show", time: "7:00 PM" }],
@@ -353,8 +383,8 @@ describe("<KeyTimesStrip>", () => {
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} layout="row" />);
     const strip = getByTestId("key-times-strip");
     expect(strip.getAttribute("data-layout")).toBe("row");
-    expect(strip.className).toContain("min-[720px]:flex-row");
-    expect(strip.className).toContain("min-[720px]:divide-x");
+    expect(strip.className).toContain("@min-crew-split:flex-row");
+    expect(strip.className).toContain("@min-crew-split:divide-x");
     // All three anchors still render; each row keeps label-span-first / value-span-last
     // (the e2e inv6 alignment contract reads span.first() / span.last()).
     expect(strip.querySelectorAll("[data-anchor]").length).toBe(3);
@@ -422,7 +452,7 @@ describe("<KeyTimesStrip>", () => {
     const anchors: KeyTimeAnchors = { set: "9:00 AM", shows, strike: "11:00 PM" };
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} />);
     const strip = getByTestId("key-times-strip");
-    // D1: the strip is a description list (matches KeyValueRows / RightNowHero),
+    // D1: the strip is a description list (matches KeyValueRows / the pass's fact grid),
     // closing the "three primitives, three structures" drift.
     expect(strip.tagName).toBe("DL");
     // Each present anchor row is a group with one <dt> (label) + one <dd> (value),
@@ -447,7 +477,7 @@ describe("<KeyTimesStrip>", () => {
     expect(strip.querySelector('[data-anchor="strike"]')!.querySelector("time")).toBeNull();
   });
 
-  test('layout="row" with N shows → row container divider classes + every cell gets min-[720px]:flex-1', () => {
+  test('layout="row" with N shows → row container divider classes + every cell gets @min-crew-split:flex-1', () => {
     const shows = [
       { date: "2026-10-08", label: "Day 1", time: "7:15am" },
       { date: "2026-10-09", label: "Day 2", time: "8:00am" },
@@ -456,17 +486,17 @@ describe("<KeyTimesStrip>", () => {
     const { getByTestId } = render(<KeyTimesStrip anchors={anchors} layout="row" />);
     const strip = getByTestId("key-times-strip");
     expect(strip.getAttribute("data-layout")).toBe("row");
-    expect(strip.className).toContain("min-[720px]:flex-row");
-    expect(strip.className).toContain("min-[720px]:divide-x");
+    expect(strip.className).toContain("@min-crew-split:flex-row");
+    expect(strip.className).toContain("@min-crew-split:divide-x");
     // D4: the row strip wraps so a full-width overflow disclosure drops to its own
     // line instead of overflowing the strip horizontally (verified in a real
     // browser at 1000px; jsdom pins the load-bearing class).
-    expect(strip.className).toContain("min-[720px]:flex-wrap");
+    expect(strip.className).toContain("@min-crew-split:flex-wrap");
     // Equal-width cells: every present row carries the flex-1 cell class (Dimensional Invariants §5.5).
     for (const row of Array.from(strip.querySelectorAll("[data-anchor]"))) {
-      expect(row.className).toContain("min-[720px]:flex-1");
-      expect(row.className).toContain("min-[720px]:first:pl-0");
-      expect(row.className).toContain("min-[720px]:last:pr-0");
+      expect(row.className).toContain("@min-crew-split:flex-1");
+      expect(row.className).toContain("@min-crew-split:first:pl-0");
+      expect(row.className).toContain("@min-crew-split:last:pr-0");
     }
   });
 
@@ -499,7 +529,7 @@ describe("<KeyTimesStrip>", () => {
     expect(overflow!.querySelector("summary")).not.toBeNull();
     // D4: the overflow group (<dt>/<dd> wrapper) is full-width in row layout so it
     // wraps to its own line and never overflows the strip (real-browser verified).
-    expect(overflow!.closest("[class*='min-[720px]:basis-full']")).not.toBeNull();
+    expect(overflow!.closest("[class*='@min-crew-split:basis-full']")).not.toBeNull();
     // Hidden-day count derived from the fixture (10 - 7 = 3), never hardcoded.
     const hidden = shows.length - 7;
     expect(overflow!.textContent).toContain(`+${hidden}`);

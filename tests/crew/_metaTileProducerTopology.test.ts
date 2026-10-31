@@ -20,7 +20,7 @@ const SHELL = "app/show/[slug]/[shareToken]/_CrewShell.tsx";
 const SECTIONS_DIR = join("components", "crew", "sections");
 
 const SECTION_COMPONENTS = [
-  "TodaySection",
+  "HomeSection",
   "ScheduleSection",
   "VenueSection",
   "TravelSection",
@@ -35,7 +35,12 @@ const SECTION_COMPONENTS = [
  * misattribute every alert those tiles raise.
  */
 const EXPECTED_TILE_BY_FILE: Record<string, string> = {
-  "TodaySection.tsx": "crew:today:notes",
+  // The composed home's server body (crew page redesign plan Task 11) took over
+  // Today's wrapper and its tileId: it covers the quick facts, the show notes,
+  // the Dress code card and the admin fetch-failure blocks. The pass, the day
+  // row and the run card mount from the section controller with the shell's
+  // server-built props, outside every WrappedSection, and own no tileId.
+  "HomeSection.tsx": "crew:today:notes",
   "ScheduleSection.tsx": "crew:schedule:days",
   "VenueSection.tsx": "crew:venue:diagrams",
   "TravelSection.tsx": "crew:travel:transport",

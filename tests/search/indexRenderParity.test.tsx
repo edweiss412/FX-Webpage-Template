@@ -35,7 +35,6 @@ import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import * as gearRows from "@/components/crew/sections/gearRows";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
-import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import * as travelRows from "@/components/crew/sections/travelRows";
 import { VenueSection } from "@/components/crew/sections/VenueSection";
@@ -59,6 +58,7 @@ import { SECTION_BUILDERS } from "@/lib/search/sections";
 import type { SearchEntry } from "@/lib/search/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { assertParity } from "@/tests/search/_parity";
+import { pinCrewClock, TodayBlock } from "@/tests/search/_todayBlock";
 import {
   ALL_CASES,
   adminViewer,
@@ -79,7 +79,7 @@ import {
 const SHOW_ID = "33333333-3333-4333-8333-333333333333";
 
 beforeEach(() => {
-  // RightNowHero (inside Today) reads matchMedia on mount; jsdom has none.
+  // The crew pass (the section controller mounts it) reads matchMedia on mount; jsdom has none.
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockReturnValue({
@@ -94,6 +94,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 /** The props `CrewShell` hands every section (_CrewShell.tsx `renderOne`). */
@@ -118,11 +119,16 @@ function renderRoot(node: JSX.Element): HTMLElement {
   return root;
 }
 
-/** Renders one section by id with `shellProps`; returns the render container. */
+/**
+ * Renders one section by id with `shellProps`; returns the render container.
+ * Today renders as the home's Today block: the run-of-show card above the body
+ * (tests/search/_todayBlock.tsx), on the crew clock pinned at the case's `today`.
+ */
 function renderSection(id: SectionId, c: ViewerCase): HTMLElement {
   const props = shellProps(c);
+  if (id === "today") pinCrewClock(c.today);
   const byId: Record<SectionId, () => JSX.Element> = {
-    today: () => <TodaySection {...props} />,
+    today: () => <TodayBlock {...props} />,
     schedule: () => <ScheduleSection {...props} />,
     venue: () => <VenueSection {...props} />,
     travel: () => <TravelSection {...props} />,
@@ -570,7 +576,7 @@ describe("gear", () => {
         "gearFallbacks renders the opening reel player",
         byTestIds(root, "opening-reel-video").length === 1,
       );
-      const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h3')].map((h) =>
+      const headings = [...root.querySelectorAll('[data-testid="gear-room-details"] h4')].map((h) =>
         squash(h.textContent),
       );
       premiseHolds(
@@ -1661,7 +1667,7 @@ describe("today", () => {
         Boolean(c.data.transportation?.notes),
       );
       premiseHolds(
-        "crewNoTransport renders no transport note and no run of show (Mode B)",
+        "crewNoTransport renders no transport note and no run card",
         notesOf(root)?.querySelector('[data-source="transport"]') == null &&
           root.querySelector('[data-testid="today-run-of-show"]') === null,
       );
@@ -1672,29 +1678,29 @@ describe("today", () => {
         notesOf(root)?.querySelector('[data-source="transport"]') != null,
       );
       premiseHolds(
-        "crewWithTransport renders Mode A with its load-out row",
+        "crewWithTransport renders the run card with its load-out row",
         root.querySelector('[data-testid="today-run-of-show"] [data-entry-kind="loadout"]') !==
           null,
       );
     },
-    dateSuppressed: (root) => {
-      const tonight = root.querySelector('[data-testid="today-tonight"]');
-      premiseHolds("dateSuppressed renders the Tonight card", tonight !== null);
+    dateSuppressed: (root, c) => {
+      // The matrix hotel covers today, so an unrestricted crew viewer gets it as a
+      // quick fact; a suppressed one gets no hotel fact and no run card (plan Task 11).
       premiseHolds(
-        "dateSuppressed shows no check-in date and no key times",
-        ![...tonight!.querySelectorAll("dt")].some((dt) => dt.textContent === "Check in") &&
-          root.querySelector('[data-testid="key-times-strip"]') === null,
+        "dateSuppressed carries a reservation for tonight",
+        c.data.hotelReservations.length > 0,
+      );
+      premiseHolds(
+        "dateSuppressed renders the quick facts, with no hotel fact and no run card",
+        root.querySelector('[data-testid="crew-quick-facts"]') !== null &&
+          root.querySelector('[data-fact="hotel"]') === null &&
+          root.querySelector('[data-testid="today-run-of-show"]') === null,
       );
     },
     overCaps: (root) => {
       premiseHolds(
         "overCaps drops notes past SOURCE_CAP behind the stub",
         root.querySelector('[data-testid="today-notes-overflow"]') !== null,
-      );
-      premiseHolds(
-        "overCaps renders the carded key times (Mode B)",
-        root.querySelector('[data-testid="today-key-times"] [data-testid="key-times-strip"]') !==
-          null,
       );
     },
     todayOnlyLines: (root) => {
@@ -1706,9 +1712,10 @@ describe("today", () => {
     },
     modeAToday: (root) => {
       premiseHolds(
-        "modeAToday renders the bare strip and the merged timeline",
-        root.querySelector('[data-testid="today-mode-a-grid"]') !== null &&
-          root.querySelector('[data-testid="timeline-agenda-session"]') !== null,
+        "modeAToday renders the run card's merged timeline",
+        root.querySelector(
+          '[data-testid="today-run-of-show"] [data-testid="timeline-agenda-session"]',
+        ) !== null,
       );
     },
     fullContent: (root) => {
@@ -1736,61 +1743,12 @@ describe("today", () => {
 
   const at = (es: readonly SearchEntry[], region: string) =>
     es.filter((e) => regionOf(e) === region);
-  const isShowAnchor = (e: SearchEntry) =>
-    e.label !== null && e.label !== "Set" && e.label !== "Strike";
 
   const LINE_KINDS: readonly LineKind[] = [
-    ...(["Hotel", "Check in", "Check out"] as const).map((label, i) => ({
-      kind: `Tonight ${label} (T${i + 1})`,
-      caseName: "fullContent",
-      present: (es: readonly SearchEntry[]) =>
-        at(es, "today-tonight").some((e) => e.group === "Tonight" && e.label === label),
-    })),
-    {
-      kind: "Where Venue (T4)",
-      caseName: "fullContent",
-      present: (es) => at(es, "today-where").some((e) => e.label === "Venue"),
-    },
-    {
-      kind: "Where City (T5)",
-      caseName: "modeAToday",
-      present: (es) => at(es, "today-where").some((e) => e.label === "City"),
-    },
-    {
-      kind: "Where Address (T6)",
-      caseName: "fullContent",
-      present: (es) => at(es, "today-where").some((e) => e.label === "Address"),
-    },
-    {
-      kind: "Where Loading dock (T7)",
-      caseName: "fullContent",
-      present: (es) => at(es, "today-where").some((e) => e.label === "Loading dock"),
-    },
-    {
-      kind: "Need something contact (T8)",
-      caseName: "fullContent",
-      present: (es) => at(es, "today-contact").some((e) => e.group === "Need something"),
-    },
-    {
-      kind: "key time in the Key times card (T9-T11, Mode B)",
-      caseName: "overCaps",
-      present: (es) => at(es, "today-key-times").some((e) => e.group === "Key times"),
-    },
-    {
-      kind: "Set key time on the bare strip (T9, Mode A)",
-      caseName: "fullContent",
-      present: (es) => at(es, "none").some((e) => e.group === "" && e.label === "Set"),
-    },
-    {
-      kind: "show-day key time on the bare strip (T10, Mode A)",
-      caseName: "modeAToday",
-      present: (es) => at(es, "none").some((e) => e.group === "" && isShowAnchor(e)),
-    },
-    {
-      kind: "Strike key time on the bare strip (T11, Mode A)",
-      caseName: "fullContent",
-      present: (es) => at(es, "none").some((e) => e.group === "" && e.label === "Strike"),
-    },
+    // T1 to T11 (the Tonight, Where and Need something cards and the key times)
+    // retired with TodaySection (crew page redesign plan Task 11): their facts are
+    // the home's quick facts, outside search coverage because each repeats a line
+    // its own section renders, and the pass, which is not indexed.
     {
       kind: "dress code phase line (T12)",
       caseName: "fullContent",
@@ -1853,9 +1811,11 @@ describe("today", () => {
     expect(k.present(build("today", c), c)).toBe(true);
   });
 
-  test("error guard: a throwing Today derivation renders the fallback and builds nothing", () => {
+  test("error guard: a throwing Today derivation renders the fallback and builds nothing for the body", () => {
     // Today's whole body is one WrappedSection, so a fault anywhere in its
-    // derivation replaces every card: no target renders and no entry is built.
+    // derivation replaces every card of the body: no target renders and no
+    // entry is built for it. The run-of-show card above the body is built by
+    // the shell, outside that boundary, so it and its entries stay.
     // Green against a stub builder by construction; the builder-without-guard
     // mutant (recorded in the commit) is what proves this case can fail.
     vi.spyOn(todayRows, "todayRows").mockImplementation(() => {
@@ -1863,12 +1823,13 @@ describe("today", () => {
     });
     const root = renderSection("today", fullContent);
     premiseHolds(
-      "the section renders its fallback and no card",
+      "the section renders its fallback and no card but the run card",
       root.querySelector('[data-testid="tile-error-fallback"]') !== null &&
-        root.querySelector("[data-card-id]") === null,
+        root.querySelector('[data-card-id]:not([data-card-id="today-run-of-show"])') === null,
     );
     const entries = build("today", fullContent);
-    expect(entries).toEqual([]);
+    expect(entries.length, "PREMISE: fullContent has a run card today").toBeGreaterThan(0);
+    expect(entries.filter((e) => regionOf(e) !== "today-run-of-show")).toEqual([]);
     expect(assertParity(root, entries)).toEqual([]);
   });
 });

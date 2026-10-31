@@ -11,7 +11,7 @@
  */
 import { CONTACTS_INLINE_CAP, CREW_INLINE_CAP } from "@/components/crew/sections/CrewSection";
 import { CASE_CAP, ROOM_DETAIL_CAP } from "@/components/crew/sections/GearSection";
-import { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/TodaySection";
+import { SOURCE_CAP, TRUNCATE_AT } from "@/components/crew/sections/todayRows";
 import { SHOWS_CAP } from "@/components/crew/primitives/KeyTimesStrip";
 import { INITIAL_VISIBLE } from "@/components/diagrams/galleryLimits";
 import type { AgendaDay, AgendaExtraction } from "@/lib/agenda/types";

@@ -15,17 +15,19 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
-import { CrewSubNav } from "@/components/crew/CrewSubNav";
+import { CrewWideNav } from "@/components/crew/CrewWideNav";
 import { FactRows } from "@/components/crew/primitives/FactRows";
 import { CrewSearchField } from "@/components/crew/search/CrewSearchField";
 import { CrewSearchProvider, useCrewSearch } from "@/components/crew/search/CrewSearchProvider";
 import { CrewSearchResults } from "@/components/crew/search/CrewSearchResults";
 import type { CardReportContext } from "@/lib/crew/cardReportContext";
+import { CREW_TODAY_LABEL, crewSectionsFor } from "@/lib/crew/crewSections";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { prepareIndex, searchIndex } from "@/lib/search/match";
 import type { SearchEntry, SearchIndex } from "@/lib/search/types";
 import { premise, premiseHolds } from "../../../_shared/premise";
 import { buildEntries, entryWhere, FIXTURE_INDEX } from "../../../search/_fixtureIndex";
+import { makeShowForViewer } from "../../../fixtures/showForViewer";
 
 const openSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/components/crew/sectionController", () => ({
@@ -221,7 +223,7 @@ describe("chips (spec §6.3)", () => {
     expect(pressed()[0]!.textContent).toMatch(/^All /);
   });
 
-  it("chip labels are the sub-nav's section labels, read from both renders", () => {
+  it("chip labels are the section nav's labels, read from both renders", () => {
     const zebra: SearchIndex = {
       entries: buildEntries(
         (Object.keys(LABEL) as SectionId[]).map((section) => ({
@@ -235,8 +237,14 @@ describe("chips (spec §6.3)", () => {
     };
     renderResults(zebra);
     search("zebra");
+    // The wide nav exactly as the controller feeds it (components/crew/CrewSections.tsx):
+    // "Today", then the membership `crewSectionsFor` returns, Budget included for an admin.
+    const items = [
+      { id: "today" as const, label: CREW_TODAY_LABEL },
+      ...crewSectionsFor(makeShowForViewer(), { viewerFlags: [], isAdmin: true }),
+    ];
     const { container } = render(
-      <CrewSubNav activeSection="today" budgetVisible onSelect={() => {}} />,
+      <CrewWideNav items={items} active="today" hrefFor={(id) => `?s=${id}`} />,
     );
     const desktopNav = container.querySelector("nav")!;
     const chipSections = chips()

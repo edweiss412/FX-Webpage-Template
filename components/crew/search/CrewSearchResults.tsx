@@ -30,16 +30,17 @@
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { SECTION_ICON, SECTION_LABELS } from "@/components/crew/CrewSubNav";
 import { useSectionController } from "@/components/crew/sectionController";
+import { SECTION_ICON } from "@/components/crew/sectionIcon";
 import { useCrewSearch } from "@/components/crew/search/CrewSearchProvider";
 import { ReportModal, type ReportAutocapture } from "@/components/shared/ReportModal";
+import { crewSectionLabel } from "@/lib/crew/crewSections";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import { SEARCH_COPY } from "@/lib/search/copy";
 import { snippet } from "@/lib/search/snippet";
 import type { Range, SearchCopy, SearchEntry, SearchHit } from "@/lib/search/types";
 import { cn } from "@/lib/ui/cn";
-import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
+import { COPY_FAILED_TOAST_MS, COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
 
 /** Rows per section in the All view. */
 const ALL_VIEW_ROWS = 5;
@@ -49,12 +50,6 @@ const SECTION_VIEW_ROWS = 50;
 const SHORT_VALUE_CHARS = 40;
 /** Delay before the result count is announced, so it speaks once typing stops. */
 const RESULT_COUNT_ANNOUNCE_MS = 300;
-/**
- * How long the copy-failure toast stays. It is an 11-word instruction, not a
- * confirmation, so it outlasts the 2 s `COPY_FEEDBACK_RESET_MS` a "copied" toast
- * gets (impeccable critique A6, audit U4).
- */
-const COPY_FAILED_TOAST_MS = 6000;
 
 type Chip = SectionId | "all";
 type Toast = { id: number; text: string; copied: boolean };
@@ -341,7 +336,7 @@ export function CrewSearchResults() {
             <ChipButton
               key={section}
               chip={section}
-              label={SECTION_LABELS[section]}
+              label={crewSectionLabel(section)}
               count={rows.length}
               pressed={chip === section}
               onSelect={setChip}
@@ -373,7 +368,7 @@ export function CrewSearchResults() {
                   >
                     <Icon className="size-3.5" />
                   </span>
-                  {SECTION_LABELS[section]}
+                  {crewSectionLabel(section)}
                 </h2>
                 <ul className="overflow-hidden rounded-md border border-border bg-surface shadow-tile">
                   {rows.slice(0, cap).map((hit) => (
@@ -386,7 +381,7 @@ export function CrewSearchResults() {
                     onClick={() => showAll(section)}
                     className="inline-flex min-h-tap-min items-center self-start rounded-sm px-1 text-sm font-semibold text-text underline underline-offset-4 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                   >
-                    {SEARCH_COPY.showAll(rows.length, SECTION_LABELS[section])}
+                    {SEARCH_COPY.showAll(rows.length, crewSectionLabel(section))}
                   </button>
                 ) : null}
                 {chip !== "all" && rows.length > SECTION_VIEW_ROWS ? (

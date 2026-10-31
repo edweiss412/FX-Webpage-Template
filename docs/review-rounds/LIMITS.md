@@ -317,7 +317,7 @@ Other measurements at `8b4d521cac00`: this corpus's two shipped opt-in doc marke
 
 **Shape:** A measurement whose conclusion quantifies over "every X" while the X-set is hand-listed rather than derived from an authority the tree can be asked for (`information_schema`, a registry, a filesystem walk), so each review round adds one more member and the conclusion is re-falsified rather than converging. Distinct from `LIM-SWEEP-POSITIVE-CONTROL`, which is about an instrument's sensitivity to a known member; this is about the completeness of the set the instrument is pointed at. The arc that named it had a probe over "every table holding a warning array" miss `sync_log` in one round and `pending_ingestions` in the next, and each miss looked like a fresh finding rather than one class.
 
-**Named by:** 2 arcs — fix/severityless-warning-filters/b608e71b32b5.md (diff), fix/local-e2e-validation-pooler/60dece4d5722.md (spec AND plan, one arc: six instances across two stages, from a guard's config-FILE set and its `@next/env` load-MODE set through four successive miscounts of the CI workflow population. Counted ONCE, per the recurrence exception's rule that one arc hitting its own limit repeatedly is that arc failing to route around a known hazard rather than evidence the hazard is general. Its repair is the one to copy: stop asserting the count, print the population with a command and assert a conclusion that holds whatever the totals are)
+**Named by:** 3 arcs — fix/severityless-warning-filters/b608e71b32b5.md (diff), feat/crew-page-redesign/370e1cc9c263.md (spec: a hand-listed inventory of test suites pinning moved crew components missed members in R1 and R2; repaired in-arc by deriving the closure with `rg -l` over the retired components' names plus a full-suite run before every dispatch), fix/local-e2e-validation-pooler/60dece4d5722.md (spec AND plan, one arc: six instances across two stages, from a guard's config-FILE set and its `@next/env` load-MODE set through four successive miscounts of the CI workflow population. Counted ONCE, per the recurrence exception's rule that one arc hitting its own limit repeatedly is that arc failing to route around a known hazard rather than evidence the hazard is general. Its repair is the one to copy: stop asserting the count, print the population with a command and assert a conclusion that holds whatever the totals are)
 
 **Owning record:** the filing is the documented limit; the repair that held is deriving the column set from `information_schema` and writing the re-derivation into the re-file procedure, at `docs/superpowers/specs/2026-08-27-wizard-review-attention-menu-design.md` §10.1. The second naming's repair is the same move in a different medium: discover config files from disk and read the mode set off the artifact, rather than listing either.
 
@@ -573,3 +573,35 @@ observable, which is dataflow over an open input space with no done condition ou
 **Re-file trigger:** a second INDEPENDENT arc measuring this class as its non-decaying axis, with its
 corpus row. What would NOT settle it: another mirror synced in an effect, which is the refuted
 repair, or a longer reader inventory, which is the fail-open shape.
+
+## LIM-RUNTIME-SKIP-UNORACLED-STEP
+
+**Shape:** A CI step whose only evidence that its cases ran is Playwright's own exit status. A runtime `test.skip(...)` inside a case leaves the collected set unchanged, so every registration guard that replays `--list` stays green, and a skipped case exits 0, so the step stays green while the case asserted nothing. The jobs that close this carry an executed-count oracle reading the run's own json report (`scripts/check-crew-e2e-executed.mjs`, `scripts/check-phantom-gap-executed.mjs` for the diagram step, `scripts/check-phantom-gap-crew-executed.mjs` for the crew probe step since its repair, `scripts/check-app-e2e-executed.mjs`); the steps below carried none.
+
+**Named by:** 1 arc — feat/crew-page-redesign (whole-diff review round 2, finding 2C-2; that arc's corpus is docs/review-rounds/feat/crew-page-redesign/).
+
+**Instances, both predating the arc for every case in them:**
+
+- `.github/workflows/phantom-gap-e2e.yml`, the "Phantom-gap probe — crew page" step (`-g "T-NOPHANTOM-CREW"`). **REPAIRED 2026-10-31** by the same arc (whole-diff review round 2, second pass, 2C-R2-1). It ran `--reporter=list` with no report, and the job's oracle read only `test-results/phantom-gap-diagrams-report.json`. Probe before the repair: `test.skip(width === 1280, "temporarily disabled")` planted in the per-width case; `playwright test --list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"` reported `Total: 20 tests in 1 file` before and after; the step's own command over the 1280 legs exited 0 with `6 skipped`. The step now writes `test-results/phantom-gap-crew-report.json`, and `scripts/check-phantom-gap-crew-executed.mjs` reads it against `CREW_REQUIRED_PAIRS` in `scripts/lib/phantomGapExecuted.mjs` (the diagram oracle's module, still scoring 1 with no accepted survivors). The same plant, run through the step's command (`14 passed`, `6 skipped`, exit 0), now fails the check (exit 1, the six 1280px legs named).
+- `.github/workflows/published-modal-e2e.yml`, its one Playwright step over nine specs: it writes `test-results/published-modal-e2e-report.json`, whose only consumer is `scripts/print-infra-recoveries.mjs`, informational and always exit 0. Probe, 2026-10-31: `test.skip(true, "temporarily disabled")` planted in the closed-fold keyboard case (`tests/e2e/published-review-modal.interactions.spec.ts`); `--list --project=desktop-chromium` reported `Total: 43 tests in 1 file` before and after; running the case exited 0 with `1 skipped`, and the printer on that report exited 0 (`infra-recovery total: 0`). The arc's crew-actions keyboard case (`tests/e2e/published-review-modal.crew-actions.spec.ts`) rides the same step. **Open.**
+
+**Not repaired in the arc (the published-modal step).** That job has no oracle to extend; building one is a new executed-count surface for nine specs, outside the arc. The arc's own eight dark geometry cases moved into `tests/e2e/crew-page.spec.ts`, which `crew-e2e.yml` runs under its executed-count oracle.
+
+**Owning record:** this index, plus a comment at the published-modal step.
+
+**Re-file trigger:** a runtime-skipped case found to have shipped green through the published-modal step (its CI run), or a product arc whose case in that step needs execution proof to merge.
+
+## LIM-CSS-GUARD-RAW-TEXT
+
+**Shape:** A style guard that reads `app/globals.css` as raw text, so a commented-out declaration still counts as present and a second `@theme` block is never scanned. The guard then certifies a binding or a contrast pair the browser never applies.
+
+**Named by:** 1 arc — feat/crew-page-redesign (whole-diff review round 2, second pass, finding 2C-R2-2; that arc's corpus is docs/review-rounds/feat/crew-page-redesign/).
+
+**Instances:**
+
+- The three guards that arc added (`tests/styles/nestedThemeScope.test.ts`, `tests/styles/crewPassContrast.test.ts`, the sheet checks in `tests/styles/status-token-contrast.test.ts`). **REPAIRED 2026-10-31** by the same arc: they read parsed CSS, every `@theme` block, with comments removed; the reviewer's three probes (comment out the nested dark binding block, comment out dark `--color-surface-raised-runtime`, add a second `@theme` block with an unbound runtime-backed token) each go red.
+- Six guards that predate the arc and read raw CSS text the same way: `design-figure-parity`, `secondary-action-contrast`, `controlOutlineResidue`, `focusRingContrast`, `badge-count-contrast`, `accentCommentFigures` (each under `tests/styles/`). Not repaired: class-sweep exception (c), the repair is a rewrite of guards on surfaces that arc does not otherwise touch, and the 2026-08-25 mint freeze routes a process-facing class here rather than to the queue.
+
+**Owning record:** this index.
+
+**Re-file trigger:** a token or contrast regression that reached main while one of the six guards passed, or a second arc naming this class (the recurrence exception).

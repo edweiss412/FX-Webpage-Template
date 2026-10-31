@@ -75,7 +75,7 @@ const ZERO_HIT = "zqxjv";
 
 beforeEach(() => {
   providerProps.value = [];
-  // RightNowHero (inside Today) reads matchMedia on mount; jsdom has none.
+  // The crew pass (the section controller mounts it) reads matchMedia on mount; jsdom has none.
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockReturnValue({
