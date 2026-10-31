@@ -36,21 +36,31 @@ export const BAR_STATES = [
 export type BarState = (typeof BAR_STATES)[number];
 
 /**
- * One run of the body's copy. `time` is the saved time and `age` the relative
- * age, parenthesis and leading space included, so the view can treat the two
+ * One piece of a run of copy. `time` is the saved time and `age` the relative
+ * age (its leading comma and space included), so the view can treat the two
  * figures apart from the prose: the age is visual only, since it changes every
  * minute and the bar is a live region (spec 4.7.2 Accessibility).
  */
 export type BodyPart = { kind: "text" | "time" | "age"; text: string };
 
+/** A run of copy: its text as it reads on screen, and the same text in parts. */
+export type Copy = { text: string; parts: readonly BodyPart[] };
+
+/**
+ * What the bar says, in the owner's shape (spec 4.7.2, 2026-10-30): one short
+ * pinned line, a bold `lead` and a plain `body`, and an optional `detail`, the
+ * full sentence that shows once in the page flow under the pinned line.
+ */
 export type BarView = {
   state: BarState;
   tone: string | null;
   icon: "signal-off" | "clock" | "alert" | "sync" | "check" | null;
-  lead: string | null;
-  /** The body as it reads on screen: every part's text, in order. */
-  body: string;
-  parts: readonly BodyPart[];
+  /** The pinned line's bold run, or null. */
+  lead: Copy | null;
+  /** The pinned line's plain run after the lead, or null. */
+  body: Copy | null;
+  /** The in-flow sentence under the pinned line, or null when the state has none. */
+  detail: Copy | null;
 };
 
 export const OLD_COPY_MS = 6 * 60 * 60 * 1000;
@@ -65,7 +75,10 @@ const STALE_TONE = "bg-stale-tint";
 const WARNING_TONE = "bg-warning-bg text-warning-text";
 const POSITIVE_TONE = "bg-surface text-status-positive-text";
 
-const SHEET_GONE_LEAD = "Doug's sheet for this show isn't available in Google Drive anymore.";
+const SHEET_GONE_LEAD = "Doug's sheet is gone.";
+const SHEET_GONE_BODY = "Check with Doug.";
+const SHEET_GONE = "Doug's sheet for this show isn't available in Google Drive anymore.";
+const CHECK_WITH_DOUG = "Check with Doug before relying on it.";
 
 /**
  * The lead of a saved state, by mode. A live page only reaches a saved state when
@@ -80,16 +93,20 @@ const SAVED_LEADS: Record<Exclude<BarMode, "ended">, string> = {
 
 type SavedCopyTime = { time: string; ago: string; ageMs: number };
 
-/** The body from its runs: a string is prose, and `body` is every run's text joined. */
-function bodyOf(...runs: ReadonlyArray<string | BodyPart>): Pick<BarView, "body" | "parts"> {
-  const parts = runs.map(
-    (run): BodyPart => (typeof run === "string" ? { kind: "text", text: run } : run),
+/** A run of copy from its pieces: a string is prose, and `text` is every piece joined. */
+function copyOf(...pieces: ReadonlyArray<string | BodyPart>): Copy {
+  const parts = pieces.map(
+    (piece): BodyPart => (typeof piece === "string" ? { kind: "text", text: piece } : piece),
   );
-  return { body: parts.map((part) => part.text).join(""), parts };
+  return { text: parts.map((part) => part.text).join(""), parts };
 }
 
 const timePart = (text: string): BodyPart => ({ kind: "time", text });
-const agePart = (ago: string): BodyPart => ({ kind: "age", text: ` (${ago})` });
+const agePart = (ago: string): BodyPart => ({ kind: "age", text: `, ${ago}` });
+
+/** The bold lead of both saved states with a known time: "Saved {time}, {ago}." */
+const savedLead = (saved: SavedCopyTime): Copy =>
+  copyOf("Saved ", timePart(saved.time), agePart(saved.ago), ".");
 
 /** The saved time as the copy shows it, or null when the time or the clock is unusable. */
 function readSavedCopyTime(
@@ -113,10 +130,12 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       state: "ended",
       tone: STALE_TONE,
       icon: "clock",
-      lead: "This show has ended.",
-      ...(saved === null
-        ? bodyOf("You're seeing the last version.")
-        : bodyOf("You're seeing the last version, from ", timePart(saved.time), ".")),
+      lead: copyOf("This show has ended."),
+      body: null,
+      detail:
+        saved === null
+          ? copyOf("You're seeing the last version.")
+          : copyOf("You're seeing the last version, from ", timePart(saved.time), "."),
     };
   }
 
@@ -125,48 +144,51 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       state: "updating",
       tone: INFO_TONE,
       icon: "sync",
-      lead: "Signal's back.",
-      ...bodyOf("Loading the latest version."),
+      lead: copyOf("Signal's back."),
+      body: copyOf("Loading the latest version."),
+      detail: null,
     };
   }
 
   if (sheetUnavailable) {
+    const pinned = { tone: WARNING_TONE, icon: "alert", lead: copyOf(SHEET_GONE_LEAD) } as const;
     if (mode === "live") {
       return {
         state: "sheet-gone",
-        tone: WARNING_TONE,
-        icon: "alert",
-        lead: SHEET_GONE_LEAD,
-        ...bodyOf("You're seeing the last version we have. Check with Doug before relying on it."),
+        ...pinned,
+        body: copyOf(SHEET_GONE_BODY),
+        detail: copyOf(`${SHEET_GONE} You're seeing the last version we have. ${CHECK_WITH_DOUG}`),
       };
     }
     const saved = readSavedCopyTime(savedAt, nowMs, timeZone);
     return {
       state: "sheet-gone-saved",
-      tone: WARNING_TONE,
-      icon: "alert",
-      lead: SHEET_GONE_LEAD,
-      ...(saved === null
-        ? bodyOf("This is the last version we have. Check with Doug before relying on it.")
-        : bodyOf(
-            "This is the last version we have, from ",
-            timePart(saved.time),
-            ". Check with Doug before relying on it.",
-          )),
+      ...pinned,
+      body: copyOf(SHEET_GONE_BODY),
+      detail:
+        saved === null
+          ? copyOf(`${SHEET_GONE} This is the last version we have. ${CHECK_WITH_DOUG}`)
+          : copyOf(
+              `${SHEET_GONE} This is the last version we have, from `,
+              timePart(saved.time),
+              `. ${CHECK_WITH_DOUG}`,
+            ),
     };
   }
 
   if (mode !== "live" || !online) {
-    const lead = SAVED_LEADS[mode];
+    const cause = copyOf(SAVED_LEADS[mode]);
     const saved = readSavedCopyTime(savedAt, nowMs, timeZone);
-    // An unknown age reads as an old copy: nothing says it is recent.
+    // An unknown age reads as an old copy: nothing says it is recent. With no
+    // time to lead with, the cause leads.
     if (saved === null) {
       return {
         state: "saved-old",
         tone: STALE_TONE,
         icon: "clock",
-        lead,
-        ...bodyOf("Showing your saved copy."),
+        lead: cause,
+        body: copyOf("Showing your saved copy."),
+        detail: null,
       };
     }
     if (saved.ageMs < OLD_COPY_MS) {
@@ -174,21 +196,18 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
         state: "saved-fresh",
         tone: INFO_TONE,
         icon: "signal-off",
-        lead,
-        ...bodyOf("Showing your saved copy from ", timePart(saved.time), agePart(saved.ago), "."),
+        lead: savedLead(saved),
+        body: cause,
+        detail: copyOf("Showing your saved copy."),
       };
     }
     return {
       state: "saved-old",
       tone: STALE_TONE,
       icon: "clock",
-      lead,
-      ...bodyOf(
-        "Your saved copy is from ",
-        timePart(saved.time),
-        agePart(saved.ago),
-        ". Things may have changed since then.",
-      ),
+      lead: savedLead(saved),
+      body: cause,
+      detail: copyOf("Things may have changed since then."),
     };
   }
 
@@ -198,9 +217,10 @@ export function deriveBarView(inputs: BarInputs, timeZone?: string): BarView {
       tone: POSITIVE_TONE,
       icon: "check",
       lead: null,
-      ...bodyOf("Updated. You're on the latest version."),
+      body: copyOf("Updated. You're on the latest version."),
+      detail: null,
     };
   }
 
-  return { state: "hidden", tone: null, icon: null, lead: null, ...bodyOf() };
+  return { state: "hidden", tone: null, icon: null, lead: null, body: null, detail: null };
 }

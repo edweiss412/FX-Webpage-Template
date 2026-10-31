@@ -82,8 +82,8 @@ const FRESH_SAVED_AT = "2026-10-27T11:30:00.000Z";
 const PATH = "/show/demo-show/abc123";
 const OTHER_PATH = "/show/other-show/def456";
 
-const SAVED_TEXT = (savedAt: string, ago: string) =>
-  `No signal. Showing your saved copy from ${at(savedAt)} (${ago}).`;
+/** The pinned line of a fresh saved copy served offline (spec 4.7.2, 2026-10-30). */
+const SAVED_TEXT = (savedAt: string, ago: string) => `Saved ${at(savedAt)}, ${ago}. No signal.`;
 const UPDATING_TEXT = "Signal's back. Loading the latest version.";
 const UPDATED_TEXT = "Updated. You're on the latest version.";
 
@@ -463,8 +463,9 @@ describe("SavedCopyBar recovery: what each reply does", () => {
     await fire("online");
 
     expect(barState()).toBe("ended");
-    expect(barText()).toBe(
-      `This show has ended. You're seeing the last version, from ${at(FRESH_SAVED_AT)}.`,
+    expect(barText()).toBe("This show has ended.");
+    expect(screen.getByTestId("saved-copy-bar-detail").textContent).toBe(
+      `You're seeing the last version, from ${at(FRESH_SAVED_AT)}.`,
     );
     expect(reload).not.toHaveBeenCalled();
     expect(sessionEntries()).toEqual([]);

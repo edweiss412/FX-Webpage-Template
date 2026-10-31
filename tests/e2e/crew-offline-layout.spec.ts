@@ -18,9 +18,11 @@
  * navigation, so the section crossfade and the avatar menu's enter animation
  * are instant and every rect read is a settled one.
  *
- * Case 7 is the bar's one accessibility row: a control focused from the keyboard
- * scrolls out from under the sticky bar, because the bar keeps the page's
- * `scroll-padding-top` at its own height (WCAG 2.4.11).
+ * Case 7 is the bar's one accessibility row: a focused control scrolls out from
+ * under the sticky bar, because the bar keeps the page's `scroll-padding-top` at
+ * its own height (WCAG 2.4.11). Case 8 is the in-flow detail the owner's
+ * one-line bar adds (2026-10-30): it sits right under the region, spans the
+ * shell, and scrolls away while the region stays pinned.
  *
  * Run it with the command crew-offline.spec.ts gives, naming this file instead.
  *
@@ -407,13 +409,8 @@ test("5. an open avatar menu paints above the bar", async ({
   );
 });
 
-test("6. the icon keeps its declared size when the copy wraps at 320 px", async ({
-  crewPage: page,
-  origin,
-  crewProxy: proxy,
-}) => {
-  await openSavedCopy(page, origin, proxy);
-  await page.setViewportSize(NARROW);
+/** The pinned line's rendered line count, and the icon against its declared size. */
+async function measurePinnedLine(page: Page) {
   const measured = await page.evaluate(() => {
     const icon = document.querySelector('[data-testid="saved-copy-bar-icon"]');
     const content = document.querySelector('[data-testid="saved-copy-bar-content"]');
@@ -437,38 +434,67 @@ test("6. the icon keeps its declared size when the copy wraps at 320 px", async 
       lineHeight: parseFloat(getComputedStyle(content).lineHeight),
     };
   });
-  premiseHolds("the icon and the copy are on the page", measured !== null);
-  if (measured === null) return;
+  premiseHolds("the icon and the pinned line are on the page", measured !== null);
+  const m = measured!;
   premiseHolds(
-    `the icon carries exactly one size class (${measured.sizeClasses.join(", ")})`,
-    measured.sizeClasses.length === 1,
+    `the icon carries exactly one size class (${m.sizeClasses.join(", ")})`,
+    m.sizeClasses.length === 1,
   );
-  premise("the size class declares a real size", measured.declared.width, 0);
-  premise(
-    "the copy wraps at 320 px: its height exceeds one line height",
-    measured.contentHeight,
-    measured.lineHeight,
-  );
-  expectNear(measured.icon.width, measured.declared.width, "the icon's width");
-  expectNear(measured.icon.height, measured.declared.height, "the icon's height");
-});
+  premise("the size class declares a real size", m.declared.width, 0);
+  premise("the pinned line has a real line height", m.lineHeight, 0);
+  return { ...m, lines: Math.round(m.contentHeight / m.lineHeight) };
+}
 
-test("7. a control focused from the keyboard is not left under the bar", async ({
+/** Below the narrowest supported width, where the pinned line must wrap. */
+const WRAPPING = { width: 240, height: 844 };
+
+test("6. the pinned line is one line at 390 px and at most two at 320 px, and the icon keeps its size", async ({
   crewPage: page,
   origin,
   crewProxy: proxy,
-  browserName,
+}) => {
+  // Spec 4.7.2 (owner decision 2026-10-30): one short pinned line. For this
+  // case's same-day save served offline it reads "Saved {time}, {ago}. No signal."
+  await openSavedCopy(page, origin, proxy);
+  const phone = await measurePinnedLine(page);
+  expect(phone.lines, `the pinned line's lines at 390 px (${phone.contentHeight} px)`).toBe(1);
+
+  await page.setViewportSize(NARROW);
+  const narrow = await measurePinnedLine(page);
+  expect(
+    narrow.lines,
+    `the pinned line's lines at 320 px (${narrow.contentHeight} px)`,
+  ).toBeLessThanOrEqual(2);
+  expectNear(narrow.icon.width, narrow.declared.width, "the icon's width at 320 px");
+  expectNear(narrow.icon.height, narrow.declared.height, "the icon's height at 320 px");
+
+  // The icon row's invariant is about a wrapping line, which 320 px may not
+  // produce for a short line, so it is also measured where the line must wrap.
+  await page.setViewportSize(WRAPPING);
+  const wrapped = await measurePinnedLine(page);
+  premise("the pinned line wraps at 240 px", wrapped.lines, 1);
+  expectNear(wrapped.icon.width, wrapped.declared.width, "the icon's width when the line wraps");
+  expectNear(wrapped.icon.height, wrapped.declared.height, "the icon's height when the line wraps");
+});
+
+test("7. a focused control is not left under the bar", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
 }) => {
   await openSavedCopy(page, origin, proxy);
   await page.setViewportSize(TABLET);
   await showSchedule(page);
 
-  // Two adjacent section tabs in the in-flow tab row: Tab moves from the first
-  // to the second, which is the control under test.
-  const tabs = page.getByTestId("crew-sub-nav").locator("nav button[data-section]:visible");
-  premise("the in-flow tab row shows at least two tabs", await tabs.count(), 1);
-  const previous = tabs.nth(0);
-  const target = tabs.nth(1);
+  // A section tab in the in-flow tab row: the control under test. Not the open
+  // section's tab, which showSchedule just clicked, and Chromium focuses a
+  // button on click.
+  const tabs = page
+    .getByTestId("crew-sub-nav")
+    .locator("nav button[data-section]:not([aria-current]):visible");
+  premise("the in-flow tab row shows another section's tab", await tabs.count(), 0);
+  const target = tabs.first();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
   // Scroll so the target's top sits at the viewport top, where the stuck bar is.
   const place = await target.evaluate((node) => {
@@ -500,6 +526,7 @@ test("7. a control focused from the keyboard is not left under the bar", async (
     return {
       top: r.top,
       height: r.height,
+      focused: node === document.activeElement,
       coveredByBar: at !== null && bar !== null && bar.contains(at),
     };
   });
@@ -516,6 +543,7 @@ test("7. a control focused from the keyboard is not left under the bar", async (
     targetBefore.top + targetBefore.height / 2 < barBefore.bottom,
   );
   premiseHolds("the bar paints over the tab's centre before focus", targetBefore.coveredByBar);
+  premiseHolds("the tab is not focused yet", !targetBefore.focused);
 
   // The page reserves the bar's height while it shows: the mechanism under test.
   const padding = await page.evaluate(() => document.documentElement.style.scrollPaddingTop);
@@ -525,19 +553,13 @@ test("7. a control focused from the keyboard is not left under the bar", async (
     "html scroll-padding-top against the region's height",
   );
 
-  // Keyboard focus: the previous tab is focused without scrolling, then Tab.
-  const scrollBefore = await page.evaluate(() => window.scrollY);
-  await previous.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+  // Programmatic focus scrolls an obscured element into view under the same
+  // scroll padding that keyboard focus uses, and it is the same call on every
+  // engine. The element is inside the viewport, so with no padding nothing
+  // scrolls and it stays under the bar.
+  await target.focus();
   premiseHolds(
-    "focusing the previous tab did not scroll the page",
-    (await page.evaluate(() => window.scrollY)) === scrollBefore,
-  );
-  // The key that moves focus to the next control. WebKit on macOS reaches a button
-  // only with Option+Tab (Tab alone stops at text fields, as in Safari by default),
-  // and WebKit elsewhere treats Option+Tab as Tab. Chromium ignores Alt+Tab off macOS.
-  await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
-  premiseHolds(
-    "Tab moved focus to the target tab",
+    "the target tab has focus",
     await target.evaluate((node) => node === document.activeElement),
   );
 
@@ -547,4 +569,48 @@ test("7. a control focused from the keyboard is not left under the bar", async (
     targetAfter,
     `the focused tab's top (${targetAfter}) is at or below the bar's bottom (${barAfter.bottom})`,
   ).toBeGreaterThanOrEqual(barAfter.bottom - TOLERANCE_PX);
+});
+
+test("8. the detail sits right under the region, spans the shell, and scrolls away", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+}) => {
+  await openSavedCopy(page, origin, proxy);
+  await showSchedule(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(savedCopyBar(page).detail).toHaveText("Showing your saved copy.");
+
+  const sibling = await page
+    .getByTestId("saved-copy-bar-region")
+    .evaluate((node) => node.nextElementSibling?.getAttribute("data-testid") ?? null);
+  premiseHolds(
+    `the detail is the region's next sibling in crew-shell (found ${sibling ?? "none"})`,
+    sibling === "saved-copy-bar-detail",
+  );
+  const shell = await boxOf(page, "crew-shell");
+  const region = await boxOf(page, "saved-copy-bar-region");
+  const detail = await boxOf(page, "saved-copy-bar-detail");
+  premise("the detail has a real height", detail.height, 0);
+  expectNear(detail.top, region.bottom, "the detail's top against the region's bottom");
+  expectNear(detail.width, shell.width, "the detail's width against crew-shell's");
+  expectNear(detail.left, shell.left, "the detail's left edge against crew-shell's");
+  const position = await page
+    .getByTestId("saved-copy-bar-detail")
+    .evaluate((node) => getComputedStyle(node).position);
+  expect(position, "the detail is in normal flow").toBe("static");
+
+  // Scrolled past the header plus 200 px: the region is pinned, the detail gone.
+  const header = await boxOf(page, "page-header");
+  const target = Math.round(header.bottom + SCROLL_PAST_HEADER_PX);
+  const room = await page.evaluate(
+    () => document.documentElement.scrollHeight - window.innerHeight,
+  );
+  premise("the page scrolls past the header's bottom plus 200 px", room, target);
+  await page.evaluate((y) => window.scrollTo(0, y), target);
+  const regionAfter = await boxOf(page, "saved-copy-bar-region");
+  const detailAfter = await boxOf(page, "saved-copy-bar-detail");
+  expectNear(regionAfter.top, 0, "the region's top after scrolling past the header");
+  expect(detailAfter.top, "the detail's top has scrolled above the viewport").toBeLessThan(0);
+  expect(detailAfter.bottom, "and so has the rest of it").toBeLessThanOrEqual(TOLERANCE_PX);
 });

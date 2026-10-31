@@ -201,10 +201,18 @@ export async function openAvatarMenu(page: Page): Promise<void> {
   }).toPass({ timeout: 30_000 });
 }
 
-/** The saved-copy bar's state and copy, as `deriveBarView` rendered them. */
+/**
+ * The saved-copy bar's state and copy, as `deriveBarView` rendered them: the
+ * pinned line (`content`) and the full sentence shown once in the page flow
+ * under it (`detail`, spec 4.7.2 as the owner decided on 2026-10-30).
+ */
 export function savedCopyBar(page: Page) {
   return {
     bar: page.getByTestId("saved-copy-bar"),
     content: page.getByTestId("saved-copy-bar-content"),
+    detail: page.getByTestId("saved-copy-bar-detail"),
   };
 }
+
+/** The pinned line's bold lead for a save made today: "Saved 2:14 PM, 3 min ago." */
+export const SAVED_TODAY_LEAD = /^Saved \d{1,2}:\d{2} [AP]M, (?:just now|\d+ min ago)\./;

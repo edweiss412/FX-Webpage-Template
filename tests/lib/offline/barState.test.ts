@@ -41,14 +41,27 @@ function inputs(over: Partial<BarInputs> = {}): BarInputs {
   };
 }
 
-/** The view without its parts: the copy as one string, which the cases below pin exactly. */
-const view = (
-  over: Partial<BarInputs> = {},
-  timeZone: string | undefined = TZ,
-): Omit<BarView, "parts"> => {
-  const { parts: _parts, ...copy } = deriveBarView(inputs(over), timeZone);
-  return copy;
+/** The view with each run of copy as one string, which the cases below pin exactly. */
+type Flat = {
+  state: BarState;
+  tone: string | null;
+  icon: BarView["icon"];
+  lead: string | null;
+  body: string | null;
+  detail: string | null;
 };
+
+const flat = (result: BarView): Flat => ({
+  state: result.state,
+  tone: result.tone,
+  icon: result.icon,
+  lead: result.lead?.text ?? null,
+  body: result.body?.text ?? null,
+  detail: result.detail?.text ?? null,
+});
+
+const view = (over: Partial<BarInputs> = {}, timeZone: string | undefined = TZ): Flat =>
+  flat(deriveBarView(inputs(over), timeZone));
 
 // Tone tokens and copy are literals here, never imported from the module under test.
 const INFO = "bg-info-bg";
@@ -56,7 +69,13 @@ const STALE = "bg-stale-tint";
 const WARNING = "bg-warning-bg text-warning-text";
 const POSITIVE = "bg-surface text-status-positive-text";
 
-const SHEET_LEAD = "Doug's sheet for this show isn't available in Google Drive anymore.";
+// The owner's copy table, 2026-10-30 (spec 4.7.2).
+const SHEET_LEAD = "Doug's sheet is gone.";
+const SHEET_BODY = "Check with Doug.";
+const SHEET_GONE = "Doug's sheet for this show isn't available in Google Drive anymore.";
+const SHEET_DETAIL = `${SHEET_GONE} You're seeing the last version we have. Check with Doug before relying on it.`;
+const SHEET_SAVED_DETAIL = `${SHEET_GONE} This is the last version we have, from 10:30 AM. Check with Doug before relying on it.`;
+const SHEET_SAVED_NO_TIME = `${SHEET_GONE} This is the last version we have. Check with Doug before relying on it.`;
 
 /** Every lead the saved states can carry. The mode picks the lead; `online` only matters on a live page. */
 const SAVED_LEADS: ReadonlyArray<{
@@ -95,28 +114,40 @@ describe("OLD_COPY_MS", () => {
   });
 });
 
-describe("deriveBarView: exact copy, one case per state per lead", () => {
+describe("deriveBarView: exact copy, one case per row of the owner's table", () => {
   test("hidden: a live, online page with nothing to say renders nothing", () => {
-    expect(view()).toEqual({ state: "hidden", tone: null, icon: null, lead: null, body: "" });
-  });
-
-  test.each(SAVED_LEADS)("saved-fresh, $label", ({ over, lead }) => {
-    expect(view(over)).toEqual({
-      state: "saved-fresh",
-      tone: INFO,
-      icon: "signal-off",
-      lead,
-      body: "Showing your saved copy from 10:30 AM (30 min ago).",
+    expect(view()).toEqual({
+      state: "hidden",
+      tone: null,
+      icon: null,
+      lead: null,
+      body: null,
+      detail: null,
     });
   });
 
-  test.each(SAVED_LEADS)("saved-old, $label", ({ over, lead }) => {
+  test.each(SAVED_LEADS)(
+    "saved-fresh, $label: the age is the bold lead, the cause follows",
+    ({ over, lead }) => {
+      expect(view(over)).toEqual({
+        state: "saved-fresh",
+        tone: INFO,
+        icon: "signal-off",
+        lead: "Saved 10:30 AM, 30 min ago.",
+        body: lead,
+        detail: "Showing your saved copy.",
+      });
+    },
+  );
+
+  test.each(SAVED_LEADS)("saved-old with a saved time, $label", ({ over, lead }) => {
     expect(view({ ...over, savedAt: savedAgo(7 * HOUR) })).toEqual({
       state: "saved-old",
       tone: STALE,
       icon: "clock",
-      lead,
-      body: "Your saved copy is from 4:00 AM (7 hr ago). Things may have changed since then.",
+      lead: "Saved 4:00 AM, 7 hr ago.",
+      body: lead,
+      detail: "Things may have changed since then.",
     });
   });
 
@@ -126,7 +157,8 @@ describe("deriveBarView: exact copy, one case per state per lead", () => {
       tone: STALE,
       icon: "clock",
       lead: "This show has ended.",
-      body: "You're seeing the last version, from 10:30 AM.",
+      body: null,
+      detail: "You're seeing the last version, from 10:30 AM.",
     });
   });
 
@@ -139,7 +171,8 @@ describe("deriveBarView: exact copy, one case per state per lead", () => {
       tone: WARNING,
       icon: "alert",
       lead: SHEET_LEAD,
-      body: "You're seeing the last version we have. Check with Doug before relying on it.",
+      body: SHEET_BODY,
+      detail: SHEET_DETAIL,
     });
   });
 
@@ -149,7 +182,8 @@ describe("deriveBarView: exact copy, one case per state per lead", () => {
       tone: WARNING,
       icon: "alert",
       lead: SHEET_LEAD,
-      body: "This is the last version we have, from 10:30 AM. Check with Doug before relying on it.",
+      body: SHEET_BODY,
+      detail: SHEET_SAVED_DETAIL,
     });
   });
 
@@ -160,6 +194,7 @@ describe("deriveBarView: exact copy, one case per state per lead", () => {
       icon: "sync",
       lead: "Signal's back.",
       body: "Loading the latest version.",
+      detail: null,
     });
   });
 
@@ -170,13 +205,14 @@ describe("deriveBarView: exact copy, one case per state per lead", () => {
       icon: "check",
       lead: null,
       body: "Updated. You're on the latest version.",
+      detail: null,
     });
   });
 
   test("a live page with sheetUnavailable and online false is sheet-gone, not a saved state", () => {
     const result = view({ mode: "live", online: false, sheetUnavailable: true });
     expect(result.state).toBe("sheet-gone");
-    expect(result.body).not.toContain("saved");
+    expect([result.lead, result.body, result.detail].join(" ")).not.toContain("saved copy");
   });
 
   test("mode offline with sheetUnavailable is sheet-gone-saved, not sheet-gone", () => {
@@ -197,15 +233,17 @@ describe("deriveBarView: age, clock and zone", () => {
       state: "saved-old",
       tone: STALE,
       icon: "clock",
-      lead: "No signal.",
-      body: "Your saved copy is from 5:00 AM (6 hr ago). Things may have changed since then.",
+      lead: "Saved 5:00 AM, 6 hr ago.",
+      body: "No signal.",
+      detail: "Things may have changed since then.",
     });
     expect(view({ mode: "offline", online: false, savedAt: savedAgo(SIX_HOURS - 1) })).toEqual({
       state: "saved-fresh",
       tone: INFO,
       icon: "signal-off",
-      lead: "No signal.",
-      body: "Showing your saved copy from 5:00 AM (5 hr ago).",
+      lead: "Saved 5:00 AM, 5 hr ago.",
+      body: "No signal.",
+      detail: "Showing your saved copy.",
     });
   });
 
@@ -214,21 +252,22 @@ describe("deriveBarView: age, clock and zone", () => {
       state: "saved-fresh",
       tone: INFO,
       icon: "signal-off",
-      lead: "No signal.",
-      body: "Showing your saved copy from 11:05 AM (just now).",
+      lead: "Saved 11:05 AM, just now.",
+      body: "No signal.",
+      detail: "Showing your saved copy.",
     });
   });
 
   test("a save from an earlier day carries its weekday and date", () => {
-    expect(view({ mode: "slow", savedAt: savedAgo(30 * HOUR) }).body).toBe(
-      "Your saved copy is from Sat Oct 25, 5:00 AM (30 hr ago). Things may have changed since then.",
+    expect(view({ mode: "slow", savedAt: savedAgo(30 * HOUR) }).lead).toBe(
+      "Saved Sat Oct 25, 5:00 AM, 30 hr ago.",
     );
   });
 
   test("the time zone argument decides {time}", () => {
     const over = { mode: "offline", online: false } as const;
-    expect(view(over, TZ).body).toBe("Showing your saved copy from 10:30 AM (30 min ago).");
-    expect(view(over, LA).body).toBe("Showing your saved copy from 7:30 AM (30 min ago).");
+    expect(view(over, TZ).lead).toBe("Saved 10:30 AM, 30 min ago.");
+    expect(view(over, LA).lead).toBe("Saved 7:30 AM, 30 min ago.");
   });
 
   test("sheet-gone, updating and updated read no time, so a bad savedAt changes nothing for them", () => {
@@ -252,13 +291,14 @@ describe("deriveBarView: an unknown saved time drops the time and age (spec guar
   ];
 
   describe.each(UNKNOWN)("$label", ({ over }) => {
-    test.each(SAVED_LEADS)("saved state keeps its lead and reads as an old copy, $label", (row) => {
+    test.each(SAVED_LEADS)("saved-old with no saved time: the cause is the lead, $label", (row) => {
       expect(view({ ...row.over, ...over })).toEqual({
         state: "saved-old",
         tone: STALE,
         icon: "clock",
         lead: row.lead,
         body: "Showing your saved copy.",
+        detail: null,
       });
     });
 
@@ -268,7 +308,8 @@ describe("deriveBarView: an unknown saved time drops the time and age (spec guar
         tone: STALE,
         icon: "clock",
         lead: "This show has ended.",
-        body: "You're seeing the last version.",
+        body: null,
+        detail: "You're seeing the last version.",
       });
     });
 
@@ -278,14 +319,15 @@ describe("deriveBarView: an unknown saved time drops the time and age (spec guar
         tone: WARNING,
         icon: "alert",
         lead: SHEET_LEAD,
-        body: "This is the last version we have. Check with Doug before relying on it.",
+        body: SHEET_BODY,
+        detail: SHEET_SAVED_NO_TIME,
       });
     });
   });
 });
 
-describe("deriveBarView: the body's parts", () => {
-  /** One input set per state, every saved lead included, plus the unknown-time forms. */
+describe("deriveBarView: the runs' parts", () => {
+  /** One input set per row of the table, every saved lead included. */
   const EVERY_VIEW: ReadonlyArray<{ label: string; over: Partial<BarInputs> }> = [
     { label: "hidden", over: {} },
     ...SAVED_LEADS.map((row) => ({ label: `saved-fresh, ${row.label}`, over: row.over })),
@@ -306,55 +348,71 @@ describe("deriveBarView: the body's parts", () => {
     { label: "updated", over: { justUpdated: true } },
   ];
 
+  const runsOf = (result: BarView) =>
+    [result.lead, result.body, result.detail].filter((run) => run !== null);
+
   test("the cases reach every state", () => {
     const reached = new Set(EVERY_VIEW.map(({ over }) => deriveBarView(inputs(over), TZ).state));
     expect([...reached].sort()).toEqual([...BAR_STATES].sort());
   });
 
-  test.each(EVERY_VIEW)("$label: the parts read, in order, as the body", ({ over }) => {
-    const result = deriveBarView(inputs(over), TZ);
-    expect(result.parts.map((part) => part.text).join("")).toBe(result.body);
-    // No empty run: an empty span would be a node with nothing to read.
-    for (const part of result.parts) expect(part.text.length).toBeGreaterThan(0);
+  test.each(EVERY_VIEW)("$label: each run's parts read, in order, as its text", ({ over }) => {
+    for (const run of runsOf(deriveBarView(inputs(over), TZ))) {
+      expect(run.parts.map((part) => part.text).join("")).toBe(run.text);
+      // No empty run: an empty span would be a node with nothing to read.
+      for (const part of run.parts) expect(part.text.length).toBeGreaterThan(0);
+    }
   });
 
-  test("saved-fresh: the time and the relative age are their own parts", () => {
-    expect(deriveBarView(inputs({ mode: "offline", online: false }), TZ).parts).toEqual([
-      { kind: "text", text: "Showing your saved copy from " },
+  test("saved-fresh: the bold lead holds the time and the age as their own parts", () => {
+    expect(deriveBarView(inputs({ mode: "offline", online: false }), TZ).lead?.parts).toEqual([
+      { kind: "text", text: "Saved " },
       { kind: "time", text: "10:30 AM" },
-      { kind: "age", text: " (30 min ago)" },
+      { kind: "age", text: ", 30 min ago" },
       { kind: "text", text: "." },
     ]);
   });
 
-  test("saved-old: the time and the relative age are their own parts", () => {
-    expect(deriveBarView(inputs({ mode: "slow", savedAt: savedAgo(7 * HOUR) }), TZ).parts).toEqual([
-      { kind: "text", text: "Your saved copy is from " },
+  test("saved-old: the same shape", () => {
+    expect(
+      deriveBarView(inputs({ mode: "slow", savedAt: savedAgo(7 * HOUR) }), TZ).lead?.parts,
+    ).toEqual([
+      { kind: "text", text: "Saved " },
       { kind: "time", text: "4:00 AM" },
-      { kind: "age", text: " (7 hr ago)" },
-      { kind: "text", text: ". Things may have changed since then." },
+      { kind: "age", text: ", 7 hr ago" },
+      { kind: "text", text: "." },
     ]);
   });
 
-  test("ended and sheet-gone-saved carry their time as a part, and no age", () => {
-    expect(deriveBarView(inputs({ mode: "ended" }), TZ).parts).toEqual([
+  test("ended and sheet-gone-saved carry their time in the detail, and no age", () => {
+    expect(deriveBarView(inputs({ mode: "ended" }), TZ).detail?.parts).toEqual([
       { kind: "text", text: "You're seeing the last version, from " },
       { kind: "time", text: "10:30 AM" },
       { kind: "text", text: "." },
     ]);
-    expect(deriveBarView(inputs({ mode: "slow", sheetUnavailable: true }), TZ).parts).toEqual([
-      { kind: "text", text: "This is the last version we have, from " },
+    expect(
+      deriveBarView(inputs({ mode: "slow", sheetUnavailable: true }), TZ).detail?.parts,
+    ).toEqual([
+      { kind: "text", text: `${SHEET_GONE} This is the last version we have, from ` },
       { kind: "time", text: "10:30 AM" },
       { kind: "text", text: ". Check with Doug before relying on it." },
     ]);
   });
 
-  test("only the two saved states carry a relative age", () => {
-    const withAge = EVERY_VIEW.map(({ over }) => deriveBarView(inputs(over), TZ))
-      .filter((result) => result.parts.some((part) => part.kind === "age"))
-      .map((result) => result.state);
-    premise("the saved cases carry an age", withAge.length, 0);
-    expect([...new Set(withAge)].sort()).toEqual(["saved-fresh", "saved-old"]);
+  test("the relative age is only ever in a saved state's pinned lead", () => {
+    const where: string[] = [];
+    for (const { over } of EVERY_VIEW) {
+      const result = deriveBarView(inputs(over), TZ);
+      for (const [name, run] of [
+        ["lead", result.lead],
+        ["body", result.body],
+        ["detail", result.detail],
+      ] as const) {
+        if (run?.parts.some((part) => part.kind === "age")) where.push(`${result.state}:${name}`);
+      }
+    }
+    premise("the saved cases carry an age", where.length, 0);
+    expect([...new Set(where)].sort()).toEqual(["saved-fresh:lead", "saved-old:lead"]);
   });
 });
 

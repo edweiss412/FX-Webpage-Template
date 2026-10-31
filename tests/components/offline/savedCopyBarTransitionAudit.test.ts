@@ -188,9 +188,47 @@ const DECLARED = [
   },
   {
     id: "V8",
-    what: "the bold lead renders only when the view has one",
-    marker: /^view\.lead !== null && \( <>/,
+    what: "the pinned line's bold lead renders only when the view has one",
+    marker: /^view\.lead !== null && \( <strong className="font-semibold">/,
     treatment: "instant; updated is the one state with no lead",
+  },
+  {
+    id: "V9",
+    what: "a space between the lead and the plain run, only when both exist",
+    marker: /^view\.lead !== null && view\.body !== null && " "\u0000/,
+    treatment: "instant; ended has a lead and no plain run, updated the reverse",
+  },
+  {
+    id: "V9a",
+    what: "the left-associative half of that conjunction, which the AST reports separately",
+    marker: /^view\.lead !== null && view\.body !== null\u0000/,
+    treatment: "not a branch of its own; declared so the census stays exact",
+  },
+  {
+    id: "V10",
+    what: "the pinned line's plain run renders only when the view has one",
+    marker: /^view\.body !== null && <CopyRun copy=\{view\.body\} \/>\u0000/,
+    treatment: "instant; ended is the one visible state with no plain run",
+  },
+  {
+    id: "V11",
+    what: "the region carries the detail as sr-only text, so a state change announces it once",
+    marker: /^view\.detail !== null && <span className="sr-only">/,
+    treatment: "instant; it comes and goes with the detail block (V12), in the same render",
+  },
+  {
+    id: "V12",
+    what: "the in-flow detail block after the region, only for a state that has one",
+    marker:
+      /^view !== null && view\.detail !== null && \( <div data-testid="saved-copy-bar-detail"/,
+    treatment:
+      "instant for every pair; it is in normal flow and scrolls away, and updated, the one state that fades, has no detail",
+  },
+  {
+    id: "V12a",
+    what: "a view AND a detail",
+    marker: /^view !== null && view\.detail !== null\u0000/,
+    treatment: "not a render branch itself; the conjunction inside V12",
   },
   // ── SavedCopyBar: the container ──
   {

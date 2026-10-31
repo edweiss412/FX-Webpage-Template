@@ -39,6 +39,7 @@ import {
   NOT_SAVED_HEADING,
   NOT_SAVED_NOTE,
   NOT_SAVED_RETRY,
+  SAVED_TODAY_LEAD,
   assertServerUnderTest,
   crewUrlPath,
   expect,
@@ -251,10 +252,12 @@ test("1. first visit is saved, then an offline reload shows full content, a work
   proxy.setMode("refuse");
   await page.reload();
   await waitForCrewHydrated(page);
-  const { bar, content } = savedCopyBar(page);
+  const { bar, content, detail } = savedCopyBar(page);
   await expect(page.getByTestId("crew-shell")).toBeVisible();
   await expect(bar).toHaveAttribute("data-state", "saved-fresh");
-  await expect(content).toHaveText(/^No signal\. Showing your saved copy from /);
+  await expect(content.locator("strong")).toHaveText(SAVED_TODAY_LEAD);
+  await expect(content).toHaveText(new RegExp(`${SAVED_TODAY_LEAD.source} No signal\\.$`));
+  await expect(detail).toHaveText("Showing your saved copy.");
 
   // The section in the URL (spec 4.7.4, Task 21's replaceState): open the copy
   // at a URL naming another section. The copy opens on its own section and the
@@ -306,9 +309,10 @@ test("2. a hung connection shows slow, then the page updates by itself", async (
   const started = Date.now();
   await page.reload({ waitUntil: "domcontentloaded" });
   await waitForCrewHydrated(page);
-  const { bar, content } = savedCopyBar(page);
+  const { bar, content, detail } = savedCopyBar(page);
   await expect(bar).toHaveAttribute("data-state", "saved-fresh");
-  await expect(content).toHaveText(/^Slow connection\. Showing your saved copy from /);
+  await expect(content).toHaveText(new RegExp(`${SAVED_TODAY_LEAD.source} Slow connection\\.$`));
+  await expect(detail).toHaveText("Showing your saved copy.");
   expect(Date.now() - started, "the worker waits out its 8 s budget first").toBeGreaterThanOrEqual(
     8_000,
   );
@@ -363,9 +367,10 @@ test("3. an archive keeps the copy, with the ended bar online and offline", asyn
 
   await page.goto(`${origin}${path}`);
   await waitForCrewHydrated(page);
-  const { bar, content } = savedCopyBar(page);
+  const { bar, content, detail } = savedCopyBar(page);
   await expect(bar).toHaveAttribute("data-state", "ended");
-  await expect(content).toHaveText(/^This show has ended\. You're seeing the last version, from /);
+  await expect(content).toHaveText("This show has ended.");
+  await expect(detail).toHaveText(/^You're seeing the last version, from .+\.$/);
   const ended = (await readSavedCopies(page)).copies.find((copy) => copy.showId === show.showId);
   expect(ended?.endedAt).toEqual(expect.any(Number));
 
@@ -373,7 +378,8 @@ test("3. an archive keeps the copy, with the ended bar online and offline", asyn
   await page.reload();
   await waitForCrewHydrated(page);
   await expect(bar).toHaveAttribute("data-state", "ended");
-  await expect(content).toHaveText(/^This show has ended\./);
+  await expect(content).toHaveText("This show has ended.");
+  await expect(detail).toHaveText(/^You're seeing the last version, from .+\.$/);
 });
 
 test("4. a link reset wipes the copy", async ({ crewPage: page, origin, crewProxy: proxy }) => {

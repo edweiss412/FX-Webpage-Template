@@ -86,6 +86,7 @@ import {
   type BarMode,
   type BarView,
   type BodyPart,
+  type Copy,
 } from "@/lib/offline/barState";
 import { postToWorker, serviceWorkerContainer } from "@/lib/offline/client/messaging";
 import { useOnlineStatus } from "@/lib/offline/client/online";
@@ -170,6 +171,16 @@ const PART_ATTRIBUTES: Record<BodyPart["kind"], { className?: string; "aria-hidd
   time: { className: "tabular-nums" },
   age: { className: "tabular-nums", "aria-hidden": "true" },
 };
+
+/** One run of copy: a span per part, styled by its kind. */
+function CopyRun({ copy }: { copy: Copy }) {
+  return copy.parts.map((part, index) => (
+    // The parts of one run never reorder: the index is their identity.
+    <span key={index} {...PART_ATTRIBUTES[part.kind]}>
+      {part.text}
+    </span>
+  ));
+}
 
 function isFreshReadyFor(data: unknown, path: string): boolean {
   if (typeof data !== "object" || data === null) return false;
@@ -407,62 +418,85 @@ export type SavedCopyBarViewProps = {
 };
 
 /**
- * One derived view, painted: the always-mounted live region and, unless the
- * view is `hidden`, the bar inside it. No state and no effects, so a pair of
- * views is a pair of renders.
+ * One derived view, painted: the always-mounted live region with, unless the
+ * view is `hidden`, the pinned bar inside it, and the in-flow detail after it.
+ * No state and no effects, so a pair of views is a pair of renders.
+ *
+ * The owner's shape (spec 4.7.2, 2026-10-30): the region holds one short line,
+ * a bold lead and a plain run, and pins it. The full sentence, when the state
+ * has one, is a separate block right after the region, in normal flow: it shows
+ * once at the top of the page and scrolls away under the pinned line. The region
+ * also carries that sentence as `sr-only` text, so a state change announces the
+ * whole meaning once; the visible block is `aria-hidden`, so browsing does not
+ * read it a second time.
  */
 export function SavedCopyBarView({ view, fading, onFadeEnd, ref }: SavedCopyBarViewProps) {
   // `hidden` is the one state with no icon, and it shows nothing.
   const Icon = view === null || view.icon === null ? null : ICONS[view.icon];
 
   return (
-    <div
-      ref={ref}
-      data-testid="saved-copy-bar-region"
-      role="status"
-      aria-live="polite"
-      className="sticky top-0 z-raised flex-none self-stretch"
-    >
-      {view !== null && Icon !== null && (
-        <div
-          data-testid="saved-copy-bar"
-          data-state={view.state}
-          className={cn(
-            // The bottom edge is on the bar, never the region: the hidden
-            // region must stay at zero height. It also survives forced colors,
-            // where every tone fill flattens to Canvas.
-            "flex items-start gap-2 border-b border-border px-4 py-2 text-sm",
-            view.tone,
-            fading && "opacity-0 transition-opacity duration-normal",
-          )}
-          onTransitionEnd={(event) => {
-            // A transition inside the bar is not the fade.
-            if (event.target === event.currentTarget) onFadeEnd();
-          }}
-        >
-          <Icon
-            aria-hidden="true"
-            data-testid="saved-copy-bar-icon"
+    <>
+      <div
+        ref={ref}
+        data-testid="saved-copy-bar-region"
+        role="status"
+        aria-live="polite"
+        className="sticky top-0 z-raised flex-none self-stretch"
+      >
+        {view !== null && Icon !== null && (
+          <div
+            data-testid="saved-copy-bar"
+            data-state={view.state}
             className={cn(
-              "mt-0.5 size-4 flex-none",
-              view.icon === "sync" && "animate-spin motion-reduce:animate-none",
+              // The bottom edge is on the bar, never the region: the hidden
+              // region must stay at zero height. It also survives forced colors,
+              // where every tone fill flattens to Canvas.
+              "flex items-start gap-2 border-b border-border px-4 py-2 text-sm",
+              view.tone,
+              fading && "opacity-0 transition-opacity duration-normal",
             )}
-          />
-          <p data-testid="saved-copy-bar-content">
-            {view.lead !== null && (
-              <>
-                <strong className="font-semibold">{view.lead}</strong>{" "}
-              </>
-            )}
-            {view.parts.map((part, index) => (
-              // The runs of one view never reorder: the index is their identity.
-              <span key={index} {...PART_ATTRIBUTES[part.kind]}>
-                {part.text}
-              </span>
-            ))}
+            onTransitionEnd={(event) => {
+              // A transition inside the bar is not the fade.
+              if (event.target === event.currentTarget) onFadeEnd();
+            }}
+          >
+            <Icon
+              aria-hidden="true"
+              data-testid="saved-copy-bar-icon"
+              className={cn(
+                "mt-0.5 size-4 flex-none",
+                view.icon === "sync" && "animate-spin motion-reduce:animate-none",
+              )}
+            />
+            <p data-testid="saved-copy-bar-content">
+              {view.lead !== null && (
+                <strong className="font-semibold">
+                  <CopyRun copy={view.lead} />
+                </strong>
+              )}
+              {view.lead !== null && view.body !== null && " "}
+              {view.body !== null && <CopyRun copy={view.body} />}
+            </p>
+            {view.detail !== null && <span className="sr-only"> {view.detail.text}</span>}
+          </div>
+        )}
+      </div>
+      {view !== null && view.detail !== null && (
+        <div
+          data-testid="saved-copy-bar-detail"
+          aria-hidden="true"
+          // In normal flow under the region, aligned with the pinned line's text
+          // (px-4 + the icon + gap-2), in the bar's tone and with its edge.
+          className={cn(
+            "flex-none self-stretch border-b border-border py-2 pr-4 pl-10 text-sm",
+            view.tone,
+          )}
+        >
+          <p>
+            <CopyRun copy={view.detail} />
           </p>
         </div>
       )}
-    </div>
+    </>
   );
 }

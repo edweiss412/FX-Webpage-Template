@@ -70,7 +70,11 @@ const FRESH_SAVED_AT = "2026-10-27T11:30:00.000Z";
 const OLD_SAVED_AT = "2026-10-27T05:00:00.000Z";
 
 const MOUNTED_ATTRIBUTE = "data-fxav-bar";
-const SHEET_LEAD = "Doug's sheet for this show isn't available in Google Drive anymore.";
+// The owner's copy table, 2026-10-30 (spec 4.7.2).
+const SHEET_LEAD = "Doug's sheet is gone.";
+const SHEET_GONE = "Doug's sheet for this show isn't available in Google Drive anymore.";
+const SHEET_DETAIL = `${SHEET_GONE} You're seeing the last version we have. Check with Doug before relying on it.`;
+const SHEET_SAVED_DETAIL = `${SHEET_GONE} This is the last version we have, from ${at(FRESH_SAVED_AT)}. Check with Doug before relying on it.`;
 
 /** `{time}` as the bar shows it in this runtime's zone. */
 function at(iso: string): string {
@@ -208,15 +212,21 @@ type StateCase = {
   tone: readonly string[];
   /** lucide's own class for the icon the state names. */
   icon: string;
+  /** The pinned line's bold run. */
   lead: string | null;
+  /** The pinned line as it shows: the bold lead, then the plain run. */
   text: string;
+  /** The in-flow sentence under the pinned line, or null when the state has none. */
+  detail: string | null;
   /**
-   * What the live region announces, when it is not `text`: the relative age is
-   * visual only (spec 4.7.2 Accessibility), so the minute tick announces nothing.
+   * What the live region announces: the pinned line without the relative age
+   * (visual only, spec 4.7.2 Accessibility), then the detail, once.
    */
-  announced?: string;
-  /** The text of each run set in tabular figures, in order: the saved time and the age. */
+  announced: string;
+  /** The text of each pinned run set in tabular figures, in order. */
   figures: readonly string[];
+  /** The same, in the in-flow detail. */
+  detailFigures: readonly string[];
 };
 
 /** Forces one input only later tasks wire up, through the real derivation. */
@@ -234,10 +244,12 @@ const STATE_CASES = {
     },
     tone: ["bg-info-bg"],
     icon: "lucide-wifi-off",
-    lead: "No signal.",
-    text: `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (30 min ago).`,
-    announced: `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)}.`,
-    figures: [at(FRESH_SAVED_AT), " (30 min ago)"],
+    lead: `Saved ${at(FRESH_SAVED_AT)}, 30 min ago.`,
+    text: `Saved ${at(FRESH_SAVED_AT)}, 30 min ago. No signal.`,
+    detail: "Showing your saved copy.",
+    announced: `Saved ${at(FRESH_SAVED_AT)}. No signal. Showing your saved copy.`,
+    figures: [at(FRESH_SAVED_AT), ", 30 min ago"],
+    detailFigures: [],
   },
   "saved-old": {
     arrange: () => {
@@ -246,14 +258,12 @@ const STATE_CASES = {
     },
     tone: ["bg-stale-tint"],
     icon: "lucide-clock",
-    lead: "Slow connection.",
-    text:
-      `Slow connection. Your saved copy is from ${at(OLD_SAVED_AT)} (7 hr ago). ` +
-      "Things may have changed since then.",
-    announced:
-      `Slow connection. Your saved copy is from ${at(OLD_SAVED_AT)}. ` +
-      "Things may have changed since then.",
-    figures: [at(OLD_SAVED_AT), " (7 hr ago)"],
+    lead: `Saved ${at(OLD_SAVED_AT)}, 7 hr ago.`,
+    text: `Saved ${at(OLD_SAVED_AT)}, 7 hr ago. Slow connection.`,
+    detail: "Things may have changed since then.",
+    announced: `Saved ${at(OLD_SAVED_AT)}. Slow connection. Things may have changed since then.`,
+    figures: [at(OLD_SAVED_AT), ", 7 hr ago"],
+    detailFigures: [],
   },
   ended: {
     arrange: () => {
@@ -263,18 +273,22 @@ const STATE_CASES = {
     tone: ["bg-stale-tint"],
     icon: "lucide-clock",
     lead: "This show has ended.",
-    text: `This show has ended. You're seeing the last version, from ${at(FRESH_SAVED_AT)}.`,
-    figures: [at(FRESH_SAVED_AT)],
+    text: "This show has ended.",
+    detail: `You're seeing the last version, from ${at(FRESH_SAVED_AT)}.`,
+    announced: `This show has ended. You're seeing the last version, from ${at(FRESH_SAVED_AT)}.`,
+    figures: [],
+    detailFigures: [at(FRESH_SAVED_AT)],
   },
   "sheet-gone": {
     arrange: () => ({ sheetUnavailable: true }),
     tone: ["bg-warning-bg", "text-warning-text"],
     icon: "lucide-triangle-alert",
     lead: SHEET_LEAD,
-    text:
-      `${SHEET_LEAD} You're seeing the last version we have. ` +
-      "Check with Doug before relying on it.",
+    text: `${SHEET_LEAD} Check with Doug.`,
+    detail: SHEET_DETAIL,
+    announced: `${SHEET_LEAD} Check with Doug. ${SHEET_DETAIL}`,
     figures: [],
+    detailFigures: [],
   },
   "sheet-gone-saved": {
     arrange: () => {
@@ -284,10 +298,11 @@ const STATE_CASES = {
     tone: ["bg-warning-bg", "text-warning-text"],
     icon: "lucide-triangle-alert",
     lead: SHEET_LEAD,
-    text:
-      `${SHEET_LEAD} This is the last version we have, from ${at(FRESH_SAVED_AT)}. ` +
-      "Check with Doug before relying on it.",
-    figures: [at(FRESH_SAVED_AT)],
+    text: `${SHEET_LEAD} Check with Doug.`,
+    detail: SHEET_SAVED_DETAIL,
+    announced: `${SHEET_LEAD} Check with Doug. ${SHEET_SAVED_DETAIL}`,
+    figures: [],
+    detailFigures: [at(FRESH_SAVED_AT)],
   },
   updating: {
     arrange: () => {
@@ -298,7 +313,10 @@ const STATE_CASES = {
     icon: "lucide-refresh-cw",
     lead: "Signal's back.",
     text: "Signal's back. Loading the latest version.",
+    detail: null,
+    announced: "Signal's back. Loading the latest version.",
     figures: [],
+    detailFigures: [],
   },
   updated: {
     arrange: () => {
@@ -309,7 +327,10 @@ const STATE_CASES = {
     icon: "lucide-check",
     lead: null,
     text: "Updated. You're on the latest version.",
+    detail: null,
+    announced: "Updated. You're on the latest version.",
     figures: [],
+    detailFigures: [],
   },
 } satisfies Record<Exclude<BarState, "hidden">, StateCase>;
 
@@ -341,8 +362,8 @@ describe("SavedCopyBar: one case per visible state", () => {
     expect(icon.getAttribute("class") ?? "").toContain(testCase.icon);
 
     expect(contentText()).toBe(testCase.text);
-    const stateCase: StateCase = testCase;
-    expect(announcedText(live)).toBe(stateCase.announced ?? stateCase.text);
+    // The region says the whole meaning once: the pinned line, then the detail.
+    expect(announcedText(live)).toBe(testCase.announced);
     const strong = screen.getByTestId("saved-copy-bar-content").querySelectorAll("strong");
     if (testCase.lead === null) {
       expect(strong).toHaveLength(0);
@@ -367,16 +388,61 @@ describe("SavedCopyBar: one case per visible state", () => {
   );
 
   test.each(Object.entries(STATE_CASES))(
+    "%s: the detail shows once in the page flow, after the region, and is hidden from assistive tech",
+    (_state, testCase) => {
+      renderBar(testCase.arrange());
+      const live = region();
+      const shown = screen.queryAllByTestId("saved-copy-bar-detail");
+      if (testCase.detail === null) {
+        expect(shown).toEqual([]);
+        return;
+      }
+      expect(shown).toHaveLength(1);
+      const detail = shown[0]!;
+      // A sibling right after the region, never inside it: it scrolls away
+      // while the region stays pinned.
+      expect(live.contains(detail)).toBe(false);
+      expect(live.nextElementSibling).toBe(detail);
+      expect(detail.textContent).toBe(testCase.detail);
+      // Browsing does not read it a second time: the region already said it.
+      expect(detail.getAttribute("aria-hidden")).toBe("true");
+      expect(isInaccessible(detail)).toBe(true);
+      const classes = (detail.getAttribute("class") ?? "").split(/\s+/);
+      for (const tone of testCase.tone) expect(classes).toContain(tone);
+      expect(classes).toContain("border-b");
+      expect(classes).toContain("border-border");
+      for (const pinned of ["sticky", "fixed", "absolute", "relative"]) {
+        expect(classes, `the detail is in normal flow, not ${pinned}`).not.toContain(pinned);
+      }
+      expect(classes).toContain("self-stretch");
+      expect(classes).toContain("flex-none");
+      // The region carries the same sentence for assistive tech, out of sight.
+      const spoken = [...live.querySelectorAll(".sr-only")].map((el) => el.textContent?.trim());
+      expect(spoken).toEqual([testCase.detail]);
+    },
+  );
+
+  test.each(Object.entries(STATE_CASES))(
     "%s: every figure in the copy is set in tabular figures, and nothing else is",
     (_state, testCase) => {
       renderBar(testCase.arrange());
       const content = screen.getByTestId("saved-copy-bar-content");
-      const figures = [...content.querySelectorAll(".tabular-nums")].map((el) => el.textContent);
-      expect(figures).toEqual(testCase.figures);
-      // No digit outside them: the time and age are the only figures the copy holds.
-      const prose = content.cloneNode(true) as HTMLElement;
-      for (const figure of prose.querySelectorAll(".tabular-nums")) figure.remove();
-      expect(prose.textContent ?? "").not.toMatch(/\d/);
+      const detail = screen.queryByTestId("saved-copy-bar-detail");
+      for (const [element, expected] of [
+        [content, testCase.figures],
+        [detail, testCase.detailFigures],
+      ] as const) {
+        if (element === null) {
+          expect(expected).toEqual([]);
+          continue;
+        }
+        const figures = [...element.querySelectorAll(".tabular-nums")].map((el) => el.textContent);
+        expect(figures).toEqual(expected);
+        // No digit outside them: the time and age are the only figures the copy holds.
+        const prose = element.cloneNode(true) as HTMLElement;
+        for (const figure of prose.querySelectorAll(".tabular-nums")) figure.remove();
+        expect(prose.textContent ?? "").not.toMatch(/\d/);
+      }
     },
   );
 
@@ -419,7 +485,9 @@ describe("SavedCopyBar: inputs", () => {
     goOnline(false);
     expect(region()).toBe(live);
     expect(live.contains(bar())).toBe(true);
-    expect(announcedText(live)).toBe(`No signal. Showing your saved copy from ${at(RENDERED_AT)}.`);
+    expect(announcedText(live)).toBe(
+      `Saved ${at(RENDERED_AT)}. No signal. Showing your saved copy.`,
+    );
 
     goOnline(true);
     expect(region()).toBe(live);
@@ -441,9 +509,7 @@ describe("SavedCopyBar: inputs", () => {
     renderBar();
 
     expect(bar().getAttribute("data-state")).toBe("saved-fresh");
-    expect(contentText()).toBe(
-      `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (30 min ago).`,
-    );
+    expect(contentText()).toBe(`Saved ${at(FRESH_SAVED_AT)}, 30 min ago. No signal.`);
   });
 
   test("the server-error lead comes from the meta", () => {
@@ -451,7 +517,7 @@ describe("SavedCopyBar: inputs", () => {
     renderBar();
 
     expect(contentText()).toBe(
-      `Couldn't load the latest version. Showing your saved copy from ${at(FRESH_SAVED_AT)} (30 min ago).`,
+      `Saved ${at(FRESH_SAVED_AT)}, 30 min ago. Couldn't load the latest version.`,
     );
   });
 
@@ -460,7 +526,12 @@ describe("SavedCopyBar: inputs", () => {
     renderBar();
 
     expect(bar().getAttribute("data-state")).toBe("saved-old");
+    // No time to lead with, so the cause leads, and there is no detail.
     expect(contentText()).toBe("No signal. Showing your saved copy.");
+    expect(screen.getByTestId("saved-copy-bar-content").querySelector("strong")?.textContent).toBe(
+      "No signal.",
+    );
+    expect(screen.queryByTestId("saved-copy-bar-detail")).toBeNull();
   });
 
   test("a live page with no connection shows the No signal. lead, aged from its render time", () => {
@@ -469,11 +540,9 @@ describe("SavedCopyBar: inputs", () => {
 
     expect(bar().getAttribute("data-state")).toBe("saved-fresh");
     expect(screen.getByTestId("saved-copy-bar-content").querySelector("strong")?.textContent).toBe(
-      "No signal.",
+      `Saved ${at(RENDERED_AT)}, 1 min ago.`,
     );
-    expect(contentText()).toBe(
-      `No signal. Showing your saved copy from ${at(RENDERED_AT)} (1 min ago).`,
-    );
+    expect(contentText()).toBe(`Saved ${at(RENDERED_AT)}, 1 min ago. No signal.`);
   });
 
   test("tracks the connection through the online and offline events", () => {
@@ -504,7 +573,7 @@ describe("SavedCopyBar: inputs", () => {
     setServedMeta("offline", savedAt);
     renderBar();
     expect(bar().getAttribute("data-state")).toBe("saved-fresh");
-    expect(contentText()).toContain("(5 hr ago)");
+    expect(contentText()).toContain(", 5 hr ago.");
 
     act(() => {
       vi.advanceTimersByTime(MINUTE_MS - 1);
@@ -515,8 +584,9 @@ describe("SavedCopyBar: inputs", () => {
       vi.advanceTimersByTime(1);
     });
     expect(bar().getAttribute("data-state")).toBe("saved-old");
-    expect(contentText()).toBe(
-      `No signal. Your saved copy is from ${at(savedAt)} (6 hr ago). Things may have changed since then.`,
+    expect(contentText()).toBe(`Saved ${at(savedAt)}, 6 hr ago. No signal.`);
+    expect(screen.getByTestId("saved-copy-bar-detail").textContent).toBe(
+      "Things may have changed since then.",
     );
   });
 
@@ -527,18 +597,16 @@ describe("SavedCopyBar: inputs", () => {
     const live = region();
     const visibleBefore = contentText();
     const announcedBefore = announcedText(live);
-    expect(visibleBefore).toBe(
-      `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (30 min ago).`,
+    expect(visibleBefore).toBe(`Saved ${at(FRESH_SAVED_AT)}, 30 min ago. No signal.`);
+    expect(announcedBefore).toBe(
+      `Saved ${at(FRESH_SAVED_AT)}. No signal. Showing your saved copy.`,
     );
-    expect(announcedBefore).toBe(`No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)}.`);
 
     act(() => {
       vi.advanceTimersByTime(MINUTE_MS);
     });
     // The tick re-rendered the bar: the age a sighted reader sees moved on.
-    expect(contentText()).toBe(
-      `No signal. Showing your saved copy from ${at(FRESH_SAVED_AT)} (31 min ago).`,
-    );
+    expect(contentText()).toBe(`Saved ${at(FRESH_SAVED_AT)}, 31 min ago. No signal.`);
     // The same node, and not one character of what it announces changed, so a
     // polite region has nothing to read again.
     expect(region()).toBe(live);
@@ -634,8 +702,9 @@ describe("SavedCopyBar: hydration", () => {
       expect(live).toBe(serverRegion);
       const visible = live?.querySelector('[data-testid="saved-copy-bar"]');
       expect(visible?.getAttribute("data-state")).toBe("saved-fresh");
-      expect(visible?.querySelector("strong")?.textContent).toBe("No signal.");
-      expect(visible?.textContent).toContain("(30 min ago)");
+      expect(visible?.querySelector("strong")?.textContent).toBe(
+        `Saved ${at(FRESH_SAVED_AT)}, 30 min ago.`,
+      );
       expect(document.documentElement.getAttribute(MOUNTED_ATTRIBUTE)).toBe("mounted");
     } finally {
       act(() => root.unmount());
@@ -663,8 +732,9 @@ describe("SavedCopyBar: hydration", () => {
 
       const visible = container.querySelector('[data-testid="saved-copy-bar"]');
       expect(visible?.getAttribute("data-state")).toBe("saved-fresh");
-      expect(visible?.querySelector("strong")?.textContent).toBe("No signal.");
-      expect(visible?.textContent).toContain("(1 min ago)");
+      expect(visible?.querySelector("strong")?.textContent).toBe(
+        `Saved ${at(RENDERED_AT)}, 1 min ago.`,
+      );
     } finally {
       act(() => root.unmount());
       container.remove();
