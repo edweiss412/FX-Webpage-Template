@@ -120,6 +120,7 @@ import { reloadPage } from "@/lib/offline/client/reload";
 import { useBarHeightProperty } from "@/lib/offline/client/scrollPadding";
 import { useScrolledUnder } from "@/lib/offline/client/scrolledUnder";
 import { readServedCopy, type ServedCopyReading } from "@/lib/offline/client/servedCopy";
+import { forHistory } from "@/lib/ui/historyState";
 import { cn } from "@/lib/ui/cn";
 
 export type SavedCopyBarProps = {
@@ -247,11 +248,15 @@ function takeUpdatedFlag(): boolean {
 
 /**
  * Puts the section CrewSections rendered into the URL's `s`, keeping every
- * other parameter (spec 4.7.4). The state is `null`, as CrewSections' own
- * pushState passes, so Next's patched history copies its router state in and
- * keeps useSearchParams in step. The page sits in the route's loading.tsx
- * Suspense boundary, which React hydrates in a later commit than the app
- * router's, so that patch is in place by the time this runs.
+ * other parameter (spec 4.7.4) and the entry's own state. The state handed over
+ * is the entry's own keys, Next's left out (`forHistory`, as CrewSections'
+ * history writes pass it), so Next's patched history copies its router state
+ * back in and keeps useSearchParams in step, and the section sheet's
+ * `crewSheet` marker stays on the entry. A `null` state erased that marker, so
+ * closing the saved section replaced the entry instead of going Back (Codex
+ * review of the origin/main merge, M1-1). The page sits in the route's
+ * loading.tsx Suspense boundary, which React hydrates in a later commit than
+ * the app router's, so that patch is in place by the time this runs.
  */
 function showRenderedSectionInUrl(): void {
   const section = document
@@ -263,7 +268,11 @@ function showRenderedSectionInUrl(): void {
   // ACTION_RESTORE, so a URL that already names the section is left alone.
   if (url.searchParams.get("s") === section) return;
   url.searchParams.set("s", section);
-  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  window.history.replaceState(
+    forHistory(window.history.state),
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
 }
 
 export function SavedCopyBar({ renderedAt, sheetUnavailable }: SavedCopyBarProps) {

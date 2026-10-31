@@ -135,6 +135,7 @@ import type { SectionId } from "@/lib/crew/resolveActiveSection";
 import type { RunCardProps } from "@/lib/crew/runOfShowCard";
 import { buildHomeHref, buildSectionHref } from "@/lib/crew/sectionHref";
 import { cn } from "@/lib/ui/cn";
+import { forHistory } from "@/lib/ui/historyState";
 import {
   activeSectionFor,
   NAV_SCROLL_SETTLE_EPSILON_PX,
@@ -221,20 +222,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** Next's own history keys: its patched history methods skip any state that carries one. */
-const NEXT_HISTORY_KEYS = ["__NA", "_N", "__PRIVATE_NEXTJS_INTERNALS_TREE"] as const;
-
-/**
- * The state to hand `pushState` / `replaceState`: the entry's own keys without
- * Next's, so Next copies its keys back and moves the router's URL with the
- * write (see the header). `null` stays `null`.
- */
-function forHistory(state: unknown): Record<string, unknown> | null {
-  if (!isRecord(state)) return null;
-  const rest: Record<string, unknown> = { ...state };
-  for (const key of NEXT_HISTORY_KEYS) delete rest[key];
-  return rest;
-}
+// The state to hand `pushState` / `replaceState` is `forHistory`'s
+// (lib/ui/historyState.ts): the entry's own keys without Next's, so Next copies
+// its keys back and moves the router's URL with the write (see the header).
 
 /** The history state without the sheet marker. */
 function withoutMarker(state: unknown): Record<string, unknown> | null {

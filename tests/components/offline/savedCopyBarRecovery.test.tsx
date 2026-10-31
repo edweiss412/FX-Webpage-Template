@@ -700,9 +700,11 @@ describe("SavedCopyBar: the section in the URL (spec 4.7.4)", () => {
 
       renderBar();
 
-      // `null` state, as CrewSections' own pushState passes: Next's patched
-      // history copies its router state in and syncs useSearchParams; a state
-      // carrying Next's own marker would bypass that sync.
+      // The entry's own state with Next's keys left out (here the entry has
+      // none, so `null`): Next's patched history copies its router state in and
+      // syncs useSearchParams; a state carrying Next's own keys would bypass
+      // that sync. That the entry's own keys survive (the sheet's marker) is
+      // savedCopySheetMarker.test.tsx's case (M1-1).
       expect(replace.mock.calls).toEqual([[null, "", `${PATH}?s=schedule&gate=skip`]]);
       expect(window.location.pathname + window.location.search).toBe(
         `${PATH}?s=schedule&gate=skip`,
