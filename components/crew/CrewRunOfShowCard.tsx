@@ -13,9 +13,10 @@
  *   - A day with no rows renders nothing, heading included (spec §4.4 "Empty").
  *   - Rows render through `ShowDayTimelineList` (a day with agenda sessions) or
  *     `RunOfShowList`, as Today's card did, with its card id and header actions.
- *   - "Full schedule" shows when the day had more rows than the cap; it is a real
- *     `?s=schedule` link the section controller intercepts, so it opens the
- *     Schedule sheet in compact and scrolls to Schedule in wide (spec §5.2, §5.3).
+ *   - "Full schedule" shows at the card's foot when the day had more rows than
+ *     the cap; it is a real `?s=schedule` link the section controller
+ *     intercepts, so it opens the Schedule sheet in compact and scrolls to
+ *     Schedule in wide (spec §5.2, §5.3).
  *   - "Next" (`live` only) marks the first row whose start converts through
  *     `clockToMinutes` to a time at or after now; a row that does not convert
  *     never gets it (documented limit L1).
@@ -156,21 +157,13 @@ export function CrewRunOfShowCard({ timezone, days, header }: RunCardProps) {
           icon={<ClockIcon />}
           title={RUN_CARD_TITLE}
           action={
-            // "Full schedule" is a link to another section, not sheet data.
-            <div data-search-skip="" className="flex items-center gap-2">
-              {day.more ? (
-                <SectionChipLink section="schedule" icon={<CalendarIcon />}>
-                  Full schedule
-                </SectionChipLink>
-              ) : null}
-              <CardHeaderActions
-                cardId={RUN_CARD_ID}
-                driveFileId={header.driveFileId}
-                anchor={header.anchor}
-                showId={header.showId}
-                cardReport={header.cardReport}
-              />
-            </div>
+            <CardHeaderActions
+              cardId={RUN_CARD_ID}
+              driveFileId={header.driveFileId}
+              anchor={header.anchor}
+              showId={header.showId}
+              cardReport={header.cardReport}
+            />
           }
         >
           {/* One grid cell: a crossfade stacks the outgoing and incoming rows in it. */}
@@ -186,6 +179,17 @@ export function CrewRunOfShowCard({ timezone, days, header }: RunCardProps) {
               </RunBody>
             </AnimatePresence>
           </div>
+          {/* At the foot, after the rows it continues, never in the header: there
+              it took the width the title needed, and "Run of show" truncated at
+              every width (gate fix X10). A link to another section, not sheet
+              data, so outside search. */}
+          {day.more ? (
+            <div data-search-skip="" className="flex">
+              <SectionChipLink section="schedule" icon={<CalendarIcon />}>
+                Full schedule
+              </SectionChipLink>
+            </div>
+          ) : null}
         </SectionCard>
       </div>
     </div>

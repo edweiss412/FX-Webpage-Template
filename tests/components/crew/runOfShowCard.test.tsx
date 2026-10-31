@@ -419,6 +419,22 @@ describe("run card: cap and Full schedule (spec §4.4, §9.1)", () => {
     expect(within(sheet).getByTestId("body-schedule")).toBeInTheDocument();
   });
 
+  // Gate fix X10: in the header, the "Full schedule" chip took the width the
+  // title needed, and "Run of show" truncated at every width ("RU…" at 390). The
+  // header keeps only Today's card header actions (spec §6.4); the link sits at
+  // the card's foot, after the rows it continues. The real-browser half (the
+  // title never cut) is crew-layout-dimensions.spec.ts "today Mode A".
+  it("run card: Full schedule sits at the card's foot, after the rows, never in the header", () => {
+    renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(RUN_CARD_ROW_CAP + 2)) } }));
+    const link = within(card()!).getByRole("link", { name: "Full schedule" });
+    const header = card()!.querySelector("header")!;
+    // PREMISE: the header exists and still carries the card header actions.
+    expect(header.querySelector('[data-slot="card-report-trigger"]')).not.toBeNull();
+    expect(header.contains(link)).toBe(false);
+    const lastRow = [...card()!.querySelectorAll('[data-testid="agenda-entry"]')].at(-1)!;
+    expect(lastRow.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it(`run card: exactly ${RUN_CARD_ROW_CAP} rows render with no Full schedule link`, () => {
     renderController(showData({ runOfShow: { [DAY1]: scheduleDay(many(RUN_CARD_ROW_CAP)) } }));
     expect(rowTitles()).toHaveLength(RUN_CARD_ROW_CAP);

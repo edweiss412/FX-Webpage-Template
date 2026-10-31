@@ -538,6 +538,15 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
         timeline.locator('[data-testid="timeline-agenda-session"]').first(),
       ).toBeVisible();
       await expect(card.getByRole("link", { name: "Full schedule" })).toBeVisible();
+      // Gate fix X10: with "Full schedule" in the header the title read "RU…" at
+      // 390. It sits at the foot now, and the title is never cut.
+      const title = card.locator('[data-slot="section-card-title"]');
+      await expect(title).toHaveText("Run of show");
+      const titleFit = await title.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+      expect(
+        titleFit.sw,
+        `@${width}px the run card title must not be cut (${JSON.stringify(titleFit)})`,
+      ).toBeLessThanOrEqual(titleFit.cw + TOL_TIGHT);
       const timelineBox = await rectOf(timeline);
       const timelineRows = timeline.locator(
         '[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]',
