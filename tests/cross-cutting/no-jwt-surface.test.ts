@@ -8,6 +8,7 @@ const DATA_API_ROOTS = [
   "app/api/show",
   "app/api/asset",
   "app/api/report",
+  "app/api/saved-copy",
 ];
 
 const ALLOWED_JWT_SURFACES = [

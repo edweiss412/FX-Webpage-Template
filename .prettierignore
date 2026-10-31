@@ -36,6 +36,7 @@ docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
 lib/messages/__generated__/
 lib/audit/*.generated.ts
 lib/admin/__generated__/
+lib/offline/__generated__/
 # tests/db/__generated__/postgresExecutionMethods.ts is emitted raw by
 # gen:execution-methods and byte-compared two ways: its --check mode and the
 # x-audits "Verify generated execution-methods module is fresh" step
@@ -114,6 +115,20 @@ tests/components/admin/showpage/__fixtures__/published-attention-menu-baseline.h
 # comparison would then assert against reformatted bytes rather than the bytes
 # the component actually emitted.
 tests/fixtures/venueSectionRawWifi.html
+
+# The captured production crew page is the input of the offline completeness
+# tests (tests/lib/offline/completeness.test.ts): they read static URLs out of
+# its markup, and its capture command is recorded beside them. Prettier would
+# re-flow the captured markup, so the committed bytes would stop being the bytes
+# the server sent.
+tests/lib/offline/fixtures/crew-page.html
+
+# The streamed crew page and streamed not-found page are trimmed production
+# bodies, the input of the worker's navigation marker read
+# (tests/lib/offline/marker.test.ts). Their payload rows and hidden segments are
+# what the read is tested against, so prettier must leave the bytes as captured.
+tests/lib/offline/fixtures/crew-page-streamed.html
+tests/lib/offline/fixtures/crew-not-found-streamed.html
 
 # The claim sweep's historical re-enactment fixtures are FROZEN BLOBS of the
 # incident arc's documents, checked out verbatim from `fede5f084` and

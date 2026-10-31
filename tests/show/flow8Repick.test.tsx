@@ -18,6 +18,8 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
     throw new Error("NEXT_REDIRECT");
   }),
+  // The saved-copy marker every arm renders reads the path.
+  usePathname: () => "/show/s/t",
 }));
 
 import ShowPage from "@/app/show/[slug]/[shareToken]/page";
@@ -101,8 +103,8 @@ const resolvedAccess = {
 } as unknown as Access;
 
 // A COMPLETE minimal ShowForViewer projection (mirrors tests/data/viewerContext.test.ts makeData). CrewShell
-// dereferences `data.tileErrors` (Object.keys, _CrewShell.tsx:155) and — only when tileErrors is non-empty —
-// `data.show.title` BEFORE resolveViewerContext (:213). With tileErrors:{} the shell reaches resolveViewerContext,
+// dereferences `data.tileErrors` (Object.keys, _CrewShell.tsx:182) and — only when tileErrors is non-empty —
+// `data.show.title` BEFORE resolveViewerContext (:244). With tileErrors:{} the shell reaches resolveViewerContext,
 // which is where the malformed-projection throw belongs. `crewMembers` is overridden per test.
 function fullShowForViewer(crewMembers: unknown): ShowForViewer {
   return {
@@ -217,7 +219,7 @@ describe("flow8 guided re-pick (Point A/B) + stale-arm refactor guards", () => {
     ).rejects.toThrow("NEXT_NOT_FOUND");
   });
 
-  test("Point B: projection missing id + ARCHIVED show → notFound() (archived 404s, matches page.tsx:90-94)", async () => {
+  test("Point B: projection missing id + ARCHIVED show → notFound() (archived 404s, matches page.tsx:175)", async () => {
     mockAccess(resolvedAccess);
     mockShowResolved({ crewMembers: [{ id: "other", name: "X" }] });
     availabilityClient({ published: true, archived: true }); // archived → "archived"
@@ -231,7 +233,7 @@ describe("flow8 guided re-pick (Point A/B) + stale-arm refactor guards", () => {
 
   test("Point A: CrewMemberNotInShowError + UNPUBLISHED show → paused page (ShowUnavailable, HTTP 200), NOT notFound()", async () => {
     // Concrete failure mode this catches: collapsing `published !== true` into notFound(). The published-toggle
-    // contract (page.tsx:96-100) renders <ShowUnavailable/> for a paused link so republish restores it; a 404
+    // contract (page.tsx:171-176) renders <ShowUnavailable/> for a paused link so republish restores it; a 404
     // would break that. loadShowAvailability's discriminated "unpublished" arm must route here.
     //
     // REACHABILITY: the unpublished→renderRacedCrewMiss path is reachable ONLY via Point A (crew row gone →

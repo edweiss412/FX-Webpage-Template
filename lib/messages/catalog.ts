@@ -3639,6 +3639,18 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  // Crew offline saved copy §4.5: the status route's 500. Wire and log only; never rendered.
+  SAVED_COPY_STATUS_LOOKUP_FAILED: {
+    code: "SAVED_COPY_STATUS_LOOKUP_FAILED",
+    warningClass: "general",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → inspect the saved-copy status route logs",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   SLUG_REQUIRED: {
     code: "SLUG_REQUIRED",
     warningClass: "general",

@@ -35,7 +35,7 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-accent-edge`               | `#7A3D00`                          | `#FFA047`                       | ON-state control boundary (toggle track border, active step pill, active show-day progress segment). Light: accent-edge is 3.61:1 vs the orange track and 8.06:1 vs bg — WCAG 1.4.11 passes on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg.                                                                                            |
 | `--color-stale-tint`                | `#F4ECE0` (warm sand)              | `#26221B` (warm umber)          | Background tint applied to a tile or card whose data is stale (per §5.4 of spec). Not red. Pairs with explicit "as of …" text.                                                                                                                                                                                                      |
 | `--color-warning-bg`                | `#FFF3D6`                          | `#3A2E14`                       | "Couldn't parse" / "needs Doug" admin states. Warm yellow, not red. Pairs with text + icon.                                                                                                                                                                                                                                         |
-| `--color-warning-text`              | `#5C3F00`                          | `#FFD68A`                       | Text on warning-bg. Light 9.5:1, dark 9.2:1 (both AAA).                                                                                                                                                                                                                                                                             |
+| `--color-warning-text`              | `#5C3F00`                          | `#FFD68A`                       | Text on warning-bg. Light 8.8:1, dark 9.6:1 (both AAA).                                                                                                                                                                                                                                                                             |
 | `--color-info-bg`                   | `#F1EDE7`                          | `#1F1E22`                       | Informational notices (e.g., "we're syncing now"). Neutral-tinted, not blue. Light nudged `#EEEAE3`→`#F1EDE7` 2026-08-01 (focus-ring pass spec §3.1) so the focus ring clears 3:1 on info fills (3.08:1); every info-bg text pairing improved with the change.                                                                       |
 | `--color-focus-ring`                | `#E06000` (opaque)                 | `rgba(255, 160, 71, 0.65)`      | Focus outline color for keyboard-visible focus. Always orange-derived. Light went opaque `#E06000` 2026-08-01 (focus-ring pass, owner-ratified Option B): the old translucent brand orange measured 1.60:1 on white, under the WCAG 2.2 SC 2.4.13 3:1 floor; `#E06000` clears 3.07-3.59:1 on every backdrop family, dark composites 3.69-4.56:1 (pinned by tests/styles/focusRingContrast.test.ts). 2px ring (`focus-visible:ring-2`, no `ring-3` anywhere). Where a 2px offset is used it MUST carry a container-matched color (`ring-offset-<backdrop>`, never bare `ring-offset-2` — the un-themed white gap is a dark-mode defect; enforced by tests/styles/noBareRingOffset.test.ts). Popover surfaces follow the two-tier recipe: offset only on armed destructive confirm-go buttons (spec `2026-07-23-sharehub-focus-pass` §2, §15). |
 | `--shadow-tile`                     | `0 1px 2px rgba(20, 18, 12, 0.04)` | `0 1px 3px rgba(0, 0, 0, 0.45)` | Quiet drop-shadow applied to tile/card surfaces (Right Now card, tile-as-card). Light mode reads as a near-imperceptible warm lift; dark mode uses a deeper pure-black drop tuned for the warm-charcoal `--color-bg`. Components consume via the canonical `shadow-tile` utility — NEVER the `shadow-(--shadow-tile)` arrow form, and NEVER an inline `shadow-[…]` literal (token discipline §10). |
@@ -165,19 +165,23 @@ affordance is a fill or a border keep it as-is.
 | `--color-accent-text` on `--color-accent`         | 8.23:1 | 8.23:1 | AA body both modes (same pair)                           |
 | `--color-accent-edge` vs `--color-accent`         | 3.61:1 | 1.15:1 | ≥3:1 non-text (light = the load-bearing 1.4.11 boundary; dark edge is decorative — the track itself is the boundary, next row) |
 | `--color-accent-edge` vs `--color-bg`             | 8.06:1 | 9.39:1 | ≥3:1 non-text (dark's toggle boundary is `--color-accent` vs bg, first accent row above) |
-| `--color-status-positive` dot on bg/surface       | 3.9:1  | 9.4:1  | ≥3:1 graphical (dot)                                     |
-| `--color-status-positive-text` on bg/surface      | 6.4:1  | 12.3:1 | AA body (≥4.5:1)                                         |
-| `--color-status-review` dot on bg/surface         | 3.8:1  | 10.1:1 | ≥3:1 graphical (dot)                                     |
-| `--color-status-review-text` on bg/surface        | 7.3:1  | 11.9:1 | AA body (≥4.5:1)                                         |
-| `--color-status-warn` dot on bg/surface           | 4.1:1  | 8.8:1  | ≥3:1 graphical (dot)                                     |
-| `--color-status-warn-text` on bg/surface          | 8.1:1  | 10.3:1 | AA body (≥4.5:1)                                         |
-| `--color-status-idle` dot on bg/surface           | 3.2:1  | 4.0:1  | ≥3:1 graphical (dot)                                     |
-| `--color-status-degraded` dot on bg/surface       | 6.3:1  | 4.8:1  | ≥3:1 graphical (dot)                                     |
+| `--color-status-positive` dot on bg/surface       | 3.9:1  | 8.9:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-positive-text` on `--color-surface` | 6.7:1 | 11.5:1 | AA body (≥4.5:1); also the saved-copy bar's `updated` state (spec 2026-10-26 §4.7.2), pinned by tests/styles/savedCopyBarContrast.test.ts |
+| `--color-status-positive-text` on `--color-bg`    | 6.4:1  | 12.2:1 | AA body (≥4.5:1); same pin                               |
+| `--color-status-review` dot on bg/surface         | 3.8:1  | 9.5:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-review-text` on bg/surface        | 7.3:1  | 11.2:1 | AA body (≥4.5:1); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-warn` dot on bg/surface           | 4.0:1  | 8.3:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-warn-text` on bg/surface          | 8.1:1  | 9.7:1  | AA body (≥4.5:1); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-idle` dot on bg/surface           | 3.2:1  | 3.8:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
+| `--color-status-degraded` dot on bg/surface       | 6.3:1  | 4.8:1  | ≥3:1 graphical (dot); each figure is the lower ground in its theme (bg in light, surface in dark) |
 | `--color-status-degraded-text` on degraded fill   | 6.5:1  | 4.7:1  | AA body (≥4.5:1) — text-on-fill, not on surface         |
 | `--color-text` on `--color-warning-bg`            | 15.6:1 | 10.6:1 | AAA body — attention-banner body copy on the warning wash (published-show attention surface, 2026-07-19) |
 | `--color-text-strong` on `--color-warning-bg`     | 17.4:1 | 12.0:1 | AAA body — attention-banner title line                   |
 | `--color-text-subtle` on `--color-warning-bg`     | 6.1:1  | 4.7:1  | AA body (≥4.5:1) — banner detail/identity/raised-at lines; dark clears with a thin margin, so any warning-bg or text-subtle retune re-checks this row (pinned in `tests/styles/status-token-contrast.test.ts`) |
 | `--color-status-positive-text` on `--color-warning-bg` | 6.1:1 | 8.6:1 | AA body (≥4.5:1) — the banner's transient "✓ Confirmed" swap |
+| `--color-warning-text` on `--color-warning-bg`    | 8.8:1  | 9.6:1  | AAA body; the saved-copy bar's `sheet-gone` and `sheet-gone-saved` states (spec 2026-10-26 §4.7.2), pinned by tests/styles/savedCopyBarContrast.test.ts |
+| `--color-text` on `--color-info-bg`               | 14.8:1 | 13.3:1 | AAA body; the saved-copy bar's `saved-fresh` and `updating` states; same pin |
+| `--color-text` on `--color-stale-tint`            | 14.7:1 | 12.7:1 | AAA body; the saved-copy bar's `saved-old` and `ended` states; same pin |
 | `--color-status-degraded` icon on `--color-danger-bg` | 5.6:1  | 4.2:1  | ≥3:1 graphical (icon) — retained reference pair (was bell critical circle pre-§16 restyle) |
 | `--color-accent-on-bg` icon on `--color-accent-tint`  | 4.91:1 | 8.03:1 | ≥3:1 graphical (icon) — retained reference pair (was bell info circle pre-§16 restyle; clears 4.5:1 text too) |
 | `--color-text-strong` on `--color-accent-tint`        | 16.5:1 | 14.9:1 | AA body (≥4.5:1) — active-count pill number             |
@@ -786,6 +790,7 @@ realtime reconnect backoff.
 | `WARNING_HIGHLIGHT_MS` | 1600 | `components/admin/wizard/Step3ReviewModal.tsx` |
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
+| `PURGE_ACK_WAIT_MS` | 500 | `components/auth/AvatarMenu.tsx` |
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
 | `REVEAL_WAIT_MS` | 1500 | `components/crew/CrewSections.tsx` |
@@ -798,10 +803,21 @@ realtime reconnect backoff.
 | `RETRY_CHECK_IN_MS` | 30000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
 | `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
+| `AGE_TICK_MS` | 60000 | `components/offline/SavedCopyBar.tsx` |
+| `PROBE_INTERVAL_MS` | 30000 | `components/offline/SavedCopyBar.tsx` |
+| `PROBE_TIMEOUT_MS` | 20000 | `components/offline/SavedCopyBar.tsx` |
+| `JUST_UPDATED_MS` | 4000 | `components/offline/SavedCopyBar.tsx` |
+| `UPDATED_FADE_FALLBACK_MS` | 220 | `components/offline/SavedCopyBar.tsx` |
+| `REPLY_TIMEOUT_MS` | 10000 | `components/offline/SavedCopyMarker.tsx` |
+| `ENSURE_SAVED_THROTTLE_MS` | 10000 | `components/offline/SavedCopyRegistrar.tsx` |
+| `ENSURE_SAVED_REPLY_TIMEOUT_MS` | 20000 | `components/offline/SavedCopyRegistrar.tsx` |
+| `PREFETCH_TIMEOUT_MS` | 60000 | `components/offline/SavedCopyRegistrar.tsx` |
+| `IDLE_FALLBACK_DELAY_MS` | 0 | `components/offline/SavedCopyRegistrar.tsx` |
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |
 | `submitTimeoutMs` | 30000 | `components/shared/ReportModal.tsx` |
 | `PENDING_TIMEOUT_MS` | 8000 | `components/shared/pendingTimeout.ts` |
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
+| `RETRY_INTERVAL_MS` | 30000 | `lib/offline/notSavedPage.ts` |
 | `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
  | `ANNOUNCE_DELAY_MS` | 400 | `components/admin/wizard/DraftRestoredNote.tsx` |
  | `DRAFT_RESTORED_NOTE_MS` | 5000 | `components/admin/wizard/DraftRestoredNote.tsx` |

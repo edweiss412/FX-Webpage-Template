@@ -116,6 +116,34 @@ export const REQUIRED = {
   // is gated on a build flag this job does not set. Re-derive with --list after
   // any change to the route census or the exclusions.
   "font-rendering-census.spec.ts": 88,
+  // ── wired by the crew page saved copy branch (plan Task 28) ─────────────────
+  // Spec docs/superpowers/specs/2026-10-26-crew-offline-saved-copy-design.md §7.
+  // Each count is the spec's full executable set under the two offline projects,
+  // read off the `Total:` line of
+  //   pnpm heavy pnpm exec playwright test --list --project=crew-offline-chromium --project=crew-offline-webkit <spec>
+  // not from arithmetic. None of the three skips a case; each project's testMatch
+  // decides which engine runs which file. Re-derive with that command after adding
+  // or removing a case.
+  //
+  // Re-derived 2026-10-31 (Codex R1 D1: the layout row was a stale 12 against 16,
+  // and the UI gate re-check E4 added layout case 9), after every D edit; the
+  // crew-offline row re-derived again after Codex R3 C added case 11c:
+  //   == crew-offline.spec.ts
+  //     [crew-offline-webkit] › crew-offline.spec.ts:943:5 › 15. hydration is clean on a served copy, offline and ended
+  //   Total: 34 tests in 1 file
+  //   == crew-offline-realtime.spec.ts
+  //     [crew-offline-chromium] › crew-offline-realtime.spec.ts:150:5 › an unpublish arriving by realtime refresh wipes the copy
+  //   Total: 3 tests in 1 file
+  //   == crew-offline-layout.spec.ts
+  //     [crew-offline-webkit] › crew-offline-layout.spec.ts:636:5 › 9. one bottom edge: under the detail at rest, under the pinned line once the detail has scrolled away
+  //   Total: 18 tests in 1 file
+  //
+  // 34 = 17 cases under each of Chromium and WebKit.
+  "crew-offline.spec.ts": 34,
+  // 3 = three realtime cases, Chromium alone by testMatch.
+  "crew-offline-realtime.spec.ts": 3,
+  // 18 = 9 layout cases under each engine.
+  "crew-offline-layout.spec.ts": 18,
 };
 
 // Importable table, runnable script. The wiring guard imports REQUIRED to pin these thresholds

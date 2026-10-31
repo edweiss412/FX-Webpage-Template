@@ -38,7 +38,9 @@
 
 import { redirect } from "next/navigation";
 
+import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
 import { messageFor } from "@/lib/messages/lookup";
+import { purgeMarkerFor } from "@/lib/offline/serverMarkers";
 import { selectIdentity } from "@/lib/auth/picker/selectIdentity";
 import { isSameOriginServerAction, rejectCrossOriginVoid } from "@/lib/auth/sameOriginServerAction";
 import { isValidShowPathPair } from "@/lib/auth/picker/validateClearIdentityInput";
@@ -137,6 +139,10 @@ export function PickerInterstitial({
       data-testid="picker-interstitial-root"
       className="flex min-h-screen flex-col items-center bg-bg px-4 pt-section-gap text-text md:justify-center md:pt-0"
     >
+      {/* Spec 4.3: purge, naming the show. Unconditional, so it is in the first
+          render: its mount purge is the first half of picking a name. An inert
+          <template> that takes no place in the column. */}
+      <SavedCopyMarker marker={purgeMarkerFor(showId)} />
       <div className="flex w-full max-w-90 flex-col gap-6">
         <header className="flex flex-col items-center gap-2 text-center">
           <span

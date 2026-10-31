@@ -303,7 +303,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
     code: "TILE_PROJECTION_FETCH_FAILED",
     showId: SHOW_ID,
     // Corrected 2026-07-24: this fixture claimed a `drive_file_id` its only
-    // producer never writes (app/show/[slug]/[shareToken]/_CrewShell.tsx:160).
+    // producer never writes (app/show/[slug]/[shareToken]/_CrewShell.tsx:168).
     // The gallery's own override had this code right; the identity-matrix copy
     // did not — a third instance of the drift class this bundle closes.
     context: {

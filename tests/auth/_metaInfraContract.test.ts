@@ -56,6 +56,7 @@
  *       collapsed infra → benign" — the existing row in this file fails.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { premiseHolds } from "../_shared/premise";
 import { stripCommentsForFile } from "../_shared/stripComments";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -220,6 +221,7 @@ afterAll(() => {
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "app/api/auth/google/start/route.ts",
   "app/api/auth/picker-bootstrap/route.ts",
+  "app/api/saved-copy/status/route.ts",
   "app/api/show/[slug]/search-miss/route.ts",
   "app/api/show/[slug]/version/route.ts",
   "app/auth/callback/route.ts",
@@ -235,6 +237,61 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
 ] as const;
 
 const SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE = /\bcreateSupabase(?:ServiceRole|Server)Client\s*\(/;
+
+/**
+ * Modules that run Supabase calls on a client their caller passes in, so they
+ * construct none. Each row carries a destructuring assertion in the registry
+ * describe below, as a constructing module's does.
+ */
+const SUPABASE_PASSED_CLIENT_CONTRACT_FILES: readonly string[] = [
+  "lib/auth/picker/resolveCrewIdentity.ts",
+];
+
+/** The auth domain this meta-test owns; sibling domains have their own registries. */
+const AUTH_DOMAIN_ROOTS = [
+  "lib/auth",
+  "app/auth",
+  "app/api/auth",
+  "app/api/show",
+  "app/api/saved-copy",
+];
+
+/** Every .ts and .tsx file under the auth domain's roots. */
+function authDomainFiles(): string[] {
+  const walk = (dir: string, out: string[] = []): string[] => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full, out);
+      else if (/\.(ts|tsx)$/.test(full)) out.push(full);
+    }
+    return out;
+  };
+  return AUTH_DOMAIN_ROOTS.flatMap((root) => walk(root));
+}
+
+// Helpers exercised by the behavioral describes in this file rather than the
+// source-scan registry.
+const BEHAVIORAL_CONTRACT_FILES = new Set([
+  "lib/auth/isAdminSession.ts",
+  "lib/auth/validateGoogleIdentity.ts",
+  "lib/auth/validateGoogleSession.ts",
+  "lib/auth/requireAdmin.ts",
+  // developer-tier: the resolveDeveloperIdentity gate is behaviorally
+  // exercised by the requireDeveloper/requireDeveloperIdentity describes
+  // below (error-first → DeveloperInfraError). The isCurrentUserDeveloper
+  // visibility call site is fail-to-false and carries its own
+  // not-subject-to-meta waiver.
+  "lib/auth/requireDeveloper.ts",
+]);
+
+/**
+ * A Supabase call on a client the module did not construct: a table query, an
+ * RPC, or an auth call. A helper that takes its client from the caller has no
+ * constructor call, so the constructor test alone never saw it (Codex R1 B1:
+ * resolveCrewIdentity's claim read). Matched on comment-stripped source.
+ */
+const SUPABASE_PASSED_CLIENT_CALL_RE =
+  /\.from\(\s*["'`]\w+["'`]\s*\)\s*\.\s*(?:select|insert|update|upsert|delete)\s*\(|\.rpc\(\s*["'`]|\.auth\s*\.\s*(?:getUser|getClaims|getSession|signOut|exchangeCodeForSession)\s*\(/;
 
 function braceDelta(line: string): number {
   // Input lines come from comment-STRIPPED source (see the call site), so brace
@@ -327,6 +384,31 @@ describe("META infra-failure contract", () => {
       );
     });
 
+    test("resolveCrewIdentity destructures its crew_members claim read on the passed client", () => {
+      // Spec §4.5: the identity half the page and the status route share. It takes
+      // the caller's service-role client, so it has no constructor of its own.
+      const source = readFileSync("lib/auth/picker/resolveCrewIdentity.ts", "utf8");
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("crew_members"\)[\s\S]*?\.select\("claimed_via_oauth_at, selections_reset_at"\)/,
+      );
+      // One Supabase call; a second needs its own destructure pin here.
+      const calls = stripCommentsForFile(source, "lib/auth/picker/resolveCrewIdentity.ts").match(
+        new RegExp(SUPABASE_PASSED_CLIENT_CALL_RE.source, "g"),
+      );
+      expect(calls).toHaveLength(1);
+    });
+
+    test("saved-copy status route destructures its show-row read", () => {
+      // Spec §4.5 / invariant 9: the route's one read of its own (the identity reads
+      // belong to resolveCrewIdentity and resolvePickerSelection, pinned above).
+      const source = readFileSync("app/api/saved-copy/status/route.ts", "utf8");
+      expect(source).toMatch(
+        /const\s+\{\s*data,\s*error\s*\}\s*=\s*\(await\s+serviceRole[\s\S]*?\.from\("shows"\)[\s\S]*?\.select\("archived, picker_epoch, unpublished_at"\)/,
+      );
+      // One table read (`Buffer.from(...)` is not a query, hence the quoted table name).
+      expect(source.match(/\.from\(\s*["'`]/g)).toHaveLength(1);
+    });
+
     test("registered Supabase client constructors are inside try blocks", () => {
       const violations = SUPABASE_CONSTRUCTOR_CONTRACT_FILES.flatMap((file) => {
         const source = stripCommentsForFile(readFileSync(file, "utf8"), file);
@@ -351,33 +433,8 @@ describe("META infra-failure contract", () => {
     // invariant 9. Sibling domains (lib/notify, lib/sync, ...) are owned by
     // their own registry-style meta-tests.
     test("every auth-domain Supabase constructor call site is registered, behaviorally covered, or waivered", () => {
-      const AUTH_DOMAIN_ROOTS = ["lib/auth", "app/auth", "app/api/auth", "app/api/show"];
-      // Helpers exercised by the behavioral describes in this file rather
-      // than the source-scan registry.
-      const BEHAVIORAL_CONTRACT_FILES = new Set([
-        "lib/auth/isAdminSession.ts",
-        "lib/auth/validateGoogleIdentity.ts",
-        "lib/auth/validateGoogleSession.ts",
-        "lib/auth/requireAdmin.ts",
-        // developer-tier: the resolveDeveloperIdentity gate is behaviorally
-        // exercised by the requireDeveloper/requireDeveloperIdentity describes
-        // below (error-first → DeveloperInfraError). The isCurrentUserDeveloper
-        // visibility call site is fail-to-false and carries its own
-        // not-subject-to-meta waiver.
-        "lib/auth/requireDeveloper.ts",
-      ]);
-
-      const walk = (dir: string, out: string[] = []): string[] => {
-        for (const entry of readdirSync(dir)) {
-          const full = join(dir, entry);
-          if (statSync(full).isDirectory()) walk(full, out);
-          else if (/\.(ts|tsx)$/.test(full)) out.push(full);
-        }
-        return out;
-      };
-
       const registered = new Set<string>(SUPABASE_CONSTRUCTOR_CONTRACT_FILES);
-      const orphans = AUTH_DOMAIN_ROOTS.flatMap((root) => walk(root)).filter((file) => {
+      const orphans = authDomainFiles().filter((file) => {
         const source = readFileSync(file, "utf8");
         if (!SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE.test(source)) return false;
         if (registered.has(file) || BEHAVIORAL_CONTRACT_FILES.has(file)) return false;
@@ -390,6 +447,40 @@ describe("META infra-failure contract", () => {
           "Add the file to SUPABASE_CONSTRUCTOR_CONTRACT_FILES (plus a destructuring " +
           "assertion if it adds new RPC boundaries), cover it with a behavioral " +
           "describe, or add an inline `// not-subject-to-meta: <reason>` waiver.",
+      ).toEqual([]);
+    });
+
+    // Codex R1 B1: a helper handed its client by the caller constructs none, so
+    // the walk above never saw it. This walk finds the Supabase calls themselves.
+    test("every auth-domain module that calls Supabase on a client it was handed is registered, behaviorally covered, or waivered", () => {
+      const registered = new Set<string>([
+        ...SUPABASE_CONSTRUCTOR_CONTRACT_FILES,
+        ...SUPABASE_PASSED_CLIENT_CONTRACT_FILES,
+      ]);
+      const callers = authDomainFiles().filter((file) =>
+        SUPABASE_PASSED_CLIENT_CALL_RE.test(stripCommentsForFile(readFileSync(file, "utf8"), file)),
+      );
+      // The walk saw the calls of a module it already knows, so an empty orphan
+      // list below is a finding, not a pattern that matched nothing.
+      premiseHolds(
+        "the call pattern sees resolveShowPageAccess's RPC",
+        callers.includes("lib/auth/picker/resolveShowPageAccess.ts"),
+      );
+      for (const file of SUPABASE_PASSED_CLIENT_CONTRACT_FILES) {
+        expect(callers, `${file} is registered but the walk sees no Supabase call`).toContain(file);
+      }
+      const orphans = callers.filter((file) => {
+        const source = readFileSync(file, "utf8");
+        if (SUPABASE_CLIENT_CONSTRUCTOR_CALL_RE.test(source)) return false;
+        if (registered.has(file) || BEHAVIORAL_CONTRACT_FILES.has(file)) return false;
+        return !source.includes("// not-subject-to-meta:");
+      });
+      expect(
+        orphans,
+        `Supabase calls on a passed-in client, unregistered, in the auth domain:\n${orphans.join("\n")}\n` +
+          "Add the file to SUPABASE_PASSED_CLIENT_CONTRACT_FILES with a destructuring " +
+          "assertion for each call, cover it with a behavioral describe, or add an " +
+          "inline `// not-subject-to-meta: <reason>` waiver.",
       ).toEqual([]);
     });
   });

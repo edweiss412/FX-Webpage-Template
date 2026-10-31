@@ -27,7 +27,9 @@
  *     path forward).
  */
 
+import { SavedCopyMarker } from "@/components/offline/SavedCopyMarker";
 import { messageFor } from "@/lib/messages/lookup";
+import { purgeMarkerFor } from "@/lib/offline/serverMarkers";
 import { clearIdentityAndSkip } from "@/lib/auth/picker/clearIdentity";
 import { isSameOriginServerAction, rejectCrossOriginVoid } from "@/lib/auth/sameOriginServerAction";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
@@ -73,6 +75,9 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
       data-testid="sign-in-or-skip-gate"
       className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 py-section-gap text-center text-text"
     >
+      {/* Spec 4.3: purge, naming the show, in both modes. An inert <template>
+          that takes no place in the column. */}
+      <SavedCopyMarker marker={purgeMarkerFor(showId)} />
       <div className="flex w-full max-w-90 flex-col items-center gap-6">
         <span className="text-xs font-bold uppercase tracking-eyebrow-strong text-accent-on-bg">
           FXAV

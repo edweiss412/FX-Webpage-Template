@@ -183,7 +183,7 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     expect(libFiles.map((f) => relative(process.cwd(), f))).toContain("lib/admin/loadAppEvents.ts");
   });
 
-  it("the derived lib population has exactly 219 members, including both directory-index modules", () => {
+  it("the derived lib population has exactly 242 members, including both directory-index modules", () => {
     // The shipped resolver tried only <base>.ts and <base>.tsx, so five live
     // imports of @/lib/log and @/lib/parser missed and the population was 209.
     // Neither missed module holds a time violation, so the count of 13 was
@@ -323,21 +323,52 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     // bulk chip reads Accept (spec §6.2). A Set and a membership function with no imports
     // at all, no clock read. 225 -> 226.
     expect(rel).toContain("lib/parser/ambiguityCodes.ts");
-    // Merged with origin/main 2026-10-29: main's crew-search joins (228) plus this branch's
-    // three (warningReadingDisplay, collapsedSummary, ambiguityCodes), re-derived by running
-    // this guard on the merged tree.
-    expect(rel.length).toBe(231);
+    // Joined, from feat/crew-offline-saved-copy (Tasks 16 to 20): the eight
+    // lib/offline modules that components/offline/SavedCopyMarker.tsx,
+    // SavedCopySlot.tsx and SavedCopyBar.tsx import directly. 228 -> 236,
+    // re-derived on the branch by running this guard; every joiner is a
+    // lib/offline module, none from elsewhere.
+    // servedCopy.ts carries the one clock read, waived below as a client effect
+    // read. lib/offline/navigation.ts is NOT a member: the marker's only direct
+    // import of it (STATUS_TIMEOUT_MS) became the literal REPLY_TIMEOUT_MS.
+    expect(rel).toContain("lib/offline/assetList.ts");
+    expect(rel).toContain("lib/offline/barState.ts");
+    expect(rel).toContain("lib/offline/client/messaging.ts");
+    expect(rel).toContain("lib/offline/client/online.ts");
+    expect(rel).toContain("lib/offline/client/reload.ts");
+    expect(rel).toContain("lib/offline/client/servedCopy.ts");
+    expect(rel).toContain("lib/offline/marker.ts");
+    expect(rel).toContain("lib/offline/serverMarkers.ts");
+    // Joined, from the same branch (Task 25, 346d2438b): lib/offline/killSwitch.ts,
+    // which SavedCopySlot.tsx now imports directly to read the kill switch for the
+    // registrar it mounts. Its other importer, app/sw.js/route.ts, is no scan root.
+    // No clock read. 236 -> 237, re-derived by running this guard.
+    expect(rel).toContain("lib/offline/killSwitch.ts");
+    // Merged with origin/main 2026-10-30 (crew offline branch): main's 231 plus this
+    // branch's nine lib/offline joiners, re-derived by running this guard on the merged tree.
+    // Joined, from the same branch's UI-gate fix (f181429a2): lib/offline/client/
+    // scrollPadding.ts, which SavedCopyBar.tsx imports directly to keep the page's
+    // scroll padding at the bar's height. It reads layout, never the clock.
+    // 240 -> 241, re-derived by running this guard.
+    expect(rel).toContain("lib/offline/client/scrollPadding.ts");
+    // Joined, from the same branch's Codex R1 fix round (UI gate re-check E4):
+    // lib/offline/client/scrolledUnder.ts, which SavedCopyBar.tsx imports directly
+    // to tell when the in-flow detail has scrolled under the pinned line. It reads
+    // layout, never the clock. 241 -> 242, re-derived by running this guard.
+    expect(rel).toContain("lib/offline/client/scrolledUnder.ts");
+    expect(rel.length).toBe(242);
   });
 
-  // The twelve waivers this arc added, bound to their SITE and their REASON
-  // FAMILY. Not a count, and not a diff: a count of 12 passes when a
+  // The twelve waivers this arc added, plus the client effect read that
+  // feat/crew-offline-saved-copy added in lib/offline/client/servedCopy.ts,
+  // bound to their SITE and their REASON FAMILY. Not a count, and not a diff: a count of 12 passes when a
   // contributor repairs any one of the thirteen violations and waives the
   // survivor instead, and a diff-derived count has no durable base once the
   // branch merges. Reading the comment AT the coordinate is also what verifies
   // the coordinate -- a row whose line has drifted finds no waiver there.
   const WAIVER_REGISTRY: Record<
     string,
-    "mutation-timestamp" | "di-default" | "observe-read-window"
+    "mutation-timestamp" | "di-default" | "observe-read-window" | "client-effect-read"
   > = {
     "lib/adminAlerts/resolveAdminAlert.ts:33": "mutation-timestamp",
     "lib/adminAlerts/resolveAdminAlert.ts:60": "mutation-timestamp",
@@ -350,15 +381,17 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
     "lib/observe/query/failures.ts:43": "observe-read-window",
     "lib/observe/query/staged.ts:39": "observe-read-window",
     "lib/observe/query/syncLog.ts:30": "observe-read-window",
+    "lib/offline/client/servedCopy.ts:40": "client-effect-read",
     "lib/sync/runManualSyncForShow.ts:297": "di-default",
   };
   const FAMILY_TEXT: Record<string, RegExp> = {
     "mutation-timestamp": /mutation timestamp/i,
     "di-default": /dependency-injection default/i,
     "observe-read-window": /observe read-path window/i,
+    "client-effect-read": /client effect read/i,
   };
 
-  it("the waived sites in the derived lib population are exactly the twelve registered ones", () => {
+  it("the waived sites in the derived lib population are exactly the thirteen registered ones", () => {
     const waived: string[] = [];
     for (const file of libFiles) {
       const originalLines = readFileSync(file, "utf8").split("\n");

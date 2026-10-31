@@ -1,4 +1,5 @@
 import { decodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
+import type { EpochCheck } from "@/lib/auth/picker/resolveCrewIdentity";
 import { log } from "@/lib/log";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -61,7 +62,16 @@ function infraError(
 export async function resolvePickerSelection(input: {
   showId: string;
   cookie: string | undefined;
+  /**
+   * `current` (the default) requires a live show and compares the entry to the
+   * row's epoch. `saved` compares it to the epoch a saved copy was stored
+   * under and skips the archived/published check, which the saved-copy status
+   * route applies itself (spec §4.5).
+   */
+  epochCheck?: EpochCheck;
 }): Promise<ResolvePickerSelectionResult> {
+  const epochCheck: EpochCheck = input.epochCheck ?? { kind: "current" };
+
   let key: string;
   try {
     key = pickerCookieSigningKey();
@@ -106,8 +116,11 @@ export async function resolvePickerSelection(input: {
   }
 
   if (!showRow) return { kind: "no_selection" };
-  if (showRow.archived || !showRow.published) return { kind: "show_unavailable" };
-  if (entry.e !== showRow.picker_epoch) {
+  if (epochCheck.kind === "current" && (showRow.archived || !showRow.published)) {
+    return { kind: "show_unavailable" };
+  }
+  const requiredEpoch = epochCheck.kind === "saved" ? epochCheck.epoch : showRow.picker_epoch;
+  if (entry.e !== requiredEpoch) {
     return { kind: "epoch_stale", expectedEpoch: entry.e, expectedCrewMemberId: entry.id };
   }
 
