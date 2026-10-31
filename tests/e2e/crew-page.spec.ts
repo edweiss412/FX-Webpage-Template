@@ -2532,6 +2532,72 @@ test.describe("the composed home (crew page redesign Task 11)", () => {
     }
   });
 
+  test("home: on a set day and after the show the pass is shorter than its floor, so the minimum-height token sets its height", async ({
+    page,
+  }) => {
+    // The floor case in the pass describe samples show-day bodies, which are
+    // taller than the floor, so a pass that lost its minimum height still passed
+    // it (whole-diff review R4-F7). On this fixture, set_day and post_show have
+    // short bodies. Measured 2026-10-30 at 390, 700, 1024 and 1280 with the
+    // minimum removed: 155px and 134px to 141px against the 176px floor at every
+    // width. A show day, the flight-only viewer and the date-suppressed viewer all
+    // measured above the floor at 390, so none of them can show that it binds.
+    const afterTravelOut = new Date(Date.parse(`${TRAVEL_OUT}T12:00:00Z`) + 2 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    for (const [iso, state] of [
+      [SET_DAY, "set_day"],
+      [afterTravelOut, "post_show"],
+    ] as const) {
+      await pinBothClocks(page, iso);
+      await gotoHome(page, homePath());
+      const pass = page.getByTestId("crew-pass");
+      await expect(page.getByTestId("crew-pass-state")).toHaveAttribute(
+        "data-rendered-state",
+        state,
+      );
+      // A settled pass: one body, fully opaque, so the read is a rest state.
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const bodies = [...document.querySelectorAll('[data-testid="crew-pass-body"]')];
+              return bodies.length === 1 && getComputedStyle(bodies[0]!).opacity === "1";
+            }),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+
+      const measured = await pass.evaluate((el) => {
+        const raw = getComputedStyle(document.documentElement).getPropertyValue(
+          "--spacing-right-now-min-h",
+        );
+        const height = el.getBoundingClientRect().height;
+        // The content's own height: the same box with no minimum, read and
+        // restored in one task, so nothing paints in between.
+        const prior = el.style.minHeight;
+        el.style.minHeight = "0px";
+        const content = el.getBoundingClientRect().height;
+        el.style.minHeight = prior;
+        return { floor: Number.parseFloat(raw), height, content };
+      });
+      expect(
+        Number.isFinite(measured.floor) && measured.floor > 0,
+        "the floor token resolves",
+      ).toBe(true);
+      // PREMISE: the floor binds here. A content height at or above it would let
+      // the assertion below pass with or without the minimum.
+      expect(
+        measured.content,
+        `${state}: the pass's content (${measured.content}px) is shorter than the ${measured.floor}px floor`,
+      ).toBeLessThan(measured.floor - 0.5);
+      expect(
+        Math.abs(measured.height - measured.floor),
+        `${state}: the pass is ${measured.height}px, not its ${measured.floor}px floor`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+  });
+
   test("home: a flight-only viewer's HTML and RSC payload carry no transport field (preview route)", async ({
     page,
   }) => {
