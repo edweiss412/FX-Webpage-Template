@@ -40,7 +40,10 @@ export const REQUIRED = {
   // switch behind the sheet). Counted from the observed mobile-safari run.
   // 27 since the WebKit focus-trap fix added "sheet: Tab and Shift+Tab stay
   // inside the sheet". Counted from the observed mobile-safari run.
-  "crew-section-toggle.spec.ts": 27,
+  // 28 since the UI-gate re-run's P2-1 added "closing a deep-linked sheet with
+  // Esc focuses its All sections row, on screen". Counted from the observed
+  // mobile-safari run (28 passed).
+  "crew-section-toggle.spec.ts": 28,
   "picker-flow.spec.ts": 7,
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.

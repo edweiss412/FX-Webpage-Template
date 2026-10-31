@@ -216,9 +216,21 @@ function SheetModalEffects({
   // here first and focused here after the page is live again (the
   // ReviewModalShell ordering, memory #437 class).
   const openerRef = useRef<HTMLElement | null>(null);
+  // The fallback the last cleanup focused. Strict Mode (development) runs this
+  // effect's cleanup and then the effect again with no close in between, and
+  // keeps refs across the two: the second run must not take the row the first
+  // cleanup just focused for an opener the viewer tapped.
+  const fallbackFocusedRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    const opener = document.activeElement;
-    openerRef.current = opener instanceof HTMLElement && opener !== document.body ? opener : null;
+    const active = document.activeElement;
+    const opener =
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      active !== fallbackFocusedRef.current
+        ? active
+        : null;
+    fallbackFocusedRef.current = null;
+    openerRef.current = opener;
     const inerted: HTMLElement[] = [];
     let node: Element | null = hostRef.current;
     while (node && node !== document.body && node.parentElement) {
@@ -243,13 +255,31 @@ function SheetModalEffects({
       // departing title and fall to <body> when the frame leaves (audit P2-5).
       // The fallback also becomes the dialog hook's restore target, so its own
       // restore (which runs next) lands on the same element.
-      const reachable =
-        opener instanceof HTMLElement && opener !== document.body && opener.isConnected
-          ? opener
-          : (latest.current.fallbackFocus?.(latest.current.sectionId) ?? null);
+      const fromOpener = opener !== null && opener.isConnected;
+      const reachable = fromOpener
+        ? opener
+        : (latest.current.fallbackFocus?.(latest.current.sectionId) ?? null);
       if (reachable?.isConnected) {
         openerRef.current = reachable;
         reachable.focus({ preventScroll: true });
+        // The opener was on screen when it was tapped, so the page stays where
+        // it is. A fallback never was: under a deep-linked sheet the page sits at
+        // its top while the row can be 1000px down, and focus would go out of
+        // sight (UI-gate re-run P2-1). It is brought just into view, at once,
+        // behind the closing sheet. A frame later, and only if it still holds
+        // focus: a cleanup that is not a close (Strict Mode's remount in
+        // development) gives focus straight back to the title, and must not
+        // scroll the page behind an open sheet. jsdom has no scrollIntoView.
+        if (!fromOpener) {
+          fallbackFocusedRef.current = reachable;
+          const target = reachable;
+          requestAnimationFrame(() => {
+            if (document.activeElement !== target) return;
+            if (typeof target.scrollIntoView === "function") {
+              target.scrollIntoView({ block: "nearest" });
+            }
+          });
+        }
       }
     };
   }, [hostRef, titleRef]);

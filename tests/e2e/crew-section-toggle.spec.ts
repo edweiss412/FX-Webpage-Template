@@ -46,6 +46,7 @@ import { setRoleFlagsLocked } from "./helpers/lockedCrewRestriction";
 import { updateShowLocked } from "./helpers/lockedShowCopy";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { expectClearOfStickyChrome } from "./helpers/stickyClearance";
 import { admin } from "./helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET } from "./helpers/testAuthConfig";
 
@@ -259,6 +260,30 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     expect(url.searchParams.get("s")).toBeNull();
     expect(url.searchParams.get("gate")).toBe("skip");
     expect(await page.evaluate(() => history.length)).toBe(length);
+  });
+
+  test("sheet: closing a deep-linked sheet with Esc focuses its All sections row, on screen (UI-gate re-run P2-1)", async ({
+    page,
+  }) => {
+    // A deep link has no opener, so focus goes to the row that opens the same
+    // section (audit P2-5). It used to go there without scrolling: the page sat
+    // at its top while the row was 800 to 1100px down, focused and out of sight.
+    // Gear is the list's last row, the farthest from the top.
+    await load(page, "?s=gear");
+    await expect(sheetDialog(page)).toHaveAttribute("data-section", "gear");
+    // PREMISE: the row starts below the fold, so landing on screen is the close's doing.
+    expect(
+      await row(page, "gear").evaluate((el) => el.getBoundingClientRect().top - innerHeight),
+    ).toBeGreaterThan(0);
+    await page.keyboard.press("Escape");
+    await expect(sheetDialog(page)).toHaveCount(0);
+    await expect(row(page, "gear")).toBeFocused();
+    await expectClearOfStickyChrome(row(page, "gear"), "the Gear row");
+    const box = await row(page, "gear").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, innerHeight };
+    });
+    expect(box.bottom, JSON.stringify(box)).toBeLessThanOrEqual(box.innerHeight + 0.5);
   });
 
   test("sheet: a popstate to an unknown s drops it from the URL and shows the home", async ({

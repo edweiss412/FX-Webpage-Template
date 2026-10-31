@@ -301,7 +301,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // announcer row and a doc. Same scrim. 329 -> 361 (audit P2-5): the deep-link
     // focus fallback's prop, doc and latest-value ref sit above it. Same scrim.
     // 361 -> 379 (critique F4): the per-open presence count sits above it. Same scrim.
-    line: 379,
+    // 379 -> 409 (UI-gate re-run P2-1): the deep-link close's scroll into view and
+    // its Strict Mode guard sit above it. Same scrim, read at the new key.
+    line: 409,
     tag: "motion.div",
     category: "full-bleed",
     reason:

@@ -21,7 +21,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CrewSections, useSectionController } from "@/components/crew/CrewSections";
 import {
@@ -144,18 +144,30 @@ function nodes(budget: boolean, over: Partial<Record<SectionId, ReactNode>> = {}
 
 function renderController(
   initialSection: SectionId = "today",
-  opts: { budget?: boolean; over?: Partial<Record<SectionId, ReactNode>>; extra?: ReactNode } = {},
+  opts: {
+    budget?: boolean;
+    over?: Partial<Record<SectionId, ReactNode>>;
+    extra?: ReactNode;
+    /** Development's double effect run (mount, cleanup, mount), as `next dev` renders. */
+    strict?: boolean;
+  } = {},
 ) {
   const budget = opts.budget ?? false;
-  return render(
+  const controller = (
     <CrewSections
       initialSection={initialSection}
       sections={entries(budget)}
       sectionNodes={nodes(budget, opts.over)}
     >
       {opts.extra}
-    </CrewSections>,
+    </CrewSections>
   );
+  return render(opts.strict ? <StrictMode>{controller}</StrictMode> : controller);
+}
+
+/** Resolves after the next animation frame. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 function sheet(): HTMLElement | null {
@@ -310,6 +322,67 @@ describe("CrewSections, compact: home and sheet (spec §5.2)", () => {
     fireEvent.click(closeButton("venue"));
     await waitFor(() => expect(sheet()).toBeNull());
     expect(document.activeElement).toBe(row("venue"));
+  });
+
+  it("sheet: closing a deep-linked sheet brings the focused row into view, a row it opened from stays put (UI-gate re-run P2-1)", async () => {
+    // jsdom has no layout and no scrollIntoView; a recorder stands in for it.
+    const intoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: intoView,
+    });
+    try {
+      // The fallback row was never on screen: the page sat at its top under the
+      // sheet while the row was 800 to 1100px down, so focus went out of sight.
+      nav.searchParams = new URLSearchParams("s=venue");
+      setLocation("?s=venue");
+      // Under Strict Mode, as `next dev` renders: a sheet opened after the home
+      // has mounted (here by Forward to a sheet entry, which leaves no opener)
+      // runs its effect, the cleanup and the effect again. That cleanup focuses
+      // the fallback row with no close, and must not scroll the page behind the
+      // sheet that is opening; the second run must not take that row for an
+      // opener either, or the real close would skip the scroll.
+      const strict = renderController("today", { strict: true });
+      popTo("?s=venue", { crewSheet: true });
+      expect(sheet()).toHaveAttribute("data-section", "venue");
+      await nextFrame();
+      await nextFrame();
+      expect(intoView, "an opening sheet never scrolls the page behind it").not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Venue" }));
+      popTo("");
+      await waitFor(() => expect(sheet()).toBeNull());
+      expect(document.activeElement).toBe(row("venue"));
+      await waitFor(() => expect(intoView.mock.calls).toEqual([[{ block: "nearest" }]]));
+      expect(intoView.mock.contexts).toEqual([row("venue")]);
+      strict.unmount();
+      intoView.mockClear();
+
+      const first = renderController("venue");
+      fireEvent.click(closeButton("venue"));
+      await waitFor(() => expect(sheet()).toBeNull());
+      expect(document.activeElement).toBe(row("venue"));
+      await waitFor(() => expect(intoView.mock.calls).toEqual([[{ block: "nearest" }]]));
+      expect(intoView.mock.contexts).toEqual([row("venue")]);
+      first.unmount();
+
+      // A real opener was on screen when it was tapped: focus goes back to it
+      // with the page where it was, so nothing scrolls.
+      intoView.mockClear();
+      nav.searchParams = new URLSearchParams();
+      setLocation("");
+      renderController("today");
+      row("crew").focus();
+      fireEvent.click(row("crew"));
+      expect(sheet()).toHaveAttribute("data-section", "crew");
+      fireEvent.click(closeButton("crew"));
+      popTo(""); // the marker was set, so the close went back
+      await waitFor(() => expect(sheet()).toBeNull());
+      expect(document.activeElement).toBe(row("crew"));
+      await nextFrame();
+      expect(intoView).not.toHaveBeenCalled();
+    } finally {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 
   it("sheet: popstate to an entry without s closes the sheet", async () => {
