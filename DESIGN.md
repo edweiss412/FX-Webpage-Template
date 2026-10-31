@@ -1132,3 +1132,9 @@ positioned element reads like a shape carrier, but if its only paint is a
 background it flattens to the same system colour as whatever is behind it. The
 review rail's active indicator is exactly that: positioned by `transform`, sized by
 `height`, and painted only by `bg-accent`.
+
+### 17.5 `forced-color-adjust: none`, each use and what its colour means (rule 5)
+
+| Selector (`app/globals.css`, forced-colors block) | What the colour means | Why the opt-out |
+| --- | --- | --- |
+| The selected-state rule, `:is(a, button, [role="tab"], …):is([aria-current]:not([aria-current="false"]), [aria-pressed="true"]):not([data-fc-skip])`, and its descendants | This control is the chosen one: the `Highlight` fill with `HighlightText` on it (§17.3) | Measured on pixels (crew page redesign invariant-8 audit P1-4, 2026-10-30): Chromium paints its readability backplate in `Canvas` behind every forced text run, so `HighlightText` text on the fill sat on a `Canvas` block and vanished on the dark and the light palette alike, where the two are one colour. The pressed day, the crew wide nav's current item and the admin top bar's current link all blanked. Out of forcing there is no backplate, and both colours are still system colours, so the palette still decides them. Because the property inherits, the descendants rule hands the children what forcing gave them: text and icons take `HighlightText`, fills clear to the control's own, borders follow the text, shadows drop. Firefox paints no backplate and renders the pair either way. Pinned by AC-4f in `tests/e2e/forcedColors.spec.ts`, which reads the text run's pixels for every control the rule reaches. |

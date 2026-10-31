@@ -28,6 +28,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { PNG } from "pngjs";
+
 import { test, expect } from "./helpers/fontFidelityFixture";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
@@ -99,6 +101,23 @@ function harnessHtml(): string {
   <div id="fresh-flash" ${FRESHNESS_FLASH_ATTR}="1" data-testid="fc-fresh-flash">freshness, flashing</div>
   <button data-testid="fc-focus-idiom" class="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface">focus me</button>
   <progress data-testid="wizard-step2-progressbar" style="width:200px;height:16px;display:block"></progress>
+  <!-- A selected control whose text sits in CHILD elements with their own colour
+       utilities (the crew day button), and a selected link with an icon (the crew
+       wide nav item): the two shapes the selected fill must keep readable. -->
+  <button type="button" aria-pressed="true" data-testid="fc-selected-children" class="flex flex-col items-center rounded-md border border-text bg-text px-1 py-2 text-bg">
+    <span class="text-xs font-semibold uppercase text-text-subtle">Today</span>
+    <span class="text-lg/tight font-bold">21</span>
+  </button>
+  <a href="#nav" aria-current="true" data-testid="fc-selected-icon" class="flex min-h-tap-min items-center gap-3 rounded-sm bg-surface-sunken px-3 text-sm font-semibold text-text-strong">
+    <svg class="size-4 text-accent-on-bg" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle></svg>
+    Today
+  </a>
+  <!-- The crew pass's show-day progress, its shipped hooks and class strings
+       (components/crew/CrewPass.tsx): one done segment, one remaining. -->
+  <div data-testid="crew-pass-progress" class="flex items-stretch gap-1.5" style="width:240px">
+    <span data-segment="0" data-segment-active="true" data-testid="fc-seg-done" class="h-1.5 flex-1 rounded-pill border border-accent-edge bg-accent"></span>
+    <span data-segment="1" data-segment-active="false" data-testid="fc-seg-left" class="h-1.5 flex-1 rounded-pill border border-text-faint bg-border-strong"></span>
+  </div>
   ${pairsMarkup()}
 </body></html>`;
 }
@@ -175,6 +194,66 @@ async function paint(page: import("@playwright/test").Page, testId: string) {
       color: s.color,
     };
   });
+}
+
+/** The selected-state rule's selector, read from the stylesheet so the two cannot drift. */
+function selectedSelector(): string {
+  const css = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
+  const m = /(:is\(a, button[^{]*?:not\(\[data-fc-skip\]\))\s*\{/.exec(css);
+  if (!m?.[1]) throw new Error("app/globals.css: the forced-colors selected-state rule moved");
+  return m[1].replace(/\s+/g, " ");
+}
+
+type Rgb = [number, number, number];
+const far = (a: Rgb, b: Rgb) =>
+  Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 120;
+
+/** The pixels of one screenshot clip, as RGB triples. */
+async function pixels(
+  page: import("@playwright/test").Page,
+  clip: { x: number; y: number; width: number; height: number },
+): Promise<Rgb[]> {
+  const png = PNG.sync.read(await page.screenshot({ clip }));
+  const out: Rgb[] = [];
+  for (let i = 0; i < png.data.length; i += 4) {
+    out.push([png.data[i]!, png.data[i + 1]!, png.data[i + 2]!]);
+  }
+  return out;
+}
+
+/** The most frequent colour in a pixel set. */
+function dominant(px: Rgb[]): Rgb {
+  const counts = new Map<string, number>();
+  for (const p of px) counts.set(p.join(","), (counts.get(p.join(",")) ?? 0) + 1);
+  const [key] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]!;
+  return key.split(",").map(Number) as Rgb;
+}
+
+/**
+ * How a selected control's FIRST text run renders, read from pixels: the colour
+ * that dominates the run's own box, and the share of pixels far from it (the
+ * glyphs). Computed style cannot see this: Chromium reports `Highlight` and
+ * `HighlightText` and then paints a Canvas backplate behind the text, which is
+ * the defect (audit P1-4).
+ */
+async function textRun(page: import("@playwright/test").Page, testId: string) {
+  // A clip must lie inside the viewport, and the harness page runs long.
+  await page.getByTestId(testId).scrollIntoViewIfNeeded();
+  const box = await page.getByTestId(testId).evaluate((el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node && !node.textContent?.trim()) node = walker.nextNode();
+    if (!node) return null;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const b = range.getBoundingClientRect();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  });
+  if (box === null || box.width < 4 || box.height < 4) throw new Error(`${testId}: no text run`);
+  const px = await pixels(page, box);
+  const ground = dominant(px);
+  const glyphs = px.filter((p) => far(p, ground)).length / px.length;
+  return { ground, glyphs };
 }
 
 /**
@@ -378,6 +457,70 @@ test.describe("forced colors", () => {
     ).toEqual([]);
   });
 
+  test("AC-4f: a selected control's text stays readable on the selected fill, on rendered pixels", async ({
+    page,
+  }) => {
+    // Audit P1-4. The fill shipped with `color: HighlightText`, and the computed
+    // values read right; the PIXELS did not. Chromium paints its readability
+    // backplate in Canvas behind every forced text run, so HighlightText text sat
+    // on a Canvas block inside the Highlight fill: invisible on both palettes,
+    // where HighlightText and Canvas are the same colour. Every selected control
+    // the stylesheet reaches is read here, the census pairs plus the two child
+    // shapes above, on the dark and the light palette.
+    const selector = selectedSelector();
+    await page.goto(baseUrl);
+    for (const colorScheme of ["dark", "light"] as const) {
+      await page.emulateMedia({ forcedColors: "active", colorScheme });
+      const ids = await page.evaluate(
+        (sel) =>
+          [...document.querySelectorAll<HTMLElement>("[data-testid]")]
+            .filter((el) => el.matches(sel) && el.textContent?.trim())
+            .map((el) => el.dataset.testid!),
+        selector,
+      );
+      // PREMISE: the rule reaches the census pairs AND both child shapes.
+      expect(ids, `${colorScheme}: the child shapes are selected`).toEqual(
+        expect.arrayContaining(["fc-selected-children", "fc-selected-icon"]),
+      );
+      expect(ids.length, `${colorScheme}: the selector reaches census pairs too`).toBeGreaterThan(
+        2,
+      );
+      const canvas = dominant(await pixels(page, { x: 0, y: 0, width: 4, height: 4 }));
+      const unreadable: string[] = [];
+      for (const id of ids) {
+        const run = await textRun(page, id);
+        // The run's box is the fill, not a Canvas backplate, and glyphs show on it.
+        if (!far(run.ground, canvas) || run.glyphs < 0.02) {
+          unreadable.push(`${id} ground=${run.ground.join(",")} glyphs=${run.glyphs.toFixed(3)}`);
+        }
+      }
+      expect(unreadable, `${colorScheme} palette: selected text not readable`).toEqual([]);
+    }
+  });
+
+  test("AC-4g: the crew pass's done and remaining show days differ under forced colors, on rendered pixels", async ({
+    page,
+  }) => {
+    // Audit P3-1. Every segment carries a 1px border (painted CanvasText here),
+    // and the fill that told done from remaining flattens to Canvas, so without a
+    // rule the two render alike. Read the middle row of each segment's interior.
+    await page.goto(baseUrl);
+    for (const colorScheme of ["dark", "light"] as const) {
+      await page.emulateMedia({ forcedColors: "active", colorScheme });
+      const interior = async (id: string) => {
+        await page.getByTestId(id).scrollIntoViewIfNeeded();
+        const b = (await page.getByTestId(id).boundingBox())!;
+        const y = Math.floor(b.y + b.height / 2);
+        return dominant(
+          await pixels(page, { x: b.x + b.width / 4, y, width: b.width / 2, height: 1 }),
+        );
+      };
+      const done = await interior("fc-seg-done");
+      const left = await interior("fc-seg-left");
+      expect(far(done, left), `${colorScheme}: done ${done} vs remaining ${left}`).toBe(true);
+    }
+  });
+
   test("AC-5 (Blink half): the indeterminate bar is not invisible under forced colors", async ({
     page,
   }) => {
@@ -488,6 +631,11 @@ test.describe("forced colors", () => {
     expect(shareHub).toContain(`"${SHARE_LINK_FLASH_ATTR}"`);
     const css = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
     expect(css).toContain(`[${SHARE_LINK_FLASH_ATTR}]`);
+    // The crew pass progress hooks AC-4g's harness wears.
+    const pass = readFileSync(join(REPO_ROOT, "components", "crew", "CrewPass.tsx"), "utf8");
+    expect(pass).toContain('data-testid="crew-pass-progress"');
+    expect(pass).toContain('data-segment-active={active ? "true" : "false"}');
+    expect(css).toContain('[data-testid="crew-pass-progress"] > [data-segment-active="true"]');
   });
 
   // The one case in this file that navigates to a real route. Every other case
