@@ -973,7 +973,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     const KNOWN_CREW_PHANTOM_ITEMS: PhantomLedgerRow[] = [];
 
     for (const { section, anchor } of NOPHANTOM_SECTIONS) {
-      for (const width of [390, 1000] as const) {
+      for (const width of [390, 1000, 1280] as const) {
         test(`T-NOPHANTOM-CREW [${section}] @ ${width}: no zero-extent flex/grid item inside any gapped container`, async ({
           page,
         }, testInfo) => {
@@ -981,11 +981,26 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
           await page.setViewportSize({ width, height: 1000 });
           await gotoSection(page, section);
 
-          // Both widths are compact (below 1024px): Today is the home's column, and
+          // 390 and 1000 are compact (below 1024px): Today is the home's column, and
           // every other section opens in the section sheet, whose body is the
-          // container holding it (crew page redesign spec §5.2).
+          // container holding it (crew page redesign spec §5.2). 1280 is wide
+          // (spec §5.3): the sheet is unmounted and every section sits in the wide
+          // stack, the only place the two-column grids split (whole-diff review
+          // R4-F1). There Today's root is still the page container, which now holds
+          // the wide stack too, so the stack's own gap and every section in it are
+          // walked; each other section walks its own stacked section.
+          const wide = width >= 1024;
+          if (wide) {
+            // PREMISE: the wide layout is the one walked, not a compact sheet.
+            await expect(page.getByTestId("crew-wide-stack")).toBeVisible();
+            await expect(page.getByTestId("crew-section-sheet-body")).toHaveCount(0);
+          }
           const found = await scanForPhantomGaps(
-            page.getByTestId(section === "today" ? "page-container" : "crew-section-sheet-body"),
+            section === "today"
+              ? page.getByTestId("page-container")
+              : wide
+                ? page.locator(`[data-testid="crew-wide-section"][data-section="${section}"]`)
+                : page.getByTestId("crew-section-sheet-body"),
           );
 
           // NON-VACUITY BY NAMED ANCHOR, never by a container count. The anchor is
