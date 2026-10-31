@@ -23,7 +23,12 @@
  * is committed or left on disk. It carries an IP subjectAltName for 127.0.0.1,
  * which is what lets a verifying client accept it given `caPem` as its CA.
  *
- * Mode, predicate and stubs are state on the proxy, not per case. A fixture
+ * `overrideHeaders` sets headers on forwarded answers under a path prefix. The
+ * agenda case marks `/_next/static/` `no-store` with it, so the browser's HTTP
+ * cache never holds a chunk and offline only the worker's Cache Storage can
+ * answer for one (Codex R1 D4).
+ *
+ * Mode, predicate, stubs and overrides are state on the proxy, not per case. A fixture
  * that shares one proxy across cases calls `reset()` before each case, so a
  * case's stub (a stubbed /sw.js, for one) or refusal predicate never reaches
  * the next case. A predicate that throws refuses its request: a fault in the
@@ -68,13 +73,19 @@ export type CrewOfflineProxy = {
     headers?: Record<string, string>,
   ): void;
   /**
+   * On forwarded answers whose path starts with this prefix, set these response
+   * headers, replacing the upstream's own of the same name. Stubbed, refused and
+   * held requests are untouched.
+   */
+  overrideHeaders(pathPrefix: string, headers: Record<string, string>): void;
+  /**
    * Every request received since the start or the last `reset()`, in arrival
    * order, whether it was forwarded, stubbed, refused or held. The worker's own
    * fetches arrive here too, which is what lets a case see a request no page
    * listener can (WebKit reports none of a worker's requests to Playwright).
    */
   received(): readonly ReceivedRequest[];
-  /** Back to `pass` (releasing held requests, closing idle sockets), no predicate, no stubs, no log. */
+  /** Back to `pass` (releasing held requests, closing idle sockets), no predicate, stubs, overrides or log. */
   reset(): void;
   close(): Promise<void>;
 };
@@ -148,6 +159,7 @@ export async function startCrewOfflineProxy(opts: {
   let mode: ProxyMode = "pass";
   let refusePredicate: ((req: ProxiedRequest) => boolean) | null = null;
   const stubs = new Map<string, Stub>();
+  const overrides = new Map<string, Record<string, string>>();
   const held = new Set<Pending>();
   const log: ReceivedRequest[] = [];
 
@@ -171,11 +183,19 @@ export async function startCrewOfflineProxy(opts: {
         agent: upstreamAgent,
       },
       (answer) => {
+        const path = req.url ?? "/";
+        const set: Record<string, string> = {};
+        for (const [prefix, headers] of overrides) {
+          if (!path.startsWith(prefix)) continue;
+          for (const [name, value] of Object.entries(headers)) set[name.toLowerCase()] = value;
+        }
         const raw: string[] = [];
         for (let i = 0; i < answer.rawHeaders.length; i += 2) {
           const name = answer.rawHeaders[i]!;
-          if (!HOP_BY_HOP.has(name.toLowerCase())) raw.push(name, answer.rawHeaders[i + 1]!);
+          const lower = name.toLowerCase();
+          if (!HOP_BY_HOP.has(lower) && !(lower in set)) raw.push(name, answer.rawHeaders[i + 1]!);
         }
+        for (const [name, value] of Object.entries(set)) raw.push(name, value);
         const status = answer.statusCode ?? 502;
         res.writeHead(status, answer.statusMessage || http.STATUS_CODES[status] || "", raw);
         answer.pipe(res);
@@ -286,12 +306,16 @@ export async function startCrewOfflineProxy(opts: {
     stub(pathPrefix, body, contentType, headers = {}) {
       stubs.set(pathPrefix, { body, contentType, headers });
     },
+    overrideHeaders(pathPrefix, headers) {
+      overrides.set(pathPrefix, headers);
+    },
     received() {
       return [...log];
     },
     reset() {
       refusePredicate = null;
       stubs.clear();
+      overrides.clear();
       setMode("pass");
       log.length = 0;
     },

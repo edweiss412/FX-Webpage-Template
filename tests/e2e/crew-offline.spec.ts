@@ -33,6 +33,8 @@ import { KILL_SWITCH_SOURCE } from "@/lib/offline/killSwitch";
 import { savedCopyStatusUrl } from "@/lib/offline/protocol";
 import { STATIC_CACHE } from "@/lib/offline/storeSchema";
 
+import { premise, premiseHolds } from "../_shared/premise";
+
 import type { CrewOfflineProxy, ReceivedRequest } from "./helpers/crewOfflineProxy";
 import {
   NOT_SAVED_BODY,
@@ -303,7 +305,12 @@ test("2. a hung connection shows slow, then the page updates by itself", async (
   crewProxy: proxy,
 }) => {
   const show = await seedCase();
-  await pickAndSave(page, origin, caseTarget(show));
+  const saved = await pickAndSave(page, origin, caseTarget(show));
+  // The render time of the copy the slow page is about to show (Codex R1 D5).
+  premiseHolds(
+    `the saved copy's render time was captured (${saved.savedAt})`,
+    Number.isFinite(Date.parse(saved.savedAt)),
+  );
 
   proxy.setMode("hang");
   const started = Date.now();
@@ -343,6 +350,28 @@ test("2. a hung connection shows slow, then the page updates by itself", async (
   proxy.setMode("pass");
   await expect(bar).toHaveAttribute("data-state", "updated", { timeout: 60_000 });
   await expect(content).toHaveText("Updated. You're on the latest version.");
+  // Fresh content, not the saved copy with recovery indicators on top (Codex R1
+  // D5). Changing a seeded value cannot show it: the show's data is cached for
+  // 300 s and only the app's own writes bust it (lib/data/getShowForViewer.ts,
+  // tests/e2e/helpers/lockedShowCopy.ts), so the server's render time stands in.
+  const recovered = await page.evaluate(() => ({
+    servedMeta: document.querySelector('meta[name="fxav-served"]') !== null,
+    renderedAt:
+      document.querySelector("template#fxav-saved-copy")?.getAttribute("data-rendered-at") ?? null,
+  }));
+  expect(recovered.servedMeta, "the recovered page is not a served copy").toBe(false);
+  expect(
+    Date.parse(recovered.renderedAt ?? ""),
+    `the recovered page (${recovered.renderedAt}) was rendered after the saved copy (${saved.savedAt})`,
+  ).toBeGreaterThan(Date.parse(saved.savedAt));
+  await expect
+    .poll(
+      async () =>
+        (await readSavedCopies(page)).copies.find((copy) => copy.showId === show.showId)?.savedAt ??
+        null,
+      { message: "the worker's copy of the page is the recovered render" },
+    )
+    .toBe(recovered.renderedAt);
   const seenStates = await page.evaluate(
     (key) => JSON.parse(sessionStorage.getItem(key) ?? "[]") as string[],
     recordKey,
@@ -530,12 +559,23 @@ test("10. a show with no saved copy gets the not-saved page, which reloads when 
   await expect(page.getByRole("heading", { name: NOT_SAVED_HEADING })).toHaveCount(0);
 });
 
+/** A `/_next/static/**` script, as the worker's static index and a copy's lists name it. */
+function nextStaticScript(path: string): boolean {
+  const pathname = path.split("?")[0] ?? "";
+  return pathname.startsWith("/_next/static/") && pathname.endsWith(".js");
+}
+
 /**
  * A show with an agenda, picked and saved, once the registrar's prefetch has run:
- * the saved copy lists the agenda and the static cache holds the pdf.js worker.
- * Nobody has opened the agenda yet. The agenda is stubbed no-store, so the
- * browser's HTTP cache can never answer for it: offline, only the worker's asset
- * cache can.
+ * the saved copy lists the agenda and the static cache holds the pdf.js worker
+ * and every script the viewer's import loaded. Nobody has opened the agenda yet.
+ *
+ * Neither the browser's HTTP cache nor anything but the worker can answer offline
+ * (Codex R1 D4). The agenda is stubbed no-store. Every `/_next/static/` answer is
+ * marked no-store too, so a chunk the worker failed to keep has nowhere else to
+ * come from: Next sends them immutable, and the HTTP cache would otherwise answer
+ * for a lazily imported viewer chunk the worker never stored. Poisoning the stored
+ * scripts, case 12's way to keep the HTTP cache out, would stop the viewer itself.
  */
 async function agendaShowPrefetched(
   page: Page,
@@ -544,6 +584,15 @@ async function agendaShowPrefetched(
 ): Promise<void> {
   proxy.stub("/api/asset/agenda/", AGENDA_PDF, "application/pdf", {
     "cache-control": "no-store",
+  });
+  proxy.overrideHeaders("/_next/static/", { "cache-control": "no-store" });
+  // Every script requested, by the page and (on a cache miss) by the worker on
+  // its behalf: WebKit reports none of a worker's own requests to Playwright,
+  // and the proxy sees both engines' (helpers/crewOfflineProxy.ts).
+  const pageScripts = new Set<string>();
+  page.on("request", (request) => {
+    const path = rootRelative(request.url());
+    if (nextStaticScript(path)) pageScripts.add(path);
   });
   const show = await seedCase({ agendaLinks: [{ label: "AGENDA", fileId: AGENDA_FILE_ID }] });
   const agendaUrl = `/api/asset/agenda/${show.showId}/${AGENDA_FILE_ID}`;
@@ -564,9 +613,40 @@ async function agendaShowPrefetched(
     )
     .toEqual({ agendaListed: true, pdfWorkerStored: true });
   await expect(page.getByTestId("agenda-sheet"), "the agenda was never opened").toHaveCount(0);
+
+  // The scripts the viewer's import loaded are the ones the stored HTML does not
+  // name (case 1 covers those). Each is in the worker's static cache.
+  const html = await readSavedCopyHtml(page, show.showId);
+  const named = new Set(nextStaticUrlsIn(html ?? ""));
+  premise("the stored HTML names /_next/static files", named.size, 0);
+  const requested = new Set([
+    ...pageScripts,
+    ...proxy
+      .received()
+      .map((request) => request.path)
+      .filter(nextStaticScript),
+  ]);
+  const lazy = [...requested].filter((path) => !named.has(path));
+  premise("the viewer's import loaded scripts the HTML does not name", lazy.length, 0);
+  await expect
+    .poll(
+      async () => {
+        const stored = new Set(
+          ((await readSavedCopies(page)).caches[STATIC_CACHE] ?? []).map(rootRelative),
+        );
+        return lazy.filter((path) => !stored.has(path));
+      },
+      { message: "every lazily loaded script is in the worker's static cache", timeout: 15_000 },
+    )
+    .toEqual([]);
 }
 
-/** Schedule, then `View agenda`: the viewer shows the first page. */
+/**
+ * Schedule, then `View agenda`: the viewer shows the first page, painted. The page
+ * counter appears once the document loads, before react-pdf's `<Page>` renders
+ * (Codex R1 D3), so the case also waits for the first page's canvas and reads its
+ * pixels: a real width, and ink on it (the fixture is black text on white).
+ */
 async function openAgenda(page: Page): Promise<void> {
   await sectionTab(page, "schedule").click();
   await expect(page.getByTestId("section-schedule")).toBeVisible();
@@ -575,6 +655,28 @@ async function openAgenda(page: Page): Promise<void> {
     .getByRole("button", { name: /View agenda/ })
     .click();
   await expect(page.getByTestId("agenda-active-page")).toHaveText("1", { timeout: 30_000 });
+  const canvas = page.locator('[data-page="1"] canvas').first();
+  await expect(canvas, "react-pdf rendered the first page's canvas").toBeVisible({
+    timeout: 30_000,
+  });
+  await expect
+    .poll(
+      () =>
+        canvas.evaluate((node: HTMLCanvasElement) => {
+          if (node.width === 0 || node.height === 0) return { width: node.width, ink: false };
+          const context = node.getContext("2d");
+          if (context === null) return { width: node.width, ink: false };
+          const { data } = context.getImageData(0, 0, node.width, node.height);
+          for (let at = 0; at < data.length; at += 4) {
+            const dark = Math.min(data[at]!, data[at + 1]!, data[at + 2]!) < 128;
+            if (data[at + 3]! > 0 && dark) return { width: node.width, ink: true };
+          }
+          return { width: node.width, ink: false };
+        }),
+      { message: "the first page's canvas has a width and ink on it", timeout: 30_000 },
+    )
+    .toMatchObject({ ink: true });
+  expect(await canvas.evaluate((node: HTMLCanvasElement) => node.width)).toBeGreaterThan(0);
 }
 
 test("11a. an agenda nobody opened opens offline", async ({
@@ -628,8 +730,32 @@ test("12. a saved copy whose JavaScript fails to load still shows the CSS notice
       () => (window as unknown as { __fxavScriptBlocked?: unknown }).__fxavScriptBlocked,
     ),
   ).toBe(true);
-  const notice = await page.evaluate(() => getComputedStyle(document.body, "::before").content);
-  expect(notice).toContain("Saved copy from");
+  // Visible, not only present (Codex R1 D2): the properties lib/offline/inject.ts
+  // sets on the notice, plus the ones that would hide it. A pseudo-element has no
+  // rect of its own, so its box is its resolved width and height.
+  const notice = await page.evaluate(() => {
+    const style = getComputedStyle(document.body, "::before");
+    return {
+      content: style.content,
+      display: style.display,
+      visibility: style.visibility,
+      opacity: style.opacity,
+      position: style.position,
+      top: style.top,
+      paddingTop: parseFloat(style.paddingTop),
+      width: parseFloat(style.width),
+      height: parseFloat(style.height),
+    };
+  });
+  expect(notice.content).toContain("Saved copy from");
+  expect(notice.display, "the notice is laid out").toBe("block");
+  expect(notice.visibility).toBe("visible");
+  expect(notice.opacity).toBe("1");
+  expect(notice.position, "the notice stays at the top as the page scrolls").toBe("sticky");
+  expect(notice.top).toBe("0px");
+  expect(notice.paddingTop).toBeGreaterThan(0);
+  expect(notice.width, "the notice has a width").toBeGreaterThan(0);
+  expect(notice.height, "the notice has a height").toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.hasAttribute("data-fxav-bar"))).toBe(
     false,
   );

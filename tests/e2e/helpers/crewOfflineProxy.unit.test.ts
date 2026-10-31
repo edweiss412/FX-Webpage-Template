@@ -454,6 +454,52 @@ describe("crewOfflineProxy", () => {
     expect(seen).toHaveLength(0);
   });
 
+  test("overrideHeaders sets headers on forwarded answers under its prefix only, until reset()", async () => {
+    const p = live();
+    p.overrideHeaders("/_next/static/", { "cache-control": "no-store", "x-upstream": "proxy" });
+
+    const under = await within(
+      send(p.httpOrigin, { path: "/_next/static/chunks/a.js" }).reply,
+      3_000,
+      "GET under the prefix",
+    );
+    // Forwarded, not stubbed: the upstream answered, and the override replaced
+    // its header and added the other.
+    expect(under.status).toBe(201);
+    expect(under.body).toBe("upstream GET /_next/static/chunks/a.js");
+    expect(under.headers["cache-control"]).toBe("no-store");
+    expect(under.headers["x-upstream"]).toBe("proxy");
+
+    const elsewhere = await within(
+      send(p.httpOrigin, { path: "/fonts/a.woff2" }).reply,
+      3_000,
+      "GET",
+    );
+    expect(elsewhere.headers["cache-control"]).toBeUndefined();
+    expect(elsewhere.headers["x-upstream"]).toBe("spy");
+
+    p.reset();
+    // A fresh socket: the reset closed the idle pooled one.
+    const fresh = new http.Agent({ keepAlive: false });
+    let after: Reply;
+    try {
+      after = await within(
+        send(p.httpOrigin, { path: "/_next/static/chunks/a.js", agent: fresh }).reply,
+        3_000,
+        "GET after reset",
+      );
+    } finally {
+      fresh.destroy();
+    }
+    expect(after.headers["cache-control"]).toBeUndefined();
+    expect(after.headers["x-upstream"]).toBe("spy");
+    expect(seen.map((s) => s.path)).toEqual([
+      "/_next/static/chunks/a.js",
+      "/fonts/a.woff2",
+      "/_next/static/chunks/a.js",
+    ]);
+  });
+
   test("refuse wins over a stub, so only the worker's own cache can answer offline", async () => {
     const p = live();
     p.stub("/api/asset/agenda/", Buffer.from("pdf"), "application/pdf");
