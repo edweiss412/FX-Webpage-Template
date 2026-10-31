@@ -3525,7 +3525,7 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
       test(`at ${width}px on the ${route} route the skeleton's ${route === "preview" ? "banner, " : ""}header, day row, pass and nav land where the loaded page puts them`, async ({
         page,
         browser,
-      }, testInfo) => {
+      }) => {
         const seeded = await lookupSeededShow();
         const shareToken = await lookupShareToken(seeded.showId);
         let path = `/show/${seeded.slug}/${shareToken}`;
@@ -3578,9 +3578,9 @@ test.describe("crew loading skeleton — reserves the loaded page's geometry", (
               : null,
         };
 
-        // The skeleton, mid-load, in a context matching the project's device.
-        const baseURL = testInfo.project.use.baseURL;
-        if (!baseURL) throw new Error("the mobile-safari project declares a baseURL");
+        // The skeleton, mid-load, in a context matching this spec's iPhone device,
+        // on the origin the loaded page was served from.
+        const baseURL = new URL(page.url()).origin;
         // The crew route's fallback is the first one the stream flushes, so it
         // is read with scripting off, where React's swap never runs. The preview
         // route's sits inside the admin segment's own fallback, so with scripting
