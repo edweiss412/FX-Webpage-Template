@@ -749,55 +749,81 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     expect(Math.abs(left.height - right.height)).toBeGreaterThan(2);
   });
 
-  // Critique F13 (gate fix X6): at 390 the Who to call tile's three actions
-  // wrapped, leaving Email alone on a second row (the tile's content box is 147px;
-  // three 44px targets and two 8px gaps need 148). They share one row from the
-  // 390 primary phone width up, each still the full tap target.
-  test("quick facts: Who to call's call, text and email share one row at 390, each a full tap target", async ({
+  // Critique F13 (gate fix X6), then the re-run's P3-3 / N3: Who to call's three
+  // actions wrapped, leaving Email alone on a second row. Three 44px targets and
+  // their gaps need 144px, more than a half-width tile holds at 320, 360 and 375
+  // and in the 1024 wide column (126 to 134px). So where the grid is too narrow
+  // for that, the tile spans both columns, and so does the tile it would have
+  // shared a row with, leaving no half-width tile alone on a row. Every width the
+  // quick facts render at, phones through the wide column.
+  test("quick facts: Who to call's call, text and email share one row at every width, each a full tap target, and no tile sits alone on a row", async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-    await page.setViewportSize({ width: 390, height: 844 });
-    const res = await page.goto(`/show/${slug}/${shareToken}`, { waitUntil: "domcontentloaded" });
-    expect(res?.status(), "crew home must render").toBe(200);
-    await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
-      "data-crew-controller-ready",
-      "true",
-      { timeout: 30_000 },
-    );
-    const tile = page.locator('[data-testid="crew-quick-fact"][data-fact="contact"]');
-    await expect(tile).toBeVisible();
-    const links = tile.getByRole("link", { name: /^(Call|Text|Email) / });
-    // PREMISE: the seeded primary contact has a phone and an email, so all three render.
-    await expect(links).toHaveCount(3);
-    const tap = await page.evaluate(() => {
-      const probe = document.createElement("div");
-      probe.style.width = "var(--spacing-tap-min)";
-      document.body.appendChild(probe);
-      const px = probe.getBoundingClientRect().width;
-      probe.remove();
-      return px;
-    });
-    expect(tap, "PREMISE: --spacing-tap-min resolves").toBeGreaterThan(0);
-    const rects = await links.evaluateAll((els) =>
-      els.map((el) => {
-        const r = el.getBoundingClientRect();
-        return { top: r.top, width: r.width, height: r.height };
-      }),
-    );
-    for (const r of rects) {
-      expect(r.width, "each action is a full tap target wide").toBeGreaterThanOrEqual(
-        tap - TOL_TIGHT,
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+    const widths = [320, 360, 375, 390, 430, 768, 1024, 1152, 1280, 1440];
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 900 });
+      const res = await page.goto(`/show/${slug}/${shareToken}`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status(), "crew home must render").toBe(200);
+      await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
+        "data-crew-controller-ready",
+        "true",
+        { timeout: 30_000 },
       );
-      expect(r.height, "each action is a full tap target tall").toBeGreaterThanOrEqual(
-        tap - TOL_TIGHT,
+      const tile = page.locator('[data-testid="crew-quick-fact"][data-fact="contact"]');
+      await expect(tile).toBeVisible();
+      const links = tile.getByRole("link", { name: /^(Call|Text|Email) / });
+      // PREMISE: the seeded primary contact has a phone and an email, so all three render.
+      await expect(links).toHaveCount(3);
+      const tap = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.style.width = "var(--spacing-tap-min)";
+        document.body.appendChild(probe);
+        const px = probe.getBoundingClientRect().width;
+        probe.remove();
+        return px;
+      });
+      expect(tap, "PREMISE: --spacing-tap-min resolves").toBeGreaterThan(0);
+      const rects = await links.evaluateAll((els) =>
+        els.map((el) => {
+          const r = el.getBoundingClientRect();
+          return { top: r.top, width: r.width, height: r.height };
+        }),
       );
+      for (const r of rects) {
+        expect(r.width, `${width}: each action is a full tap target wide`).toBeGreaterThanOrEqual(
+          tap - TOL_TIGHT,
+        );
+        expect(r.height, `${width}: each action is a full tap target tall`).toBeGreaterThanOrEqual(
+          tap - TOL_TIGHT,
+        );
+      }
+      const tops = rects.map((r) => r.top);
+      expect(
+        Math.max(...tops) - Math.min(...tops),
+        `${width}: the three actions share one row (tops ${JSON.stringify(tops)})`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+      // No half-width tile alone on its row: each tile spans the grid, or another
+      // tile shares its top.
+      const grid = await page.getByTestId("crew-quick-facts-grid").evaluate((g) => {
+        const gb = g.getBoundingClientRect();
+        return {
+          width: gb.width,
+          tiles: [...g.querySelectorAll('[data-testid="crew-quick-fact"]')].map((t) => {
+            const r = t.getBoundingClientRect();
+            return { fact: t.getAttribute("data-fact"), top: r.top, width: r.width };
+          }),
+        };
+      });
+      const at = `${width}: ${JSON.stringify(grid)}`;
+      for (const t of grid.tiles) {
+        const full = Math.abs(t.width - grid.width) <= TOL_TIGHT;
+        const shared = grid.tiles.some((o) => o !== t && Math.abs(o.top - t.top) <= TOL_TIGHT);
+        expect(full || shared, `${t.fact} sits alone on a row ${at}`).toBe(true);
+      }
     }
-    const tops = rects.map((r) => r.top);
-    expect(
-      Math.max(...tops) - Math.min(...tops),
-      `the three actions share one row (tops ${JSON.stringify(tops)})`,
-    ).toBeLessThanOrEqual(TOL_TIGHT);
   });
 
   // ── Avatar is 40px square (Avatar.tsx `size-10`). Reachable on the Crew

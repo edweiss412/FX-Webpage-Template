@@ -147,6 +147,57 @@ describe("quick facts: layout (spec §4.5, §8 invariant 3)", () => {
     }
   });
 
+  it("quick facts: where a half tile cannot hold three actions, Who to call and its row partner span (UI-gate re-run P3-3 / N3)", () => {
+    const NARROW = "@max-quick-pair/facts:col-span-2";
+    const narrow = () => tiles().map((t) => t.classList.contains(NARROW));
+    // The contact has a phone and an email: call, text and email.
+    // PREMISE: all three links resolve, so the tile needs the wider row.
+    expect(facts(["contact"])[0]!.actions.map((a) => a.kind)).toEqual(["call", "text", "email"]);
+    const cases: Array<[readonly QuickFactId[], boolean[]]> = [
+      // Four: the dock would sit alone beside a spanning contact, so it spans too.
+      [
+        ["wifi", "hotel", "dock", "contact"],
+        [false, false, true, true],
+      ],
+      // Contact first: Wi-Fi and the hotel pair under it, and the dock, left
+      // alone at the end, spans.
+      [
+        ["contact", "wifi", "hotel", "dock"],
+        [true, false, false, true],
+      ],
+      // Two: both span.
+      [
+        ["wifi", "contact"],
+        [true, true],
+      ],
+      // No contact: nothing changes.
+      [
+        ["wifi", "hotel", "dock", "parking"],
+        [false, false, false, false],
+      ],
+    ];
+    for (const [ids, want] of cases) {
+      render(<CrewQuickFacts facts={facts(ids)} />);
+      expect(narrow(), ids.join(",")).toEqual(want);
+      expect(screen.getByTestId("crew-quick-facts-grid").parentElement).toHaveClass(
+        "@container/facts",
+      );
+      cleanup();
+    }
+    // Three tiles: the third spans at every width already, so no narrow class
+    // is needed on it; the first two pair, and a contact among them takes its
+    // partner along.
+    render(<CrewQuickFacts facts={facts(["contact", "wifi", "dock"])} />);
+    expect(narrow()).toEqual([true, true, false]);
+    expect(tiles()[2]).toHaveClass("col-span-2");
+    cleanup();
+    // Two actions fit a half tile: no span.
+    const [twoLinks] = facts(["contact"]);
+    const callText = { ...twoLinks!, actions: twoLinks!.actions.filter((a) => a.kind !== "email") };
+    render(<CrewQuickFacts facts={[...facts(["wifi"]), callText, ...facts(["hotel", "dock"])]} />);
+    expect(narrow()).toEqual([false, false, false, false]);
+  });
+
   it("quick facts: tiles render in the facts' order with each fact's label", () => {
     const built = facts(["wifi", "contact", "parking", "dressCode"]);
     render(<CrewQuickFacts facts={built} />);

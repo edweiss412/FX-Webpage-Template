@@ -86,6 +86,35 @@ function spans(index: number, count: number): boolean {
   return count === 1 || (count === 3 && index === 2);
 }
 
+/** A tile's call, text and email links. */
+function contactLinks(fact: QuickFact): ContactAction[] {
+  return fact.actions.filter(
+    (a): a is ContactAction => a.kind === "call" || a.kind === "text" || a.kind === "email",
+  );
+}
+
+/**
+ * Tiles that span both columns while the grid is narrower than
+ * `--container-quick-pair` (UI-gate re-run P3-3 / critique N3). A half-width
+ * tile there cannot hold three 44px actions on one row, so a tile with all three
+ * spans; so does any half-width tile that would then sit alone on its row, found
+ * by walking the two-column flow. Every tile that spans anyway still does.
+ */
+function narrowSpans(facts: readonly QuickFact[]): boolean[] {
+  const span = facts.map((fact, i) => spans(i, facts.length) || contactLinks(fact).length >= 3);
+  let open = -1; // a half-width tile waiting for its row's second column
+  span.forEach((full, i) => {
+    if (!full) {
+      open = open < 0 ? i : -1;
+      return;
+    }
+    if (open >= 0) span[open] = true;
+    open = -1;
+  });
+  if (open >= 0) span[open] = true;
+  return span;
+}
+
 /**
  * The Who to call tile's call, text and email links: PersonRow's icon-only 44px
  * action (components/crew/primitives/PersonRow.tsx `ACTION_CLASS`), so one
@@ -131,6 +160,7 @@ export function CrewQuickFacts({ facts }: { facts: readonly QuickFact[] }) {
   }, [toast.phase, toast.seq]);
 
   if (facts.length === 0) return null;
+  const narrow = narrowSpans(facts);
 
   const show = (text: string, copied: boolean) => {
     seqRef.current += 1;
@@ -159,18 +189,28 @@ export function CrewQuickFacts({ facts }: { facts: readonly QuickFact[] }) {
       <h3 id="crew-quick-facts-heading" className="text-base font-semibold text-text-strong">
         Quick facts
       </h3>
-      <ul data-testid="crew-quick-facts-grid" className="grid grid-cols-2 items-stretch gap-3">
-        {facts.map((fact, index) => (
-          <li
-            key={fact.id}
-            data-testid="crew-quick-fact"
-            data-fact={fact.id}
-            className={cn("h-full min-w-0", spans(index, facts.length) && "col-span-2")}
-          >
-            <Tile fact={fact} onCopy={copy} />
-          </li>
-        ))}
-      </ul>
+      {/* The grid's own width decides the narrow spans, so the wrapper is its
+          container; the section is not one, since containment would make it the
+          containing block of the fixed toast below. */}
+      <div className="@container/facts">
+        <ul data-testid="crew-quick-facts-grid" className="grid grid-cols-2 items-stretch gap-3">
+          {facts.map((fact, index) => (
+            <li
+              key={fact.id}
+              data-testid="crew-quick-fact"
+              data-fact={fact.id}
+              className={cn(
+                "h-full min-w-0",
+                spans(index, facts.length)
+                  ? "col-span-2"
+                  : narrow[index] && "@max-quick-pair/facts:col-span-2",
+              )}
+            >
+              <Tile fact={fact} onCopy={copy} />
+            </li>
+          ))}
+        </ul>
+      </div>
       <div
         data-testid="crew-quick-facts-status"
         role="status"
@@ -208,9 +248,7 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
   // The copy button sits on the line it copies; when no line is the copied value
   // (a split Wi-Fi with no password copies the raw text), it gets its own row.
   const copyLine = copyAction ? fact.lines.findIndex((l) => l.text === copyAction.value) : -1;
-  const links = fact.actions.filter(
-    (a): a is ContactAction => a.kind === "call" || a.kind === "text" || a.kind === "email",
-  );
+  const links = contactLinks(fact);
   const directions = fact.actions.find(
     (a): a is Extract<QuickFactAction, { kind: "directions" }> => a.kind === "directions",
   );
@@ -244,10 +282,9 @@ function Tile({ fact, onCopy }: { fact: QuickFact; onCopy: (value: string) => vo
           <CopyButton label={copyAction.label} onCopy={() => onCopy(copyAction.value)} />
         </div>
       ) : null}
-      {/* Call, text and email share one row from the 390px phone up: a
-          half-width tile's content box there is 147px, and three 44px targets
-          with 6px gaps take 144 (8px gaps took 148 and wrapped Email alone).
-          Narrower, the row wraps. */}
+      {/* Call, text and email share one row at every width: three 44px
+          targets with 6px gaps take 144px, and where a half-width tile is
+          narrower than that the tile spans both columns (`narrowSpans`). */}
       {links.length > 0 ? (
         <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
           {links.map((a) => (

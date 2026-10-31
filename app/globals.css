@@ -341,6 +341,13 @@
      656px is where the retired `min-[720px]` viewport switch landed, 720 -
      2 x 32 (`sm:px-8`, CREW_PAGE_CONTAINER), kept because it falls between. */
   --container-crew-split: 656px;
+  /* The quick facts grid's narrowest width at which a half-width tile still
+     holds Who to call's three 44px actions on one row (`@max-quick-pair/facts:`,
+     a container on the grid's wrapper): 3 x 44 + 2 x 6 gaps = 144 of content,
+     + 2 x 12 `p-3` + 2 x 1 border = 170 a tile, x 2 + the grid's 12px gap = 352.
+     Narrower (320 to 375px phones, the 1024 wide column), that tile and the one
+     it would share a row with span both columns (UI-gate re-run P3-3 / N3). */
+  --container-quick-pair: 352px;
 
   /* ── Shadows ── */
   /*
