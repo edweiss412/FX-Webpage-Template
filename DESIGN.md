@@ -62,7 +62,7 @@ interactive rests at `--color-text` or stronger.
 **Family S — `<summary>` disclosure headers.** A disclosure summary is half
 caption, half control: its text names the CONTENT it folds, and the fold
 affordance is carried by the marker/chevron and the interaction, not by label
-weight. Resting subtle is sanctioned. (8 sites.)
+weight. Resting subtle is sanctioned. (10 sites.)
 
 **What carries Family S when a site suppresses the native marker (2026-08-25).**
 The family's whole argument is that something OTHER than label weight carries
