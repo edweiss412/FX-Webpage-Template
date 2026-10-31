@@ -8,7 +8,7 @@
  * | From → To | Treatment |
  * |---|---|
  * | Sheet closed → open | Sheet slides up from the bottom edge, scrim fades in, `--duration-normal`, `--ease-out-quart`. |
- * | Sheet open → closed (close button, scrim tap, Esc, swipe down, browser Back) | Reverse of the above, same duration. Every close path runs the same exit. |
+ * | Sheet open → closed (close button, scrim tap, Esc, swipe down, browser Back) | Reverse of the above, same duration. Every close path runs the same exit. **Amendment 2026-10-30 (invariant-8 gate, critique F4; overridable), compound row: another section opened while this exit is still running** (a list row, an in-page link, `openSectionAndReveal`): the departing sheet is dropped at once, without the rest of its exit, and the new section's sheet opens with the closed → open slide. Its title and its body are the new section's from the first frame: reusing the departing frame showed the new title over the old body for as long as the body crossfade ran. An in-sheet switch (open on A → B) is unchanged: one open, the body crossfades. |
  * | Sheet open, dragging → released past the close threshold | Continues to closed with the exit animation. |
  * | Sheet open, dragging → released before the threshold | Springs back to open, `--duration-fast`. |
  * | Sheet open on section A → section B (an in-sheet link to another section) | Sheet stays up; body crossfades, `--duration-normal`; scroll position resets to top. |
@@ -212,11 +212,22 @@ const ROWS: Record<number, Row> = {
         "sheet: closing with the marker goes back to home, and Forward reopens the section",
       ],
     ],
-    unit: [[SHEET_UNIT, "sheet: the close button, the scrim and Esc each request one close"]],
+    unit: [
+      [SHEET_UNIT, "sheet: the close button, the scrim and Esc each request one close"],
+      // The row's 2026-10-30 compound amendment: another open during this exit.
+      [
+        SHEET_UNIT,
+        "sheet: opening B during A's exit shows B's title over B's body, with A's frame gone",
+      ],
+    ],
     source: () => {
       const s = read(SHEET);
       // One presence, one exit, whichever path closed it.
       expect(s.match(/<AnimatePresence\b/g) ?? []).toHaveLength(1);
+      // The compound amendment: each open from closed is a new presence, so the
+      // presence that held a departing frame unmounts with it.
+      expect(s).toContain("if (section !== null) setOpens((n) => n + 1);");
+      expect(s).toContain("<AnimatePresence key={`${presence}:${opens}`} initial={opens !== 0}>");
       expect(s).toMatch(/exit=\{\{\s*y:\s*"100%"\s*\}\}/);
       expect(s).toMatch(/exit=\{\{\s*opacity:\s*0\s*\}\}/);
       expect(s, "reduced motion: the exit takes the instant transition too").toContain(
@@ -528,7 +539,7 @@ const ROWS: Record<number, Row> = {
       ],
     ],
     // Instant under either motion setting: a new presence key drops the departing frame.
-    source: () => expect(read(SHEET)).toContain("<AnimatePresence key={presence} initial={false}>"),
+    source: () => expect(read(SHEET)).toContain("<AnimatePresence key={`${presence}:${opens}`}"),
   },
   373: {
     cell: "Nested dialog open inside the sheet",

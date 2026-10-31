@@ -42,6 +42,7 @@ import { X } from "lucide-react";
 import {
   useEffect,
   useRef,
+  useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -132,6 +133,20 @@ export function CrewSectionSheet({
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
 
+  // One generation per open-from-closed. A sheet that opens while the last one
+  // is still sliding out (close, then a quick tap on another row) gets a fresh
+  // presence: the departing frame is dropped there and then, so no frame ever
+  // shows the new section's title over the old section's body, which the
+  // reused frame did for as long as its body's crossfade took (critique F4).
+  // An in-sheet switch stays one open, so its body still crossfades (spec §7).
+  // Adjusted during render, so the new presence mounts in the commit that opens.
+  const [opens, setOpens] = useState(0);
+  const [wasOpen, setWasOpen] = useState(section !== null);
+  if ((section !== null) !== wasOpen) {
+    setWasOpen(section !== null);
+    if (section !== null) setOpens((n) => n + 1);
+  }
+
   return (
     <div ref={hostRef} data-testid="crew-section-sheet-host">
       {section !== null && modal ? (
@@ -144,9 +159,12 @@ export function CrewSectionSheet({
           fallbackFocus={fallbackFocus}
         />
       ) : null}
-      {/* Keyed by the presence generation: a new key remounts the presence and
-      drops a departing frame without its exit. */}
-      <AnimatePresence key={presence} initial={false}>
+      {/* Keyed by the controller's presence generation and the opens above: a
+      new key remounts the presence and drops a departing frame without its exit.
+      `initial` is false only for the first presence, the server render's: a
+      deep-linked sheet is already up on hydration and must not slide in. Every
+      later presence mounts with the sheet that opened it, which slides up. */}
+      <AnimatePresence key={`${presence}:${opens}`} initial={opens !== 0}>
         {section !== null ? (
           <SheetFrame
             key="crew-section-sheet"

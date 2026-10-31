@@ -346,7 +346,7 @@ Every state change gets a treatment. Durations come from the existing tokens (`-
 | From → To | Treatment |
 |---|---|
 | Sheet closed → open | Sheet slides up from the bottom edge, scrim fades in, `--duration-normal`, `--ease-out-quart`. |
-| Sheet open → closed (close button, scrim tap, Esc, swipe down, browser Back) | Reverse of the above, same duration. Every close path runs the same exit. |
+| Sheet open → closed (close button, scrim tap, Esc, swipe down, browser Back) | Reverse of the above, same duration. Every close path runs the same exit. **Amendment 2026-10-30 (invariant-8 gate, critique F4; overridable), compound row: another section opened while this exit is still running** (a list row, an in-page link, `openSectionAndReveal`): the departing sheet is dropped at once, without the rest of its exit, and the new section's sheet opens with the closed → open slide. Its title and its body are the new section's from the first frame: reusing the departing frame showed the new title over the old body for as long as the body crossfade ran. An in-sheet switch (open on A → B) is unchanged: one open, the body crossfades. |
 | Sheet open, dragging → released past the close threshold | Continues to closed with the exit animation. |
 | Sheet open, dragging → released before the threshold | Springs back to open, `--duration-fast`. |
 | Sheet open on section A → section B (an in-sheet link to another section) | Sheet stays up; body crossfades, `--duration-normal`; scroll position resets to top. |

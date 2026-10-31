@@ -115,10 +115,19 @@ describe("§4.10 transition audit — static enumeration", () => {
       const s = src(rel);
       const objectInitials = s.match(/initial=\{\{[^}]*\}\}/g) ?? [];
       if (objectInitials.length === 0) continue; // no object initial → nothing to guard
+      // The sheet's presence is keyed per open (spec §7 amendment 2026-10-30):
+      // only its FIRST presence, the server render's, can hold a sheet at first
+      // paint, and that one is `initial={false}` because the open count starts at
+      // 0. Every later presence mounts on the client with the sheet that opened
+      // it, which is meant to slide in.
+      const guarded =
+        /<AnimatePresence\b[^>]*initial=\{false\}/.test(s) ||
+        (/<AnimatePresence\b[^>]*initial=\{opens !== 0\}/.test(s) &&
+          s.includes("const [opens, setOpens] = useState(0);"));
       expect(
-        s,
+        guarded,
         `${rel}: an object initial={{…}} exists but no AnimatePresence initial={false} guards it (SSR-invisible first paint; M12.11)`,
-      ).toMatch(/<AnimatePresence\b[^>]*initial=\{false\}/);
+      ).toBe(true);
     }
   });
 
@@ -232,9 +241,13 @@ describe("§4.10 transition audit — section sheet (crew page redesign spec §7
     const s = src("components/crew/CrewSectionSheet.tsx");
     const opens = s.match(/<AnimatePresence\b[^>]*>/g) ?? [];
     expect(opens, "exactly one AnimatePresence owns the sheet's presence").toHaveLength(1);
+    // `initial` is false for the first presence only (the open count starts at
+    // 0): a server-rendered open sheet never slides in on hydration, and a sheet
+    // opened later, in a fresh presence, does (spec §7 amendment 2026-10-30).
     expect(opens[0], "a server-rendered open sheet never slides in on hydration").toMatch(
-      /initial=\{false\}/,
+      /initial=\{opens !== 0\}/,
     );
+    expect(s).toContain("const [opens, setOpens] = useState(0);");
     expect(s, "the panel slides up from the bottom edge").toMatch(
       /initial=\{\{\s*y:\s*"100%"\s*\}\}/,
     );

@@ -300,7 +300,8 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     // invariant-8 fixes (audit P3-5): the inert sweep's exempt set grew a route
     // announcer row and a doc. Same scrim. 329 -> 361 (audit P2-5): the deep-link
     // focus fallback's prop, doc and latest-value ref sit above it. Same scrim.
-    line: 361,
+    // 361 -> 379 (critique F4): the per-open presence count sits above it. Same scrim.
+    line: 379,
     tag: "motion.div",
     category: "full-bleed",
     reason:

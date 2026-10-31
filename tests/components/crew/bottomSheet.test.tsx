@@ -16,7 +16,7 @@
  * filter runs on real candidates.
  */
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CrewSectionSheet } from "@/components/crew/CrewSectionSheet";
@@ -317,5 +317,56 @@ describe("CrewSectionSheet (spec §5.2)", () => {
     render(<Page initial={VENUE} modal={false} />);
     expect(screen.getByTestId("behind").closest("[inert]")).toBeNull();
     expect(document.body.style.overflow).toBe("");
+  });
+});
+
+describe("CrewSectionSheet, compound: open another section while a close is still sliding out (spec §7)", () => {
+  /**
+   * A sheet whose body is its section's, the way the controller hands it
+   * `sectionNodes[open]`: the title and the body both come from the open section,
+   * so any frame that shows one section's title over another's body is the
+   * defect (critique F4).
+   */
+  function SwitchingPage() {
+    const [section, setSection] = useState<typeof VENUE | typeof CREW | null>(VENUE);
+    return (
+      <div>
+        <main data-testid="behind">
+          <button type="button" data-testid="open-crew" onClick={() => setSection(CREW)}>
+            Open crew
+          </button>
+        </main>
+        <CrewSectionSheet section={section} modal onRequestClose={() => setSection(null)}>
+          {section === null ? null : <p data-testid={`body-${section.id}`}>{section.label}</p>}
+        </CrewSectionSheet>
+      </div>
+    );
+  }
+
+  const frames = () =>
+    Array.from(document.querySelectorAll<HTMLElement>('[data-testid="crew-section-sheet-dialog"]'));
+
+  it("sheet: opening B during A's exit shows B's title over B's body, with A's frame gone", async () => {
+    // Motion on, so the close leaves a departing frame behind for the length of
+    // its slide: that window is the one this case opens B inside.
+    stubMatchMedia({ reduced: false });
+    render(<SwitchingPage />);
+    fireEvent.click(screen.getByRole("button", { name: `Close ${VENUE.label.toLowerCase()}` }));
+    // The premise: A is still sliding out, so the next open lands mid-exit.
+    expect(frames(), "the close left no departing frame, so nothing is mid-exit").toHaveLength(1);
+    expect(frames()[0]).toHaveAttribute("data-section", VENUE.id);
+
+    fireEvent.click(screen.getByTestId("open-crew"));
+
+    // One frame, and everything in it is B's.
+    expect(frames()).toHaveLength(1);
+    const frame = frames()[0]!;
+    expect(frame).toHaveAttribute("data-section", CREW.id);
+    const title = document.getElementById(frame.getAttribute("aria-labelledby")!);
+    expect(title?.textContent).toBe(CREW.label);
+    expect(within(frame).queryByTestId(`body-${VENUE.id}`)).toBeNull();
+    expect(within(frame).getByTestId(`body-${CREW.id}`)).toBeInTheDocument();
+    // And B's sheet arrives the way any open does: focus on its own title.
+    expect(document.activeElement).toBe(title);
   });
 });
