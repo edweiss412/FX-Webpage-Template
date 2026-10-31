@@ -215,9 +215,13 @@ function statusAsksSince(proxy: CrewOfflineProxy, mark: number): ReceivedRequest
     .filter((request) => request.path.startsWith("/api/saved-copy/status?"));
 }
 
-/** A visible sub-nav tab (the 390px layout shows the mobile bar only). */
-function sectionTab(page: Page, section: string) {
-  return page.getByTestId("crew-sub-nav").locator(`[data-section="${section}"]:visible`);
+/**
+ * A section's row in the "All sections" card, which opens that section in the
+ * section sheet: the 390px layout's way to a section (crew page redesign spec
+ * §5.2), where the old layout had a sub-nav tab.
+ */
+function sectionRow(page: Page, section: string) {
+  return page.locator(`[data-testid="crew-all-sections-row"][data-section="${section}"]`);
 }
 
 test("1. first visit is saved, then an offline reload shows full content, a working tab switch and the bar", async ({
@@ -266,12 +270,11 @@ test("1. first visit is saved, then an offline reload shows full content, a work
   // The section in the URL (spec 4.7.4, Task 21's replaceState): open the copy
   // at a URL naming another section. The copy opens on its own section and the
   // bar rewrites `s` to say so.
-  const tabs = await page
-    .getByTestId("crew-sub-nav")
-    .locator("[data-section]:visible")
+  const rows = await page
+    .locator('[data-testid="crew-all-sections-row"]')
     .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-section")));
-  const otherSection = tabs.find((tab) => tab !== savedSection && tab !== "venue");
-  expect(otherSection, "the sub-nav offers a third section").toBeTruthy();
+  const otherSection = rows.find((row) => row !== savedSection && row !== "venue");
+  expect(otherSection, "the All sections card offers a third section").toBeTruthy();
   await page.goto(`${origin}${path}?s=${otherSection}`);
   await waitForCrewHydrated(page);
   await expect(bar).toHaveAttribute("data-state", "saved-fresh");
@@ -279,7 +282,13 @@ test("1. first visit is saved, then an offline reload shows full content, a work
   await expect(sections).toHaveAttribute("data-active-section", savedSection ?? "");
   await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe(savedSection);
 
-  await sectionTab(page, "venue").click();
+  // Opening a section is a client-side switch: the sheet opens on Venue's body
+  // from the saved page, with no request the refusing proxy could answer.
+  await sectionRow(page, "venue").click();
+  await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
+    "data-section",
+    "venue",
+  );
   await expect(page.getByTestId("section-venue")).toBeVisible();
   await expect(sections).toHaveAttribute("data-active-section", "venue");
   await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("venue");
@@ -297,6 +306,12 @@ test("1. first visit is saved, then an offline reload shows full content, a work
       .toBeGreaterThan(0);
   }
 
+  // The header is behind the sheet's scrim and inert while the sheet is up
+  // (crew page redesign spec §7), so the sheet closes first; the menu is then
+  // the saved page's own, as before.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveCount(0);
+  await expect(sections).toHaveAttribute("data-active-section", "today");
   await openAvatarMenu(page);
   await expect(page.getByTestId("avatar-menu-items")).toBeVisible();
 });
@@ -650,7 +665,7 @@ async function agendaShowPrefetched(
  * pixels: a real width, and ink on it (the fixture is black text on white).
  */
 async function openAgenda(page: Page): Promise<void> {
-  await sectionTab(page, "schedule").click();
+  await sectionRow(page, "schedule").click();
   await expect(page.getByTestId("section-schedule")).toBeVisible();
   await page
     .getByTestId("agenda-embed")

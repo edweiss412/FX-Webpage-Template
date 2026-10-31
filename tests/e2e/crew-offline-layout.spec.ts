@@ -19,18 +19,32 @@
  * are instant and every rect read is a settled one.
  *
  * Case 7 is the bar's one accessibility row: a focused control scrolls out from
- * under the sticky bar, because the bar keeps the page's `scroll-padding-top` at
- * its own height (WCAG 2.4.11). Case 8 is the in-flow detail the owner's
- * one-line bar adds (2026-10-30): it sits right under the region, spans the
- * shell, and scrolls away while the region stays pinned. Case 9 is the bar's one
- * bottom edge (UI gate re-check E4): the detail draws it at rest, the pinned
- * line once the detail has scrolled under it, at an unchanged height.
+ * under the sticky bar, because the bar's height is part of the page's
+ * `scroll-padding-top` (WCAG 2.4.11): the bar publishes it as
+ * `--saved-copy-bar-h` and the crew layout adds it into `--crew-scroll-clearance`
+ * (app/globals.css). Case 8 is the in-flow detail the owner's one-line bar adds
+ * (2026-10-30): it sits right under the region, spans the shell, and scrolls
+ * away while the region stays pinned. Case 9 is the bar's one bottom edge (UI
+ * gate re-check E4): the detail draws it at rest, the pinned line once the
+ * detail has scrolled under it, at an unchanged height.
+ *
+ * Cases 1 to 9 run on the redesigned page's compact layout at phone width
+ * (crew page redesign, merged 2026-10-31), on its home: the Today block and
+ * the "All sections" card, which scroll as one page under the bar. A section
+ * there opens in a sheet over the page, so the old layout's Schedule tab is
+ * gone and the home is what scrolls. Case 10 is the wide layout, from 1024px,
+ * where the header sticks too: the bar sticks under the header, the left nav
+ * under the bar, and a focused control clears both. Case 11 is the section
+ * sheet: its scrim covers the bar, as it covers the header, and the bar's live
+ * region is left out of the sheet's inert sweep.
  *
  * Run it with the command crew-offline.spec.ts gives, naming this file instead.
  *
  * Data: one `seedShowWithCrew` show per case, deleted after it. Its dates span
- * eighteen days, so the Schedule section is tall enough to scroll the header
- * out of view with room to spare (a premise wherever it is relied on).
+ * eighteen days, so the wide layout's stacked Schedule section is tall. The
+ * compact home (the Today block plus the "All sections" card) is shorter, so
+ * the cases that scroll it run at `SHORT_PHONE` (a premise wherever the room
+ * is relied on).
  */
 import { randomUUID } from "node:crypto";
 
@@ -60,12 +74,18 @@ const PHONE = { width: 390, height: 844 };
 /** The narrowest supported width, where the bar's copy wraps. */
 const NARROW = { width: 320, height: 844 };
 
+/** The wide layout, from 1024px: the header sticks, and the left nav shows. */
+const WIDE = { width: 1280, height: 800 };
+
 /**
- * Wide enough for CrewSubNav's in-flow tab row (`min-[720px]:flex`), which
- * scrolls with the page and so can pass under the stuck bar. Below 720 px the
- * tabs are the fixed bottom bar, which never does.
+ * Phone width, at a shorter height. The redesigned compact home (the Today
+ * block and the "All sections" card) measured under 200 px taller than an
+ * 844 px viewport, too little to scroll the header plus 200 px out of view, so
+ * the cases that scroll it under the bar use a shorter viewport at the same
+ * 390 px width the spec's table is written for. Height changes no layout rule
+ * the bar or the shell has; each case's premise still checks the room.
  */
-const TABLET = { width: 800, height: 844 };
+const SHORT_PHONE = { width: 390, height: 560 };
 
 /** How far past the header's bottom the sticky row scrolls (the brief's figure). */
 const SCROLL_PAST_HEADER_PX = 200;
@@ -141,14 +161,45 @@ async function openSavedCopy(page: Page, origin: string, proxy: CrewOfflineProxy
   await expect(savedCopyBar(page).bar).toHaveAttribute("data-state", "saved-fresh");
 }
 
-/** Switches the saved copy to its Schedule section from the phone sub-nav. */
-async function showSchedule(page: Page): Promise<void> {
-  await page.getByTestId("crew-sub-nav").locator('[data-section="schedule"]:visible').click();
+/**
+ * The compact home with no sheet up: the page that scrolls under the bar at
+ * phone width. On the redesigned page a section opens in a sheet over it (and
+ * locks its scroll), so the home is what these cases scroll.
+ */
+async function showHome(page: Page): Promise<void> {
   await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
     "data-active-section",
-    "schedule",
+    "today",
   );
-  await expect(page.getByTestId("section-schedule")).toBeVisible();
+  await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("crew-all-sections-card")).toBeVisible();
+}
+
+/** The compact home at `SHORT_PHONE`, where it scrolls far enough to stick the bar. */
+async function showScrollableHome(page: Page): Promise<void> {
+  await page.setViewportSize(SHORT_PHONE);
+  await showHome(page);
+}
+
+/** The focus ring's clearance the crew layout adds below what sticks, in px. */
+async function ringClearancePx(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.style.height = "var(--crew-ring-clearance)";
+    document.body.append(probe);
+    const height = probe.getBoundingClientRect().height;
+    probe.remove();
+    return height;
+  });
+}
+
+/** The page's computed `scroll-padding-top`, in px. */
+async function scrollPaddingPx(page: Page): Promise<number> {
+  return page.evaluate(() =>
+    parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop),
+  );
 }
 
 async function boxOf(page: Page, testId: string): Promise<Box> {
@@ -248,7 +299,7 @@ test("3. the region stays at the viewport top after scrolling past the header", 
   crewProxy: proxy,
 }) => {
   await openSavedCopy(page, origin, proxy);
-  await showSchedule(page);
+  await showScrollableHome(page);
   const header = await boxOf(page, "page-header");
   const target = Math.round(header.bottom + SCROLL_PAST_HEADER_PX);
   const room = await page.evaluate(
@@ -289,7 +340,7 @@ test("4. the region paints above a positioned element scrolled under it", async 
   crewProxy: proxy,
 }) => {
   await openSavedCopy(page, origin, proxy);
-  await showSchedule(page);
+  await showScrollableHome(page);
 
   // A positioned, z-index auto element of the page, after the region in tree
   // order, that can be scrolled to sit under the stuck bar. Such an element
@@ -305,7 +356,7 @@ test("4. the region paints above a positioned element scrolled under it", async 
     const barHeight = region.getBoundingClientRect().height;
     const stuckFrom = header.getBoundingClientRect().bottom + window.scrollY;
     const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-    // An element inside fixed or sticky chrome (the phone sub-nav is fixed) does
+    // An element inside fixed or sticky chrome (a closed sheet's host, a toast) does
     // not scroll with the page, so it can never be brought under the bar.
     const scrollsWithPage = (node: Element): boolean => {
       for (let at = node.parentElement; at !== null && at !== shell; at = at.parentElement) {
@@ -322,7 +373,10 @@ test("4. the region paints above a positioned element scrolled under it", async 
       if (s.zIndex !== "auto" || s.visibility !== "visible" || s.pointerEvents === "none") continue;
       if (!scrollsWithPage(node)) continue;
       const r = node.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1) continue;
+      // A visually hidden element (the redesign's `sr-only` headings: 1 px,
+      // clipped) is positioned but never hit-testable, so it cannot show which
+      // of it and the bar paints on top.
+      if (r.width < 2 || r.height < 2 || s.clip !== "auto") continue;
       const centreX = r.left + r.width / 2;
       if (centreX < 0 || centreX >= window.innerWidth) continue;
       const scrollTo = Math.round(r.top + r.height / 2 + window.scrollY - barHeight / 2);
@@ -485,39 +539,55 @@ test("7. a focused control is not left under the bar", async ({
   crewProxy: proxy,
 }) => {
   await openSavedCopy(page, origin, proxy);
-  await page.setViewportSize(TABLET);
-  await showSchedule(page);
+  await showScrollableHome(page);
 
-  // A section tab in the in-flow tab row: the control under test. Not the open
-  // section's tab, which showSchedule just clicked, and Chromium focuses a
-  // button on click.
-  const tabs = page
-    .getByTestId("crew-sub-nav")
-    .locator("nav button[data-section]:not([aria-current]):visible");
-  premise("the in-flow tab row shows another section's tab", await tabs.count(), 0);
-  const target = tabs.first();
+  // An in-flow control of the compact home (the day row's buttons, the pass's
+  // controls, the "All sections" rows): the control under test, where the old
+  // layout used a section tab. Below 1024px the header scrolls away, so the bar
+  // is the one thing that sticks. The first one below the header that the page
+  // can scroll until its centre sits under the stuck bar.
+  const pick = await page.evaluate(() => {
+    const sections = document.querySelector('[data-testid="crew-shell-sections"]');
+    const header = document.querySelector('[data-testid="page-header"]');
+    const region = document.querySelector('[data-testid="saved-copy-bar-region"]');
+    if (sections === null || header === null || region === null) return null;
+    const headerBottom = header.getBoundingClientRect().bottom + window.scrollY;
+    const barHeight = region.getBoundingClientRect().height;
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    const pinned = (node: Element): boolean => {
+      for (let at = node.parentElement; at !== null && at !== sections; at = at.parentElement) {
+        const position = getComputedStyle(at).position;
+        if (position === "fixed" || position === "sticky") return true;
+      }
+      return false;
+    };
+    for (const node of sections.querySelectorAll("a[href], button")) {
+      const r = node.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2 || r.height >= window.innerHeight / 2) continue;
+      if (getComputedStyle(node).visibility !== "visible" || pinned(node)) continue;
+      const centreX = r.left + r.width / 2;
+      if (centreX < 0 || centreX >= window.innerWidth) continue;
+      // The scroll that puts the control's centre at the bar's middle.
+      const scrollTo = Math.round(r.top + r.height / 2 + window.scrollY - barHeight / 2);
+      if (scrollTo <= headerBottom + 1 || scrollTo > maxScroll) continue;
+      node.setAttribute("data-focus-probe", "");
+      return {
+        scrollTo,
+        what: `${node.tagName} ${node.getAttribute("data-testid") ?? node.getAttribute("aria-label") ?? ""}`,
+      };
+    }
+    return null;
+  });
+  premiseHolds(
+    "the home has an in-flow control below the header that scrolls to the stuck bar",
+    pick !== null,
+  );
+  if (pick === null) return;
+  const target = page.locator("[data-focus-probe]");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
-  // Scroll so the target's top sits at the viewport top, where the stuck bar is.
-  const place = await target.evaluate((node) => {
-    const header = document.querySelector('[data-testid="page-header"]');
-    return {
-      scrollTo: Math.round(node.getBoundingClientRect().top + window.scrollY),
-      headerBottom: (header?.getBoundingClientRect().bottom ?? Number.NaN) + window.scrollY,
-      maxScroll: document.documentElement.scrollHeight - window.innerHeight,
-    };
-  });
-  premise(
-    "the tab row starts below the header, so the bar is stuck when the row reaches the top",
-    place.scrollTo,
-    place.headerBottom + 1,
-  );
-  premise(
-    "the page scrolls far enough to bring the tab row to the top",
-    place.maxScroll + 1,
-    place.scrollTo,
-  );
-  await page.evaluate((y) => window.scrollTo(0, y), place.scrollTo);
+  // Scroll so the target's centre sits under the stuck bar at the viewport top.
+  await page.evaluate((y) => window.scrollTo(0, y), pick.scrollTo);
 
   const regionBefore = await boxOf(page, "saved-copy-bar-region");
   const barBefore = await boxOf(page, "saved-copy-bar");
@@ -536,24 +606,30 @@ test("7. a focused control is not left under the bar", async ({
     `the region is stuck at the viewport top (top ${regionBefore.top})`,
     Math.abs(regionBefore.top) <= TOLERANCE_PX,
   );
+  const centreY = targetBefore.top + targetBefore.height / 2;
   premiseHolds(
-    `the tab's top (${targetBefore.top}) is under the bar, which ends at ${barBefore.bottom}`,
-    targetBefore.top >= barBefore.top - TOLERANCE_PX && targetBefore.top < barBefore.bottom - 1,
+    `${pick.what}'s centre (${centreY}) is under the bar, which spans ${barBefore.top} to ${barBefore.bottom}`,
+    centreY > barBefore.top && centreY < barBefore.bottom,
   );
-  premiseHolds(
-    `more than half of the tab (${targetBefore.height} px) is under the bar`,
-    targetBefore.top + targetBefore.height / 2 < barBefore.bottom,
-  );
-  premiseHolds("the bar paints over the tab's centre before focus", targetBefore.coveredByBar);
-  premiseHolds("the tab is not focused yet", !targetBefore.focused);
+  premiseHolds(`the bar paints over ${pick.what}'s centre before focus`, targetBefore.coveredByBar);
+  premiseHolds(`${pick.what} is not focused yet`, !targetBefore.focused);
 
-  // The page reserves the bar's height while it shows: the mechanism under test.
-  const padding = await page.evaluate(() => document.documentElement.style.scrollPaddingTop);
+  // The page reserves the bar while it shows: the mechanism under test. The
+  // padding reaches the bottom of what sticks, here the bar's own bottom, plus
+  // the focus ring's clearance the crew layout adds. An inline padding written
+  // by the bar would override the layout's (its header and ring terms), so it
+  // is checked absent.
+  const ring = await ringClearancePx(page);
+  premise("the layout's ring clearance is a real length", ring, 0);
   expectNear(
-    parseFloat(padding),
-    regionBefore.height,
-    "html scroll-padding-top against the region's height",
+    await scrollPaddingPx(page),
+    regionBefore.bottom + ring,
+    "html scroll-padding-top against the stuck region's bottom plus the ring clearance",
   );
+  expect(
+    await page.evaluate(() => document.documentElement.style.scrollPaddingTop),
+    "no inline scroll padding overrides the layout's",
+  ).toBe("");
 
   // Programmatic focus scrolls an obscured element into view under the same
   // scroll padding that keyboard focus uses, and it is the same call on every
@@ -561,7 +637,7 @@ test("7. a focused control is not left under the bar", async ({
   // scrolls and it stays under the bar.
   await target.focus();
   premiseHolds(
-    "the target tab has focus",
+    `${pick.what} has focus`,
     await target.evaluate((node) => node === document.activeElement),
   );
 
@@ -569,7 +645,7 @@ test("7. a focused control is not left under the bar", async ({
   const targetAfter = await target.evaluate((node) => node.getBoundingClientRect().top);
   expect(
     targetAfter,
-    `the focused tab's top (${targetAfter}) is at or below the bar's bottom (${barAfter.bottom})`,
+    `the focused ${pick.what}'s top (${targetAfter}) is at or below the bar's bottom (${barAfter.bottom})`,
   ).toBeGreaterThanOrEqual(barAfter.bottom - TOLERANCE_PX);
 });
 
@@ -579,7 +655,7 @@ test("8. the detail sits right under the region, spans the shell, and scrolls aw
   crewProxy: proxy,
 }) => {
   await openSavedCopy(page, origin, proxy);
-  await showSchedule(page);
+  await showScrollableHome(page);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(savedCopyBar(page).detail).toHaveText("Showing your saved copy.");
 
@@ -640,7 +716,7 @@ test("9. one bottom edge: under the detail at rest, under the pinned line once t
 }) => {
   // UI gate re-check E4: the edge never splits the pinned line from its detail.
   await openSavedCopy(page, origin, proxy);
-  await showSchedule(page);
+  await showScrollableHome(page);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(savedCopyBar(page).detail).toHaveText("Showing your saved copy.");
 
@@ -679,4 +755,175 @@ test("9. one bottom edge: under the detail at rest, under the pinned line once t
   await expect
     .poll(async () => (await bottomEdgeOf(page, "saved-copy-bar")).color)
     .toBe("rgba(0, 0, 0, 0)");
+});
+
+test("10. from 1024px the bar sticks under the sticky header, and the nav and a focused control clear both", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+}) => {
+  // The merge of the saved copy with the redesigned page: from 1024px the
+  // header sticks too, so a bar stuck at the viewport top would sit behind it
+  // (the header's `z-nav` is above the bar's `z-raised`). The bar sticks at
+  // the header's bottom edge instead, and everything that clears the sticky
+  // chrome (the wide nav's offset and height, the page's scroll padding)
+  // reads the bar's bottom while the bar shows.
+  await openSavedCopy(page, origin, proxy);
+  await page.setViewportSize(WIDE);
+  await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute("data-crew-mode", "wide");
+  await expect(page.getByTestId("crew-wide-nav")).toBeVisible();
+  await expect(savedCopyBar(page).bar).toHaveAttribute("data-state", "saved-fresh");
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  // A control in the stacked sections that scrolls with the page, after the
+  // detail: the one the keyboard focus lands on below.
+  const target = page
+    .getByTestId("crew-wide-stack")
+    .locator("a[href]:visible, button:visible")
+    .first();
+  premise(
+    "the stacked sections hold a visible control",
+    await page.getByTestId("crew-wide-stack").locator("a[href]:visible, button:visible").count(),
+    0,
+  );
+  const header = await boxOf(page, "page-header");
+  const placed = await target.evaluate(
+    (node, headerHeight) => ({
+      // The target's top just under the header's bottom: under the stuck bar.
+      scrollTo: Math.round(node.getBoundingClientRect().top + window.scrollY - headerHeight - 1),
+      maxScroll: document.documentElement.scrollHeight - window.innerHeight,
+    }),
+    header.height,
+  );
+  premise("the target sits below the top of the page", placed.scrollTo, 0);
+  premise(
+    "the page scrolls far enough to bring the target under the bar",
+    placed.maxScroll + 1,
+    placed.scrollTo,
+  );
+  await page.evaluate((y) => window.scrollTo(0, y), placed.scrollTo);
+
+  const headerStuck = await boxOf(page, "page-header");
+  const region = await boxOf(page, "saved-copy-bar-region");
+  const bar = await boxOf(page, "saved-copy-bar");
+  const nav = await boxOf(page, "crew-wide-nav");
+  const viewportHeight = await page.evaluate(() => window.innerHeight);
+  premiseHolds(
+    `the header is stuck at the viewport top (top ${headerStuck.top})`,
+    Math.abs(headerStuck.top) <= TOLERANCE_PX,
+  );
+
+  // The bar sticks under the header, never behind it.
+  expectNear(region.top, headerStuck.bottom, "the region's top against the stuck header's bottom");
+  expectNear(bar.top, region.top, "the bar's top against the region's");
+  const hit = await page.getByTestId("saved-copy-bar").evaluate((node) => {
+    const r = node.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      inside: at !== null && node.contains(at),
+      what:
+        at === null
+          ? "nothing"
+          : `${at.tagName} ${at.getAttribute("data-testid") ?? at.getAttribute("aria-label") ?? ""}`,
+    };
+  });
+  expect(hit.inside, `the bar's centre hits the bar, not ${hit.what}`).toBe(true);
+
+  // The left nav sticks under the bar, and is the viewport less all of it tall.
+  expectNear(nav.top, region.bottom, "the wide nav's top against the stuck region's bottom");
+  expectNear(
+    nav.height,
+    viewportHeight - region.bottom,
+    "the wide nav's height against the viewport less the header and the bar",
+  );
+
+  // The scroll padding reaches the bottom of everything that sticks (header,
+  // then bar) plus the ring clearance, and a focused control lands below it.
+  const ring = await ringClearancePx(page);
+  premise("the layout's ring clearance is a real length", ring, 0);
+  expectNear(
+    await scrollPaddingPx(page),
+    region.bottom + ring,
+    "html scroll-padding-top against the stuck region's bottom plus the ring clearance",
+  );
+  const targetBefore = await target.evaluate((node) => node.getBoundingClientRect().top);
+  premiseHolds(
+    `the target's top (${targetBefore}) is under the bar, which spans ${bar.top} to ${bar.bottom}`,
+    targetBefore >= bar.top - TOLERANCE_PX && targetBefore < bar.bottom - 1,
+  );
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await target.focus();
+  premiseHolds(
+    "the target has focus",
+    await target.evaluate((node) => node === document.activeElement),
+  );
+  const barAfter = await boxOf(page, "saved-copy-bar");
+  const targetAfter = await target.evaluate((node) => node.getBoundingClientRect().top);
+  expect(
+    targetAfter,
+    `the focused control's top (${targetAfter}) is at or below the bar's bottom (${barAfter.bottom})`,
+  ).toBeGreaterThanOrEqual(barAfter.bottom - TOLERANCE_PX);
+});
+
+test("11. an open section sheet covers the bar with its scrim, and the bar's region stays live", async ({
+  crewPage: page,
+  origin,
+  crewProxy: proxy,
+}) => {
+  // The section sheet stacks above the page (`z-sheet`), header and bar
+  // included, so the bar never covers the sheet's title or close control and
+  // the sheet's height cap need not count it. The sheet makes the page behind
+  // it inert; the bar's live region opts out (`data-sheet-live-region`), so a
+  // state change while the sheet is up is still announced.
+  await openSavedCopy(page, origin, proxy);
+  await showHome(page);
+  await page.locator('[data-testid="crew-all-sections-row"][data-section="schedule"]').click();
+  await expect(page.getByTestId("crew-section-sheet-dialog")).toHaveAttribute(
+    "data-section",
+    "schedule",
+  );
+
+  const probe = await page.evaluate(() => {
+    const sheet = document.querySelector('[data-testid="crew-section-sheet"]');
+    const bar = document.querySelector('[data-testid="saved-copy-bar"]');
+    const region = document.querySelector('[data-testid="saved-copy-bar-region"]');
+    const header = document.querySelector('[data-testid="page-header"]');
+    const close = document.querySelector('[data-testid="crew-section-sheet-dialog"] h2 + button');
+    if (sheet === null || bar === null || region === null || header === null || close === null) {
+      return null;
+    }
+    const describe = (at: Element | null): string =>
+      at === null
+        ? "nothing"
+        : `${at.tagName} ${at.getAttribute("data-testid") ?? at.getAttribute("aria-label") ?? ""}`;
+    const b = bar.getBoundingClientRect();
+    const atBar = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    const c = close.getBoundingClientRect();
+    const atClose = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
+    return {
+      barOnScreen: b.bottom > 0 && b.top < window.innerHeight && b.height > 0,
+      barCovered: atBar !== null && sheet.contains(atBar),
+      barHit: describe(atBar),
+      closeReachable: atClose !== null && close.contains(atClose),
+      closeHit: describe(atClose),
+      headerInert: header.closest("[inert]") !== null,
+      regionInert: region.closest("[inert]") !== null,
+    };
+  });
+  premiseHolds(
+    "the sheet, the bar, the header and the close control are on the page",
+    probe !== null,
+  );
+  if (probe === null) return;
+  premiseHolds("the bar is on screen under the open sheet", probe.barOnScreen);
+  premiseHolds("the sheet's inert sweep ran: the header is inert", probe.headerInert);
+  expect(probe.barCovered, `the sheet paints over the bar; the point hit ${probe.barHit}`).toBe(
+    true,
+  );
+  expect(
+    probe.closeReachable,
+    `the sheet's close control is not covered; the point hit ${probe.closeHit}`,
+  ).toBe(true);
+  expect(probe.regionInert, "the bar's live region is left out of the inert sweep").toBe(false);
+  await expect(page.getByTestId("saved-copy-bar-region")).toHaveAttribute("role", "status");
 });
