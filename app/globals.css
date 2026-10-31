@@ -332,14 +332,14 @@
   /* ── Container sizes (`@min-*` container-query variants) ── */
   /* The crew section grids' one-to-two-column switch (`@min-crew-split:`). It
      reads the element that bounds a section body (`@container` on the sheet
-     body, each wide stacked section and the Today block), never the viewport:
-     the same body renders in a 480px sheet and in a wide column. The value is
-     the content width the old `min-[720px]` viewport switch landed on,
-     720 - 2 x 32 (`sm:px-8`, CREW_PAGE_CONTAINER) = 656px, so the compact home
-     switches at the same viewport as before. The sheet stays one column: 446px
-     from 640px up (480 - 2 x 1 border - 2 x 16 `px-4`), at most 605px below
-     (639 - 2 - 32). The narrowest wide column is past it: at a 1024px viewport,
-     1024 - 64 gutter - 240 `w-60` nav - 32 `lg:gap-8` = 688px. */
+     body and each wide stacked section), never the viewport: the same body
+     renders in a 480px sheet and in a wide column. The Today block is not a
+     container (its home body queries nothing, plan Task 11). The value falls
+     between the two: the sheet is 446px from 640px up (480 - 2 x 1 border -
+     2 x 16 `px-4`), at most 605px below (639 - 2 - 32); the narrowest wide
+     column is 688px (1024 - 64 gutter - 240 `w-60` nav - 32 `lg:gap-8`).
+     656px is where the retired `min-[720px]` viewport switch landed, 720 -
+     2 x 32 (`sm:px-8`, CREW_PAGE_CONTAINER), kept because it falls between. */
   --container-crew-split: 656px;
 
   /* ── Shadows ── */
