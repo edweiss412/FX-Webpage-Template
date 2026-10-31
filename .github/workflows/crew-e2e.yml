@@ -44,6 +44,9 @@ name: Crew e2e (mobile-safari + desktop-chromium)
 # desktop-chromium execution a passing no-op that the executed-count oracle would have
 # credited as real coverage. Those 22 gates were removed and the spec dropped from the
 # desktop-chromium testMatch in the same commit, so what the oracle counts is what ran.
+# crew-section-toggle.spec.ts is the same: mobile-safari alone, never in the
+# desktop-chromium testMatch, and its 29 identical gates came out on 2026-10-30 when
+# the wiring guard enrolled it (whole-diff review R4-F6).
 #
 # Why this spec needs CI: it proves the section-toggle win in a real browser —
 #   • a section tab tap fires ZERO data requests (no server round-trip; freshness

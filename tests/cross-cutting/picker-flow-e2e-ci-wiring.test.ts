@@ -183,6 +183,9 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
   // The crew wide layout (crew page redesign plan PR A, Task 6) skips nothing:
   // desktop-chromium alone collects it, and every case executes there.
   "tests/e2e/crew-wide-nav.spec.ts": [],
+  // The compact home and section sheet spec skips nothing: mobile-safari alone
+  // collects it (playwright.config.ts testMatch), and every case executes there.
+  "tests/e2e/crew-section-toggle.spec.ts": [],
   // The theme-note removal spec skips nothing: every case resolves under
   // desktop-chromium alone (its only project) and every one executes.
   //
@@ -288,12 +291,17 @@ const ENROLLED = [
   "tests/e2e/theme-persistence-note.spec.ts",
   "tests/e2e/right-now-transitions.spec.ts",
   "tests/e2e/crew-search.spec.ts",
+  // Enrolled 2026-10-30 (whole-diff review R4-F6). It was EXEMPT as pre-contract
+  // while the crew page redesign grew it from 6 cases to 27, each behind a bare
+  // `if (testInfo.project.name !== "mobile-safari") return;`, the gate shape the
+  // contract exists to refuse: under any project that collects the file, every
+  // case passes having asserted nothing, and the oracle credits the passes.
+  "tests/e2e/crew-section-toggle.spec.ts",
 ] as const;
 
 const EXEMPT: Record<string, string> = {
   // Pre-contract specs: wired before expectWired existed, each already covered by
   // its own bespoke assertion in this file or by the executed-count oracle.
-  "tests/e2e/crew-section-toggle.spec.ts": "pre-contract; pinned by the executed-count oracle row",
   "tests/e2e/alert-action-links.spec.ts": "pre-contract; pinned by the executed-count oracle row",
   "tests/e2e/font-binding.spec.ts": "pre-contract; pinned by the executed-count oracle row",
   "tests/e2e/font-rendering-census.spec.ts":

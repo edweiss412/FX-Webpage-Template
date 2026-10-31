@@ -24,9 +24,14 @@
  * crew-page.spec.ts). Every case awaits the controller's readiness attribute
  * before its first assertion.
  *
- * Gated to mobile-safari (the project that runs the crew-page seed-reads as a
- * single writer). desktop-chromium early-returns from every test so it never
- * re-runs the same seed reads at the wrong widths.
+ * Runs under mobile-safari alone: playwright.config.ts names this file in that
+ * project's testMatch and not in desktop-chromium's, so one project reads and
+ * writes the seed. No test body checks the project. It used to: every case
+ * opened with `if (testInfo.project.name !== "mobile-safari") return;`, and a
+ * project that collected the file would have reported each one PASSED having
+ * asserted nothing, which the crew-e2e executed-count oracle credits as
+ * coverage. tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts enrolls this
+ * file and refuses any read of the project here (whole-diff review R4-F6).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -140,8 +145,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   let shareToken = "";
   let route = "";
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+  test.beforeEach(async ({ page }) => {
     const resolved = await lookupSlugAndToken();
     slug = resolved.slug;
     shareToken = resolved.shareToken;
@@ -174,8 +178,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   // prefetch is tolerated; static assets and the realtime socket are ignored.
   test("sheet: opening a row from home pushes one entry and opens the sheet with zero network", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await load(page, "?s=today");
     await page.waitForLoadState("networkidle");
 
@@ -210,8 +213,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: closing with the marker goes back to home, and Forward reopens the section", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await load(page, ""); // the home entry carries no `s`, so Back/close must land without one
     await row(page, "crew").click();
     await expect(sheetDialog(page)).toHaveAttribute("data-section", "crew");
@@ -230,8 +232,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("crew");
   });
 
-  test("sheet: browser Back from an open sheet closes it", async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("sheet: browser Back from an open sheet closes it", async ({ page }) => {
     await load(page, ""); // the home entry carries no `s`, so Back/close must land without one
     await row(page, "schedule").click();
     await expect(sheetDialog(page)).toHaveAttribute("data-section", "schedule");
@@ -243,8 +244,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: closing a deep-linked sheet replaces the URL without s and adds no entry", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await load(page, "?s=venue&gate=skip");
     await expect(sheetDialog(page)).toHaveAttribute("data-section", "venue");
     expect(
@@ -263,8 +263,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: a popstate to an unknown s drops it from the URL and shows the home", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await load(page, "?s=today");
     await page.evaluate(() => {
       history.pushState(null, "", `${location.pathname}?s=not-a-section`);
@@ -276,10 +275,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     await expect(page.getByTestId("crew-all-sections")).toBeVisible();
   });
 
-  test("sheet: a row link keeps the allow-listed gate into the sheet's URL", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("sheet: a row link keeps the allow-listed gate into the sheet's URL", async ({ page }) => {
     await load(page, "?s=today&gate=skip");
     const href = await row(page, "crew").getAttribute("href");
     const hrefParams = new URL(href!, page.url()).searchParams;
@@ -295,8 +291,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: a refresh with the sheet open lands with it open, and its close goes back home", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await load(page, ""); // the home entry carries no `s`, so Back/close must land without one
     await row(page, "travel").click();
     await expect(sheetDialog(page)).toHaveAttribute("data-section", "travel");
@@ -319,10 +314,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     await expect(page.getByTestId("crew-all-sections")).toBeVisible();
   });
 
-  test("sheet: the close button is named Close plus the section name", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("sheet: the close button is named Close plus the section name", async ({ page }) => {
     await load(page, "?s=today");
     for (const id of ["gear", "budget"] as const) {
       await row(page, id).click();
@@ -338,8 +330,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   // Spec §5.2: focus is trapped inside the sheet. Opening focuses the title,
   // which is `tabindex="-1"` and so is not itself one of the trap's stops: a
   // Tab from it must still land inside, as must every Tab after it.
-  test("sheet: Tab and Shift+Tab stay inside the sheet", async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("sheet: Tab and Shift+Tab stay inside the sheet", async ({ page }) => {
     await load(page, "?s=today");
     await row(page, "venue").click();
     await settleOpen(page);
@@ -392,10 +383,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
     }
   });
 
-  test("sheet: a drag released before the threshold springs back to open", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("sheet: a drag released before the threshold springs back to open", async ({ page }) => {
     await load(page, "?s=today");
     await row(page, "venue").click();
     await settleOpen(page);
@@ -422,8 +410,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: full width below 640px and centred at the panel max width from 640px", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const css = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
     const max = Number(css.match(/--spacing-panel-max:\s*(\d+)px/)?.[1]);
     expect(max, "app/globals.css declares --spacing-panel-max in px").toBeGreaterThan(0);
@@ -450,8 +437,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   // on the sheet.
   test("sheet: the server renders ?s=venue with the Venue sheet open, and every row links with s and gate", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const res = await page.request.get(`${route}?s=venue&gate=skip`);
     expect(res.status()).toBe(200);
     const html = await res.text();
@@ -483,8 +469,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
 
   test("sheet: ?s=today renders the home with no sheet, in the HTML and after hydration", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const html = await (await page.request.get(`${route}?s=today`)).text();
     expect(html).toContain('data-testid="crew-all-sections"');
     expect(html).not.toContain('data-testid="crew-section-sheet-dialog"');
@@ -501,8 +486,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   // align-items:stretch), so it is a real-browser assertion.
   test("4: All sections rows span the card and clear the 44px tap floor (390px)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await load(page, "?s=today");
     const card = page.getByTestId("crew-all-sections-card");
@@ -533,8 +517,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   // clear it too.
   test("header: below 1024px the search field is a full-width row under the title, and the status slot sits directly under the header bar", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await load(page, "?s=today");
     await expect(page.getByTestId("crew-shell-sections")).toHaveAttribute(
@@ -592,11 +575,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   // bytes from response events, which WebKit reports; FCP where supported) so
   // CI logs carry the evidence. The assertions are GENEROUS sanity ceilings
   // only; the CREW_PERF console line is the durable record.
-  test("5: record first-load payload bytes + FCP (perf-tradeoff evidence)", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  test("5: record first-load payload bytes + FCP (perf-tradeoff evidence)", async ({ page }) => {
     const docRscBytes: number[] = [];
     const pendingBodies: Promise<void>[] = [];
     page.on("response", (r) => {
@@ -652,8 +631,7 @@ test.describe("crew compact home and section sheet (spec §5.2)", () => {
   // reduced motion must collapse it to 0s.
   test("All sections row duration comes from --duration-fast and zeroes under reduced motion", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const tokenCss = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
     const m = tokenCss.match(/--duration-fast:\s*(\d+)ms/);
     if (!m?.[1]) throw new Error("app/globals.css must declare --duration-fast in ms");
@@ -702,8 +680,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
     travelOut: "2026-04-23",
   };
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test.beforeEach(async ({ page }) => {
     await page.clock.setFixedTime(new Date(SHOW_DAY_N_INSTANT));
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
@@ -764,8 +741,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: a realtime refresh with the sheet open keeps it open on the same section and updates its body in place", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const VENUE = { name: "Compound Hall Before", address: "41 Refresh Way" };
     const RENAMED = "Compound Hall After";
     const seeded = await seedShowWithCrew({
@@ -822,8 +798,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: a refresh that takes Budget from a previewed lead closes the Budget sheet to home without animation and leaves no Budget value on the page", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const FINANCIALS = {
       po: "PO-COMPOUND-7731",
       proposal: "Proposal compound 4410",
@@ -916,8 +891,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: a refresh that removes the selected day from the day set returns the selection to live", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const SELECTED = "2026-04-22";
     const seeded = await seedShowWithCrew({
       title: "Compound Day Show",
@@ -954,8 +928,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: a refresh that removes a nested dialog's owner unmounts the dialog alone, and the sheet keeps the page locked", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const seeded = await seedShowWithCrew({
       title: "Compound Agenda Owner Show",
       dates: DATES,
@@ -989,8 +962,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: Esc with the agenda viewer open closes only the viewer, and focus returns inside the sheet", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const seeded = await seedShowWithCrew({
       title: "Compound Agenda Esc Show",
       dates: DATES,
@@ -1017,8 +989,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: Esc with the diagram lightbox open closes only the lightbox, and focus returns inside the sheet", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await loadPath(page, await waldorfRoute());
     await openFromRow(page, "venue");
     // The first AVAILABLE slot: the seed's first embedded diagram has no snapshot
@@ -1040,8 +1011,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: Esc with the report modal open closes only the report modal, and focus returns inside the sheet", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await loadPath(page, await waldorfRoute());
     await openFromRow(page, "venue");
     const trigger = sheetDialog(page).getByTestId("card-report-trigger").first();
@@ -1058,8 +1028,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: Back to another route with the sheet and a nested dialog open leaves the destination page scrollable", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const route = await waldorfRoute();
     const res = await page.goto("/help/getting-started", { waitUntil: "domcontentloaded" });
     expect(res?.status()).toBe(200);
@@ -1098,8 +1067,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: a second day tap mid-crossfade wins: the running fade is replaced at once, never queued", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     const SHOW_DAYS = ["2026-04-21", "2026-04-22", "2026-04-23"];
     const [, FIRST, SECOND] = SHOW_DAYS as [string, string, string];
     const seeded = await seedShowWithCrew({
@@ -1210,8 +1178,7 @@ test.describe("crew compact compound transitions (spec §7, plan Task 12)", () =
 
   test("compound: the theme switch is unreachable while the sheet is open: the header is inert behind the scrim", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await loadPath(page, await waldorfRoute());
     const toggle = page.getByTestId("page-header").getByTestId("theme-toggle");
     await expect(toggle, "PREMISE: the header carries the theme switch").toBeVisible();
