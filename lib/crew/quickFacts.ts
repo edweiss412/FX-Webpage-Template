@@ -126,7 +126,10 @@ function resolveFact(
     case "wifi": {
       const wifi = resolveWifiDisplay(data.show.event_details["internet"] ?? null);
       if (wifi === null) return null;
-      if (wifi.split === null) {
+      // No password, split or not: the whole text, shown and copied (spec §4.5,
+      // L2). A split that found only a network used to show "Network: <ssid>"
+      // alone and drop the value's other lines (whole-diff review round 2, 3A-1).
+      if (wifi.split === null || wifi.split.password === null) {
         return {
           id,
           label: "Wi-Fi",
@@ -135,16 +138,14 @@ function resolveFact(
         };
       }
       const { ssid, password } = wifi.split;
-      const lines: QuickFactLine[] = [{ label: "Network", text: ssid }];
-      if (password !== null) lines.push({ label: "Password", text: password });
       return {
         id,
         label: "Wi-Fi",
-        lines,
-        actions:
-          password !== null
-            ? [{ kind: "copy", label: "Copy Wi-Fi password", value: password }]
-            : [{ kind: "copy", label: "Copy Wi-Fi details", value: wifi.text }],
+        lines: [
+          { label: "Network", text: ssid },
+          { label: "Password", text: password },
+        ],
+        actions: [{ kind: "copy", label: "Copy Wi-Fi password", value: password }],
       };
     }
     case "hotel": {

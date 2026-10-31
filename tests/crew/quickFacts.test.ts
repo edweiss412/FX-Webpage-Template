@@ -6,6 +6,7 @@
  * case cannot pass on a literal the code happens to also contain.
  */
 import { describe, expect, it } from "vitest";
+import { resolveWifiDisplay } from "@/lib/crew/wifiDisplay";
 import type { HotelReservationRow } from "@/lib/parser/types";
 import {
   DEFAULT_QUICK_FACT_ORDER,
@@ -226,6 +227,22 @@ describe("Wi-Fi fact", () => {
     const show = fullShow();
     const raw = "Hardline from Encore at FOH";
     show.show.event_details["internet"] = raw;
+    const [fact] = selectQuickFacts(["wifi"], show, CREW);
+    expect(fact?.lines).toEqual([{ text: raw }]);
+    expect(fact?.actions).toEqual([{ kind: "copy", label: "Copy Wi-Fi details", value: raw }]);
+  });
+
+  // Whole-diff review round 2 (round 3), 3A-1: a value the Venue split DOES
+  // parse, with no password, showed only "Network: <ssid>" and dropped its other
+  // lines ("Hardline from Encore" here) while Copy carried the whole text.
+  it("shows and copies the whole text when the split parses a network but no password", () => {
+    const show = fullShow();
+    const raw = "Hardline from Encore\n\nSSID: Hyatt_Meeting";
+    show.show.event_details["internet"] = raw;
+    const split = resolveWifiDisplay(raw)?.split;
+    // PREMISE: the split branch is the one exercised: a network, no password.
+    expect(split?.ssid).toBe("Hyatt_Meeting");
+    expect(split?.password).toBeNull();
     const [fact] = selectQuickFacts(["wifi"], show, CREW);
     expect(fact?.lines).toEqual([{ text: raw }]);
     expect(fact?.actions).toEqual([{ kind: "copy", label: "Copy Wi-Fi details", value: raw }]);
