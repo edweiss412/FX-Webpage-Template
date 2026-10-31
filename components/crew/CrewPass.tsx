@@ -464,7 +464,13 @@ function BodyView({ body, eyebrowRight }: { body: PassBody; eyebrowRight: string
                     // Load-bearing graphical indicator (role="img" show-day progress):
                     // the vibrant accent fill, with the accent-edge stroke as the
                     // 3:1 WCAG 1.4.11 boundary (DESIGN.md §1.2; ACCENT-PASS-1).
-                    active ? "border border-accent-edge bg-accent" : "bg-border-strong",
+                    // An inactive segment carries a 1px text-faint border, the
+                    // 3:1 outline token, so the total count survives both a low
+                    // fill contrast and forced colors, where a fill flattens to
+                    // Canvas (audit P3-1; tests/styles/crewPassContrast.test.ts).
+                    active
+                      ? "border border-accent-edge bg-accent"
+                      : "border border-text-faint bg-border-strong",
                   )}
                 />
               );

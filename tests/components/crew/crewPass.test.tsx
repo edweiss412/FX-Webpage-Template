@@ -420,6 +420,27 @@ describe("pass: layout", () => {
     }
   });
 
+  // Audit P3-1: an inactive segment was a fill alone (`bg-border-strong`, about
+  // 1.3:1 on the pass), which forced colors flattens to Canvas, so the total
+  // count vanished. Every segment now carries a 1px border: the active one the
+  // accent edge, an inactive one `border-text-faint`, the 3:1 outline token
+  // (pinned in tests/styles/crewPassContrast.test.ts).
+  it("pass: every progress segment carries a 1px border, inactive ones in the text-faint outline token", () => {
+    mountHomeAt(showData(), crewViewer, at(SHOW_DAY_1, "12:00"));
+    const segments = [...q("crew-pass-progress")!.querySelectorAll<HTMLElement>("[data-segment]")];
+    // PREMISE: show day 1 of 2 has one active and one inactive segment.
+    expect(segments.map((s) => s.dataset.segmentActive)).toEqual(["true", "false"]);
+    for (const segment of segments) {
+      expect(segment).toHaveClass("border");
+      if (segment.dataset.segmentActive === "true") {
+        expect(segment).toHaveClass("border-accent-edge", "bg-accent");
+      } else {
+        expect(segment).toHaveClass("border-text-faint");
+        expect(segment).not.toHaveClass("bg-accent");
+      }
+    }
+  });
+
   it("pass: the fact grid renders the model's cells in spec order, labels and values as built", () => {
     const { props } = mountHomeAt(showData(), crewViewer, at("2026-04-17", "12:00"));
     tapDay(SHOW_DAY_1);
