@@ -589,7 +589,13 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // twice, once with scripting on (the loaded page) and once with it off (the
     // skeleton). Same disposition: a crew page. Re-derived from the failure's own
     // count (26 candidates).
-    expectedCount: 26,
+    // 27 since the crew page redesign's UI-gate re-run P1-1 (2026-10-31, whole-diff
+    // review round 2 re-derivation): crew-wide-nav.spec.ts's "a Today search reveal
+    // lands the note ... clear of the banner and the header" case loads the
+    // preview route through `path`. Same disposition: a crew page. The skeleton
+    // case's two loads moved to crew-page.spec.ts (round 2, 2C-1) and still count
+    // here. Re-derived from the failure's own count (27 candidates).
+    expectedCount: 27,
     match: (c) =>
       !c.file.startsWith("tests/e2e/published-review-modal.") &&
       !/\bcrewPage\.goto\(/.test(c.matchLineText) &&
@@ -680,7 +686,13 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // 20 since the crew page redesign's gate fixes Y1/Y2: crew-wide-nav.spec.ts's
     // case for the crew header sticking under the preview banner loads the
     // preview-as route. Re-derived from the failure's own count (20 candidates).
-    expectedCount: 20,
+    // 22 since 2026-10-31 (whole-diff review round 2 re-derivation): the loading
+    // skeleton case builds the preview-as path for the seed's modal role (added in
+    // crew-layout-dimensions.spec.ts, moved to crew-page.spec.ts by round 2, 2C-1),
+    // and crew-wide-nav.spec.ts's Today search reveal case (UI-gate re-run P1-1)
+    // builds it for the wide and compact legs. Re-derived from the failure's own
+    // count (22 candidates).
+    expectedCount: 22,
     match: (c) =>
       !isTestTitle(c.matchLineText) &&
       !/^\["\/admin\/show\//.test(c.matchLineText) &&
@@ -848,7 +860,11 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // history cases in crew-page and crew-section-toggle (net 2 more).
     // 24 since Task 12: crew-section-toggle's "Back to another route" case steps
     // back off a crew route to /help, the destination whose scroll it checks.
-    expectedCount: 24,
+    // 25 since 2026-10-31 (whole-diff review round 2, 2A-3): crew-wide-nav's
+    // "after a nav jump to Venue, a Today search reveal leaves the URL at home"
+    // case reloads the crew route to prove the reload stays home. Re-derived from
+    // the failure's own count (25 candidates).
+    expectedCount: 25,
     match: (c) =>
       [
         "admin-nav-layout-dimensions.spec.ts",

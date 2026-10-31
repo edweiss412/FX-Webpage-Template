@@ -94,7 +94,12 @@ export const REQUIRED = {
   // 42 since the UI-gate fixes: the pass sizing case (no time, label or role is
   // cut, X1) and the pass floor case (a set day and after the show, review R4-F7).
   // Re-derived from the wiring guard's live Playwright resolution (42).
-  "crew-page.spec.ts": 42,
+  // 51 since whole-diff review round 2 (2026-10-31): the sheet-under-the-preview-
+  // banner case (2A-1), and eight cases moved in from crew-layout-dimensions.spec.ts,
+  // which CI ran only through two `-g` filters that never selected them (2C-1):
+  // Who to call's action row, the card titles, and the six loading-skeleton cases.
+  // Re-derived from the wiring guard's live Playwright resolution (51).
+  "crew-page.spec.ts": 51,
   // The crew page's wide layout (crew page redesign plan PR A, Task 6): eight cases,
   // desktop-chromium ALONE (its testMatch; the wide layout begins at 1024px). Nine
   // since Task 7 added the wide header case (search between title and chip).
@@ -111,7 +116,10 @@ export const REQUIRED = {
   // Twenty-four since the UI-gate re-run's P1-1 added two (a Today search reveal
   // on the preview route clears the banner and header, at 1280 and at 390).
   // Re-derived from the wiring guard's live Playwright resolution (24).
-  "crew-wide-nav.spec.ts": 24,
+  // Twenty-five since whole-diff review round 2 (2026-10-31, 2A-3) added one (a
+  // Today search reveal after a nav jump to Venue leaves the URL at home). Re-derived
+  // from the wiring guard's live Playwright resolution (25).
+  "crew-wide-nav.spec.ts": 25,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
